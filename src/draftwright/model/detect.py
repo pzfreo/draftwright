@@ -507,7 +507,10 @@ def _convert_fillet(fl: Fillet, ctx: ConvContext) -> FilletFeature:
 def _convert_flat(flat: Flat, ctx: ConvContext) -> FlatFeature:
     at = flat.at
     return FlatFeature(
-        frame=Frame((at[0], at[1], at[2]), flat.axis), axis=flat.axis, across=flat.across
+        frame=Frame((at[0], at[1], at[2]), flat.axis),
+        axis=flat.axis,
+        across=flat.across,
+        axis_line=flat.axis_line,
     )
 
 

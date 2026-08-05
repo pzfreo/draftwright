@@ -99,6 +99,20 @@ class Flat(Record):
     axis: str
     across: float
     at: tuple[float, float, float]
+    #: The stock's axis LINE — the two coordinates perpendicular to ``axis``, in xyz order
+    #: with the axis component dropped (z → (x, y); x → (y, z); y → (x, z)).
+    #:
+    #: The axis letter alone cannot say whether two flats belong to the same piece of round
+    #: stock, and that is the one thing both consumers need (#1013). Two faces at
+    #: ``(-12.5, 0, 0)`` and ``(12.5, 0, 0)`` are one double-D — one A/F definition. Two at
+    #: ``(0, 0, 0)`` and ``(100, 0, 0)`` are two parallel lobes — two independent ones. From
+    #: ``axis``/``across``/``at`` those are the same shape of data, so the renderer collapsed
+    #: the second case into one callout and coverage, mirroring it, called the result
+    #: complete.
+    #:
+    #: ADR 0013's rule for a record that looks too thin: the fix is the record. The
+    #: recogniser already had the owning cylinder in hand, so this costs nothing to carry.
+    axis_line: tuple[float, float] = (0.0, 0.0)
 
 
 def recognise_flats(part, *, cyls=None) -> list[Flat]:
@@ -147,6 +161,7 @@ def recognise_flats(part, *, cyls=None) -> list[Flat]:
             cands.append(
                 {
                     "axis": c["axis"],
+                    "axis_line": _axis_line(c["axis"], ax),
                     "n": nv,
                     "s": s,
                     "r": r,
@@ -189,6 +204,17 @@ def recognise_flats(part, *, cyls=None) -> list[Flat]:
                 axis=cand["axis"],
                 across=round(across, 3),
                 at=(round(cand["at"][0], 3), round(cand["at"][1], 3), round(cand["at"][2], 3)),
+                axis_line=cand["axis_line"],
             )
         )
     return sorted(out, key=lambda fl: (fl.axis, fl.at))
+
+
+def _axis_line(axis: str, ax) -> tuple[float, float]:
+    """The two coordinates of *ax* perpendicular to *axis* — the stock's axis line (#1013).
+
+    Rounded to the same 3 dp as every other coordinate a record carries, so two faces on one
+    piece of stock compare equal rather than differing in float noise.
+    """
+    keep = [i for i, letter in enumerate("xyz") if letter != axis]
+    return (round(ax[keep[0]], 3), round(ax[keep[1]], 3))

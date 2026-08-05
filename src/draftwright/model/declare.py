@@ -497,7 +497,7 @@ def _read_flat_face(face) -> Point:
     return (round(c.X, 4), round(c.Y, 4), round(c.Z, 4))
 
 
-def flat(obj=None, *, axis=None, across=None, at=None) -> FlatFeature:
+def flat(obj=None, *, axis=None, across=None, at=None, axis_line=None) -> FlatFeature:
     """A machined flat on round stock (#148b). Either ``flat(flat_face)`` — the planar face
     supplies the leader point ``at`` (``axis=`` and ``across=`` still required, being
     unrecoverable from a plane) — or fully explicit ``flat(axis="z", across=15, at=(x, y,
@@ -510,7 +510,22 @@ def flat(obj=None, *, axis=None, across=None, at=None) -> FlatFeature:
     axis = _norm_axis(axis)
     _require_positive(across=across)
     _require_point("at", at)
-    return FlatFeature(frame=Frame(origin=at, axis=axis), axis=axis, across=round(across, 3))
+    # `axis_line` cannot be derived from `at`: a double-D's two faces have DIFFERENT face
+    # centres but ONE axis line, so deriving it would split every declared double-D in two.
+    # Defaulting to the origin line means all declared flats on an axis group together, which
+    # is exactly the pre-#1013 behaviour — so a single-stock declaration is unaffected. A part
+    # with parallel lobes has to say so, because nothing in a flat's own geometry says it.
+    return FlatFeature(
+        frame=Frame(origin=at, axis=axis),
+        axis=axis,
+        across=round(across, 3),
+        axis_line=(0.0, 0.0)
+        if axis_line is None
+        else (
+            round(axis_line[0], 3),
+            round(axis_line[1], 3),
+        ),
+    )
 
 
 def _read_groove_face(face) -> tuple[str, float, float, Point]:

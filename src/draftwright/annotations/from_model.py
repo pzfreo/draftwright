@@ -1710,9 +1710,16 @@ def render_flats(dwg, plan, a, *, ctx, only=None) -> int:
         )
         if pd is None:
             continue
-        collapse.setdefault((g.facts.axis, round(pd.value, 3)), []).append((g, pd))
+        # Grouped by the stock's AXIS LINE as well as the size (#1013). Two same-sized flats
+        # on one axis line are the two faces of one double-D — one A/F definition, one
+        # callout. On DIFFERENT axis lines they are separate lobes, each needing its own: the
+        # axis letter alone cannot tell those apart, so a part with two parallel 25 A/F lobes
+        # used to get one callout and leave the second undefined on the sheet.
+        collapse.setdefault((g.facts.axis, g.facts.axis_line, round(pd.value, 3)), []).append(
+            (g, pd)
+        )
     jobs = []
-    for gi, ((axis, _across), members) in enumerate(sorted(collapse.items())):
+    for gi, ((axis, _axis_line, _across), members) in enumerate(sorted(collapse.items())):
         if only is not None:
             # #426 Ph2b subset (finalize): filter members AFTER enumerating the collapse so gi
             # stays the full-drawing group index (Codex #811) — see render_fillets.

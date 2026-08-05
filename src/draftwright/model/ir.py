@@ -637,6 +637,10 @@ class FlatFeature:
     frame: Frame
     axis: str
     across: float
+    #: The stock's axis line — see :class:`~draftwright.recognition.flats.Flat`. Two flats
+    #: share an A/F definition only if they share this; the axis letter alone cannot tell a
+    #: double-D's two faces from two parallel lobes (#1013).
+    axis_line: tuple[float, float] = (0.0, 0.0)
     kind: ClassVar[str] = "flat"
 
     def parameters(self) -> list[DimParameter]:
