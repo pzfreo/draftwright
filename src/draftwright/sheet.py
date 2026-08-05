@@ -8,13 +8,20 @@ that previously held ``sheet.py`` is ``compose.py``.)
 Reference the build123d objects you built, declare the drawing aspects they need,
 export. Geometry supplies the size (⌀ read off the object); you supply only the
 intent. Built on the ``model=`` seam (:func:`draftwright.build_drawing`), so
-detection is skipped and the auto-pass dimensions exactly the declared features::
+detection is skipped. A build must also say where its dimensions come from (ADR
+0016); authored is the recommended source here, and `auto_dimensions()` is soft
+deprecated (#1043)::
 
     sheet = Sheet(part, title="PLATE", number="DWG-001")
-    sheet.envelope()
-    sheet.hole(h1)
+    env = sheet.envelope()
+    bore = sheet.hole(h1)
     sheet.hole(h2).depth(5)          # a blind hole — adds a depth callout
     sheet.diameter(boss_cyl)
+
+    sheet.authored_dimensions()      # THIS is the complete set (ADR 0016)
+    sheet.dimension(env, "width.length")
+    sheet.dimension(bore, "bore.diameter")
+
     sheet.export("plate")
 
 **Scope (this module):** the *feature-declaration* surface over the renderers the
@@ -48,8 +55,8 @@ from collections.abc import MutableSequence
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
-from draftwright._core import SoftDeprecationWarning
 from draftwright._geometry import _solids_body
+from draftwright._warnings import SoftDeprecationWarning
 from draftwright.builder import _coerce_model, build_drawing, detect_part_model
 from draftwright.fits import fit_class
 from draftwright.model import DimensionParameterId, Feature

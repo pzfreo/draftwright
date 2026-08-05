@@ -10,6 +10,8 @@ mode" — and `tests/test_deprecation_dates.py` enforces it. Raising `Deprecatio
 something we intend to keep would mean writing a removal date we do not mean.
 """
 
+import subprocess
+import sys
 import warnings
 
 import pytest
@@ -146,3 +148,47 @@ def test_authored_dimensions_is_silent():
         sheet.authored_dimensions()
         sheet.dimension(hole, "bore.diameter")
         sheet.build()
+
+
+@pytest.mark.parametrize("verb", ["auto_dimensions", "add_dimension"])
+def test_the_warning_blames_the_caller_not_the_library(verb):
+    """`stacklevel=2`, guarded.
+
+    A warning attributed to `sheet.py` tells the user nothing: they cannot see which of their
+    lines caused it, which for a "stop using this" message is the entire value. The
+    implementation was already correct, but nothing failed if it stopped being — mutating
+    either site to `stacklevel=1` left every other guard green (Codex #1045 r2).
+    """
+    sheet = Sheet(_part())
+    hole = sheet.hole(Pos(0, 0, 0) * Cylinder(5, 20))
+
+    with pytest.warns(SoftDeprecationWarning) as rec:
+        _trigger(verb, sheet, hole)
+
+    assert rec[0].filename == __file__, (
+        f"{verb}'s warning is attributed to {rec[0].filename}, not the caller. A user cannot "
+        "act on a warning that points at library internals."
+    )
+
+
+def test_reaching_the_warning_category_does_not_import_the_cad_kernel():
+    """A warning class must not drag build123d behind it.
+
+    It lived in `_core`, which imports build123d — so `from draftwright import
+    SoftDeprecationWarning` cost ~6 s, and the pytest `filterwarnings` entry naming it paid
+    that on EVERY invocation, including `--collect-only` and the smoke tier.
+
+    Run in a subprocess because this test module has already imported the kernel; checking
+    `sys.modules` in-process would pass regardless of where the class lives, which is why the
+    original regression was invisible to the suite (Codex #1045 r2).
+    """
+    probe = (
+        "import sys; from draftwright import SoftDeprecationWarning; "
+        "print('build123d' in sys.modules or 'OCP' in sys.modules)"
+    )
+    out = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, check=True)
+
+    assert out.stdout.strip() == "False", (
+        "importing SoftDeprecationWarning pulled in the CAD kernel — it belongs in a "
+        "dependency-free leaf, not beside code that imports build123d"
+    )

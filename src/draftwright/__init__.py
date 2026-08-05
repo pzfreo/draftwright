@@ -33,9 +33,10 @@ _LAZY = {
     "extract_pmi": "draftwright.pmi",
     "choose_scale": "draftwright.compose",
     # A warning category users are told to filter must be importable without reaching into a
-    # private module (#1043 review). `_core` is cheap — it does not drag the CAD kernel — but
-    # it stays lazy for consistency with everything else here.
-    "SoftDeprecationWarning": "draftwright._core",
+    # private module (#1043 review) — and without paying for the CAD kernel. It lives in the
+    # dependency-free `_warnings` leaf for that second reason: defined in `_core` it cost ~6 s
+    # to reach, and the pytest filterwarnings entry naming it paid that on every invocation.
+    "SoftDeprecationWarning": "draftwright._warnings",
 }
 
 
