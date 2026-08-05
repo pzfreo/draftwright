@@ -1,9 +1,9 @@
 """Aggregate recognition result (ADR 0017).
 
-This is the orchestration boundary above the ADR 0013 recognisers.  It starts with the
-inventories already shared by analysis and model detection; later ADR 0017 slices add the
-remaining families, reconciliation, measurables and diagnostics without changing the
-individual recogniser contract.
+This is the orchestration boundary above the ADR 0013 recognisers. It owns every public
+recognition family and the shared evidence consumers reuse. ADR 0017 Amendment 1 deliberately
+does not make reconciliation, measurables, requirement identity, or diagnostics automatic
+next additions: those extensions are evidence-gated by end-to-end completeness slices.
 """
 
 from __future__ import annotations
@@ -138,10 +138,9 @@ DEFERRED: dict[str, Deferred] = {}
 class RecognitionResult:
     """The immutable feature inventory produced by one recognition orchestration run.
 
-    The aggregate is intentionally incomplete in its first migration slice: these are the
-    inventories that ``analysis`` already detected and injected into ``build_part_model``.
-    Keeping that boundary explicit lets subsequent families move here monotonically instead
-    of introducing a second, big-bang detector.
+    Every public ``recognise_*`` family is owned here, although classification gates mean an
+    inapplicable family need not run. This is a recognition inventory, not drafting state and
+    not a promise that the evidence-gated correspondence extensions have landed.
     """
 
     cylinders: tuple[tuple, tuple]

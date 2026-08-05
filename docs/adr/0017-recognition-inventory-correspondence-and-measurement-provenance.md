@@ -1,6 +1,6 @@
-# ADR 0017 — Recognition inventory, feature correspondence, and measurement provenance
+# ADR 0017 — One recognition result per run; correspondence is evidence-gated
 
-- **Status:** Proposed
+- **Status:** Accepted; narrowed after phase 1 (Amendment 1, 2026-08-05)
 - **Date:** 2026-08-03
 - **Deciders:** Paul Fremantle (pzfreo)
 
@@ -11,514 +11,352 @@ typed frozen records, injected dependencies, and no drafting concerns. ADR 0015 
 those records into the `PartModel` IR and deliberately allowed completeness lint to read
 recognised geometry independently of the planner. Both decisions remain sound.
 
-What neither ADR decides is how a physical feature keeps its identity after recognition.
-Today the relevant facts are spread across several representations:
+At proposal time, recognition was not one inventory. Some records were found in analysis,
+some in `build_part_model`, and some again in completeness lint. The relevant facts were
+spread across several representations:
 
 ```text
 recognition record → IR Feature → approved dimension → render candidate → annotation
 ```
 
-Each arrow preserves enough values to draw the usual case, but not a stable answer to:
+Two problems were combined in the original proposal:
 
-> Does this particular placed (or dropped) annotation define this particular physical
-> requirement recovered from the solid?
+1. **Recognition ownership:** which run owns the geometric inventory, how consumers reuse it,
+   and how automatic and declared builds differ.
+2. **Semantic correspondence:** whether a physical requirement can be followed through the
+   compiler to a placed, suppressed, dropped, missing, or unverifiable outcome.
 
-The absence is now observable in several independent areas:
+The first problem was observable and bounded. The second was also real — PR #1011 had to
+reconstruct a flat's association from label grammar, leader type, leader-tip proximity,
+projected face extent, cylinder radius, axis line, and stock extent — but the original ADR
+specified a whole identity, requirements, outcome, reconciliation, and diagnostics programme
+before one end-to-end slice had shown which of those mechanisms was necessary.
 
-- recognition records for flats, slots, pads, plates, steps and grooves can describe
-  overlapping regions, with ownership settled by bespoke pairwise exclusions in
-  `model/detect.py`;
-- pattern membership is excluded by Python identity for some records and value identity for
-  others;
-- analysis owns a subset of the recognised inventory and passes it as optional arguments to
-  `build_part_model`, which recognises or derives the remainder;
-- coverage lint correctly refuses to trust only the `PartModel`, but then has to associate
-  physical features with the finished drawing by parsing labels, witness geometry and leader
-  positions;
-- a rendered annotation does not uniformly carry the identity of the world-space measurement
-  it states, so cross-build fidelity and redundancy checks infer it from page geometry;
-- an empty recogniser result cannot distinguish “absent” from “ambiguous”, “unsupported”, or
-  “rejected because another interpretation owns this region”.
-
-PR #1011 made the architectural gap especially clear. A check for whether a machined flat's
-only A/F definition survived placement grew successive heuristics for label grammar, leader
-type, leader-tip proximity, projected face extent, cylinder radius, axis line and axial stock
-extent. The edge cases were real; the repeated failure was trying to reconstruct semantic
-association after the pipeline had discarded it.
-
-This is broader than flat recognition. #1002, #1004, #1005, #1006 and #1009 record the same
-missing correspondence at annotation, correlated-dimension and completeness boundaries;
-#1013 and #1015 show that the recognised feature itself also needs stable stock/region
-identity. Fixing each consumer with another matcher would create several competing answers to
-one semantic question.
+Phase 1 resolved recognition ownership. It did not resolve semantic correspondence, and the
+user-facing completeness problem did not move. Amendment 1 therefore accepts the proved
+ownership contract and makes the remaining architecture evidence-gated rather than treating
+it as an approved implementation sequence.
 
 ## Decision
 
-**A recognition run produces one first-class recognition result. It contains the shared
-geometry inventory, accepted feature records, physical measurables, and
-recognition diagnostics. A named reconciliation stage resolves overlapping candidate claims.
-Drafting policy turns measurables into applicable requirements. Deterministic identities for
-accepted features, measurables and requirements propagate through the IR, compiler and
-placement result, so completeness lint compares recognised requirements with explicit
-downstream outcomes instead of reconstructing association from presentation.**
+**A recognition run produces one explicit, immutable `RecognitionResult`. One orchestration
+owns every public recognition family and the reusable dependencies between them. Automatic
+model construction and physical critique consume that result or a documented projection of
+it; they do not independently assemble competing recognition universes. The result belongs
+to the existing typed `BuildState`, whose controlled build/lazy-critique path contains its
+only fill sites.**
 
-The conceptual pipeline becomes:
+This is the accepted decision. It is intentionally narrower than the original proposal.
 
-```text
-                           declared Feature input (ADR 0011)
-                                      │
-B-rep → geometry inventory → candidates → reconciliation → accepted recognition records
-                                      │                         │
-                                      │                         ├─ diagnostics
-                                      │                         └─ physical measurables
-                                      ▼
-                              PartModel / compiler
-                                      │
-                             applicable requirements
-                                      │
-                           approved or suppressed intent
-                                      │
-                             placed or dropped result
-                                      │
-                                completeness lint
-```
+The following are **not** accepted by this ADR:
 
-The exact Python dataclasses and identifier spelling are implementation details. The following
-ownership rules are the decision.
+- a universal `FeatureId` / `MeasurableId` / `RequirementId` / `AnnotationId` taxonomy;
+- a shared `draftwright.requirements` module;
+- a general requirement-outcome ledger;
+- a named reconciliation stage for every current pairwise exclusion;
+- a complete recognition-diagnostics model.
 
-### 1. One recognition result per recognition run
+Those remain candidate responses to the semantic-correspondence problem. Epic #1018 gates
+them behind two end-to-end completeness slices, beginning with flats and then slots/patterns.
+An extension is adopted only when a failing or unverifiable fixture demonstrates the missing
+contract and a targeted mutation proves it is load-bearing.
 
-Recognition orchestration has one explicit result rather than an informal bundle of local
-variables and optional `build_part_model(...)` arguments. It is the owner of:
+## Amendment 1 — Scope Correction
 
-- reusable geometric substrate such as cylinders, planar regions, adjacency and profile facts;
-- feature candidates and the evidence/regions they claim;
-- accepted geometry-only recognition records;
-- physical measurables recovered from those records;
-- ambiguity, unsupported-topology and rejection diagnostics.
+The original record remained `Proposed` while phase 1 was implemented. It treated recognition
+ownership and a general correspondence architecture as one programme. Phase 1 established
+the ownership contract but did not establish that the proposed identity, requirements,
+outcome, reconciliation, and diagnostics layers were necessary or sufficient for the
+user-facing completeness defect.
 
-Individual `recognise_<feature>` functions keep the ADR 0013 contract. The aggregate sits above
-them; it does not move drafting semantics into `recognition/` or require every recogniser to be
-rewritten at once.
+Amendment 1 is this ADR's first acceptance. It accepts the implemented ownership rules below
+and reclassifies the rest as hypotheses behind evidence gates. It does not erase a previously
+accepted commitment or claim that phase 1 delivered semantic completeness.
 
-`RecognitionResult` owns the recognition portion of today's `Analysis`; it does not replace
-layout/sizing state such as the bounding box, zones, page/scale classification or view facts.
-`analysis`, `model/detect.py`, `score.py` and geometry-based lint consume the result or a
-documented projection of it. They do not independently assemble subtly different feature
-universes.
+## Accepted Contract
 
-**Migration baseline at proposal time.** Of roughly seventeen recognisers, seven inventories
-are carried on `Analysis`, eight are injectable into `build_part_model`, and eight are neither:
-countersinks, grooves, plates, chamfers, fillets, flats, step shoulders and face levels. “Neither”
-does not necessarily mean “run twice” — some run only inside detection — but it proves that one
-explicit orchestration result does not yet exist. This is a current-state ratchet for the
-implementation plan, not a permanent target encoded by this ADR.
+### 1. One orchestration owns the recognition universe
 
-### 2. Candidate discovery and ownership reconciliation are separate
+`RecognitionResult` is the explicit result of one recognition run. It owns the inventories
+and shared geometry/evidence that current consumers reuse, including the cylinder substrate,
+accepted feature records, classification-gated inventories, face levels, and riser evidence.
 
-A local recogniser may propose a geometrically plausible interpretation. It does not silently
-win ownership over competing interpretations. A named reconciliation stage decides conflicts
-such as:
+Individual `recognise_<feature>` functions keep the ADR 0013 contract. The aggregate sits
+above them; it does not move drafting policy into `recognition/` and it does not replace
+layout/sizing state such as the bounding box, zones, page/scale selection, or view facts.
 
-- a groove floor versus a boss or turned step;
-- a pocket floor versus a global step level;
-- a plate versus a staircase level;
-- a pad profile versus a slot;
-- a pattern versus its member features;
-- flats on parallel or coaxial stock regions.
+Every public `recognise_*` family is classified by the fail-closed `MIGRATED` / `DEFERRED`
+manifest. A new family cannot appear without an ownership decision. A deferral carries a
+reason code and, where applicable, the issue that removes its constraint.
 
-Candidates identify the physical regions/evidence they claim. Reconciliation records why one
-candidate was accepted, combined, or rejected. The existing domain rules in
-`model/detect.py` migrate into this stage incrementally; this ADR does not require a universal
-constraint solver.
+Owning a family is distinct from always running it. Applicability gates live inside the one
+orchestration, so it owns chamfers, fillets, and plates while deliberately skipping them for
+part classes that do not consume them.
 
-### 3. Identity is deterministic semantic data
+### 2. Consumers reuse the result; they do not rescan per concern
 
-Feature, measurable and requirement identity must not depend on Python object identity,
-traversal order, annotation names, formatted labels, or page coordinates. In particular, an
-enumeration index such as `solid_idx` is not stock identity: adding or reordering one solid can
-renumber every later record. A stock/region identity is derived positively from geometry — for
-example its axis direction and in-plane position, axial extent, diameter and other stable
-relations needed to distinguish the material region — plus the feature kind, measurement role
-and any required discriminator.
+Analysis, automatic model construction, and geometry-based critique consume the run's
+`RecognitionResult` or an explicit projection of it. They may apply pure consumer-specific
+policy to shared evidence; they may not repeat the underlying recognition scan merely because
+their projection differs.
 
-The identity need only be stable for equivalent recognition of the same part under the
-project's geometric tolerances. It is not a promise of persistence across arbitrary topology-
-changing CAD edits. Exact identifiers, quantisation and collision handling are settled by the
-implementation plan and guarded with redetection tests.
+The step-shoulder split is the reference shape: `recognise_risers` owns the scan, while
+`project_step_shoulders` applies a caller's level set without touching the solid again.
+Prefer separating shared evidence from a pure projection before declaring a recogniser
+inherently caller-specific.
 
-A physical feature may create more than one measurable; drafting policy may combine or reject
-measurables when forming requirements; a correlated requirement may render as several marks.
-Therefore feature identity, measurable identity, requirement identity and annotation identity
-remain distinct types rather than one overloaded key.
+Standalone tools outside the build pipeline may run recognition independently. The decision
+is one result **per recognition run**, not one process-global result for a solid.
 
-They are also distinct **Python types** — provisionally `FeatureId`, `MeasurableId`,
-`RequirementId` and `AnnotationId`, implemented as frozen value types rather than four aliases
-for a bare tuple or string. Passing a measurable identity where a requirement identity is
-expected must be a static/runtime type error, not a valid lookup that happens to return the
-wrong result. Their internal fields may reuse smaller typed geometry keys; consumers do not
-assemble or unpack those fields independently.
+### 3. `BuildState` owns result-to-build provenance
 
-This is not a flat-only correction. `Flat`, `Chamfer`, `Fillet`, `Groove` and `CounterSink`
-currently carry an axis letter plus a point but cannot by themselves answer “which material
-region am I on?”. `TurnedStep`, `Plate` and `Slot` already carry useful extents. Migration must
-strengthen every thin record whose identity depends on material/region ownership rather than
-inventing a special key for flats.
+The result is stored in typed `BuildState`, whose builder/lazy-critique path is the single
+writer. This makes the result's relationship to its drawing structural: engine consumers do
+not accept an arbitrary aggregate and then attempt to prove it came from the same part.
 
-### 4. Measurables become requirements in drafting policy
+This answers **result-to-build provenance only**. It does not answer which recognition record
+became which IR feature, requirement, or annotation. That record-to-feature correspondence is
+the subject of the evidence gates below.
 
-A recognised **measurable** is a geometry fact: this flat has an across-flats of 25, this pocket
-has a depth of 6, or these members form a grid with a given pitch. It may live in the
-geometry-only recognition result and, eventually, in the shared recogniser package.
+`lint_prismatic_coverage(recognition=...)` is a known channel outside the structural ownership
+path (#1032). The preferred correction is to remove or narrow the channel when that boundary
+is next touched, not to add identity machinery solely to police a foreign aggregate that no
+engine path supplies.
 
-A drafting **requirement** is policy: this measurable must be stated for this drawing to be
-manufacturing-complete. Drafting convention decides applicability, correlation and redundancy.
-For example, several step measurables may become one correlated length-chain requirement, while
-a groove-owned diameter may make a coincident boss measurable redundant. Recognition does not
-make those drafting decisions.
+### 4. Recognition remains geometry-only
 
-That policy has one explicit, low-level home, provisionally `draftwright.requirements`: a pure
-measurable→requirement mapping below both `model/` and `linting/` in the dependency DAG. It takes
-geometry-only measurable data plus explicit drafting-policy inputs and returns typed
-requirements; it imports neither the compiler/planner nor placed annotations. `model/` consumes
-it when compiling intent, and `linting/` consumes the same mapping when forming its independent
-physical-completeness inventory. The two callers may select different output projections, but
-they may not reimplement applicability, correlation or redundancy rules.
+Part classification is recognition: `_is_rotational` reads bounding-box proportions, external
+cylinder diameter, and concentricity. Drafting consumes the classification for view selection
+just as it consumes a recognised hole diameter; that does not turn the geometric fact into
+drafting policy.
 
-The compiler records the fate of each applicable requirement:
+`build_recognition_result` currently receives that classification because
+`_classify_geometry` still lives in analysis. Moving its derivation is correct tidying (#1037),
+but it is not required by the accepted ownership contract and carries no user outcome on its
+own.
 
-- approved;
-- deliberately suppressed by declared intent;
-- not representable pending a named capability;
-- rejected as redundant under a named owner;
-- approved but dropped during placement;
-- placed, with the resulting annotation identity or identities.
+### 5. Completeness stays independent of the plan
 
-This is outcome/provenance data, not page placement input. It does not bypass ADR 0014 or let
-recognition choose strips and coordinates.
+ADR 0015's lint carve-out remains. Completeness cannot take the compiled dimension set as its
+only physical inventory: a recognition-to-IR or planner omission would then disappear from
+both the drawing and the inventory used to judge it.
 
-### 5. Completeness lint stays independent without rerunning semantics backwards
+Independence from the plan does not require rerunning recognition and does not justify
+certifying engine output by matching formatted labels, leader tips, witnesses, or page
+coordinates. A future migrated family must start from the shared recognition result and use
+explicit semantic correspondence where the engine supplies it. An external/manual annotation
+without such provenance is `unverifiable`, not silently covered.
 
-ADR 0015's lint carve-out remains: completeness cannot take the compiled dimension set as its
-only inventory, because an omission before planning would then be invisible. Its independent
-ground truth is requirements formed from recognised measurables by the shared requirements
-policy — independently of what the compiler claims to have approved.
+Exactly how recognised facts become drafting requirements and how their downstream outcomes
+are represented is left to the evidence gates. This ADR accepts the boundary, not a premature
+universal data model for it.
 
-Independence from the plan does **not** require independence from the recognition result, nor
-does it justify recovering association from rendered text when provenance exists. Lint compares:
+### 6. Declared build/render remains recognition-free
 
-```text
-requirements(recognised measurables, drafting policy) ↔ compiler/placement outcomes
-```
+Supplying a declared model (ADR 0011) does not trigger automatic feature recognition merely to
+build or render it.
 
-It reports at least these distinct conditions:
+Physical completeness critique is separate. `Drawing.lint()` may lazily obtain one recognition
+result in `BuildState` when physical critique is requested. `export()` also requests that
+critique because it logs its diagnostics. Therefore the observable call contract is:
 
-- no intent was approved for a requirement;
-- intent was deliberately suppressed;
-- intent was approved but placement dropped it;
-- an annotation states a conflicting value or identity;
-- association is unverifiable because an external/manual annotation has no provenance.
+| path | recognition calls |
+|---|---|
+| automatic prismatic build | 17 families, once each |
+| automatic turned build | 14 families; three gated out by design |
+| declared build/render | zero |
+| first physical critique/export of a declared drawing | at most one aggregate |
+| subsequent lint of the same drawing | zero additional calls |
 
-Label and leader-tip inference remains a conservative compatibility fallback for annotations
-not produced through the compiler seam. It must not silently certify a requirement when the
-association is ambiguous. “Unverifiable” is preferable to a plausible wrong match.
+The lazy result is evidence for critique. It does not replace the declared model or widen its
+authored dimension set.
 
-### 6. Declared models keep their no-detection contract
+## Boundaries With Existing ADRs
 
-ADR 0011 remains the second front door. Supplying a declared model does not cause automatic
-feature detection merely to build or render it.
+- **ADR 0010 owns annotation provenance at the registry seam.** Evidence-gated correspondence
+  should reuse that seam before introducing a parallel annotation registry.
+- **ADR 0013 remains authoritative for individual recognisers.** The aggregate orchestrates
+  their serializable, geometry-only records; it does not weaken that contract.
+- **ADR 0014 remains authoritative for placement.** Recognition and correspondence may rank
+  or account for intents, but never choose page coordinates or bypass the shared solve.
+- **ADR 0015 remains authoritative for the compiler and lint independence.** This ADR supplies
+  shared physical evidence; it does not make the approved plan its own completeness oracle.
+- **ADR 0016 owns authored suppression.** A future outcome relationship must distinguish that
+  deliberate intent from planner omission or placement drop without inventing a second
+  suppression source.
 
-Physical completeness critique is a separate concern. A caller may explicitly request it, or
-`Drawing.lint()` may lazily obtain and cache a recognition result when the documented lint
-policy calls for geometry reconciliation. The cache belongs in the existing typed `BuildState`
-(ADR 0005 / #639), whose builder fill site remains the single writer; it must not become another
-ad-hoc private attribute on `Drawing`. That recognition is evidence for critique, not a
-replacement for the declared model and not an input that widens its authored dimension set.
+## Evidence-Gated Extensions
 
-The implementation must make the distinction observable and testable: declared build/render
-without physical critique performs no recognition; requesting physical completeness may do so
-once.
+The original sections on identity, requirements, outcomes, reconciliation, and diagnostics are
+retained here as hypotheses, not commitments.
 
-### 7. Ambiguity is output, not absence
+### Gate 1 — flat requirement to outcome
 
-A recogniser that cannot distinguish two interpretations, or does not support a topology, may
-still return no accepted record. The aggregate result also carries a diagnostic explaining the
-gap and the evidence involved. A clean empty list is reserved for a confidently absent feature
-within the recogniser's supported domain.
+Use #1011's adversarial geometry, not its presentation matcher. Prove that a flat's independent
+physical requirement can be followed to an engine outcome without label, tip, witness,
+projection, annotation-name, or page-coordinate inference.
 
-Diagnostics are geometry facts and remain below drafting policy. Their severity and user-facing
-lint wording belong to draftwright's critique layer.
+The slice must distinguish at least:
 
-## Boundaries with existing ADRs
+- placed;
+- deliberately suppressed by authored intent;
+- dropped during placement;
+- missing;
+- unverifiable because semantic provenance is absent.
 
-- **ADR 0013 remains authoritative for individual recognisers.** This ADR adds orchestration,
-  evidence, reconciliation and identity above that contract. A future `b123d-recognisers`
-  package remains geometry-only: it may expose measurable facts, but applicability,
-  requirements, compiler outcomes and annotation provenance do not move into it.
-- **ADR 0015 remains authoritative for the compiler waist.** Its “one inventory detected once”
-  is clarified to mean one explicit recognition result per recognition run, not an informal
-  collection split across `_analyse()` and `build_part_model()`.
-- **ADR 0015's lint carve-out remains.** Lint is independent of the compiler's claimed
-  completeness. It may consume the same recognition result as independent physical evidence
-  and the shared requirements policy, but does not import `model/` or trust compiler output as
-  its inventory.
-- **ADR 0010 remains the annotation provenance seam.** This ADR specifies the semantic identity
-  that provenance must carry; it does not create a second registration seam.
-- **ADR 0016 remains the owner of authored dimensioning intent.** Suppression is a recorded
-  compiler outcome and never inferred merely from a missing parameter or annotation.
-- **ADR 0014 remains the owner of placement.** Requirement identity observes placement outcome;
-  it does not constrain page coordinates.
+It must keep parallel and disjoint coaxial stock regions distinct while combining the two
+faces of one double-D/hex definition. Existing `DimensionId`, compiler omission data, and the
+ADR 0010 registry seam are used before introducing new global identity types or another
+registry.
+
+Success proves only that the current contracts, plus any narrowly demonstrated addition, are
+sufficient for flats. Failure identifies the missing fact; it does not by itself approve or
+reject the original phases 2–6.
+
+### Gate 2 — off-centre slot and N:1 pattern correspondence
+
+The second slice must exercise shapes the flat slice does not:
+
+- a lone off-centre slot whose recognition location and deliberate IR-frame convention differ;
+- N recognised members compiled as one slot-pattern feature and compound annotations;
+- directional/cardinality-sensitive location coverage, where one placed direction must not
+  satisfy another.
+
+The flat contract should be reused. Duplication or failure across these two structurally
+different families is the evidence for a generic abstraction.
+
+### Gate 3 — decide each abstraction separately
+
+After both slices, decide independently:
+
+- whether a stable recognition/source identity is required;
+- whether feature, measurable, requirement, and annotation identities need distinct runtime
+  types;
+- whether duplicated applicability policy justifies a shared requirements module;
+- whether placement outcomes need a general requirement ledger;
+- which observed conflicts are competing interpretations needing named reconciliation;
+- which cases are records too thin to express facts recognition already knows.
+
+Every adopted abstraction must cite a failing or unverifiable fixture, the smaller alternatives
+considered, the families/call sites it simplifies, and a mutation proving the contract.
+
+## What Phase 1 Taught
+
+### Fix a thin record before adding reconciliation
+
+The original proposal listed flats on parallel or coaxial stock under a future named
+reconciliation stage. #1013 solved the live defect by carrying the owning cylinder's
+`axis_line` and `stock_span` on `Flat`, following ADR 0013's rule: when a recognition record
+cannot express what the recogniser already knows, fix the record.
+
+Before adding reconciliation, ask whether the case is a genuine contest between plausible
+interpretations or merely a record that discarded decisive evidence. Groove-floor-versus-boss
+and pattern-versus-member may still be genuine contests; flats were not.
+
+### Identity detail must follow the supported geometry
+
+The original identity sketch named axis **direction**. #1013 shipped an axis letter plus
+in-plane position and axial extent. A dominant-axis letter is not a canonical direction for
+slanted stock. That divergence remains paired with slanted-flat rendering in #1036 because
+fixing either half alone would be untestable in a drawing.
+
+`Flat`, `Chamfer`, `Fillet`, `Groove`, and `CounterSink` can all be described as thin records,
+but only `Flat` had a demonstrated drawing defect: it grouped equal definitions without an
+`n×` count. Fillets count, chamfers and grooves render per feature, and countersinks ride on
+their holes. Strengthening the others is candidate identity work, not correctness debt.
+
+### Guard the claim, not a proxy
+
+Seven guards written during phase 1 initially asserted more than they established. Module
+bindings stood in for functions, empty results stood in for skipped scans, a parameter's
+existence stood in for non-narrowability, and whole-build call counts stood in for a specific
+consumer.
+
+CI and existing oracles exposed several defects; targeted mutations established whether the
+named guard protected its claim. Every semantic guard added under the evidence gates must be
+shown to fail under the mutation that breaks its claimed contract.
 
 ## Consequences
 
 ### Positive
 
-- Completeness checks stop reverse-engineering engine-produced annotations.
-- Recognition conflicts become one explicit reconciliation problem instead of pairwise
-  exclusions scattered through consumers.
-- Sizing, detection, scoring and lint can share one coherent feature universe.
-- Repeated recognition and its performance policy become visible and enforceable.
-- New recognisers must state physical identity, claimed regions, measurables and conflicts,
-  making their downstream drafting obligations discoverable.
-- Ambiguous and unsupported geometry no longer looks indistinguishable from a feature-free part.
-- Cross-build fidelity, redundancy and code-generation checks gain a world-space identity source
-  rather than relying on page geometry.
+- Automatic builds and physical critique share one coherent recognition universe.
+- Repeated recognition and its cost are visible and mechanically guarded.
+- Declared build/render preserves its no-detection contract without silencing physical
+  critique when the caller requests it.
+- New public recognisers fail closed until their orchestration ownership is classified.
+- Consumer-specific filtering can evolve as pure projection over shared evidence.
+- Correspondence architecture must now earn its shape through user-visible slices.
 
 ### Costs and risks
 
-- Stable geometric identity is tolerance-sensitive and requires explicit collision tests.
-- Reconciliation introduces a new stage and migration work for existing exclusions.
-- Carrying provenance through compound callouts and correlated sets is not always one-to-one.
-- Recognition diagnostics can become noisy unless “unsupported” and “ambiguous” are narrowly
-  defined.
-- A large-bang rewrite would be risky. The aggregate and identifiers must be introduced around
-  existing recognisers, then adopted feature family by feature family.
+- The aggregate is a broad internal contract and must not become a dumping ground for drafting
+  state.
+- A classification or dependency error inside the one orchestration affects every consumer,
+  so per-family call and semantic counterexamples remain necessary.
+- The accepted ownership contract does not itself make completeness trustworthy; presenting
+  phase 1 as that user outcome would recreate the false confidence this work is meant to remove.
+- Deferring generic identities may produce one narrow interim relationship. Gate 2 exists to
+  distinguish a useful small contract from duplication that warrants generalisation.
 
-## Rejected alternatives
+## Rejected Alternatives
 
-### Keep adding feature-specific coverage matchers
+### Keep adding feature-specific presentation matchers
 
-Rejected. PR #1011 demonstrates that labels and page geometry do not contain enough semantic
-information to prove association generally. Each matcher would become a second feature
-recogniser over the rendered page.
+Rejected for engine-produced annotations. PR #1011 demonstrates that labels and page geometry
+do not contain enough semantic information to prove association generally. External/manual
+annotations may remain unverifiable; they must not silently certify an ambiguous requirement.
+Existing presentation-derived checks remain compatibility debt until an evidence-gated slice
+migrates them; their presence does not establish that semantic correspondence has landed.
 
-### Make lint trust `PartModel` or the approved dimension plan
+### Make lint trust `PartModel` or the approved plan as physical ground truth
 
-Rejected. A recognition-to-IR or planner omission would disappear from both the drawing and the
-inventory used to judge it, producing a clean false negative. The physical-requirement inventory
-must remain independently derived from geometry.
+Rejected. A recognition-to-IR or planner omission would disappear from both the drawing and
+the inventory used to judge it, producing a clean false negative.
 
-### Rerun every recogniser inside every completeness check
+### Rerun recognisers inside each completeness check
 
-Rejected. It duplicates expensive work and still does not solve correspondence. Independent
-critique requires independent evidence, not repeated computation of the same evidence.
+Rejected. It duplicates expensive work and still does not solve semantic correspondence.
+Independent critique requires independent evidence, not repeated computation of that evidence.
 
 ### Store build123d/OCP face objects as identity
 
-Rejected. They are process-local implementation objects, do not satisfy ADR 0013's serializable
-record contract, and are unstable across import/redetection. Records may derive deterministic
-signatures from topology and measurements without leaking kernel objects.
+Rejected. They are process-local implementation objects, violate ADR 0013's serializable-record
+contract, and are unstable across import/redetection.
 
-### Put drafting requirements into the future shared recogniser package
+### Implement the original phases 2–6 as one programme
 
-Rejected. Recognition supplies geometry, evidence and measurables. Drafting convention turns
-them into applicable requirements and decides which are redundant or presentational. The shared
-boundary remains geometry-only.
+Rejected by Amendment 1. Phase 1 produced a useful ownership contract but no user-visible
+completeness slice. The remaining abstractions are evaluated separately after Gates 1 and 2.
 
-## Migration constraints
+## Landed Guards
 
-This ADR deliberately does not approve an immediate rewrite. The implementation plan should:
+- [x] One orchestration call per automatic build.
+- [x] Shared cylinder substrate and migrated families are not rescanned by model construction.
+- [x] Every public `recognise_*` family is `MIGRATED` or carries a reason-coded deferral.
+- [x] Declared build/render performs no recognition.
+- [x] Physical critique of a declared drawing obtains at most one cached aggregate.
+- [x] Repeated lint returns equivalent results without rerunning recognition.
+- [x] Classification-gated families are owned but skipped for inapplicable part classes.
+- [x] A counterexample/mutation fails when the cache, gate, manifest, or shared-evidence contract
+  it protects is broken.
 
-1. define a minimal `RecognitionResult` around today's inventories without changing output;
-2. introduce geometry-derived stock/region identity using the fixtures and evidence from
-   #1013/#1015, explicitly replacing traversal-derived `solid_idx` rather than promoting it;
-3. define the shared measurable→requirement policy below `model/` and `linting/`;
-4. define the four distinct identity types and outcome records, including
-   correlated/N-annotation cases;
-5. thread those identities through the existing ADR 0010 registration seam;
-6. move the conflict rules already in `build_part_model` into a named reconciliation layer;
-7. migrate completeness checks from presentation matching to requirement outcomes one family at
-   a time;
-8. retain explicit fallbacks for external/manual annotations;
-9. delete superseded matchers and duplicate recognition calls as each migration lands.
+These guards accept the narrowed ADR. The former acceptance list for typed identities, shared
+requirements, general outcomes, reconciliation, and diagnostics belongs to the evidence-gated
+extensions and is not an uncompleted acceptance bar for the ownership decision.
 
-Each phase must preserve the declared-model no-detection path and must include a mutation or
-counterexample demonstrating that the new guard observes the semantic failure it claims to
-cover.
+## Related Work
 
-## Required guards before acceptance
-
-- one recognition orchestration call per automatic build, with shared substrates not rescanned;
-- a declared build without physical completeness critique performs no recognition;
-- redetecting an unchanged part yields the same feature and measurable identities; applying the
-  same drafting policy yields the same requirement identities; recompiling and placing it yields
-  deterministic annotation identities;
-- `FeatureId`, `MeasurableId`, `RequirementId` and `AnnotationId` are distinct Python types, and
-  the public/internal APIs that exchange them reject a key of the wrong identity domain;
-- both compiler and lint requirements are produced by the one shared policy; changing a policy
-  rule changes both inventories, while deleting either call site's use of it fails a guard;
-- two parallel or coaxial stock regions receive distinct identities, while two faces of one
-  double-D/hex feature reconcile as intended;
-- every accepted record has one converter/reconciliation home and every applicable requirement
-  has a compiler outcome;
-- a suppressed requirement is distinguishable from a missing and a placement-dropped one;
-- compound and correlated dimensions retain one requirement identity across all rendered marks;
-- removing an intent-to-annotation provenance link makes completeness report unverifiable or
-  missing rather than matching by coincident text;
-- an ambiguous/unsupported fixture emits a recognition diagnostic rather than a clean absence;
-- linting the same built drawing twice does not rerun recognition.
-
-The reusable evidence from #1011 is its geometry fixtures and stock/region counterexamples.
-Its downstream label/tip matching machinery is not phase-zero implementation: it is the
-presentation reconstruction this ADR is intended to retire.
-
-## Related work
-
-- #1002 — placed annotations have no reliable measurement identity
-- #1004 / #1005 / #1006 — measurement-identity gaps in correlated and cross-build checks
-- #1009 — recognition↔compiler correspondence model
+- #1018 — evidence-gated implementation tracker
+- #996 — manufacturing-completeness outcome
+- #1009 — recognition-to-compiler correspondence failures
+- #1002 — annotation measurement provenance already landed
+- #1004 / #1005 / #886 — residual compound and correlated provenance gaps
 - #1012 — authored suppression versus physical completeness
 - #1013 / #1015 — flat stock identity and recognition ownership
-- #1014 — repeated flat recognition and declared-model constraints
-- #1011 — the completeness matcher that exposed the missing correspondence
-
-## Amendment 1 — what phase 1 taught (2026-08-05)
-
-Phase 1 landed across #1021, #1022, #1025, #1026, #1028 and #1013. The core decision holds:
-one orchestration, one result, per build. `DEFERRED` is empty, every public `recognise_*`
-family is owned by the aggregate, and the per-family call counts are what the guards assert —
-a prismatic build runs 17 families once each, a turned build 14, a declared build **zero**,
-and repeated lint **zero**.
-
-What follows is what implementing it taught. Points 1–6 refine sections written before there
-was anything to measure. Point 7 is about this ADR's own scope and matters more than the rest.
-
-### 1. Some §2 conflicts are record-shape problems, not reconciliation problems
-
-§2 lists "flats on parallel or coaxial stock regions" among the conflicts a named
-reconciliation stage would settle. #1013 settled it differently — by giving `Flat` an
-`axis_line` and a `stock_span`, per ADR 0013's rule that where a record looks too thin, the
-fix is the record. Small, complete, and testable without any new stage.
-
-**Before building the reconciliation stage, each listed conflict should be asked: is this a
-genuine contest between interpretations, or a record that cannot express what it already
-knows?** The flats case was the latter — the recogniser held the owning cylinder and discarded
-it. A reconciliation stage would have arbitrated between candidates that never needed to
-compete.
-
-This does not retire §2. Groove-floor-versus-boss and pattern-versus-member remain real
-contests. It narrows what the stage is for.
-
-### 2. Identity includes the axis *direction*, and #1013 omitted it
-
-§3 already specifies identity derived from "axis direction and in-plane position, axial
-extent". #1013 shipped *(axis letter, in-plane position, axial extent)*.
-
-The letter is not the direction. `analyse_cylinders` classifies a slanted cylinder by its
-dominant component, so a `(0.707, 0, 0.707)` axis reads as `"x"`, and the resulting key is
-neither canonical nor sufficient for such stock.
-
-Recorded as a **knowing divergence, not a discovery**: the ADR named the component and the
-implementation did not carry it. Deferred because slanted flats do not render at all, which
-makes the fix unverifiable rather than merely unfinished (#1036). The canonical form is the
-perpendicular foot from the origin plus the direction, which `_same_axis_line` already
-computes for a different purpose.
-
-### 3. A thin record is a latent property; whether it is a live defect depends on the callout
-
-§3 warns this "is not a flat-only correction" and names `Flat`, `Chamfer`, `Fillet`, `Groove`
-and `CounterSink`. The observation is correct for all five. The consequence is not.
-
-Only `Flat` produced a wrong drawing, and the discriminator is the **callout mechanism**, not
-the record:
-
-| record | mechanism | two equal features, separate stock |
-|---|---|---|
-| `Flat` | grouped, no count | one callout for two definitions — the defect |
-| `Fillet` | grouped with `n×` | `2× R5` — documents both |
-| `Chamfer` | per-feature | two callouts |
-| `Groove` | per-feature | two callouts |
-| `CounterSink` | nested on its hole callout | documented by its hole |
-
-**Strengthening the remaining records is identity-model work under §3, not outstanding
-correctness debt.** Sequencing it as the latter would spend effort on drawings that are
-already right.
-
-### 4. §6 already answers correspondence — do not add channels outside it
-
-§6 places the lazily-obtained result in typed `BuildState` with the builder as single writer.
-That *is* the answer to "how does a consumer know this result is of its part": provenance is
-structural, because no channel exists for a foreign result to arrive.
-
-#1025 added one anyway. `lint_prismatic_coverage(recognition=...)` accepts an aggregate the
-function cannot vouch for, and a genuine `RecognitionResult` of a *different* solid silences
-the completeness check (#1032, originally mis-filed as a gap in this ADR).
-
-**The remedy is to remove the channel, not to build provenance machinery to police it.**
-
-§6 governs recognition-for-critique specifically. It does not speak to inventory injection
-generally — `holes=`, `pockets=`, `pads=` and the rest are trusted on type alone under ADR
-0008 Amendment 5. Whether that convention needs the same treatment is an open question
-deserving a decision rather than drift.
-
-### 5. Part classification is recognition, not drafting semantics
-
-§1's "does not move drafting semantics into `recognition/`" is right, and was misread during
-#1028 as covering part classification. It does not.
-
-`_is_rotational` reads bbox proportions, the largest external cylinder diameter and its
-concentricity — all geometric, all facts recovered from the solid. `recognition/` already uses
-bounding boxes and the cylinder substrate freely. Drafting *consumes* the classification for
-view selection exactly as it consumes hole diameters; that does not make it drafting policy.
-
-`build_recognition_result` takes `rotational` as an argument for a **scoping** reason —
-`_classify_geometry` lives in the analysis stage — not an architectural one (#1037).
-
-### 6. The acceptance guard should be stated in terms of calls, not intent
-
-"A declared build without physical completeness critique performs no recognition" reads
-cleanly and is ambiguous in practice: `Drawing.export()` runs `_lint_and_log()`, whose warnings
-users read, so export *is* physical critique by any behavioural reading. #1022's acceptance had
-to be amended to say so.
-
-**The guard is better stated as: a declared build and render perform no recognition; anything
-that requests the physical critique — including `export`, which logs it — may obtain the
-aggregate once.** Suppressing that logging to reach a literal zero would trade a user-facing
-diagnostic for a benchmark number.
-
-### 7. This ADR is probably over-scoped, and its central premise is still untested
-
-Points 1 and 3 are not two isolated corrections. They are the same finding twice: **two
-sections predicted work that turned out unnecessary or misprioritised**, and in both cases the
-simpler instrument — ADR 0013's "fix the record" — was sufficient.
-
-That deserves stating plainly, because the most valuable change in phase 1 was #1013, and
-#1013 used none of this ADR's machinery. Not the aggregate, not the manifest, not the identity
-model. Two fields on a dataclass.
-
-Meanwhile **the problem this ADR was written to solve has not moved.** Its exhibit was #1011 —
-the completeness matcher that reconstructed correspondence from labels and page geometry and
-collapsed under review. After phase 1, #1011 is still an abandoned draft; #1007 is still
-blocked on #1009; #1012 is still open. A user's experience of completeness lint is unchanged.
-
-Phase 1 was worth doing and is genuinely finished. But its value was assumed rather than
-demonstrated: nobody has checked whether the missing recognition waist is what actually
-stopped #1011, or whether #1011 failed for reasons phases 2–6 will not touch either.
-
-**Before building phase 2, test the premise.** Take #1011 off the shelf and ask whether stock
-identity plus the phase-1 waist is enough to salvage it:
-
-- if it can now be built without label/tip inference, the premise is confirmed and phases 2–6
-  are justified on evidence;
-- if it stalls for the same reasons, this ADR should be **narrowed** to what phase 1 already
-  delivered, and the remaining phases reconsidered individually rather than as a programme.
-
-The specific candidate for narrowing is §3's typed identities (`FeatureId`, `MeasurableId`,
-`RequirementId`, `AnnotationId`). It is a well-argued design with **no driving defect**:
-passing a measurable identity where a requirement identity is expected is not a bug anyone has
-hit, because those types do not exist, so nothing passes them anywhere. That is a reason to
-wait for the symptom, not to build the cure first.
-
-Status stays **Proposed**. Roughly four and a half of the twelve acceptance guards are met, all
-from phase 1; the rest belong to phases the evidence above says should be re-examined before
-they are begun.
+- #1014 — repeated flat recognition and declared-model constraints, resolved by phase 1
+- #1011 — discovery branch and adversarial flat fixtures
+- #1032 — foreign recognition-result injection channel
+- #1034 — independent flat-callout placement gap
+- #1036 — slanted-flat rendering and canonical direction
+- #1037 — classification derivation tidying

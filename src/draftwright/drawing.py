@@ -277,8 +277,9 @@ class BuildState:
       as the auto pass does (#661) — on the ``auto_dims=False`` path the flag
       would otherwise be consumed nowhere.
 
-    Builder fills it at one site; the compat properties on ``Drawing`` read
-    through it, so ``dwg._analysis``-style test inspection keeps working.
+    The builder assembles it at one site; ``recognition`` may also be filled once by
+    :meth:`ensure_recognition` for declared-path critique. The compat properties on
+    ``Drawing`` read through it, so ``dwg._analysis``-style test inspection keeps working.
     """
 
     analysis: Analysis | None = None

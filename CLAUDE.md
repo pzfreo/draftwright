@@ -373,14 +373,15 @@ Current ADRs:
   **Not** shipped: the emitter dimension-mirror (phase 4). `emit_sheet_script` refuses a
   model with an authored set rather than silently writing `auto_dimensions()`, because
   naming a feature in a generated script would have to address it by position — #922.
-- **0017** — **Proposed; epic #1018 in progress** (the ADR lists the guards required
-  before it can be accepted): **the recognition inventory as a first-class result**, with
-  semantic feature correspondence and requirement provenance. Recognition stops being a
+- **0017** — **Accepted with narrowed scope; ownership phase landed, correspondence work is
+  evidence-gated by epic #1018**: **the recognition inventory as a first-class result**.
+  Recognition stops being a
   scatter of ad-hoc calls: one orchestration per build produces a frozen
   `RecognitionResult` (`recognition/result.py`), carried in `BuildState` and reused by
-  model construction *and* by critique — lint reads its inventories off `Analysis`, which
-  ADR 0017 §5 explicitly permits (independence from the *plan* is not independence from the
-  *recognition*).
+  model construction *and* by critique. Automatic-path lint reads its inventories off
+  `Analysis`; declared-path critique obtains the same aggregate lazily through `BuildState`.
+  ADR 0017 §5 explicitly permits both (independence from the *plan* is not independence from
+  the *recognition*).
   Phase 1 (#1019) landed the **fail-closed manifest** — `MIGRATED` / `DEFERRED` in
   `recognition/result.py` classify every public `recognise_*` family, and
   `tests/test_recognition_manifest.py` fails when a new one appears without that decision,
@@ -420,10 +421,17 @@ Current ADRs:
   orchestration. The mechanism stays fail-closed (a new family must still be classified, and
   every `Deferral` member survives for a future one); what went was each deferral, as its
   stated constraint stopped being true. Measured per family: a prismatic build runs 17 once
-  each, a turned build 14 (the gated three excluded by design), a declared build **zero**.
-  Beyond phase 1: stable feature identity, and the
-  measurable→requirement policy in the specified `draftwright.requirements` module — a
-  pure mapping ranked below both `model/` and `linting/`.
+  each, a turned build 14 (the gated three excluded by design), a declared build/render
+  **zero**. Physical critique or export may then obtain one cached aggregate.
+  The accepted contract stops there. `BuildState` proves result-to-build provenance; it does
+  **not** yet provide recognition-record→IR-feature→requirement correspondence. The original
+  four-type identity taxonomy, shared requirements module, general outcome ledger,
+  reconciliation stage, and diagnostics model are candidate extensions rather than an
+  approved phase sequence. #1018 now requires two end-to-end slices before any of them is
+  generalised: flats first (using #1011's fixtures without label/tip/page inference), then
+  off-centre slots plus N:1 slot patterns. Each new semantic guard needs the mutation that
+  breaks its claimed contract; a green suite alone is not evidence that the guard is
+  load-bearing.
 
 ## Dependencies
 

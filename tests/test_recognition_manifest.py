@@ -359,7 +359,7 @@ def test_the_aggregate_carries_what_its_recognisers_returned():
 
     Every field, not a sample: the fixtures below are chosen so each one is non-empty
     somewhere, and the field list is checked against the dataclass so a field added in a
-    later ADR 0017 slice cannot join unasserted.
+    future evidence-gated ADR 0017 slice cannot join unasserted.
     """
     covered: set[str] = set()
     for name, build in _ORACLE_FIXTURES:
