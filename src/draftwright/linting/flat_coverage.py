@@ -170,13 +170,16 @@ def lint_flat_coverage(
     omissions=(),
     assembly=None,
 ) -> list[LintIssue]:
-    """Report every recognised A/F requirement that is not semantically placed."""
+    """Report uncovered A/F requirements without duplicating placement-drop issues."""
     if assembly is None:
         assembly = len(part.solids()) > 1
     severity: Literal["info", "warning"] = "info" if assembly else "warning"
     issues: list[LintIssue] = []
     for outcome in flat_requirement_outcomes(recognition, features, registry, omissions):
-        if outcome.state == "placed":
+        # `flat_dropped` is already a user-facing build issue. Its measurement identity is
+        # what proves this outcome; emitting a second warning here would score one defect
+        # twice, contrary to the existing coverage/drop de-duplication contract.
+        if outcome.state in {"placed", "dropped"}:
             continue
         stock = (
             f"{outcome.axis.upper()} stock at axis line {outcome.axis_line}, "
@@ -184,7 +187,6 @@ def lint_flat_coverage(
         )
         messages = {
             "suppressed": "was deliberately omitted by the authored dimension set",
-            "dropped": "was approved but its callout was dropped during placement",
             "missing": "has no placed, suppressed, or dropped A/F measurement outcome",
             "unverifiable": "cannot be joined to measurement provenance without guessing",
         }

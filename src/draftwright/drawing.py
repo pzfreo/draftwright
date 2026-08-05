@@ -101,7 +101,6 @@ _GEOMETRY_AWARE_CODES = frozenset(
         "unrecognised_defining_geometry",
         "axial_length_missing",
         "flat_requirement_suppressed",
-        "flat_requirement_dropped",
         "flat_requirement_missing",
         "flat_requirement_unverifiable",
         "missing_principal_dimension",
@@ -113,6 +112,7 @@ _GEOMETRY_AWARE_CODES = frozenset(
         "plate_thickness_dropped",
         "step_position_dropped",
         "chamfer_dropped",
+        "flat_dropped",
         "placement_unsatisfiable",
         "pmi_dropped",
     }

@@ -153,11 +153,20 @@ def test_authored_omission_is_suppressed_not_missing():
 
 def test_forced_placement_failure_is_dropped_not_missing():
     dwg = build_drawing(_flatted_shaft(), page="A4", scale=2.0)
-    drop = next(issue for issue in dwg.lint() if issue.code == "flat_dropped")
+    issues = dwg.lint()
+    drop = next(issue for issue in issues if issue.code == "flat_dropped")
     assert len(drop.measurement_ids) == 2, (
         "the placement outcome must retain the grouped compiler identities"
     )
-    assert _flat_codes(dwg) == ["flat_requirement_dropped"]
+    recognition = dwg.recognition()
+    assert recognition is not None
+    outcomes = flat_requirement_outcomes(recognition, dwg.model().features, dwg.registry)
+    assert [outcome.state for outcome in outcomes] == ["dropped"]
+    assert [
+        issue.code
+        for issue in issues
+        if issue.code in {"flat_dropped", "flat_requirement_dropped"}
+    ] == ["flat_dropped"], "one placement failure must not be reported and scored twice"
 
     # Mutation: a generic `flat_dropped` code is not semantic evidence by itself.
     dwg.registry.reset_issues()
