@@ -838,21 +838,28 @@ def step_level(
     norm_supports = []
     for support in level_supports or ():
         if isinstance(support, LevelSupport):
-            item = support
+            support_level, x_span, y_span = support.level, support.x_span, support.y_span
         elif isinstance(support, (tuple, list)) and len(support) == 3:
-            item = LevelSupport(support[0], tuple(support[1]), tuple(support[2]))
+            support_level, x_span, y_span = support
         else:
             raise ValueError(
                 "step_level() support must be LevelSupport or "
                 f"(level, x_span, y_span) (got {support!r})"
             )
-        if item.level not in levels:
+        if not (
+            isinstance(support_level, (int, float))
+            and not isinstance(support_level, bool)
+            and math.isfinite(support_level)
+        ):
+            raise ValueError("step_level() support level must be a finite number")
+        if support_level not in levels:
             raise ValueError(
-                f"step_level() support level {item.level} is not one of the declared levels"
+                f"step_level() support level {support_level} is not one of the declared levels"
             )
-        for name, span in (("x_span", item.x_span), ("y_span", item.y_span)):
+        for name, span in (("x_span", x_span), ("y_span", y_span)):
             if not (
-                len(span) == 2
+                isinstance(span, (tuple, list))
+                and len(span) == 2
                 and all(
                     isinstance(value, (int, float))
                     and not isinstance(value, bool)
@@ -862,7 +869,13 @@ def step_level(
                 and span[0] <= span[1]
             ):
                 raise ValueError(f"step_level() support {name} must be a finite ordered pair")
-        norm_supports.append(item)
+        norm_supports.append(
+            LevelSupport(
+                float(support_level),
+                (float(x_span[0]), float(x_span[1])),
+                (float(y_span[0]), float(y_span[1])),
+            )
+        )
     if len({support.level for support in norm_supports}) != len(norm_supports):
         raise ValueError("step_level() supports must contain at most one record per level")
     norm_shoulders = []

@@ -1198,7 +1198,9 @@ class TestStepLevel:
         ("supports", "message"),
         [
             (((11, (0, 1), (0, 1)),), "not one of the declared levels"),
+            (((True, (0, 1), (0, 1)),), "support level must be a finite number"),
             (((10, (1, 0), (0, 1)),), "finite ordered pair"),
+            (((10, 1, (0, 1)),), "finite ordered pair"),
             (((10, (0, 1), (0, 1)), (10, (0, 1), (0, 1))), "at most one"),
             (((10, (0, 1)),), "support must be"),
         ],
