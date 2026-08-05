@@ -712,14 +712,6 @@ def test_every_direct_placement_records_identity_or_says_why_not():
         # Named individually rather than waved at, because each is a real hole in the
         # audit's attribution and each needs its own plumbing.
         ("from_model.py", "_draw_step_chain"): "step-chain segs carry no id (#1004)",
-        (
-            "holes.py",
-            "_place_pitch_dim",
-        ): "pattern pitch dims carry no id (#1005)",
-        (
-            "holes.py",
-            "_place_pitch_dim._place",
-        ): "pattern pitch dims carry no id (#1005)",
         ("holes.py", "_off_axis_queue"): "side-hole location candidates, no id map (#1005)",
         # -- identity arrives by another route --------------------------------------
         ("from_model.py", "_reroute_crossing_diameters"): "reapplies the saved identity",

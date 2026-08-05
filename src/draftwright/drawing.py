@@ -79,6 +79,7 @@ from draftwright.linting import (
     lint_flat_coverage,
     lint_location_coverage,
     lint_prismatic_coverage,
+    lint_slot_coverage,
 )
 from draftwright.projection import (
     project_view_geometry,
@@ -2803,6 +2804,14 @@ class Drawing:
                 recognition=recognition,
             )
             issues += lint_flat_coverage(
+                self.part,
+                recognition=recognition,
+                features=getattr(model, "features", ()) if model is not None else (),
+                registry=self._registry,
+                omissions=self._build.omissions,
+                assembly=self.assembly,
+            )
+            issues += lint_slot_coverage(
                 self.part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
