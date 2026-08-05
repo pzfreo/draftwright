@@ -230,6 +230,20 @@ def _axis_line(axis: str, ax) -> tuple[float, float]:
 
     Rounded to the same 3 dp as every other coordinate a record carries, so two faces on one
     piece of stock compare equal rather than differing in float noise.
+
+    **Axis-ALIGNED stock only, and deliberately so.** Dropping the dominant axis letter's
+    coordinate identifies a line only when the axis is along X, Y or Z. For a slanted
+    cylinder — ``analyse_cylinders`` classifies one by its dominant component, so a
+    ``(0.707, 0, 0.707)`` axis reads as ``"x"`` — this is neither canonical (the value depends
+    on WHICH point along the axis the cylinder record reports) nor sufficient (two different
+    slanted directions through one point encode identically). A canonical key would be the
+    perpendicular foot from the origin plus the direction, as :func:`_same_axis_line` already
+    computes for the opposition test.
+
+    That is not done here because slanted flats do not render at all today: the callout is
+    dropped (`flat_dropped`) before identity matters, so a canonical key would fix a
+    component of an already-broken path with no observable improvement. #1036 covers both
+    halves together. The narrow claim this function makes is the one it can keep.
     """
     keep = [i for i, letter in enumerate("xyz") if letter != axis]
     return (round(ax[keep[0]], 3), round(ax[keep[1]], 3))

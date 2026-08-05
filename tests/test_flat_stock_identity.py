@@ -9,7 +9,7 @@ undefined on the sheet with nothing reporting it.
 ADR 0013's rule for a record that looks too thin is that the fix is the record.
 """
 
-from build123d import Box, Cylinder, Pos
+from build123d import Box, Cylinder, Pos, Rot
 
 from draftwright import build_drawing
 from draftwright.model.declare import flat as declare_flat
@@ -171,3 +171,32 @@ def test_a_declared_flat_defaults_to_one_stock():
 
     far = declare_flat(axis="z", across=25, at=(100, 0, 0), axis_line=(100.0, 0.0))
     assert far.axis_line != a.axis_line, "an explicit axis line must separate declared lobes"
+
+
+def test_slanted_stock_is_an_acknowledged_limitation_not_a_silent_wrong_answer():
+    """`axis_line` identifies AXIS-ALIGNED stock. For a slanted axis it is neither canonical
+    nor sufficient — see `_axis_line`'s docstring and #1036.
+
+    This pins the reason that gap is tolerable rather than urgent: a slanted flat produces no
+    callout at all, so the identity never gets to be wrong in a drawing. The test exists so
+    that if slanted rendering is ever fixed, this fails and the identity gap surfaces with
+    it — rather than the two being fixed months apart with a wrong callout in between.
+    """
+    slant = Rot(0, 45, 0) * (Cylinder(10, 40) - Pos(8, 0, 0) * Box(10, 40, 60))
+
+    flats = recognise_flats(slant)
+    assert flats, "fixture stopped producing a slanted flat — it no longer pins anything"
+    assert flats[0].axis == "x", (
+        "a (0.707, 0, 0.707) axis is classified by its dominant component; if that changed, "
+        "the slanted-identity reasoning in _axis_line needs rechecking"
+    )
+
+    dwg = build_drawing(slant)
+    assert not [n for n in dwg.annotations() if n.startswith("m_flat_")], (
+        "a slanted flat now RENDERS. The identity key it is grouped by is not canonical for "
+        "slanted axes (#1036) — fix that before shipping slanted A/F callouts, or two "
+        "patches of one shaft may draw two callouts and two shafts may draw one."
+    )
+    assert [i for i in dwg.lint() if i.code == "flat_dropped"], (
+        "the slanted flat is neither drawn nor reported — that would be a silent omission"
+    )
