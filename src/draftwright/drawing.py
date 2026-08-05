@@ -76,6 +76,7 @@ from draftwright.linting import (
     lint_declaration_reconciliation,
     lint_drawing,
     lint_feature_coverage,
+    lint_flat_coverage,
     lint_location_coverage,
     lint_prismatic_coverage,
 )
@@ -99,6 +100,10 @@ _GEOMETRY_AWARE_CODES = frozenset(
         "pocket_not_located",
         "unrecognised_defining_geometry",
         "axial_length_missing",
+        "flat_requirement_suppressed",
+        "flat_requirement_dropped",
+        "flat_requirement_missing",
+        "flat_requirement_unverifiable",
         "missing_principal_dimension",
         "label_vs_measured",
         "dim_inside_part",
@@ -2714,7 +2719,7 @@ class Drawing:
             bosses: list | None
             pads: list | None
             pockets: list | None
-            recognition: object | None
+            recognition: RecognitionResult | None
             prof_kw: dict
             if a is not None and a.recognition is not None:
                 cyls = a.cyls
@@ -2796,6 +2801,14 @@ class Drawing:
                 bbox=a.bb if a is not None else None,
                 features=getattr(model, "features", ()) if model is not None else (),
                 recognition=recognition,
+            )
+            issues += lint_flat_coverage(
+                self.part,
+                recognition=recognition,
+                features=getattr(model, "features", ()) if model is not None else (),
+                registry=self._registry,
+                omissions=self._build.omissions,
+                assembly=self.assembly,
             )
             # Reverse direction (#487): a DECLARED feature with no matching geometry (a stale
             # phantom callout). Only for a caller-supplied model — detection can't over-declare.

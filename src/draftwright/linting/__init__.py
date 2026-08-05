@@ -25,12 +25,18 @@ from draftwright.linting.coverage import (
     lint_location_coverage,
     lint_prismatic_coverage,
 )
+from draftwright.linting.flat_coverage import (
+    FlatRequirementOutcome,
+    flat_requirement_outcomes,
+    lint_flat_coverage,
+)
 from draftwright.linting.issues import LintIssue
 from draftwright.linting.structural import lint_drawing
 from draftwright.linting.suggest import _suggest_fix
 
 __all__ = [
     "CoverageState",
+    "FlatRequirementOutcome",
     "LintIssue",
     "_suggest_fix",
     "lint_axial_coverage",
@@ -38,6 +44,8 @@ __all__ = [
     "lint_declaration_reconciliation",
     "lint_drawing",
     "lint_feature_coverage",
+    "flat_requirement_outcomes",
+    "lint_flat_coverage",
     "lint_location_coverage",
     "lint_prismatic_coverage",
 ]

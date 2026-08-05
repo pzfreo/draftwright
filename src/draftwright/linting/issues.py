@@ -19,3 +19,7 @@ class LintIssue:
     # A ready-to-paste fix snippet, attached by Drawing.lint() via _suggest_fix
     # (#29); None when no concrete repair can be inferred.
     suggestion: str | None = None
+    # Compiler measurement identities implicated in a build-time outcome. Empty for checks
+    # that do not hold semantic provenance. Kept internal/plain-tuple so adding it does not
+    # turn LintIssue into a general requirement ledger (#1018 Gate 1).
+    measurement_ids: tuple = ()

@@ -1529,7 +1529,10 @@ def _leader_callout_pass(dwg, a, jobs, *, noun, drop_code, ctx, geom_clear=False
                 break
         else:
             ctx.record_issue(
-                "warning", drop_code, f"{noun} callout {label} not placed (no clear room)"
+                "warning",
+                drop_code,
+                f"{noun} callout {label} not placed (no clear room)",
+                measurement=measurement,
             )
             if ev is not None:
                 ev["items"].append(
