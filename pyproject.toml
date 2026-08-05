@@ -80,6 +80,18 @@ markers = [
     "slow: heavy end-to-end CTC fixture builds (deselected by default)",
     "smoke: curated build-light subset for a fast local check (~30 s)",
 ]
+# `SoftDeprecationWarning` marks a surface that is discouraged but SUPPORTED and not going
+# away (#1043). The suite exercises `Sheet.auto_dimensions()` in ~170 places, deliberately —
+# it is still a supported path and its behaviour must keep being tested. Migrating those to
+# authored dimensions would be churn that tests less, so the category is silenced here rather
+# than at ~170 call sites.
+#
+# This does NOT weaken the guard: `tests/test_soft_deprecation.py` asserts the warning with
+# `pytest.warns`, which fires regardless of this filter. Real `DeprecationWarning`s are
+# untouched and still carry removal dates (`tests/test_deprecation_dates.py`).
+filterwarnings = [
+    "ignore::draftwright._core.SoftDeprecationWarning",
+]
 # Coverage is a CI concern (it adds ~13% locally and instruments every line); the
 # CI workflow passes the --cov flags explicitly. Keep the local default lean.
 addopts = "--tb=short -m 'not slow'"

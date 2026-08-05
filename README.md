@@ -96,13 +96,16 @@ plate = Box(120, 80, 20)
 bore = Pos(0, 0, 0) * Cylinder(4, 20)
 
 sheet = Sheet(plate - bore, title="Plate", number="DWG-002")
-sheet.auto_dimensions()                                   # the planner's set (ADR 0016:
-                                                          # a build must say where its
-                                                          # dimensions come from)
-sheet.envelope()
+env = sheet.envelope()
 sheet.datum("A", plate.faces().sort_by()[-1])             # datum A on the top face
 hole = sheet.hole(bore).finish("1.6").note("M3x0.5 TAP")  # ⌀8 bore, Ra 1.6, tapped
 sheet.control(hole).position(0.1, to="A", diameter=True)  # ⌀0.1 position wrt A
+
+sheet.authored_dimensions()                               # THIS is the complete set
+sheet.dimension(env, "width.length")                      # (ADR 0016: a build says where
+sheet.dimension(env, "height.length")                     #  its dimensions come from, and
+sheet.dimension(hole, "bore.diameter")                    #  omitting one means suppress it)
+
 sheet.export("plate")                                     # writes plate.pdf
 ```
 

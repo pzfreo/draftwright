@@ -48,6 +48,7 @@ from collections.abc import MutableSequence
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
+from draftwright._core import SoftDeprecationWarning
 from draftwright._geometry import _solids_body
 from draftwright.builder import _coerce_model, build_drawing, detect_part_model
 from draftwright.fits import fit_class
@@ -1375,16 +1376,39 @@ class Sheet:
         return self._features
 
     def auto_dimensions(self) -> Sheet:
-        """Ask for the planner's automatic dimension set (ADR 0016).
+        """**Soft deprecated** (#1043) — prefer :meth:`authored_dimensions` in new code.
 
-        **Required**, unless the sheet authors its own set with :meth:`dimension` (#874):
-        a build must say where its dimensions come from rather than defaulting to one
-        silently, so a script that means "dimension this for me" reads that way, and one
-        that means "draw exactly what I name" cannot be mistaken for it.
+        Supported, and **not scheduled for removal**: existing scripts keep working. But on
+        this surface, authored dimensions are the right default, for three reasons:
 
-        This is also what :meth:`add_dimension` augments — an augment only means
-        something against a set the planner chose.
+        - it is what draftwright itself emits — ``--script`` writes ``authored_dimensions()``
+          with a line per dimension, so the automatic path is the only form the tool never
+          produces;
+        - *omission means suppression* (ADR 0016) only holds for an authored set. Under an
+          automatic one you cannot express "not that one";
+        - an authored list is editable text. That is what makes "generate a script, then
+          refine it" work, for a person or a model.
+
+        If you want the planner's choices as a starting point, generate them —
+        ``draftwright yourmodule:part --script`` — and edit the result, rather than asking
+        for them at runtime where they cannot be seen or changed.
+
+        Still asks for the planner's automatic set (ADR 0016). A build must say where its
+        dimensions come from rather than defaulting silently (#874), and this is one of the
+        two ways to say it. It is also what :meth:`add_dimension` augments.
+
+        ``build_drawing(part)``'s automatic path is unaffected and carries no warning — that
+        is the detected front door, and being automatic is its whole point.
         """
+        warnings.warn(
+            "Sheet.auto_dimensions() is soft deprecated: still supported and NOT scheduled "
+            "for removal, but authored dimensions are the going-forward surface. Prefer "
+            "authored_dimensions() plus dimension(feature, role) lines — or generate them "
+            "with `--script` and edit the result. build_drawing()'s automatic path is "
+            "unaffected.",
+            SoftDeprecationWarning,
+            stacklevel=2,
+        )
         self._auto_dimensions = "explicit"
         return self
 
@@ -1416,6 +1440,11 @@ class Sheet:
 
         Returns a :class:`DimensionIntent`.
 
+        **Soft deprecated** (#1043) — supported and not scheduled for removal, but it exists
+        only to augment :meth:`auto_dimensions`, which is itself discouraged here. To add a
+        measurement to an authored set, write a :meth:`dimension` line: same effect, and the
+        result is visible in the script rather than computed at runtime.
+
         Requesting a measurement the planner already emits is a deliberate no-op, not an
         error: a script should be able to ask without first knowing the rule set's mind.
 
@@ -1424,6 +1453,14 @@ class Sheet:
         a silent coin toss between the row and column pitch is the kind of wrong a reader
         cannot see.
         """
+        warnings.warn(
+            "Sheet.add_dimension() is soft deprecated: still supported and NOT scheduled for "
+            "removal, but it augments the automatic set, which is itself discouraged here. "
+            "Prefer authored_dimensions() plus a dimension(feature, role) line — the same "
+            "measurement, visible in the script rather than added at runtime.",
+            SoftDeprecationWarning,
+            stacklevel=2,
+        )
         token, _target, discriminator, role = self._resolve_measurement(
             feature, role, axis, "add_dimension"
         )
@@ -1474,12 +1511,14 @@ class Sheet:
         if not self._auto_dimensions and not authored:
             raise ValueError(
                 "this sheet does not say where its dimensions come from. Call "
-                "auto_dimensions() for the planner's set, or authored_dimensions() to declare "
-                "the complete set yourself and then add zero or more dimension(feature, role) "
-                "lines. (A dimension(...) line selects the authored source on its own; the "
-                "verb is how a COMPLETE-BUT-EMPTY set says so, since it has no line to say it "
-                "with. Building without either used to mean the automatic set; ADR 0016 makes "
-                "the source explicit so that omitting a dimension can mean something.)"
+                "authored_dimensions() and then add zero or more dimension(feature, role) "
+                "lines to declare the complete set — that is the recommended surface, and "
+                "what `--script` generates. (A dimension(...) line selects the authored "
+                "source on its own; the verb is how a COMPLETE-BUT-EMPTY set says so, since "
+                "it has no line to say it with.) auto_dimensions() also works and is "
+                "supported, but is soft deprecated on this surface (#1043). Building without "
+                "either used to mean the automatic set; ADR 0016 makes the source explicit "
+                "so that omitting a dimension can mean something."
             )
 
     def _resolve_measurement(

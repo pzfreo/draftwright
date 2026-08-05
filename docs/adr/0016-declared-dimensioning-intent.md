@@ -1251,3 +1251,61 @@ facade and not on the IR type. Worth revisiting if the raw route grows users.
   caught the grid-pitch collision, because two ungrouped pitches are two addressable units);
   a test that an ambiguous selector raises rather than picking; and a stability test that
   re-detecting a part yields the same `ParameterId`s.
+
+## Amendment 4 — authored is the preferred source on `Sheet`; automatic is soft deprecated there (2026-08-05)
+
+This ADR presents the two dimension sources as co-equal alternatives: *either*
+`auto_dimensions()` *or* an authored set, mutually exclusive, and a build must say which.
+The mutual exclusion and the requirement to say stand. The even-handedness does not.
+
+**On the `Sheet` surface, authored dimensions are the recommended source, and
+`auto_dimensions()` / `add_dimension()` are soft deprecated** (#1043) — discouraged, still
+supported, and **not scheduled for removal**.
+
+### Why the surfaces differ
+
+The choice reads as symmetric in the abstract and is not, once you look at what each surface
+is for.
+
+- **It is what draftwright emits.** `--script` writes `authored_dimensions()` and one
+  `dimension(...)` line per measurement. The automatic path is the only form the tool itself
+  never produces, so a hand-written script using it diverges from every generated one.
+- **Amendment/§ "omission means suppression" only holds for an authored set.** Under the
+  automatic source there are no omissions to read, so an author cannot say "not that one" —
+  the very expressiveness this ADR added is unavailable.
+- **An authored list is editable text.** That is what makes "generate a script, then refine
+  it" work, for a person or a model. An automatic set is decided at runtime, cannot be seen
+  in the file, and cannot be edited line by line.
+
+A caller who has already chosen the declaration surface has chosen to be explicit about
+*features*. Being implicit about *dimensions* in the same script is the inconsistency.
+
+### What is explicitly unaffected
+
+`build_drawing(part)`'s automatic dimensioning — the detected front door. Point the CLI at a
+STEP file or a build123d object and get a fully dimensioned drawing with no ceremony. That
+path is automatic by design and carries no warning; a guard asserts it.
+
+`Sheet.from_part(part)` also keeps its implicit automatic source. It is the on-ramp — detect
+the features, get a drawing, then author over it — and adding `dimension(...)` lines
+*overrides* rather than conflicts (#921). Warning there would scold the recommended
+migration.
+
+### Why soft, and why not a removal date
+
+`docs/deprecations.md` carries ADR 0005 §4: a compat surface names a tracking issue *and* a
+removal target, because "a facade with no exit date is a failure mode, not a success".
+
+That rule governs surfaces kept alive only so old code keeps working. This is a different
+thing: `auto_dimensions()` works, is supported, and there is simply a better way to say the
+same thing. Attaching a removal date we did not intend would be the exact failure §4 names,
+wearing a date.
+
+So it raises `SoftDeprecationWarning` (a `UserWarning` subclass), not `DeprecationWarning`,
+and lives in a separate "Discouraged" table with no removal target. A guard asserts the class
+relationship, so a future change to `DeprecationWarning` fails at the definition rather than
+silently acquiring an obligation.
+
+Incidentally the softer label is the louder signal: `DeprecationWarning` is filtered by
+default in notebooks, several test runners and library-internal call paths, whereas a
+`UserWarning` shows unconditionally.

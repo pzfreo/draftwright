@@ -9,6 +9,30 @@ place. `tests/test_deprecation_dates.py` fails if any `@deprecated` message or
 convention — but the test cannot check that a row exists *here*, so add one when you deprecate
 something.
 
+## Discouraged — supported, no removal planned
+
+These are **soft deprecated**: they warn, they steer you elsewhere, and they are **not going
+away**. They raise `SoftDeprecationWarning` (a `UserWarning` subclass), *not*
+`DeprecationWarning`, and they deliberately carry **no removal target**.
+
+That is not a violation of ADR 0005 §4's exit-date rule — it is the reason the two categories
+are separate. §4 governs *compat surfaces*: things kept alive only so old code keeps working,
+which rot if they never leave. These are different. They work, they are supported, and there
+is a better way to do the same thing. Writing a removal date we did not mean would be the exact
+failure §4 names, wearing a date.
+
+`tests/test_deprecation_dates.py` scans `DeprecationWarning`s only, so these rows are outside
+it by construction.
+
+| Surface | Prefer | Since | Why |
+|---|---|---|---|
+| `Sheet.auto_dimensions()` | `authored_dimensions()` + `dimension(feature, role)` lines | 0.4.1 (#1043) | authored is what `--script` emits, is editable text, and is the only form where omission can mean suppression (ADR 0016) |
+| `Sheet.add_dimension()` | a `dimension(feature, role)` line on an authored set | 0.4.1 (#1043) | it augments the automatic set, which is itself discouraged here |
+
+**Not affected:** `build_drawing(part)`'s automatic dimensioning. Point the CLI at a STEP or a
+build123d object and get a fully dimensioned drawing — that is the detected front door and
+being automatic is the whole point of it.
+
 ## Live deprecations
 
 | Surface | Use instead | Deprecated in | Removed in |
