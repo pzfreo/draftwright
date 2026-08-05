@@ -381,3 +381,144 @@ presentation reconstruction this ADR is intended to retire.
 - #1013 / #1015 — flat stock identity and recognition ownership
 - #1014 — repeated flat recognition and declared-model constraints
 - #1011 — the completeness matcher that exposed the missing correspondence
+
+## Amendment 1 — what phase 1 taught (2026-08-05)
+
+Phase 1 landed across #1021, #1022, #1025, #1026, #1028 and #1013. The core decision holds:
+one orchestration, one result, per build. `DEFERRED` is empty, every public `recognise_*`
+family is owned by the aggregate, and the per-family call counts are what the guards assert —
+a prismatic build runs 17 families once each, a turned build 14, a declared build **zero**,
+and repeated lint **zero**.
+
+What follows is what implementing it taught. Points 1–6 refine sections written before there
+was anything to measure. Point 7 is about this ADR's own scope and matters more than the rest.
+
+### 1. Some §2 conflicts are record-shape problems, not reconciliation problems
+
+§2 lists "flats on parallel or coaxial stock regions" among the conflicts a named
+reconciliation stage would settle. #1013 settled it differently — by giving `Flat` an
+`axis_line` and a `stock_span`, per ADR 0013's rule that where a record looks too thin, the
+fix is the record. Small, complete, and testable without any new stage.
+
+**Before building the reconciliation stage, each listed conflict should be asked: is this a
+genuine contest between interpretations, or a record that cannot express what it already
+knows?** The flats case was the latter — the recogniser held the owning cylinder and discarded
+it. A reconciliation stage would have arbitrated between candidates that never needed to
+compete.
+
+This does not retire §2. Groove-floor-versus-boss and pattern-versus-member remain real
+contests. It narrows what the stage is for.
+
+### 2. Identity includes the axis *direction*, and #1013 omitted it
+
+§3 already specifies identity derived from "axis direction and in-plane position, axial
+extent". #1013 shipped *(axis letter, in-plane position, axial extent)*.
+
+The letter is not the direction. `analyse_cylinders` classifies a slanted cylinder by its
+dominant component, so a `(0.707, 0, 0.707)` axis reads as `"x"`, and the resulting key is
+neither canonical nor sufficient for such stock.
+
+Recorded as a **knowing divergence, not a discovery**: the ADR named the component and the
+implementation did not carry it. Deferred because slanted flats do not render at all, which
+makes the fix unverifiable rather than merely unfinished (#1036). The canonical form is the
+perpendicular foot from the origin plus the direction, which `_same_axis_line` already
+computes for a different purpose.
+
+### 3. A thin record is a latent property; whether it is a live defect depends on the callout
+
+§3 warns this "is not a flat-only correction" and names `Flat`, `Chamfer`, `Fillet`, `Groove`
+and `CounterSink`. The observation is correct for all five. The consequence is not.
+
+Only `Flat` produced a wrong drawing, and the discriminator is the **callout mechanism**, not
+the record:
+
+| record | mechanism | two equal features, separate stock |
+|---|---|---|
+| `Flat` | grouped, no count | one callout for two definitions — the defect |
+| `Fillet` | grouped with `n×` | `2× R5` — documents both |
+| `Chamfer` | per-feature | two callouts |
+| `Groove` | per-feature | two callouts |
+| `CounterSink` | nested on its hole callout | documented by its hole |
+
+**Strengthening the remaining records is identity-model work under §3, not outstanding
+correctness debt.** Sequencing it as the latter would spend effort on drawings that are
+already right.
+
+### 4. §6 already answers correspondence — do not add channels outside it
+
+§6 places the lazily-obtained result in typed `BuildState` with the builder as single writer.
+That *is* the answer to "how does a consumer know this result is of its part": provenance is
+structural, because no channel exists for a foreign result to arrive.
+
+#1025 added one anyway. `lint_prismatic_coverage(recognition=...)` accepts an aggregate the
+function cannot vouch for, and a genuine `RecognitionResult` of a *different* solid silences
+the completeness check (#1032, originally mis-filed as a gap in this ADR).
+
+**The remedy is to remove the channel, not to build provenance machinery to police it.**
+
+§6 governs recognition-for-critique specifically. It does not speak to inventory injection
+generally — `holes=`, `pockets=`, `pads=` and the rest are trusted on type alone under ADR
+0008 Amendment 5. Whether that convention needs the same treatment is an open question
+deserving a decision rather than drift.
+
+### 5. Part classification is recognition, not drafting semantics
+
+§1's "does not move drafting semantics into `recognition/`" is right, and was misread during
+#1028 as covering part classification. It does not.
+
+`_is_rotational` reads bbox proportions, the largest external cylinder diameter and its
+concentricity — all geometric, all facts recovered from the solid. `recognition/` already uses
+bounding boxes and the cylinder substrate freely. Drafting *consumes* the classification for
+view selection exactly as it consumes hole diameters; that does not make it drafting policy.
+
+`build_recognition_result` takes `rotational` as an argument for a **scoping** reason —
+`_classify_geometry` lives in the analysis stage — not an architectural one (#1037).
+
+### 6. The acceptance guard should be stated in terms of calls, not intent
+
+"A declared build without physical completeness critique performs no recognition" reads
+cleanly and is ambiguous in practice: `Drawing.export()` runs `_lint_and_log()`, whose warnings
+users read, so export *is* physical critique by any behavioural reading. #1022's acceptance had
+to be amended to say so.
+
+**The guard is better stated as: a declared build and render perform no recognition; anything
+that requests the physical critique — including `export`, which logs it — may obtain the
+aggregate once.** Suppressing that logging to reach a literal zero would trade a user-facing
+diagnostic for a benchmark number.
+
+### 7. This ADR is probably over-scoped, and its central premise is still untested
+
+Points 1 and 3 are not two isolated corrections. They are the same finding twice: **two
+sections predicted work that turned out unnecessary or misprioritised**, and in both cases the
+simpler instrument — ADR 0013's "fix the record" — was sufficient.
+
+That deserves stating plainly, because the most valuable change in phase 1 was #1013, and
+#1013 used none of this ADR's machinery. Not the aggregate, not the manifest, not the identity
+model. Two fields on a dataclass.
+
+Meanwhile **the problem this ADR was written to solve has not moved.** Its exhibit was #1011 —
+the completeness matcher that reconstructed correspondence from labels and page geometry and
+collapsed under review. After phase 1, #1011 is still an abandoned draft; #1007 is still
+blocked on #1009; #1012 is still open. A user's experience of completeness lint is unchanged.
+
+Phase 1 was worth doing and is genuinely finished. But its value was assumed rather than
+demonstrated: nobody has checked whether the missing recognition waist is what actually
+stopped #1011, or whether #1011 failed for reasons phases 2–6 will not touch either.
+
+**Before building phase 2, test the premise.** Take #1011 off the shelf and ask whether stock
+identity plus the phase-1 waist is enough to salvage it:
+
+- if it can now be built without label/tip inference, the premise is confirmed and phases 2–6
+  are justified on evidence;
+- if it stalls for the same reasons, this ADR should be **narrowed** to what phase 1 already
+  delivered, and the remaining phases reconsidered individually rather than as a programme.
+
+The specific candidate for narrowing is §3's typed identities (`FeatureId`, `MeasurableId`,
+`RequirementId`, `AnnotationId`). It is a well-argued design with **no driving defect**:
+passing a measurable identity where a requirement identity is expected is not a bug anyone has
+hit, because those types do not exist, so nothing passes them anywhere. That is a reason to
+wait for the symptom, not to build the cure first.
+
+Status stays **Proposed**. Roughly four and a half of the twelve acceptance guards are met, all
+from phase 1; the rest belong to phases the evidence above says should be re-examined before
+they are begun.
