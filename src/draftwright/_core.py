@@ -539,55 +539,55 @@ def _legible_locations(positions, scale):
     return kept, n_too_close
 
 
-def _largest_empty_rect(drawable, obstacles, *, warn: bool = True):
+def _largest_empty_rect(drawable, obstacles, *, target_size=None, warn: bool = True):
     """Largest axis-aligned empty rectangle in *drawable* avoiding *obstacles*.
 
     *drawable* and each obstacle are ``(x0, y0, x1, y1)`` page-mm boxes.  Returns
     the empty sub-rectangle of *drawable* (overlapping no obstacle) that maximises
-    the side of the largest square it can hold — i.e. ``min(width, height)`` — so
-    the (near-square) iso view can be scaled up as far as possible.
+    the uniform scale of *target_size*. The default ``(1, 1)`` maximises the side
+    of the largest square it can hold, preserving the iso-view policy. A caller
+    placing a wide or tall fixed-aspect footprint can supply its minimum
+    ``(width, height)`` instead.
 
     The obstacle set is tiny (front/plan/side views + title block), so a
     gap-based search over candidate edges is both exact enough and cheap: every
     maximal empty rectangle has edges drawn from the drawable bounds and the
     obstacle bounds, so enumerating those cut lines finds the optimum.
     """
+    target_w, target_h = target_size or (1.0, 1.0)
+    if target_w <= 0 or target_h <= 0:
+        raise ValueError("target_size must contain positive dimensions")
+
     dx0, dy0, dx1, dy1 = drawable
     xs = sorted({dx0, dx1, *(c for o in obstacles for c in (o[0], o[2]) if dx0 < c < dx1)})
     ys = sorted({dy0, dy1, *(c for o in obstacles for c in (o[1], o[3]) if dy0 < c < dy1)})
 
-    # The score is min(width, height), so any candidate whose width OR height is
-    # ``<= best_score`` cannot beat the best found so far. Because ``xs``/``ys`` are
-    # sorted and ``best_score`` only grows, we skip those candidates outright rather
-    # than enumerate-then-reject them: ``break`` the outer loop once even its widest
-    # candidate is too small, and ``bisect`` the inner loop's start past every pair
-    # narrower than ``best_score``. This is an exact prune — skipped candidates could
-    # never satisfy ``score > best_score`` — so the result (and its tie-breaking) is
-    # identical to the naive quadruple loop, but the detail-view caller (which passes
-    # every placed-annotation footprint, not just the handful of views) no longer
-    # triggers an O(N⁴) blow-up (#661).
+    # The score is min(width / target_w, height / target_h), so any candidate whose
+    # width or height cannot exceed the corresponding scaled target cannot beat the
+    # best found so far. This is the same exact prune as the square-default path,
+    # normalized by the requested footprint.
     best = None
     best_score = 0.0
     nx, ny = len(xs), len(ys)
     for i in range(nx - 1):
         rx0 = xs[i]
-        if xs[-1] - rx0 <= best_score:
+        if xs[-1] - rx0 <= best_score * target_w:
             break  # widest strip from here on can't beat best (rx0 only grows)
-        for j in range(bisect_right(xs, rx0 + best_score), nx):
+        for j in range(bisect_right(xs, rx0 + best_score * target_w), nx):
             rx1 = xs[j]
             width = rx1 - rx0
             # only obstacles overlapping the x-strip [rx0, rx1] can block it
             strip = [(o[1], o[3]) for o in obstacles if o[0] < rx1 and rx0 < o[2]]
             for k in range(ny - 1):
                 ry0 = ys[k]
-                if ys[-1] - ry0 <= best_score:
+                if ys[-1] - ry0 <= best_score * target_h:
                     break  # tallest gap from here can't beat best (ry0 only grows)
-                for m in range(bisect_right(ys, ry0 + best_score), ny):
+                for m in range(bisect_right(ys, ry0 + best_score * target_h), ny):
                     ry1 = ys[m]
                     if any(ry0 < oy1 and oy0 < ry1 for (oy0, oy1) in strip):
                         continue
                     height = ry1 - ry0
-                    score = width if width < height else height
+                    score = min(width / target_w, height / target_h)
                     if score > best_score:
                         best_score = score
                         best = (rx0, ry0, rx1, ry1)

@@ -1371,6 +1371,20 @@ class TestIsoEmptyRect:
         g = _layout_geometry(20, 20, 20, 1.0, 297.0, 210.0, 120.0, None)
         assert g.iso_valid is True
 
+    def test_target_aspect_can_choose_a_wide_short_gap_over_the_largest_square(self):
+        from draftwright._core import _largest_empty_rect
+
+        drawable = (0.0, 0.0, 100.0, 100.0)
+        obstacles = [(40.0, 0.0, 100.0, 70.0)]
+
+        assert _largest_empty_rect(drawable, obstacles) == (0.0, 0.0, 40.0, 70.0)
+        assert _largest_empty_rect(drawable, obstacles, target_size=(60.0, 20.0)) == (
+            0.0,
+            70.0,
+            100.0,
+            100.0,
+        )
+
 
 class TestScaleMinimum:
     """An explicit scale below the legibility floor is honoured with a warning (#489);
@@ -5593,6 +5607,9 @@ class TestDetailView:
         assert any(n.startswith("dim_detail_a_step") for n in dwg.annotations())
         # Drawn at a larger scale than the sheet.
         assert dwg.coords("detail_a")._scale > a.SCALE
+        # The detail resolves against the sheet-scale iso. That orientation aid must not then
+        # grow into the defining detail after placement (#915).
+        assert dwg.coords("iso")._scale == pytest.approx(a.SCALE)
         # Absolute step heights use the part base as their datum. The detail
         # must include that datum so neither witness endpoint floats outside
         # the visible crop.

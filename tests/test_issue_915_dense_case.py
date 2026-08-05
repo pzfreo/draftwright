@@ -40,3 +40,17 @@ def test_issue_915_hole_callouts_share_one_spacing_solve():
     step_drops = [issue for issue in issues if issue.code == "step_dim_dropped"]
     assert len(step_drops) == 1
     assert "5 step height(s)" in step_drops[0].message
+
+
+def test_issue_915_wide_detail_uses_a_matching_empty_region():
+    """A1 has enough wide, short space even though its largest square is too narrow."""
+    dwg = build_drawing(_ISSUE_915, page="A1", scale=0.5, detail_view=True)
+
+    assert "detail_a" in dwg.views
+    labels = [
+        annotation.label
+        for name, annotation in dwg.iter_annotations()
+        if name.startswith("dim_detail_a_step")
+    ]
+    assert labels == ["10", "13", "20", "30", "40", "57", "60", "65"]
+    assert dwg.lint() == []

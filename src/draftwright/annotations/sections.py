@@ -456,7 +456,30 @@ def _render_detail(
         _log.warning("Detail %s skipped (boolean crop produced no solid)", letter)
         return False
 
-    # Placement: largest empty rectangle avoiding placed views + the title block.
+    # Footprint = the projected cropped band + the request's annotation pads (the
+    # dim ladder/chain) + the caption row. Rectangle selection must know that aspect:
+    # the iso helper's square-default optimum can reject a wide, short detail even
+    # when a different empty rectangle fits it (#915).
+    cb = cropped.bounding_box()
+    view_w = cb.max.Y - cb.min.Y if req.source_view == "side" else cb.max.X - cb.min.X
+    view_h = cb.max.Z - cb.min.Z
+    cap_h = 8.0
+
+    def _pads(s):  # annotation bands may depend on the scale (the prismatic ladder)
+        return req.pads(s) if req.pads is not None else (0.0, req.pad_top)
+
+    min_detail_scale = max(req.scale_needed, a.SCALE * 1.2 + 1e-6)
+    if not math.isfinite(min_detail_scale):
+        _log.info("Detail %s skipped (non-finite scale required)", letter)
+        return False
+    min_pad_right, min_pad_top = _pads(min_detail_scale)
+    min_footprint = (
+        view_w * min_detail_scale + min_pad_right,
+        view_h * min_detail_scale + min_pad_top + a.DIM_PAD + cap_h,
+    )
+
+    # Placement: best empty rectangle for this footprint, avoiding placed views
+    # and the title block.
     drawable = (a.margin, a.margin, a.PAGE_W - a.margin, a.PAGE_H - a.margin)
     obstacles = []
     for vis, hid in dwg.views.values():
@@ -473,18 +496,8 @@ def _render_detail(
     obstacles.append(
         (a.PAGE_W - a.TB_W - _TB_CLEAR, a.margin, a.PAGE_W - _TB_CLEAR, _TB_CLEAR + _TB_H)
     )
-    rx0, ry0, rx1, ry1 = _largest_empty_rect(drawable, obstacles)
+    rx0, ry0, rx1, ry1 = _largest_empty_rect(drawable, obstacles, target_size=min_footprint)
     rect_w, rect_h = rx1 - rx0, ry1 - ry0
-
-    # Footprint = the projected cropped band + the request's annotation pads (the
-    # dim ladder/chain) + the caption row. Shrink the scale to fit if necessary.
-    cb = cropped.bounding_box()
-    view_w = cb.max.Y - cb.min.Y if req.source_view == "side" else cb.max.X - cb.min.X
-    view_h = cb.max.Z - cb.min.Z
-    cap_h = 8.0
-
-    def _pads(s):  # annotation bands may depend on the scale (the prismatic ladder)
-        return req.pads(s) if req.pads is not None else (0.0, req.pad_top)
 
     def _fits(s):
         pr, pt = _pads(s)
@@ -493,7 +506,6 @@ def _render_detail(
     # Fit continuously enough not to jump over a viable scale.  Subtracting a
     # whole sheet scale skipped 3:1 on a 2:1 sheet (4→2), even when 3:1 both fit
     # and exceeded the requested legibility scale (#897).
-    min_detail_scale = max(req.scale_needed, a.SCALE * 1.2 + 1e-6)
     fit_step = a.SCALE * 0.5
     while detail_scale - fit_step >= min_detail_scale and not _fits(detail_scale):
         detail_scale -= fit_step

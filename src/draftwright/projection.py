@@ -276,7 +276,9 @@ def _fit_iso_view(dwg, a: Analysis, annotate: bool = True):
     fill the zone can be computed from the measured extents without iteration.
 
     - Overflow (needed < 1): shrink with 2 % safety margin.
-    - Under-fill (needed > 1): grow to 90 % of zone, leaving breathing room.
+    - Under-fill (needed > 1): grow to 90 % of zone, leaving breathing room, unless an
+      enlarged detail has claimed sheet space after the iso zone was composed. In that case
+      the orientation-only iso stays at the truthful sheet scale.
     - Within 5 % of sheet scale: leave as-is (no NTS label).
     """
     # Use the precomputed iso zone (largest empty rectangle).  A section view
@@ -308,6 +310,12 @@ def _fit_iso_view(dwg, a: Analysis, annotate: bool = True):
         if extent > 0
     ]
     needed = min(ratios, default=1.0)
+    has_detail = any(name.startswith("detail_") for name in dwg.views)
+    if needed >= 1.0 and has_detail:
+        # Detail views are defining content and resolve against the sheet-scale iso. Growing
+        # that iso afterwards can invade an aspect-specific detail rectangle (#915). Keep the
+        # already-fitting orientation view at its current scale.
+        return
     if needed >= 1.0:
         # Iso fits; grow to 90 % of zone — leaves comfortable breathing room.
         margin_pct = 0.90
