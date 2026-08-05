@@ -63,8 +63,6 @@ def _slot_spec_key(slot) -> tuple:
 
 
 def _unoriented_direction(value) -> tuple[float, float, float] | None:
-    if value is None:
-        return None
     x, y, z = (float(component) for component in value)
     norm = (x * x + y * y + z * z) ** 0.5
     if norm == 0:
@@ -78,27 +76,18 @@ def _unoriented_direction(value) -> tuple[float, float, float] | None:
 
 def _pattern_direction(value, members) -> tuple[float, float, float] | None:
     """Canonicalise an explicit axis or derive the default axis from its member line."""
-    if value is None and len(members) >= 2:
+    if value is None:
         value = tuple(members[-1][i] - members[0][i] for i in range(3))
     return _unoriented_direction(value)
 
 
-def _grid_angle(value) -> float | None:
+def _grid_angle(value) -> float:
     """A rectangular lattice is unchanged by reversing both of its basis directions."""
-    return None if value is None else _rounded(float(value) % 180.0)
+    return _rounded(float(value or 0.0) % 180.0)
 
 
 def _slot_source_at(slot) -> tuple[float, float, float]:
-    location = getattr(slot, "location", None)
-    if location is not None:
-        return _point(location)
-    coord = {
-        slot.long_axis: (slot.lo + slot.hi) / 2,
-        slot.width_axis: slot.w_center,
-    }
-    depth_axis = next(axis for axis in "xyz" if axis not in coord)
-    coord[depth_axis] = getattr(slot.frame, "origin")["xyz".index(depth_axis)]
-    return _point((coord["x"], coord["y"], coord["z"]))
+    return _point(slot.location)
 
 
 def _pattern_key(pattern) -> tuple:
@@ -125,11 +114,11 @@ def _pattern_key(pattern) -> tuple:
         _slot_spec_key(member),
         members,
         None if pitch is None else _rounded(pitch),
-        _pattern_direction(direction, members),
+        _pattern_direction(direction, members) if pattern_kind == "linear" else None,
         tuple(None if value is None else _rounded(value) for value in grid),
         getattr(pattern, "rows", None),
         getattr(pattern, "cols", None),
-        _grid_angle(getattr(pattern, "angle", None)),
+        _grid_angle(getattr(pattern, "angle", None)) if pattern_kind == "grid" else None,
     )
 
 
@@ -137,15 +126,12 @@ def _pattern_source_at(pattern) -> tuple[float, float, float]:
     center = getattr(pattern, "center", None)
     if center is not None:
         return _point(center)
-    slots = getattr(pattern, "slots", None)
-    if slots:
-        points = [_slot_source_at(slot) for slot in slots]
-        return (
-            _rounded(sum(point[0] for point in points) / len(points)),
-            _rounded(sum(point[1] for point in points) / len(points)),
-            _rounded(sum(point[2] for point in points) / len(points)),
-        )
-    return _point(pattern.frame.origin)
+    points = [_slot_source_at(slot) for slot in pattern.slots]
+    return (
+        _rounded(sum(point[0] for point in points) / len(points)),
+        _rounded(sum(point[1] for point in points) / len(points)),
+        _rounded(sum(point[2] for point in points) / len(points)),
+    )
 
 
 def _parameter_ids(feature, *, pattern: bool) -> tuple[str, ...] | None:
@@ -159,10 +145,8 @@ def _parameter_ids(feature, *, pattern: bool) -> tuple[str, ...] | None:
     if pattern:
         if feature.pattern == "linear":
             required_roles.append("pitch")
-        elif feature.pattern == "grid":
+        else:  # exact source correspondence already proved this is the physical grid
             required_roles.extend(("grid_pitch", "grid_pitch"))
-        else:
-            return None
         location_stem = getattr(feature, "LOCATION_STEM", None)
         if feature.frame.axis != "z" or location_stem is None:
             return None

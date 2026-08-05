@@ -1,6 +1,7 @@
 """Slot completeness follows semantic provenance, never presentation (#1018 Gate 2)."""
 
 from dataclasses import replace
+from types import SimpleNamespace
 
 import pytest
 from build123d import Box, Pos
@@ -28,6 +29,14 @@ def _equal_pitch_slot_grid():
     part = Box(176, 136, 20)
     for x in (-17, 17):
         for y in (-34, 0, 34):
+            part -= Pos(x, y, 0) * Box(24, 8, 20)
+    return part
+
+
+def _default_angle_slot_grid():
+    part = Box(176, 136, 20)
+    for x in (-34, 0, 34):
+        for y in (-22, 22):
             part -= Pos(x, y, 0) * Box(24, 8, 20)
     return part
 
@@ -89,6 +98,29 @@ def _declared_slot_drawing(*, suppress=False, w_shift=0.0):
     else:
         sheet.auto_dimensions()
     return sheet.build(), handle
+
+
+def _pattern_proxy(pattern, *, parameters, location_stem="location_slot_pattern"):
+    values = {
+        name: getattr(pattern, name)
+        for name in (
+            "frame",
+            "pattern",
+            "count",
+            "member",
+            "members",
+            "pitch",
+            "direction",
+            "grid",
+            "rows",
+            "cols",
+            "angle",
+        )
+    }
+    values.update(kind="slot_pattern", parameters=parameters)
+    if location_stem is not None:
+        values["LOCATION_STEM"] = location_stem
+    return SimpleNamespace(**values)
 
 
 def test_removing_an_off_centre_slots_location_is_detected():
@@ -305,6 +337,49 @@ def test_pattern_placement_failures_retain_each_failed_measurement():
     assert not [outcome for outcome in outcomes if outcome.state == "missing"]
 
 
+def test_grouped_callout_failure_marks_its_orphaned_pattern_pitches(monkeypatch):
+    from draftwright.annotations import holes as hole_renderers
+
+    original = hole_renderers._leader_callout_pass
+
+    def drop_callouts(_dwg, _analysis, jobs, *, noun, drop_code, ctx, geom_clear=False):
+        if noun != "slot pattern":
+            return original(
+                _dwg,
+                _analysis,
+                jobs,
+                noun=noun,
+                drop_code=drop_code,
+                ctx=ctx,
+                geom_clear=geom_clear,
+            )
+        assert geom_clear is False
+        for _name, _view, _bounds, label, _candidates, measurement in jobs:
+            ctx.record_issue(
+                "warning",
+                drop_code,
+                f"{noun} callout {label} not placed (forced test failure)",
+                measurement=measurement,
+            )
+        return 0
+
+    monkeypatch.setattr(hole_renderers, "_leader_callout_pass", drop_callouts)
+    dwg = build_drawing(_slot_grid())
+
+    dropped = {
+        measurement.parameter
+        for issue in dwg.registry.issues
+        if issue.code in {"slot_dropped", "slot_dim_dropped"}
+        for measurement in issue.measurement_ids
+    }
+    assert dropped == {
+        "slot_width.length",
+        "slot_length.length",
+        "grid_pitch.length.row",
+        "grid_pitch.length.col",
+    }
+
+
 def test_stale_declared_geometry_is_unverifiable_without_a_nearest_match():
     dwg, _handle = _declared_slot_drawing(w_shift=1.0)
     assert [name for name in dwg.annotations() if name.startswith("m_slot")]
@@ -324,6 +399,42 @@ def test_duplicate_ir_candidates_are_unverifiable_not_merged():
     )
     assert len(outcomes) == 1
     assert outcomes[0].state == "unverifiable"
+
+
+def test_zero_declared_linear_direction_is_unverifiable():
+    dwg = build_drawing(_slot_row())
+    pattern = next(feature for feature in dwg.model().features if feature.kind == "slot_pattern")
+
+    outcomes = slot_requirement_outcomes(
+        dwg.recognition(),
+        (replace(pattern, direction=(0.0, 0.0, 0.0)),),
+        dwg.registry,
+    )
+    assert [(outcome.parameter_id, outcome.state) for outcome in outcomes] == [
+        ("?", "unverifiable")
+    ]
+
+
+def test_missing_pattern_location_vocabulary_is_unverifiable():
+    dwg = build_drawing(_slot_grid())
+    pattern = next(feature for feature in dwg.model().features if feature.kind == "slot_pattern")
+    proxy = _pattern_proxy(pattern, parameters=pattern.parameters, location_stem=None)
+
+    outcomes = slot_requirement_outcomes(dwg.recognition(), (proxy,), dwg.registry)
+    assert [(outcome.parameter_id, outcome.state) for outcome in outcomes] == [
+        ("?", "unverifiable")
+    ]
+
+
+def test_incomplete_pattern_measurement_vocabulary_is_unverifiable():
+    dwg = build_drawing(_slot_grid())
+    pattern = next(feature for feature in dwg.model().features if feature.kind == "slot_pattern")
+    proxy = _pattern_proxy(pattern, parameters=lambda: pattern.parameters()[:-1])
+
+    outcomes = slot_requirement_outcomes(dwg.recognition(), (proxy,), dwg.registry)
+    assert [(outcome.parameter_id, outcome.state) for outcome in outcomes] == [
+        ("?", "unverifiable")
+    ]
 
 
 def test_off_axis_pattern_location_is_unverifiable_not_assumed_complete():
@@ -375,6 +486,40 @@ def test_detected_and_equivalently_rotated_declared_grids_have_the_same_outcomes
         rows=source.rows,
         cols=source.cols,
         angle=source.angle + 180.0,
+        at=source.center,
+    )
+    declared = sheet.build()
+
+    expected = [(outcome.parameter_id, outcome.state) for outcome in _outcomes(automatic)]
+    actual = [(outcome.parameter_id, outcome.state) for outcome in _outcomes(declared)]
+    assert actual == expected
+
+
+def test_declared_grid_accepts_the_implicit_zero_degree_angle():
+    part = _default_angle_slot_grid()
+    automatic = build_drawing(part)
+    (source,) = automatic.recognition().slot_patterns
+    assert source.angle == 0.0
+    source_member = source.slots[0]
+    member = slot(
+        width=source_member.width,
+        length=source_member.length,
+        long_axis=source_member.long_axis,
+        width_axis=source_member.width_axis,
+        depth_axis=source_member.depth_axis,
+        w_center=source_member.w_center,
+        lo=source_member.lo,
+        hi=source_member.hi,
+        at=source_member.location,
+    )
+    sheet = Sheet(part).auto_dimensions()
+    sheet.slot_pattern(
+        member,
+        kind="grid",
+        count=len(source.slots),
+        grid=(source.row_pitch, source.col_pitch),
+        rows=source.rows,
+        cols=source.cols,
         at=source.center,
     )
     declared = sheet.build()
@@ -456,11 +601,17 @@ def test_declared_linear_pattern_accepts_its_implicit_default_axis():
 
 
 def test_a_caller_assembled_empty_inventory_cannot_silence_slot_coverage():
-    from types import SimpleNamespace
-
     from draftwright.registry import AnnotationRegistry
 
     with pytest.raises(TypeError, match="RecognitionResult"):
         slot_requirement_outcomes(
             SimpleNamespace(slots=(), slot_patterns=()), (), AnnotationRegistry()
         )
+
+
+def test_absent_recognition_and_a_valid_empty_inventory_are_both_quiet():
+    from draftwright.registry import AnnotationRegistry
+
+    dwg = build_drawing(Box(60, 40, 20))
+    assert slot_requirement_outcomes(None, (), AnnotationRegistry()) == []
+    assert slot_requirement_outcomes(dwg.recognition(), (), AnnotationRegistry()) == []

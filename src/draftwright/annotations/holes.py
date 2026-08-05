@@ -1099,8 +1099,8 @@ def _add_grid_pitch_dims(
     members,
     nominals,  # the approved grid_pitch entries, one per lattice axis
     to_page,
-    feature=None,
     *,
+    feature,
     ctx,
     name_prefix="dim_pitch",
     drop_code=None,
@@ -1142,29 +1142,21 @@ def _add_grid_pitch_dims(
     # The two pitch values are not identities: on a square-pitch grid they are equal. Map
     # recovered page axes to the IR's row/column lattice basis instead. `angle` names the
     # column direction in the plane_axes frame; the perpendicular direction is the row.
-    # Keep the numeric fallback for bare helper callers with no semantic pattern feature.
     actual_feature = resolve_feature(feature)
     by_discriminator = {
         entry.discriminator: entry
         for entry in nominals
         if getattr(entry, "discriminator", None) in {"row", "col"}
     }
-    column_page = None
-    if (
-        actual_feature is not None
-        and getattr(actual_feature, "pattern", None) == "grid"
-        and {"row", "col"} <= set(by_discriminator)
-    ):
-        pu, pv = plane_axes(actual_feature.frame.axis)
-        angle = math.radians(actual_feature.angle or 0.0)
-        column_world = tuple(math.cos(angle) * pu[k] + math.sin(angle) * pv[k] for k in range(3))
-        origin = actual_feature.frame.origin
-        page_origin = to_page(origin)
-        page_column = to_page(tuple(origin[k] + column_world[k] for k in range(3)))
-        dx, dy = page_column[0] - page_origin[0], page_column[1] - page_origin[1]
-        norm = math.hypot(dx, dy)
-        if norm > 1e-9:
-            column_page = (dx / norm, dy / norm)
+    pu, pv = plane_axes(actual_feature.frame.axis)
+    angle = math.radians(actual_feature.angle or 0.0)
+    column_world = tuple(math.cos(angle) * pu[k] + math.sin(angle) * pv[k] for k in range(3))
+    origin = actual_feature.frame.origin
+    page_origin = to_page(origin)
+    page_column = to_page(tuple(origin[k] + column_world[k] for k in range(3)))
+    dx, dy = page_column[0] - page_origin[0], page_column[1] - page_origin[1]
+    norm = math.hypot(dx, dy)
+    column_page = (dx / norm, dy / norm)
 
     def _axis_dim(u, pitch_page, sub):
         perp = (-u[1], u[0])
@@ -1191,14 +1183,10 @@ def _add_grid_pitch_dims(
         hi = max(line, key=along)
         span = along(hi) - along(lo)
         n = round(span / pitch_page) + 1
-        if column_page is not None:
-            discriminator = (
-                "col" if abs(u[0] * column_page[0] + u[1] * column_page[1]) > 0.7 else "row"
-            )
-            pitch = by_discriminator[discriminator]
-        else:
-            # Selection fallback is numeric; the LABEL remains the compiler's own text.
-            pitch = min(nominals, key=lambda e: abs(e.value - pitch_page / a.SCALE))
+        discriminator = (
+            "col" if abs(u[0] * column_page[0] + u[1] * column_page[1]) > 0.7 else "row"
+        )
+        pitch = by_discriminator[discriminator]
         _place_pitch_dim(
             dwg,
             a,
