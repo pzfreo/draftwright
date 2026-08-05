@@ -113,6 +113,19 @@ class Flat(Record):
     #: ADR 0013's rule for a record that looks too thin: the fix is the record. The
     #: recogniser already had the owning cylinder in hand, so this costs nothing to carry.
     axis_line: tuple[float, float] = (0.0, 0.0)
+    #: The owning stock's axial extent ``(lo, hi)`` along ``axis``.
+    #:
+    #: The axis line alone is NOT stock identity, and this code already knew it: #1015 taught
+    #: the opposition test that "the same infinite axis is not the same piece of stock", and
+    #: the same holds for grouping. Two D-shafts stacked coaxially with a gap share an axis
+    #: line, so grouping on that alone merged two independent A/F definitions into one callout
+    #: — the very defect #1013 set out to fix, in a coaxial arrangement instead of a parallel
+    #: one (Codex #1035 r1).
+    #:
+    #: Together with ``axis_line`` this is the stock identity. Purely geometric — the
+    #: recogniser's internal ``stock`` tuple also carries a solid index, which is a same-run
+    #: equality check and deliberately NOT propagated: it is not stable across runs.
+    stock_span: tuple[float, float] = (0.0, 0.0)
 
 
 def recognise_flats(part, *, cyls=None) -> list[Flat]:
@@ -162,6 +175,7 @@ def recognise_flats(part, *, cyls=None) -> list[Flat]:
                 {
                     "axis": c["axis"],
                     "axis_line": _axis_line(c["axis"], ax),
+                    "stock_span": (round(c["s_lo"], 3), round(c["s_hi"], 3)),
                     "n": nv,
                     "s": s,
                     "r": r,
@@ -205,6 +219,7 @@ def recognise_flats(part, *, cyls=None) -> list[Flat]:
                 across=round(across, 3),
                 at=(round(cand["at"][0], 3), round(cand["at"][1], 3), round(cand["at"][2], 3)),
                 axis_line=cand["axis_line"],
+                stock_span=cand["stock_span"],
             )
         )
     return sorted(out, key=lambda fl: (fl.axis, fl.at))

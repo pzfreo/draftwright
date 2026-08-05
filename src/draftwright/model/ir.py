@@ -641,6 +641,9 @@ class FlatFeature:
     #: share an A/F definition only if they share this; the axis letter alone cannot tell a
     #: double-D's two faces from two parallel lobes (#1013).
     axis_line: tuple[float, float] = (0.0, 0.0)
+    #: The owning stock's axial extent — with ``axis_line``, the stock identity. Coaxial
+    #: stacked stock shares an axis line, so that alone merged independent definitions.
+    stock_span: tuple[float, float] = (0.0, 0.0)
     kind: ClassVar[str] = "flat"
 
     def parameters(self) -> list[DimParameter]:

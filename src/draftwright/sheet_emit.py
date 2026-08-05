@@ -377,7 +377,15 @@ def _feature_line(f, part_envelope=None) -> str:
     if k == "fillet":
         return f'sheet.fillet(axis="{f.axis}", radius={_n(f.radius)}, at={_pt(f.frame.origin)})'
     if k == "flat":
-        return f'sheet.flat(axis="{f.axis}", across={_n(f.across)}, at={_pt(f.frame.origin)})'
+        # `axis_line`/`stock_span` are the stock identity (#1013). Emitted ALWAYS, not only
+        # when non-default: they are what stops two same-sized flats on separate stock
+        # collapsing into one callout, and a script that omits them regenerates the very
+        # drawing the detection was fixing (Codex #1035 r1). The declared defaults reproduce
+        # pre-#1013 grouping, so silence here is not neutral — it is the old bug.
+        return (
+            f'sheet.flat(axis="{f.axis}", across={_n(f.across)}, at={_pt(f.frame.origin)}, '
+            f"axis_line={_pt(f.axis_line)}, stock_span={_pt(f.stock_span)})"
+        )
     if k == "groove":
         return (
             f'sheet.groove(axis="{f.axis}", width={_n(f.width)}, '

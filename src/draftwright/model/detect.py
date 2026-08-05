@@ -511,6 +511,7 @@ def _convert_flat(flat: Flat, ctx: ConvContext) -> FlatFeature:
         axis=flat.axis,
         across=flat.across,
         axis_line=flat.axis_line,
+        stock_span=flat.stock_span,
     )
 
 

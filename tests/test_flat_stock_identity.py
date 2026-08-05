@@ -90,6 +90,73 @@ def test_two_parallel_lobes_are_two_definitions_and_a_lost_one_is_reported():
     )
 
 
+def _coaxial_separated_stocks():
+    """TWO pieces of stock stacked on ONE axis with a gap — same axis line, different spans."""
+    lobe = Cylinder(15, 30) - Pos(12.5, 0, 0) * Box(10, 40, 50)
+    return lobe + Pos(0, 0, 80) * lobe
+
+
+def test_coaxial_separated_stock_is_two_definitions_not_one():
+    """The axis line alone is NOT stock identity, and this code already knew it.
+
+    #1015 taught the opposition test that "the same infinite axis is not the same piece of
+    stock"; grouping needed the same lesson. Two D-shafts stacked coaxially with a gap share
+    an axis line, so the first cut of #1013 merged them into one callout with no report —
+    the very defect it set out to fix, one arrangement over (Codex #1035 r1).
+
+    The axial span separates them. Neither half suffices alone: parallel lobes share a span
+    but not a line; coaxial stock shares a line but not a span.
+    """
+    flats = recognise_flats(_coaxial_separated_stocks())
+    assert len(flats) == 2, "fixture should yield one flat per stock"
+    assert len({f.axis_line for f in flats}) == 1, (
+        "fixture no longer exercises the case — these must SHARE an axis line, or the "
+        "parallel-lobe fix would separate them and this proves nothing"
+    )
+    assert len({f.stock_span for f in flats}) == 2, (
+        "coaxial stock must be told apart by its axial span"
+    )
+
+    dwg = build_drawing(_coaxial_separated_stocks())
+    callouts = [n for n in dwg.annotations() if n.startswith("m_flat_")]
+    dropped = [i for i in dwg.lint() if i.code == "flat_dropped"]
+    assert len(callouts) + len(dropped) == 2, (
+        f"two coaxial stocks are two A/F definitions; got {len(callouts)} placed + "
+        f"{len(dropped)} reported. One callout and no report is the silent defect."
+    )
+
+
+def test_the_emitted_script_carries_the_stock_identity(tmp_path):
+    """A detected two-lobe part must not round-trip into a collapsed one-lobe declaration.
+
+    `sheet.flat(...)` omitted the identity, and the declared defaults reproduce pre-#1013
+    grouping — so an emitted script regenerated exactly the drawing the detection had just
+    fixed. Silence is not neutral here; it is the old bug (Codex #1035 r1).
+
+    CLAUDE.md requires a feature to round-trip recognise + emit + declare, and this is the
+    emit leg.
+    """
+    from build123d import export_step
+
+    from draftwright.sheet_emit import generate_sheet_script
+
+    step = str(tmp_path / "lobes.step")
+    export_step(_two_parallel_lobes(), step)
+    generate_sheet_script(step, out=str(tmp_path / "lobes"))
+    script = (tmp_path / "lobes.py").read_text()
+
+    flat_lines = [ln for ln in script.splitlines() if "sheet.flat(" in ln]
+    assert len(flat_lines) == 2, f"expected one declaration per lobe, got {flat_lines}"
+    for ln in flat_lines:
+        assert "axis_line=" in ln and "stock_span=" in ln, (
+            f"emitted flat drops its stock identity, so the script regenerates the collapse: {ln}"
+        )
+    # And the two lobes are declared as DIFFERENT stock, not merely annotated.
+    assert "axis_line=(0, 0)" in script and "axis_line=(100, 0)" in script, (
+        "both lobes emitted the same axis line — the script would collapse them again"
+    )
+
+
 def test_a_declared_flat_defaults_to_one_stock():
     """`axis_line` cannot be derived from `at`: a double-D's two faces have different face
     centres but one axis line, so deriving it would split every declared double-D in two.

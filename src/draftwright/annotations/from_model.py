@@ -1710,16 +1710,21 @@ def render_flats(dwg, plan, a, *, ctx, only=None) -> int:
         )
         if pd is None:
             continue
-        # Grouped by the stock's AXIS LINE as well as the size (#1013). Two same-sized flats
-        # on one axis line are the two faces of one double-D — one A/F definition, one
-        # callout. On DIFFERENT axis lines they are separate lobes, each needing its own: the
-        # axis letter alone cannot tell those apart, so a part with two parallel 25 A/F lobes
-        # used to get one callout and leave the second undefined on the sheet.
-        collapse.setdefault((g.facts.axis, g.facts.axis_line, round(pd.value, 3)), []).append(
-            (g, pd)
-        )
+        # Grouped by the STOCK IDENTITY as well as the size (#1013). Two same-sized flats on
+        # one piece of stock are the two faces of one double-D — one A/F definition, one
+        # callout. On different stock they are independent, each needing its own; the axis
+        # letter alone cannot tell those apart, so a part with two parallel 25 A/F lobes used
+        # to get one callout and leave the second undefined on the sheet.
+        #
+        # Identity is the axis line AND the axial span, because neither alone is enough:
+        # parallel lobes share a span but not a line, and coaxial stacked stock shares a line
+        # but not a span. Grouping on the line alone merged the coaxial case silently — the
+        # same defect this fix is about, one arrangement over (Codex #1035 r1).
+        collapse.setdefault(
+            (g.facts.axis, g.facts.axis_line, g.facts.stock_span, round(pd.value, 3)), []
+        ).append((g, pd))
     jobs = []
-    for gi, ((axis, _axis_line, _across), members) in enumerate(sorted(collapse.items())):
+    for gi, ((axis, _line, _span, _across), members) in enumerate(sorted(collapse.items())):
         if only is not None:
             # #426 Ph2b subset (finalize): filter members AFTER enumerating the collapse so gi
             # stays the full-drawing group index (Codex #811) — see render_fillets.
