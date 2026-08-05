@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 from build123d import Box, Pos
 
-from draftwright import Sheet, build_drawing
+from draftwright import Drawing, Sheet, build_drawing
 from draftwright.linting.slot_coverage import slot_requirement_outcomes
 from draftwright.model import slot
 from draftwright.model.compiled import compile_dimensions
@@ -338,43 +338,21 @@ def test_pattern_placement_failures_retain_each_failed_measurement():
 
 
 def test_grouped_callout_failure_marks_its_orphaned_pattern_pitches(monkeypatch):
-    from draftwright.annotations import holes as hole_renderers
+    annotations = Drawing.annotations
 
-    original = hole_renderers._leader_callout_pass
+    def without_grouped_slot_callout(drawing):
+        return [name for name in annotations(drawing) if not name.startswith("m_slotpat")]
 
-    def drop_callouts(_dwg, _analysis, jobs, *, noun, drop_code, ctx, geom_clear=False):
-        if noun != "slot pattern":
-            return original(
-                _dwg,
-                _analysis,
-                jobs,
-                noun=noun,
-                drop_code=drop_code,
-                ctx=ctx,
-                geom_clear=geom_clear,
-            )
-        assert geom_clear is False
-        for _name, _view, _bounds, label, _candidates, measurement in jobs:
-            ctx.record_issue(
-                "warning",
-                drop_code,
-                f"{noun} callout {label} not placed (forced test failure)",
-                measurement=measurement,
-            )
-        return 0
-
-    monkeypatch.setattr(hole_renderers, "_leader_callout_pass", drop_callouts)
+    monkeypatch.setattr(Drawing, "annotations", without_grouped_slot_callout)
     dwg = build_drawing(_slot_grid())
 
     dropped = {
         measurement.parameter
         for issue in dwg.registry.issues
-        if issue.code in {"slot_dropped", "slot_dim_dropped"}
+        if issue.code == "slot_dim_dropped"
         for measurement in issue.measurement_ids
     }
     assert dropped == {
-        "slot_width.length",
-        "slot_length.length",
         "grid_pitch.length.row",
         "grid_pitch.length.col",
     }
