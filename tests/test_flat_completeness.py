@@ -14,7 +14,8 @@ import pytest
 from build123d import Align, Box, Cylinder, Pos
 
 from draftwright import Sheet, build_drawing
-from draftwright.linting import LintIssue, flat_requirement_outcomes
+from draftwright.linting import LintIssue
+from draftwright.linting.flat_coverage import flat_requirement_outcomes
 from draftwright.recognition import recognise_flats
 from draftwright.registry import AnnotationRegistry
 
