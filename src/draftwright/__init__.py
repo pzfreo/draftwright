@@ -73,6 +73,7 @@ _sys.modules[__name__].__class__ = _DraftwrightModule
 
 
 if TYPE_CHECKING:  # static analysers / IDEs — no runtime import, no kernel cost
+    from draftwright._warnings import SoftDeprecationWarning
     from draftwright.builder import build_drawing, make_drawing
     from draftwright.compose import choose_scale
     from draftwright.drawing import Drawing, FeatureInfo

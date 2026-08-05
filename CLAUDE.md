@@ -126,6 +126,10 @@ entry. Keep `_LAYERS` and this section in step.
   detected as declared (#969); the DAG's bottom leaf (guarded
   by `test_geometry_is_a_leaf`) so the IR waist uses them without importing
   `_core`.
+- **`_warnings.py`** — the public warning categories (`SoftDeprecationWarning`), a
+  dependency-free leaf. Separate from `_core` on purpose: `_core` imports build123d, so a
+  category defined there costs the CAD kernel (~6 s) to reach, and the pytest
+  `filterwarnings` entry naming it pays that on every invocation (#1043).
 - **`fits.py`** — the ISO 286 fit tables (`fit_deviation`, `FitClass`; ADR 0011
   P2a.2): a rank-0 leaf consumed by `_core`, `model/ir` and `sheet`.
 - **`intents.py`** — the deferred-placement "low IR" behind `Drawing.finalize()`

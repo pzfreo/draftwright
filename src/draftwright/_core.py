@@ -49,26 +49,6 @@ from draftwright.layout import _greedy_strip_1d, _solve_strip_1d
 _log = logging.getLogger(__name__)
 
 
-class SoftDeprecationWarning(UserWarning):
-    """A surface that is **discouraged but supported**, with no removal planned.
-
-    Deliberately NOT a :class:`DeprecationWarning`. ``docs/deprecations.md`` carries ADR 0005
-    §4's rule — a compat surface names a tracking issue *and* a removal target, because "a
-    facade with no exit date is a failure mode, not a success" — and
-    ``tests/test_deprecation_dates.py`` enforces it. Raising a ``DeprecationWarning`` for
-    something we intend to keep would mean writing a removal date we do not mean, which is
-    that failure mode wearing a date.
-
-    "Soft deprecated" is the term Python uses for exactly this: still supported, not
-    scheduled for removal, but not what you should reach for in new code.
-
-    A ``UserWarning`` subclass rather than a bare one so callers can silence this category
-    alone. It is also, in practice, the louder signal: ``DeprecationWarning`` is filtered by
-    default in notebooks, several test runners, and library-internal call paths, whereas this
-    shows unconditionally.
-    """
-
-
 def place_annotation(registry, items, obj, name=None, view=None, feature=None, measurement=None):
     """The annotation-placement primitive (#817): register *obj* under *name* — replacing any
     prior object of that name (dropped from the render list *items*) so a name maps to one

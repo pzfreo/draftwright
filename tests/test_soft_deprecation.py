@@ -10,6 +10,7 @@ mode" — and `tests/test_deprecation_dates.py` enforces it. Raising `Deprecatio
 something we intend to keep would mean writing a removal date we do not mean.
 """
 
+import pathlib
 import subprocess
 import sys
 import warnings
@@ -191,4 +192,30 @@ def test_reaching_the_warning_category_does_not_import_the_cad_kernel():
     assert out.stdout.strip() == "False", (
         "importing SoftDeprecationWarning pulled in the CAD kernel — it belongs in a "
         "dependency-free leaf, not beside code that imports build123d"
+    )
+
+
+def test_the_category_is_defined_exactly_once():
+    """One class, one place.
+
+    `_core` kept a second, independent definition after the class was moved to the
+    dependency-free leaf — a `git checkout` used to undo a mutation clobbered the deletion,
+    and it was committed back (Codex #1045 r3). Two classes with one name is worse than
+    either alone: `Sheet` emits the public one, so anyone filtering or catching the other
+    silently matches nothing, and the kernel-dragging definition the move existed to remove
+    is still there.
+
+    Scans the source rather than comparing imports, because the two-class state is invisible
+    to every behavioural test — `pytest.warns(SoftDeprecationWarning)` passes either way.
+    """
+    root = pathlib.Path(__file__).resolve().parent.parent / "src" / "draftwright"
+    definitions = [
+        path.relative_to(root).as_posix()
+        for path in root.rglob("*.py")
+        if "class SoftDeprecationWarning" in path.read_text(encoding="utf-8")
+    ]
+
+    assert definitions == ["_warnings.py"], (
+        f"SoftDeprecationWarning is defined in {definitions} — it belongs only in the "
+        "dependency-free leaf. A second definition matches nothing that the first catches."
     )
