@@ -23,6 +23,8 @@ dependency management.
 uv sync                       # install dependencies
 uv run pytest -m smoke        # quick "did I break something obvious" check (~30 s)
 uv run pytest                 # full fast tier
+scripts/pr-check --quick      # smoke tier plus every static PR gate
+scripts/pr-check              # final preflight: full coverage plus changed-line gate
 ```
 
 For a full local run, spread it across cores with
@@ -34,9 +36,10 @@ before changing those areas.
 ### Coverage
 
 CI measures line and branch coverage on the full fast tier and enforces the
-`[tool.coverage.report] fail_under` floor in `pyproject.toml` on every supported
-OS/Python combination. The canonical Linux/Python 3.12 job uploads to Codecov and
-retains the XML plus browsable HTML reports for 14 days. To reproduce that run locally:
+`[tool.coverage.report] fail_under` floor in `pyproject.toml`. The canonical
+Linux/Python 3.12 job uploads to Codecov and retains the XML plus browsable HTML
+reports for 14 days. The other OS/Python jobs run the same tests without redundant
+coverage instrumentation. To reproduce the canonical run locally:
 
 ```
 uv run pytest tests/ -n auto --dist loadscope \
@@ -46,14 +49,43 @@ uv run pytest tests/ -n auto --dist loadscope \
 
 The baseline recorded for #825 on Linux/Python 3.13 was **92.05% combined
 line-and-branch coverage** (93.90% statements and 86.89% branches); the initial
-floor is 90%. Coverage thresholds are a ratchet: raise the floor after the lowest
-result across the supported CI matrix remains above the proposed value, and do not
-lower it to accommodate an untested change.
+floor is 90%. Coverage thresholds are a ratchet: raise the floor after the canonical
+job remains above the proposed value, and do not lower it to accommodate an untested
+change.
+
+`scripts/pr-check` additionally requires 92% line coverage over changed source lines,
+compared with `origin/main` by default. Set `BASE_REF` when the branch has another base.
+This is a local lower-bound analogue of Codecov's patch/project ratchet: it catches a
+poorly covered patch before the remote matrix, while the full-suite floor still guards
+the project as a whole.
+
+### Evidence-gated slices
+
+Recognition, completeness, placement, and compiler work starts from a vertical slice,
+not an architecture phase. Before production code, record:
+
+1. a real or minimal fixture and its exact current false result;
+2. the desired user-visible and semantic result;
+3. the smallest contract being tested;
+4. a mutation that must make the proposed guard fail;
+5. the affected automatic, declared, generated-script, and repeated-lint paths;
+6. work deliberately left outside the slice.
+
+If two consecutive adversarial review rounds invalidate the same core association
+strategy, stop extending that approach. Preserve its fixtures, reclassify it as discovery,
+and split the missing upstream contract. A green suite is necessary, but it does not
+establish a semantic claim until the named mutation makes the guard fail.
+
+Test helpers follow the same evidence rule. Extract a structural assertion only after
+two slices use the same contract. Physical grouping, applicability, and correspondence
+keys stay family-specific unless a failing fixture proves otherwise.
 
 ## Pull requests
 
 - Branch off `main` and open a PR with a clear description of **why**.
-- Keep changes focused; add tests for new behaviour.
-- Make sure the fast test tier passes locally before pushing.
+- Keep changes focused; add a fixture, semantic oracle, and targeted mutation for new
+  behaviour rather than testing presentation proxies.
+- Use the PR template to record the slice and its stop condition.
+- Run `scripts/pr-check --quick` while iterating and `scripts/pr-check` before the final push.
 
 Questions or commercial-licensing enquiries: pzfreo@gmail.com.

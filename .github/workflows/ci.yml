@@ -5,6 +5,12 @@ on:
     branches: [main]
   pull_request:
 
+# A PR needs results only for its latest head. Main runs are not cancelled because they own
+# the post-merge slow suite, which must not be starved during a burst of merges.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -19,17 +25,8 @@ jobs:
       - name: Install dependencies
         run: uv sync --group dev
 
-      - name: Ruff lint
-        run: uv run ruff check src/ tests/
-
-      - name: Ruff format check
-        run: uv run ruff format --check src/ tests/
-
-      - name: Mypy
-        run: uv run mypy src/draftwright/
-
-      - name: Codespell
-        run: uv run codespell src/ tests/ docs/
+      - name: Static preflight
+        run: scripts/pr-check --static
 
   test:
     permissions:
@@ -70,12 +67,12 @@ jobs:
         # No --timeout here: it would override the 300 s set in
         # [tool.pytest.ini_options]. The heaviest test (full specimen-sheet SVG
         # export) can exceed 120 s on the slower macOS runners.
-        # Coverage runs in CI; it is kept out of the default addopts so local
-        # runs stay lean (see pyproject [tool.pytest.ini_options]).
+        # Coverage is measured once by the canonical Ubuntu/Python 3.12 job below.
+        # Instrumenting all fourteen compatibility jobs adds ~13% runtime without
+        # producing another retained or uploaded report.
         run: >-
           uv run pytest tests/ -n auto --dist loadscope
-          --cov=src/draftwright
-          --cov-report=term-missing
+          --durations=25
 
   coverage:
     # The fifteenth OS/Python matrix entry, split out so only the one job that
@@ -103,6 +100,7 @@ jobs:
           --cov-report=term-missing
           --cov-report=xml
           --cov-report=html:htmlcov
+          --durations=25
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v6

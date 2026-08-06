@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$ROOT"
+
+mode=${1:---full}
+
+static_checks() {
+    uv run ruff check src/ tests/
+    uv run ruff format --check src/ tests/
+    uv run mypy src/draftwright/
+    uv run codespell src/ tests/ docs/ scripts/ .github/ CONTRIBUTING.md
+}
+
+case "$mode" in
+    --static)
+        static_checks
+        ;;
+    --quick)
+        static_checks
+        uv run pytest tests/ -m smoke
+        ;;
+    --full)
+        base_ref=${BASE_REF:-origin/main}
+        if ! git rev-parse --verify "${base_ref}^{commit}" >/dev/null 2>&1; then
+            printf 'Cannot resolve BASE_REF=%s. Fetch it or set BASE_REF to a local commit.\n' \
+                "$base_ref" >&2
+            exit 2
+        fi
+
+        static_checks
+        uv run pytest tests/ -n auto --dist loadscope \
+            --cov=src/draftwright \
+            --cov-report=term-missing \
+            --cov-report=xml
+
+        uvx --from diff-cover==9.7.2 diff-cover coverage.xml \
+            --compare-branch "$base_ref" \
+            --fail-under=92
+        ;;
+    *)
+        printf 'Usage: %s [--quick|--static|--full]\n' "$0" >&2
+        exit 2
+        ;;
+esac
