@@ -119,9 +119,10 @@ def recognise_rectangular_pads(part, *, tol: float = 0.2) -> list[RaisedPad]:
         z0 = max(numeric_bases)
         out.add(RaisedPad(x0, x1, y0, y1, round(z0, 3), z1))
 
-    # A tiered/staircase tower has nested rectangular top/ledge regions at
-    # different heights. Reject only that overlapping stack; disjoint pads may
-    # legitimately have any number of different heights.
+    # A tiered/staircase tower has rectangular ledges touching the candidate at its
+    # recovered local base.  Lower ledges on a sloped support can touch the pad in plan
+    # without belonging to that stack (#909); comparing every different Z discarded the
+    # real upper pad.  Disjoint pads may legitimately have any number of heights.
     def touches_plan(a: RaisedPad, b: RaisedPad) -> bool:
         return (
             min(a.x1, b.x1) - max(a.x0, b.x0) >= -tol and min(a.y1, b.y1) - max(a.y0, b.y0) >= -tol
@@ -132,6 +133,6 @@ def recognise_rectangular_pads(part, *, tol: float = 0.2) -> list[RaisedPad]:
         pad
         for pad in out
         if not any(
-            abs(other.z1 - pad.z1) > tol and touches_plan(pad, other) for other in raw_regions
+            abs(other.z1 - pad.z0) <= tol and touches_plan(pad, other) for other in raw_regions
         )
     )
