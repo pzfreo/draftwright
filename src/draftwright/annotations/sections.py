@@ -739,8 +739,9 @@ def _request_prismatic_detail(dwg, a: Analysis, *, ctx, plan) -> None:
     X-turned crowded-head block + `DetailRequest` this docstring's sibling,
     `render_step_lengths`, already has.
 
-    The redraw re-draws the step-height ladder in the detail view at the
-    enlarged scale — from the **compiled plan**, like the source-view ladder.
+    The redraw draws only the approved rungs the source-view spacing gate omitted,
+    at the enlarged scale. The escalation carries those exact compiled objects; this
+    resolver does not re-decide which rungs failed.
 
     That was the last dimensional bypass of ADR 0016's boundary (#923 review). This
     function used to re-derive the step feature from ``dwg.model()`` and rebuild the ladder
@@ -749,22 +750,30 @@ def _request_prismatic_detail(dwg, a: Analysis, *, ctx, plan) -> None:
     renderer while its escalation reconstructed the same content left the rule true only of
     the path anyone happened to look at."""
     rung_set = plan.ladder("step_height")
-    rungs = list(rung_set.rungs) if rung_set is not None else []
-    if len(rungs) < 2:
+    approved_rungs = list(rung_set.rungs) if rung_set is not None else []
+    if len(approved_rungs) < 2:
         return
-    if not any(e.kind == "step" and e.reason == "illegible" for e in ctx.escalations):
+    escalation = next(
+        (e for e in ctx.escalations if e.kind == "step" and e.reason == "illegible"),
+        None,
+    )
+    if escalation is None:
+        return
+    rungs = [rung for rung in approved_rungs if rung in escalation.targets]
+    if not rungs:
         return
     # Both ends off the approved span, never the bounding box: the span is the compiler's
     # statement of what each rung measures, and the detail must measure the same thing the
     # source view would have.
+    approved_levels = [r.span[1][2] for r in approved_rungs]
     levels = [r.span[1][2] for r in rungs]
-    datum_z = rungs[0].span[0][2]
+    datum_z = approved_rungs[0].span[0][2]
     rung_by_level = {r.span[1][2]: r for r in rungs}
     has_shoulders = plan.ladder("step_position") is not None
-    z0, z1 = min(levels), max(levels)
+    z0, z1 = min(approved_levels), max(approved_levels)
     pad = 0.08 * (z1 - z0) + 1.0
     band_lo, band_hi = max(a.bb.min.Z, z0 - pad), min(a.bb.max.Z, z1 + pad)
-    s_zs = sorted(levels)
+    s_zs = sorted(approved_levels)
     min_gap = min(b - aa for aa, b in zip(s_zs, s_zs[1:]))
     # World→page scale that renders the closest gap at the legibility floor — no sheet
     # factor (detail_scale is itself an absolute world→page scale). (#307 review)
@@ -781,8 +790,8 @@ def _request_prismatic_detail(dwg, a: Analysis, *, ctx, plan) -> None:
     # treating that synthetic station as crop evidence would cut away the measured face. One
     # millimetre gives the fuzzy booleans context without scaling the crop back toward the full
     # 170 mm envelope that made the A2 detail unplaceable (#915).
-    supported = [r for r in rungs if r.span is not None and r.support_bounds is not None]
-    has_level_supports = len(supported) == len(rungs)
+    supported = [r for r in approved_rungs if r.span is not None and r.support_bounds is not None]
+    has_level_supports = len(supported) == len(approved_rungs)
     x_stations = sorted({r.span[1][0] for r in supported}) if has_level_supports else []
     crop_xs = (
         (max(a.bb.min.X, x_stations[0] - 1.0), min(a.bb.max.X, x_stations[-1] + 1.0))
@@ -795,7 +804,7 @@ def _request_prismatic_detail(dwg, a: Analysis, *, ctx, plan) -> None:
         return (
             len(
                 _legible_steps(
-                    levels,
+                    approved_levels,
                     datum_z,
                     detail_scale,
                     allow_short=has_shoulders,

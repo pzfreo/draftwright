@@ -56,7 +56,7 @@ def test_issue_915_wide_detail_uses_a_matching_empty_region():
         for name, annotation in dwg.iter_annotations()
         if name.startswith("dim_detail_a_step")
     ]
-    assert labels == ["10", "13", "20", "30", "40", "57", "60", "65"]
+    assert labels == ["13", "20", "40", "60", "65"]
     assert dwg.lint() == []
 
 
@@ -101,7 +101,7 @@ def test_issue_915_a2_detail_uses_each_levels_supporting_geometry():
         for name, annotation in dwg.iter_annotations()
         if name.startswith("dim_detail_a_step")
     }
-    assert list(detail_dims) == ["10", "13", "20", "30", "40", "57", "60", "65"]
+    assert list(detail_dims) == ["13", "20", "40", "60", "65"]
     for label, dimension in detail_dims.items():
         expected = dwg.at("detail_a", *rungs[label].span[1])
         assert dimension._dw_spec.p2[:2] == pytest.approx(expected[:2])

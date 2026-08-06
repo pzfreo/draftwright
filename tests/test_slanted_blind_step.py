@@ -91,7 +91,14 @@ def test_slanted_blind_step_gets_reconstructable_dimension_plan(slanted_blind_st
         for name, ann in dwg.annotations_in_view("detail_a")
         if name.startswith("dim_detail_a_step")
     }
-    assert {"14", "19"} <= detail_labels
+    main_labels = {
+        str(getattr(ann, "label", ""))
+        for name, ann in dwg.annotations_in_view("front")
+        if name.startswith("dim_step")
+    }
+    assert "14" in main_labels
+    assert "19" in detail_labels
+    assert main_labels.isdisjoint(detail_labels)
     assert getattr(dwg.get_annotation("dim_height"), "label", None) == "25"
     assert not [i for i in dwg.lint() if i.severity in ("warning", "error")]
 

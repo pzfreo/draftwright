@@ -5707,8 +5707,24 @@ class TestDetailView:
         _request_prismatic_detail(None, a, ctx=no_escalation, plan=plan)
         assert no_escalation.detail_requests == []
 
+        ladder = plan.ladder("step_height")
+        assert ladder is not None
+        empty_escalation = PlacementContext(
+            escalations=[Escalation(kind="step", view="front", feature=None, reason="illegible")]
+        )
+        _request_prismatic_detail(None, a, ctx=empty_escalation, plan=plan)
+        assert empty_escalation.detail_requests == []
+
         with_escalation = PlacementContext(
-            escalations=[Escalation(kind="step", view="front", feature=None, reason="illegible")],
+            escalations=[
+                Escalation(
+                    kind="step",
+                    view="front",
+                    feature=None,
+                    reason="illegible",
+                    targets=(ladder.rungs[-1],),
+                )
+            ],
         )
         _request_prismatic_detail(None, a, ctx=with_escalation, plan=plan)
         assert len(with_escalation.detail_requests) == 1
@@ -5746,7 +5762,15 @@ class TestDetailView:
             SCALE=1.0,
         )
         ctx = PlacementContext(
-            escalations=[Escalation(kind="step", view="front", feature=None, reason="illegible")]
+            escalations=[
+                Escalation(
+                    kind="step",
+                    view="front",
+                    feature=None,
+                    reason="illegible",
+                    targets=(rungs[-1],),
+                )
+            ]
         )
 
         _request_prismatic_detail(None, analysis, ctx=ctx, plan=plan)
@@ -5787,7 +5811,15 @@ class TestDetailView:
             SCALE=1.0,
         )
         ctx = PlacementContext(
-            escalations=[Escalation(kind="step", view="front", feature=None, reason="illegible")]
+            escalations=[
+                Escalation(
+                    kind="step",
+                    view="front",
+                    feature=None,
+                    reason="illegible",
+                    targets=rungs,
+                )
+            ]
         )
 
         _request_prismatic_detail(None, analysis, ctx=ctx, plan=plan)
@@ -5815,7 +5847,7 @@ class TestDetailView:
             annotation.label
             for name, annotation in on.iter_annotations()
             if name.startswith("dim_detail_a_step")
-        ] == ["35", "38"]
+        ] == ["38"]
 
     def test_plain_part_gets_no_detail_view(self):
         dwg = build_drawing(Box(60, 40, 20))

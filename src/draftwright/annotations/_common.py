@@ -59,6 +59,8 @@ class Escalation:
         reason:   why placement failed — ``"strip_full" | "illegible" | "corridor_blocked" | "no_room"``.
         remedies: ranked candidate remedies the resolver may pick, e.g.
                   ``("group_balloon", "table", "detail", "drop")``. Empty = resolver's default ladder.
+        targets:  opaque approved items the failed placement could not draw. Empty for
+                  escalations whose remedy reconstructs a whole feature/group.
     """
 
     kind: str
@@ -66,6 +68,7 @@ class Escalation:
     feature: object
     reason: str
     remedies: tuple[str, ...] = field(default_factory=tuple)
+    targets: tuple[object, ...] = field(default_factory=tuple)
 
 
 def _never_aborts(method):

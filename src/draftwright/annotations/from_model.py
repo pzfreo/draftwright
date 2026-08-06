@@ -3218,6 +3218,7 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
             frame.scale,
             allow_short=has_shoulders,
         )
+        kept_level_set = set(kept_z)
         if n_close:
             # With the explicit detail opt-in the enlarged view owns the omitted rungs.
             # Report the source-view drop only when no recovery was requested; a failed
@@ -3233,9 +3234,15 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
             # `_request_prismatic_detail` (sections.py) consumes this instead of recomputing
             # the legibility gate.
             ctx.escalations.append(
-                Escalation(kind="step", view="front", feature=step, reason="illegible")
+                Escalation(
+                    kind="step",
+                    view="front",
+                    feature=step,
+                    reason="illegible",
+                    targets=tuple(rung for rung in rungs if rung.span[1][2] not in kept_level_set),
+                )
             )
-        kept = [r for r in rungs if r.span[1][2] in set(kept_z)]
+        kept = [r for r in rungs if r.span[1][2] in kept_level_set]
         for col, rung in enumerate(kept):
             # A short structural rise needs external arrows, whose ink would swamp the usual
             # right-hand ladder; it goes to the left strip below (#565).
