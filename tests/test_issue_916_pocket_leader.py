@@ -69,23 +69,34 @@ def test_pocket_rim_tip_is_axis_independent(rotation):
     assert dwg.lint() == []
 
 
-@pytest.mark.parametrize("direction", [(1, 0), (0, 1)], ids=["long-axis", "width-axis"])
-def test_approved_pocket_sizes_map_to_the_matching_rim_axis(monkeypatch, direction):
-    from draftwright.annotations import from_model
-
-    radial_candidates = from_model._radial_candidates
-
-    def one_direction(*args, **kwargs):
-        kwargs["directions"] = (direction,)
-        return radial_candidates(*args, **kwargs)
-
-    monkeypatch.setattr(from_model, "_radial_candidates", one_direction)
+@pytest.mark.parametrize("axis", ["long", "width"], ids=["long-axis", "width-axis"])
+def test_approved_pocket_sizes_map_to_the_matching_rim_axis(axis):
     dwg = build_drawing(_blind_pocket(22, 14))
     pocket = next(
         feature for feature in dwg.model().features if isinstance(feature, PocketFeature)
     )
-    callout = next(
-        annotation for name, annotation in dwg.iter_annotations() if name.startswith("m_pocket_")
-    )
+    callout_name = next(name for name in dwg.annotations() if name.startswith("m_pocket_"))
+    dwg.remove(callout_name)
+
+    # Exercise the public edit seam. Free-text notes occupy the two viable diagonal
+    # corridors; the third also occupies the long-axis corridor, making callout() select
+    # the width-axis exit. This proves both non-square dimensions reach the matching
+    # physical rim without coupling the test to the renderer's private candidate helper.
+    _x0, y0, x1, y1 = dwg.view_bounds("plan")
+    centre = dwg.at("plan", *pocket.frame.origin)
+    blockers = [(x1 + 25, y1 + 10), (x1 + 25, y0 + 9)]
+    if axis == "width":
+        blockers.append((x1 + 25, centre[1]))
+    for i, position in enumerate(blockers):
+        dwg.note("BLOCKER", position, view="plan", name=f"blocker_{i}")
+
+    placed_name = dwg.callout(pocket)
+    assert placed_name == callout_name
+    callout = dwg.get_annotation(placed_name)
 
     assert _tip_is_on_rim(dwg, "plan", pocket, callout.tip)
+    if axis == "long":
+        assert callout.tip[1] == pytest.approx(centre[1])
+    else:
+        assert callout.tip[0] == pytest.approx(centre[0])
+    assert dwg.lint() == []
