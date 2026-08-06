@@ -29,6 +29,17 @@ case "$mode" in
             exit 2
         fi
 
+        untracked_sources=()
+        while IFS= read -r -d '' path; do
+            untracked_sources+=("$path")
+        done < <(git ls-files --others --exclude-standard -z -- src/)
+        if ((${#untracked_sources[@]})); then
+            printf 'Changed-line coverage cannot inspect untracked source files.\n' >&2
+            printf 'Stage these files before the full preflight:\n' >&2
+            printf '  %s\n' "${untracked_sources[@]}" >&2
+            exit 2
+        fi
+
         static_checks
         uv run pytest tests/ -n auto --dist loadscope \
             --cov=src/draftwright \
@@ -37,7 +48,7 @@ case "$mode" in
 
         uvx --from diff-cover==9.7.2 diff-cover coverage.xml \
             --compare-branch "$base_ref" \
-            --fail-under=92
+            --fail-under=93
         ;;
     *)
         printf 'Usage: %s [--quick|--static|--full]\n' "$0" >&2

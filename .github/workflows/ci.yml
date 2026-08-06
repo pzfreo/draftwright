@@ -39,11 +39,11 @@ jobs:
         # 0.11 (cadquery-ocp-novtk — VTK dropped, and the only kernel with 3.13/3.14 wheels).
         # A few exact-position snapshots are skipped on 0.11 (see tests/_kernel.py).
         python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
-        # Ubuntu/Python 3.12 is the canonical coverage job below. Excluding it
+        # Ubuntu/Python 3.13 is the canonical coverage job below. Excluding it
         # here keeps the OS/Python matrix complete without running it twice.
         exclude:
           - os: ubuntu-latest
-            python-version: "3.12"
+            python-version: "3.13"
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -67,7 +67,7 @@ jobs:
         # No --timeout here: it would override the 300 s set in
         # [tool.pytest.ini_options]. The heaviest test (full specimen-sheet SVG
         # export) can exceed 120 s on the slower macOS runners.
-        # Coverage is measured once by the canonical Ubuntu/Python 3.12 job below.
+        # Coverage is measured once by the canonical Ubuntu/Python 3.13 job below.
         # Instrumenting all fourteen compatibility jobs adds ~13% runtime without
         # producing another retained or uploaded report.
         run: >-
@@ -77,7 +77,7 @@ jobs:
   coverage:
     # The fifteenth OS/Python matrix entry, split out so only the one job that
     # uploads to Codecov receives an OIDC token and renders retained reports.
-    name: test (ubuntu-latest, 3.12)
+    name: test (ubuntu-latest, 3.13)
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -88,7 +88,7 @@ jobs:
       - uses: astral-sh/setup-uv@v8.2.0
         with:
           enable-cache: true
-          python-version: "3.12"
+          python-version: "3.13"
 
       - name: Install dependencies
         run: uv sync --group dev
@@ -115,7 +115,7 @@ jobs:
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
         with:
-          name: coverage-linux-py3.12
+          name: coverage-linux-py3.13
           path: |
             coverage.xml
             htmlcov/

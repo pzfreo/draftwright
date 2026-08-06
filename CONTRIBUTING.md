@@ -37,7 +37,7 @@ before changing those areas.
 
 CI measures line and branch coverage on the full fast tier and enforces the
 `[tool.coverage.report] fail_under` floor in `pyproject.toml`. The canonical
-Linux/Python 3.12 job uploads to Codecov and retains the XML plus browsable HTML
+Linux/Python 3.13 job uploads to Codecov and retains the XML plus browsable HTML
 reports for 14 days. The other OS/Python jobs run the same tests without redundant
 coverage instrumentation. To reproduce the canonical run locally:
 
@@ -53,11 +53,13 @@ floor is 90%. Coverage thresholds are a ratchet: raise the floor after the canon
 job remains above the proposed value, and do not lower it to accommodate an untested
 change.
 
-`scripts/pr-check` additionally requires 92% line coverage over changed source lines,
-compared with `origin/main` by default. Set `BASE_REF` when the branch has another base.
-This is a local lower-bound analogue of Codecov's patch/project ratchet: it catches a
-poorly covered patch before the remote matrix, while the full-suite floor still guards
-the project as a whole.
+`scripts/pr-check` additionally requires 93% line coverage over changed source lines,
+compared with `origin/main` by default. Set `BASE_REF=upstream/main` for a fork, or when
+the branch has another base. Stage new files under `src/` first: Git does not include
+untracked files in a diff, so the command refuses to certify them invisibly.
+
+This local check catches low changed-line coverage before the remote matrix. It is not
+Codecov parity: branch partials and the project-coverage ratchet remain remote gates.
 
 ### Evidence-gated slices
 
