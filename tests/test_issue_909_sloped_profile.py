@@ -7,7 +7,9 @@ import pytest
 from build123d import import_step
 
 from draftwright import Drawing, build_drawing
+from draftwright.drawing import feature_key
 from draftwright.model import PadFeature
+from draftwright.model.compiled import compile_dimensions
 from draftwright.recognition import RaisedPad, recognise_rectangular_pads
 from draftwright.sheet_emit import generate_sheet_script
 
@@ -62,6 +64,31 @@ def test_case_study_pad_reaches_the_drawing_with_complete_owned_footprint():
     }
     assert "26" in detail_labels
     assert drawing.lint() == []
+
+
+def test_case_study_detail_rungs_keep_their_compiled_measurement_identity():
+    drawing = build_drawing(_ISSUE_909, detail_view=True)
+    step = next(feature for feature in drawing.model().features if feature.kind == "step_level")
+    detail_names = {name for name in drawing.annotations() if name.startswith("dim_detail_a_step")}
+    ladder = compile_dimensions(drawing.model()).ladder("step_height")
+    assert ladder is not None
+    rung_by_label = {rung.final_label: rung for rung in ladder.rungs}
+
+    assert detail_names
+    for name in detail_names:
+        rung = rung_by_label[drawing.get_annotation(name).label]
+        assert rung.id is not None
+        assert drawing.measurement_keys(name) == [
+            {
+                "feature": feature_key(rung.id.feature),
+                "parameter_id": rung.id.parameter,
+            }
+        ]
+    assert detail_names <= set(drawing.annotations_of(step))
+
+    removed = set(drawing.drop(step))
+    assert detail_names <= removed
+    assert not detail_names & set(drawing.annotations())
 
 
 @pytest.mark.parametrize(

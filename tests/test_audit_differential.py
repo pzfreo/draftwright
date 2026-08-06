@@ -697,10 +697,6 @@ def test_every_direct_placement_records_identity_or_says_why_not():
         ("sections.py", "_add_section_letters"): "the 'A' identification letters",
         ("sections.py", "_add_cutting_plane_arrows"): "ISO 128-44 arrows are not dimensions",
         ("sections.py", "_render_detail"): "detail-view geometry, caption and circle",
-        (
-            "sections.py",
-            "_request_prismatic_detail.redraw",
-        ): "re-renders the section geometry, not a dimension",
         # -- hole callouts: still on the legacy surface (#926) ----------------------
         ("holes.py", "add_feature_callout"): "hole callouts are pre-compiled-plan (#926)",
         ("holes.py", "_place_queue"): "hole callouts are pre-compiled-plan (#926)",

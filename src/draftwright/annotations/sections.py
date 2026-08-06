@@ -759,7 +759,7 @@ def _request_prismatic_detail(dwg, a: Analysis, *, ctx, plan) -> None:
     # source view would have.
     levels = [r.span[1][2] for r in rungs]
     datum_z = rungs[0].span[0][2]
-    label_of = {r.span[1][2]: r.final_label for r in rungs}
+    rung_by_level = {r.span[1][2]: r for r in rungs}
     has_shoulders = plan.ladder("step_position") is not None
     z0, z1 = min(levels), max(levels)
     pad = 0.08 * (z1 - z0) + 1.0
@@ -834,7 +834,8 @@ def _request_prismatic_detail(dwg, a: Analysis, *, ctx, plan) -> None:
         source_x_by_z = {r.span[1][2]: r.span[1][0] for r in supported}
         placed = 0
         for i, z in enumerate(det_kept):
-            label = label_of[z]  # the compiler's label, not a second derivation
+            rung = rung_by_level[z]
+            label = rung.final_label  # the compiler's label, not a second derivation
             try:
                 if has_level_supports:
                     source_x = source_x_by_z[z]
@@ -862,7 +863,11 @@ def _request_prismatic_detail(dwg, a: Analysis, *, ctx, plan) -> None:
                     )
                 det_dim._dw_scale = detail_scale  # detail scale, for label-vs-measured lint (#42)
                 ctx.place(
-                    det_dim, f"dim_{view}_step{i}", view=view
+                    det_dim,
+                    f"dim_{view}_step{i}",
+                    view=view,
+                    feature=rung.id.feature if rung.id is not None else None,
+                    measurement=rung.id,
                 )  # view-scoped name (#307 review)
                 ladder += step_pad
                 placed += 1
