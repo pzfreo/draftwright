@@ -3,6 +3,7 @@
 from collections import Counter
 from hashlib import sha256
 from inspect import signature
+from math import asin, sqrt
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -27,7 +28,10 @@ from draftwright import Sheet, build_drawing
 from draftwright.annotations.from_model import callout_from_spec
 from draftwright.annotations.holes import _record_callout_drop
 from draftwright.linting.coverage import CoverageState, lint_principal_profile_coverage
-from draftwright.linting.profiled_bore_coverage import lint_profiled_bore_coverage
+from draftwright.linting.profiled_bore_coverage import (
+    lint_profiled_bore_coverage,
+    profiled_bore_key,
+)
 from draftwright.model import (
     Frame,
     HoleFeature,
@@ -39,6 +43,11 @@ from draftwright.model import (
 )
 from draftwright.model.callout import hole_callout_spec
 from draftwright.recognition import build_recognition_result, recognise_double_d_bores
+from draftwright.recognition.profiled_bores import (
+    DoubleDProfile,
+    double_d_bores_from_openings,
+    double_d_profile,
+)
 from draftwright.sheet_emit import _feature_line, _hole_line, emit_sheet_script
 
 _WHEEL = Path(__file__).parent / "fixtures" / "issue_1058_wheel_rh.step"
@@ -74,6 +83,91 @@ def _blind_double_d_recess():
 def _opposed_double_d_recesses_with_a_web():
     cutter = Cylinder(5, 3, align=_CENTER) & Box(7.2, 20, 3, align=_CENTER)
     return Box(30, 30, 10, align=_CENTER) - Pos(0, 0, 3.5) * cutter - Pos(0, 0, -3.5) * cutter
+
+
+def _point(x, y, z=0.0):
+    return SimpleNamespace(X=x, Y=y, Z=z)
+
+
+class _ProfileEdge:
+    def __init__(self, geom_type, *, vertices=(), radius=None, centre=None, length=0.0):
+        self.geom_type = geom_type
+        self._vertices = list(vertices)
+        if radius is not None:
+            self.radius = radius
+        if centre is not None:
+            self.arc_center = centre
+        self.length = length
+
+    def vertices(self):
+        return self._vertices
+
+
+class _ProfileWire:
+    def __init__(self, edges, *, size=(7.2, 10.0, 0.0)):
+        self._edges = edges
+        self._bbox = SimpleNamespace(size=_point(*size))
+
+    def edges(self):
+        return self._edges
+
+    def bounding_box(self):
+        return self._bbox
+
+
+def _profile_evidence(case="valid"):
+    """Minimal line/arc evidence for exercising the pure correspondence proof."""
+    radius = 5.0
+    half_af = 3.6
+    half_chord = sqrt(radius * radius - half_af * half_af)
+    centre = _point(0.0, 0.0)
+    lines = [
+        _ProfileEdge(
+            GeomType.LINE,
+            vertices=(_point(-half_af, -half_chord), _point(-half_af, half_chord)),
+            length=2 * half_chord,
+        ),
+        _ProfileEdge(
+            GeomType.LINE,
+            vertices=(_point(half_af, -half_chord), _point(half_af, half_chord)),
+            length=2 * half_chord,
+        ),
+    ]
+    arc_length = 2 * radius * asin(half_af / radius)
+    arcs = [
+        _ProfileEdge(GeomType.CIRCLE, radius=radius, centre=centre, length=arc_length),
+        _ProfileEdge(GeomType.CIRCLE, radius=radius, centre=centre, length=arc_length),
+    ]
+    size = (7.2, 10.0, 0.0)
+
+    if case == "zero-radius":
+        arcs[0].radius = 0.0
+    elif case == "missing-radius":
+        del arcs[0].radius
+    elif case == "one-vertex":
+        lines[0]._vertices.pop()
+    elif case == "zero-line":
+        lines[0]._vertices[1] = lines[0]._vertices[0]
+    elif case == "off-circle-end":
+        lines[0]._vertices[0] = _point(0.0, 0.0)
+    elif case == "non-parallel":
+        lines[1]._vertices = [_point(-half_chord, half_af), _point(half_chord, half_af)]
+    elif case == "same-side":
+        lines[1]._vertices = list(lines[0]._vertices)
+        lines[1].length = lines[0].length
+    elif case == "degenerate-flat":
+        half_af = radius - 1e-6
+        half_chord = sqrt(radius * radius - half_af * half_af)
+        for line, x in zip(lines, (-half_af, half_af), strict=True):
+            line._vertices = [_point(x, -half_chord), _point(x, half_chord)]
+            line.length = 2 * half_chord
+        size = (2 * half_af, 2 * radius, 0.0)
+    elif case == "wrong-chord-length":
+        lines[0].length += 1.0
+    elif case == "wrong-arc-length":
+        arcs[0].length += 1.0
+
+    return _ProfileWire([*lines, *arcs], size=size)
 
 
 @pytest.fixture(scope="module")
@@ -185,6 +279,54 @@ def test_edge_types_alone_do_not_certify_a_supported_profile(part):
     assert len(issues) == 1
 
 
+@pytest.mark.parametrize(
+    "case",
+    [
+        "zero-radius",
+        "missing-radius",
+        "one-vertex",
+        "zero-line",
+        "off-circle-end",
+        "non-parallel",
+        "same-side",
+        "degenerate-flat",
+        "wrong-chord-length",
+        "wrong-arc-length",
+    ],
+)
+def test_malformed_line_arc_evidence_fails_closed(case):
+    assert double_d_profile(_profile_evidence(case), ("x", "y"), tol=1e-5) is None
+
+
+def test_an_unpaired_opening_and_a_failed_void_proof_are_not_bores():
+    bbox = SimpleNamespace(min=_point(-5, -5, -5), max=_point(5, 5, 5))
+    low = DoubleDProfile(
+        centre=(0.0, 0.0, -5.0),
+        major_diameter=10.0,
+        across_flats=7.2,
+        flat_direction=(1.0, 0.0, 0.0),
+    )
+    high = DoubleDProfile(
+        centre=(0.0, 0.0, 5.0),
+        major_diameter=10.0,
+        across_flats=7.2,
+        flat_direction=(1.0, 0.0, 0.0),
+    )
+    assert (
+        double_d_bores_from_openings([("z", -5.0, low, object())], bbox, part=object(), tol=1e-5)
+        == []
+    )
+    assert (
+        double_d_bores_from_openings(
+            [("z", -5.0, low, object()), ("z", 5.0, high, object())],
+            bbox,
+            part=object(),
+            tol=1e-5,
+        )
+        == []
+    )
+
+
 def test_recogniser_reports_the_complete_double_d_geometry():
     assert recognise_double_d_bores(_double_d_bore())[0].to_dict() == {
         "axis": (0.0, 0.0, 1.0),
@@ -281,16 +423,26 @@ def test_declared_object_and_explicit_forms_preserve_profile_and_skip_recognitio
 
 
 def test_object_declaration_rejects_a_non_prismatic_double_d_tool():
-    stepped = _double_d_cutter() + Pos(0, 0, 11) * Box(2, 2, 2, align=_CENTER)
+    stepped = _double_d_cutter() + Box(12, 2, 2, align=_CENTER)
     with pytest.raises(ValueError, match="constant extrusion"):
         Sheet(Box(30, 30, 10, align=_CENTER)).double_d_bore(stepped)
+
+
+def test_explicit_declaration_requires_the_complete_profile_geometry():
+    with pytest.raises(ValueError, match="major_diameter"):
+        double_d_bore()
 
 
 @pytest.mark.parametrize(
     "kw",
     [
+        {"profile": "keyway", "across_flats": 7.2, "profile_direction": (1, 0, 0)},
         {"profile": "double_d", "across_flats": None, "profile_direction": (1, 0, 0)},
         {"profile": "double_d", "across_flats": 10, "profile_direction": (1, 0, 0)},
+        {"profile": "double_d", "across_flats": 7.2, "profile_direction": None},
+        {"profile": "double_d", "across_flats": 7.2, "profile_direction": ()},
+        {"profile": "double_d", "across_flats": 7.2, "profile_direction": (0, 0, 0)},
+        {"profile": "double_d", "across_flats": 7.2, "profile_direction": (float("nan"), 0, 0)},
         {"profile": "double_d", "across_flats": 7.2, "profile_direction": (0, 0, 1)},
         {"profile": None, "across_flats": 7.2, "profile_direction": None},
     ],
@@ -344,6 +496,26 @@ def test_a_dropped_profile_only_suppresses_the_exact_physical_requirement():
             dropped_profiles=[wrong_af],
         )
     ] == ["profiled_bore_not_dimensioned"]
+
+
+def test_profile_coverage_rejects_unowned_results_and_canonicalises_directions():
+    part = _double_d_bore()
+    assert lint_profiled_bore_coverage(part, [], recognition=None) == []
+    with pytest.raises(TypeError, match="RecognitionResult"):
+        lint_profiled_bore_coverage(part, [], recognition=object())
+
+    for direction in ((1, 0), (0, 0, 0), (float("nan"), 0, 0)):
+        with pytest.raises(ValueError, match="finite non-zero 3-vector"):
+            profiled_bore_key("double_d", "z", True, 10, 7.2, direction)
+    assert profiled_bore_key("double_d", "z", True, 10, 7.2, (-1, 0, 0))[-1] == (
+        1.0,
+        0.0,
+        0.0,
+    )
+
+    recognition = build_recognition_result(part)
+    issues = lint_profiled_bore_coverage(part, [], recognition=recognition, assembly=True)
+    assert [issue.severity for issue in issues] == ["info"]
 
 
 def test_a_dropped_counted_callout_records_every_profile_occurrence():
