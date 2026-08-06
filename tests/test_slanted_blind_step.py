@@ -6,6 +6,7 @@ vendoring the uploaded customer STEP file.
 
 from __future__ import annotations
 
+from collections import Counter
 from types import SimpleNamespace
 
 import pytest
@@ -86,19 +87,19 @@ def test_slanted_blind_step_gets_reconstructable_dimension_plan(slanted_blind_st
     assert {"m_pocket_xy0", "m_pocket_xy1"} <= names
     assert "detail_a" in dwg.views
 
-    detail_labels = {
+    detail_labels = Counter(
         str(getattr(ann, "label", ""))
         for name, ann in dwg.annotations_in_view("detail_a")
         if name.startswith("dim_detail_a_step")
-    }
-    main_labels = {
+    )
+    main_labels = Counter(
         str(getattr(ann, "label", ""))
         for name, ann in dwg.annotations_in_view("front")
         if name.startswith("dim_step")
-    }
-    assert "14" in main_labels
-    assert "19" in detail_labels
-    assert main_labels.isdisjoint(detail_labels)
+    )
+    assert main_labels["14"] == 1
+    assert detail_labels["19"] == 1
+    assert not main_labels & detail_labels
     assert getattr(dwg.get_annotation("dim_height"), "label", None) == "25"
     assert not [i for i in dwg.lint() if i.severity in ("warning", "error")]
 
