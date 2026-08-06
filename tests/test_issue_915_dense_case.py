@@ -67,19 +67,21 @@ def test_issue_915_a2_detail_uses_each_levels_supporting_geometry():
         feature for feature in dwg.model().features if isinstance(feature, StepLevelFeature)
     )
 
-    support_rights = {support.level: support.x_span[1] for support in step.level_supports}
-    assert support_rights == pytest.approx(
-        {
-            10.0: 135.0,
-            13.0: 121.686,
-            20.0: 105.0,
-            30.0: 170.0,
-            40.0: 170.0,
-            57.0: 121.686,
-            60.0: 135.0,
-            65.0: 120.0,
-        },
-        abs=0.001,
+    expected_support_rights = [
+        (10.0, 135.0),
+        (13.0, 121.686),
+        (20.0, 105.0),
+        (30.0, 170.0),
+        (40.0, 170.0),
+        (57.0, 121.686),
+        (60.0, 135.0),
+        (65.0, 120.0),
+    ]
+    assert [support.level for support in step.level_supports] == pytest.approx(
+        [level for level, _ in expected_support_rights], abs=0.001
+    )
+    assert [support.x_span[1] for support in step.level_supports] == pytest.approx(
+        [x for _, x in expected_support_rights], abs=0.001
     )
 
     plan = compile_dimensions(dwg.model())
@@ -87,7 +89,7 @@ def test_issue_915_a2_detail_uses_each_levels_supporting_geometry():
     assert ladder is not None
     rungs = {rung.final_label: rung for rung in ladder.rungs}
     assert {label: rung.span[1][0] for label, rung in rungs.items()} == pytest.approx(
-        {str(int(level)): x for level, x in support_rights.items()}
+        {str(int(level)): x for level, x in expected_support_rights}, abs=0.001
     )
 
     assert "detail_a" in dwg.views
