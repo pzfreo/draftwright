@@ -307,15 +307,17 @@ def _suppression(model: PartModel, feature: Feature, param: DimParameter):
             axis = channel.width_axis
             long_index = "xyz".index(channel.long_axis)
             long_letter = "XYZ"[long_index]
+            bbox_min = getattr(model.bbox, "min")
+            bbox_max = getattr(model.bbox, "max")
             full_span = (
-                abs(channel.lo - getattr(model.bbox.min, long_letter)) <= 1e-6
-                and abs(channel.hi - getattr(model.bbox.max, long_letter)) <= 1e-6
+                abs(channel.lo - getattr(bbox_min, long_letter)) <= 1e-6
+                and abs(channel.hi - getattr(bbox_max, long_letter)) <= 1e-6
             )
             if feature.axis == axis and full_span:
                 index = "xyz".index(axis)
                 letter = "XYZ"[index]
-                bbox_lo = getattr(model.bbox.min, letter)
-                bbox_hi = getattr(model.bbox.max, letter)
+                bbox_lo = getattr(bbox_min, letter)
+                bbox_hi = getattr(bbox_max, letter)
                 channel_lo = channel.w_center - channel.width / 2
                 channel_hi = channel.w_center + channel.width / 2
                 same_axis = [

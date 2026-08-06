@@ -215,6 +215,7 @@ _SAME_PATH_AS_ENVELOPE = {
     "measured_dimension",
     "slot",
     "pocket",
+    "channel",
     "pad",
     "chamfer",
     "fillet",

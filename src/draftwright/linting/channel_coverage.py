@@ -79,7 +79,11 @@ def channel_requirement_outcomes(
             f"got {type(recognition).__name__}"
         )
 
-    sources = list(recognition.channels)
+    # The same full-span recess geometry can be a monolithic centred rebate. That domain
+    # stays with the correlated step ladder; the explicit channel-width scheme is required
+    # only when recognition also proves a multi-axis plate construction (base + walls).
+    plate_axes = {plate.axis for plate in recognition.plates}
+    sources = list(recognition.channels) if len(plate_axes) >= 2 else []
     if not sources:
         return []
     features_by_key: dict[tuple, list] = {}

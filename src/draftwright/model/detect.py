@@ -658,7 +658,16 @@ def build_part_model(
 
     if channels is None:
         channels = recognise_channels(part)
-    features.extend(convert(channel, ctx) for channel in channels)
+    # A full-span floored gap also describes a monolithic centred rebate, whose two
+    # shoulders are already owned as one correlated StepLevelFeature position set. The
+    # #917 channel scheme applies only where plate recognition proves a multi-axis
+    # U-bracket: base + walls. Use the same evidence as the plate-emission gate below so
+    # the two domains cannot both dimension one profile.
+    if prof is None and rotational is None and plates is None:
+        plates = recognise_plates(part)
+    multi_plate = bool(plates) and len({plate.axis for plate in plates}) >= 2
+    if prof is None and rotational is None and multi_plate:
+        features.extend(convert(channel, ctx) for channel in channels)
 
     # Holes and hole patterns. A recognised pattern becomes one PatternFeature
     # (count× member-diameter + pattern dims); its member holes are NOT also
@@ -822,7 +831,7 @@ def build_part_model(
     plate_zs_at_base: set = set()
     if prof is None and rotational is None:
         plates = recognise_plates(part) if plates is None else plates
-        if len({pl.axis for pl in plates}) >= 2:
+        if multi_plate:
             for pl in plates:
                 features.append(convert(pl, ctx))
                 # A Z base plate (bottom == part base) IS the first step level; suppress

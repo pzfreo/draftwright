@@ -1193,6 +1193,16 @@ class TestEveryFeatureVerbIsNameable:
         "pocket": dict(
             width=8, length=20, depth=4, long_axis="x", width_axis="y", w_center=0, lo=-10, hi=10
         ),
+        "channel": dict(
+            width=8,
+            long_axis="x",
+            width_axis="y",
+            w_center=0,
+            lo=-10,
+            hi=10,
+            d_lo=0,
+            d_hi=4,
+        ),
         "pad": dict(x0=-10, x1=10, y0=-4, y1=4, z0=0, z1=3),
         "envelope": {},
         "chamfer": dict(axis="z", leg=2, at=(0, 0, 0)),

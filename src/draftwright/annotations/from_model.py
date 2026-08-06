@@ -2479,7 +2479,7 @@ def render_plates(dwg, plan, a, *, ctx) -> int:
         def _foot(pos, pa=pa, pb=pb, side=side, edge=edge, label=label):
             return dim_footprint(pa, pb, side, pos - edge, draft, label)
 
-        def _drop(_name, value=pd.value, view=view, side=side, mid=pd.id):
+        def _drop_channel(_name, value=pd.value, view=view, side=side, mid=pd.id):
             ctx.record_issue(
                 "warning",
                 "channel_width_dropped",
@@ -2499,7 +2499,7 @@ def render_plates(dwg, plan, a, *, ctx) -> int:
                 build=_build,
                 order=(_SIZE_SUBCHAIN, index, name),
                 on_place=lambda _name: None,
-                on_drop=_drop,
+                on_drop=_drop_channel,
                 force=True,
                 feature=g.ref,
                 measurement=pd.id,

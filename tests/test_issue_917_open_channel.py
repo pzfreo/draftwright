@@ -102,6 +102,15 @@ def test_ordinary_bounded_pocket_does_not_become_a_channel():
     assert len(recognise_pockets(part)) == 1
 
 
+def test_monolithic_centered_rebate_stays_with_the_step_ladder():
+    part = Box(80, 60, 30) - Pos(0, 0, 7.5) * Box(80, 20, 15)
+    assert len(recognise_channels(part)) == 1  # geometry census remains honest
+    drawing = build_drawing(part)
+    assert not [feature for feature in drawing.model().features if feature.kind == "channel"]
+    assert sorted(_labels(drawing, "dim_shoulder").values()) == ["20", "40"]
+    assert not [issue for issue in drawing.lint() if issue.severity != "info"]
+
+
 def test_channel_must_reach_both_longitudinal_envelope_ends():
     for length, x_center in ((40, 0), (45, -2.5)):
         part = (

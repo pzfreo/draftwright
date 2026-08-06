@@ -1997,6 +1997,9 @@ class TestTheDimensionMirror:
             "flat": Cylinder(10, 30) - Pos(10, 0, 0) * Box(10, 40, 40),  # D-shaft
             "groove": Cylinder(10, 40) - (Cylinder(10, 4) - Cylinder(8, 4)),  # circlip groove
             "plate": Box(80, 50, 8) + Pos(-36, 0, 29) * Box(8, 50, 50),  # base + upright
+            "channel": Box(50, 50, 12)
+            + Pos(0, -18.75, 15) * Box(50, 12.5, 18)
+            + Pos(0, 18.75, 15) * Box(50, 12.5, 18),
         }
 
     @staticmethod
@@ -2029,6 +2032,7 @@ class TestTheDimensionMirror:
         "flat": {"flat"},
         "groove": {"groove"},
         "plate": {"plate"},
+        "channel": {"channel"},
     }
 
     @pytest.mark.parametrize("name", sorted(_corpus()))
@@ -2269,6 +2273,7 @@ _KIND_MIRROR_COVERAGE = {
     "flat": "corpus",
     "groove": "corpus",
     "plate": "corpus",
+    "channel": "corpus",
     "pocket_pattern": "corpus",
     "slot_pattern": "corpus",
     # NOT "corpus": nothing detects an imported AP242 measurement or a hand-written
@@ -2753,6 +2758,7 @@ _FIDELITY_ROUTE = {
     "slot_pattern": ("detected", "slot pattern"),
     "pad": ("detected", "pad"),
     "plate": ("detected", "plate"),
+    "channel": ("detected", "channel"),
     "chamfer": ("detected", "chamfer"),
     "fillet": ("detected", "fillet"),
     "flat": ("detected", "flat"),
@@ -2998,6 +3004,9 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
             "flat": Cylinder(10, 30) - Pos(10, 0, 0) * Box(10, 40, 40),
             "groove": Cylinder(10, 40) - (Cylinder(10, 4) - Cylinder(8, 4)),
             "pad": Box(80, 60, 10) + Pos(0, 0, 10) * Box(30, 20, 4),
+            "channel": Box(50, 50, 12)
+            + Pos(0, -18.75, 15) * Box(50, 12.5, 18)
+            + Pos(0, 18.75, 15) * Box(50, 12.5, 18),
         }
 
     #: Fixtures whose member ENUMERATION ORDER is a known defect, as STRICT xfails. Strict
@@ -3051,6 +3060,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
         "flat": {"flat"},
         "groove": {"groove"},
         "pad": {"pad"},
+        "channel": {"channel"},
     }
 
     def test_the_corpus_names_every_fixture_it_carries(self):
