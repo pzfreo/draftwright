@@ -24,7 +24,7 @@ def test_touching_lower_ledges_do_not_hide_the_case_studys_raised_pad():
 
 
 def test_case_study_pad_reaches_the_drawing_with_complete_owned_footprint():
-    drawing = build_drawing(_ISSUE_909, detail_view=True)
+    drawing = build_drawing(_ISSUE_909)
     source = RaisedPad(-15.5, 15.5, 8.0, 24.7, 13.0, 20.0)
 
     recognition = drawing.recognition()
@@ -74,7 +74,7 @@ def test_case_study_pad_reaches_the_drawing_with_complete_owned_footprint():
 
 
 def test_case_study_detail_rungs_keep_their_compiled_measurement_identity():
-    drawing = build_drawing(_ISSUE_909, detail_view=True)
+    drawing = build_drawing(_ISSUE_909)
     step = next(feature for feature in drawing.model().features if feature.kind == "step_level")
     detail_names = {name for name in drawing.annotations() if name.startswith("dim_detail_a_step")}
     ladder = compile_dimensions(drawing.model()).ladder("step_height")

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Changed
+
+- **Crowded prismatic step dimensions recover into an enlarged detail view by default**
+  (#909). The automatic `build_drawing` / `make_drawing` / CLI paths and generated
+  `Sheet` scripts now preserve the omitted dimensions instead of returning
+  `step_dim_dropped` unless the caller remembered `detail_view=True`. Pass
+  `detail_view=False` to retain the parent-view-only behavior and its lint warning.
+
 ## v0.4.0 — 2026-08-02
 
 **The compat-exit release.** Every surface whose documented removal target was 0.4.0 is gone,

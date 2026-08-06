@@ -12,7 +12,7 @@ _ISSUE_915 = Path(__file__).parent / "fixtures" / "issue_915_case_study_2.step"
 
 def test_issue_915_hole_callouts_share_one_spacing_solve():
     """Keep the real dense-plan failure distinct from its step-detail follow-up."""
-    dwg = build_drawing(_ISSUE_915, page="A2", scale=0.5)
+    dwg = build_drawing(_ISSUE_915, page="A2", scale=0.5, detail_view=False)
 
     assert Counter(feature.kind for feature in dwg.model().features) == Counter(
         {

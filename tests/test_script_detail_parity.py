@@ -104,7 +104,7 @@ def _scripted_drawing(part, tmp_path, name, **build_settings):
 @pytest.mark.timeout(180)
 def test_direct_build_detail_fixture_really_triggers(crowded_step):
     """Guard the fixture: direct automatic output must contain a real detail."""
-    direct = build_drawing(str(crowded_step), detail_view=True)
+    direct = build_drawing(str(crowded_step))
 
     views, annotations = _detail_signature(direct)
     assert views == ("detail_a",)
@@ -114,9 +114,9 @@ def test_direct_build_detail_fixture_really_triggers(crowded_step):
 
 @pytest.mark.timeout(240)
 def test_generated_script_matches_direct_detail_view(crowded_step, tmp_path):
-    """Target behaviour: executing the script preserves the direct detail output."""
-    direct = build_drawing(str(crowded_step), detail_view=True)
-    scripted = _run_generated_script(crowded_step, tmp_path, "scripted", detail_view=True)
+    """Default direct and generated-Sheet builds recover the same detail output."""
+    direct = build_drawing(str(crowded_step))
+    scripted = _run_generated_script(crowded_step, tmp_path, "scripted")
 
     assert _detail_signature(scripted) == _detail_signature(direct)
 

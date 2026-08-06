@@ -3161,6 +3161,30 @@ def test_cli_import_does_not_load_the_engine():
     )
 
 
+def test_cli_inherits_automatic_detail_default(monkeypatch):
+    """The CLI must not restore the historical opt-out while delegating to the engine."""
+    from typer.testing import CliRunner
+
+    import draftwright.builder as builder
+    from draftwright.cli import app
+
+    forwarded = []
+
+    class _Drawing:
+        def export(self, *, formats):
+            return {name: f"out.{name}" for name in formats}
+
+    def _build(*args, **kwargs):
+        forwarded.append(kwargs)
+        return _Drawing()
+
+    monkeypatch.setattr(builder, "build_drawing", _build)
+    result = CliRunner().invoke(app, ["part.step", "--format", "svg"])
+
+    assert result.exit_code == 0, result.output
+    assert "detail_view" not in forwarded[0], "omission deliberately inherits the True default"
+
+
 def test_lazy_public_api_preserves_make_drawing_identity():
     """The lazy package __init__ (#313) must still expose the public API, and
     `draftwright.make_drawing` must stay the FUNCTION even after the compat
@@ -5597,9 +5621,31 @@ def _crowded_shoulder_part():
 
 @pytest.mark.timeout(120)
 class TestDetailView:
-    def test_detail_view_off_by_default(self):
-        # detail_view=False (default) — no detail view even when shoulders are crowded.
-        dwg = build_drawing(_crowded_shoulder_part())
+    @pytest.mark.parametrize(
+        ("override", "expected"), [({}, True), ({"detail_view": False}, False)]
+    )
+    def test_make_drawing_forwards_default_and_explicit_opt_out(
+        self, monkeypatch, override, expected
+    ):
+        import draftwright.builder as builder
+
+        forwarded = []
+
+        class _Drawing:
+            def export(self, *, formats):
+                assert formats == ("svg", "dxf")
+                return {"svg": "out.svg", "dxf": "out.dxf"}
+
+        def _build(*args, **kwargs):
+            forwarded.append(kwargs["detail_view"])
+            return _Drawing()
+
+        monkeypatch.setattr(builder, "build_drawing", _build)
+        assert builder.make_drawing("part.step", **override) == ("out.svg", "out.dxf")
+        assert forwarded == [expected]
+
+    def test_detail_view_can_be_disabled_explicitly(self):
+        dwg = build_drawing(_crowded_shoulder_part(), detail_view=False)
         assert "detail_a" not in dwg.views
         assert "detail_caption" not in dwg.annotations()
         assert not any(n.startswith("dim_detail") for n in dwg.annotations())
@@ -5621,10 +5667,10 @@ class TestDetailView:
             ctx=None,
         )
 
-    def test_crowded_shoulders_get_a_detail_view_when_requested(self):
+    def test_crowded_shoulders_get_a_detail_view_automatically(self):
         from draftwright._core import _legible_steps
 
-        dwg = build_drawing(_crowded_shoulder_part(), detail_view=True)
+        dwg = build_drawing(_crowded_shoulder_part())
         a = dwg._analysis
         # Pin the trigger: the gate must actually drop at least one shoulder at
         # the chosen scale, otherwise the test is not exercising #42.
@@ -5858,7 +5904,7 @@ class TestDetailView:
 
     def test_finalize_places_and_rolls_back_a_detail_view(self, monkeypatch):
         # #661 + #647: the finalize drain queues + resolves detail requests like the
-        # auto pass (gated on the persisted detail_view opt-in). A raise in a LATER
+        # auto pass (gated on the persisted detail-view setting). A raise in a LATER
         # stage (tabulate) must roll a placed detail view back — views, coordinates,
         # and its annotations alike — so a retry starts clean and places it once.
         from draftwright.annotations import orchestrator as _orch
@@ -8318,7 +8364,7 @@ class TestLintSuggestions:
         assert dicts[0]["suggestion"]
 
     def test_step_dim_dropped_suggestion_mentions_detail_view(self):
-        dwg = build_drawing(_crowded_shoulder_part())
+        dwg = build_drawing(_crowded_shoulder_part(), detail_view=False)
         issues = [i for i in dwg.lint() if i.code == "step_dim_dropped"]
         assert issues, "crowded shoulders should drop a step dim"
         assert "detail_view=True" in issues[0].suggestion

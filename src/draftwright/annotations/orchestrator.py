@@ -496,8 +496,9 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         render_envelope(dwg, _compiled, a, ctx=ctx)
 
     def _s_detail_request():
-        # Prismatic step-height detail: queue it (only when build_drawing(detail_view=True))
-        # — resolved with every other detail request in the "details" stage (#307).
+        # Prismatic step-height detail: queue it when detail recovery is enabled (the
+        # build default; ``detail_view=False`` opts out), then resolve it with every other
+        # detail request in the "details" stage (#307).
         if detail_view:
             _request_prismatic_detail(dwg, a, ctx=ctx, plan=_compiled)
 

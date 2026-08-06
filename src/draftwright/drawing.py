@@ -283,7 +283,7 @@ class BuildState:
     - ``trace`` — the opt-in solve-trace recorder (#736,
       :class:`~draftwright.annotations._common.SolveTrace`), or ``None`` (default:
       tracing off). Carried here so the finalize path traces like the auto pass.
-    - ``detail_view`` — the caller's ``build_drawing(detail_view=...)`` opt-in,
+    - ``detail_view`` — the resolved ``build_drawing(detail_view=...)`` setting,
       persisted so the finalize drain gates the prismatic detail request exactly
       as the auto pass does (#661) — on the ``auto_dims=False`` path the flag
       would otherwise be consumed nowhere.
@@ -1747,7 +1747,7 @@ class Drawing:
           register-only stages queue into the SHARED corridor (a slot position coincident
           with a hole location collapses to one dim, #345; pin/priority user dims join as
           first-class candidates, ADR 0012);
-        * **detail_request** — when the build opted in (``build_drawing(detail_view=True)``,
+        * **detail_request** — when detail recovery is enabled (the automatic default,
           persisted on ``BuildState``) and the ladder stage recorded a "step"/"illegible"
           escalation, the prismatic step-height detail is queued, exactly as the auto
           pass gates it (#661);
@@ -2115,8 +2115,7 @@ class Drawing:
 
         def _s_detail_request():
             # Prismatic step-height detail (#661): queue it exactly as the auto pass
-            # does — gated on the build's detail_view opt-in (persisted on BuildState;
-            # the auto path's build_drawing(detail_view=True) gate), firing only when
+            # does — gated on the build's persisted detail_view setting, firing only when
             # the ladder stage above recorded the "step"/"illegible" escalation
             # (_request_prismatic_detail's own check). Resolved in the "details" stage.
             if self._build.detail_view and routable:

@@ -60,8 +60,8 @@ The three clusters that defined this arc are **complete and released**.
   (page-major ladder); iso growth capped at 1.3× sheet scale.
 - **#45 — TYP / representative dimensioning** (v0.1.9). A uniform step run is
   dimensioned once and labelled TYP.
-- **#42 — enlarged detail view (MVP)** (v0.1.9). Opt-in `detail_view=True`
-  re-draws crowded shoulders at a larger scale; per-view-scale lint.
+- **#42 — enlarged detail view (MVP)** (v0.1.9). Initially opt-in; automatic by default
+  after #909. Re-draws crowded shoulders at a larger scale; per-view-scale lint.
 
 ### Design record
 - **ADR 0001** — deterministic generation over an editable-code DSL.

@@ -3220,7 +3220,7 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
         )
         kept_level_set = set(kept_z)
         if n_close:
-            # With the explicit detail opt-in the enlarged view owns the omitted rungs.
+            # When detail recovery is enabled the enlarged view owns the omitted rungs.
             # Report the source-view drop only when no recovery was requested; a failed
             # detail records ``detail_unplaceable`` instead.
             if not detail_view:

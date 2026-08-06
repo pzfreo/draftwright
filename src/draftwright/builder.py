@@ -420,7 +420,7 @@ def _assemble(
     dwg._build.analysis = a
     dwg._build.recognition = a.recognition
     dwg._build.part_model = pm
-    # Persist the caller's detail-view opt-in: on the auto_dims=False path the flag
+    # Persist the caller's detail-view setting: on the auto_dims=False path the flag
     # reaches no pass here, but the finalize drain gates the prismatic detail
     # request on it exactly as the auto pass does (#661).
     dwg._build.detail_view = detail_view
@@ -762,7 +762,7 @@ def build_drawing(
     scale: float | None = None,
     page: str | tuple | None = None,
     auto_dims: bool = True,
-    detail_view: bool = False,
+    detail_view: bool = True,
     pmi: Literal["off", "report", "annotate"] = "off",
     repair: bool = True,
     assembly: bool | None = None,
@@ -794,6 +794,9 @@ def build_drawing(
             note when the iso is rescaled off sheet scale) are still produced;
             add your own annotations before export. (Annotations added by the default can
             also be removed wholesale with :meth:`Drawing.clear_annotations`.)
+        detail_view: automatically recover crowded prismatic step dimensions in an
+            enlarged detail view. Default ``True``; pass ``False`` to leave them on the
+            parent view only and report ``step_dim_dropped`` when they do not fit.
         repair: run the bounded lint→repair loop (:meth:`Drawing.repair`) after
             placement to fix mechanically-clear violations (a dim on the wrong
             side, two overlapping labels). Default ``True``; a no-op on a clean
@@ -930,7 +933,7 @@ def make_drawing(
     scale: float | None = None,
     page: str | tuple | None = None,
     auto_dims: bool = True,
-    detail_view: bool = False,
+    detail_view: bool = True,
     pmi: Literal["off", "report", "annotate"] = "off",
     assembly: bool | None = None,
     material: str = "",
@@ -960,6 +963,8 @@ def make_drawing(
         auto_dims: pass ``False`` to skip the automatic dimensions,
             centrelines, and leaders (#74) — views, scale, page, and title
             block only.
+        detail_view: automatically add an enlarged view for crowded prismatic step
+            dimensions. Default ``True``; pass ``False`` to disable that recovery.
 
     Returns:
         Tuple of ``(svg_path, dxf_path)`` for the generated files.

@@ -1231,10 +1231,13 @@ class Sheet:
         return self
 
     def detail(self) -> Sheet:
-        """Request the enlarged **detail view** (#42/#307) — the ``build_drawing(detail_view=True)``
-        opt-in as a Sheet verb (#841). Adds a magnified crop of the step-height region when the
-        geometry warrants one (a no-op otherwise). Chainable. Not feature-targeted — for a blind
-        pocket's floor/depth prefer :meth:`section`."""
+        """Ensure enlarged **detail-view** recovery is enabled (#42/#307/#841).
+
+        Automatic builds enable it by default; this verb is useful after constructing a
+        ``Sheet(..., detail_view=False)`` or when an emitted declaration should state the
+        choice explicitly. Adds a magnified crop of the step-height region when warranted
+        (a no-op otherwise). Chainable. Not feature-targeted — for a blind pocket's
+        floor/depth prefer :meth:`section`."""
         self._opts["detail_view"] = True
         return self
 
