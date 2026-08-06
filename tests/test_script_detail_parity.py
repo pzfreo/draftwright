@@ -119,6 +119,21 @@ def test_generated_script_matches_direct_detail_view(crowded_step, tmp_path):
 
     assert _detail_signature(scripted) == _detail_signature(direct)
 
+    def detail_measurements(drawing):
+        step = next(
+            feature for feature in drawing.model().features if feature.kind == "step_level"
+        )
+        names = {name for name in drawing.annotations() if name.startswith("dim_detail_a_step")}
+        assert names <= set(drawing.annotations_of(step))
+        return {
+            drawing.get_annotation(name).label: drawing.measurement_keys(name) for name in names
+        }
+
+    direct_measurements = detail_measurements(direct)
+    assert direct_measurements
+    assert all(direct_measurements.values())
+    assert detail_measurements(scripted) == direct_measurements
+
 
 @pytest.mark.timeout(300)
 def test_generated_script_matches_two_direct_detail_views(tmp_path):
