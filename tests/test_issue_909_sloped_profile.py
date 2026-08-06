@@ -3,6 +3,7 @@
 from collections import Counter
 from pathlib import Path
 
+import pytest
 from build123d import import_step
 
 from draftwright import Drawing, build_drawing
@@ -63,9 +64,21 @@ def test_case_study_pad_reaches_the_drawing_with_complete_owned_footprint():
     assert drawing.lint() == []
 
 
-def test_removing_the_recovered_pad_size_reports_the_real_requirement():
+@pytest.mark.parametrize(
+    ("name_prefix", "parameter_id"),
+    [("m_pad", "pad_length.length"), ("m_locx", "location_pad.location")],
+)
+def test_removing_a_required_pad_dimension_reports_the_real_requirement(name_prefix, parameter_id):
     drawing = build_drawing(_ISSUE_909, detail_view=True)
-    drawing.remove("m_pad0_length")
+    pad = next(feature for feature in drawing.model().features if isinstance(feature, PadFeature))
+    owned = drawing.annotations_of(pad)
+    name = next(
+        name
+        for name in owned
+        if name.startswith(name_prefix)
+        and any(key["parameter_id"] == parameter_id for key in drawing.measurement_keys(name))
+    )
+    drawing.remove(name)
 
     issues = [issue for issue in drawing.lint() if issue.code == "pad_footprint_not_defined"]
     assert len(issues) == 1
