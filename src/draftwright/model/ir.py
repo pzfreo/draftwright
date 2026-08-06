@@ -91,6 +91,7 @@ DimensionParameterId = Literal[
     "boss.diameter",
     "boss_height.length",
     "chamfer.length",
+    "channel_width.length",
     "counterbore.depth",
     "counterbore.diameter",
     "countersink.angle",
@@ -442,6 +443,53 @@ class PocketFeature:
             DimParameter("length", "pocket_length", self.length),
             DimParameter("length", "pocket_depth", self.depth),
         ]
+
+    def references(self) -> list[Datum]:
+        return []
+
+
+@dataclass(frozen=True)
+class ChannelFeature:
+    """A floored rectangular channel open through both longitudinal ends.
+
+    The envelope and plate/level scheme own its longitudinal and depth extents.
+    This feature owns only the wall-to-wall width, while retaining the full
+    geometry needed to identify the two profile transitions it corresponds to.
+    """
+
+    frame: Frame
+    width_axis: str
+    long_axis: str
+    width: float
+    w_center: float
+    lo: float
+    hi: float
+    d_lo: float
+    d_hi: float
+    open_sign: int = 1
+    kind: ClassVar[str] = "channel"
+
+    @property
+    def depth_axis(self) -> str:
+        return next(a for a in "xyz" if a not in (self.width_axis, self.long_axis))
+
+    def _span(self) -> tuple[Point, Point]:
+        point = {
+            self.long_axis: (self.lo + self.hi) / 2,
+            self.width_axis: self.w_center,
+            self.depth_axis: self.d_hi if self.open_sign > 0 else self.d_lo,
+        }
+        lo = dict(point)
+        hi = dict(point)
+        lo[self.width_axis] -= self.width / 2
+        hi[self.width_axis] += self.width / 2
+        return (
+            (lo["x"], lo["y"], lo["z"]),
+            (hi["x"], hi["y"], hi["z"]),
+        )
+
+    def parameters(self) -> list[DimParameter]:
+        return [DimParameter("length", "channel_width", self.width, span=self._span())]
 
     def references(self) -> list[Datum]:
         return []

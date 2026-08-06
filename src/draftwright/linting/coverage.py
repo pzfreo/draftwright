@@ -628,6 +628,30 @@ def lint_prismatic_coverage(
         if getattr(f, "kind", None) == "step_level"
         for axis, pos in getattr(f, "shoulders", ())
     }
+
+    def _channel_key(channel):
+        return (
+            channel.width_axis,
+            channel.long_axis,
+            round(float(channel.width), 3),
+            round(float(channel.w_center), 3),
+            round(float(channel.lo), 3),
+            round(float(channel.hi), 3),
+            round(float(channel.d_lo), 3),
+            round(float(channel.d_hi), 3),
+            int(channel.open_sign),
+        )
+
+    source_channels = {_channel_key(channel) for channel in _rec.channels}
+    model_shoulders.update(
+        (feature.width_axis, round(position, 3))
+        for feature in features
+        if getattr(feature, "kind", None) == "channel" and _channel_key(feature) in source_channels
+        for position in (
+            feature.w_center - feature.width / 2,
+            feature.w_center + feature.width / 2,
+        )
+    )
     # A lone vertical transition can legitimately be owned by a declared plate
     # thickness scheme. Two or more stations describe a stepped/slanted profile
     # chain and must survive into correlated step IR (#898).

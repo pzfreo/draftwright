@@ -73,6 +73,7 @@ from draftwright.linting import (
     _suggest_fix,
     lint_axial_coverage,
     lint_boss_height_coverage,
+    lint_channel_coverage,
     lint_declaration_reconciliation,
     lint_drawing,
     lint_feature_coverage,
@@ -113,6 +114,10 @@ _GEOMETRY_AWARE_CODES = frozenset(
         "plate_thickness_dropped",
         "step_position_dropped",
         "chamfer_dropped",
+        "channel_requirement_suppressed",
+        "channel_requirement_missing",
+        "channel_requirement_unverifiable",
+        "channel_width_dropped",
         "flat_dropped",
         "placement_unsatisfiable",
         "pmi_dropped",
@@ -2812,6 +2817,14 @@ class Drawing:
                 assembly=self.assembly,
             )
             issues += lint_slot_coverage(
+                self.part,
+                recognition=recognition,
+                features=getattr(model, "features", ()) if model is not None else (),
+                registry=self._registry,
+                omissions=self._build.omissions,
+                assembly=self.assembly,
+            )
+            issues += lint_channel_coverage(
                 self.part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),

@@ -195,6 +195,48 @@ class Pocket(Record):
 
 
 @dataclass(frozen=True)
+class Channel(Record):
+    """A full-span floored rectangular channel, open at both longitudinal ends.
+
+    Unlike :class:`Pocket`, a channel's longitudinal extent and depth are already
+    conveyed by the part envelope and its plate/level scheme.  The record retains
+    that geometry for identity and correspondence, but its sole defining measurement
+    is the wall-to-wall ``width``.
+    """
+
+    width_axis: str
+    long_axis: str
+    width: float
+    w_center: float
+    lo: float
+    hi: float
+    d_lo: float
+    d_hi: float
+    open_sign: int = 1
+
+    @property
+    def depth_axis(self) -> str:
+        return next(a for a in "xyz" if a not in (self.width_axis, self.long_axis))
+
+    @property
+    def length(self) -> float:
+        return self.hi - self.lo
+
+    @property
+    def depth(self) -> float:
+        return self.d_hi - self.d_lo
+
+    @property
+    def location(self) -> tuple[float, float, float]:
+        coord = {
+            self.long_axis: (self.lo + self.hi) / 2,
+            self.width_axis: self.w_center,
+            self.depth_axis: (self.d_lo + self.d_hi) / 2,
+        }
+        return (coord["x"], coord["y"], coord["z"])
+
+
+@dataclass(frozen=True)
 class PocketArray(Record):
     """N identical blind pockets in a straight, constant-pitch line (#841) — the recess analog
     of :class:`~draftwright.recognition._features.LinearArray`. ``pockets`` are the member
@@ -916,15 +958,21 @@ def _merge(candidates: list[_R]) -> list[_R]:
     return kept
 
 
-def _pocket_candidate(fa, fb, faces, part_ext) -> Pocket | None:
-    """Build a :class:`Pocket` from two facing width-walls, or None if the pair is not a
-    blind recess.  Unlike :func:`_candidate` (which splits the two non-width axes into
-    long/depth by *size*), the depth axis is read from the geometry: a pocket's depth axis
-    is the one capped on **exactly one** end (the floor) and open on the other (the
-    opening), while the footprint (width, length) axes are enclosed on both ends. That
-    distinction is why a pocket deeper than it is long must not reuse the size heuristic —
-    the deep axis would be mislabelled 'length' and an end-wall taken for the floor (#609
-    review)."""
+def _floored_candidate(
+    fa, fb, faces, part_ext, *, channel_bounds: dict[str, tuple[float, float]] | None = None
+) -> Pocket | Channel | None:
+    """Build a floored opposed-wall recess, with open-vs-enclosed semantics explicit.
+
+    ``channel_bounds=None`` asks for an enclosed :class:`Pocket` and preserves the
+    historical full-span rejection.  Bounds ask for a :class:`Channel`: its shared
+    longitudinal wall range must meet both envelope ends, proving the feature is open
+    there rather than merely a large pocket.
+
+    Unlike :func:`_candidate` (which splits the two non-width axes into long/depth by
+    *size*), the depth axis is read from the geometry: it is capped on exactly one end
+    (the floor) and open on the other.  This keeps a recess deeper than it is long from
+    having its floor mistaken for an end wall (#609).
+    """
     axis = fa.axis  # the width axis: the facing walls' shared normal axis
     k = _AXES[axis]
     if fa.normal[k] * fb.normal[k] >= 0:
@@ -955,24 +1003,49 @@ def _pocket_candidate(fa, fb, faces, part_ext) -> Pocket | None:
         if int(cap_lo) + int(cap_hi) != 1:
             continue  # 0 = through on this axis; 2 = an enclosed end-cap pair, not a floor
         length = l_hi - l_lo
-        if width > length:
+        if width > length and channel_bounds is None:
             return None  # width is the smaller footprint dim (the wrong wall pair)
-        if length >= _SLOT_MAX_SPAN_FRAC * part_ext[long_axis]:
-            return None  # footprint spans the part — an open feature, not an enclosed pocket
-        return Pocket(
+        if channel_bounds is None:
+            if length >= _SLOT_MAX_SPAN_FRAC * part_ext[long_axis]:
+                return None  # footprint spans the part — an open feature, not a pocket
+            return Pocket(
+                width_axis=axis,
+                long_axis=long_axis,
+                width=round(width, 2),
+                length=round(length, 2),
+                depth=round(d_hi - d_lo, 2),
+                w_center=round((c_a + c_b) / 2, 2),
+                lo=round(l_lo, 2),
+                hi=round(l_hi, 2),
+                d_lo=round(d_lo, 2),
+                d_hi=round(d_hi, 2),
+                open_sign=1 if cap_lo else -1,
+            )
+        part_lo, part_hi = channel_bounds[long_axis]
+        if abs(l_lo - part_lo) > _FLOOR_TOL or abs(l_hi - part_hi) > _FLOOR_TOL:
+            continue  # not open at both longitudinal envelope ends
+        return Channel(
             width_axis=axis,
             long_axis=long_axis,
             width=round(width, 2),
-            length=round(length, 2),
-            depth=round(d_hi - d_lo, 2),
             w_center=round((c_a + c_b) / 2, 2),
             lo=round(l_lo, 2),
             hi=round(l_hi, 2),
             d_lo=round(d_lo, 2),
             d_hi=round(d_hi, 2),
-            open_sign=1 if cap_lo else -1,  # floor is the capped end; open the other way
+            open_sign=1 if cap_lo else -1,
         )
     return None
+
+
+def _pocket_candidate(fa, fb, faces, part_ext) -> Pocket | None:
+    candidate = _floored_candidate(fa, fb, faces, part_ext)
+    return candidate if isinstance(candidate, Pocket) else None
+
+
+def _channel_candidate(fa, fb, faces, part_ext, part_bounds) -> Channel | None:
+    candidate = _floored_candidate(fa, fb, faces, part_ext, channel_bounds=part_bounds)
+    return candidate if isinstance(candidate, Channel) else None
 
 
 def recognise_pockets(part) -> list[Pocket]:
@@ -1003,6 +1076,40 @@ def recognise_pockets(part) -> list[Pocket]:
     # recover them from their end caps (#837) — the blind counterpart of the through-slot path.
     candidates.extend(_recognise_obround_from_ends(part, faces, blind=True))
     return _extend_obround_ends(_merge(candidates), part)
+
+
+def recognise_channels(part) -> list[Channel]:
+    """Full-span floored rectangular channels, open at both longitudinal ends.
+
+    This is deliberately separate from :func:`recognise_pockets`: a channel's length
+    and depth participate in the surrounding envelope/plate scheme, while only its
+    wall-to-wall width is an independent defining measurement.
+    """
+    faces = _planar_faces(part)
+    pbb = part.bounding_box()
+    part_ext = {a: getattr(pbb.size, "XYZ"[_AXES[a]]) for a in "xyz"}
+    part_bounds = {
+        a: (
+            getattr(pbb.min, "XYZ"[_AXES[a]]),
+            getattr(pbb.max, "XYZ"[_AXES[a]]),
+        )
+        for a in "xyz"
+    }
+    by_axis: dict[str, list[_Face]] = {}
+    for face in faces:
+        if face.wall:
+            by_axis.setdefault(face.axis, []).append(face)
+    candidates: list[Channel] = []
+    for walls in by_axis.values():
+        for i in range(len(walls)):
+            for j in range(i + 1, len(walls)):
+                channel = _channel_candidate(walls[i], walls[j], faces, part_ext, part_bounds)
+                if channel is not None:
+                    candidates.append(channel)
+    return sorted(
+        set(candidates),
+        key=lambda c: (c.long_axis, c.width_axis, c.lo, c.hi, c.w_center, c.width),
+    )
 
 
 def _recognise_corner_notches(faces: list[_Face], pbb, tol: float = 0.5) -> list[Pocket]:

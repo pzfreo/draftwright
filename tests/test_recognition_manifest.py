@@ -31,6 +31,7 @@ from draftwright.recognition import (
     build_recognition_result,
     recognise_bosses,
     recognise_chamfers,
+    recognise_channels,
     recognise_countersinks,
     recognise_fillets,
     recognise_flats,
@@ -117,6 +118,14 @@ def _stepped_block():
     return Box(80, 40, 10) + Pos(-20, 0, 10) * Box(40, 40, 12)
 
 
+def _u_channel():
+    return (
+        Box(50, 50, 12)
+        + Pos(0, -18.75, 15) * Box(50, 12.5, 18)
+        + Pos(0, 18.75, 15) * Box(50, 12.5, 18)
+    )
+
+
 #: Between them these cover every RecognitionResult field with a NON-EMPTY inventory, which
 #: is what makes the equality assertions in the oracle below discriminating rather than
 #: comparing () to ().
@@ -130,6 +139,7 @@ _ORACLE_FIXTURES = [
     ("stepped shaft", _stepped_shaft),
     ("padded plate", _padded_plate),
     ("stepped block", _stepped_block),
+    ("U-channel", _u_channel),
     ("chamfered+filleted block", _chamfered_filleted_block),
     ("rotational shaft", _rotational_shaft),
 ]
@@ -321,12 +331,14 @@ def _expected_inventory(part, *, rotational: bool = False) -> dict:
     holes = recognise_holes(part, cyls=cyls, csinks=csinks)
     slots = recognise_slots(part)
     pockets = recognise_pockets(part)
+    channels = recognise_channels(part)
     return {
         "cylinders": (tuple(cyls[0]), tuple(cyls[1])),
         "countersinks": tuple(csinks),
         "holes": tuple(holes),
         "hole_patterns": tuple(recognise_hole_patterns(holes)),
         "bosses": tuple(recognise_bosses(part, cyls=cyls)),
+        "channels": tuple(channels),
         "slots": tuple(slots),
         "slot_patterns": tuple(recognise_slot_patterns(slots)),
         "grooves": tuple(recognise_grooves(part, cyls=cyls)),

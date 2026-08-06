@@ -2229,7 +2229,9 @@ def render_boss_heights(dwg, plan, a, *, ctx) -> int:
 
 
 def render_plates(dwg, plan, a, *, ctx) -> int:
-    """Plate/wall thicknesses (#559): the thin extent of each recognised slab
+    """Plate/wall thicknesses and open-channel widths (#559/#917).
+
+    Plate thickness is the thin extent of each recognised slab
     (`PlateFeature`), placed in the view where its thin axis is characteristic — a Z
     plate (horizontal slab) as a vertical dim left of the front elevation, a Y plate
     (upright wall) as a horizontal dim above the side (end) view where the L-profile
@@ -2416,6 +2418,85 @@ def render_plates(dwg, plan, a, *, ctx) -> int:
                 feature=g.ref,  # opaque provenance handle
                 measurement=pd.id,  # #1002
                 footprint=_foot,  # analytical measure — no probe build (#602)
+            ),
+        )
+        n += 1
+
+    channel_groups = [
+        (g, pd)
+        for g in plan.of_kind("channel")
+        if (pd := g.dim(role="channel_width", kind="length")) is not None and pd.span is not None
+    ]
+    channel_counts: dict[str, int] = {"x": 0, "y": 0, "z": 0}
+    view_for_long_axis = {"x": "side", "y": "front", "z": "plan"}
+    zones_for_view = {"front": a.fv_zones, "side": a.sv_zones, "plan": a.pv_zones}
+    for g, pd in sorted(
+        channel_groups,
+        key=lambda gp: (
+            gp[0].facts.long_axis,
+            gp[0].facts.width_axis,
+            gp[1].span[0],
+            gp[1].span[1],
+        ),
+    ):
+        facts = g.facts
+        view = view_for_long_axis[facts.long_axis]
+        p1 = dwg.at(view, *pd.span[0])
+        p2 = dwg.at(view, *pd.span[1])
+
+        outward = list(pd.span[0])
+        depth_index = "xyz".index(facts.depth_axis)
+        outward[depth_index] += facts.open_sign
+        q = dwg.at(view, *outward)
+        depth_dx, depth_dy = q[0] - p1[0], q[1] - p1[1]
+        width_dx, width_dy = p2[0] - p1[0], p2[1] - p1[1]
+        if abs(width_dx) >= abs(width_dy):
+            side = "above" if depth_dy > 0 else "below"
+            stack = "y"
+            edge = p1[1]
+            pa, pb = (p1[0], edge, 0), (p2[0], edge, 0)
+        else:
+            side = "right" if depth_dx > 0 else "left"
+            stack = "x"
+            edge = p1[0]
+            pa, pb = (edge, p1[1], 0), (edge, p2[1], 0)
+        strip = getattr(zones_for_view[view], side)
+        label = pd.value_text + _tol_suffix(pd.tolerance, draft)
+        index = channel_counts[facts.width_axis]
+        channel_counts[facts.width_axis] += 1
+        name = f"dim_channel_{facts.width_axis}{index}"
+
+        def _build(pos, pa=pa, pb=pb, side=side, edge=edge, label=label):
+            return _dim(pa, pb, side, pos - edge, draft, label=label)
+
+        def _foot(pos, pa=pa, pb=pb, side=side, edge=edge, label=label):
+            return dim_footprint(pa, pb, side, pos - edge, draft, label)
+
+        def _drop(_name, value=pd.value, view=view, side=side, mid=pd.id):
+            ctx.record_issue(
+                "warning",
+                "channel_width_dropped",
+                f"channel width {_fmt(value)} not dimensioned ({view} {side}-strip full)",
+                measurement=mid,
+            )
+
+        register_corridor(
+            ctx,
+            (view, side),
+            strip,
+            view,
+            stack,
+            tier,
+            CorridorCandidate(
+                name=name,
+                build=_build,
+                order=(_SIZE_SUBCHAIN, index, name),
+                on_place=lambda _name: None,
+                on_drop=_drop,
+                force=True,
+                feature=g.ref,
+                measurement=pd.id,
+                footprint=_foot,
             ),
         )
         n += 1

@@ -26,6 +26,7 @@ from draftwright.recognition.levels import FaceLevel, recognise_risers, step_lev
 from draftwright.recognition.pads import recognise_rectangular_pads
 from draftwright.recognition.plates import recognise_plates
 from draftwright.recognition.slots import (
+    recognise_channels,
     recognise_pocket_patterns,
     recognise_pockets,
     recognise_slot_patterns,
@@ -38,6 +39,7 @@ MIGRATED: frozenset[str] = frozenset(
     {
         "recognise_bosses",
         "recognise_chamfers",
+        "recognise_channels",
         "recognise_countersinks",
         "recognise_fillets",
         "recognise_flats",
@@ -149,6 +151,7 @@ class RecognitionResult:
     holes: tuple
     hole_patterns: tuple
     bosses: tuple
+    channels: tuple
     slots: tuple
     slot_patterns: tuple
     grooves: tuple
@@ -234,6 +237,7 @@ def build_recognition_result(
     cyls = (z_cyls, cross_cyls)
     countersinks = recognise_countersinks(part)
     holes = recognise_holes(part, cyls=cyls, csinks=countersinks)
+    channels = recognise_channels(part)
     pockets = recognise_pockets(part)
     slots = recognise_slots(part)
     turned_steps = recognise_turned_steps(part, cyls=cyls)
@@ -248,6 +252,7 @@ def build_recognition_result(
         holes=tuple(holes),
         hole_patterns=tuple(recognise_hole_patterns(holes)),
         bosses=tuple(recognise_bosses(part, cyls=cyls)),
+        channels=tuple(channels),
         slots=tuple(slots),
         # Derived from the accepted members, like the other two pattern families — the
         # recogniser must not rediscover the slots it groups.

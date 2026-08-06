@@ -323,6 +323,14 @@ def _feature_line(f, part_envelope=None) -> str:
             + (", edge_anchored=True" if f.edge_anchored else "")
             + ")"
         )
+    if k == "channel":
+        return (
+            f"sheet.channel(width={_n(f.width)}, "
+            f'long_axis="{f.long_axis}", width_axis="{f.width_axis}", '
+            f"w_center={_n(f.w_center)}, lo={_n(f.lo)}, hi={_n(f.hi)}, "
+            f"d_lo={_n(f.d_lo)}, d_hi={_n(f.d_hi)}, open_sign={f.open_sign}, "
+            f"at={_pt(f.frame.origin)})"
+        )
     if k == "pad":
         half = f.width / 2
         return (
@@ -448,6 +456,7 @@ _SECTION = {
     "groove": "Grooves",
     "slot": "Slots",
     "pocket": "Pockets",
+    "channel": "Channels",
     "chamfer": "Edges",
     "fillet": "Edges",
     "flat": "Flats",
@@ -465,6 +474,7 @@ _NOUN = {
     "groove": "groove",
     "slot": "slot",
     "pocket": "pocket",
+    "channel": "channel",
     "chamfer": "chamfer",
     "fillet": "fillet",
     "flat": "flat",
@@ -484,6 +494,7 @@ _DESCRIBED = frozenset(
         "step",
         "slot",
         "pocket",
+        "channel",
         "pattern",
         "chamfer",
         "fillet",
@@ -522,6 +533,8 @@ def _short_label(f) -> str:
     if k in ("slot", "pocket"):
         s = f"{k} {_n(f.width)} × {_n(f.length)}"
         return s + (f" × {_n(f.depth)} deep" if k == "pocket" else "")
+    if k == "channel":
+        return f"channel {_n(f.width)} wide"
     if k == "pattern":
         return f"{f.count}× ⌀{_n(f.member.diameter)} {f.pattern.replace('_', ' ')}"
     if k == "chamfer":

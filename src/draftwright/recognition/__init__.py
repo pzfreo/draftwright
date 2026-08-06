@@ -103,12 +103,14 @@ from draftwright.recognition.pads import RaisedPad, recognise_rectangular_pads
 from draftwright.recognition.plates import Plate, recognise_plates
 from draftwright.recognition.result import RecognitionResult, build_recognition_result
 from draftwright.recognition.slots import (
+    Channel,
     Pocket,
     PocketArray,
     PocketGrid,
     Slot,
     SlotArray,
     SlotGrid,
+    recognise_channels,
     recognise_pocket_patterns,
     recognise_pockets,
     recognise_slot_patterns,
@@ -119,6 +121,7 @@ from draftwright.recognition.turned import TurnedProfile, TurnedStep, recognise_
 __all__ = [
     "BoltCircle",
     "Chamfer",
+    "Channel",
     "Fillet",
     "Flat",
     "Groove",
@@ -157,6 +160,7 @@ __all__ = [
     "feature_diameters",
     "recognise_bosses",
     "recognise_chamfers",
+    "recognise_channels",
     "recognise_fillets",
     "recognise_flats",
     "recognise_grooves",

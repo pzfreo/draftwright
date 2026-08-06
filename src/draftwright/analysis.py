@@ -642,6 +642,7 @@ def _analyse(
             holes=holes,
             patterns=patterns,
             bosses=bosses,
+            channels=list(recognition.channels) if recognition else None,
             slots=slots,
             # Injected from the aggregate since #1026 — `build_part_model` detected these
             # three itself, which is the duplicate scan ADR 0017 exists to remove. On this

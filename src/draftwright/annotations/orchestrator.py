@@ -209,6 +209,7 @@ def build_model(a: Analysis):
         holes=a.holes,
         patterns=a.patterns,
         bosses=a.bosses,
+        channels=a.recognition.channels,
         slots=a.slots,
         # The engine's SECOND build_part_model call site; unthreaded, these three were
         # detected again here after _analyse had already recognised them (#1019). Read off

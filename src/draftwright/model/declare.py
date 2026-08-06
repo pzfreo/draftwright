@@ -34,6 +34,7 @@ from draftwright.model.ir import (
     AuthoredDimension,
     BossFeature,
     ChamferFeature,
+    ChannelFeature,
     ControlFrame,
     DatumRef,
     EnvelopeFeature,
@@ -1121,6 +1122,57 @@ def pocket(
         lo=lo,
         hi=hi,
         edge_anchored=bool(edge_anchored),
+    )
+
+
+def channel(
+    *,
+    width,
+    long_axis,
+    width_axis,
+    w_center,
+    lo,
+    hi,
+    d_lo,
+    d_hi,
+    open_sign=1,
+    at=None,
+) -> ChannelFeature:
+    """A full-span floored channel, dimensioned only by wall-to-wall width.
+
+    The longitudinal and depth bounds identify the physical channel and preserve
+    recognition/declaration parity; they are not additional dimensions.
+    """
+    long_axis = _norm_axis(long_axis)
+    width_axis = _norm_axis(width_axis)
+    if long_axis == width_axis:
+        raise ValueError(f"channel() long_axis and width_axis must differ (both {long_axis!r})")
+    _require_positive(width=width)
+    if not lo < hi:
+        raise ValueError(f"channel() needs lo < hi (got lo={lo!r}, hi={hi!r})")
+    if not d_lo < d_hi:
+        raise ValueError(f"channel() needs d_lo < d_hi (got d_lo={d_lo!r}, d_hi={d_hi!r})")
+    if open_sign not in (-1, 1):
+        raise ValueError(f"channel() open_sign must be -1 or 1 (got {open_sign!r})")
+    depth_axis = next(a for a in "xyz" if a not in (long_axis, width_axis))
+    if at is None:
+        origin = {
+            long_axis: (lo + hi) / 2,
+            width_axis: w_center,
+            depth_axis: (d_lo + d_hi) / 2,
+        }
+        at = (origin["x"], origin["y"], origin["z"])
+    return ChannelFeature(
+        frame=Frame(origin=at, axis=long_axis),
+        width_axis=width_axis,
+        long_axis=long_axis,
+        width=width,
+        w_center=w_center,
+        lo=lo,
+        hi=hi,
+        d_lo=d_lo,
+        d_hi=d_hi,
+        open_sign=open_sign,
     )
 
 

@@ -1367,6 +1367,14 @@ class TestRoundTripParity:
         # direct build's W × L × D DEEP leader callout.
         self._parity(Box(80, 60, 20) - Pos(0, 0, 6) * Box(30, 20, 8), tmp_path, monkeypatch)
 
+    def test_open_channel_parity(self, tmp_path, monkeypatch):
+        part = (
+            Box(50, 50, 12)
+            + Pos(0, -18.75, 15) * Box(50, 12.5, 18)
+            + Pos(0, 18.75, 15) * Box(50, 12.5, 18)
+        )
+        self._parity(part, tmp_path, monkeypatch)
+
     def test_pattern_parity(self, tmp_path, monkeypatch):
         part = (
             Box(100, 80, 20)

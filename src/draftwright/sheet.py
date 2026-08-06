@@ -62,6 +62,7 @@ from draftwright.fits import fit_class
 from draftwright.model import DimensionParameterId, Feature
 from draftwright.model import boss as _boss
 from draftwright.model import chamfer as _chamfer
+from draftwright.model import channel as _channel
 from draftwright.model import control_frame as _declare_control
 from draftwright.model import datum as _declare_datum
 from draftwright.model import envelope as _envelope
@@ -1069,6 +1070,11 @@ class Sheet:
         depth). From an object the depth axis defaults to the shortest bbox span; pass
         ``depth_axis=`` for a recess deeper than it is wide."""
         self._features.append(_pocket(obj, **kw))
+        return _Params(self, len(self._features) - 1)
+
+    def channel(self, **kw) -> _Params:
+        """Declare a full-span floored channel (wall-to-wall width only)."""
+        self._features.append(_channel(**kw))
         return _Params(self, len(self._features) - 1)
 
     def pad(self, obj=None, **kw) -> _Params:

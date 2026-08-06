@@ -24,6 +24,7 @@ from dataclasses import dataclass, replace
 
 from draftwright._geometry import _END_ON, HoleRef
 from draftwright.model.ir import (
+    ChannelFeature,
     Datum,
     DimParameter,
     Feature,
@@ -32,6 +33,7 @@ from draftwright.model.ir import (
     ParameterId,
     PartModel,
     PatternFeature,
+    PlateFeature,
     PocketFeature,
     PocketPatternFeature,
     Point,
@@ -60,6 +62,7 @@ _CONVENTION = {
     ("pitch", "length"): "pitch",  # linear-array pitch — distinct from a plain linear dim
     ("grid_pitch", "length"): "pitch",
     ("chamfer", "length"): "leader",  # C{leg} / {leg}×{angle}° leader callout (#724)
+    ("channel_width", "length"): "linear",
     ("fillet", "radius"): "leader",  # R{radius} (grouped n× R) leader callout (#725)
     ("flat", "length"): "leader",  # {across} A/F across-flats leader callout (#726)
     # One groove callout carries BOTH params: {width} WIDE × ø{diameter} (#727)
@@ -297,6 +300,42 @@ def _suppression(model: PartModel, feature: Feature, param: DimParameter):
     carries both, which is verbose but never ambiguous. Square notation is the optimisation
     (#918); when it exists, a suppression rule can return *with* it, never instead of it.
     """
+    if isinstance(feature, PlateFeature) and param.role == "thickness":
+        channels = [f for f in model.features if isinstance(f, ChannelFeature)]
+        if len(channels) == 1 and model.bbox is not None:
+            channel = channels[0]
+            axis = channel.width_axis
+            long_index = "xyz".index(channel.long_axis)
+            long_letter = "XYZ"[long_index]
+            full_span = (
+                abs(channel.lo - getattr(model.bbox.min, long_letter)) <= 1e-6
+                and abs(channel.hi - getattr(model.bbox.max, long_letter)) <= 1e-6
+            )
+            if feature.axis == axis and full_span:
+                index = "xyz".index(axis)
+                letter = "XYZ"[index]
+                bbox_lo = getattr(model.bbox.min, letter)
+                bbox_hi = getattr(model.bbox.max, letter)
+                channel_lo = channel.w_center - channel.width / 2
+                channel_hi = channel.w_center + channel.width / 2
+                same_axis = [
+                    f for f in model.features if isinstance(f, PlateFeature) and f.axis == axis
+                ]
+                lower = [
+                    plate
+                    for plate in same_axis
+                    if abs(plate.lo - bbox_lo) <= 1e-6 and abs(plate.hi - channel_lo) <= 1e-6
+                ]
+                upper = [
+                    plate
+                    for plate in same_axis
+                    if abs(plate.lo - channel_hi) <= 1e-6 and abs(plate.hi - bbox_hi) <= 1e-6
+                ]
+                if len(lower) == len(upper) == 1 and feature == upper[0]:
+                    return True, (
+                        "opposite wall is derived from the overall extent, lower wall "
+                        "thickness, and channel width"
+                    )
     if feature.kind != "envelope":
         return False, None
     # A rotational part's OD already conveys its cross-axis extent(s); the envelope

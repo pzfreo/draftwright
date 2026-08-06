@@ -89,6 +89,17 @@ _SAMPLES: dict[str, ir.Feature] = {
     "SlotFeature": ir.SlotFeature(_F, "y", "x", 8.0, 30.0, 0.0, -15.0, 15.0),
     "PadFeature": ir.PadFeature(_F, "y", "x", 8.0, 30.0, 0.0, -15.0, 15.0, 12.0, 20.0),
     "PocketFeature": ir.PocketFeature(_F, "y", "x", 8.0, 30.0, 5.0, 0.0, -15.0, 15.0),
+    "ChannelFeature": ir.ChannelFeature(
+        ir.Frame((0.0, 0.0, 9.0), "x"),
+        "y",
+        "x",
+        25.0,
+        0.0,
+        -25.0,
+        25.0,
+        0.0,
+        18.0,
+    ),
     "PocketPatternFeature": ir.PocketPatternFeature(
         _F,
         "grid",
@@ -165,6 +176,7 @@ _SAMPLE_BINDINGS = {
         ("pocket_length.length", 30.0),
         ("pocket_depth.length", 5.0),
     ),
+    "ChannelFeature": (("channel_width.length", 25.0),),
     "PocketPatternFeature": (
         ("pocket_width.length", 8.0),
         ("pocket_length.length", 30.0),

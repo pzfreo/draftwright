@@ -24,6 +24,7 @@ from draftwright.recognition import (
     BoltCircle,
     BossRecord,
     Chamfer,
+    Channel,
     CounterSink,
     FaceLevel,
     Fillet,
@@ -45,6 +46,7 @@ from draftwright.recognition import (
     project_step_shoulders,
     recognise_bosses,
     recognise_chamfers,
+    recognise_channels,
     recognise_countersinks,
     recognise_face_levels,
     recognise_fillets,
@@ -75,6 +77,7 @@ _EXPECTED_RECORD_TYPES = {
     LinearArray,
     RectGrid,
     Chamfer,
+    Channel,
     Fillet,
     Flat,
     Groove,
@@ -187,6 +190,11 @@ def _records_from_recognisers():
     holes = recognise_holes(csk, csinks=recognise_countersinks(csk))
     slotted = Box(60, 40, 20) - Pos(0, 0, 0) * Box(30, 8, 20)
     pocketed = Box(60, 40, 20) - Pos(0, 0, 7) * Box(30, 18, 6)
+    channel = (
+        Box(50, 50, 12)
+        + Pos(0, -18.75, 15) * Box(50, 12.5, 18)
+        + Pos(0, 18.75, 15) * Box(50, 12.5, 18)
+    )
     dshaft = Cylinder(10, 30) - Pos(10, 0, 0) * Box(10, 40, 40)  # round stock with one flat
     grooved = Cylinder(10, 40) - (Cylinder(10, 4) - Cylinder(8, 4))  # round stock with one groove
     levels = [f.z for f in recognise_face_levels(stepped)]
@@ -200,6 +208,7 @@ def _records_from_recognisers():
         ("hole_patterns:linear", recognise_hole_patterns(recognise_holes(_linear_array_plate()))),
         ("hole_patterns:grid", recognise_hole_patterns(recognise_holes(_grid_plate()))),
         ("recognise_chamfers", recognise_chamfers(_chamfered_box())),
+        ("recognise_channels", recognise_channels(channel)),
         ("recognise_fillets", recognise_fillets(_filleted_box())),
         ("recognise_slots", recognise_slots(slotted)),
         ("recognise_pockets", recognise_pockets(pocketed)),
@@ -280,6 +289,7 @@ def test_part_based_recognisers_are_keyword_only_after_part():
         recognise_bosses,
         recognise_countersinks,
         recognise_chamfers,
+        recognise_channels,
         recognise_fillets,
         recognise_slots,
         recognise_pockets,
