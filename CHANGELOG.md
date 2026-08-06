@@ -4,6 +4,13 @@
 
 ### Fixed
 
+- **Annotation-dense detail placement no longer stalls the build** (#1065). Detail views
+  avoid every decomposed annotation shaft, witness, label and item footprint; CTC-02
+  supplies 571 such boxes. The free-rectangle search previously treated that set as tiny
+  and admitted roughly 34 billion candidate rectangles, exhausting the slow tier's
+  ten-minute test budget before export. A compressed-coordinate sweep preserves the same
+  deterministic winning rectangle while completing the real search in seconds.
+
 - **Through double-D bores are recognised and called out as first-class hole profiles**
   (#1061). Automatic and declared builds preserve the parent-circle diameter, A/F size,
   orientation and depth, and render one compound `DOUBLE-D ... A/F` bore callout. Physical

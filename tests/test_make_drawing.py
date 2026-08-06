@@ -1385,6 +1385,42 @@ class TestIsoEmptyRect:
             100.0,
         )
 
+    def test_degenerate_obstacle_still_splits_a_gap(self):
+        from draftwright._core import _largest_empty_rect
+
+        assert _largest_empty_rect(
+            (0.0, 0.0, 10.0, 10.0),
+            [(5.0, 5.0, 5.0, 5.0)],
+        ) == (0.0, 0.0, 5.0, 5.0)
+
+    @pytest.mark.timeout(10)
+    def test_annotation_sized_obstacle_set_stays_bounded(self):
+        """Detail placement sees decomposed shafts, witnesses, and labels, not
+        merely four view hulls.  A CTC-02 build supplies 571 boxes; distinct
+        obstacle edges must not turn that ordinary occupancy into a quartic
+        candidate-rectangle search."""
+        from draftwright._core import _largest_empty_rect
+
+        drawable = (0.0, 0.0, 1000.0, 1000.0)
+        obstacles = []
+        for i in range(300):
+            x = 20.0 + i * 1.6
+            y = 20.0 + ((i * 137) % 600) * 1.5
+            obstacles.append((x, y, x + 0.7, y + 0.7))
+
+        result = _largest_empty_rect(
+            drawable,
+            obstacles,
+            target_size=(1635.0, 2752.0),
+            warn=False,
+        )
+
+        x0, y0, x1, y1 = result
+        assert x0 < x1 and y0 < y1
+        assert not any(
+            x0 < ox1 and ox0 < x1 and y0 < oy1 and oy0 < y1 for ox0, oy0, ox1, oy1 in obstacles
+        )
+
     @pytest.mark.parametrize(
         "target_size",
         [(float("nan"), 1.0), (0.0, 1.0), (1.0, float("nan")), (1.0, 0.0)],
