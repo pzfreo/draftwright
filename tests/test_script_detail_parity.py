@@ -6,6 +6,7 @@ queues and resolves detail requests like the auto pass); the remaining xfails
 capture the still-open gaps — side-drilled location dims and rotational furniture.
 """
 
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -139,19 +140,19 @@ def test_generated_script_matches_direct_detail_view(crowded_step, tmp_path):
 
         ladder = compile_dimensions(drawing.model()).ladder("step_height")
         assert ladder is not None
-        approved = {rung.final_label for rung in ladder.rungs}
-        parent = {
+        approved = Counter(rung.final_label for rung in ladder.rungs)
+        parent = Counter(
             annotation.label
             for name, annotation in drawing.annotations_in_view("front")
             if name.startswith("dim_step")
-        }
-        detail = {
+        )
+        detail = Counter(
             annotation.label
             for name, annotation in drawing.annotations_in_view("detail_a")
             if name.startswith("dim_detail_a_step")
-        }
-        assert parent.isdisjoint(detail)
-        assert parent | detail == approved
+        )
+        assert not parent & detail
+        assert parent + detail == approved
         return parent, detail
 
     assert step_partition(scripted) == step_partition(direct)
