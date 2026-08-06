@@ -55,7 +55,7 @@ def test_issue_916_pocket_callout_starts_on_its_rim_and_exits_cleanly():
     ids=["z-depth", "x-depth", "y-depth"],
 )
 def test_pocket_rim_tip_is_axis_independent(rotation):
-    # Non-square so swapping the approved width/length onto the wrong physical axes fails.
+    # Non-square exercises distinct rim proportions in every orthogonal opening view.
     dwg = build_drawing(Rot(*rotation) * _blind_pocket(22, 14))
     pocket = next(
         feature for feature in dwg.model().features if isinstance(feature, PocketFeature)
