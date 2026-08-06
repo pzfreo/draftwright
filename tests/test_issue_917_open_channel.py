@@ -103,12 +103,36 @@ def test_ordinary_bounded_pocket_does_not_become_a_channel():
 
 
 def test_channel_must_reach_both_longitudinal_envelope_ends():
-    part = (
+    for length, x_center in ((40, 0), (45, -2.5)):
+        part = (
+            Box(50, 50, 12)
+            + Pos(x_center, -18.75, 15) * Box(length, 12.5, 18)
+            + Pos(x_center, 18.75, 15) * Box(length, 12.5, 18)
+        )
+        assert recognise_channels(part) == []
+
+
+def test_channel_requires_a_floor_and_opposed_inner_walls():
+    assert recognise_channels(Box(50, 50, 12)) == []
+    through_gap = Box(50, 50, 30) - Box(50, 25, 30)
+    assert recognise_channels(through_gap) == []
+
+
+def test_channel_width_places_for_principal_axis_rotations_and_both_open_signs():
+    base = (
         Box(50, 50, 12)
-        + Pos(0, -18.75, 15) * Box(40, 12.5, 18)
-        + Pos(0, 18.75, 15) * Box(40, 12.5, 18)
+        + Pos(0, -18.75, 15) * Box(50, 12.5, 18)
+        + Pos(0, 18.75, 15) * Box(50, 12.5, 18)
     )
-    assert recognise_channels(part) == []
+    inverted = (
+        Box(50, 50, 12)
+        + Pos(0, -18.75, -15) * Box(50, 12.5, 18)
+        + Pos(0, 18.75, -15) * Box(50, 12.5, 18)
+    )
+    for part in (base, Rot(0, 90, 0) * base, Rot(90, 0, 0) * base, inverted):
+        drawing = build_drawing(part)
+        assert list(_labels(drawing, "dim_channel").values()) == ["25"]
+        assert not [issue for issue in drawing.lint() if issue.severity != "info"]
 
 
 def test_wrong_channel_identity_cannot_clear_the_physical_transition_warning():

@@ -2461,6 +2461,13 @@ def render_plates(dwg, plan, a, *, ctx) -> int:
             edge = p1[0]
             pa, pb = (edge, p1[1], 0), (edge, p2[1], 0)
         strip = getattr(zones_for_view[view], side)
+        if strip is None:
+            # Some sheet layouts abut one side of a view directly against its sibling and
+            # therefore expose no corridor on the channel's opening side. The opposite
+            # profile corridor still dimensions the same two wall witnesses; use it rather
+            # than treating an unavailable strip as a physically full one.
+            side = {"above": "below", "below": "above", "left": "right", "right": "left"}[side]
+            strip = getattr(zones_for_view[view], side)
         label = pd.value_text + _tol_suffix(pd.tolerance, draft)
         index = channel_counts[facts.width_axis]
         channel_counts[facts.width_axis] += 1
