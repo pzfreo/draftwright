@@ -15,7 +15,7 @@ _ISSUE_909 = Path(__file__).parent / "fixtures" / "issue_909_basic_part_design_0
 
 
 def test_touching_lower_ledges_do_not_hide_the_case_studys_raised_pad():
-    """Shared edges are not the positive-area overlap that identifies a staircase."""
+    """Only ledges at the recovered local base identify a nested staircase."""
     part = import_step(str(_ISSUE_909))
 
     assert recognise_rectangular_pads(part) == [RaisedPad(-15.5, 15.5, 8.0, 24.7, 13.0, 20.0)]
