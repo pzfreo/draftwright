@@ -10,6 +10,25 @@ def _blind_pocket():
     return Box(50, 50, 30) - Pos(10, 10, 10) * Box(20, 20, 10)
 
 
+def _tip_is_on_rim(dwg, view, pocket, tip):
+    origin = list(pocket.frame.origin)
+    centre = dwg.at(view, *origin)
+    long_end = origin.copy()
+    long_end["xyz".index(pocket.long_axis)] += pocket.length / 2
+    width_end = origin.copy()
+    width_end["xyz".index(pocket.width_axis)] += pocket.width / 2
+    long_page = dwg.at(view, *long_end)
+    width_page = dwg.at(view, *width_end)
+    long_v = (long_page[0] - centre[0], long_page[1] - centre[1])
+    width_v = (width_page[0] - centre[0], width_page[1] - centre[1])
+    tip_v = (tip[0] - centre[0], tip[1] - centre[1])
+    long_fraction = sum(a * b for a, b in zip(tip_v, long_v)) / sum(v * v for v in long_v)
+    width_fraction = sum(a * b for a, b in zip(tip_v, width_v)) / sum(v * v for v in width_v)
+    return (abs(abs(long_fraction) - 1) < 1e-6 and abs(width_fraction) <= 1 + 1e-6) or (
+        abs(abs(width_fraction) - 1) < 1e-6 and abs(long_fraction) <= 1 + 1e-6
+    )
+
+
 def test_issue_916_pocket_callout_starts_on_its_rim_and_exits_cleanly():
     dwg = build_drawing(_blind_pocket())
     pockets = [feature for feature in dwg.model().features if isinstance(feature, PocketFeature)]
@@ -24,24 +43,9 @@ def test_issue_916_pocket_callout_starts_on_its_rim_and_exits_cleanly():
     assert dwg.get_annotation("m_locx0").label == "35"
     assert dwg.get_annotation("m_locy0").label == "35"
 
-    pocket = pockets[0]
-    origin = list(pocket.frame.origin)
-    centre = dwg.at("plan", *origin)
-    long_end = origin.copy()
-    long_end["xyz".index(pocket.long_axis)] += pocket.length / 2
-    width_end = origin.copy()
-    width_end["xyz".index(pocket.width_axis)] += pocket.width / 2
-    long_page = dwg.at("plan", *long_end)
-    width_page = dwg.at("plan", *width_end)
-    long_v = (long_page[0] - centre[0], long_page[1] - centre[1])
-    width_v = (width_page[0] - centre[0], width_page[1] - centre[1])
-    tip_v = (callout.tip[0] - centre[0], callout.tip[1] - centre[1])
-    long_fraction = sum(a * b for a, b in zip(tip_v, long_v)) / sum(v * v for v in long_v)
-    width_fraction = sum(a * b for a, b in zip(tip_v, width_v)) / sum(v * v for v in width_v)
-    tip_on_rim = (abs(abs(long_fraction) - 1) < 1e-6 and abs(width_fraction) <= 1 + 1e-6) or (
-        abs(abs(width_fraction) - 1) < 1e-6 and abs(long_fraction) <= 1 + 1e-6
+    assert _tip_is_on_rim(dwg, "plan", pockets[0], callout.tip), (
+        "the pocket leader identifies its centre, not its physical rim"
     )
-    assert tip_on_rim, "the pocket leader identifies its centre, not its physical rim"
     assert dwg.lint() == []
 
 
@@ -56,6 +60,5 @@ def test_pocket_rim_tip_is_axis_independent(rotation):
         annotation for name, annotation in dwg.iter_annotations() if name.startswith("m_pocket_")
     )
 
-    centre = dwg.at(view, *pocket.frame.origin)
-    assert callout.tip[:2] != pytest.approx(centre[:2])
+    assert _tip_is_on_rim(dwg, view, pocket, callout.tip)
     assert dwg.lint() == []
