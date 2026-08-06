@@ -18,7 +18,7 @@ import inspect
 import json
 
 import pytest
-from build123d import Axis, Box, Cylinder, Pos, Rot, chamfer, fillet
+from build123d import Align, Axis, Box, Cylinder, Pos, Rot, chamfer, fillet
 
 from draftwright.recognition import (
     BoltCircle,
@@ -26,6 +26,7 @@ from draftwright.recognition import (
     Chamfer,
     Channel,
     CounterSink,
+    DoubleDBore,
     FaceLevel,
     Fillet,
     Flat,
@@ -48,6 +49,7 @@ from draftwright.recognition import (
     recognise_chamfers,
     recognise_channels,
     recognise_countersinks,
+    recognise_double_d_bores,
     recognise_face_levels,
     recognise_fillets,
     recognise_flats,
@@ -71,6 +73,7 @@ from draftwright.recognition._record import Record
 # / aggregates, not recogniser returns, so they are exercised nested, not listed here.)
 _EXPECTED_RECORD_TYPES = {
     HoleRecord,
+    DoubleDBore,
     CounterSink,
     BossRecord,
     BoltCircle,
@@ -106,6 +109,12 @@ def _csk_plate():
 
 def _stepped():
     return Box(80, 40, 10) + Pos(-20, 0, 10) * Box(40, 40, 12)
+
+
+def _double_d_plate():
+    centre = (Align.CENTER, Align.CENTER, Align.CENTER)
+    cutter = Cylinder(5, 20, align=centre) & Box(7.2, 20, 30, align=centre)
+    return Box(30, 30, 10, align=centre) - cutter
 
 
 def _turned_shaft():
@@ -203,6 +212,7 @@ def _records_from_recognisers():
     for name, recs in [
         ("recognise_holes", holes),
         ("recognise_countersinks", recognise_countersinks(csk)),
+        ("recognise_double_d_bores", recognise_double_d_bores(_double_d_plate())),
         ("recognise_bosses", recognise_bosses(Cylinder(10, 20))),
         ("hole_patterns:bolt", recognise_hole_patterns(recognise_holes(_bolt_circle_plate()))),
         ("hole_patterns:linear", recognise_hole_patterns(recognise_holes(_linear_array_plate()))),
@@ -288,6 +298,7 @@ def test_part_based_recognisers_are_keyword_only_after_part():
         recognise_holes,
         recognise_bosses,
         recognise_countersinks,
+        recognise_double_d_bores,
         recognise_chamfers,
         recognise_channels,
         recognise_fillets,

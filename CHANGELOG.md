@@ -4,10 +4,17 @@
 
 ### Fixed
 
+- **Through double-D bores are recognised and called out as first-class hole profiles**
+  (#1061). Automatic and declared builds preserve the parent-circle diameter, A/F size,
+  orientation and depth, and render one compound `DOUBLE-D ... A/F` bore callout. Physical
+  critique now accepts that supported inner profile while retaining a separate warning for
+  13 evenly spaced common-circle arcs on the unresolved outer boundary; it does not infer a
+  repeating full profile or a gear standard.
+
 - **Unsupported internal profiles no longer pass physical-completeness lint silently**
   (#1058). Inner loops on principal boundary faces are checked against the current
-  circular-hole, rectangular-opening, and true-obround vocabulary. Profiles outside it,
-  including the supplied double-D wheel bore, now produce
+  circular-hole, rectangular-opening, true-obround, and proven through-double-D vocabulary.
+  Profiles outside it now produce
   `unrecognised_defining_geometry` and reduce the lint score instead of allowing an
   envelope-only drawing to score 1.0.
 

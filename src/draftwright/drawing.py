@@ -81,6 +81,7 @@ from draftwright.linting import (
     lint_location_coverage,
     lint_principal_profile_coverage,
     lint_prismatic_coverage,
+    lint_profiled_bore_coverage,
     lint_slot_coverage,
 )
 from draftwright.projection import (
@@ -281,7 +282,7 @@ class BuildState:
       (helpers #143/#164).
     - ``ann_box_cache`` — lint's annotation bounding boxes (#602): identity- AND
       location-token-checked entries (see ``_ann_box``), pruned by ``lint()``.
-    - ``principal_profile_cache`` — solid-derived unsupported-inner-profile issues
+    - ``principal_profile_cache`` — solid-derived unsupported principal-profile issues
       reused by repeated physical critique (#1058).
     - ``trace`` — the opt-in solve-trace recorder (#736,
       :class:`~draftwright.annotations._common.SolveTrace`), or ``None`` (default:
@@ -2768,6 +2769,9 @@ class Drawing:
                 holes = patterns = bosses = None
                 pads = pockets = recognition = None
                 prof_kw = {}
+            if recognition is None:
+                recognition = self._build.ensure_recognition(self.part)
+            profiled_bores = list(recognition.double_d_bores)
             issues += lint_feature_coverage(
                 self.part,
                 self.items,
@@ -2800,6 +2804,7 @@ class Drawing:
                 assembly=self.assembly,
                 holes=holes,
                 patterns=patterns,
+                profiled_bores=profiled_bores,
             )
             issues += lint_prismatic_coverage(
                 self.part,
@@ -2829,6 +2834,13 @@ class Drawing:
                 profile_cache = (self.part, resolved_assembly, profile_issues)
                 self._build.principal_profile_cache = profile_cache
             issues += list(profile_cache[2])
+            issues += lint_profiled_bore_coverage(
+                self.part,
+                self.items,
+                recognition=recognition,
+                dropped_profiles=self._coverage.dropped_profiles,
+                assembly=self.assembly,
+            )
             issues += lint_flat_coverage(
                 self.part,
                 recognition=recognition,
@@ -2858,7 +2870,11 @@ class Drawing:
             # _part_model is typed `object` (deliberately loose, #397); read features duck-typed.
             if self._model_declared and self._part_model is not None:
                 features = getattr(self._part_model, "features", ())
-                issues += lint_declaration_reconciliation(features, cyls)
+                issues += lint_declaration_reconciliation(
+                    features,
+                    cyls,
+                    recognition=recognition,
+                )
         issues += list(self._registry.issues)
         # Attach a ready-to-paste fix snippet where one is computable (#29).
         # str | None — None when no concrete repair can be inferred.

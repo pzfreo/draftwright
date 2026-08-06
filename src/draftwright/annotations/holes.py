@@ -73,6 +73,18 @@ from draftwright.model.ir import HoleFeature, PatternFeature
 _AXIS_ALIGN_COS = 0.9996
 
 
+def _profiled_callout_leader(*, callout, **kw):
+    """Build a leader and preserve draftwright's structured profile coverage metadata.
+
+    The helpers' ``Leader`` copies its native diameter/count coverage from ``HoleCallout``;
+    profiled-bore coverage is draftwright-owned, so it is forwarded explicitly at this one
+    construction seam.
+    """
+    leader = Leader(callout=callout, **kw)
+    leader.covers_profiles = getattr(callout, "covers_profiles", ())
+    return leader
+
+
 def add_feature_callout(
     dwg, feature, model, a, *, view: str | None = None, name: str | None = None, ctx
 ) -> str:
@@ -130,17 +142,11 @@ def add_feature_callout(
     tier = draft.font_size + 2 * gap
     dia = spec["diameter"]
 
-    def _rim_tip(centre, elbow):
-        # Pull the leader tip from the hole centre to its circumference (bore dia mm).
-        r = dia * dwg.scale / 2
-        dx, dy = elbow[0] - centre[0], elbow[1] - centre[1]
-        norm = math.hypot(dx, dy)
-        return centre if norm <= r else (centre[0] + dx / norm * r, centre[1] + dy / norm * r)
-
     vb = dwg.view_bounds(view) or (0.0, 0.0, 0.0, 0.0)
     vx0, vy0, vx1, vy1 = vb
     # tip on the member nearest the placement side (rightmost in page X)
-    centre = dwg.at(view, *max(members, key=lambda m: dwg.at(view, *m)[0]))[:2]
+    rep = max(members, key=lambda m: dwg.at(view, *m)[0])
+    centre = dwg.at(view, *rep)[:2]
 
     if view == "front":  # below the view (matches the auto-pass's front-callout side)
         zones = a.fv_zones if a is not None else None
@@ -176,9 +182,17 @@ def add_feature_callout(
         while name in ctx.registry:
             i += 1
             name = f"hc_{view}{i}"
-    tip = _rim_tip(centre, elbow)
+    tip = _rim_tip(
+        centre,
+        elbow,
+        dia,
+        dwg.scale,
+        callout=callout,
+        location=rep,
+        to_page=lambda loc: dwg.at(view, *loc)[:2],
+    )
     ctx.place(
-        Leader(
+        _profiled_callout_leader(
             tip=(tip[0], tip[1], 0),
             elbow=(elbow[0], elbow[1], 0),
             label="",
@@ -517,7 +531,7 @@ def _legible_locations(positions, scale):
     return kept, n_too_close
 
 
-def _record_callout_drop(ctx, dwg, view, diam, reason, feat=None):
+def _record_callout_drop(ctx, dwg, view, diam, reason, feat=None, callout=None):
     """Record a hole callout the layout could not place (#36).
 
     A warning (the drawing is incomplete, not invalid), whose diameter is
@@ -531,6 +545,10 @@ def _record_callout_drop(ctx, dwg, view, diam, reason, feat=None):
     identity (#351 PR-3).
     """
     ctx.coverage.drop_diam(diam)
+    count = int(getattr(callout, "covers_count", 1) or 1)
+    for profile in getattr(callout, "covers_profiles", ()):
+        for _ in range(count):
+            ctx.coverage.drop_profile(profile)
     ctx.record_issue(
         "warning",
         "callout_dropped",
@@ -1725,12 +1743,26 @@ def _leader_hits(leader, tip, elbow, side, obstacles):
     return _box_hits(label_box, obstacles)
 
 
-def _rim_tip(centre, elbow, dia, scale):
-    """Pull the tip from the hole centre to its circumference (bore *dia* mm). Promoted out of
-    _annotate_holes (#638; pure) — *scale* was the closed-over ``a.SCALE``."""
+def _rim_tip(centre, elbow, dia, scale, *, callout=None, location=None, to_page=None):
+    """Pull a leader tip from the bore centre to its actual profile boundary.
+
+    Circular holes use the diameter radius. A double-D uses the nearer of that circle and
+    its two chord planes along the leader ray. The projection callback turns the profile's
+    world-space flat normal into the current page-space normal without duplicating view maps.
+    """
     r = dia * scale / 2
     dx, dy = elbow[0] - centre[0], elbow[1] - centre[1]
     norm = math.hypot(dx, dy)
+    boundary = getattr(callout, "profile_boundary", None)
+    if boundary is not None and location is not None and to_page is not None and norm > 1e-12:
+        across_flats, direction = boundary
+        normal_point = to_page(tuple(float(location[i]) + float(direction[i]) for i in range(3)))
+        nx, ny = normal_point[0] - centre[0], normal_point[1] - centre[1]
+        normal_scale = math.hypot(nx, ny)
+        if normal_scale > 1e-12:
+            ray_dot_normal = abs((dx * nx + dy * ny) / (norm * normal_scale))
+            if ray_dot_normal > 1e-12:
+                r = min(r, float(across_flats) * normal_scale / (2 * ray_dot_normal))
     if norm <= r:
         return centre
     return (centre[0] + dx / norm * r, centre[1] + dy / norm * r)
@@ -1744,13 +1776,29 @@ def _build_leader_at(s, edge, side, y, to_page, elbow_dx, draft, scale):
     centre = to_page(rep)
     if side == "right":
         elbow = (edge + elbow_dx, y)
-        tip = _rim_tip(centre, elbow, dia, scale)
+        tip = _rim_tip(
+            centre,
+            elbow,
+            dia,
+            scale,
+            callout=callout,
+            location=rep,
+            to_page=to_page,
+        )
         tip = (min(tip[0], edge - draft.arrow_length), tip[1])
     else:
         elbow = (edge - elbow_dx, y)
-        tip = _rim_tip(centre, elbow, dia, scale)
+        tip = _rim_tip(
+            centre,
+            elbow,
+            dia,
+            scale,
+            callout=callout,
+            location=rep,
+            to_page=to_page,
+        )
         tip = (max(tip[0], edge + draft.arrow_length), tip[1])
-    leader = Leader(
+    leader = _profiled_callout_leader(
         tip=(tip[0], tip[1], 0),
         elbow=(elbow[0], elbow[1], 0),
         label="",
@@ -2024,14 +2072,17 @@ def _place_front_callouts(
     tb_box = (tb_left, _TB_CLEAR, a.PAGE_W - _TB_CLEAR, tb_top)
     for i, (locs, dia, callout, feat) in enumerate(specs):
         w = callout.callout_width
-        centre = to_page(max(locs, key=lambda loc: to_page(loc)[0]))
+        rep = max(locs, key=lambda loc: to_page(loc)[0])
+        centre = to_page(rep)
         if centre[0] + gap + w <= a.PAGE_W - a.margin:
             side = "right"
         elif centre[0] - gap - w >= a.margin:
             side = "left"
         else:
             _log.info("Hole callout ø%s skipped (no room)", _fmt(dia))
-            _record_callout_drop(ctx, dwg, view, dia, "no room beside the view", feat)
+            _record_callout_drop(
+                ctx, dwg, view, dia, "no room beside the view", feat, callout=callout
+            )
             continue
 
         name = _hc_name(only, view, i, hc_used)
@@ -2042,10 +2093,19 @@ def _place_front_callouts(
             _dia=dia,
             _side=side,
             _callout=callout,
+            _rep=rep,
         ):
             elbow = (_centre[0], pos)
-            tip = _rim_tip(_centre, elbow, _dia, a.SCALE)
-            return Leader(
+            tip = _rim_tip(
+                _centre,
+                elbow,
+                _dia,
+                a.SCALE,
+                callout=_callout,
+                location=_rep,
+                to_page=to_page,
+            )
+            return _profiled_callout_leader(
                 tip=(tip[0], tip[1], 0),
                 elbow=(elbow[0], elbow[1], 0),
                 label="",
@@ -2059,7 +2119,7 @@ def _place_front_callouts(
         priorities[name] = dia
         forbid[name] = tb_box
         furniture[name] = (i, feat)
-        meta[name] = (dia, feat)
+        meta[name] = (dia, feat, callout)
 
     left = place_strip_candidates(
         dwg,
@@ -2078,9 +2138,9 @@ def _place_front_callouts(
     left_names = {name for name, _ in left}
     for name, _build in cands:
         if name in left_names:
-            dia, feat = meta[name]
+            dia, feat, callout = meta[name]
             _log.info("Hole callout ø%s skipped (front strip full)", _fmt(dia))
-            _record_callout_drop(ctx, dwg, view, dia, "front strip full", feat)
+            _record_callout_drop(ctx, dwg, view, dia, "front strip full", feat, callout=callout)
             continue
         if place_furniture:  # #426: finalize's furniture() replay owns furniture
             idx, feat = furniture[name]
@@ -2219,7 +2279,15 @@ def _place_queue(
             len(queue),
         )
         for s in dropped:
-            _record_callout_drop(ctx, dwg, view, s[1], f"{side} strip full", s[3])
+            _record_callout_drop(
+                ctx,
+                dwg,
+                view,
+                s[1],
+                f"{side} strip full",
+                s[3],
+                callout=s[2],
+            )
     if crossing:
         _log.info(
             "plan/side %s strip: %d bore callout(s) placed despite crossing an "
@@ -2351,7 +2419,9 @@ def _place_planside_callouts(
 
         if not can_right and not can_left:
             _log.info("Hole callout ø%s skipped (no room)", _fmt(dia))
-            _record_callout_drop(ctx, dwg, view, dia, "no room beside the view", feat)
+            _record_callout_drop(
+                ctx, dwg, view, dia, "no room beside the view", feat, callout=callout
+            )
             continue
 
         # Natural Y is the bore's own row; keep-out-band avoidance is `_place_queue`'s carve.
@@ -2429,7 +2499,7 @@ def _annotate_holes(
 
     Identical holes share one callout with an ``n×`` count prefix (#92's
     grouping half) — through holes group on diameter and steps regardless of
-    wall thickness. The leader tip lands on the hole's circumference, on the
+    wall thickness. The leader tip lands on the hole's profile boundary, on the
     group's hole nearest the callout.
 
     Placement: plan- and side-view callouts go to the right of their view

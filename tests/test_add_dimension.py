@@ -1186,6 +1186,13 @@ class TestEveryFeatureVerbIsNameable:
     #: the API the way the first version's six-verb parametrization did.
     _CALLS: dict = {
         "hole": dict(diameter=6, at=(0, 0, 0), axis="z"),
+        "double_d_bore": dict(
+            major_diameter=10,
+            across_flats=7,
+            at=(0, 0, 0),
+            axis="z",
+            depth=8,
+        ),
         "diameter": dict(diameter=20, at=(0, 0, 0), axis="z"),
         "boss": dict(diameter=20, height=5, at=(0, 0, 0), axis="z"),
         "step": dict(diameter=20, length=10, at=(0, 0, 0), axis="z"),

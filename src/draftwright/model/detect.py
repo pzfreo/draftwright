@@ -52,6 +52,7 @@ from draftwright.recognition import (
     Chamfer,
     Channel,
     CounterSink,
+    DoubleDBore,
     FaceLevel,
     Fillet,
     Flat,
@@ -78,6 +79,7 @@ from draftwright.recognition import (
     recognise_chamfers,
     recognise_channels,
     recognise_countersinks,
+    recognise_double_d_bores,
     recognise_fillets,
     recognise_flats,
     recognise_grooves,
@@ -108,6 +110,18 @@ def _member_hole(h, frame: Frame, members: tuple = (), count: int = 1) -> HoleFe
         cbore=(h.cbore.diameter, h.cbore.depth) if h.cbore else None,
         spotface=(h.spotface.diameter, h.spotface.depth) if h.spotface else None,
         csink=(h.csink.major_diameter, h.csink.included_angle) if h.csink else None,
+    )
+
+
+def _convert_double_d_bore(bore: DoubleDBore, ctx: ConvContext) -> HoleFeature:
+    return HoleFeature(
+        frame=Frame(origin=_xyz(bore.location), axis=_axis_letter(bore)),
+        diameter=bore.major_diameter,
+        depth=bore.depth,
+        through=bore.through,
+        profile="double_d",
+        across_flats=bore.across_flats,
+        profile_direction=bore.flat_direction,
     )
 
 
@@ -549,6 +563,7 @@ def _convert_groove(groove: Groove, ctx: ConvContext) -> GrooveFeature:
 
 # Tier 1 — uniform converters: a pure (record, ctx) -> Feature mapping.
 _CONVERTERS: dict[type, Converter] = {
+    DoubleDBore: _convert_double_d_bore,
     Channel: _convert_channel,
     Slot: _convert_slot,
     Pocket: _convert_pocket,
@@ -608,6 +623,7 @@ def build_part_model(
     part,
     *,
     holes=None,
+    double_d_bores=None,
     patterns=None,
     bosses=None,
     channels=None,
@@ -710,6 +726,13 @@ def build_part_model(
         frame = Frame(origin=_xyz(rep.location), axis=_axis_letter(rep))
         mem_locs = tuple(_xyz(h.location) for h in grp)
         features.append(_member_hole(rep, frame, members=mem_locs, count=len(grp)))
+
+    # Profiled bores are their own recognition family because full-cylinder recognition
+    # cannot see their partial cylindrical faces. They still lower to HoleFeature so the
+    # established hole location, GD&T, placement and edit paths remain one implementation.
+    if double_d_bores is None:
+        double_d_bores = recognise_double_d_bores(part)
+    features.extend(convert(bore, ctx) for bore in double_d_bores)
 
     # Milled slots / reduced across-flats sections (detected for any part). A recognised array
     # of identical slots becomes ONE SlotPatternFeature (count× SLOT W×L + pitch, #841); its

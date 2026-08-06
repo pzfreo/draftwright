@@ -68,7 +68,11 @@ def _first(group: DimensionGroup, kind: str, *roles: str) -> float | None:
 #: The bore behaves identically — ``⌀12`` is fine, ``↓ 8`` alone is not — so its depth is a
 #: dependent rather than, as the first version had it, no part of the segment.
 _CALLOUT_SEGMENTS: tuple[tuple[str, tuple[str, str], tuple[tuple[str, str], ...]], ...] = (
-    ("bore", ("diameter", "bore"), (("depth", "bore"),)),
+    (
+        "bore",
+        ("diameter", "bore"),
+        (("depth", "bore"), ("length", "profile_across_flats")),
+    ),
     ("counterbore", ("diameter", "counterbore"), (("depth", "counterbore"),)),
     ("spotface", ("diameter", "spotface"), (("depth", "spotface"),)),
     ("countersink", ("diameter", "countersink"), (("angle", "countersink"),)),
@@ -316,7 +320,12 @@ def hole_callout_spec(group: DimensionGroup) -> dict | None:
     # defining call), then any pattern suffix: e.g. "M3x0.5" or "M3x0.5 EQ SP ON ø50 BC".
     hole = feat.member if isinstance(feat, PatternFeature) else feat
     thread = getattr(hole, "thread", None)
-    suffix = " ".join(p for p in (thread, suffix) if p) or None
+    profile_suffix = None
+    across = None
+    if getattr(hole, "profile", None) == "double_d":
+        across = _first(group, "length", "profile_across_flats")
+        profile_suffix = "DOUBLE-D" + (f" {_fmt(across)} A/F" if across is not None else "")
+    suffix = " ".join(p for p in (profile_suffix, thread, suffix) if p) or None
     return {
         "diameter": bore,
         "count": count if count and count > 1 else None,
@@ -332,4 +341,26 @@ def hole_callout_spec(group: DimensionGroup) -> dict | None:
         "csink_angle": _first(group, "angle", "countersink"),
         "suffix": suffix,
         "tolerance": bore_tol,  # P2a: ± on the bore ⌀, baked into the callout string below
+        # Structured coverage for physical critique. This is deliberately absent when the
+        # A/F parameter was suppressed: ``DOUBLE-D`` without its defining A/F is incomplete.
+        "profile_coverage": (
+            (
+                hole.profile,
+                hole.frame.axis,
+                hole.through,
+                bore,
+                across,
+                getattr(hole, "profile_direction", None),
+            )
+            if getattr(hole, "profile", None) == "double_d" and across is not None
+            else None
+        ),
+        # Natural leader-anchor geometry, independent of whether A/F was approved for
+        # display. An authored omission makes the callout incomplete, but must not move its
+        # arrow into solid material.
+        "profile_boundary": (
+            (hole.across_flats, hole.profile_direction)
+            if getattr(hole, "profile", None) == "double_d"
+            else None
+        ),
     }

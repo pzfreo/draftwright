@@ -212,6 +212,7 @@ _SCENARIOS = {
 #: how a guard stops guarding.
 _SAME_PATH_AS_ENVELOPE = {
     "add",
+    "double_d_bore",
     "measured_dimension",
     "slot",
     "pocket",

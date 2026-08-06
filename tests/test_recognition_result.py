@@ -4,7 +4,7 @@ from dataclasses import FrozenInstanceError
 from types import SimpleNamespace
 
 import pytest
-from build123d import Axis, Box, Cylinder, Pos, chamfer, fillet
+from build123d import Align, Axis, Box, Cylinder, Pos, chamfer, fillet
 from conftest import counting_calls
 
 from draftwright import build_drawing
@@ -118,6 +118,7 @@ def test_orchestrator_injects_each_shared_dependency_once(monkeypatch):
         result_module, "recognise_countersinks", counted("countersinks", countersinks)
     )
     monkeypatch.setattr(result_module, "recognise_holes", fake_holes)
+    monkeypatch.setattr(result_module, "recognise_double_d_bores", counted("double_d_bores", []))
     monkeypatch.setattr(result_module, "recognise_hole_patterns", derived("patterns", holes, []))
     monkeypatch.setattr(result_module, "recognise_bosses", cyl_consumer("bosses", []))
     monkeypatch.setattr(result_module, "recognise_channels", counted("channels", []))
@@ -157,6 +158,7 @@ def test_orchestrator_injects_each_shared_dependency_once(monkeypatch):
         "cylinders",
         "countersinks",
         "holes",
+        "double_d_bores",
         "patterns",
         "bosses",
         "channels",
@@ -210,6 +212,12 @@ def _slot_lattice_plate():
     return part
 
 
+def _double_d_plate():
+    centre = (Align.CENTER, Align.CENTER, Align.CENTER)
+    cutter = Cylinder(5, 20, align=centre) & Box(7.2, 20, 30, align=centre)
+    return Box(30, 30, 10, align=centre) - cutter
+
+
 @pytest.mark.parametrize(
     ("name", "build"),
     [
@@ -221,6 +229,7 @@ def _slot_lattice_plate():
         # (Codex #1033 r2).
         ("chamfered+filleted block", _chamfered_filleted_block),
         ("L-bracket plates", _l_bracket),
+        ("double-D bore", _double_d_plate),
     ],
 )
 def test_injecting_the_aggregate_builds_the_same_model_as_detecting(name, build):
@@ -243,6 +252,7 @@ def test_injecting_the_aggregate_builds_the_same_model_as_detecting(name, build)
     injected = build_part_model(
         part,
         holes=list(rec.holes),
+        double_d_bores=list(rec.double_d_bores),
         patterns=list(rec.hole_patterns),
         bosses=list(rec.bosses),
         slots=list(rec.slots),

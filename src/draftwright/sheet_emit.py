@@ -69,6 +69,19 @@ def _tuple_arg(values) -> str:
 
 
 def _hole_line(f) -> str:
+    if getattr(f, "profile", None) == "double_d":
+        kw = [
+            f"major_diameter={_n(f.diameter)}",
+            f"across_flats={_n(f.across_flats)}",
+            f"at={_pt(f.frame.origin)}",
+            f'axis="{f.frame.axis}"',
+            f"through={f.through!r}",
+        ]
+        if f.depth is not None:
+            kw.append(f"depth={_n(f.depth)}")
+        if f.profile_direction is not None:
+            kw.append(f"profile_direction={_direction(f.profile_direction)}")
+        return f"sheet.double_d_bore({', '.join(kw)})"
     kw = [f"diameter={_n(f.diameter)}", f"at={_pt(f.frame.origin)}", f'axis="{f.frame.axis}"']
     if f.count and f.count > 1:
         kw.append(f"count={f.count}")
@@ -111,6 +124,19 @@ def _member_hole_str(m) -> str:
     counterbore / spotface / countersink / blind-depth so a counterbored or countersunk
     bolt circle keeps those callouts on re-run (declare.hole takes depth=/through=/cbore=/
     spotface=/csink= kwargs)."""
+    if getattr(m, "profile", None) == "double_d":
+        kw = [
+            f"major_diameter={_n(m.diameter)}",
+            f"across_flats={_n(m.across_flats)}",
+            f"at={_pt(m.frame.origin)}",
+            f'axis="{m.frame.axis}"',
+            f"through={m.through!r}",
+        ]
+        if m.depth is not None:
+            kw.append(f"depth={_n(m.depth)}")
+        if m.profile_direction is not None:
+            kw.append(f"profile_direction={_direction(m.profile_direction)}")
+        return f"double_d_bore({', '.join(kw)})"
     kw = [f"diameter={_n(m.diameter)}", f"at={_pt(m.frame.origin)}", f'axis="{m.frame.axis}"']
     if m.cbore:
         kw.append(f"cbore=({_n(m.cbore[0])}, {_n(m.cbore[1])})")
@@ -512,6 +538,8 @@ def _short_label(f) -> str:
     k = f.kind
     if k == "hole":
         s = f"⌀{_n(f.diameter)}"
+        if getattr(f, "profile", None) == "double_d":
+            s += f" double-D {_n(f.across_flats)} A/F"
         if f.cbore:
             s += " c'bore"
         if f.spotface:
@@ -978,6 +1006,11 @@ def emit_sheet_script(
     model_imports = set()
     if any(f.kind in ("hole", "pattern") for f in model.features):
         model_imports.add("hole")
+    if any(
+        f.kind == "pattern" and getattr(f.member, "profile", None) == "double_d"
+        for f in model.features
+    ):
+        model_imports.add("double_d_bore")
     if any(f.kind == "pocket_pattern" for f in model.features):
         model_imports.add("pocket")
     if any(f.kind == "slot_pattern" for f in model.features):

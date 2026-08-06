@@ -101,6 +101,7 @@ from draftwright.recognition.levels import (
 )
 from draftwright.recognition.pads import RaisedPad, recognise_rectangular_pads
 from draftwright.recognition.plates import Plate, has_multi_axis_plates, recognise_plates
+from draftwright.recognition.profiled_bores import DoubleDBore, recognise_double_d_bores
 from draftwright.recognition.result import RecognitionResult, build_recognition_result
 from draftwright.recognition.slots import (
     Channel,
@@ -128,6 +129,7 @@ __all__ = [
     "BossRecord",
     "CounterBore",
     "CounterSink",
+    "DoubleDBore",
     "FaceLevel",
     "HoleRecord",
     "HoleSpec",
@@ -166,6 +168,7 @@ __all__ = [
     "recognise_flats",
     "recognise_grooves",
     "recognise_countersinks",
+    "recognise_double_d_bores",
     "recognise_hole_patterns",
     "recognise_holes",
     "recognise_plates",

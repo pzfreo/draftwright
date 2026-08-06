@@ -221,7 +221,14 @@ class ApprovedDimension:
 #: The compiler refuses anything absent from this table, so a new feature kind cannot leak
 #: measurements by default: it arrives with no facts at all until someone lists them.
 _FACTS: dict[str, tuple[str, ...]] = {
-    "hole": ("frame", "through", "count", "members", "thread"),
+    "hole": (
+        "frame",
+        "through",
+        "count",
+        "members",
+        "thread",
+        "profile",
+    ),
     "channel": ("frame", "width_axis", "long_axis", "depth_axis", "open_sign"),
     "pattern": ("frame", "pattern", "count", "members", "direction", "rows", "cols"),
     "pocket": ("frame", "width_axis", "long_axis", "depth_axis", "edge_anchored"),

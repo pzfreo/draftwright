@@ -16,7 +16,7 @@ from contextlib import contextmanager
 from dataclasses import fields
 from math import cos, radians, sin
 
-from build123d import Box, Cone, Cylinder, Pos
+from build123d import Align, Box, Cone, Cylinder, Pos
 from conftest import counting_calls
 
 import draftwright.model.detect as detect_module
@@ -33,6 +33,7 @@ from draftwright.recognition import (
     recognise_chamfers,
     recognise_channels,
     recognise_countersinks,
+    recognise_double_d_bores,
     recognise_fillets,
     recognise_flats,
     recognise_grooves,
@@ -92,6 +93,12 @@ def _padded_plate():
     return Box(120, 90, 16) + Pos(0, -30, 10) * Box(30, 20, 4)
 
 
+def _double_d_plate():
+    centre = (Align.CENTER, Align.CENTER, Align.CENTER)
+    cutter = Cylinder(5, 20, align=centre) & Box(7.2, 20, 30, align=centre)
+    return Box(30, 30, 10, align=centre) - cutter
+
+
 def _chamfered_filleted_block():
     """A prismatic block with a chamfered edge and a filleted one — the only fixture that
     exercises the two classification-gated inventories with content (#1028)."""
@@ -138,6 +145,7 @@ _ORACLE_FIXTURES = [
     ("pocket grid", _pocket_grid_plate),
     ("stepped shaft", _stepped_shaft),
     ("padded plate", _padded_plate),
+    ("double-D plate", _double_d_plate),
     ("stepped block", _stepped_block),
     ("U-channel", _u_channel),
     ("chamfered+filleted block", _chamfered_filleted_block),
@@ -329,6 +337,7 @@ def _expected_inventory(part, *, rotational: bool = False) -> dict:
     cyls = analyse_cylinders(part)
     csinks = recognise_countersinks(part)
     holes = recognise_holes(part, cyls=cyls, csinks=csinks)
+    double_d_bores = recognise_double_d_bores(part)
     slots = recognise_slots(part)
     pockets = recognise_pockets(part)
     channels = recognise_channels(part)
@@ -336,6 +345,7 @@ def _expected_inventory(part, *, rotational: bool = False) -> dict:
         "cylinders": (tuple(cyls[0]), tuple(cyls[1])),
         "countersinks": tuple(csinks),
         "holes": tuple(holes),
+        "double_d_bores": tuple(double_d_bores),
         "hole_patterns": tuple(recognise_hole_patterns(holes)),
         "bosses": tuple(recognise_bosses(part, cyls=cyls)),
         "channels": tuple(channels),

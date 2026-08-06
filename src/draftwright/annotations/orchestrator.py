@@ -207,6 +207,7 @@ def build_model(a: Analysis):
     return build_part_model(
         a.part,
         holes=a.holes,
+        double_d_bores=a.recognition.double_d_bores,
         patterns=a.patterns,
         bosses=a.bosses,
         channels=a.recognition.channels,

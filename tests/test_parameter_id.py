@@ -242,6 +242,21 @@ class TestDerivation:
         still = next(p.parameter_id for p in enriched.parameters() if p.role == "bore")
         assert bore_id == still == "bore.diameter"
 
+    def test_double_d_across_flats_has_a_canonical_parameter_id(self):
+        bore = ir.HoleFeature(
+            _F,
+            8.0,
+            depth=10.0,
+            through=True,
+            profile="double_d",
+            across_flats=7.0,
+            profile_direction=(1.0, 0.0, 0.0),
+        )
+        assert [(p.parameter_id, p.value) for p in bore.parameters()] == [
+            ("bore.diameter", 8.0),
+            ("profile_across_flats.length", 7.0),
+        ]
+
 
 class TestGridPitchDiscriminator:
     """Tier 2 — the case that forces a third key component. A grid emits two

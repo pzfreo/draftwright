@@ -65,6 +65,7 @@ from draftwright.model import chamfer as _chamfer
 from draftwright.model import channel as _channel
 from draftwright.model import control_frame as _declare_control
 from draftwright.model import datum as _declare_datum
+from draftwright.model import double_d_bore as _double_d_bore
 from draftwright.model import envelope as _envelope
 from draftwright.model import fillet as _fillet
 from draftwright.model import finish as _declare_finish
@@ -1042,6 +1043,11 @@ class Sheet:
         Returns a fluent handle: ``.through()`` (default) / ``.depth(d)``."""
         self._features.append(_hole(obj, **kw))
         return _Hole(self, len(self._features) - 1)
+
+    def double_d_bore(self, obj=None, **kw) -> _Params:
+        """Declare a double-D bore from its cutter or explicit major ⌀ and A/F values."""
+        self._features.append(_double_d_bore(obj, **kw))
+        return _Params(self, len(self._features) - 1)
 
     def diameter(self, obj=None, **kw) -> _Dim:
         """Declare an external cylindrical diameter (a boss / OD) — the ⌀ is read off the

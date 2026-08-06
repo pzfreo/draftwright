@@ -21,6 +21,7 @@ stay one callout.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from math import hypot, isfinite
 from typing import TYPE_CHECKING, ClassVar, Literal, Protocol, runtime_checkable
 
 from draftwright._geometry import (
@@ -111,6 +112,7 @@ DimensionParameterId = Literal[
     "pocket_depth.length",
     "pocket_length.length",
     "pocket_width.length",
+    "profile_across_flats.length",
     "slot_length.length",
     "slot_width.length",
     "spotface.depth",
@@ -211,9 +213,9 @@ class Feature(Protocol):
 
 @dataclass(frozen=True)
 class HoleFeature:
-    """A drilled hole — bore + optional counterbore / spotface steps. The bore,
-    counterbore, and spotface share one feature so the planner renders them as one
-    compound callout. ``cbore``/``spotface`` are ``(diameter, depth)`` or ``None``
+    """A bore — circular or structurally profiled — with optional counterbore / spotface
+    steps. The bore, counterbore, and spotface share one feature so the planner renders them
+    as one compound callout. ``cbore``/``spotface`` are ``(diameter, depth)`` or ``None``
     (plain tuples — the IR stays decoupled from the recogniser's types)."""
 
     #: The compiled stem this feature's position is minted under (#966). Declared HERE,
@@ -253,11 +255,60 @@ class HoleFeature:
     # compound callout (#764). A declaration-only aspect (ADR 0011 side-layer): threads
     # are cosmetic, rarely modelled as geometry, so there is no recogniser — declare + emit.
     thread: str | None = None
+    # A structural bore profile. ``None`` is the ordinary circular bore; ``double_d``
+    # means the bore diameter is its parent-circle major diameter and the independently
+    # planned A/F parameter below defines the two chord flats (#1061).
+    profile: Literal["double_d"] | None = None
+    across_flats: float | None = None
+    # Canonical unit normal to the parallel flats in part coordinates. This is orientation,
+    # not a printable measurement, and is retained for declaration/script fidelity.
+    profile_direction: Point | None = None
     kind: ClassVar[str] = "hole"
+
+    def __post_init__(self) -> None:
+        """Keep profiled-bore geometry complete at the public IR waist.
+
+        Detection, declaration and direct ``PartModel`` construction are equal producers
+        (ADR 0011). Validating here prevents a direct model from planning ``DOUBLE-D`` with
+        no A/F value, or carrying an orientation that the profile cannot have.
+        """
+        if self.profile is None:
+            if self.across_flats is not None or self.profile_direction is not None:
+                raise ValueError(
+                    "across_flats and profile_direction require a structural bore profile"
+                )
+            return
+        if self.profile != "double_d":
+            raise ValueError(f"unsupported structural bore profile {self.profile!r}")
+        if not self.through:
+            raise ValueError("the supported double-D profile is through-only")
+        if self.across_flats is None:
+            raise ValueError("a double-D bore requires across_flats")
+        major = float(self.diameter)
+        across = float(self.across_flats)
+        if not (isfinite(major) and isfinite(across) and 0 < across < major):
+            raise ValueError(
+                "a double-D bore requires 0 < across_flats < its finite major diameter"
+            )
+        if self.profile_direction is None:
+            raise ValueError("a double-D bore requires profile_direction")
+        direction = tuple(float(v) for v in self.profile_direction)
+        norm = hypot(*direction)
+        if len(direction) != 3 or not isfinite(norm) or norm <= 1e-12:
+            raise ValueError("profile_direction must be a finite non-zero 3-vector")
+        direction = tuple(v / norm for v in direction)
+        if abs(direction["xyz".index(self.frame.axis)]) > 1e-6:
+            raise ValueError("profile_direction must be perpendicular to the bore axis")
+        first = next(v for v in direction if abs(v) > 1e-12)
+        if first < 0:
+            direction = tuple(-v for v in direction)
+        object.__setattr__(self, "profile_direction", direction)
 
     def parameters(self) -> list[DimParameter]:
         # Location is the group's anchor (Feature.frame), not a parameter.
         ps = [DimParameter("diameter", "bore", self.diameter)]
+        if self.profile == "double_d" and self.across_flats is not None:
+            ps.append(DimParameter("length", "profile_across_flats", self.across_flats))
         if not self.through and self.depth is not None:
             ps.append(DimParameter("depth", "bore", self.depth))
         if self.cbore is not None:

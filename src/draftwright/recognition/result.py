@@ -25,6 +25,7 @@ from draftwright.recognition.grooves import recognise_grooves
 from draftwright.recognition.levels import FaceLevel, recognise_risers, step_level_records
 from draftwright.recognition.pads import recognise_rectangular_pads
 from draftwright.recognition.plates import recognise_plates
+from draftwright.recognition.profiled_bores import recognise_double_d_bores
 from draftwright.recognition.slots import (
     recognise_channels,
     recognise_pocket_patterns,
@@ -41,6 +42,7 @@ MIGRATED: frozenset[str] = frozenset(
         "recognise_chamfers",
         "recognise_channels",
         "recognise_countersinks",
+        "recognise_double_d_bores",
         "recognise_fillets",
         "recognise_flats",
         "recognise_grooves",
@@ -149,6 +151,7 @@ class RecognitionResult:
     cylinders: tuple[tuple, tuple]
     countersinks: tuple
     holes: tuple
+    double_d_bores: tuple
     hole_patterns: tuple
     bosses: tuple
     channels: tuple
@@ -237,6 +240,7 @@ def build_recognition_result(
     cyls = (z_cyls, cross_cyls)
     countersinks = recognise_countersinks(part)
     holes = recognise_holes(part, cyls=cyls, csinks=countersinks)
+    double_d_bores = recognise_double_d_bores(part)
     channels = recognise_channels(part)
     pockets = recognise_pockets(part)
     slots = recognise_slots(part)
@@ -250,6 +254,7 @@ def build_recognition_result(
         cylinders=(tuple(z_cyls), tuple(cross_cyls)),
         countersinks=tuple(countersinks),
         holes=tuple(holes),
+        double_d_bores=tuple(double_d_bores),
         hole_patterns=tuple(recognise_hole_patterns(holes)),
         bosses=tuple(recognise_bosses(part, cyls=cyls)),
         channels=tuple(channels),

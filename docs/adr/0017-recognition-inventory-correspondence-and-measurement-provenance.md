@@ -162,8 +162,8 @@ critique because it logs its diagnostics. Therefore the observable call contract
 
 | path | recognition calls |
 |---|---|
-| automatic prismatic build | 17 families, once each |
-| automatic turned build | 14 families; three gated out by design |
+| automatic prismatic build | 18 families, once each |
+| automatic turned build | 15 families; three gated out by design |
 | declared build/render | zero |
 | first physical critique/export of a declared drawing | at most one aggregate |
 | subsequent lint of the same drawing | zero additional calls |

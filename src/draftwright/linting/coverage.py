@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
-from math import pi
+from math import atan2, pi, tau
 from typing import Literal
 
 from build123d import GeomType
@@ -29,6 +29,7 @@ from build123d_drafting.helpers import CenterMark, Dimension, TitleBlock
 
 from draftwright._core import _DIAM_RE, _END_ON, HoleRef, _axis_letter, _fmt, _xyz
 from draftwright.linting.issues import LintIssue
+from draftwright.linting.profiled_bore_coverage import profiled_bore_key
 from draftwright.recognition import (
     RecognitionResult,
     TurnedProfile,
@@ -36,11 +37,17 @@ from draftwright.recognition import (
     build_recognition_result,
     feature_diameters,
     project_step_shoulders,
+    recognise_double_d_bores,
     recognise_hole_patterns,
     recognise_holes,
     recognise_pockets,
     recognise_rectangular_pads,
     recognise_turned_steps,
+)
+from draftwright.recognition.profiled_bores import (
+    double_d_bores_from_openings,
+    double_d_profile,
+    principal_boundary_plane,
 )
 
 _UNSET = object()  # sentinel: distinguishes "not supplied" from a valid prof=None
@@ -114,6 +121,9 @@ class CoverageState:
         # redundant feature_not_dimensioned for them. Reset at the top of
         # _auto_annotate so re-annotation does not accumulate.
         self._dropped_callout_diams: list = []
+        # Exact profiled-bore specifications dropped with those callouts. Diameter alone
+        # cannot distinguish equal-major profiles with different A/F or orientation (#1061).
+        self._dropped_profiles: list[tuple] = []
 
     # -- pattern coverage -----------------------------------------------------
 
@@ -147,15 +157,25 @@ class CoverageState:
     def reset_dropped(self) -> None:
         """Clear dropped-diameter tracking (top of _auto_annotate)."""
         self._dropped_callout_diams = []
+        self._dropped_profiles = []
 
     def drop_diam(self, diam) -> None:
         """Record a diameter dropped by the per-view callout cap."""
         self._dropped_callout_diams.append(diam)
 
+    def drop_profile(self, profile: tuple) -> None:
+        """Record an exact profiled-bore specification whose callout was dropped."""
+        self._dropped_profiles.append(profile)
+
     @property
     def dropped_diams(self) -> list:
         """Diameters dropped by the cap (passed to lint_feature_coverage)."""
         return self._dropped_callout_diams
+
+    @property
+    def dropped_profiles(self) -> list[tuple]:
+        """Profile specifications already reported by ``callout_dropped``."""
+        return self._dropped_profiles
 
     # -- transactional snapshot (#647) ----------------------------------------
 
@@ -168,15 +188,17 @@ class CoverageState:
             set(self._patterned_holes),
             set(self._scattered_hole_docs),
             list(self._dropped_callout_diams),
+            list(self._dropped_profiles),
         )
 
     def restore(self, snap: tuple) -> None:
         """Restore the collections captured by :meth:`snapshot`."""
-        pc, ph, shd, dropped = snap
+        pc, ph, shd, dropped, dropped_profiles = snap
         self._pattern_callouts = set(pc)
         self._patterned_holes = set(ph)
         self._scattered_hole_docs = set(shd)
         self._dropped_callout_diams = list(dropped)
+        self._dropped_profiles = list(dropped_profiles)
 
 
 def lint_feature_coverage(
@@ -292,7 +314,14 @@ def lint_feature_coverage(
 
 
 def lint_location_coverage(
-    part, dwg, cyls=None, assembly=None, tol: float = 0.6, holes=None, patterns=None
+    part,
+    dwg,
+    cyls=None,
+    assembly=None,
+    tol: float = 0.6,
+    holes=None,
+    patterns=None,
+    profiled_bores=None,
 ) -> list:
     """Report holes with no **centre mark** or no **locating dimension**, derived
     from the drawing itself (not a build-time side channel — so it judges any
@@ -315,13 +344,16 @@ def lint_location_coverage(
     """
     if holes is None:
         holes = recognise_holes(part, cyls=cyls) if cyls is not None else recognise_holes(part)
-    if not holes:
+    profiled_bores = recognise_double_d_bores(part) if profiled_bores is None else profiled_bores
+    source_holes = holes
+    if not source_holes and not profiled_bores:
         return []
     if assembly is None:
         assembly = len(part.solids()) > 1
     severity: Literal["info", "warning"] = "info" if assembly else "warning"
     if patterns is None:
-        patterns = recognise_hole_patterns(holes)
+        patterns = recognise_hole_patterns(source_holes)
+    holes = [*source_holes, *profiled_bores]
     # Position-keyed (HoleRef), not id()-keyed: the old identity set only worked because
     # recognise_hole_patterns reuses the same HoleRecord objects; a position key is robust
     # to any hole source and matches the rest of the engine's patterned-membership tests.
@@ -412,45 +444,20 @@ def _pair_covers(
     )
 
 
-def _principal_boundary_plane(face, bbox) -> tuple[str, tuple[str, str]] | None:
-    """Return the principal axis and in-plane axes for an extremal planar face.
-
-    Only a face on the part's global min/max boundary is useful here. An inner wire on an
-    intermediate terrace can surround added material (for example a boss), while an inner
-    wire on an extremal face is necessarily an opening in the part boundary.
-    """
-    if face.geom_type != GeomType.PLANE:
-        return None
-    fbb = face.bounding_box()
-    extent = {
-        "x": float(fbb.size.X),
-        "y": float(fbb.size.Y),
-        "z": float(fbb.size.Z),
-    }
-    part_extent = (float(bbox.size.X), float(bbox.size.Y), float(bbox.size.Z))
-    tol = max(1e-5, max(part_extent) * 1e-5)
-    flat = [axis for axis, value in extent.items() if value <= tol]
-    if len(flat) != 1:
-        return None
-    axis = flat[0]
-    attr = axis.upper()
-    at = float(getattr(fbb.center(), attr))
-    if (
-        min(abs(at - float(getattr(bbox.min, attr))), abs(at - float(getattr(bbox.max, attr))))
-        > tol
-    ):
-        return None
-    in_plane = [candidate for candidate in "xyz" if candidate != axis]
-    return axis, (in_plane[0], in_plane[1])
-
-
-def _supported_inner_profile(wire, plane_axes: tuple[str, str], tol: float) -> bool:
+def _supported_inner_profile(
+    wire,
+    plane_axes: tuple[str, str],
+    tol: float,
+    *,
+    axis: str | None = None,
+    double_d_bores=(),
+    profile=_UNSET,
+) -> bool:
     """Whether an inner boundary loop has a profile the current IR can describe.
 
-    Circular holes, axis-aligned rectangles, and true obrounds are the supported principal
-    opening vocabulary. A double-D resembles an obround topologically (two lines plus two
-    arcs), but its arc radius is not half the short overall extent; accepting edge types alone
-    would certify exactly the unsupported #1058 profile.
+    Circular holes, axis-aligned rectangles, true obrounds and proven double-D bores are the
+    supported principal opening vocabulary. The double-D correspondence is delegated to its
+    recogniser's profile reader, so critique cannot accept a shape the IR then omits.
     """
     edges = list(wire.edges())
     if not edges:
@@ -458,6 +465,31 @@ def _supported_inner_profile(wire, plane_axes: tuple[str, str], tol: float) -> b
     types = [edge.geom_type for edge in edges]
     wbb = wire.bounding_box()
     ext = {axis: float(getattr(wbb.size, axis.upper())) for axis in plane_axes}
+    profile = double_d_profile(wire, plane_axes, tol=tol) if profile is _UNSET else profile
+    if profile is not None and axis is not None:
+        axis_i = "xyz".index(axis)
+        for bore in double_d_bores:
+            bore_axis_i = max(range(3), key=lambda i: abs(float(bore.axis[i])))
+            if bore_axis_i != axis_i:
+                continue
+            if (
+                abs(float(bore.major_diameter) - profile.major_diameter) <= tol
+                and abs(float(bore.across_flats) - profile.across_flats) <= tol
+                and all(
+                    abs(float(bore.location[i]) - profile.centre[i]) <= tol
+                    for i in range(3)
+                    if i != axis_i
+                )
+                and all(
+                    abs(float(a) - b) <= max(tol, 1e-6)
+                    for a, b in zip(
+                        bore.flat_direction,
+                        profile.flat_direction,
+                        strict=True,
+                    )
+                )
+            ):
+                return True
     if all(kind == GeomType.CIRCLE for kind in types):
         try:
             first = edges[0]
@@ -618,38 +650,143 @@ def _has_unsupported_principal_inner_profile(part, bbox) -> bool:
     """Does a principal extremal face prove an internal profile outside the IR vocabulary?"""
     part_extent = (float(bbox.size.X), float(bbox.size.Y), float(bbox.size.Z))
     tol = max(1e-5, max(part_extent) * 1e-5)
+    wires = []
+    openings = []
     for face in part.faces():
-        boundary = _principal_boundary_plane(face, bbox)
+        boundary = principal_boundary_plane(face, bbox)
         if boundary is None:
             continue
-        _axis, plane_axes = boundary
-        if any(not _supported_inner_profile(wire, plane_axes, tol) for wire in face.inner_wires()):
-            return True
-    return False
+        axis, plane_axes, at = boundary
+        for wire in face.inner_wires():
+            profile = double_d_profile(wire, plane_axes, tol=tol)
+            wires.append((axis, plane_axes, wire, profile))
+            if profile is not None:
+                openings.append((axis, at, profile, wire))
+    double_d_bores = double_d_bores_from_openings(openings, bbox, part=part, tol=tol)
+    return any(
+        not _supported_inner_profile(
+            wire,
+            plane_axes,
+            tol,
+            axis=axis,
+            double_d_bores=double_d_bores,
+            profile=profile,
+        )
+        for axis, plane_axes, wire, profile in wires
+    )
+
+
+def _radial_outer_arc_count(part, bbox) -> int | None:
+    """Return a proven radial arc count for an otherwise unsupported outer boundary.
+
+    Equal tip arcs alone are not enough. They must share one circle, have equal angular
+    length and be equally spaced around the full boundary. This proves a cyclic arc pattern,
+    not that the intervening boundary segments repeat, and no module, pressure angle or gear
+    standard is inferred.
+    """
+    part_scale = max(float(bbox.size.X), float(bbox.size.Y), float(bbox.size.Z))
+    tol = max(1e-5, part_scale * 1e-5)
+    best = None
+    for face in part.faces():
+        boundary = principal_boundary_plane(face, bbox)
+        if boundary is None:
+            continue
+        _axis, plane_axes, _at = boundary
+        edges = list(face.outer_wire().edges())
+        arcs = [edge for edge in edges if edge.geom_type == GeomType.CIRCLE]
+        # A plain circle and common rounded outlines are not a cyclic tooth-like boundary.
+        if len(arcs) < 6 or len(arcs) == len(edges):
+            continue
+        try:
+            radius = float(arcs[0].radius)
+            centre = arcs[0].arc_center
+            length = float(arcs[0].length)
+            metric_tol = max(8 * tol, radius * 1e-3)
+            if any(
+                abs(float(edge.radius) - radius) > metric_tol
+                or abs(float(edge.length) - length) > metric_tol
+                or any(
+                    abs(
+                        float(getattr(edge.arc_center, a.upper()))
+                        - float(getattr(centre, a.upper()))
+                    )
+                    > metric_tol
+                    for a in plane_axes
+                )
+                for edge in arcs[1:]
+            ):
+                continue
+            angles = sorted(
+                atan2(
+                    float(getattr(edge.position_at(0.5), plane_axes[1].upper()))
+                    - float(getattr(centre, plane_axes[1].upper())),
+                    float(getattr(edge.position_at(0.5), plane_axes[0].upper()))
+                    - float(getattr(centre, plane_axes[0].upper())),
+                )
+                % tau
+                for edge in arcs
+            )
+        except (AttributeError, ValueError):
+            continue
+        gaps = [(angles[(i + 1) % len(angles)] - angles[i]) % tau for i in range(len(angles))]
+        expected = tau / len(angles)
+        if all(abs(gap - expected) <= 1e-3 for gap in gaps):
+            best = max(best or 0, len(arcs))
+    return best
 
 
 def lint_principal_profile_coverage(part, *, assembly=None) -> list:
-    """Report a principal boundary opening outside the current feature vocabulary.
+    """Report principal inner or outer profiles outside the current feature vocabulary.
 
     The scan owns its physical extent: there is deliberately no caller-supplied bounding box
-    or profile inventory that could narrow the answer. :class:`Drawing` caches the returned
-    issues against the source part identity so repeated lint does not rescan the B-rep.
+    that could narrow the answer. The double-D correspondence is the recogniser's shared pure
+    correspondence proof over openings collected during this scan; lint accepts no foreign
+    aggregate nor reruns a public recogniser. :class:`Drawing` caches the returned issues
+    against the source part identity so repeated lint does not rescan the B-rep.
     """
-    if not _has_unsupported_principal_inner_profile(part, part.bounding_box()):
+    solids = list(part.solids())
+    sources = solids if len(solids) > 1 else [part]
+    unsupported_inner = any(
+        _has_unsupported_principal_inner_profile(solid, solid.bounding_box()) for solid in sources
+    )
+    radial_arc_count = max(
+        (
+            count
+            for solid in sources
+            if (count := _radial_outer_arc_count(solid, solid.bounding_box())) is not None
+        ),
+        default=None,
+    )
+    if not unsupported_inner and radial_arc_count is None:
         return []
     if assembly is None:
         assembly = len(part.solids()) > 1
     severity: Literal["info", "warning"] = "info" if assembly else "warning"
-    return [
-        LintIssue(
-            severity=severity,
-            code="unrecognised_defining_geometry",
-            message=(
-                "dimension-relevant source geometry is absent from recognised IR: "
-                "unsupported internal profile on a principal boundary face"
-            ),
+    issues = []
+    if unsupported_inner:
+        issues.append(
+            LintIssue(
+                severity=severity,
+                code="unrecognised_defining_geometry",
+                message=(
+                    "dimension-relevant source geometry is absent from recognised IR: "
+                    "unsupported internal profile on a principal boundary face"
+                ),
+            )
         )
-    ]
+    if radial_arc_count is not None:
+        issues.append(
+            LintIssue(
+                severity=severity,
+                code="unrecognised_defining_geometry",
+                message=(
+                    "dimension-relevant source geometry is absent from recognised IR: "
+                    "unsupported outer boundary on a principal face contains "
+                    f"{radial_arc_count} evenly spaced common-circle arcs"
+                ),
+            )
+        )
+    return issues
 
 
 def lint_prismatic_coverage(
@@ -1076,7 +1213,7 @@ def lint_boss_height_coverage(part, dwg, features, assembly=None) -> list:
     ]
 
 
-def lint_declaration_reconciliation(features, cyls) -> list:
+def lint_declaration_reconciliation(features, cyls, *, recognition=None) -> list:
     """Flag a *declared* cylindrical feature with no matching geometry in the part (#487).
 
     On the declarative path (``Sheet`` / ``build_drawing(part, model=…)``) a declaration can go
@@ -1096,6 +1233,11 @@ def lint_declaration_reconciliation(features, cyls) -> list:
     material. Non-fatal: every issue is a ``warning``.
     """
     records = [*cyls[0], *cyls[1]]
+    if recognition is not None and not isinstance(recognition, RecognitionResult):
+        raise TypeError(
+            "lint_declaration_reconciliation(recognition=) requires the run's "
+            f"RecognitionResult; got {type(recognition).__name__}"
+        )
     issues = []
     for f in features:
         if getattr(f, "kind", None) not in _RECON_KINDS:
@@ -1107,6 +1249,53 @@ def lint_declaration_reconciliation(features, cyls) -> list:
         axis = str(frame.axis).lower()
         origin = frame.origin
         perp = [k for k in range(3) if k != "xyz".index(axis)]
+        if f.kind == "hole" and getattr(f, "profile", None) == "double_d":
+            across = getattr(f, "across_flats", None)
+            direction = getattr(f, "profile_direction", None)
+            matched = (
+                recognition is not None
+                and across is not None
+                and direction is not None
+                and any(
+                    profiled_bore_key(
+                        "double_d",
+                        bore.axis,
+                        bore.through,
+                        bore.major_diameter,
+                        bore.across_flats,
+                        bore.flat_direction,
+                    )
+                    == profiled_bore_key(
+                        f.profile,
+                        axis,
+                        f.through,
+                        dia,
+                        across,
+                        direction,
+                    )
+                    and all(
+                        abs(float(origin[k]) - float(bore.location[k])) <= _RECON_POS_TOL
+                        for k in perp
+                    )
+                    for bore in recognition.double_d_bores
+                )
+            )
+            if matched:
+                continue
+            across_label = "?" if across is None else _fmt(float(across))
+            issues.append(
+                LintIssue(
+                    severity="warning",
+                    code="declared_feature_absent",
+                    message=(
+                        f"declared double-D bore {_fmt(dia)} major × {across_label} A/F at "
+                        f"({_fmt(origin[0])}, {_fmt(origin[1])}, {_fmt(origin[2])}) has no "
+                        "matching through double-D profile in the part — stale declaration "
+                        "or the feature was removed"
+                    ),
+                )
+            )
+            continue
         want_external = _RECON_EXTERNAL[f.kind]
         matched = any(
             str(c["axis"]).lower() == axis

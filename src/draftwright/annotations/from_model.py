@@ -120,7 +120,7 @@ def callout_from_spec(spec, draft, count) -> HoleCallout | None:
         # diameter carrying tolerance/fit text, "8 ±0.05"); no tolerance → empty suffix.
         dia += _tol_suffix(spec.get("tolerance"), draft)
 
-    return HoleCallout(
+    callout = HoleCallout(
         dia,
         count=count,
         through=spec["through"],
@@ -135,6 +135,10 @@ def callout_from_spec(spec, draft, count) -> HoleCallout | None:
         suffix=spec["suffix"],
         draft=draft,
     )
+    profile_coverage = spec.get("profile_coverage")
+    callout.covers_profiles = () if profile_coverage is None else (profile_coverage,)
+    callout.profile_boundary = spec.get("profile_boundary")
+    return callout
 
 
 def _record_slot_drop(ctx, dwg, kind, idx, view, feat, measurement=None):

@@ -268,6 +268,59 @@ def hole(
     )
 
 
+def double_d_bore(
+    obj=None,
+    *,
+    major_diameter=None,
+    across_flats=None,
+    at=None,
+    axis=None,
+    depth=None,
+    through=True,
+    profile_direction=None,
+) -> HoleFeature:
+    """A through double-D bore, from its cutter or explicit geometric values.
+
+    ``major_diameter`` is the diameter of the parent circle and ``across_flats`` is the
+    distance between its two parallel chords. The object form accepts an extruded cutter
+    with exactly that boundary; arbitrary line/arc profiles and blind profiles fail closed.
+    """
+    if obj is not None:
+        from draftwright.recognition.profiled_bores import read_double_d_tool
+
+        r_axis, r_major, r_af, r_at, r_depth, r_direction = read_double_d_tool(obj)
+        axis = r_axis if axis is None else axis
+        major_diameter = r_major if major_diameter is None else major_diameter
+        across_flats = r_af if across_flats is None else across_flats
+        at = r_at if at is None else at
+        depth = r_depth if depth is None else depth
+        profile_direction = r_direction if profile_direction is None else profile_direction
+    if major_diameter is None or across_flats is None or at is None or axis is None:
+        raise ValueError(
+            "double_d_bore() needs an object, or explicit major_diameter=, "
+            "across_flats=, at= and axis="
+        )
+    axis = _norm_axis(axis)
+    _require_positive(major_diameter=major_diameter, across_flats=across_flats, depth=depth)
+    _require_point("at", at)
+    if profile_direction is None:
+        direction_axis = next(candidate for candidate in "xyz" if candidate != axis)
+        profile_direction = (
+            1.0 if direction_axis == "x" else 0.0,
+            1.0 if direction_axis == "y" else 0.0,
+            1.0 if direction_axis == "z" else 0.0,
+        )
+    return HoleFeature(
+        frame=Frame(origin=at, axis=axis),
+        diameter=major_diameter,
+        depth=depth,
+        through=through,
+        profile="double_d",
+        across_flats=across_flats,
+        profile_direction=profile_direction,
+    )
+
+
 def read_countersink(cone) -> tuple[float, float]:
     """``(major_diameter, included_angle°)`` of a countersink **cone** tool — the larger rim ⌀
     and the full cone angle, read off its conical **face** (not a removed edge, #576 lesson).

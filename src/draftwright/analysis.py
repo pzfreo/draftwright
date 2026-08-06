@@ -614,6 +614,7 @@ def _analyse(
     # (`build_part_model`, `build_model`) or goes through the lazy aggregate instead
     # (critique — see `Drawing._recognition`), so the two never get confused.
     holes = list(recognition.holes) if recognition else []
+    double_d_bores = list(recognition.double_d_bores) if recognition else []
     patterns = list(recognition.hole_patterns) if recognition else []
     bosses = list(recognition.bosses) if recognition else []
     slots = list(recognition.slots) if recognition else []
@@ -640,6 +641,7 @@ def _analyse(
         else build_part_model(
             part,
             holes=holes,
+            double_d_bores=double_d_bores,
             patterns=patterns,
             bosses=bosses,
             channels=list(recognition.channels) if recognition else None,
