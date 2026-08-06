@@ -5,10 +5,10 @@ on:
     branches: [main]
   pull_request:
 
-# A PR needs results only for its latest head. Main runs are not cancelled because they own
-# the post-merge slow suite, which must not be starved during a burst of merges.
+# A PR needs results only for its latest head. Each main push gets a unique group because it
+# owns a post-merge slow-suite run that must survive later merges.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -106,9 +106,9 @@ jobs:
         uses: codecov/codecov-action@v6
         with:
           files: coverage.xml
-          # The repository's fail_under gate is authoritative; a third-party
-          # service outage must not block an otherwise valid change.
-          fail_ci_if_error: false
+          # Branch protection requires Codecov's project and patch checks. Fail this
+          # job too when the upload cannot produce those checks, rather than hanging.
+          fail_ci_if_error: true
           use_oidc: true
 
       - name: Upload coverage report

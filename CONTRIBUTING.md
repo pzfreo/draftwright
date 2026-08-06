@@ -42,7 +42,7 @@ reports for 14 days. The other OS/Python jobs run the same tests without redunda
 coverage instrumentation. To reproduce the canonical run locally:
 
 ```
-uv run pytest tests/ -n auto --dist loadscope \
+uv run --python 3.13 pytest tests/ -n auto --dist loadscope \
   --cov=src/draftwright --cov-report=term-missing \
   --cov-report=xml --cov-report=html:htmlcov
 ```
