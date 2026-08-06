@@ -5,9 +5,9 @@ from draftwright import build_drawing
 from draftwright.model import PocketFeature
 
 
-def _blind_pocket():
+def _blind_pocket(x_size=20, y_size=20):
     """A real 20 x 20 x 10 blind recess, unlike #916's original non-cutting tool."""
-    return Box(50, 50, 30) - Pos(10, 10, 10) * Box(20, 20, 10)
+    return Box(50, 50, 30) - Pos(10, 10, 10) * Box(x_size, y_size, 10)
 
 
 def _tip_is_on_rim(dwg, view, pocket, tip):
@@ -49,16 +49,43 @@ def test_issue_916_pocket_callout_starts_on_its_rim_and_exits_cleanly():
     assert dwg.lint() == []
 
 
-@pytest.mark.parametrize("rotation", [(0, 90, 0), (90, 0, 0)], ids=["x-depth", "y-depth"])
+@pytest.mark.parametrize(
+    "rotation",
+    [(0, 0, 0), (0, 90, 0), (90, 0, 0)],
+    ids=["z-depth", "x-depth", "y-depth"],
+)
 def test_pocket_rim_tip_is_axis_independent(rotation):
-    dwg = build_drawing(Rot(*rotation) * _blind_pocket())
+    # Non-square so swapping the approved width/length onto the wrong physical axes fails.
+    dwg = build_drawing(Rot(*rotation) * _blind_pocket(22, 14))
     pocket = next(
         feature for feature in dwg.model().features if isinstance(feature, PocketFeature)
     )
-    view = {"x": "side", "y": "front"}[pocket.depth_axis]
+    view = {"x": "side", "y": "front", "z": "plan"}[pocket.depth_axis]
     callout = next(
         annotation for name, annotation in dwg.iter_annotations() if name.startswith("m_pocket_")
     )
 
     assert _tip_is_on_rim(dwg, view, pocket, callout.tip)
     assert dwg.lint() == []
+
+
+@pytest.mark.parametrize("direction", [(1, 0), (0, 1)], ids=["long-axis", "width-axis"])
+def test_approved_pocket_sizes_map_to_the_matching_rim_axis(monkeypatch, direction):
+    from draftwright.annotations import from_model
+
+    radial_candidates = from_model._radial_candidates
+
+    def one_direction(*args, **kwargs):
+        kwargs["directions"] = (direction,)
+        return radial_candidates(*args, **kwargs)
+
+    monkeypatch.setattr(from_model, "_radial_candidates", one_direction)
+    dwg = build_drawing(_blind_pocket(22, 14))
+    pocket = next(
+        feature for feature in dwg.model().features if isinstance(feature, PocketFeature)
+    )
+    callout = next(
+        annotation for name, annotation in dwg.iter_annotations() if name.startswith("m_pocket_")
+    )
+
+    assert _tip_is_on_rim(dwg, "plan", pocket, callout.tip)
