@@ -24,6 +24,7 @@ from draftwright.linting.coverage import (
     lint_declaration_reconciliation,
     lint_feature_coverage,
     lint_location_coverage,
+    lint_principal_profile_coverage,
     lint_prismatic_coverage,
 )
 from draftwright.linting.flat_coverage import lint_flat_coverage
@@ -45,5 +46,6 @@ __all__ = [
     "lint_flat_coverage",
     "lint_slot_coverage",
     "lint_location_coverage",
+    "lint_principal_profile_coverage",
     "lint_prismatic_coverage",
 ]

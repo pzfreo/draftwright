@@ -21,8 +21,10 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
+from math import pi
 from typing import Literal
 
+from build123d import GeomType
 from build123d_drafting.helpers import CenterMark, Dimension, TitleBlock
 
 from draftwright._core import _DIAM_RE, _END_ON, HoleRef, _axis_letter, _fmt, _xyz
@@ -410,6 +412,246 @@ def _pair_covers(
     )
 
 
+def _principal_boundary_plane(face, bbox) -> tuple[str, tuple[str, str]] | None:
+    """Return the principal axis and in-plane axes for an extremal planar face.
+
+    Only a face on the part's global min/max boundary is useful here. An inner wire on an
+    intermediate terrace can surround added material (for example a boss), while an inner
+    wire on an extremal face is necessarily an opening in the part boundary.
+    """
+    if face.geom_type != GeomType.PLANE:
+        return None
+    fbb = face.bounding_box()
+    extent = {
+        "x": float(fbb.size.X),
+        "y": float(fbb.size.Y),
+        "z": float(fbb.size.Z),
+    }
+    part_extent = (float(bbox.size.X), float(bbox.size.Y), float(bbox.size.Z))
+    tol = max(1e-5, max(part_extent) * 1e-5)
+    flat = [axis for axis, value in extent.items() if value <= tol]
+    if len(flat) != 1:
+        return None
+    axis = flat[0]
+    attr = axis.upper()
+    at = float(getattr(fbb.center(), attr))
+    if (
+        min(abs(at - float(getattr(bbox.min, attr))), abs(at - float(getattr(bbox.max, attr))))
+        > tol
+    ):
+        return None
+    in_plane = [candidate for candidate in "xyz" if candidate != axis]
+    return axis, (in_plane[0], in_plane[1])
+
+
+def _supported_inner_profile(wire, plane_axes: tuple[str, str], tol: float) -> bool:
+    """Whether an inner boundary loop has a profile the current IR can describe.
+
+    Circular holes, axis-aligned rectangles, and true obrounds are the supported principal
+    opening vocabulary. A double-D resembles an obround topologically (two lines plus two
+    arcs), but its arc radius is not half the short overall extent; accepting edge types alone
+    would certify exactly the unsupported #1058 profile.
+    """
+    edges = list(wire.edges())
+    if not edges:
+        return False
+    types = [edge.geom_type for edge in edges]
+    wbb = wire.bounding_box()
+    ext = {axis: float(getattr(wbb.size, axis.upper())) for axis in plane_axes}
+    if all(kind == GeomType.CIRCLE for kind in types):
+        try:
+            first = edges[0]
+            radius = float(first.radius)
+            centre = first.arc_center
+            same_circle = all(
+                abs(float(edge.radius) - radius) <= tol
+                and all(
+                    abs(
+                        float(getattr(edge.arc_center, axis.upper()))
+                        - float(getattr(centre, axis.upper()))
+                    )
+                    <= tol
+                    for axis in plane_axes
+                )
+                for edge in edges[1:]
+            )
+        except (AttributeError, ValueError):
+            return False
+        return same_circle and all(
+            abs(ext[axis] - 2.0 * radius) <= max(8 * tol, radius * 1e-3) for axis in plane_axes
+        )
+
+    perimeter = 2.0 * sum(ext.values())
+    if all(kind == GeomType.LINE for kind in types):
+        # Split collinear edges are harmless, but every segment must lie on one of the four
+        # bounding-box sides. The perimeter check alone would also accept an L-shaped loop.
+        on_boundary = True
+        for edge in edges:
+            ebb = edge.bounding_box()
+            varying = [axis for axis in plane_axes if float(getattr(ebb.size, axis.upper())) > tol]
+            if len(varying) != 1:
+                on_boundary = False
+                break
+            fixed_axis = next(axis for axis in plane_axes if axis != varying[0])
+            fixed = float(getattr(ebb.center(), fixed_axis.upper()))
+            if (
+                min(
+                    abs(fixed - float(getattr(wbb.min, fixed_axis.upper()))),
+                    abs(fixed - float(getattr(wbb.max, fixed_axis.upper()))),
+                )
+                > tol
+            ):
+                on_boundary = False
+                break
+        return on_boundary and abs(float(wire.length) - perimeter) <= max(
+            8 * tol, perimeter * 1e-3
+        )
+
+    if any(kind not in (GeomType.LINE, GeomType.CIRCLE) for kind in types):
+        return False
+    lines = [edge for edge in edges if edge.geom_type == GeomType.LINE]
+    arcs = [edge for edge in edges if edge.geom_type == GeomType.CIRCLE]
+    if len(lines) not in (2, 4) or len(arcs) < 2:
+        return False
+
+    short_axis, long_axis = sorted(plane_axes, key=lambda axis: ext[axis])
+    short = ext[short_axis]
+    radius_tol = max(8 * tol, short * 1e-3)
+    try:
+        radius = float(arcs[0].radius)
+        arc_centres = [edge.arc_center for edge in arcs]
+        if radius <= tol or any(abs(float(edge.radius) - radius) > radius_tol for edge in arcs):
+            return False
+    except (AttributeError, ValueError):
+        return False
+
+    profile_tol = max(radius_tol, max(ext.values()) * 1e-3)
+
+    def coord(obj, axis: str) -> float:
+        return float(getattr(obj, axis.upper()))
+
+    def line_matches(edge, varying_axis: str, corner_radius: float) -> bool:
+        ebb = edge.bounding_box()
+        fixed_axis = next(axis for axis in plane_axes if axis != varying_axis)
+        if (
+            float(getattr(ebb.size, varying_axis.upper())) <= tol
+            or float(getattr(ebb.size, fixed_axis.upper())) > tol
+        ):
+            return False
+        fixed = coord(ebb.center(), fixed_axis)
+        if (
+            min(
+                abs(fixed - coord(wbb.min, fixed_axis)),
+                abs(fixed - coord(wbb.max, fixed_axis)),
+            )
+            > profile_tol
+        ):
+            return False
+        return (
+            abs(coord(ebb.min, varying_axis) - (coord(wbb.min, varying_axis) + corner_radius))
+            <= profile_tol
+            and abs(coord(ebb.max, varying_axis) - (coord(wbb.max, varying_axis) - corner_radius))
+            <= profile_tol
+        )
+
+    def lines_match_both_sides(varying_axis: str) -> bool:
+        matched = [edge for edge in lines if line_matches(edge, varying_axis, radius)]
+        if len(matched) != 2:
+            return False
+        fixed_axis = next(axis for axis in plane_axes if axis != varying_axis)
+        positions = [coord(edge.bounding_box().center(), fixed_axis) for edge in matched]
+        return all(
+            any(abs(position - bound) <= profile_tol for position in positions)
+            for bound in (coord(wbb.min, fixed_axis), coord(wbb.max, fixed_axis))
+        )
+
+    def arcs_match(expected: list[tuple[float, float]], expected_length: float) -> bool:
+        lengths = [0.0] * len(expected)
+        for edge, centre in zip(arcs, arc_centres):
+            matches = [
+                i
+                for i, point in enumerate(expected)
+                if all(
+                    abs(coord(centre, axis) - point[j]) <= profile_tol
+                    for j, axis in enumerate(plane_axes)
+                )
+            ]
+            if len(matches) != 1:
+                return False
+            lengths[matches[0]] += float(edge.length)
+        return all(abs(length - expected_length) <= profile_tol for length in lengths)
+
+    if len(lines) == 2:
+        # A true obround has two long sides, semicircular ends, and cap radius equal to half
+        # the short overall extent. The double-D in #1058 fails that last correspondence.
+        if abs(radius - short / 2.0) > radius_tol or not lines_match_both_sides(long_axis):
+            return False
+        mid_short = coord(wbb.center(), short_axis)
+        long_lo = coord(wbb.min, long_axis) + radius
+        long_hi = coord(wbb.max, long_axis) - radius
+        expected = (
+            [(long_lo, mid_short), (long_hi, mid_short)]
+            if plane_axes[0] == long_axis
+            else [(mid_short, long_lo), (mid_short, long_hi)]
+        )
+        return arcs_match(expected, pi * radius)
+
+    # Axis-aligned rounded rectangles are already represented by pocket/slot plus fillet IR
+    # (the real #915 case). Four side runs terminate at four quarter-circle corner groups.
+    if radius * 2.0 >= short - radius_tol:
+        return False
+    if not all(lines_match_both_sides(axis) for axis in plane_axes):
+        return False
+    axis0_centres = (
+        coord(wbb.min, plane_axes[0]) + radius,
+        coord(wbb.max, plane_axes[0]) - radius,
+    )
+    axis1_centres = (
+        coord(wbb.min, plane_axes[1]) + radius,
+        coord(wbb.max, plane_axes[1]) - radius,
+    )
+    expected = [(axis0, axis1) for axis0 in axis0_centres for axis1 in axis1_centres]
+    return arcs_match(expected, pi * radius / 2.0)
+
+
+def _has_unsupported_principal_inner_profile(part, bbox) -> bool:
+    """Does a principal extremal face prove an internal profile outside the IR vocabulary?"""
+    part_extent = (float(bbox.size.X), float(bbox.size.Y), float(bbox.size.Z))
+    tol = max(1e-5, max(part_extent) * 1e-5)
+    for face in part.faces():
+        boundary = _principal_boundary_plane(face, bbox)
+        if boundary is None:
+            continue
+        _axis, plane_axes = boundary
+        if any(not _supported_inner_profile(wire, plane_axes, tol) for wire in face.inner_wires()):
+            return True
+    return False
+
+
+def lint_principal_profile_coverage(part, *, assembly=None) -> list:
+    """Report a principal boundary opening outside the current feature vocabulary.
+
+    The scan owns its physical extent: there is deliberately no caller-supplied bounding box
+    or profile inventory that could narrow the answer. :class:`Drawing` caches the returned
+    issues against the source part identity so repeated lint does not rescan the B-rep.
+    """
+    if not _has_unsupported_principal_inner_profile(part, part.bounding_box()):
+        return []
+    if assembly is None:
+        assembly = len(part.solids()) > 1
+    severity: Literal["info", "warning"] = "info" if assembly else "warning"
+    return [
+        LintIssue(
+            severity=severity,
+            code="unrecognised_defining_geometry",
+            message=(
+                "dimension-relevant source geometry is absent from recognised IR: "
+                "unsupported internal profile on a principal boundary face"
+            ),
+        )
+    ]
+
+
 def lint_prismatic_coverage(
     part,
     dwg,
@@ -422,7 +664,7 @@ def lint_prismatic_coverage(
     features=(),
     recognition=None,
 ) -> list:
-    """Report undefined raised-pad footprints and blind-pocket locations.
+    """Report undefined prismatic features.
 
     Ground truth comes directly from geometry, while coverage comes from placed
     dimension witnesses (ADR 0015).  This intentionally does not trust the part

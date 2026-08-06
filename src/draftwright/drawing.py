@@ -79,6 +79,7 @@ from draftwright.linting import (
     lint_feature_coverage,
     lint_flat_coverage,
     lint_location_coverage,
+    lint_principal_profile_coverage,
     lint_prismatic_coverage,
     lint_slot_coverage,
 )
@@ -280,6 +281,8 @@ class BuildState:
       (helpers #143/#164).
     - ``ann_box_cache`` — lint's annotation bounding boxes (#602): identity- AND
       location-token-checked entries (see ``_ann_box``), pruned by ``lint()``.
+    - ``principal_profile_cache`` — solid-derived unsupported-inner-profile issues
+      reused by repeated physical critique (#1058).
     - ``trace`` — the opt-in solve-trace recorder (#736,
       :class:`~draftwright.annotations._common.SolveTrace`), or ``None`` (default:
       tracing off). Carried here so the finalize path traces like the auto pass.
@@ -298,6 +301,7 @@ class BuildState:
     part_model: object | None = None
     view_edge_cache: dict = dataclasses_field(default_factory=dict)
     ann_box_cache: dict = dataclasses_field(default_factory=dict)
+    principal_profile_cache: tuple[object, bool, tuple[LintIssue, ...]] | None = None
     trace: Any = None
     detail_view: bool = False
     #: The compiler's :class:`~draftwright.model.compiled.Omission` records — every
@@ -2807,6 +2811,24 @@ class Drawing:
                 features=getattr(model, "features", ()) if model is not None else (),
                 recognition=recognition,
             )
+            resolved_assembly = self.assembly
+            if resolved_assembly is None:
+                resolved_assembly = len(self.part.solids()) > 1
+            profile_cache = self._build.principal_profile_cache
+            if (
+                profile_cache is None
+                or profile_cache[0] is not self.part
+                or profile_cache[1] != resolved_assembly
+            ):
+                profile_issues = tuple(
+                    lint_principal_profile_coverage(
+                        self.part,
+                        assembly=resolved_assembly,
+                    )
+                )
+                profile_cache = (self.part, resolved_assembly, profile_issues)
+                self._build.principal_profile_cache = profile_cache
+            issues += list(profile_cache[2])
             issues += lint_flat_coverage(
                 self.part,
                 recognition=recognition,

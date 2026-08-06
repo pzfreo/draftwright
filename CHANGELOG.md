@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Unsupported internal profiles no longer pass physical-completeness lint silently**
+  (#1058). Inner loops on principal boundary faces are checked against the current
+  circular-hole, rectangular-opening, and true-obround vocabulary. Profiles outside it,
+  including the supplied double-D wheel bore, now produce
+  `unrecognised_defining_geometry` and reduce the lint score instead of allowing an
+  envelope-only drawing to score 1.0.
+
 ### Changed
 
 - **Crowded prismatic step dimensions recover into an enlarged detail view by default**
