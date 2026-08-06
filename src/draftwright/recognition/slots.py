@@ -6,9 +6,10 @@ sits beside the hole/boss recognisers in :mod:`draftwright.recognition`, the
 single home for feature recognition (ADR 0007 — recognition lives in
 draftwright, not upstream); it mirrors their OCC face-scan idioms.
 
-Scope: **enclosed rectangular recesses with straight walls** — through-slots
-(:func:`recognise_slots`) and their blind counterparts, floored slots/pockets
-(:func:`recognise_pockets`, #148a).  The recogniser proves a candidate is such a
+Scope: **rectangular recesses with straight walls** — enclosed through-slots
+(:func:`recognise_slots`), their blind counterparts (floored slots/pockets,
+:func:`recognise_pockets`, #148a), and full-span floored open channels
+(:func:`recognise_channels`, #917). The recogniser proves a candidate is such a
 recess rather than some other facing-wall feature with three predicates a naive
 "opposed facing walls" test gets wrong:
 

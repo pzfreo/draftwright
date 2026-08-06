@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from draftwright.linting.issues import LintIssue
-from draftwright.recognition import RecognitionResult
+from draftwright.recognition import RecognitionResult, has_multi_axis_plates
 
 ChannelRequirementState = Literal["placed", "suppressed", "dropped", "missing", "unverifiable"]
 
@@ -82,8 +82,7 @@ def channel_requirement_outcomes(
     # The same full-span recess geometry can be a monolithic centred rebate. That domain
     # stays with the correlated step ladder; the explicit channel-width scheme is required
     # only when recognition also proves a multi-axis plate construction (base + walls).
-    plate_axes = {plate.axis for plate in recognition.plates}
-    sources = list(recognition.channels) if len(plate_axes) >= 2 else []
+    sources = list(recognition.channels) if has_multi_axis_plates(recognition.plates) else []
     if not sources:
         return []
     features_by_key: dict[tuple, list] = {}

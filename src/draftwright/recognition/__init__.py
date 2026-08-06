@@ -5,7 +5,7 @@ rendering library. This package is the single home for it:
 
 - :mod:`._features` — vendored hole/boss/cylinder/pattern recognisers (was
   ``build123d_drafting.features``; upstream copy frozen and deprecated).
-- :mod:`.slots` — the draftwright-local milled-slot recogniser (#135).
+- :mod:`.slots` — draftwright-local milled slot, pocket, and channel recognition.
 
 Import the public surface from here, not the submodules.
 
@@ -100,7 +100,7 @@ from draftwright.recognition.levels import (
     step_level_zs,
 )
 from draftwright.recognition.pads import RaisedPad, recognise_rectangular_pads
-from draftwright.recognition.plates import Plate, recognise_plates
+from draftwright.recognition.plates import Plate, has_multi_axis_plates, recognise_plates
 from draftwright.recognition.result import RecognitionResult, build_recognition_result
 from draftwright.recognition.slots import (
     Channel,
@@ -152,6 +152,7 @@ __all__ = [
     "cone_rims",
     "fillet_anchor",
     "floor_face_anchor",
+    "has_multi_axis_plates",
     "project_step_shoulders",
     "recognise_face_levels",
     "recognise_risers",

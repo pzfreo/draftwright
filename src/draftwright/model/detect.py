@@ -72,6 +72,7 @@ from draftwright.recognition import (
     StepShoulder,
     TurnedProfile,
     TurnedStep,
+    has_multi_axis_plates,
     project_step_shoulders,
     recognise_bosses,
     recognise_chamfers,
@@ -665,7 +666,7 @@ def build_part_model(
     # the two domains cannot both dimension one profile.
     if prof is None and rotational is None and plates is None:
         plates = recognise_plates(part)
-    multi_plate = bool(plates) and len({plate.axis for plate in plates}) >= 2
+    multi_plate = has_multi_axis_plates(plates or ())
     if prof is None and rotational is None and multi_plate:
         features.extend(convert(channel, ctx) for channel in channels)
 

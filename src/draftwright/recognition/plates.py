@@ -60,6 +60,11 @@ class Plate(Record):
         return self.hi - self.lo
 
 
+def has_multi_axis_plates(plates) -> bool:
+    """Whether plate evidence proves a base/wall structure rather than one slab axis."""
+    return len({plate.axis for plate in plates}) >= 2
+
+
 def recognise_plates(
     part,
     *,
