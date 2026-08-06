@@ -134,6 +134,28 @@ def test_generated_script_matches_direct_detail_view(crowded_step, tmp_path):
     assert all(direct_measurements.values())
     assert detail_measurements(scripted) == direct_measurements
 
+    def step_partition(drawing):
+        from draftwright.model.compiled import compile_dimensions
+
+        ladder = compile_dimensions(drawing.model()).ladder("step_height")
+        assert ladder is not None
+        approved = {rung.final_label for rung in ladder.rungs}
+        parent = {
+            annotation.label
+            for name, annotation in drawing.annotations_in_view("front")
+            if name.startswith("dim_step")
+        }
+        detail = {
+            annotation.label
+            for name, annotation in drawing.annotations_in_view("detail_a")
+            if name.startswith("dim_detail_a_step")
+        }
+        assert parent.isdisjoint(detail)
+        assert parent | detail == approved
+        return parent, detail
+
+    assert step_partition(scripted) == step_partition(direct)
+
 
 @pytest.mark.timeout(300)
 def test_generated_script_matches_two_direct_detail_views(tmp_path):
