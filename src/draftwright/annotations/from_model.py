@@ -1895,6 +1895,7 @@ def _radial_candidates(
     reach,
     *,
     rim=0.0,
+    source_bounds=None,
     directions=_POCKET_LEAD_DIRS,
     provenance=None,
 ):
@@ -1902,19 +1903,46 @@ def _radial_candidates(
     projected origin, one candidate per *directions* entry (pocket-style diagonals
     first by default) — exit the silhouette along it (:func:`_ray_exit_dist`) then
     *reach* on into the margin, so even a centre-of-view feature clears the part. A
-    non-zero *rim* (page units) advances the arrow tip that far along the lead
-    direction, so a boss ø leader's arrowhead lands on the boss circle rather than
-    its centre (#629/#700). Yields ``(tip, elbow, feature)`` (same feature each
-    time; nearest-clear wins in the pass)."""
+    non-zero *rim* (page units) advances the arrow tip that far along the lead direction,
+    so a boss ø leader's arrowhead lands on the boss circle rather than its centre
+    (#629/#700). ``source_bounds`` instead advances to the edge of a rectangular feature
+    opening; a pocket leader starting at its centre crosses both the pocket rim and the outer
+    silhouette, while a rim tip has only the one legitimate outward exit (#916). Yields
+    ``(tip, elbow, feature)`` (same feature each time; nearest-clear wins in the pass)."""
     x0, y0, x1, y1 = vb
     origin = dwg.at(view, *feature.frame.origin)
     for dx, dy in directions:
         d = math.hypot(dx, dy)
         ux, uy = dx / d, dy / d
-        tip = (origin[0] + ux * rim, origin[1] + uy * rim)
+        tip_offset = (
+            _ray_exit_dist(origin[0], origin[1], ux, uy, source_bounds)
+            if source_bounds is not None
+            else rim
+        )
+        tip = (origin[0] + ux * tip_offset, origin[1] + uy * tip_offset)
         exit_d = _ray_exit_dist(tip[0], tip[1], ux, uy, (x0, y0, x1, y1))
         elbow = (tip[0] + ux * (exit_d + reach), tip[1] + uy * (exit_d + reach), 0)
         yield (tip, elbow, provenance if provenance is not None else feature)
+
+
+def _pocket_rim_bounds(
+    dwg, view, pocket, *, length: float, width: float
+) -> tuple[float, float, float, float]:
+    """Projected bounds of a rectangular pocket opening."""
+    centre = list(pocket.frame.origin)
+    points = []
+    for long_sign in (-1, 1):
+        for width_sign in (-1, 1):
+            corner = centre.copy()
+            corner["xyz".index(pocket.long_axis)] += long_sign * length / 2
+            corner["xyz".index(pocket.width_axis)] += width_sign * width / 2
+            points.append(dwg.at(view, *corner))
+    return (
+        min(point[0] for point in points),
+        min(point[1] for point in points),
+        max(point[0] for point in points),
+        max(point[1] for point in points),
+    )
 
 
 def _leader_hole_clearance(
@@ -1997,7 +2025,17 @@ def render_pockets(dwg, plan, a, *, ctx, only=None) -> int:
                     lsfx=_tol_suffix(lpd.tolerance, draft),
                     dsfx=_tol_suffix(dpd.tolerance, draft),
                 ),
-                _radial_candidates(dwg, view, vb, pk, reach, provenance=g.ref),
+                _radial_candidates(
+                    dwg,
+                    view,
+                    vb,
+                    pk,
+                    reach,
+                    source_bounds=_pocket_rim_bounds(
+                        dwg, view, pk, length=lpd.value, width=wpd.value
+                    ),
+                    provenance=g.ref,
+                ),
                 (wpd.id, lpd.id, dpd.id),  # width × length × depth, one callout (#1002)
             )
         )
