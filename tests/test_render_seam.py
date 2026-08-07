@@ -184,8 +184,10 @@ class TestStepChainDrop:
         return _Dwg()
 
     def test_crowded_vertical_chain_records_the_drop(self):
+        from types import SimpleNamespace
+
         from draftwright.annotations._common import PlacementContext
-        from draftwright.annotations.from_model import _draw_step_chain, _StepChainSegment
+        from draftwright.annotations.from_model import _draw_step_chain
         from draftwright.registry import AnnotationRegistry
 
         dwg = self._stub_dwg()
@@ -195,8 +197,22 @@ class TestStepChainDrop:
         # far below tier_step (= font_size + 2*pad = 4). Values differ so the
         # uniform-collapse path is not taken. The chain is dropped whole.
         segs = [
-            _StepChainSegment((80.0, 10.0, 0), (80.0, 10.1, 0), 5.0, measurements=("step-a",)),
-            _StepChainSegment((80.0, 10.1, 0), (80.0, 10.2, 0), 8.0, measurements=("step-b",)),
+            SimpleNamespace(
+                pa=(80.0, 10.0, 0),
+                pb=(80.0, 10.1, 0),
+                value=5.0,
+                tolerance=None,
+                measurements=("step-a",),
+                label=None,
+            ),
+            SimpleNamespace(
+                pa=(80.0, 10.1, 0),
+                pb=(80.0, 10.2, 0),
+                value=8.0,
+                tolerance=None,
+                measurements=("step-b",),
+                label=None,
+            ),
         ]
         placed = _draw_step_chain(dwg, "front", segs, "m_steplen", ctx=ctx)
         assert placed == 0
