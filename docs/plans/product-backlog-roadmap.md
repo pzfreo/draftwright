@@ -1,9 +1,11 @@
 # Product backlog roadmap
 
-- **Status:** Active delivery plan
-- **Last reviewed:** 2026-07-26
-- **Live tracker:** [#758 — trustworthy drawing pipeline and backlog
-  burn-down](https://github.com/pzfreo/draftwright/issues/758)
+- **Status:** Active product strategy
+- **Last reviewed:** 2026-08-07
+- **Live execution:** [Draftwright: Trustworthy Manufacturing
+  Drawings](https://github.com/users/pzfreo/projects/3)
+- **Current delivery plan:** [Trust and coverage, August-October
+  2026](2026-08-trust-and-coverage-plan.md)
 
 ## Product promise
 
@@ -12,13 +14,14 @@ deterministic drawing or clearly reports why it cannot. Work that undermines
 completeness, parity, deterministic diagnosis, or truthful lint outranks new
 surface area.
 
-This document records delivery intent and prioritisation. ADRs remain the source
-of architectural decisions; GitHub issues remain the source of live work status.
-Historical issue state and completed-task ledgers do not belong here.
+This document records the product promise and durable prioritisation rules. ADRs
+remain the source of architectural decisions, the dated delivery plan records the
+current outcome and gates, and the GitHub Project is the source of live work
+status. Historical issue state and completed-task ledgers do not belong here.
 
 ## Operating model
 
-- At most four implementation issues are active, one in each workstream.
+- At most two delivery issues and one bounded discovery are in **Now**.
 - An umbrella coordinates work but is never assigned as an implementation task.
 - A bug that produces a clean but incomplete drawing outranks a visible failure.
 - Every bug fix gains a reduced fast-tier fixture where practical.
@@ -28,22 +31,23 @@ Historical issue state and completed-task ledgers do not belong here.
 - Speculative features stay parked until they have a named user, milestone, or
   experiment.
 
-Scheduling uses `roadmap:now`, `roadmap:next`, `roadmap:later`, and
-`roadmap:parked`. Severity continues to use the existing `priority:P0`–`P3`
-labels. Workstreams use `stream:*`; `blocked` records an external dependency or
-decision that prevents progress.
+Scheduling uses the Project's `Horizon` and `Iteration` fields. Severity continues
+to use the existing `priority:P0`-`P3` labels. Workstreams use `stream:*`;
+`Blocked` records an external dependency or decision that prevents progress. The
+former `roadmap:*` labels are retired after migration because duplicate scheduling
+state is a drift source.
 
 ## Workstreams and current WIP
 
 | Workstream | Objective | Now | Next |
 | --- | --- | --- | --- |
-| Trust and correctness | Never certify or silently emit an incomplete drawing | [#863](https://github.com/pzfreo/draftwright/issues/863) thread-blind ⌀ dedup on the incremental paths | [#812](https://github.com/pzfreo/draftwright/issues/812)-class emit gaps as found |
-| Reliability and diagnostics | Make failures fast, reproducible, and representative | No active implementation | [#826](https://github.com/pzfreo/draftwright/issues/826) dependency/static-security/secret scanning |
-| Architecture | Remove boundaries that make correctness work risky | No active implementation — Milestone 2 exited | [#830](https://github.com/pzfreo/draftwright/issues/830) residual state-bus seam review |
-| Manufacturing coverage | Expand independently verified feature coverage | [#676](https://github.com/pzfreo/draftwright/issues/676) polygonal boss recognition | [#675](https://github.com/pzfreo/draftwright/issues/675) paired bilateral PMI tolerances |
+| Trust and correctness | Never certify or silently emit an incomplete drawing | [#958](https://github.com/pzfreo/draftwright/issues/958) duplicate pad/phantom-slot span | [#1000](https://github.com/pzfreo/draftwright/issues/1000), [#955](https://github.com/pzfreo/draftwright/issues/955), [#1004](https://github.com/pzfreo/draftwright/issues/1004) |
+| Reliability and diagnostics | Make failures fast, reproducible, and representative | [#1067](https://github.com/pzfreo/draftwright/issues/1067) v0.4.1 and weekly release decision | No additional item until a Now slot clears |
+| Architecture | Remove boundaries only when they block a product outcome | No active implementation | Pull only from a failing product slice |
+| Manufacturing coverage | Expand independently verified feature coverage | No active implementation until the trust gate clears | [#676](https://github.com/pzfreo/draftwright/issues/676), then [#623](https://github.com/pzfreo/draftwright/issues/623) |
 
-The table is intentionally small. The live roadmap issue records ownership,
-blockers, and session-to-session movement.
+The table is intentionally small. The Project records ownership, blockers, and
+movement; the dated delivery plan records the multi-week sequence and gates.
 
 ## Milestone 1 — Trustworthy 0.3.x
 
@@ -58,7 +62,7 @@ not-reproducible. Focus moves to Milestone 2.
 Off-milestone quality polish shipped afterwards in **v0.3.7** (turned ⌀ leader
 placement — centre-on-feature, the `leader_crosses_silhouette` lint, and
 clear-side re-routing of body-crossing leaders); it did not change milestone scope
-or exit criteria. See the live tracker (#758) for the delivered ledger.
+or exit criteria. See the archived tracker (#758) for the delivered ledger.
 
 ### Outcome
 
@@ -131,15 +135,25 @@ package/test boundaries no longer encourage reach-through or cyclic ownership.
 - The builder/CLI/emitter import graph is acyclic.
 - Test-side private reads have a shrink-only guard and a documented residual.
 
-## Milestone 3 — Coverage expansion
+## Active milestone — Trustworthy manufacturing drawings
+
+**Target: 2026-10-02.** The former open-ended Coverage expansion milestone is
+consolidated into this time-bound outcome. Correctness fixes lead; manufacturing
+coverage follows only after the trust gate in the current delivery plan.
 
 ### Outcome
 
-Important manufacturing features are recognised or imported, lowered into
-drafting concepts, rendered, and checked by independent coverage lint.
+Known silent or misleading incompleteness is removed, then selected manufacturing
+features are recognised or imported, lowered into drafting concepts, rendered,
+and checked by independent coverage lint.
 
 ### Initial scope
 
+- [#958](https://github.com/pzfreo/draftwright/issues/958),
+  [#1000](https://github.com/pzfreo/draftwright/issues/1000),
+  [#955](https://github.com/pzfreo/draftwright/issues/955), and
+  [#1004](https://github.com/pzfreo/draftwright/issues/1004) — current trust
+  defects and their measurement-identity enabler.
 - [#676](https://github.com/pzfreo/draftwright/issues/676) — polygonal boss
   recognition and across-flats/corners definition.
 - [#675](https://github.com/pzfreo/draftwright/issues/675) — paired, grouped
@@ -180,33 +194,15 @@ both exited):
 
 At the start of a delivery session:
 
-1. Read this roadmap and the latest handoff on the live tracker.
-2. Verify the four **Now** slots against current `main` and issue state.
+1. Read the current delivery plan and open the Project's Current Delivery view.
+2. Verify the three **Now** slots against current `main` and issue state.
 3. Resume the first unblocked issue; do not pull **Next** work while its stream's
    **Now** item remains active.
 
-At the end of a delivery session, add this comment to the live tracker:
+At the end of a delivery session, update issue and Project status directly. On
+Friday, run `scripts/project-audit` and publish a short Project status update with
+completed evidence, current blockers, the next iteration, and any scope decision.
 
-```markdown
-## Session handoff — YYYY-MM-DD
-
-Completed:
-- #123 — outcome and PR
-
-Evidence:
-- tests, checks, or user-visible result
-
-Current:
-- #456 — state and blocker
-
-Next:
-1. #789
-2. #790
-
-Roadmap changes:
-- why anything moved between Now, Next, Later, or Parked
-```
-
-Review the backlog weekly. Update this document only when product promise,
-milestone scope, exit criteria, or operating rules change; record routine issue
-movement on the live tracker.
+Review the backlog weekly. Update this document only when the product promise or
+operating rules change; update the dated plan when its outcome, sequence, gates,
+or milestone scope changes.

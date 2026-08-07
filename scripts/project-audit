@@ -1,0 +1,190 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+project_number="${1:-3}"
+owner="${2:-pzfreo}"
+repository="${3:-draftwright}"
+now_epoch="$(date +%s)"
+items_file="$(mktemp)"
+fields_file="$(mktemp)"
+open_issues_file="$(mktemp)"
+trap 'rm -f "$items_file" "$fields_file" "$open_issues_file"' EXIT
+
+for command in gh jq; do
+    if ! command -v "$command" >/dev/null 2>&1; then
+        printf 'project-audit: required command not found: %s\n' "$command" >&2
+        exit 2
+    fi
+done
+
+gh api \
+    "users/$owner/projectsV2/$project_number/fields?per_page=100" \
+    >"$fields_file"
+
+field_ids="$(
+    jq -r \
+        '[.[] | select(.name == "Status" or .name == "Horizon" or .name == "Iteration") | .id]
+         | join(",")' \
+        "$fields_file"
+)"
+if [[ "$(tr ',' '\n' <<<"$field_ids" | wc -l | tr -d ' ')" != "3" ]]; then
+    printf 'project-audit: Status, Horizon, and Iteration fields are required.\n' >&2
+    exit 2
+fi
+
+gh api --paginate --slurp \
+    "users/$owner/projectsV2/$project_number/items?per_page=100&fields=$field_ids" \
+    | jq '{items: [
+        .[][]
+        | {
+            assignees: [.content.assignees[]?.login],
+            content: {
+                number: .content.number,
+                url: .content.html_url
+            },
+            horizon: ([.fields[]? | select(.name == "Horizon") | .value.name.raw][0] // ""),
+            iteration: ([.fields[]? | select(.name == "Iteration") | .value.title.raw][0] // ""),
+            labels: [.content.labels[]?.name],
+            status: ([.fields[]? | select(.name == "Status") | .value.name.raw][0] // ""),
+            title: (.content.title // "Draft item"),
+            updated: (.content.updated_at // "1970-01-01T00:00:00Z")
+        }
+    ]}' >"$items_file"
+
+gh api --paginate --slurp \
+    "repos/$owner/$repository/issues?state=open&per_page=100" \
+    | jq '[
+        .[][]
+        | select(has("pull_request") | not)
+        | {number, title, url: .html_url}
+    ]' >"$open_issues_file"
+
+failures=0
+
+missing_items="$(
+    jq -r \
+        --slurpfile project "$items_file" \
+        '.[] as $issue
+         | select(any($project[0].items[]; .content.url == $issue.url) | not)
+         | "#\($issue.number) \($issue.title)"' \
+        "$open_issues_file"
+)"
+if [[ -n "$missing_items" ]]; then
+    printf 'Open repository issues missing from the Project:\n%s\n' \
+        "$missing_items" >&2
+    failures=$((failures + 1))
+fi
+
+report_items() {
+    local heading="$1"
+    local filter="$2"
+    local matches
+
+    matches="$(jq -r "$filter | \"#\(.content.number // \"draft\") \(.title)\"" "$items_file")"
+    if [[ -n "$matches" ]]; then
+        printf '%s\n%s\n' "$heading" "$matches" >&2
+        failures=$((failures + 1))
+    fi
+}
+
+now_count="$(
+    jq '[.items[] | select(.horizon == "Now" and .status != "Done")] | length' \
+        "$items_file"
+)"
+if (( now_count > 3 )); then
+    printf 'WIP limit: %s items are in Now; maximum is 3.\n' "$now_count" >&2
+    failures=$((failures + 1))
+fi
+
+delivery_now_count="$(
+    jq '[.items[]
+         | select(.horizon == "Now" and .status != "Done")
+         | select(any(.labels[]?; . == "design") | not)]
+        | length' \
+        "$items_file"
+)"
+if (( delivery_now_count > 2 )); then
+    printf 'WIP limit: %s delivery items are in Now; maximum is 2.\n' \
+        "$delivery_now_count" >&2
+    failures=$((failures + 1))
+fi
+
+discovery_now_count="$(
+    jq '[.items[]
+         | select(.horizon == "Now" and .status != "Done")
+         | select(any(.labels[]?; . == "design"))]
+        | length' \
+        "$items_file"
+)"
+if (( discovery_now_count > 1 )); then
+    printf 'WIP limit: %s discovery items are in Now; maximum is 1.\n' \
+        "$discovery_now_count" >&2
+    failures=$((failures + 1))
+fi
+
+next_count="$(
+    jq '[.items[] | select(.horizon == "Next" and .status != "Done")] | length' \
+        "$items_file"
+)"
+if (( next_count > 5 )); then
+    printf 'Queue limit: %s items are in Next; maximum is 5.\n' "$next_count" >&2
+    failures=$((failures + 1))
+fi
+
+active_count="$(
+    jq '[.items[] | select(.status == "In progress" or .status == "In review")]
+        | length' \
+        "$items_file"
+)"
+if (( active_count > 3 )); then
+    printf 'WIP limit: %s items are In progress or In review; maximum is 3.\n' \
+        "$active_count" >&2
+    failures=$((failures + 1))
+fi
+
+report_items \
+    'Active items missing a Horizon:' \
+    '.items[] | select((.status // "") != "Done" and (.horizon // "") == "")'
+
+report_items \
+    'In-progress or in-review items outside Now:' \
+    '.items[]
+     | select(.status == "In progress" or .status == "In review")
+     | select(.horizon != "Now")'
+
+report_items \
+    'Now items missing owner, iteration, priority, area, or stream:' \
+    '.items[]
+     | select(.horizon == "Now" and .status != "Done")
+     | select(
+         ((.assignees // []) | length) == 0
+         or (.iteration // "") == ""
+         or (any(.labels[]?; startswith("priority:")) | not)
+         or (any(.labels[]?; startswith("area:")) | not)
+         or (any(.labels[]?; startswith("stream:")) | not)
+       )'
+
+report_items \
+    'Next items missing owner, priority, area, or stream:' \
+    '.items[]
+     | select(.horizon == "Next" and .status != "Done")
+     | select(
+         ((.assignees // []) | length) == 0
+         or (any(.labels[]?; startswith("priority:")) | not)
+         or (any(.labels[]?; startswith("area:")) | not)
+         or (any(.labels[]?; startswith("stream:")) | not)
+       )'
+
+report_items \
+    'Blocked items not updated for seven days:' \
+    ".items[]
+     | select(.status == \"Blocked\")
+     | select((.updated // \"1970-01-01T00:00:00Z\" | fromdateiso8601) < ($now_epoch - 604800))"
+
+if (( failures > 0 )); then
+    printf 'project-audit: %s policy check(s) failed.\n' "$failures" >&2
+    exit 1
+fi
+
+printf 'project-audit: Project %s/%s satisfies the delivery policies.\n' \
+    "$owner" "$project_number"
