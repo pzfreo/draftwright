@@ -774,15 +774,8 @@ def _recognise_obround_from_ends(part, faces, *, blind: bool = False):
     return out
 
 
-def recognise_slots(part) -> list[Slot]:
-    """Recognise enclosed through-slots with rectangular walls in *part*.
-
-    Returns a list of :class:`Slot`, one per physical feature, in a
-    deterministic order (co-located candidate pairs are merged, keeping the
-    narrower width).  See the module docstring for the recognition predicate and
-    its (deliberately narrow) scope. Obround slots too stubby for their flat walls
-    to pair are recovered from their end caps (#816).
-    """
+def _recognise_slots_one(part) -> list[Slot]:
+    """Recognise slots using one solid's faces and bounds."""
     faces = _planar_faces(part)
     pbb = part.bounding_box()
     part_ext = {a: getattr(pbb.size, "XYZ"[_AXES[a]]) for a in "xyz"}
@@ -808,6 +801,24 @@ def recognise_slots(part) -> list[Slot]:
     # Recombine arms of a crossing channel split by the intersection (#604), then extend any
     # radiused-end (obround) slot to its overall length (#613).
     return _extend_obround_ends(_collapse_collinear(_merge(candidates), part), part)
+
+
+def recognise_slots(part) -> list[Slot]:
+    """Recognise enclosed through-slots independently within each solid in *part*.
+
+    Returns a list of :class:`Slot`, one per physical feature, in a
+    deterministic order (co-located candidate pairs within a solid are merged,
+    keeping the narrower width). See the module docstring for the recognition
+    predicate and its deliberately narrow scope. Obround slots too stubby for
+    their flat walls to pair are recovered from their end caps (#816).
+
+    A compound is scanned per solid so faces from separate components cannot
+    combine into a fictitious slot across the gap between them (#958).
+    """
+    solids = list(part.solids())
+    sources = solids if len(solids) > 1 else [part]
+    slots = [slot for solid in sources for slot in _recognise_slots_one(solid)]
+    return sorted(slots, key=lambda slot: (slot.width, _region_center(slot)))
 
 
 def _same_channel_line(a: Slot, b: Slot):
@@ -1049,15 +1060,8 @@ def _channel_candidate(fa, fb, faces, part_ext, part_bounds) -> Channel | None:
     return candidate if isinstance(candidate, Channel) else None
 
 
-def recognise_pockets(part) -> list[Pocket]:
-    """Blind rectangular recesses — floored slots/pockets (#148a).
-
-    The blind counterpart of :func:`recognise_slots`: the same facing-rectangular-wall
-    candidate scan, but keeping the pairs a floor caps.  The depth (open-face-to-floor
-    extent) is read from the axis the floor is normal to — see :func:`_pocket_candidate` —
-    not from a size heuristic, so a pocket deeper than it is long is dimensioned correctly.
-    A "blind slot" (elongated) and a "pocket" (near-square) are the same floored feature,
-    dimensioned width × length × depth."""
+def _recognise_pockets_one(part) -> list[Pocket]:
+    """Recognise pockets using one solid's faces and bounds."""
     faces = _planar_faces(part)
     pbb = part.bounding_box()
     part_ext = {a: getattr(pbb.size, "XYZ"[_AXES[a]]) for a in "xyz"}
@@ -1079,13 +1083,24 @@ def recognise_pockets(part) -> list[Pocket]:
     return _extend_obround_ends(_merge(candidates), part)
 
 
-def recognise_channels(part) -> list[Channel]:
-    """Full-span floored rectangular channels, open at both longitudinal ends.
+def recognise_pockets(part) -> list[Pocket]:
+    """Recognise blind rectangular recesses independently within each solid.
 
-    This is deliberately separate from :func:`recognise_pockets`: a channel's length
-    and depth participate in the surrounding envelope/plate scheme, while only its
-    wall-to-wall width is an independent defining measurement.
+    The blind counterpart of :func:`recognise_slots`: the same facing-rectangular-wall
+    candidate scan, but keeping the pairs a floor caps. The depth (open-face-to-floor
+    extent) is read from the axis the floor is normal to -- see
+    :func:`_pocket_candidate` -- not from a size heuristic, so a pocket deeper than it
+    is long is dimensioned correctly. A compound is scanned per solid so separate
+    components cannot supply walls or floors for one fictitious recess (#958).
     """
+    solids = list(part.solids())
+    sources = solids if len(solids) > 1 else [part]
+    pockets = [pocket for solid in sources for pocket in _recognise_pockets_one(solid)]
+    return sorted(pockets, key=lambda pocket: (pocket.width, _region_center(pocket)))
+
+
+def _recognise_channels_one(part) -> list[Channel]:
+    """Recognise channels using one solid's faces and bounds."""
     faces = _planar_faces(part)
     pbb = part.bounding_box()
     part_ext = {a: getattr(pbb.size, "XYZ"[_AXES[a]]) for a in "xyz"}
@@ -1109,6 +1124,23 @@ def recognise_channels(part) -> list[Channel]:
                     candidates.append(channel)
     return sorted(
         set(candidates),
+        key=lambda c: (c.long_axis, c.width_axis, c.lo, c.hi, c.w_center, c.width),
+    )
+
+
+def recognise_channels(part) -> list[Channel]:
+    """Recognise full-span floored channels independently within each solid.
+
+    This is deliberately separate from :func:`recognise_pockets`: a channel's length
+    and depth participate in the surrounding envelope/plate scheme, while only its
+    wall-to-wall width is an independent defining measurement. Body-local bounds prove
+    that the channel reaches the ends of the same solid whose faces bound it (#958).
+    """
+    solids = list(part.solids())
+    sources = solids if len(solids) > 1 else [part]
+    channels = [channel for solid in sources for channel in _recognise_channels_one(solid)]
+    return sorted(
+        channels,
         key=lambda c: (c.long_axis, c.width_axis, c.lo, c.hi, c.w_center, c.width),
     )
 

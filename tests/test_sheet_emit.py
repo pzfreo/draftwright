@@ -1961,12 +1961,15 @@ class TestTheDimensionMirror:
             "plate+hole": Box(80, 50, 8) - Pos(-20, 0, 0) * Cylinder(4, 20),
             "flange (no envelope feature)": flange(),
             "stepped": Box(40, 12, 40) - Pos(10, 0, 20) * Box(20, 12, 20),
-            "slot": Box(80, 60, 12) - Pos(10, 0, 6) * Box(30, 8, 10),
+            "slot": Box(80, 60, 12) - Pos(10, 0, 0) * Box(30, 8, 20),
             "pocket": Box(80, 60, 20) - Pos(0, 0, 14) * Box(30, 20, 14),
             "two holes": Box(80, 50, 8)
             - Pos(-20, 0, 0) * Cylinder(4, 20)
             - Pos(20, 10, 0) * Cylinder(3, 20),
-            "pad": Box(80, 60, 10) + Pos(0, 0, 10) * Box(30, 20, 4),
+            # Box is centre-aligned by default: z=7 joins the pad's -2..2 span to
+            # the base's -5..5 top. z=10 leaves a 3 mm gap and used to exercise
+            # the cross-solid phantom recognition fixed by #958.
+            "pad": Box(80, 60, 10) + Pos(0, 0, 7) * Box(30, 20, 4),
             "bare block": Box(60, 40, 20),
             # A real X-axis bore. The first version used a rotated cylinder through a block
             # and detected NOTHING but an envelope, so the off-axis location path this corpus
@@ -2016,10 +2019,10 @@ class TestTheDimensionMirror:
         "plate+hole": {"hole"},
         "flange (no envelope feature)": {"hole", "pattern", "pad", "step"},
         "stepped": {"step_level"},
-        "slot": {"pocket"},
+        "slot": {"slot"},
         "pocket": {"pocket"},
         "two holes": {"hole"},
-        "pad": {"pad", "slot"},
+        "pad": {"pad"},
         "bare block": {"envelope"},
         "side-drilled": {"hole"},
         "boss": {"boss"},
@@ -3003,7 +3006,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
             "fillet": _chamfered_corner(bd_fillet, 3),
             "flat": Cylinder(10, 30) - Pos(10, 0, 0) * Box(10, 40, 40),
             "groove": Cylinder(10, 40) - (Cylinder(10, 4) - Cylinder(8, 4)),
-            "pad": Box(80, 60, 10) + Pos(0, 0, 10) * Box(30, 20, 4),
+            "pad": Box(80, 60, 10) + Pos(0, 0, 7) * Box(30, 20, 4),
             "channel": Box(50, 50, 12)
             + Pos(0, -18.75, 15) * Box(50, 12.5, 18)
             + Pos(0, 18.75, 15) * Box(50, 12.5, 18),

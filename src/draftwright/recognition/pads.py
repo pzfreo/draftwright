@@ -24,13 +24,8 @@ class RaisedPad(Record):
     z1: float
 
 
-def recognise_rectangular_pads(part, *, tol: float = 0.2) -> list[RaisedPad]:
-    """Return rectangular horizontal faces that are bounded in plan and raised.
-
-    A candidate is a planar +Z face whose area fills its XY bounding rectangle
-    and is bounded on both in-plane axes. Full-span steps are excluded;
-    non-rectangular pocket floors and perforated plate faces fail the area test.
-    """
+def _recognise_rectangular_pads_one(part, *, tol: float) -> list[RaisedPad]:
+    """Recognise pads using one solid's faces and bounds."""
     bb = part.bounding_box()
     raw_tops: list[tuple[float, float, float, float, float]] = []
     for face in part.faces():
@@ -136,3 +131,18 @@ def recognise_rectangular_pads(part, *, tol: float = 0.2) -> list[RaisedPad]:
             abs(other.z1 - pad.z0) <= tol and touches_plan(pad, other) for other in raw_regions
         )
     )
+
+
+def recognise_rectangular_pads(part, *, tol: float = 0.2) -> list[RaisedPad]:
+    """Return bounded rectangular raised faces independently per solid.
+
+    A candidate is a planar +Z face whose area fills its XY bounding rectangle
+    and is bounded on both in-plane axes. Full-span steps are excluded;
+    non-rectangular pocket floors and perforated plate faces fail the area test.
+    Body-local walls and bounds prevent a detached component from being treated
+    as a pad raised from another component (#958).
+    """
+    solids = list(part.solids())
+    sources = solids if len(solids) > 1 else [part]
+    pads = [pad for solid in sources for pad in _recognise_rectangular_pads_one(solid, tol=tol)]
+    return sorted(pads)
