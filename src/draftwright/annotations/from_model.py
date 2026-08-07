@@ -3949,7 +3949,10 @@ def _renderable_pmi_records(records):
     return [
         r
         for r in records
-        if r.pmi_kind in AUTHORED_DIMENSION_KINDS and r.value > 0 and len(r.ref_pts) >= 2
+        if r.kind == "authored_dimension"
+        and r.pmi_kind in AUTHORED_DIMENSION_KINDS
+        and r.value > 0
+        and len(r.ref_pts) >= 2
     ]
 
 

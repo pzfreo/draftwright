@@ -80,6 +80,7 @@ from draftwright.linting import (
     lint_flat_coverage,
     lint_location_coverage,
     lint_pmi_extraction,
+    lint_pmi_lowering,
     lint_principal_profile_coverage,
     lint_prismatic_coverage,
     lint_profiled_bore_coverage,
@@ -104,6 +105,7 @@ _GEOMETRY_AWARE_CODES = frozenset(
         "pad_footprint_not_defined",
         "pocket_not_located",
         "unrecognised_defining_geometry",
+        "pmi_not_lowered",
         "axial_length_missing",
         "flat_requirement_suppressed",
         "flat_requirement_missing",
@@ -2880,6 +2882,11 @@ class Drawing:
                 )
         if physical and self._analysis is not None:
             issues += lint_pmi_extraction(self._analysis.pmi_report, self._analysis.pmi_mode)
+            issues += lint_pmi_lowering(
+                self._analysis.pmi_report,
+                getattr(self._part_model, "features", ()),
+                self._analysis.pmi_mode,
+            )
         issues += list(self._registry.issues)
         # Attach a ready-to-paste fix snippet where one is computable (#29).
         # str | None — None when no concrete repair can be inferred.

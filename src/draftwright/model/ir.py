@@ -1120,7 +1120,7 @@ class AuthoredDimension:
     PMI, but the drawing model sees an authored linear/diameter/radius/etc. dimension with
     baked label and referenced geometry. The normal dimension planner does not derive or
     duplicate it, so ``parameters()`` is empty; renderers consume it directly while keeping
-    the source/provenance fields for round-trip and diagnostics."""
+    the source/provenance fields, including ``source_id``, for round-trip and diagnostics."""
 
     frame: Frame
     dimension_kind: str  # "linear" | "diameter" | "radius" | "angular" | ...
@@ -1133,6 +1133,7 @@ class AuthoredDimension:
     ref_pts: tuple[Point, ...] = ()
     source: str = "ap242_pmi"
     source_kind: str | None = None
+    source_id: str = ""
     kind: ClassVar[str] = "authored_dimension"
 
     @property
@@ -1154,7 +1155,8 @@ class PmiFeature:
     Dimensional AP242 PMI should become :class:`AuthoredDimension`; GD&T/datum/surface
     records should eventually lower to ``ControlFrame`` / ``DatumRef`` / ``Finish``. This
     type remains as an explicit provenance-preserving escape hatch so unsupported records
-    are visible instead of silently lost."""
+    are visible instead of silently lost. ``source_id`` retains the external record identity
+    needed to report that missing concept lowering."""
 
     frame: Frame
     pmi_kind: str  # the PMI category: "linear" | "diameter" | "radius" | "angular" | ...
@@ -1163,6 +1165,7 @@ class PmiFeature:
     dominant_axis: str
     ref_bbox: tuple[float, float, float, float, float, float] | None = None
     ref_pts: tuple[Point, ...] = ()
+    source_id: str = ""
     kind: ClassVar[str] = "pmi"
 
     def parameters(self) -> list[DimParameter]:

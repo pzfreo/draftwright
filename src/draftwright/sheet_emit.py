@@ -216,18 +216,21 @@ def _measured_dimension_line(f) -> str:
         kw.append(f"source={f.source!r}")
     if f.source_kind is not None and f.source_kind != f.dimension_kind:
         kw.append(f"source_kind={f.source_kind!r}")
+    if f.source_id:
+        kw.append(f"source_id={f.source_id!r}")
     # `measured_dimension` since #873 — a generated script must not emit the transitional
     # overload, or every regenerated AP242 script would arrive pre-deprecated.
     return "sheet.measured_dimension(" + ", ".join(kw) + ")"
 
 
 def _raw_pmi_line(f) -> str:
+    source_id = f", source_id={f.source_id!r}" if f.source_id else ""
     return (
         "sheet.add(PmiFeature("
         f"frame=Frame({_pt(f.frame.origin)}, {f.frame.axis!r}), "
         f"pmi_kind={f.pmi_kind!r}, value={_n(f.value)}, label={f.label!r}, "
         f"dominant_axis={f.dominant_axis!r}, ref_bbox={_bbox_arg(f.ref_bbox)}, "
-        f"ref_pts=tuple({_pts_arg(f.ref_pts)})"
+        f"ref_pts=tuple({_pts_arg(f.ref_pts)}){source_id}"
         "))   # raw AP242 PMI fallback; not yet lowered to a drafting concept"
     )
 

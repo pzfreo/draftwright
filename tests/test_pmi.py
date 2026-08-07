@@ -396,6 +396,10 @@ class TestBuildDrawingPmi:
         assert len(issues) == 17
         assert {issue.severity for issue in issues} == {"info"}
         assert len({issue.source_ids for issue in issues}) == 17
+        lowering = [issue for issue in dwg.lint() if issue.code == "pmi_not_lowered"]
+        assert len(lowering) == 10
+        assert {issue.severity for issue in lowering} == {"info"}
+        assert len({issue.source_ids for issue in lowering}) == 10
 
     def test_pmi_annotate_adds_dims(self, ctc01_annotated):
         """pmi='annotate' adds at least one pmi_ dimension to the drawing."""
@@ -423,6 +427,20 @@ class TestBuildDrawingPmi:
             for issue in summary["issues"]
             if issue["code"] == "pmi_not_extracted"
         )
+
+    def test_pmi_annotate_reports_each_raw_ir_fallback(self, ctc01_annotated):
+        from draftwright.model import PmiFeature
+
+        raw_source_ids = {
+            feature.source_id
+            for feature in ctc01_annotated.model().features
+            if isinstance(feature, PmiFeature)
+        }
+        issues = [issue for issue in ctc01_annotated.lint() if issue.code == "pmi_not_lowered"]
+
+        assert len(raw_source_ids) == 10
+        assert {issue.severity for issue in issues} == {"error"}
+        assert {issue.source_ids[0] for issue in issues} == raw_source_ids
 
     def test_pmi_annotate_exports_svg_dxf(self, ctc01_annotated):
         """build_drawing + export with PMI produces valid SVG and DXF files."""
@@ -488,10 +506,12 @@ def test_build_pmi_features_mirrors_detection(ctc01_extraction_report):
     assert len(feats) == len(recs)
     authored = [f for f in feats if isinstance(f, AuthoredDimension)]
     raw = [f for f in feats if isinstance(f, PmiFeature)]
-    assert authored
-    assert raw  # GD&T/datum AP242 records are explicit raw fallbacks until concept lowering.
+    assert len(authored) == 8
+    # Four location dimensions and six geometric tolerances remain explicit raw fallbacks.
+    assert len(raw) == 10
     assert all(f.kind == "authored_dimension" for f in authored)
     assert all(f.kind == "pmi" for f in raw)
+    assert {feature.source_id for feature in feats} == {record.source_id for record in recs}
     # a dimensional PMI record's value/label ride onto its authored dimension verbatim
     assert {f.label for f in authored} >= {r.label for r in dims}
     for r in dims:
@@ -500,6 +520,53 @@ def test_build_pmi_features_mirrors_detection(ctc01_extraction_report):
             for f in authored
         )
     assert build_pmi_features(None, bbox) == []  # None/empty → no features
+
+
+def test_a_supported_dimension_routed_to_raw_ir_is_reported_by_source_identity(
+    ctc01_extraction_report, monkeypatch
+):
+    from dataclasses import replace
+
+    from build123d import import_step
+
+    import draftwright.model.detect as detect_module
+    from draftwright.annotations.from_model import _renderable_pmi_records
+    from draftwright.linting import lint_pmi_lowering
+    from draftwright.model import PmiFeature
+
+    target = next(record for record in ctc01_extraction_report.records if record.kind == "angular")
+    bbox = import_step(CTC01).bounding_box()
+    baseline = detect_module.build_pmi_features(ctc01_extraction_report.records, bbox)
+    compatibility_record = replace(target, source_id="")
+    compatibility_report = replace(ctc01_extraction_report, records=(compatibility_record,))
+    assert lint_pmi_lowering(compatibility_report, (), "annotate") == []
+    assert target.source_id not in {
+        issue.source_ids[0]
+        for issue in lint_pmi_lowering(ctc01_extraction_report, baseline, "annotate")
+    }
+    missing = [feature for feature in baseline if feature.source_id != target.source_id]
+    missing_issue = next(
+        issue
+        for issue in lint_pmi_lowering(ctc01_extraction_report, missing, "annotate")
+        if issue.source_ids == (target.source_id,)
+    )
+    assert "did not produce a typed IR feature" in missing_issue.message
+
+    monkeypatch.setattr(
+        detect_module,
+        "AUTHORED_DIMENSION_KINDS",
+        detect_module.AUTHORED_DIMENSION_KINDS - {"angular"},
+    )
+    mutated = detect_module.build_pmi_features(ctc01_extraction_report.records, bbox)
+    raw = next(feature for feature in mutated if feature.source_id == target.source_id)
+    issues = lint_pmi_lowering(ctc01_extraction_report, mutated, "annotate")
+    issue = next(issue for issue in issues if issue.source_ids == (target.source_id,))
+
+    assert isinstance(raw, PmiFeature)
+    assert raw not in _renderable_pmi_records(mutated)
+    assert issue.code == "pmi_not_lowered"
+    assert issue.severity == "error"
+    assert target.source_id in issue.message
 
 
 def test_render_pmi_drops_unrecognized_bore_axis_without_crashing():

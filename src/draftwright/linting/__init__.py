@@ -29,7 +29,7 @@ from draftwright.linting.coverage import (
 )
 from draftwright.linting.flat_coverage import lint_flat_coverage
 from draftwright.linting.issues import LintIssue
-from draftwright.linting.pmi_coverage import lint_pmi_extraction
+from draftwright.linting.pmi_coverage import lint_pmi_extraction, lint_pmi_lowering
 from draftwright.linting.profiled_bore_coverage import lint_profiled_bore_coverage
 from draftwright.linting.slot_coverage import lint_slot_coverage
 from draftwright.linting.structural import lint_drawing
@@ -49,6 +49,7 @@ __all__ = [
     "lint_slot_coverage",
     "lint_location_coverage",
     "lint_pmi_extraction",
+    "lint_pmi_lowering",
     "lint_principal_profile_coverage",
     "lint_profiled_bore_coverage",
     "lint_prismatic_coverage",

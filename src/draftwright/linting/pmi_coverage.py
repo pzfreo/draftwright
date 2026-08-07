@@ -42,3 +42,37 @@ def lint_pmi_extraction(report: PmiExtractionReport | None, mode: str) -> list[L
         if source.outcome in ("not_extracted", "partially_extracted")
     )
     return issues
+
+
+def lint_pmi_lowering(report: PmiExtractionReport | None, features, mode: str) -> list[LintIssue]:
+    """Report extracted AP242 requirements that did not reach concept-shaped IR."""
+    if report is None or mode == "off":
+        return []
+
+    severity: Literal["error", "info"] = "error" if mode == "annotate" else "info"
+    by_source: dict[str, list[object]] = {}
+    for feature in features:
+        if source_id := getattr(feature, "source_id", ""):
+            by_source.setdefault(source_id, []).append(feature)
+
+    issues = []
+    for record in report.records:
+        if not record.source_id:
+            continue
+        lowered = by_source.get(record.source_id, ())
+        if lowered and any(getattr(feature, "kind", None) != "pmi" for feature in lowered):
+            continue
+        reason = (
+            f"remains a raw {record.kind!r} PMI fallback in the typed IR"
+            if lowered
+            else "did not produce a typed IR feature"
+        )
+        issues.append(
+            LintIssue(
+                severity=severity,
+                code="pmi_not_lowered",
+                message=f"AP242 source {record.source_id} {reason}",
+                source_ids=(record.source_id,),
+            )
+        )
+    return issues

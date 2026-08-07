@@ -908,6 +908,7 @@ class Sheet:
         lower_tol: float | None = None,
         source: str = "sheet",
         source_kind: str | None = None,
+        source_id: str = "",
     ) -> _Params:
         """Declare a drafting dimension from explicit **measured** values.
 
@@ -921,6 +922,8 @@ class Sheet:
         may call the record PMI, but the editable script declares a dimension category, value,
         label, referenced model points, and optional structured tolerances. For ordinary
         geometry-backed edits prefer feature handles such as ``sheet.hole(...).tolerance(...)``.
+        ``source_id`` is the external record identity retained by generated imported-PMI scripts;
+        hand-authored dimensions normally leave it blank.
         Delegates to :func:`draftwright.model.declare.measured_dimension` (#704), so
         ``build_drawing(model=…)`` callers can author the same feature without the façade.
         """
@@ -938,6 +941,7 @@ class Sheet:
                 lower_tol=lower_tol,
                 source=source,
                 source_kind=source_kind,
+                source_id=source_id,
             )
         )
         # A handle like every other declaration verb (#922). A measured dimension carries its

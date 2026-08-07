@@ -1912,12 +1912,15 @@ def measured_dimension(
     lower_tol: float | None = None,
     source: str = "sheet",
     source_kind: str | None = None,
+    source_id: str = "",
 ) -> AuthoredDimension:
     """A pre-authored drafting dimension from explicit measured values — the IR constructor
     behind :meth:`Sheet.measured_dimension` (#704: extracted so ``build_drawing(model=…)``
     callers can author one without the façade). Validates the kind against
     :data:`~draftwright.model.ir.AUTHORED_DIMENSION_KINDS`, needs ≥2 ``ref_pts``, and derives
-    ``at`` (the ``ref_bbox`` centre, else the ``ref_pts`` centroid) when not given."""
+    ``at`` (the ``ref_bbox`` centre, else the ``ref_pts`` centroid) when not given.
+    ``source_id`` preserves an external record identity; ordinary Sheet declarations leave it
+    blank."""
     _require_positive(value=value)
     dim_kind = str(kind).lower()
     if dim_kind not in AUTHORED_DIMENSION_KINDS:
@@ -1954,4 +1957,5 @@ def measured_dimension(
         ref_pts=pts,
         source=source,
         source_kind=source_kind or dim_kind,
+        source_id=str(source_id),
     )

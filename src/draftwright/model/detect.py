@@ -245,6 +245,7 @@ def build_pmi_features(pmi, bbox) -> list[AuthoredDimension | PmiFeature]:
                     ref_bbox=r.ref_bbox,
                     ref_pts=tuple(r.ref_pts),
                     source_kind=r.kind,
+                    source_id=r.source_id,
                 )
             )
             continue
@@ -257,6 +258,7 @@ def build_pmi_features(pmi, bbox) -> list[AuthoredDimension | PmiFeature]:
                 dominant_axis=r.dominant_axis,
                 ref_bbox=r.ref_bbox,
                 ref_pts=tuple(r.ref_pts),
+                source_id=r.source_id,
             )
         )
     return out

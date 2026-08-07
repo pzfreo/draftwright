@@ -1816,8 +1816,9 @@ class TestAuthoredSetRoundTrips:
         # ...and the WHOLE feature, field by field. The four spot-checks above were what
         # `_FIDELITY_UNCOVERED` leaned on to exempt `authored_dimension` from the detected-route
         # oracle — and they missed `ref_pts`, `ref_bbox`, `frame`, `dimension_kind`,
-        # `dominant_axis`, `source` and `source_kind`, all of which the emitter writes. A review
-        # mutation moved every reference point by 1 mm and this test still passed (#967 r4).
+        # `dominant_axis`, `source`, `source_kind` and `source_id`, all of which the emitter
+        # writes. A review mutation moved every reference point by 1 mm and this test still
+        # passed (#967 r4).
         original = next(f for f in model.features if f.kind == "authored_dimension")
         assert _structurally_equal(original, feat), (
             f"the re-run declares a different measurement:\n  from {original}\n  to   {feat}"
@@ -2381,6 +2382,7 @@ def _declared_measurement_model():
         ref_pts=[(-20, 0, 0), (20, 0, 0)],
         upper_tol=0.1,
         lower_tol=0.0,
+        source_id="dimension:0:1:4:test",
     )
     return part, sheet.model()
 
@@ -3140,6 +3142,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
                 dominant_axis="X",
                 ref_bbox=(-30.0, -20.0, -10.0, 30.0, 20.0, 10.0),
                 ref_pts=((-30.0, 0.0, 0.0), (30.0, 0.0, 0.0)),
+                source_id="dimension:0:1:4:raw-test",
             )
             return part, dataclasses.replace(model, features=[*model.features, record])
 
