@@ -1,9 +1,10 @@
 """Evidence-backed recognition and coverage for the double-D wheel profile (#1058)."""
 
 from collections import Counter
+from dataclasses import dataclass, replace
 from hashlib import sha256
 from inspect import signature
-from math import asin, sqrt
+from math import asin, cos, hypot, pi, sin, sqrt
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -47,12 +48,15 @@ from draftwright.recognition.profiled_bores import (
     DoubleDProfile,
     double_d_bores_from_openings,
     double_d_profile,
+    principal_boundary_plane,
 )
 from draftwright.sheet_emit import _feature_line, _hole_line, emit_sheet_script
 
 _WHEEL = Path(__file__).parent / "fixtures" / "issue_1058_wheel_rh.step"
 _SHA256 = "4911c06426f0ceeedc198416e058aabc1c1a6a65e9e766eca7efed5484a27cda"
 _CENTER = (Align.CENTER, Align.CENTER, Align.CENTER)
+_RADIAL_REPEAT_COUNT = 13
+_CORRESPONDENCE_TOL = 1e-5
 
 
 def _double_d_bore():
@@ -170,6 +174,136 @@ def _profile_evidence(case="valid"):
     return _ProfileWire([*lines, *arcs], size=size)
 
 
+@dataclass(frozen=True)
+class _CurveEvidence:
+    """A traversal-neutral sample of one real outer-wire edge for #1062 discovery."""
+
+    kind: GeomType
+    length: float
+    points: tuple[tuple[float, float], ...]
+
+
+def _sample_outer_wire(face, *, samples=9) -> tuple[_CurveEvidence, ...]:
+    evidence = []
+    for edge in face.outer_wire().edges():
+        points = []
+        for index in range(samples):
+            point = edge.position_at(index / (samples - 1))
+            points.append((float(point.X), float(point.Y)))
+        evidence.append(
+            _CurveEvidence(
+                kind=edge.geom_type,
+                length=float(edge.length),
+                points=tuple(points),
+            )
+        )
+    return tuple(evidence)
+
+
+def _distance(a, b) -> float:
+    return hypot(a[0] - b[0], a[1] - b[1])
+
+
+def _one_closed_cycle(edges: tuple[_CurveEvidence, ...], tol: float) -> bool:
+    """Every endpoint has degree two and every edge belongs to one connected component."""
+    if not edges:
+        return False
+    nodes: list[tuple[float, float]] = []
+    incident: list[list[int]] = []
+    edge_nodes = []
+    for edge_index, edge in enumerate(edges):
+        endpoints = []
+        for point in (edge.points[0], edge.points[-1]):
+            matches = [index for index, node in enumerate(nodes) if _distance(point, node) <= tol]
+            if len(matches) > 1:
+                return False
+            if matches:
+                node_index = matches[0]
+            else:
+                node_index = len(nodes)
+                nodes.append(point)
+                incident.append([])
+            incident[node_index].append(edge_index)
+            endpoints.append(node_index)
+        if endpoints[0] == endpoints[1]:
+            return False
+        edge_nodes.append(tuple(endpoints))
+    if any(len(edge_ids) != 2 for edge_ids in incident):
+        return False
+
+    reached_edges = set()
+    frontier = [0]
+    while frontier:
+        edge_index = frontier.pop()
+        if edge_index in reached_edges:
+            continue
+        reached_edges.add(edge_index)
+        frontier.extend(
+            neighbour
+            for node_index in edge_nodes[edge_index]
+            for neighbour in incident[node_index]
+            if neighbour not in reached_edges
+        )
+    return len(reached_edges) == len(edges)
+
+
+def _rotate(point, angle, centre):
+    x, y = point[0] - centre[0], point[1] - centre[1]
+    return (
+        centre[0] + x * cos(angle) - y * sin(angle),
+        centre[1] + x * sin(angle) + y * cos(angle),
+    )
+
+
+def _curves_match(source, target, *, angle, centre, tol) -> bool:
+    if source.kind != target.kind or abs(source.length - target.length) > tol:
+        return False
+    rotated = tuple(_rotate(point, angle, centre) for point in source.points)
+    return any(
+        max(_distance(a, b) for a, b in zip(rotated, candidate, strict=True)) <= tol
+        for candidate in (target.points, tuple(reversed(target.points)))
+    )
+
+
+def _cyclic_edge_orbits(edges, *, centre, repeat_count, tol):
+    """Prove the complete closed wire maps bijectively under one repeat rotation."""
+    edges = tuple(edges)
+    if (
+        len(edges) <= repeat_count
+        or len(edges) % repeat_count
+        or not _one_closed_cycle(edges, tol)
+    ):
+        return None
+    angle = 2 * pi / repeat_count
+    mapping = []
+    for edge in edges:
+        matches = [
+            index
+            for index, candidate in enumerate(edges)
+            if _curves_match(edge, candidate, angle=angle, centre=centre, tol=tol)
+        ]
+        if len(matches) != 1:
+            return None
+        mapping.append(matches[0])
+    if len(set(mapping)) != len(edges):
+        return None
+
+    unseen = set(range(len(edges)))
+    orbits = []
+    while unseen:
+        start = min(unseen)
+        orbit = []
+        current = start
+        while current not in orbit:
+            orbit.append(current)
+            current = mapping[current]
+        if current != start or len(orbit) != repeat_count:
+            return None
+        unseen -= set(orbit)
+        orbits.append(tuple(orbit))
+    return tuple(orbits)
+
+
 @pytest.fixture(scope="module")
 def wheel_part():
     return import_step(str(_WHEEL))
@@ -178,6 +312,11 @@ def wheel_part():
 @pytest.fixture(scope="module")
 def wheel_drawing():
     return build_drawing(_WHEEL)
+
+
+def _wheel_end_faces(part):
+    bbox = part.bounding_box()
+    return [face for face in part.faces() if principal_boundary_plane(face, bbox)]
 
 
 def test_real_wheel_fixture_proves_the_double_d_profile(wheel_part):
@@ -207,6 +346,147 @@ def test_real_wheel_fixture_proves_the_double_d_profile(wheel_part):
         assert 1.75 != pytest.approx(min(bb.size.X, bb.size.Y) / 2), (
             "a true obround cap radius is half its short extent; this is a double-D"
         )
+
+
+def test_real_wheel_proves_complete_thirteen_sector_correspondence(wheel_part):
+    end_faces = _wheel_end_faces(wheel_part)
+    assert len(end_faces) == 2
+    boundaries = [principal_boundary_plane(face, wheel_part.bounding_box()) for face in end_faces]
+    assert [boundary[0] for boundary in boundaries if boundary] == ["z", "z"]
+    assert sorted(boundary[2] for boundary in boundaries if boundary) == pytest.approx(
+        [-3.8500001, 3.8500001]
+    )
+    for face in end_faces:
+        edges = list(face.outer_wire().edges())
+        assert Counter(edge.geom_type for edge in edges) == Counter(
+            {GeomType.BSPLINE: 39, GeomType.CIRCLE: 13}
+        )
+        circles = [edge for edge in edges if edge.geom_type == GeomType.CIRCLE]
+        assert [edge.radius for edge in circles] == pytest.approx([3.8] * 13)
+        assert [(edge.arc_center.X, edge.arc_center.Y) for edge in circles] == pytest.approx(
+            [(0.0, 0.0)] * 13,
+            abs=1e-6,
+        )
+
+        evidence = _sample_outer_wire(face)
+        orbits = _cyclic_edge_orbits(
+            evidence,
+            centre=(0.0, 0.0),
+            repeat_count=_RADIAL_REPEAT_COUNT,
+            tol=_CORRESPONDENCE_TOL,
+        )
+        assert orbits is not None
+        assert [len(orbit) for orbit in orbits] == [13, 13, 13, 13]
+        assert Counter(evidence[orbit[0]].kind for orbit in orbits) == Counter(
+            {GeomType.BSPLINE: 3, GeomType.CIRCLE: 1}
+        )
+
+
+def test_full_profile_correspondence_ignores_start_and_traversal(wheel_part):
+    evidence = _sample_outer_wire(_wheel_end_faces(wheel_part)[0])
+    shifted = evidence[7:] + evidence[:7]
+    reversed_traversal = tuple(
+        replace(edge, points=tuple(reversed(edge.points))) for edge in reversed(evidence)
+    )
+
+    for candidate in (shifted, reversed_traversal):
+        assert (
+            _cyclic_edge_orbits(
+                candidate,
+                centre=(0.0, 0.0),
+                repeat_count=_RADIAL_REPEAT_COUNT,
+                tol=_CORRESPONDENCE_TOL,
+            )
+            is not None
+        )
+
+
+def test_common_circle_arcs_alone_do_not_prove_full_sector_correspondence(wheel_part):
+    evidence = _sample_outer_wire(_wheel_end_faces(wheel_part)[0])
+    arcs = tuple(edge for edge in evidence if edge.kind == GeomType.CIRCLE)
+    assert len(arcs) == 13
+    assert (
+        _cyclic_edge_orbits(
+            arcs,
+            centre=(0.0, 0.0),
+            repeat_count=_RADIAL_REPEAT_COUNT,
+            tol=_CORRESPONDENCE_TOL,
+        )
+        is None
+    )
+
+
+def test_one_changed_intervening_curve_breaks_full_sector_correspondence(wheel_part):
+    evidence = list(_sample_outer_wire(_wheel_end_faces(wheel_part)[0]))
+    changed_index = next(
+        index for index, edge in enumerate(evidence) if edge.kind == GeomType.BSPLINE
+    )
+    changed = evidence[changed_index]
+    points = list(changed.points)
+    x, y = points[len(points) // 2]
+    points[len(points) // 2] = (x + 0.01, y)
+    evidence[changed_index] = replace(changed, points=tuple(points))
+
+    assert len([edge for edge in evidence if edge.kind == GeomType.CIRCLE]) == 13
+    assert (
+        _cyclic_edge_orbits(
+            evidence,
+            centre=(0.0, 0.0),
+            repeat_count=_RADIAL_REPEAT_COUNT,
+            tol=_CORRESPONDENCE_TOL,
+        )
+        is None
+    )
+
+
+def test_an_open_outer_cycle_cannot_prove_sector_correspondence(wheel_part):
+    evidence = list(_sample_outer_wire(_wheel_end_faces(wheel_part)[0]))
+    changed = evidence[0]
+    points = list(changed.points)
+    x, y = points[0]
+    points[0] = (x + 0.01, y)
+    evidence[0] = replace(changed, points=tuple(points))
+
+    assert not _one_closed_cycle(tuple(evidence), tol=_CORRESPONDENCE_TOL)
+    assert (
+        _cyclic_edge_orbits(
+            evidence,
+            centre=(0.0, 0.0),
+            repeat_count=_RADIAL_REPEAT_COUNT,
+            tol=_CORRESPONDENCE_TOL,
+        )
+        is None
+    )
+
+
+def test_one_unequal_sector_pitch_breaks_correspondence_even_when_closed(wheel_part):
+    evidence = list(_sample_outer_wire(_wheel_end_faces(wheel_part)[0]))
+    endpoint = evidence[0].points[0]
+    partners = [
+        (edge_index, point_index)
+        for edge_index, edge in enumerate(evidence[1:], start=1)
+        for point_index in (0, -1)
+        if _distance(endpoint, edge.points[point_index]) <= 1e-8
+    ]
+    assert len(partners) == 1
+
+    moved = _rotate(endpoint, 0.01, centre=(0.0, 0.0))
+    for edge_index, point_index in ((0, 0), partners[0]):
+        edge = evidence[edge_index]
+        points = list(edge.points)
+        points[point_index] = moved
+        evidence[edge_index] = replace(edge, points=tuple(points))
+
+    assert _one_closed_cycle(tuple(evidence), tol=_CORRESPONDENCE_TOL)
+    assert (
+        _cyclic_edge_orbits(
+            evidence,
+            centre=(0.0, 0.0),
+            repeat_count=_RADIAL_REPEAT_COUNT,
+            tol=_CORRESPONDENCE_TOL,
+        )
+        is None
+    )
 
 
 def test_real_wheel_no_longer_gets_a_confident_envelope_only_result(wheel_drawing):
