@@ -23,6 +23,7 @@ from draftwright.sheet_emit import (
     _member_hole_str,
     emit_sheet_script,
     generate_sheet_script,
+    mirror_model,
     resolve_object_spec,
     unmirrored_dimensions,
 )
@@ -3269,10 +3270,15 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
         exec(compile(src[: src.index("drawing = sheet.build()")], "<emit>", "exec"), ns)  # noqa: S102
         declared = ns["sheet"].model()
 
-        by_kind_detected = [f for f in detected.features if f.kind != "authored_dimension"]
+        mirrored, synthesised = mirror_model(detected)
+        extra = [f.kind for f in mirrored.features][len(detected.features) :]
+        assert extra == (["envelope"] if synthesised is not None else []), (
+            f"{name}: the mirror introduced an unexpected feature set {extra}"
+        )
+        by_kind_detected = [f for f in mirrored.features if f.kind != "authored_dimension"]
         by_kind_declared = [f for f in declared.features if f.kind != "authored_dimension"]
         assert [f.kind for f in by_kind_declared] == [f.kind for f in by_kind_detected], (
-            f"{name}: the script declares a different set of feature kinds"
+            f"{name}: the script declares a different set of feature kinds from its mirror"
         )
 
         for original, rebuilt in zip(by_kind_detected, by_kind_declared):

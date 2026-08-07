@@ -28,6 +28,24 @@
     },
     {
       "geom_bbox": [
+        54.0,
+        55.0,
+        62.0,
+        115.1
+      ],
+      "label": "60",
+      "label_bbox": [
+        58.9,
+        83.4,
+        61.1,
+        86.6
+      ],
+      "name": "dim_height",
+      "type": "Dimension",
+      "view": "front"
+    },
+    {
+      "geom_bbox": [
         30.0,
         119.0,
         50.1,
@@ -119,7 +137,7 @@
       "step-length chain dropped: turned shoulders too closely spaced to dimension at this scale (use a detail view)"
     ]
   ],
-  "item_count": 7,
+  "item_count": 8,
   "views": {
     "front": [
       30.0,
