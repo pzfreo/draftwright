@@ -906,6 +906,8 @@ class Sheet:
         axis: str | None = None,
         upper_tol: float | None = None,
         lower_tol: float | None = None,
+        lower_bound: float | None = None,
+        upper_bound: float | None = None,
         source: str = "sheet",
         source_kind: str | None = None,
         source_id: str = "",
@@ -922,8 +924,10 @@ class Sheet:
         may call the record PMI, but the editable script declares a dimension category, value,
         label, referenced model points, and optional structured tolerances. For ordinary
         geometry-backed edits prefer feature handles such as ``sheet.hole(...).tolerance(...)``.
-        ``source_id`` is the external record identity retained by generated imported-PMI scripts;
-        hand-authored dimensions normally leave it blank.
+        ``lower_bound`` and ``upper_bound`` are the mutually exclusive alternative to
+        ``upper_tol``/``lower_tol`` for a limit range. ``source_id`` is the external record
+        identity retained by generated imported-PMI scripts; hand-authored dimensions normally
+        leave it blank.
         Delegates to :func:`draftwright.model.declare.measured_dimension` (#704), so
         ``build_drawing(model=…)`` callers can author the same feature without the façade.
         """
@@ -939,6 +943,8 @@ class Sheet:
                 axis=axis,
                 upper_tol=upper_tol,
                 lower_tol=lower_tol,
+                lower_bound=lower_bound,
+                upper_bound=upper_bound,
                 source=source,
                 source_kind=source_kind,
                 source_id=source_id,

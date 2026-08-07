@@ -126,6 +126,8 @@ class PmiRecord:
         value:          Nominal value in mm (or degrees for angular).
         upper_tol:      Upper tolerance in mm, or ``None``.
         lower_tol:      Lower tolerance in mm, or ``None``.
+        lower_bound:    Lower limit of a range dimension, in the same units as ``value``.
+        upper_bound:    Upper limit of a range dimension, in the same units as ``value``.
         ref_pts:        Bounding-box centroids of referenced geometry in global
                         STEP space (same coordinate frame as the imported solid).
         ref_bbox:       Combined axis-aligned bbox of ALL referenced shapes:
@@ -151,6 +153,9 @@ class PmiRecord:
     # Stable within the source XCAF document: category + TDF label entry. Blank only for
     # hand-constructed compatibility records; extraction always fills it (#623).
     source_id: str = ""
+    # Appended to preserve the positional compatibility of the original record fields.
+    lower_bound: float | None = None
+    upper_bound: float | None = None
 
 
 PmiSourceCategory = Literal["dimension", "geometric_tolerance", "datum"]
@@ -214,12 +219,22 @@ def _dominant_from_bbox(bbox: tuple[float, float, float, float, float, float]) -
     return dom[0] if dom[1] > 1e-6 else "?"
 
 
-def _make_label(kind: str, value: float, upper_tol: float | None, lower_tol: float | None) -> str:
-    """Format the annotation label with optional tolerance suffix."""
+def _make_label(
+    kind: str,
+    value: float,
+    upper_tol: float | None,
+    lower_tol: float | None,
+    *,
+    lower_bound: float | None = None,
+    upper_bound: float | None = None,
+) -> str:
+    """Format the annotation label with optional deviation or limit tolerance."""
     from draftwright._core import _fmt
 
     prefix = _DIM_PREFIX.get(kind, "")
     base = f"{prefix}{_fmt(value)}"
+    if lower_bound is not None and upper_bound is not None:
+        return f"{prefix}{_fmt(lower_bound)} - {prefix}{_fmt(upper_bound)}"
     # OCCT returns tolerances as positive magnitudes regardless of sign
     # convention.  upper_tol is always the + deviation; lower_tol is always
     # the - deviation stored as a positive magnitude.  We add explicit signs
@@ -299,12 +314,25 @@ def _dimension_record(
             upper_tol = candidate
     except Exception:
         pass
+
     try:
         candidate = float(obj.GetLowerTolValue())
         if abs(candidate) > 1e-9:
             lower_tol = candidate
     except Exception:
         pass
+
+    lower_bound: float | None = None
+    upper_bound: float | None = None
+    if obj.IsDimWithRange():
+        try:
+            lower_bound = float(obj.GetLowerBound())
+        except Exception as exc:
+            partial_reasons.append(f"lower range bound is unavailable ({_failure_reason(exc)})")
+        try:
+            upper_bound = float(obj.GetUpperBound())
+        except Exception as exc:
+            partial_reasons.append(f"upper range bound is unavailable ({_failure_reason(exc)})")
 
     first_refs = TDF_LabelSequence()
     second_refs = TDF_LabelSequence()
@@ -341,10 +369,19 @@ def _dimension_record(
             value=value,
             upper_tol=upper_tol,
             lower_tol=lower_tol,
+            lower_bound=lower_bound,
+            upper_bound=upper_bound,
             ref_pts=tuple(points),
             ref_bbox=ref_bbox,
             dominant_axis=dominant_axis,
-            label=_make_label(kind, value, upper_tol, lower_tol),
+            label=_make_label(
+                kind,
+                value,
+                upper_tol,
+                lower_tol,
+                lower_bound=lower_bound,
+                upper_bound=upper_bound,
+            ),
             source_id=source_id,
         ),
         tuple(dict.fromkeys(partial_reasons)),

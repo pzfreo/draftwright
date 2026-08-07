@@ -74,6 +74,28 @@ class TestExtractPmi:
         for d in diameters:
             assert d.label.startswith("ø"), f"diameter label missing ø: {d.label!r}"
 
+    def test_nist_range_diameters_keep_both_limits(self, ctc01_extraction_report):
+        """The two range-encoded CTC-01 requirements are distinct source dimensions.
+
+        Their XCAF objects carry a nominal value of 35 as well as explicit 34.8/35.2
+        bounds. Reading only ``GetValue()`` produces a plausible but wrong bare ``ø35``.
+        Pin the semantic fields and source identities from the NIST oracle so deleting the
+        range branch cannot leave a green extraction test (#675).
+        """
+        source_ids = {"dimension:0:1:4:25", "dimension:0:1:4:26"}
+        records = {
+            record.source_id: record
+            for record in ctc01_extraction_report.records
+            if record.source_id in source_ids
+        }
+
+        assert set(records) == source_ids
+        for record in records.values():
+            assert record.value == 35.0
+            assert (record.lower_bound, record.upper_bound) == (34.8, 35.2)
+            assert record.label == "ø34.8 - ø35.2"
+            assert record.upper_tol is None and record.lower_tol is None
+
     def test_ref_pts_are_3d_tuples(self, ctc01_extraction_report):
         recs = ctc01_extraction_report.records
         for r in recs:
@@ -153,8 +175,9 @@ class TestExtractPmi:
                 return 12.0
 
         class FakeObject:
-            def __init__(self, values):
+            def __init__(self, values, *, is_range=False):
                 self.values = values
+                self.is_range = is_range
 
             def GetValue(self):
                 raise RuntimeError("scalar unavailable")
@@ -169,6 +192,15 @@ class TestExtractPmi:
 
             def GetLowerTolValue(self):
                 raise RuntimeError("no lower tolerance")
+
+            def IsDimWithRange(self):
+                return self.is_range
+
+            def GetLowerBound(self):
+                raise RuntimeError("lower bound unavailable")
+
+            def GetUpperBound(self):
+                raise RuntimeError("upper bound unavailable")
 
         refs = []
 
@@ -214,6 +246,17 @@ class TestExtractPmi:
         )
         assert "nominal value is unavailable (RuntimeError: array unavailable)" in reasons
         assert "one referenced shape could not be measured (RuntimeError: bbox failed)" in reasons
+
+        refs.clear()
+        _record, reasons = pmi_module._dimension_record(
+            object(), FakeObject(FakeArray(), is_range=True), 15, shape_tool, "dimension:d"
+        )
+        assert (
+            "lower range bound is unavailable (RuntimeError: lower bound unavailable)" in reasons
+        )
+        assert (
+            "upper range bound is unavailable (RuntimeError: upper bound unavailable)" in reasons
+        )
 
     def test_report_returns_structured_reader_failures(self, monkeypatch):
         import draftwright.pmi as pmi_module
@@ -472,6 +515,24 @@ class TestBuildDrawingPmi:
         pmi_names = [n for n in ctc01_annotated.annotations() if n.startswith("pmi_")]
         assert len(pmi_names) >= 1, f"expected ≥1 pmi_ annotation, got {pmi_names}"
 
+    def test_pmi_annotate_renders_each_nist_range_requirement_with_both_limits(
+        self, ctc01_annotated
+    ):
+        from draftwright.model import AuthoredDimension
+
+        source_ids = {"dimension:0:1:4:25", "dimension:0:1:4:26"}
+        features = {
+            feature.source_id: feature
+            for feature in ctc01_annotated.model().features
+            if isinstance(feature, AuthoredDimension) and feature.source_id in source_ids
+        }
+        annotations = dict(ctc01_annotated.iter_annotations())
+
+        assert set(features) == source_ids
+        for feature in features.values():
+            (name,) = ctc01_annotated.registry.names_for_feature(feature)
+            assert annotations[name].label == "ø34.8 - ø35.2"
+
     def test_pmi_annotate_reports_each_incomplete_source_record(self, ctc01_annotated):
         issues = [issue for issue in ctc01_annotated.lint() if issue.code == "pmi_not_extracted"]
         assert len(issues) == 17
@@ -717,11 +778,16 @@ def test_build_pmi_features_mirrors_detection(ctc01_extraction_report):
     assert all(f.kind == "authored_dimension" for f in authored)
     assert all(f.kind == "pmi" for f in raw)
     assert {feature.source_id for feature in feats} == {record.source_id for record in recs}
-    # a dimensional PMI record's value/label ride onto its authored dimension verbatim
+    # A dimensional PMI record's measured semantics ride onto its authored dimension verbatim.
     assert {f.label for f in authored} >= {r.label for r in dims}
     for r in dims:
         assert any(
-            f.label == r.label and f.upper_tol == r.upper_tol and f.lower_tol == r.lower_tol
+            f.source_id == r.source_id
+            and f.label == r.label
+            and f.upper_tol == r.upper_tol
+            and f.lower_tol == r.lower_tol
+            and f.lower_bound == r.lower_bound
+            and f.upper_bound == r.upper_bound
             for f in authored
         )
     assert build_pmi_features(None, bbox) == []  # None/empty → no features

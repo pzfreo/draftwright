@@ -1118,9 +1118,11 @@ class AuthoredDimension:
 
     This is the concept-shaped IR for AP242 dimensional PMI: the source file may call it
     PMI, but the drawing model sees an authored linear/diameter/radius/etc. dimension with
-    baked label and referenced geometry. The normal dimension planner does not derive or
-    duplicate it, so ``parameters()`` is empty; renderers consume it directly while keeping
-    the source/provenance fields, including ``source_id``, for round-trip and diagnostics."""
+    baked label and referenced geometry. Deviation tolerances use ``upper_tol``/``lower_tol``;
+    limit dimensions use the mutually exclusive ``lower_bound``/``upper_bound`` pair. The
+    normal dimension planner does not derive or duplicate it, so ``parameters()`` is empty;
+    renderers consume it directly while keeping the source/provenance fields, including
+    ``source_id``, for round-trip and diagnostics."""
 
     frame: Frame
     dimension_kind: str  # "linear" | "diameter" | "radius" | "angular" | ...
@@ -1134,6 +1136,9 @@ class AuthoredDimension:
     source: str = "ap242_pmi"
     source_kind: str | None = None
     source_id: str = ""
+    # Appended to preserve positional construction of the original IR record.
+    lower_bound: float | None = None
+    upper_bound: float | None = None
     kind: ClassVar[str] = "authored_dimension"
 
     @property

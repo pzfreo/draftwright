@@ -319,6 +319,40 @@ class TestEmit:
         assert feat.source == "sheet"
         assert any(n.startswith("pmi_") for n in sheet.build().annotations())
 
+    def test_limit_dimension_round_trips_both_bounds(self):
+        """A generated AP242 script must not reduce a limit dimension to its nominal label."""
+        from draftwright import Sheet
+        from draftwright.sheet_emit import emit_sheet_script
+
+        part = Box(40, 20, 10)
+        sheet = Sheet(part, title="P").authored_dimensions()
+        sheet.measured_dimension(
+            kind="diameter",
+            value=35,
+            label="ø34.8 - ø35.2",
+            dominant_axis="Z",
+            ref_bbox=(-17.6, -17.6, -5, 17.6, 17.6, 5),
+            ref_pts=[(-17.6, 0, 0), (17.6, 0, 0)],
+            lower_bound=34.8,
+            upper_bound=35.2,
+            source="ap242_pmi",
+            source_id="dimension:range",
+        )
+
+        src = emit_sheet_script(sheet.model(), "part", "range", title="P", number="N")
+        assert "lower_bound=34.8" in src and "upper_bound=35.2" in src
+        namespace = {"part": part}
+        body = src[: src.index("drawing = sheet.build()")]
+        exec(compile(body, "<range-emit>", "exec"), namespace)  # noqa: S102
+        feature = next(
+            feature
+            for feature in namespace["sheet"].model().features
+            if feature.source_id == "dimension:range"
+        )
+
+        assert (feature.lower_bound, feature.upper_bound) == (34.8, 35.2)
+        assert feature.label == "ø34.8 - ø35.2"
+
     def test_measured_dimension_rejects_unrenderable_kind(self):
         from draftwright import Sheet
 

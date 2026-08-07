@@ -212,6 +212,10 @@ def _measured_dimension_line(f) -> str:
         kw.append(f"upper_tol={_n(f.upper_tol)}")
     if f.lower_tol is not None:
         kw.append(f"lower_tol={_n(f.lower_tol)}")
+    if f.lower_bound is not None:
+        kw.append(f"lower_bound={_n(f.lower_bound)}")
+    if f.upper_bound is not None:
+        kw.append(f"upper_bound={_n(f.upper_bound)}")
     if f.source != "sheet":
         kw.append(f"source={f.source!r}")
     if f.source_kind is not None and f.source_kind != f.dimension_kind:

@@ -1910,6 +1910,8 @@ def measured_dimension(
     axis: str | None = None,
     upper_tol: float | None = None,
     lower_tol: float | None = None,
+    lower_bound: float | None = None,
+    upper_bound: float | None = None,
     source: str = "sheet",
     source_kind: str | None = None,
     source_id: str = "",
@@ -1919,8 +1921,9 @@ def measured_dimension(
     callers can author one without the façade). Validates the kind against
     :data:`~draftwright.model.ir.AUTHORED_DIMENSION_KINDS`, needs ≥2 ``ref_pts``, and derives
     ``at`` (the ``ref_bbox`` centre, else the ``ref_pts`` centroid) when not given.
-    ``source_id`` preserves an external record identity; ordinary Sheet declarations leave it
-    blank."""
+    ``lower_bound`` and ``upper_bound`` carry a limit range and must be supplied together; they
+    are mutually exclusive with deviation tolerances. ``source_id`` preserves an external
+    record identity; ordinary Sheet declarations leave it blank."""
     _require_positive(value=value)
     dim_kind = str(kind).lower()
     if dim_kind not in AUTHORED_DIMENSION_KINDS:
@@ -1936,6 +1939,19 @@ def measured_dimension(
     if dom not in ("X", "Y", "Z"):
         if not (dom == "?" and dim_kind in ("diameter", "radius") and bbox is not None):
             raise ValueError("measured_dimension() dominant_axis must be X, Y, or Z")
+    if (lower_bound is None) != (upper_bound is None):
+        raise ValueError("measured_dimension() needs both lower_bound and upper_bound")
+    lower = None if lower_bound is None else float(lower_bound)
+    upper = None if upper_bound is None else float(upper_bound)
+    if lower is not None and upper is not None:
+        if lower > upper:
+            raise ValueError("measured_dimension() lower_bound must not exceed upper_bound")
+        if not lower <= float(value) <= upper:
+            raise ValueError("measured_dimension() value must lie within its range bounds")
+        if upper_tol is not None or lower_tol is not None:
+            raise ValueError(
+                "measured_dimension() cannot combine range bounds with deviation tolerances"
+            )
     if at is None:
         if bbox is not None:
             x0, y0, z0, x1, y1, z1 = bbox
@@ -1953,6 +1969,8 @@ def measured_dimension(
         dominant_axis=dom,
         upper_tol=upper_tol,
         lower_tol=lower_tol,
+        lower_bound=lower,
+        upper_bound=upper,
         ref_bbox=bbox,
         ref_pts=pts,
         source=source,

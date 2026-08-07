@@ -1773,6 +1773,19 @@ class TestAuthoredDimension:
             ({"dominant_axis": "W"}, "dominant_axis must be X, Y, or Z"),
             ({"kind": "liner"}, "kind must be one of"),
             ({"ref_pts": [(0, 0, 0)]}, "needs at least two ref_pts"),
+            ({"lower_bound": 39}, "needs both lower_bound and upper_bound"),
+            (
+                {"lower_bound": 41, "upper_bound": 39},
+                "lower_bound must not exceed upper_bound",
+            ),
+            (
+                {"lower_bound": 41, "upper_bound": 42},
+                "value must lie within its range bounds",
+            ),
+            (
+                {"lower_bound": 39, "upper_bound": 41},
+                "cannot combine range bounds with deviation tolerances",
+            ),
         ]
         for override, message in cases:
             with pytest.raises(ValueError, match=f"measured_dimension\\(\\) {message}"):

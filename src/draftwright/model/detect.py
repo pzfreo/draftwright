@@ -242,6 +242,8 @@ def build_pmi_features(pmi, bbox) -> list[AuthoredDimension | PmiFeature]:
                     dominant_axis=r.dominant_axis,
                     upper_tol=r.upper_tol,
                     lower_tol=r.lower_tol,
+                    lower_bound=r.lower_bound,
+                    upper_bound=r.upper_bound,
                     ref_bbox=r.ref_bbox,
                     ref_pts=tuple(r.ref_pts),
                     source_kind=r.kind,
