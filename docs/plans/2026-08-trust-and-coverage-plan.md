@@ -115,6 +115,11 @@ changes only when outcomes, sequence, gates, or operating rules change.
 - **At milestone close:** compare the product outcome with evidence, not issue
   count, and record any scope change here.
 
+`scripts/project-audit` requires `gh` authenticated with a classic token carrying
+Project read access. GitHub's user-owned Project item endpoint does not accept the
+repository `GITHUB_TOKEN`, so the audit is a named weekly maintainer control rather
+than a scheduled Action that would silently skip or require a broad stored token.
+
 GitHub's native Project workflows set newly added items to Backlog, move closed
 items to Done, add linked issues, and complete merged PRs. Initial backlog import
 is complete. New top-level issues still require triage into the Project; the Triage
