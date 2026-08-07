@@ -688,6 +688,7 @@ def test_render_pmi_reports_unrecognized_bore_axis_as_not_rendered_without_crash
     from draftwright.linting import lint_pmi_rendering
     from draftwright.model import AuthoredDimension
     from draftwright.model.ir import Frame
+    from draftwright.registry import AnnotationRegistry
 
     dwg = build_drawing(Box(40, 30, 20), number="X")
     bogus = AuthoredDimension(
@@ -704,7 +705,8 @@ def test_render_pmi_reports_unrecognized_bore_axis_as_not_rendered_without_crash
     # The pmi_dropped lint now routes through the ctx's registry/coverage (#639); wire them to
     # the drawing's so the drop lands on dwg's build issues.
     ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage)
-    n = render_pmi(dwg, model, dwg._analysis, ctx=ctx)  # must not raise
+    analysis = dwg._analysis
+    n = render_pmi(dwg, model, analysis, ctx=ctx)  # must not raise
     assert n == 0
     assert not any(i.code == "pmi_dropped" for i in dwg.registry.issues)
     recorded = [issue for issue in dwg.registry.issues if issue.code == "pmi_not_rendered"]
@@ -714,19 +716,8 @@ def test_render_pmi_reports_unrecognized_bore_axis_as_not_rendered_without_crash
     issues = lint_pmi_rendering(model.features, dwg.registry, "annotate")
     assert issues == []
 
-
-def test_render_pmi_keeps_a_source_less_missing_bore_bbox_visible():
-    from build123d import Box
-
-    from draftwright import build_drawing
-    from draftwright.annotations._common import PlacementContext
-    from draftwright.annotations.from_model import render_pmi
-    from draftwright.linting import CoverageState
-    from draftwright.model import AuthoredDimension
-    from draftwright.model.ir import Frame
-    from draftwright.registry import AnnotationRegistry
-
-    dwg = build_drawing(Box(40, 30, 20), number="X")
+    # Removing the false capacity label must not make a source-less malformed declaration
+    # disappear either. Reuse the same analysis so this test does not widen private test reads.
     record = AuthoredDimension(
         frame=Frame((0.0, 0.0, 0.0), "z"),
         dimension_kind="diameter",
@@ -736,9 +727,9 @@ def test_render_pmi_keeps_a_source_less_missing_bore_bbox_visible():
         ref_pts=((0.0, 0.0, 0.0), (5.0, 0.0, 0.0)),
     )
     registry = AnnotationRegistry()
-    ctx = PlacementContext(registry=registry, coverage=CoverageState())
+    source_less_ctx = PlacementContext(registry=registry, coverage=dwg.coverage)
 
-    assert render_pmi(dwg, SimpleNamespace(features=[record]), dwg._analysis, ctx=ctx) == 0
+    assert render_pmi(dwg, SimpleNamespace(features=[record]), analysis, ctx=source_less_ctx) == 0
     assert [(issue.severity, issue.code, issue.source_ids) for issue in registry.issues] == [
         ("warning", "pmi_not_rendered", ()),
     ]
