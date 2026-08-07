@@ -2012,6 +2012,9 @@ def test_the_declared_envelope_equals_the_detected_one():
             f for f in build_part_model(_solids_body(obj)).features if f.kind == "envelope"
         )
         declared = declare_envelope(obj)
+        assert detected == declared, (
+            f"{name}: exact equality is required for Sheet.envelope() to reuse detection"
+        )
         # EVERY field, not just the two that were wrong. The name says equal, so it compares
         # equal — `frame.axis`, `bbox_min` and `bbox_max` went unchecked in the first cut, and a
         # property test that inspects a subset is the shape both earlier bugs hid in.
