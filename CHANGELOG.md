@@ -2,7 +2,67 @@
 
 ## Unreleased
 
+## v0.4.1 — 2026-08-07
+
+**The recognition trust release.** Automatic drawings now fail closed on unsupported inner
+profiles, prove semantic coverage for flats, slots and patterns, and retain the measurement
+identity needed to explain placed, suppressed, dropped and missing definitions. Several real
+STEP case studies also move from clean-looking but incomplete output to complete drawings or
+actionable lint.
+
+### Discouraged (supported)
+
+- **`Sheet.auto_dimensions()` and `Sheet.add_dimension()` now emit
+  `SoftDeprecationWarning`** (#1043). They remain supported with no removal planned; the
+  warning steers declared scripts toward `authored_dimensions()` plus explicit
+  `dimension(feature, parameter_id)` lines, where omission can mean suppression. Automatic
+  `build_drawing(part)` and the `Sheet.from_part(part)` on-ramp remain silent. See
+  `docs/deprecations.md` for filtering and migration guidance.
+
+### Added
+
+- **Finished drawings expose why measurements were omitted and, on covered placement paths,
+  what an annotation measures** (#996/#1002). `Drawing.suppressions()` returns the compiler's
+  omission ledger, `Drawing.measurement_keys(name)` exposes recorded measurement provenance, and
+  `draftwright.audit.diff_builds(before, after)` reports losses, substitutions and candidate
+  suppression explanations. The differential is deliberately a triage aid, not a proof where
+  renderer identity remains incomplete.
+
+- **Physical-completeness lint now follows semantic correspondence for flats, lone slots and
+  slot patterns** (#1018). Coverage is joined through recognition, IR and compiler identities
+  rather than inferred from label text or page geometry, and distinguishes authored
+  suppression, placement drops, missing definitions and unverifiable provenance.
+
+- **Full-span floored open channels are recognised and dimensioned as first-class features**
+  (#917). Automatic and declared drawings state the independent overall extent, one wall and
+  channel width, suppress the derived opposite wall, and report any missing member of that
+  defining chain.
+
 ### Fixed
+
+- **Square and near-square parts retain both independent planar extents** (#997). A plain
+  square plate could previously lose both plan dimensions, while parts up to five percent off
+  square could lose one and be silently represented as square. The unsafe suppression rule is
+  removed; explicit square notation remains tracked separately in #918.
+
+- **Machined flats retain their physical stock identity from recognition through placement
+  and completeness lint** (#1013/#1015/#1034/#1036). Flats on separate parallel, coaxial or
+  slanted stock no longer collapse into one definition or borrow an opposite face from another
+  stock region. Independent callouts receive clear-margin candidates, while double-D faces on
+  one stock still form one A/F requirement.
+
+- **Dense callout and step-detail cases keep their complete defining set** (#915). Hole
+  callout batches are reconciled as a queue, detail views fit their actual aspect, step levels
+  retain the supporting-face correspondence needed for truthful crops, and a detail redraws
+  only rungs omitted from its parent view.
+
+- **Pocket leaders start on the physical opening rim** (#916), removing the spurious inner
+  silhouette crossing while preserving the solved label corridor and approved dimensions on
+  X-, Y- and Z-depth pockets.
+
+- **Wedge-mounted raised pads survive recognition** (#909). Lower ledges that touch only in
+  plan no longer make the recogniser discard a valid upper pad; true staircase tiers remain
+  excluded.
 
 - **Annotation-dense detail placement no longer stalls the build** (#1065). Detail views
   avoid every decomposed annotation shaft, witness, label and item footprint; CTC-02
