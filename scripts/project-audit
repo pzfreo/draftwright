@@ -23,12 +23,19 @@ gh api \
 
 field_ids="$(
     jq -r \
-        '[.[] | select(.name == "Status" or .name == "Horizon" or .name == "Iteration") | .id]
+        '[.[]
+          | select(
+              .name == "Status"
+              or .name == "Horizon"
+              or .name == "Iteration"
+              or .name == "Size"
+            )
+          | .id]
          | join(",")' \
         "$fields_file"
 )"
-if [[ "$(tr ',' '\n' <<<"$field_ids" | wc -l | tr -d ' ')" != "3" ]]; then
-    printf 'project-audit: Status, Horizon, and Iteration fields are required.\n' >&2
+if [[ "$(tr ',' '\n' <<<"$field_ids" | wc -l | tr -d ' ')" != "4" ]]; then
+    printf 'project-audit: Status, Horizon, Iteration, and Size fields are required.\n' >&2
     exit 2
 fi
 
@@ -45,6 +52,7 @@ gh api --paginate --slurp \
             horizon: ([.fields[]? | select(.name == "Horizon") | .value.name.raw][0] // ""),
             iteration: ([.fields[]? | select(.name == "Iteration") | .value.title.raw][0] // ""),
             labels: [.content.labels[]?.name],
+            size: ([.fields[]? | select(.name == "Size") | .value.name.raw][0] // ""),
             status: ([.fields[]? | select(.name == "Status") | .value.name.raw][0] // ""),
             title: (.content.title // "Draft item"),
             updated: (.content.updated_at // "1970-01-01T00:00:00Z")
@@ -153,23 +161,14 @@ report_items \
      | select(.horizon != "Now")'
 
 report_items \
-    'Now items missing owner, iteration, priority, area, or stream:' \
+    'Committed items missing owner, iteration, size, priority, area, or stream:' \
     '.items[]
-     | select(.horizon == "Now" and .status != "Done")
+     | select(.status != "Done")
+     | select(.horizon == "Now" or .horizon == "Next" or .iteration != "")
      | select(
          ((.assignees // []) | length) == 0
          or (.iteration // "") == ""
-         or (any(.labels[]?; startswith("priority:")) | not)
-         or (any(.labels[]?; startswith("area:")) | not)
-         or (any(.labels[]?; startswith("stream:")) | not)
-       )'
-
-report_items \
-    'Next items missing owner, priority, area, or stream:' \
-    '.items[]
-     | select(.horizon == "Next" and .status != "Done")
-     | select(
-         ((.assignees // []) | length) == 0
+         or (.size // "") == ""
          or (any(.labels[]?; startswith("priority:")) | not)
          or (any(.labels[]?; startswith("area:")) | not)
          or (any(.labels[]?; startswith("stream:")) | not)
