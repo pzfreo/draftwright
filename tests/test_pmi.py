@@ -357,6 +357,21 @@ def ctc01_annotated(tmp_path_factory):
     return build_drawing(str(CTC01), out=stem, title="CTC-01", number="NIST-01", pmi="annotate")
 
 
+def _single_source_dimension_drawing():
+    from draftwright import Sheet
+
+    sheet = Sheet(Box(40, 30, 20), title="PMI render mutation").authored_dimensions()
+    sheet.measured_dimension(
+        kind="linear",
+        value=20,
+        label="20",
+        dominant_axis="X",
+        ref_pts=[(-10, -15, 0), (10, -15, 0)],
+        source_id="dimension:mutation",
+    )
+    return sheet.build()
+
+
 class TestBuildDrawingPmi:
     def test_pmi_off_leaves_drawing_unchanged(self, tmp_path):
         """pmi='off' produces an identical drawing to not passing pmi at all."""
@@ -365,6 +380,7 @@ class TestBuildDrawingPmi:
         pmi_names = [n for n in dwg.annotations() if n.startswith("pmi_")]
         assert pmi_names == [], f"pmi='off' should add no pmi_ annotations, got {pmi_names}"
         assert not [issue for issue in dwg.lint() if issue.code == "pmi_not_extracted"]
+        assert not [issue for issue in dwg.lint() if issue.code == "pmi_not_rendered"]
 
     def test_a_top_level_extraction_failure_cannot_become_no_pmi(self, tmp_path, monkeypatch):
         import draftwright.pmi as pmi_module
@@ -400,6 +416,7 @@ class TestBuildDrawingPmi:
         assert len(lowering) == 10
         assert {issue.severity for issue in lowering} == {"info"}
         assert len({issue.source_ids for issue in lowering}) == 10
+        assert not [issue for issue in dwg.lint() if issue.code == "pmi_not_rendered"]
 
     def test_pmi_annotate_adds_dims(self, ctc01_annotated):
         """pmi='annotate' adds at least one pmi_ dimension to the drawing."""
@@ -441,6 +458,94 @@ class TestBuildDrawingPmi:
         assert len(raw_source_ids) == 10
         assert {issue.severity for issue in issues} == {"error"}
         assert {issue.source_ids[0] for issue in issues} == raw_source_ids
+
+    def test_pmi_annotate_accounts_for_each_typed_dimension_at_the_render_seam(
+        self, ctc01_annotated
+    ):
+        from draftwright.model import AuthoredDimension
+
+        authored = [
+            feature
+            for feature in ctc01_annotated.model().features
+            if isinstance(feature, AuthoredDimension)
+        ]
+        rendered = {
+            feature.source_id
+            for feature in authored
+            if ctc01_annotated.registry.names_for_feature(feature)
+        }
+        dropped = {
+            source_id
+            for issue in ctc01_annotated.registry.issues
+            if issue.code == "pmi_dropped"
+            for source_id in issue.source_ids
+        }
+
+        assert len(authored) == 8
+        assert len(rendered) == 6
+        assert len(dropped) == 2
+        assert rendered.isdisjoint(dropped)
+        assert rendered | dropped == {feature.source_id for feature in authored}
+        assert not [issue for issue in ctc01_annotated.lint() if issue.code == "pmi_not_rendered"]
+
+    def test_a_deleted_render_dispatch_is_reported_by_source_identity(self, monkeypatch):
+        import draftwright.annotations.from_model as from_model
+        from draftwright.linting import lint_pmi_rendering
+
+        original = from_model._renderable_pmi_records
+        monkeypatch.setattr(
+            from_model,
+            "_renderable_pmi_records",
+            lambda records: [
+                record for record in original(records) if record.source_id != "dimension:mutation"
+            ],
+        )
+        drawing = _single_source_dimension_drawing()
+        feature = next(
+            feature
+            for feature in drawing.model().features
+            if feature.source_id == "dimension:mutation"
+        )
+        issues = lint_pmi_rendering(drawing.model().features, drawing.registry, "annotate")
+
+        assert feature in original([feature])
+        assert drawing.registry.names_for_feature(feature) == []
+        assert not [issue for issue in drawing.registry.issues if issue.code == "pmi_dropped"]
+        assert [(issue.code, issue.severity, issue.source_ids) for issue in issues] == [
+            ("pmi_not_rendered", "error", ("dimension:mutation",))
+        ]
+
+    def test_a_forced_placement_drop_is_not_reported_as_missing_render_dispatch(self, monkeypatch):
+        import draftwright.annotations._common as common
+        import draftwright.annotations.from_model as from_model
+        from draftwright.linting import lint_pmi_rendering
+
+        original = common.place_strip_candidates
+
+        def reject_source_candidate(*args, **kwargs):
+            features = kwargs.get("features", {})
+            if any(
+                getattr(feature, "source_id", "") == "dimension:mutation"
+                for feature in features.values()
+            ):
+                return list(args[4])
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(common, "place_strip_candidates", reject_source_candidate)
+        monkeypatch.setattr(from_model, "place_strip_candidates", reject_source_candidate)
+        drawing = _single_source_dimension_drawing()
+        feature = next(
+            feature
+            for feature in drawing.model().features
+            if feature.source_id == "dimension:mutation"
+        )
+        drops = [issue for issue in drawing.registry.issues if issue.code == "pmi_dropped"]
+
+        assert drawing.registry.names_for_feature(feature) == []
+        assert [(issue.severity, issue.source_ids) for issue in drops] == [
+            ("warning", ("dimension:mutation",))
+        ]
+        assert lint_pmi_rendering(drawing.model().features, drawing.registry, "annotate") == []
 
     def test_pmi_annotate_exports_svg_dxf(self, ctc01_annotated):
         """build_drawing + export with PMI produces valid SVG and DXF files."""
@@ -569,10 +674,10 @@ def test_a_supported_dimension_routed_to_raw_ir_is_reported_by_source_identity(
     assert target.source_id in issue.message
 
 
-def test_render_pmi_drops_unrecognized_bore_axis_without_crashing():
+def test_render_pmi_reports_unrecognized_bore_axis_as_not_rendered_without_crashing():
     # #638 review: the bore ø/R placement became a `_bore[axis]` table lookup. A diameter
-    # record whose dominant_axis doesn't resolve to X/Y/Z must still drop gracefully — as the
-    # old Z/X/Y if-chain did by falling through — not KeyError-crash the whole build.
+    # record whose dominant_axis doesn't resolve to X/Y/Z must report the missing renderer,
+    # not claim placement capacity rejected it or KeyError-crash the whole build.
     from types import SimpleNamespace
 
     from build123d import Box
@@ -580,6 +685,7 @@ def test_render_pmi_drops_unrecognized_bore_axis_without_crashing():
     from draftwright import build_drawing
     from draftwright.annotations._common import PlacementContext
     from draftwright.annotations.from_model import render_pmi
+    from draftwright.linting import lint_pmi_rendering
     from draftwright.model import AuthoredDimension
     from draftwright.model.ir import Frame
 
@@ -592,6 +698,7 @@ def test_render_pmi_drops_unrecognized_bore_axis_without_crashing():
         dominant_axis="Q",  # not X/Y/Z → matches no bore config
         ref_bbox=(0.0, 0.0, 0.0, 5.0, 1.0, 1.0),
         ref_pts=((0.0, 0.0, 0.0), (5.0, 0.0, 0.0)),
+        source_id="dimension:bogus-axis",
     )
     model = SimpleNamespace(features=[bogus])
     # The pmi_dropped lint now routes through the ctx's registry/coverage (#639); wire them to
@@ -599,4 +706,39 @@ def test_render_pmi_drops_unrecognized_bore_axis_without_crashing():
     ctx = PlacementContext(registry=dwg.registry, coverage=dwg.coverage)
     n = render_pmi(dwg, model, dwg._analysis, ctx=ctx)  # must not raise
     assert n == 0
-    assert any(i.code == "pmi_dropped" for i in dwg.registry.issues)  # graceful drop recorded
+    assert not any(i.code == "pmi_dropped" for i in dwg.registry.issues)
+    recorded = [issue for issue in dwg.registry.issues if issue.code == "pmi_not_rendered"]
+    assert [(issue.severity, issue.source_ids) for issue in recorded] == [
+        ("error", ("dimension:bogus-axis",))
+    ]
+    issues = lint_pmi_rendering(model.features, dwg.registry, "annotate")
+    assert issues == []
+
+
+def test_render_pmi_keeps_a_source_less_missing_bore_bbox_visible():
+    from build123d import Box
+
+    from draftwright import build_drawing
+    from draftwright.annotations._common import PlacementContext
+    from draftwright.annotations.from_model import render_pmi
+    from draftwright.linting import CoverageState
+    from draftwright.model import AuthoredDimension
+    from draftwright.model.ir import Frame
+    from draftwright.registry import AnnotationRegistry
+
+    dwg = build_drawing(Box(40, 30, 20), number="X")
+    record = AuthoredDimension(
+        frame=Frame((0.0, 0.0, 0.0), "z"),
+        dimension_kind="diameter",
+        value=5.0,
+        label="ø5",
+        dominant_axis="Z",
+        ref_pts=((0.0, 0.0, 0.0), (5.0, 0.0, 0.0)),
+    )
+    registry = AnnotationRegistry()
+    ctx = PlacementContext(registry=registry, coverage=CoverageState())
+
+    assert render_pmi(dwg, SimpleNamespace(features=[record]), dwg._analysis, ctx=ctx) == 0
+    assert [(issue.severity, issue.code, issue.source_ids) for issue in registry.issues] == [
+        ("warning", "pmi_not_rendered", ()),
+    ]

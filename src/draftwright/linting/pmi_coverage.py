@@ -76,3 +76,44 @@ def lint_pmi_lowering(report: PmiExtractionReport | None, features, mode: str) -
             )
         )
     return issues
+
+
+def lint_pmi_rendering(features, registry, mode: str) -> list[LintIssue]:
+    """Report source-bearing typed PMI that produced no annotation or placement drop.
+
+    ADR 0010's registry is the existing annotation-to-feature provenance owner. A placement
+    rejection is already a structured ``pmi_dropped`` build issue, so this reconciliation is
+    derived from those two outcomes rather than maintained in a parallel ledger.
+    """
+    if mode != "annotate":
+        return []
+
+    by_source: dict[str, list[object]] = {}
+    for feature in features:
+        source_id = getattr(feature, "source_id", "")
+        if source_id and getattr(feature, "kind", None) == "authored_dimension":
+            by_source.setdefault(source_id, []).append(feature)
+
+    dropped = {
+        source_id
+        for issue in registry.issues
+        if getattr(issue, "code", None) == "pmi_dropped"
+        for source_id in getattr(issue, "source_ids", ())
+    }
+    already_reported = {
+        source_id
+        for issue in registry.issues
+        if getattr(issue, "code", None) == "pmi_not_rendered"
+        for source_id in getattr(issue, "source_ids", ())
+    }
+    return [
+        LintIssue(
+            severity="error",
+            code="pmi_not_rendered",
+            message=f"AP242 source {source_id} reached typed drafting IR but produced no annotation",
+            source_ids=(source_id,),
+        )
+        for source_id, source_features in by_source.items()
+        if source_id not in dropped | already_reported
+        and not any(registry.names_for_feature(feature) for feature in source_features)
+    ]

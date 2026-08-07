@@ -81,6 +81,7 @@ from draftwright.linting import (
     lint_location_coverage,
     lint_pmi_extraction,
     lint_pmi_lowering,
+    lint_pmi_rendering,
     lint_principal_profile_coverage,
     lint_prismatic_coverage,
     lint_profiled_bore_coverage,
@@ -106,6 +107,7 @@ _GEOMETRY_AWARE_CODES = frozenset(
         "pocket_not_located",
         "unrecognised_defining_geometry",
         "pmi_not_lowered",
+        "pmi_not_rendered",
         "axial_length_missing",
         "flat_requirement_suppressed",
         "flat_requirement_missing",
@@ -2885,6 +2887,11 @@ class Drawing:
             issues += lint_pmi_lowering(
                 self._analysis.pmi_report,
                 getattr(self._part_model, "features", ()),
+                self._analysis.pmi_mode,
+            )
+            issues += lint_pmi_rendering(
+                getattr(self._part_model, "features", ()),
+                self._registry,
                 self._analysis.pmi_mode,
             )
         issues += list(self._registry.issues)

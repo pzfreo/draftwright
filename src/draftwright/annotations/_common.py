@@ -1120,7 +1120,7 @@ class PlacementContext:
             self._hole_feature_index = idx
         return self._hole_feature_index.get(tuple(round(c, 3) for c in location))
 
-    def record_issue(self, severity, code, message, *, measurement=None) -> None:
+    def record_issue(self, severity, code, message, *, measurement=None, source=None) -> None:
         """Record a build-time lint issue on the run's registry (#639). Replaces the passes'
         old `dwg._record_build_issue`."""
         ids: tuple
@@ -1130,8 +1130,21 @@ class PlacementContext:
             ids = tuple(item for item in measurement if item is not None)
         else:
             ids = (measurement,)
+        source_ids: tuple[str, ...]
+        if source is None:
+            source_ids = ()
+        elif isinstance(source, (list, tuple)):
+            source_ids = tuple(str(item) for item in source if item)
+        else:
+            source_ids = (str(source),) if source else ()
         self.registry.record_issue(
-            LintIssue(severity=severity, code=code, message=message, measurement_ids=ids)
+            LintIssue(
+                severity=severity,
+                code=code,
+                message=message,
+                measurement_ids=ids,
+                source_ids=source_ids,
+            )
         )
 
     def reset_issues(self) -> None:

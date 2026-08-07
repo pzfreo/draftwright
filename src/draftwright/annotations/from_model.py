@@ -3900,7 +3900,10 @@ def _record_pmi_drop(ctx, dwg, ax, label, rec):
     else:
         view = "front" if ax in ("X", "Z") else "side"
     ctx.record_issue(
-        "warning", "pmi_dropped", f"PMI {label!r} not placed (no room beside the {view})"
+        "warning",
+        "pmi_dropped",
+        f"PMI {label!r} not placed (no room beside the {view})",
+        source=getattr(rec, "source_id", ""),
     )
     ctx.escalations.append(
         Escalation(kind="pmi", view=view, feature=rec, reason="no room beside the view")
@@ -3918,6 +3921,18 @@ def _record_pmi_unrenderable(dwg, label, rec, *, ctx):
         "authored_dim_degenerate",
         f"authored dimension {label!r} has degenerate reference geometry (needs two "
         "distinct reference points spanning a legible distance)",
+        source=getattr(rec, "source_id", ""),
+    )
+
+
+def _record_pmi_no_candidate(ctx, label, rec):
+    """Record authored PMI for which the renderer could not form any placement candidate."""
+    source_id = getattr(rec, "source_id", "")
+    ctx.record_issue(
+        "error" if source_id else "warning",
+        "pmi_not_rendered",
+        f"authored dimension {label!r} produced no viable render candidate",
+        source=source_id,
     )
 
 
@@ -4221,6 +4236,7 @@ def _place_pmi_record(dwg, a, ctx, rec, idx, bore_cfg, draft) -> bool:
         info = _bore_info(rec)
         if info is None:
             _log.debug("PMI dim[%d] diam: no ref_bbox, skip", idx)
+            _record_pmi_no_candidate(ctx, label, rec)
             return False
         bore_axis, cx_f, cy_f, cz_f = info
         # Resolved axis (handles _bore_info's '?' degenerate-bbox fallback); the diameter
@@ -4346,8 +4362,11 @@ def _place_pmi_record(dwg, a, ctx, rec, idx, bore_cfg, draft) -> bool:
 
     if placed:
         return True
-    _log.info("PMI dim[%d] %s %.3g → no viable strip", idx, ax, rec.value)
-    _record_pmi_drop(ctx, dwg, ax, label, rec)
+    # No candidate reached the shared solve. Source reconciliation reports this as
+    # ``pmi_not_rendered``; ``pmi_dropped`` is reserved for a queued candidate rejected by
+    # placement capacity, via ``_pmi_queue_options``'s on-drop callback (#623).
+    _log.info("PMI dim[%d] %s %.3g → no viable render candidate", idx, ax, rec.value)
+    _record_pmi_no_candidate(ctx, label, rec)
     return False
 
 
