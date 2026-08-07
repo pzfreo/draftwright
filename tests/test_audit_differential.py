@@ -17,9 +17,9 @@ keeps it honest about the real `Drawing` surface.
 
 from __future__ import annotations
 
-from build123d import Box, BuildPart, Cylinder, Hole, Locations, Rot
+from build123d import Box, BuildPart, Cylinder, Hole, Locations, Pos, Rot
 
-from draftwright import build_drawing
+from draftwright import Sheet, build_drawing
 from draftwright.audit import diff_builds, explain
 
 
@@ -418,6 +418,32 @@ def test_it_works_on_real_drawings():
     assert "m_env_depth" in diff["dimensions_lost"], "the turned part states no depth"
     reasons = " ".join(r for _, _, r in diff["suppressions_gained"])
     assert "rotational OD" in reasons, "and the ledger says which rule took it"
+
+
+def test_real_mixed_featureless_and_feature_suppressions_have_a_total_order():
+    """#1077: an authored set can omit both a featureless overall dimension and a
+    feature-owned one. Those public ledger rows carry ``feature=None`` and ``feature=str``;
+    sorting the raw tuples crashes before the audit can report the loss.
+
+    Exercise both directions: gained suppressions in the authored build and lost
+    suppressions in the inverse comparison must preserve the public values unchanged.
+    """
+    part = Rot(0, 90, 0) * Cylinder(4, 20) + Pos(15, 0, 0) * Rot(0, 90, 0) * Cylinder(6, 10)
+    automatic = Sheet.from_part(part).build()
+    sheet = Sheet.from_part(part)
+    steps = [feature for feature in sheet.features if feature.kind == "step"]
+    assert len(steps) == 2
+    sheet.dimension(steps[0], "step.length")
+    authored = sheet.build()
+
+    forward = diff_builds(automatic, authored)
+    assert forward["dimensions_lost"]["m_steplen1"] == "10"
+    assert forward["candidate_explanations"]["m_steplen1"] == ["not in the authored dimension set"]
+    assert any(feature is None for feature, _parameter, _reason in forward["suppressions_gained"])
+
+    reverse = diff_builds(authored, automatic)
+    assert reverse["suppressions_lost"] == forward["suppressions_gained"]
+    assert any(feature is None for feature, _parameter, _reason in reverse["suppressions_lost"])
 
 
 def test_a_real_build_records_which_measurement_its_location_dims_draw():

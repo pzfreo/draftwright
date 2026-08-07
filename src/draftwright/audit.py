@@ -101,6 +101,16 @@ def _rows(dwg) -> set[tuple]:
     return {(r["feature"], r["parameter_id"], r["reason"]) for r in dwg.suppressions()}
 
 
+def _suppression_sort_key(row: tuple) -> tuple:
+    """Total presentation order for public suppression rows, whose feature is nullable."""
+    feature, parameter, reason = row
+    return (
+        (feature is not None, feature or ""),
+        parameter,
+        (reason is not None, reason or ""),
+    )
+
+
 def _correspondence(feature, parameter) -> tuple:
     """The cross-build key: ``(feature KIND, parameter_id)``.
 
@@ -164,8 +174,8 @@ def diff_builds(before, after) -> dict:
     changed = {n: (v, after_dims[n]) for n, v in before_dims.items() if after_dims.get(n, v) != v}
 
     before_rows, after_rows = _rows(before), _rows(after)
-    gained_supp = sorted(after_rows - before_rows)
-    lost_supp = sorted(before_rows - after_rows)
+    gained_supp = sorted(after_rows - before_rows, key=_suppression_sort_key)
+    lost_supp = sorted(before_rows - after_rows, key=_suppression_sort_key)
 
     # A name present in BOTH builds that now draws a DIFFERENT measurement (#1002) — the
     # module's worst blind spot closed. An annotation name is an engine-assigned slot, so a
