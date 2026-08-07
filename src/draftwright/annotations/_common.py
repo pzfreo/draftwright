@@ -1130,13 +1130,7 @@ class PlacementContext:
             ids = tuple(item for item in measurement if item is not None)
         else:
             ids = (measurement,)
-        source_ids: tuple[str, ...]
-        if source is None:
-            source_ids = ()
-        elif isinstance(source, (list, tuple)):
-            source_ids = tuple(str(item) for item in source if item)
-        else:
-            source_ids = (str(source),) if source else ()
+        source_ids = (str(source),) if source else ()
         self.registry.record_issue(
             LintIssue(
                 severity=severity,
