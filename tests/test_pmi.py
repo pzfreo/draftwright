@@ -97,12 +97,42 @@ class TestExtractPmi:
     ):
         """The NIST source identities are the oracle for all XCAF-owned GD&T fields."""
         expected = {
-            "geometric_tolerance:0:1:4:1": ("position", 2, ("A", "B", "C")),
-            "geometric_tolerance:0:1:4:5": ("position", 2, ("A", "B", "C")),
-            "geometric_tolerance:0:1:4:11": ("profile_surface", 2, ("A", "B", "C")),
-            "geometric_tolerance:0:1:4:15": ("profile_surface", 6, ("A",)),
-            "geometric_tolerance:0:1:4:18": ("perpendicularity", 1, ("A",)),
-            "geometric_tolerance:0:1:4:20": ("flatness", 1, ()),
+            "geometric_tolerance:0:1:4:1": (
+                "position",
+                2,
+                ("A", "B", "C"),
+                "#21",
+                0.75,
+            ),
+            "geometric_tolerance:0:1:4:5": (
+                "position",
+                2,
+                ("A", "B", "C"),
+                "#22",
+                0.75,
+            ),
+            "geometric_tolerance:0:1:4:11": (
+                "profile_surface",
+                2,
+                ("A", "B", "C"),
+                "#26",
+                1.25,
+            ),
+            "geometric_tolerance:0:1:4:15": (
+                "profile_surface",
+                6,
+                ("A",),
+                "#27",
+                0.5,
+            ),
+            "geometric_tolerance:0:1:4:18": (
+                "perpendicularity",
+                1,
+                ("A",),
+                "#56",
+                1.5,
+            ),
+            "geometric_tolerance:0:1:4:20": ("flatness", 1, (), "#57", 0.2),
         }
         records = {
             record.source_id: record
@@ -111,9 +141,11 @@ class TestExtractPmi:
         }
 
         assert set(records) == set(expected)
-        for source_id, (kind, reference_count, datum_refs) in expected.items():
+        for source_id, (kind, reference_count, datum_refs, part21_id, value) in expected.items():
             record = records[source_id]
             assert record.kind == kind
+            assert record.value == value
+            assert record.part21_id == part21_id
             assert len(record.ref_pts) == reference_count
             assert record.ref_bbox is not None
             assert record.dominant_axis in {"X", "Y", "Z"}
@@ -124,10 +156,14 @@ class TestExtractPmi:
             for source in ctc01_extraction_report.sources
             if source.category == "geometric_tolerance"
         }
-        assert all(source.outcome == "partially_extracted" for source in outcomes.values())
-        assert {source.reason for source in outcomes.values()} == {
-            "tolerance magnitude is unavailable"
-        }
+        modifier_source = outcomes["geometric_tolerance:0:1:4:15"]
+        assert modifier_source.outcome == "partially_extracted"
+        assert modifier_source.reason == "geometric-tolerance modifier(s) 15 are not preserved"
+        assert all(
+            source.outcome == "extracted" and source.reason == ""
+            for source_id, source in outcomes.items()
+            if source_id != modifier_source.source_id
+        )
 
     def test_usable_dims_have_positive_value(self, ctc01_extraction_report):
         recs = ctc01_extraction_report.records
@@ -200,7 +236,8 @@ class TestExtractPmi:
             {
                 ("dimension", "extracted"): 12,
                 ("dimension", "presentation_only"): 9,
-                ("geometric_tolerance", "partially_extracted"): 6,
+                ("geometric_tolerance", "extracted"): 5,
+                ("geometric_tolerance", "partially_extracted"): 1,
                 ("datum", "not_extracted"): 11,
             }
         )
@@ -385,7 +422,15 @@ class TestExtractPmi:
         )
         record, reasons = pmi_module._geometric_tolerance_record(
             object(),
-            SimpleNamespace(GetValue=lambda: 0.1),
+            SimpleNamespace(
+                GetValue=lambda: 0.1,
+                GetTypeOfValue=lambda: 0,
+                GetMaterialRequirementModifier=lambda: 0,
+                GetZoneModifier=lambda: 0,
+                GetValueOfZoneModifier=lambda: 0.0,
+                GetMaxValueModifier=lambda: 0.0,
+                GetModifiers=lambda: (),
+            ),
             99,
             object(),
             object(),
@@ -393,6 +438,57 @@ class TestExtractPmi:
         )
         assert record.kind == "gtol99"
         assert reasons == ("geometric-tolerance type 99 is unsupported",)
+
+    def test_unpreserved_geometric_tolerance_fields_fail_closed(self):
+        import draftwright.pmi as pmi_module
+
+        nondefault = SimpleNamespace(
+            GetTypeOfValue=lambda: 1,
+            GetMaterialRequirementModifier=lambda: 2,
+            GetZoneModifier=lambda: 3,
+            GetValueOfZoneModifier=lambda: 0.4,
+            GetMaxValueModifier=lambda: 0.5,
+            GetModifiers=lambda: (15, 16),
+        )
+        assert pmi_module._unpreserved_geometric_tolerance_fields(nondefault) == (
+            "geometric-tolerance type-of-value 1 is not preserved",
+            "geometric-tolerance material-requirement modifier 2 is not preserved",
+            "geometric-tolerance zone modifier 3 is not preserved",
+            "geometric-tolerance zone-modifier value 0.4 is not preserved",
+            "geometric-tolerance maximum-value modifier 0.5 is not preserved",
+            "geometric-tolerance modifier(s) 15, 16 are not preserved",
+        )
+
+        def unreadable():
+            raise RuntimeError("unreadable")
+
+        broken = SimpleNamespace(
+            GetTypeOfValue=unreadable,
+            GetMaterialRequirementModifier=unreadable,
+            GetZoneModifier=unreadable,
+            GetValueOfZoneModifier=unreadable,
+            GetMaxValueModifier=unreadable,
+            GetModifiers=unreadable,
+        )
+        reasons = pmi_module._unpreserved_geometric_tolerance_fields(broken)
+        assert len(reasons) == 6
+        assert all("RuntimeError: unreadable" in reason for reason in reasons)
+
+    def test_xcaf_semantic_name_failures_are_explicit(self):
+        import draftwright.pmi as pmi_module
+
+        assert pmi_module._semantic_name(SimpleNamespace(GetSemanticName=lambda: None)) == (
+            "",
+            "XCAF geometric tolerance has no semantic name",
+        )
+
+        def unreadable():
+            raise RuntimeError("unreadable")
+
+        assert pmi_module._semantic_name(SimpleNamespace(GetSemanticName=unreadable)) == (
+            "",
+            "XCAF semantic name is unavailable (RuntimeError: unreadable)",
+        )
 
     def test_report_returns_structured_reader_failures(self, monkeypatch):
         import draftwright.pmi as pmi_module
@@ -434,6 +530,30 @@ class TestExtractPmi:
         ):
             monkeypatch.setattr(pmi_module, "STEPCAFControl_Reader", lambda: reader)
             assert expected in pmi_module.extract_pmi_report("broken.step").error
+
+    def test_part21_failure_keeps_each_xcaf_tolerance_explicitly_partial(self, monkeypatch):
+        import draftwright.pmi as pmi_module
+
+        def fail(_step_file):
+            raise RuntimeError("mutation: Part21 parser failed")
+
+        monkeypatch.setattr(pmi_module, "read_geometric_tolerances", fail)
+        report = pmi_module.extract_pmi_report(CTC01)
+        sources = [source for source in report.sources if source.category == "geometric_tolerance"]
+        records = [
+            record
+            for record in report.records
+            if record.source_id.startswith("geometric_tolerance:")
+        ]
+
+        assert len(sources) == len(records) == 6
+        assert all(source.outcome == "partially_extracted" for source in sources)
+        assert all(
+            "tolerance magnitude is unavailable "
+            "(Part21 read failed: RuntimeError: mutation: Part21 parser failed)" in source.reason
+            for source in sources
+        )
+        assert all(record.value == 0.0 and record.part21_id == "" for record in records)
 
     def test_a_failed_conversion_does_not_disappear_from_the_source_denominator(
         self, monkeypatch, ctc01_extraction_report
@@ -506,10 +626,28 @@ class TestExtractPmi:
         )
         original = pmi_module._geometric_tolerance_record
 
-        def fail_one(label, obj, type_code, shape_tool, dim_tol_tool, source_id):
+        def fail_one(
+            label,
+            obj,
+            type_code,
+            shape_tool,
+            dim_tol_tool,
+            source_id,
+            part21_facts,
+            part21_error,
+        ):
             if source_id == target:
                 raise RuntimeError("mutation: gtol conversion failed")
-            return original(label, obj, type_code, shape_tool, dim_tol_tool, source_id)
+            return original(
+                label,
+                obj,
+                type_code,
+                shape_tool,
+                dim_tol_tool,
+                source_id,
+                part21_facts,
+                part21_error,
+            )
 
         monkeypatch.setattr(pmi_module, "_geometric_tolerance_record", fail_one)
         mutated = extract_pmi_report(CTC01)
@@ -628,9 +766,9 @@ class TestBuildDrawingPmi:
         pmi_names = [n for n in dwg.annotations() if n.startswith("pmi_")]
         assert pmi_names == [], "pmi='report' should not add drawing annotations"
         issues = [issue for issue in dwg.lint() if issue.code == "pmi_not_extracted"]
-        assert len(issues) == 17
+        assert len(issues) == 12
         assert {issue.severity for issue in issues} == {"info"}
-        assert len({issue.source_ids for issue in issues}) == 17
+        assert len({issue.source_ids for issue in issues}) == 12
         lowering = [issue for issue in dwg.lint() if issue.code == "pmi_not_lowered"]
         assert len(lowering) == 10
         assert {issue.severity for issue in lowering} == {"info"}
@@ -671,17 +809,17 @@ class TestBuildDrawingPmi:
 
     def test_pmi_annotate_reports_each_incomplete_source_record(self, ctc01_annotated):
         issues = [issue for issue in ctc01_annotated.lint() if issue.code == "pmi_not_extracted"]
-        assert len(issues) == 17
+        assert len(issues) == 12
         assert {issue.severity for issue in issues} == {"error"}
-        assert len({issue.source_ids for issue in issues}) == 17
+        assert len({issue.source_ids for issue in issues}) == 12
         assert all(issue.source_ids[0] in issue.message for issue in issues)
         assert (
             sum("datum extraction is not implemented" in issue.message for issue in issues) == 11
         )
-        assert sum("tolerance magnitude is unavailable" in issue.message for issue in issues) == 6
+        assert sum("modifier(s) 15 are not preserved" in issue.message for issue in issues) == 1
         summary = ctc01_annotated.lint_summary()
         assert summary["passed"] is False
-        assert summary["by_code"]["pmi_not_extracted"] == 17
+        assert summary["by_code"]["pmi_not_extracted"] == 12
         assert all(
             "source_ids" in issue
             for issue in summary["issues"]
@@ -713,6 +851,16 @@ class TestBuildDrawingPmi:
             source_id: raw_features[source_id].datum_refs for source_id in expected_gtol_datums
         } == expected_gtol_datums
         assert all(raw_features[source_id].ref_pts for source_id in expected_gtol_datums)
+        assert {
+            source_id: raw_features[source_id].part21_id for source_id in expected_gtol_datums
+        } == {
+            "geometric_tolerance:0:1:4:1": "#21",
+            "geometric_tolerance:0:1:4:5": "#22",
+            "geometric_tolerance:0:1:4:11": "#26",
+            "geometric_tolerance:0:1:4:15": "#27",
+            "geometric_tolerance:0:1:4:18": "#56",
+            "geometric_tolerance:0:1:4:20": "#57",
+        }
 
     def test_pmi_annotate_accounts_for_each_typed_dimension_at_the_render_seam(
         self, ctc01_annotated
@@ -923,6 +1071,9 @@ def test_build_pmi_features_mirrors_detection(ctc01_extraction_report):
     assert all(f.kind == "authored_dimension" for f in authored)
     assert all(f.kind == "pmi" for f in raw)
     assert {feature.source_id for feature in feats} == {record.source_id for record in recs}
+    assert {feature.source_id: feature.part21_id for feature in raw if feature.part21_id} == {
+        record.source_id: record.part21_id for record in recs if record.part21_id
+    }
     # A dimensional PMI record's measured semantics ride onto its authored dimension verbatim.
     assert {f.label for f in authored} >= {r.label for r in dims}
     for r in dims:

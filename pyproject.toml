@@ -25,6 +25,11 @@ dependencies = [
     "pillow>=10",
     "pypdfium2>=4",
     "reportlab>=4.0",
+    # Structured ISO 10303-21 access for AP242 facts that OCCT's XCAF transfer drops (#62).
+    # STEPutils 0.1 is the only release; isolate it behind _pmi_part21 and pin its README's
+    # ANTLR compatibility constraint explicitly because the package metadata omits the cap.
+    "steputils==0.1",
+    "antlr4-python3-runtime<4.10",
     "svglib>=1.5",
     "typer>=0.12",
     # PEP 702 @deprecated: stdlib `warnings.deprecated` lands in 3.13; backport for 3.10–3.12.

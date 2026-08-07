@@ -291,6 +291,7 @@ class TestEmit:
         assert "# authored_dimension" not in src
         assert "source='ap242_pmi'" in src
         assert "sheet.add(PmiFeature(" in src
+        assert "part21_id='#21'" in src
         assert "sheet.step_level(" in src  # #578: fluent verb, no StepLevelFeature import
         import_line = next(
             ln for ln in src.splitlines() if ln.startswith("from draftwright.model")
@@ -352,6 +353,41 @@ class TestEmit:
 
         assert (feature.lower_bound, feature.upper_bound) == (34.8, 35.2)
         assert feature.label == "ø34.8 - ø35.2"
+
+    def test_raw_pmi_round_trips_part21_identity(self):
+        """Execute the generated declaration; emitted text alone is not the contract."""
+        import dataclasses
+
+        from draftwright.builder import detect_part_model
+        from draftwright.model import Frame, PmiFeature
+        from draftwright.sheet_emit import emit_sheet_script
+
+        part = Box(40, 20, 10)
+        model = detect_part_model(part)
+        source = PmiFeature(
+            frame=Frame((1.0, 2.0, 3.0), "z"),
+            pmi_kind="position",
+            value=0.1,
+            label="position 0.1",
+            dominant_axis="X",
+            source_id="geometric_tolerance:roundtrip",
+            datum_refs=("A", "B"),
+            part21_id="#123",
+        )
+        model = dataclasses.replace(model, features=[*model.features, source])
+
+        src = emit_sheet_script(model, "part", "pmi", title="P", number="N")
+        namespace = {"part": part}
+        body = src[: src.index("drawing = sheet.build()")]
+        exec(compile(body, "<pmi-emit>", "exec"), namespace)  # noqa: S102
+        restored = next(
+            feature
+            for feature in namespace["sheet"].model().features
+            if isinstance(feature, PmiFeature) and feature.source_id == source.source_id
+        )
+
+        assert restored.part21_id == "#123"
+        assert restored.datum_refs == ("A", "B")
 
     def test_measured_dimension_rejects_unrenderable_kind(self):
         from draftwright import Sheet
@@ -3202,6 +3238,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
                 ref_pts=((-30.0, 0.0, 0.0), (30.0, 0.0, 0.0)),
                 source_id="geometric_tolerance:0:1:4:raw-test",
                 datum_refs=("A", "B"),
+                part21_id="#123",
             )
             return part, dataclasses.replace(model, features=[*model.features, record])
 

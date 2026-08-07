@@ -56,6 +56,8 @@ _MODEL_DIR = _SRC / "model"
 _LAYERS: dict[str, int] = {
     # 0 — leaves: import nothing from draftwright (or only same-rank leaves / the IR waist)
     "_geometry": 0,
+    # Structured ISO 10303-21 facts only; XCAF correspondence remains in rank-2 pmi.py.
+    "_pmi_part21": 0,
     # Warning categories only. Imports nothing at all — deliberately, because a category
     # users are told to filter must not cost the CAD kernel to reach (#1043): defined beside
     # `_core` it dragged build123d, and the pytest filterwarnings entry naming it paid ~6 s on

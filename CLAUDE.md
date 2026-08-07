@@ -126,6 +126,10 @@ entry. Keep `_LAYERS` and this section in step.
   detected as declared (#969); the DAG's bottom leaf (guarded
   by `test_geometry_is_a_leaf`) so the IR waist uses them without importing
   `_core`.
+- **`_pmi_part21.py`** — the rank-0 structured ISO 10303-21 adapter for AP242
+  geometric-tolerance facts that OCCT's XCAF transfer drops. It resolves explicit
+  Part21 references and SI length units, and requires unique semantic-name + kind
+  correspondence; it knows nothing about XCAF, drafting IR, or placement.
 - **`_warnings.py`** — the public warning categories (`SoftDeprecationWarning`), a
   dependency-free leaf. Separate from `_core` on purpose: `_core` imports build123d, so a
   category defined there costs the CAD kernel (~6 s) to reach, and the pytest
@@ -226,6 +230,8 @@ entry. Keep `_LAYERS` and this section in step.
   the drawing duck-typed as `dwg`; `Drawing.repair()` stays a thin wrapper.
   Depends only on `_core`.
 - **`pmi.py`** — PMI (product manufacturing information) extraction from STEP AP242.
+  Owns the XCAF source census and overlays `_pmi_part21` facts only after exact
+  correspondence, preserving both XCAF and Part21 source identities in the raw IR fallback.
 
 ## Architecture decisions — READ `docs/adr/` FIRST
 

@@ -262,6 +262,7 @@ def build_pmi_features(pmi, bbox) -> list[AuthoredDimension | PmiFeature]:
                 ref_pts=tuple(r.ref_pts),
                 source_id=r.source_id,
                 datum_refs=r.datum_refs,
+                part21_id=r.part21_id,
             )
         )
     return out

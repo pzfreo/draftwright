@@ -1172,6 +1172,7 @@ class PmiFeature:
     ref_pts: tuple[Point, ...] = ()
     source_id: str = ""
     datum_refs: tuple[str, ...] = ()
+    part21_id: str = ""
     kind: ClassVar[str] = "pmi"
 
     def parameters(self) -> list[DimParameter]:

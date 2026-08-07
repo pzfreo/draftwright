@@ -230,12 +230,13 @@ def _measured_dimension_line(f) -> str:
 def _raw_pmi_line(f) -> str:
     source_id = f", source_id={f.source_id!r}" if f.source_id else ""
     datum_refs = f", datum_refs={f.datum_refs!r}" if f.datum_refs else ""
+    part21_id = f", part21_id={f.part21_id!r}" if f.part21_id else ""
     return (
         "sheet.add(PmiFeature("
         f"frame=Frame({_pt(f.frame.origin)}, {f.frame.axis!r}), "
         f"pmi_kind={f.pmi_kind!r}, value={_n(f.value)}, label={f.label!r}, "
         f"dominant_axis={f.dominant_axis!r}, ref_bbox={_bbox_arg(f.ref_bbox)}, "
-        f"ref_pts=tuple({_pts_arg(f.ref_pts)}){source_id}{datum_refs}"
+        f"ref_pts=tuple({_pts_arg(f.ref_pts)}){source_id}{datum_refs}{part21_id}"
         "))   # raw AP242 PMI fallback; not yet lowered to a drafting concept"
     )
 

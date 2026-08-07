@@ -24,6 +24,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, cast
 
+from draftwright._pmi_part21 import (
+    GeometricToleranceFact,
+    match_geometric_tolerance,
+    read_geometric_tolerances,
+)
+
 _log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -142,6 +148,7 @@ class PmiRecord:
                         bbox extent, not the centroid difference).
         label:          Ready-to-use annotation label (e.g. ``"ø35"``, ``"60"``).
         datum_refs:     Ordered datum letters referenced by a geometric tolerance.
+        part21_id:      Part21 entity id supplying an overlaid tolerance magnitude.
     """
 
     kind: str
@@ -160,6 +167,7 @@ class PmiRecord:
     lower_bound: float | None = None
     upper_bound: float | None = None
     datum_refs: tuple[str, ...] = ()
+    part21_id: str = ""
 
 
 PmiSourceCategory = Literal["dimension", "geometric_tolerance", "datum"]
@@ -352,6 +360,65 @@ def _datum_references(label, dim_tol_tool) -> tuple[tuple[str, ...], tuple[str, 
     return tuple(datum_refs), tuple(dict.fromkeys(partial_reasons))
 
 
+def _semantic_name(obj) -> tuple[str, str]:
+    """Return the XCAF name used solely for evidence-gated Part21 correspondence."""
+    try:
+        semantic_name = obj.GetSemanticName()
+        name = str(semantic_name.ToCString()).strip() if semantic_name is not None else ""
+    except Exception as exc:
+        return "", f"XCAF semantic name is unavailable ({_failure_reason(exc)})"
+    if not name:
+        return "", "XCAF geometric tolerance has no semantic name"
+    return name, ""
+
+
+def _unpreserved_geometric_tolerance_fields(obj) -> tuple[str, ...]:
+    """Keep a source partial when XCAF exposes requirement fields we do not yet carry."""
+    reasons: list[str] = []
+    enum_fields = (
+        ("GetTypeOfValue", "type-of-value"),
+        ("GetMaterialRequirementModifier", "material-requirement modifier"),
+        ("GetZoneModifier", "zone modifier"),
+    )
+    for accessor, description in enum_fields:
+        try:
+            enum_value = int(getattr(obj, accessor)())
+        except Exception as exc:
+            reasons.append(
+                f"geometric-tolerance {description} is unavailable ({_failure_reason(exc)})"
+            )
+        else:
+            if enum_value != 0:
+                reasons.append(f"geometric-tolerance {description} {enum_value} is not preserved")
+
+    float_fields = (
+        ("GetValueOfZoneModifier", "zone-modifier value"),
+        ("GetMaxValueModifier", "maximum-value modifier"),
+    )
+    for accessor, description in float_fields:
+        try:
+            numeric_value = float(getattr(obj, accessor)())
+        except Exception as exc:
+            reasons.append(
+                f"geometric-tolerance {description} is unavailable ({_failure_reason(exc)})"
+            )
+        else:
+            if abs(numeric_value) > 1e-9:
+                reasons.append(
+                    f"geometric-tolerance {description} {numeric_value:g} is not preserved"
+                )
+
+    try:
+        modifiers = tuple(int(modifier) for modifier in obj.GetModifiers())
+    except Exception as exc:
+        reasons.append(f"geometric-tolerance modifiers are unavailable ({_failure_reason(exc)})")
+    else:
+        if modifiers:
+            codes = ", ".join(str(modifier) for modifier in modifiers)
+            reasons.append(f"geometric-tolerance modifier(s) {codes} are not preserved")
+    return tuple(reasons)
+
+
 def _dimension_record(
     label, obj, type_code: int, shape_tool, source_id: str
 ) -> tuple[PmiRecord, tuple[str, ...]]:
@@ -431,16 +498,40 @@ def _dimension_record(
 
 
 def _geometric_tolerance_record(
-    label, obj, type_code: int, shape_tool, dim_tol_tool, source_id: str
+    label,
+    obj,
+    type_code: int,
+    shape_tool,
+    dim_tol_tool,
+    source_id: str,
+    part21_facts: tuple[GeometricToleranceFact, ...] = (),
+    part21_error: str = "",
 ) -> tuple[PmiRecord, tuple[str, ...]]:
     """Convert the XCAF-owned fields of one geometric tolerance."""
     value = float(obj.GetValue())
     kind = _GTOL_TYPE.get(type_code, f"gtol{type_code}")
     partial_reasons: list[str] = []
+    part21_id = ""
     if type_code not in _GTOL_TYPE:
         partial_reasons.append(f"geometric-tolerance type {type_code} is unsupported")
     if value <= 0:
-        partial_reasons.append("tolerance magnitude is unavailable")
+        if part21_error:
+            magnitude_reason = part21_error
+        else:
+            semantic_name, name_reason = _semantic_name(obj)
+            if name_reason:
+                magnitude_reason = name_reason
+            else:
+                fact, magnitude_reason = match_geometric_tolerance(
+                    part21_facts, semantic_name, kind
+                )
+                if fact is not None:
+                    part21_id = fact.entity_id
+                    if not magnitude_reason and fact.value_mm is not None:
+                        value = fact.value_mm
+        if value <= 0:
+            partial_reasons.append(f"tolerance magnitude is unavailable ({magnitude_reason})")
+    partial_reasons.extend(_unpreserved_geometric_tolerance_fields(obj))
     points, ref_bbox, dominant_axis, reference_reasons = _reference_geometry(label, shape_tool)
     partial_reasons.extend(reference_reasons)
     datum_refs, datum_reasons = _datum_references(label, dim_tol_tool)
@@ -456,6 +547,7 @@ def _geometric_tolerance_record(
             label=f"{kind} {value:.3g}" if value > 0 else kind,
             source_id=source_id,
             datum_refs=datum_refs,
+            part21_id=part21_id,
         ),
         tuple(dict.fromkeys(partial_reasons)),
     )
@@ -563,6 +655,14 @@ def extract_pmi_report(step_file: str | Path) -> PmiExtractionReport:
     # ---- Geometric tolerances ----------------------------------------------
     tolerances = TDF_LabelSequence()
     dt.GetGeomToleranceLabels(tolerances)
+    part21_facts: tuple[GeometricToleranceFact, ...] = ()
+    part21_error = ""
+    if tolerances.Length() > 0:
+        try:
+            part21_facts = read_geometric_tolerances(step_file)
+        except Exception as exc:
+            part21_error = f"Part21 read failed: {_failure_reason(exc)}"
+            _log.debug("PMI Part21 overlay unavailable for %s: %s", Path(step_file).name, exc)
     for index in range(1, tolerances.Length() + 1):
         label = tolerances.Value(index)
         source_id = _source_id("geometric_tolerance", label)
@@ -571,7 +671,14 @@ def extract_pmi_report(step_file: str | Path) -> PmiExtractionReport:
             obj = XCAFDoc_GeomTolerance.Set_s(label).GetObject()
             tolerance_type_code = int(obj.GetType())
             record, partial_reasons = _geometric_tolerance_record(
-                label, obj, tolerance_type_code, shape_tool, dt, source_id
+                label,
+                obj,
+                tolerance_type_code,
+                shape_tool,
+                dt,
+                source_id,
+                part21_facts,
+                part21_error,
             )
         except Exception as exc:
             sources.append(
