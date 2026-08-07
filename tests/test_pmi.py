@@ -325,6 +325,75 @@ class TestExtractPmi:
             "upper range bound is unavailable (RuntimeError: upper bound unavailable)" in reasons
         )
 
+    def test_gtol_field_failures_are_explicit_partial_outcomes(self, monkeypatch):
+        import draftwright.pmi as pmi_module
+
+        class FakeSequence:
+            def __init__(self):
+                self.items = []
+
+            def Length(self):
+                return len(self.items)
+
+            def Value(self, index):
+                return self.items[index - 1]
+
+        monkeypatch.setattr(pmi_module, "TDF_LabelSequence", FakeSequence)
+        broken_tool = SimpleNamespace(
+            GetDatumOfTolerLabels_s=lambda _label, _refs: (_ for _ in ()).throw(
+                RuntimeError("relationship failed")
+            )
+        )
+        assert pmi_module._datum_references(object(), broken_tool) == (
+            (),
+            ("datum references are unavailable (RuntimeError: relationship failed)",),
+        )
+
+        unreadable = object()
+        blank = object()
+
+        def get_datums(_label, refs):
+            refs.items.extend((unreadable, blank))
+
+        def set_datum(label):
+            if label is unreadable:
+                return SimpleNamespace(
+                    GetObject=lambda: (_ for _ in ()).throw(RuntimeError("datum failed"))
+                )
+            return SimpleNamespace(GetObject=lambda: SimpleNamespace(GetName=lambda: None))
+
+        monkeypatch.setattr(pmi_module, "XCAFDoc_Datum", SimpleNamespace(Set_s=set_datum))
+        assert pmi_module._datum_references(
+            object(), SimpleNamespace(GetDatumOfTolerLabels_s=get_datums)
+        ) == (
+            (),
+            (
+                "one datum reference is unavailable (RuntimeError: datum failed)",
+                "one datum reference has no letter",
+            ),
+        )
+
+        monkeypatch.setattr(
+            pmi_module,
+            "_reference_geometry",
+            lambda _label, _shape_tool: ((), None, "?", ()),
+        )
+        monkeypatch.setattr(
+            pmi_module,
+            "_datum_references",
+            lambda _label, _dim_tol_tool: ((), ()),
+        )
+        record, reasons = pmi_module._geometric_tolerance_record(
+            object(),
+            SimpleNamespace(GetValue=lambda: 0.1),
+            99,
+            object(),
+            object(),
+            "geometric_tolerance:unknown",
+        )
+        assert record.kind == "gtol99"
+        assert reasons == ("geometric-tolerance type 99 is unsupported",)
+
     def test_report_returns_structured_reader_failures(self, monkeypatch):
         import draftwright.pmi as pmi_module
 
