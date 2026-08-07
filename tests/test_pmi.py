@@ -8,6 +8,7 @@ import pytest
 from build123d import Box, export_step
 
 from draftwright import build_drawing, extract_pmi, extract_pmi_report
+from draftwright._pmi_part21 import GeometricToleranceFact
 from draftwright.pmi import _PMI_AVAILABLE, PmiExtractionReport, PmiRecord
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -489,6 +490,75 @@ class TestExtractPmi:
             "",
             "XCAF semantic name is unavailable (RuntimeError: unreadable)",
         )
+
+    @pytest.mark.parametrize(
+        ("semantic_name", "facts", "expected_part21_id", "expected_reason"),
+        (
+            (
+                None,
+                (),
+                "",
+                "XCAF geometric tolerance has no semantic name",
+            ),
+            (
+                "Wanted",
+                (),
+                "",
+                "Part21 has no flatness geometric tolerance named 'Wanted'",
+            ),
+            (
+                "Wanted",
+                (
+                    GeometricToleranceFact(
+                        "#9", "Wanted", "flatness", None, "unsupported length unit"
+                    ),
+                ),
+                "#9",
+                "unsupported length unit",
+            ),
+        ),
+    )
+    def test_gtol_magnitude_overlay_failures_remain_explicit(
+        self,
+        monkeypatch,
+        semantic_name,
+        facts,
+        expected_part21_id,
+        expected_reason,
+    ):
+        import draftwright.pmi as pmi_module
+
+        monkeypatch.setattr(
+            pmi_module,
+            "_reference_geometry",
+            lambda _label, _shape_tool: ((), None, "?", ()),
+        )
+        monkeypatch.setattr(
+            pmi_module,
+            "_datum_references",
+            lambda _label, _dim_tol_tool: ((), ()),
+        )
+        semantic = (
+            None if semantic_name is None else SimpleNamespace(ToCString=lambda: semantic_name)
+        )
+        obj = SimpleNamespace(
+            GetValue=lambda: 0.0,
+            GetSemanticName=lambda: semantic,
+            GetTypeOfValue=lambda: 0,
+            GetMaterialRequirementModifier=lambda: 0,
+            GetZoneModifier=lambda: 0,
+            GetValueOfZoneModifier=lambda: 0.0,
+            GetMaxValueModifier=lambda: 0.0,
+            GetModifiers=lambda: (),
+        )
+
+        record, reasons = pmi_module._geometric_tolerance_record(
+            object(), obj, 7, object(), object(), "geometric_tolerance:test", facts
+        )
+
+        assert record.value == 0.0
+        assert record.part21_id == expected_part21_id
+        assert reasons == (f"tolerance magnitude is unavailable ({expected_reason})",)
 
     def test_report_returns_structured_reader_failures(self, monkeypatch):
         import draftwright.pmi as pmi_module
