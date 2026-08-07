@@ -54,6 +54,7 @@ from draftwright.annotations.from_model import (
     render_plates,
     render_pmi,
     render_pockets,
+    render_polygonal_bosses,
     render_rotational,
     render_slots,
     render_step_lengths,
@@ -110,6 +111,7 @@ _PASS_SEQUENCE: tuple[str, ...] = (
     "envelope",
     "detail_request",
     "boss_diameters",  # documented invariant: before "diameters" (ø then 'mentioned')
+    "polygonal_bosses",
     "boss_heights",
     "diameters",
     "step_lengths",
@@ -211,6 +213,7 @@ def build_model(a: Analysis):
         double_d_bores=a.recognition.double_d_bores,
         patterns=a.patterns,
         bosses=a.bosses,
+        polygonal_bosses=a.recognition.polygonal_bosses,
         channels=a.recognition.channels,
         slots=a.slots,
         # The engine's SECOND build_part_model call site; unthreaded, these three were
@@ -517,6 +520,9 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     def _s_boss_heights():
         render_boss_heights(dwg, _compiled, a, ctx=ctx)
 
+    def _s_polygonal_bosses():
+        render_polygonal_bosses(dwg, _compiled, a, ctx=ctx)
+
     def _s_diameters():
         # Turned-part dimensions via the IR (ADR 0008 convergence). The model is built
         # once and fed to both renderers (#229 — no per-pass rebuild): ø leaders, row
@@ -651,6 +657,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
             "envelope": _s_envelope,
             "detail_request": _s_detail_request,
             "boss_diameters": _s_boss_diameters,
+            "polygonal_bosses": _s_polygonal_bosses,
             "boss_heights": _s_boss_heights,
             "diameters": _s_diameters,
             "step_lengths": _s_step_lengths,

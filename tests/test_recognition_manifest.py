@@ -16,7 +16,7 @@ from contextlib import contextmanager
 from dataclasses import fields
 from math import cos, radians, sin
 
-from build123d import Align, Box, Cone, Cylinder, Pos
+from build123d import Align, Box, Cone, Cylinder, Pos, RegularPolygon, extrude
 from conftest import counting_calls
 
 import draftwright.model.detect as detect_module
@@ -42,6 +42,7 @@ from draftwright.recognition import (
     recognise_plates,
     recognise_pocket_patterns,
     recognise_pockets,
+    recognise_polygonal_bosses,
     recognise_rectangular_pads,
     recognise_risers,
     recognise_slot_patterns,
@@ -91,6 +92,10 @@ def _stepped_shaft():
 
 def _padded_plate():
     return Box(120, 90, 16) + Pos(0, -30, 10) * Box(30, 20, 4)
+
+
+def _polygonal_boss_plate():
+    return Box(100, 80, 10) + Pos(0, 0, 5) * extrude(RegularPolygon(20, 6), 30)
 
 
 def _double_d_plate():
@@ -145,6 +150,7 @@ _ORACLE_FIXTURES = [
     ("pocket grid", _pocket_grid_plate),
     ("stepped shaft", _stepped_shaft),
     ("padded plate", _padded_plate),
+    ("polygonal boss plate", _polygonal_boss_plate),
     ("double-D plate", _double_d_plate),
     ("stepped block", _stepped_block),
     ("U-channel", _u_channel),
@@ -348,6 +354,7 @@ def _expected_inventory(part, *, rotational: bool = False) -> dict:
         "double_d_bores": tuple(double_d_bores),
         "hole_patterns": tuple(recognise_hole_patterns(holes)),
         "bosses": tuple(recognise_bosses(part, cyls=cyls)),
+        "polygonal_bosses": tuple(recognise_polygonal_bosses(part)),
         "channels": tuple(channels),
         "slots": tuple(slots),
         "slot_patterns": tuple(recognise_slot_patterns(slots)),

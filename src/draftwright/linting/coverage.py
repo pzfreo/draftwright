@@ -1228,7 +1228,7 @@ def lint_boss_height_coverage(part, dwg, features, assembly=None) -> list:
     bosses = [
         feature
         for feature in features
-        if getattr(feature, "kind", None) == "boss"
+        if getattr(feature, "kind", None) in ("boss", "polygonal_boss")
         and getattr(feature, "height", None) is not None
     ]
     missing = sum(

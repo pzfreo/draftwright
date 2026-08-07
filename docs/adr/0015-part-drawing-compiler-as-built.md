@@ -113,7 +113,7 @@ by #754 (Amendment 2): those labels are now planner-fed.
 | holes / patterns (bore, counterbore, spotface, thread, BCD, pitch) | `holes._annotate_holes` (+ centre marks via `from_model.render_centermarks`) | `plan_dimensions` |
 | hole / pattern locations | `from_model.render_locations` | `plan_locations` (refs + datum) |
 | turned diameters (ø leaders, row/column) | `from_model.render_diameters` | `plan_dimensions` |
-| boss diameters | `from_model.render_boss_diameters` | `plan_dimensions` |
+| circular boss diameters, polygonal-boss A/F, and direct boss heights | `from_model.render_boss_diameters`, `from_model.render_polygonal_bosses`, `from_model.render_boss_heights` | `plan_dimensions` |
 | rotational OD + concentric bore diameters (labels; #754) | `from_model.render_rotational` | `plan_dimensions` |
 | envelope (overall W/D/L, with model-level suppression) | `from_model.render_envelope` | `plan_dimensions` |
 | turned step lengths (the chain) | `from_model.render_step_lengths` | `plan_dimensions` |

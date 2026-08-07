@@ -121,6 +121,7 @@ _GEOMETRY_AWARE_CODES = frozenset(
         "channel_requirement_unverifiable",
         "channel_width_dropped",
         "flat_dropped",
+        "polygonal_boss_dropped",
         "placement_unsatisfiable",
         "pmi_dropped",
     }

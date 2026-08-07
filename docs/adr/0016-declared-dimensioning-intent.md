@@ -119,7 +119,7 @@ so this inventory cannot drift from the code:
 
 | Contract | Meaning | Renderers |
 |---|---|---|
-| `plan` | approved entries only — inside the rule | `render_height_ladder`, `render_step_positions`, `render_plates`, `render_chamfers`, `render_fillets`, `render_flats`, `render_grooves`, `render_boss_diameters`, `render_boss_heights`, `render_envelope`, `render_pockets`, `render_pocket_patterns`, `render_slot_patterns`, `render_diameters`, `render_rotational`, `render_step_lengths`, `render_locations`, `render_slots` (+ the prismatic detail redraw) |
+| `plan` | approved entries only — inside the rule | `render_height_ladder`, `render_step_positions`, `render_plates`, `render_chamfers`, `render_fillets`, `render_flats`, `render_grooves`, `render_boss_diameters`, `render_polygonal_bosses`, `render_boss_heights`, `render_envelope`, `render_pockets`, `render_pocket_patterns`, `render_slot_patterns`, `render_diameters`, `render_rotational`, `render_step_lengths`, `render_locations`, `render_slots` (+ the prismatic detail redraw) |
 | `groups` | advisory `suppressed` | *(empty — the guard fails if anything reappears)* |
 | `model` | author-supplied text, not a generated measurement | `render_gdt`, `render_pmi` |
 

@@ -37,6 +37,7 @@ from draftwright.recognition import (
     Pocket,
     PocketArray,
     PocketGrid,
+    PolygonalBoss,
     RectGrid,
     Slot,
     SlotArray,
@@ -59,6 +60,7 @@ from draftwright.recognition import (
     recognise_plates,
     recognise_pocket_patterns,
     recognise_pockets,
+    recognise_polygonal_bosses,
     recognise_risers,
     recognise_slot_patterns,
     recognise_slots,
@@ -90,6 +92,7 @@ _EXPECTED_RECORD_TYPES = {
     Pocket,
     PocketArray,
     PocketGrid,
+    PolygonalBoss,
     Plate,
     FaceLevel,
     StepShoulder,
@@ -192,6 +195,12 @@ def _l_bracket():
     return Box(80, 40, 8) + Pos(-36, 0, 24) * Box(8, 40, 40)
 
 
+def _polygonal_boss_plate():
+    from build123d import RegularPolygon, extrude
+
+    return Box(100, 80, 10) + Pos(0, 0, 5) * extrude(RegularPolygon(20, 6), 30)
+
+
 def _records_from_recognisers():
     """(name, record) pairs across every recogniser, on parts that actually trigger them."""
     csk = _csk_plate()
@@ -214,6 +223,7 @@ def _records_from_recognisers():
         ("recognise_countersinks", recognise_countersinks(csk)),
         ("recognise_double_d_bores", recognise_double_d_bores(_double_d_plate())),
         ("recognise_bosses", recognise_bosses(Cylinder(10, 20))),
+        ("recognise_polygonal_bosses", recognise_polygonal_bosses(_polygonal_boss_plate())),
         ("hole_patterns:bolt", recognise_hole_patterns(recognise_holes(_bolt_circle_plate()))),
         ("hole_patterns:linear", recognise_hole_patterns(recognise_holes(_linear_array_plate()))),
         ("hole_patterns:grid", recognise_hole_patterns(recognise_holes(_grid_plate()))),
@@ -297,6 +307,7 @@ def test_part_based_recognisers_are_keyword_only_after_part():
     for fn in (
         recognise_holes,
         recognise_bosses,
+        recognise_polygonal_bosses,
         recognise_countersinks,
         recognise_double_d_bores,
         recognise_chamfers,

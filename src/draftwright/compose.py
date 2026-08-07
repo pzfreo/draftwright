@@ -91,7 +91,7 @@ def _n_right_strip_boss_heights(model) -> int:
     return sum(
         1
         for f in model.features
-        if getattr(f, "kind", None) == "boss"
+        if getattr(f, "kind", None) in ("boss", "polygonal_boss")
         and getattr(f, "height", None) is not None
         and f.frame.axis == "z"
     )

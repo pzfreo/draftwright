@@ -2170,6 +2170,88 @@ def render_boss_diameters(dwg, plan, a, *, ctx) -> int:
     )
 
 
+def _polygonal_boss_candidates(dwg, view, vb, boss, reach, *, provenance):
+    """Leader candidates anchored on the recognised boss's physical side faces."""
+    origin = dwg.at(view, *boss.frame.origin)
+    for flat_centre, flat_direction in zip(boss.flat_centres, boss.flat_directions, strict=True):
+        tip = dwg.at(view, *flat_centre)
+        direction_end = dwg.at(
+            view,
+            boss.frame.origin[0] + flat_direction[0],
+            boss.frame.origin[1] + flat_direction[1],
+            boss.frame.origin[2] + flat_direction[2],
+        )
+        dx, dy = direction_end[0] - origin[0], direction_end[1] - origin[1]
+        distance = math.hypot(dx, dy)
+        if distance <= 1e-9:
+            continue
+        ux, uy = dx / distance, dy / distance
+        exit_distance = _ray_exit_dist(tip[0], tip[1], ux, uy, vb)
+        elbow = (
+            tip[0] + ux * (exit_distance + reach),
+            tip[1] + uy * (exit_distance + reach),
+            0,
+        )
+        yield (tip, elbow, provenance)
+
+
+def render_polygonal_bosses(dwg, plan, a, *, ctx) -> int:
+    """Across-flats leaders for bounded regular polygonal bosses (#676)."""
+    draft = dwg.draft
+    reach = _leader_callout_reach(draft)
+    jobs = []
+    groups = sorted(
+        plan.of_kind("polygonal_boss"),
+        key=lambda group: (group.facts.frame.axis, group.facts.frame.origin),
+    )
+    for index, group in enumerate(groups):
+        boss = group.facts
+        dimension = next(
+            (
+                item
+                for item in group.dims
+                if (item.role, item.kind) == ("polygon_across_flats", "length")
+            ),
+            None,
+        )
+        if dimension is None:
+            continue
+        view = _END_ON.get(boss.frame.axis)
+        if view is None:
+            continue
+        bounds = dwg.view_bounds(view)
+        if bounds is None:
+            continue
+        prefix = "HEX" if boss.side_count == 6 else f"{boss.side_count}-SIDED"
+        label = f"{prefix} {dimension.value_text}{_tol_suffix(dimension.tolerance, draft)} A/F"
+        jobs.append(
+            (
+                f"m_polygonal_boss_{boss.frame.axis}{index}",
+                view,
+                bounds,
+                label,
+                _polygonal_boss_candidates(
+                    dwg,
+                    view,
+                    bounds,
+                    boss,
+                    reach,
+                    provenance=group.ref,
+                ),
+                (dimension.id,),
+            )
+        )
+    return _leader_callout_pass(
+        dwg,
+        a,
+        jobs,
+        noun="polygonal boss",
+        drop_code="polygonal_boss_dropped",
+        ctx=ctx,
+        geom_clear=True,
+    )
+
+
 def render_boss_heights(dwg, plan, a, *, ctx) -> int:
     """Queue the axial height of each prismatic boss in a profile-view corridor (#632)."""
     if a.is_rotational or a.prof is not None:
@@ -2183,7 +2265,7 @@ def render_boss_heights(dwg, plan, a, *, ctx) -> int:
     n = 0
     for bi, g in enumerate(
         sorted(
-            plan.of_kind("boss"),
+            [*plan.of_kind("boss"), *plan.of_kind("polygonal_boss")],
             key=lambda g: (g.facts.frame.axis, g.facts.frame.origin),
         )
     ):

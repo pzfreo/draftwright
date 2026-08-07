@@ -314,6 +314,17 @@ def _feature_line(f, part_envelope=None) -> str:
             f"sheet.diameter(diameter={_n(f.diameter)}{height}{span}, "
             f'at={_pt(f.frame.origin)}, axis="{f.frame.axis}"{thr})'
         )
+    if k == "polygonal_boss":
+        span = f"({_pt(f.span[0])}, {_pt(f.span[1])})"
+        directions = f"tuple({_pts_arg(f.flat_directions)})"
+        flats = f"tuple({_pts_arg(f.flat_centres)})"
+        return (
+            "sheet.add(PolygonalBossFeature("
+            f"frame=Frame({_pt(f.frame.origin)}, {f.frame.axis!r}), "
+            f"side_count={f.side_count}, across_flats={_n(f.across_flats)}, "
+            f"height={_n(f.height)}, span={span}, flat_directions={directions}, "
+            f"flat_centres={flats}))"
+        )
     if k == "step":
         thr = (
             f", thread={f.thread!r}" if getattr(f, "thread", None) else ""
@@ -478,6 +489,7 @@ _SECTION = {
     "hole": "Holes",
     "pattern": "Holes",
     "boss": "Diameters",
+    "polygonal_boss": "Bosses",
     "step": "Turned steps",
     "groove": "Grooves",
     "slot": "Slots",
@@ -496,6 +508,7 @@ _NOUN = {
     "hole": "hole",
     "pattern": "pattern",
     "boss": "diameter",
+    "polygonal_boss": "polygonal boss",
     "step": "step",
     "groove": "groove",
     "slot": "slot",
@@ -517,6 +530,7 @@ _DESCRIBED = frozenset(
     (
         "hole",
         "boss",
+        "polygonal_boss",
         "step",
         "slot",
         "pocket",
@@ -556,6 +570,9 @@ def _short_label(f) -> str:
         return s
     if k == "boss":
         return f"⌀{_n(f.diameter)}"
+    if k == "polygonal_boss":
+        prefix = "HEX" if f.side_count == 6 else f"{f.side_count}-sided"
+        return f"{prefix} {_n(f.across_flats)} A/F × {_n(f.height)} high"
     if k == "step":
         return f"⌀{_n(f.diameter)} × {_n(f.length)} step"
     if k in ("slot", "pocket"):
@@ -1020,6 +1037,8 @@ def emit_sheet_script(
         model_imports.update(["EnvelopeFeature", "Frame"])
     if any(f.kind == "pmi" for f in model.features):
         model_imports.update(["Frame", "PmiFeature"])
+    if any(f.kind == "polygonal_boss" for f in model.features):
+        model_imports.update(["Frame", "PolygonalBossFeature"])
     # Only carry an aspect into the emitted constructor when it differs from build_drawing's
     # default (mirrors the CLI's inert-flag test) — an unset aspect stays off the script.
     ctor = [f"title={title!r}", f"number={number!r}"]

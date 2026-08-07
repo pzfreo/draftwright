@@ -121,6 +121,9 @@ def test_orchestrator_injects_each_shared_dependency_once(monkeypatch):
     monkeypatch.setattr(result_module, "recognise_double_d_bores", counted("double_d_bores", []))
     monkeypatch.setattr(result_module, "recognise_hole_patterns", derived("patterns", holes, []))
     monkeypatch.setattr(result_module, "recognise_bosses", cyl_consumer("bosses", []))
+    monkeypatch.setattr(
+        result_module, "recognise_polygonal_bosses", counted("polygonal_bosses", [])
+    )
     monkeypatch.setattr(result_module, "recognise_channels", counted("channels", []))
     monkeypatch.setattr(result_module, "recognise_slots", counted("slots", slots))
     monkeypatch.setattr(result_module, "recognise_pockets", counted("pockets", pockets))
@@ -161,6 +164,7 @@ def test_orchestrator_injects_each_shared_dependency_once(monkeypatch):
         "double_d_bores",
         "patterns",
         "bosses",
+        "polygonal_bosses",
         "channels",
         "slots",
         "pockets",

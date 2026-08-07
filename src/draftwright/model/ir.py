@@ -112,6 +112,7 @@ DimensionParameterId = Literal[
     "pocket_depth.length",
     "pocket_length.length",
     "pocket_width.length",
+    "polygon_across_flats.length",
     "profile_across_flats.length",
     "slot_length.length",
     "slot_width.length",
@@ -688,6 +689,35 @@ class BossFeature:
         if self.height is not None:
             params.append(DimParameter("length", "boss_height", self.height, span=self.span))
         return params
+
+    def references(self) -> list[Datum]:
+        return []
+
+
+@dataclass(frozen=True)
+class PolygonalBossFeature:
+    """A bounded regular polygonal prism boss.
+
+    Unlike :class:`BossFeature`, its defining transverse measurement is across flats rather
+    than diameter. ``flat_directions`` preserve the ordered definition and ``flat_centres``
+    are physical side-face anchors, so placement need not reconstruct geometry from the
+    measurement.
+    """
+
+    frame: Frame
+    side_count: int
+    across_flats: float
+    height: float
+    span: tuple[Point, Point]
+    flat_directions: tuple[Point, ...]
+    flat_centres: tuple[Point, ...]
+    kind: ClassVar[str] = "polygonal_boss"
+
+    def parameters(self) -> list[DimParameter]:
+        return [
+            DimParameter("length", "polygon_across_flats", self.across_flats),
+            DimParameter("length", "boss_height", self.height, span=self.span),
+        ]
 
     def references(self) -> list[Datum]:
         return []

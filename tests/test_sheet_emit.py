@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from build123d import Box, Cylinder, Pos, Shape, export_step
+from build123d import Box, Cylinder, Pos, RegularPolygon, Shape, export_step, extrude
 from build123d import chamfer as bd_chamfer
 from build123d import fillet as bd_fillet
 
@@ -54,6 +54,10 @@ def _norm(s: str) -> str:
 
 def _plate():
     return Box(80, 50, 8) - Pos(20, 10, 4) * Cylinder(4, 20) - Pos(-20, 10, 4) * Cylinder(4, 20)
+
+
+def _polygonal_boss_plate():
+    return Box(100, 80, 10) + Pos(0, 0, 5) * extrude(RegularPolygon(20, 6), 30)
 
 
 def _script_for(part, part_expr="part = PART", stem="drawing", **kw):
@@ -1974,6 +1978,7 @@ class TestTheDimensionMirror:
             # now makes that failure loud instead of invisible.
             "side-drilled": Box(12, 40, 30) - Pos(0, 8, 6) * Rot(0, 90, 0) * Cylinder(3, 12),
             "boss": Box(80, 60, 12) + Pos(0, 0, 12) * Cylinder(10, 8),
+            "polygonal boss": _polygonal_boss_plate(),
             # Turned parts joined the corpus with #945: `rotational` gained a declarative
             # verb, so they mirror their dimensions instead of falling back. Contiguous on
             # purpose — a disconnected profile is a separate, unrelated defect (#943).
@@ -2023,6 +2028,7 @@ class TestTheDimensionMirror:
         "bare block": {"envelope"},
         "side-drilled": {"hole"},
         "boss": {"boss"},
+        "polygonal boss": {"polygonal_boss"},
         "turned shaft": {"rotational", "step"},
         "bored flange": {"rotational"},
         "pocket pattern": {"pocket_pattern"},
@@ -2272,6 +2278,7 @@ _KIND_MIRROR_COVERAGE = {
     "hole": "corpus",
     "pattern": "corpus",
     "boss": "corpus",
+    "polygonal_boss": "corpus",
     "step": "corpus",
     "step_level": "corpus",
     "slot": "corpus",
@@ -2769,6 +2776,7 @@ _FIDELITY_ROUTE = {
     "hole": ("detected", "plate+hole, and as a pattern member"),
     "pattern": ("detected", "hole pattern (linear) and grid pattern"),
     "boss": ("detected", "boss"),
+    "polygonal_boss": ("detected", "polygonal boss"),
     "step": ("detected", "turned shaft"),
     "step_level": ("detected", "stepped"),
     "slot": ("detected", "slot"),
@@ -3011,6 +3019,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
             - Pos(0, 30, 0) * Cylinder(4, 40)
             - Pos(45, 30, 0) * Cylinder(4, 40),
             "boss": Box(80, 60, 12) + Pos(0, 0, 12) * Cylinder(10, 8),
+            "polygonal boss": _polygonal_boss_plate(),
             "turned shaft": Cylinder(15, 20) + Pos(0, 0, 17.5) * Cylinder(10, 15),
             "stepped": Box(40, 12, 40) - Pos(10, 0, 20) * Box(20, 12, 20),
             # The machined kinds. Excused in the first two cuts as carrying "no position to
@@ -3072,6 +3081,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
         "plate+hole": {"hole"},
         "plate": {"plate"},
         "boss": {"boss"},
+        "polygonal boss": {"polygonal_boss"},
         "turned shaft": {"rotational", "step"},
         "stepped": {"step_level"},
         "chamfer": {"chamfer"},

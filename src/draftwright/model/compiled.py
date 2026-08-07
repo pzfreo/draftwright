@@ -253,6 +253,7 @@ _FACTS: dict[str, tuple[str, ...]] = {
     ),
     "pad": ("frame", "width_axis", "long_axis"),
     "boss": ("frame", "thread"),
+    "polygonal_boss": ("frame", "side_count", "flat_directions", "flat_centres"),
     "step": ("frame", "thread"),
     "step_level": ("frame",),
     "envelope": ("frame",),

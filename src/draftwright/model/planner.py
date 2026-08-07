@@ -58,6 +58,7 @@ _CONVENTION = {
     ("spotface", "depth"): "leader",
     ("boss", "diameter"): "leader",
     ("boss_height", "length"): "linear",
+    ("polygon_across_flats", "length"): "leader",
     ("bolt_circle", "diameter"): "leader",  # BCD (a pitch-circle diameter)
     ("pitch", "length"): "pitch",  # linear-array pitch — distinct from a plain linear dim
     ("grid_pitch", "length"): "pitch",

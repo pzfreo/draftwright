@@ -1041,6 +1041,7 @@ class TestTheBoundaryIsLoadBearing:
             "render_plates",
             "render_pocket_patterns",
             "render_pockets",
+            "render_polygonal_bosses",
             "render_rotational",
             "render_slot_patterns",
             "render_slots",

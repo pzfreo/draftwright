@@ -40,6 +40,7 @@ from draftwright.model.ir import (
     PmiFeature,
     PocketFeature,
     PocketPatternFeature,
+    PolygonalBossFeature,
     RotationalFeature,
     SlotFeature,
     SlotPatternFeature,
@@ -64,6 +65,7 @@ from draftwright.recognition import (
     Pocket,
     PocketArray,
     PocketGrid,
+    PolygonalBoss,
     RaisedPad,
     RectGrid,
     RiserEvidence,
@@ -88,6 +90,7 @@ from draftwright.recognition import (
     recognise_plates,
     recognise_pocket_patterns,
     recognise_pockets,
+    recognise_polygonal_bosses,
     recognise_rectangular_pads,
     recognise_risers,
     recognise_slot_patterns,
@@ -509,6 +512,24 @@ def _convert_boss(b: BossRecord, ctx: ConvContext) -> BossFeature:
     )
 
 
+def _convert_polygonal_boss(boss: PolygonalBoss, ctx: ConvContext) -> PolygonalBossFeature:
+    centre = boss.center
+    lo = list(centre)
+    hi = list(centre)
+    axis_index = "xyz".index(boss.axis)
+    lo[axis_index] = boss.base
+    hi[axis_index] = boss.top
+    return PolygonalBossFeature(
+        frame=Frame(origin=centre, axis=boss.axis),
+        side_count=boss.side_count,
+        across_flats=boss.across_flats,
+        height=boss.height,
+        span=((lo[0], lo[1], lo[2]), (hi[0], hi[1], hi[2])),
+        flat_directions=boss.flat_directions,
+        flat_centres=boss.flat_centres,
+    )
+
+
 def _convert_plate(pl: Plate, ctx: ConvContext) -> PlateFeature:
     c = ctx.bbox.center()
     return PlateFeature(
@@ -570,6 +591,7 @@ _CONVERTERS: dict[type, Converter] = {
     RaisedPad: _convert_pad,
     TurnedStep: _convert_step,
     BossRecord: _convert_boss,
+    PolygonalBoss: _convert_polygonal_boss,
     Plate: _convert_plate,
     Chamfer: _convert_chamfer,
     Fillet: _convert_fillet,
@@ -626,6 +648,7 @@ def build_part_model(
     double_d_bores=None,
     patterns=None,
     bosses=None,
+    polygonal_bosses=None,
     channels=None,
     slots=None,
     slot_patterns=None,
@@ -778,6 +801,13 @@ def build_part_model(
     if pads is None:
         pads = recognise_rectangular_pads(part)
     features.extend(convert(pad, ctx) for pad in pads)
+
+    # Bounded regular polygonal bosses own an across-flats callout and their direct axial
+    # height. They are distinct from circular bosses (diameter semantics) and rectangular
+    # pads (two orthogonal footprint sizes).
+    if polygonal_bosses is None:
+        polygonal_bosses = recognise_polygonal_bosses(part)
+    features.extend(convert(boss, ctx) for boss in polygonal_bosses)
 
     # Turned / circlip grooves (#148c) — recognised up front so the turned-step chain can
     # exclude any band a groove already dimensions: a groove floor is an annular band, and
