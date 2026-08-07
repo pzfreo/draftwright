@@ -1015,7 +1015,10 @@ class Analysis:
     tolerance: str
     drawn_by: str
     out: str
-    pmi: list
+    # Canonical AP242 source census + extraction outcomes, or None when PMI was not requested
+    # (or the input is an in-memory Shape). Typed as object to keep the rank-1 core from
+    # importing rank-2 pmi; the compatibility `pmi` property below is its records projection.
+    pmi_report: object | None
     pmi_mode: str
     # Standing ISO 7200 title-block fields (#766) — defaulted, so they sit after the
     # non-default fields above. Defaults preserve the prior output: revision "A", the rest
@@ -1039,6 +1042,11 @@ class Analysis:
     # declared a model (ADR 0011) or on a manually-built Analysis — consumers fall
     # back to build_model(a).
     model: object | None = None
+
+    @property
+    def pmi(self) -> list:
+        """Successful PMI records, derived from the canonical extraction report."""
+        return list(getattr(self.pmi_report, "records", ()))
 
 
 _greedy_strip_ys = _greedy_strip_1d

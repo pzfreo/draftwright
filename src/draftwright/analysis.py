@@ -532,14 +532,17 @@ def _analyse(
     part = _solids_body(part, src)
 
     # Semantic PMI extraction (AP242 only; separate read-only pass).
+    pmi_report = None
     pmi_records: list = []
     if pmi != "off" and not isinstance(step_file, Shape):
-        try:
-            from draftwright.pmi import extract_pmi
+        from draftwright.pmi import PmiExtractionReport, extract_pmi_report
 
-            pmi_records = extract_pmi(step_file)
+        try:
+            pmi_report = extract_pmi_report(step_file)
+            pmi_records = list(pmi_report.records)
         except Exception as exc:
             _log.warning("PMI extraction failed: %s", exc)
+            pmi_report = PmiExtractionReport(error=f"{type(exc).__name__}: {exc}")
 
     bb = part.bounding_box()
     x_size = bb.max.X - bb.min.X
@@ -885,7 +888,7 @@ def _analyse(
         projection=projection,
         zones=zones,
         out=out,
-        pmi=pmi_records,
+        pmi_report=pmi_report,
         pmi_mode=pmi,
         # The sizing model IS the render model when detection ran (identical inputs by
         # construction — #584 WP1 A); store it so the pipeline never detects twice

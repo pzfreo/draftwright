@@ -29,8 +29,11 @@ _LAZY = {
     "FeatureInfo": "draftwright.drawing",
     "Sheet": "draftwright.sheet",
     "lint_feature_coverage": "draftwright.linting",
+    "PmiExtractionReport": "draftwright.pmi",
     "PmiRecord": "draftwright.pmi",
+    "PmiSourceEntity": "draftwright.pmi",
     "extract_pmi": "draftwright.pmi",
+    "extract_pmi_report": "draftwright.pmi",
     "choose_scale": "draftwright.compose",
     # A warning category users are told to filter must be importable without reaching into a
     # private module (#1043 review) — and without paying for the CAD kernel. It lives in the
@@ -78,7 +81,13 @@ if TYPE_CHECKING:  # static analysers / IDEs — no runtime import, no kernel co
     from draftwright.compose import choose_scale
     from draftwright.drawing import Drawing, FeatureInfo
     from draftwright.linting import lint_feature_coverage
-    from draftwright.pmi import PmiRecord, extract_pmi
+    from draftwright.pmi import (
+        PmiExtractionReport,
+        PmiRecord,
+        PmiSourceEntity,
+        extract_pmi,
+        extract_pmi_report,
+    )
     from draftwright.sheet import Sheet
 
 
@@ -93,11 +102,14 @@ __all__ = [
     "Drawing",
     "SoftDeprecationWarning",
     "FeatureInfo",
+    "PmiExtractionReport",
     "PmiRecord",
+    "PmiSourceEntity",
     "Sheet",
     "build_drawing",
     "choose_scale",
     "extract_pmi",
+    "extract_pmi_report",
     "lint_feature_coverage",
     "make_drawing",
 ]

@@ -1,9 +1,9 @@
 """PMI (Product Manufacturing Information) extractor for AP242 STEP files.
 
 Reads semantic PMI from an ISO 10303-242 STEP file via a second
-``STEPCAFControl_Reader`` pass with ``SetGDTMode(True)``.  Returns a list of
-:class:`PmiRecord` objects that ``_annotate_pmi`` in ``make_drawing.py`` turns
-into drawing annotations.
+``STEPCAFControl_Reader`` pass with ``SetGDTMode(True)``. The canonical result is
+:class:`PmiExtractionReport`: it preserves every discovered source entity and its
+extraction outcome. :func:`extract_pmi` remains the compatible records-only projection.
 
 build123d's ``import_step`` already uses ``STEPCAFControl_Reader`` + an XCAF
 document (for names/colours/layers) but never enables GDT mode and discards
@@ -20,9 +20,9 @@ GeomTolerance, Datum).
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
+from typing import Literal, cast
 
 _log = logging.getLogger(__name__)
 
@@ -35,8 +35,8 @@ try:
     from OCP.BRepBndLib import BRepBndLib
     from OCP.IFSelect import IFSelect_RetDone
     from OCP.STEPCAFControl import STEPCAFControl_Reader
-    from OCP.TCollection import TCollection_ExtendedString
-    from OCP.TDF import TDF_LabelSequence
+    from OCP.TCollection import TCollection_AsciiString, TCollection_ExtendedString
+    from OCP.TDF import TDF_LabelSequence, TDF_Tool
     from OCP.TDocStd import TDocStd_Document
     from OCP.XCAFDoc import (
         XCAFDoc_Dimension,
@@ -80,8 +80,10 @@ _DIM_TYPE: dict[int, str] = {
     31: "presentation",  # DimensionPresentation ← graphical only, skip
 }
 
-# Types whose GetValue() is a meaningful length/angle (skip label/presentation)
-_SKIP_TYPES = {30, 31}
+# Type 31 is graphical presentation only. Type 30 (CommonLabel) can carry authored meaning
+# despite having no numeric GetValue, so it must fail visibly until supported rather than be
+# discarded with presentation geometry (#623 review).
+_PRESENTATION_TYPES = {31}
 
 # prefix character for the label
 _DIM_PREFIX: dict[str, str] = {
@@ -113,7 +115,7 @@ _GTOL_TYPE: dict[int, str] = {
 # ---------------------------------------------------------------------------
 
 
-@dataclass
+@dataclass(frozen=True)
 class PmiRecord:
     """One semantic PMI annotation from an AP242 STEP file.
 
@@ -142,10 +144,39 @@ class PmiRecord:
     value: float
     upper_tol: float | None = None
     lower_tol: float | None = None
-    ref_pts: list[tuple[float, float, float]] = field(default_factory=list)
+    ref_pts: tuple[tuple[float, float, float], ...] = ()
     ref_bbox: tuple[float, float, float, float, float, float] | None = None
     dominant_axis: str = "?"
     label: str = ""
+    # Stable within the source XCAF document: category + TDF label entry. Blank only for
+    # hand-constructed compatibility records; extraction always fills it (#623).
+    source_id: str = ""
+
+
+PmiSourceCategory = Literal["dimension", "geometric_tolerance", "datum"]
+PmiExtractionOutcome = Literal[
+    "extracted", "partially_extracted", "presentation_only", "not_extracted"
+]
+
+
+@dataclass(frozen=True)
+class PmiSourceEntity:
+    """One source AP242 entity and the outcome of the extraction stage."""
+
+    source_id: str
+    category: PmiSourceCategory
+    type_code: int | None
+    outcome: PmiExtractionOutcome
+    reason: str = ""
+
+
+@dataclass(frozen=True)
+class PmiExtractionReport:
+    """The immutable source census and successful record projection from one XCAF pass."""
+
+    sources: tuple[PmiSourceEntity, ...] = ()
+    records: tuple[PmiRecord, ...] = ()
+    error: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -205,15 +236,148 @@ def _make_label(kind: str, value: float, upper_tol: float | None, lower_tol: flo
     return base
 
 
+def _label_entry(label) -> str:
+    """Return the stable TDF entry path for one XCAF source label."""
+    entry = TCollection_AsciiString()
+    TDF_Tool.Entry_s(label, entry)
+    return str(entry.ToCString())
+
+
+def _source_id(category: PmiSourceCategory, label) -> str:
+    return f"{category}:{_label_entry(label)}"
+
+
+def _dimension_without_record(source_id: str, type_code: int) -> PmiSourceEntity | None:
+    """Classify dimension labels that deliberately produce no extracted record."""
+    if type_code in _PRESENTATION_TYPES:
+        return PmiSourceEntity(
+            source_id=source_id,
+            category="dimension",
+            type_code=type_code,
+            outcome="presentation_only",
+            reason="graphical presentation is not a semantic requirement",
+        )
+    if type_code == 30:
+        return PmiSourceEntity(
+            source_id=source_id,
+            category="dimension",
+            type_code=type_code,
+            outcome="not_extracted",
+            reason="common-label dimension extraction is not implemented",
+        )
+    return None
+
+
+def _failure_reason(exc: Exception) -> str:
+    return f"{type(exc).__name__}: {exc}"
+
+
+def _dimension_record(
+    label, obj, type_code: int, shape_tool, source_id: str
+) -> tuple[PmiRecord, tuple[str, ...]]:
+    """Convert one semantic XCAF dimension label, allowing its caller to record failures."""
+    partial_reasons = []
+    # Nominal value: scalar first, array fallback.
+    value = 0.0
+    try:
+        value = float(obj.GetValue())
+    except Exception:
+        try:
+            values = obj.GetValues()
+            if values is not None:
+                value = float(values.Value(values.Lower()))
+            else:
+                partial_reasons.append("nominal value is unavailable")
+        except Exception as exc:
+            partial_reasons.append(f"nominal value is unavailable ({_failure_reason(exc)})")
+
+    upper_tol: float | None = None
+    lower_tol: float | None = None
+    try:
+        candidate = float(obj.GetUpperTolValue())
+        if abs(candidate) > 1e-9:
+            upper_tol = candidate
+    except Exception:
+        pass
+    try:
+        candidate = float(obj.GetLowerTolValue())
+        if abs(candidate) > 1e-9:
+            lower_tol = candidate
+    except Exception:
+        pass
+
+    first_refs = TDF_LabelSequence()
+    second_refs = TDF_LabelSequence()
+    XCAFDoc_DimTolTool.GetRefShapeLabel_s(label, first_refs, second_refs)
+    points: list[tuple[float, float, float]] = []
+    boxes: list[tuple[float, float, float, float, float, float]] = []
+    reference_count = first_refs.Length() + second_refs.Length()
+    for refs in (first_refs, second_refs):
+        for index in range(1, refs.Length() + 1):
+            shape = shape_tool.GetShape_s(refs.Value(index))
+            if shape is None or shape.IsNull():
+                partial_reasons.append("one referenced shape is unavailable")
+                continue
+            try:
+                bbox = _shape_bbox(shape)
+                boxes.append(bbox)
+                points.append(_bbox_centroid(bbox))
+            except Exception as exc:
+                partial_reasons.append(
+                    f"one referenced shape could not be measured ({_failure_reason(exc)})"
+                )
+    if reference_count == 0:
+        partial_reasons.append("referenced geometry is unavailable")
+
+    # The outer edges of the referenced geometry give the correct measurement span (e.g.
+    # the two far sides of a diameter) rather than the shorter centroid-to-centroid distance.
+    ref_bbox = _merge_bboxes(boxes) if boxes else None
+    dominant_axis = _dominant_from_bbox(ref_bbox) if ref_bbox else "?"
+    kind = _DIM_TYPE.get(type_code, f"type{type_code}")
+    return (
+        PmiRecord(
+            kind=kind,
+            type_code=type_code,
+            value=value,
+            upper_tol=upper_tol,
+            lower_tol=lower_tol,
+            ref_pts=tuple(points),
+            ref_bbox=ref_bbox,
+            dominant_axis=dominant_axis,
+            label=_make_label(kind, value, upper_tol, lower_tol),
+            source_id=source_id,
+        ),
+        tuple(dict.fromkeys(partial_reasons)),
+    )
+
+
+def _geometric_tolerance_record(obj, type_code: int, source_id: str) -> PmiRecord:
+    """Convert the currently preserved subset of one XCAF geometric tolerance."""
+    value = float(obj.GetValue())
+    kind = _GTOL_TYPE.get(type_code, f"gtol{type_code}")
+    return PmiRecord(
+        kind=kind,
+        type_code=type_code,
+        value=value,
+        label=f"{kind} {value:.3g}" if value else kind,
+        source_id=source_id,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
 
-def extract_pmi(step_file: str | Path) -> list[PmiRecord]:
-    """Extract semantic PMI from an AP242 STEP file.
+def extract_pmi_report(step_file: str | Path) -> PmiExtractionReport:
+    """Inventory and extract semantic PMI from an AP242 STEP file in one XCAF pass.
 
-    Returns an empty list (with a log message) when:
+    The report retains one source outcome for every dimension, geometric tolerance and
+    datum label. Graphical presentation-only dimension labels are inventoried but are not
+    manufacturing requirements. Datums are currently reported as ``not_extracted`` rather
+    than disappearing from the records-only projection.
+
+    Returns an empty report (with a report-level error where applicable) when:
 
     - the file contains no GDT data;
     - OCP's GDT support is unavailable (``_PMI_AVAILABLE`` is False);
@@ -222,142 +386,175 @@ def extract_pmi(step_file: str | Path) -> list[PmiRecord]:
     Does **not** modify the solid geometry — purely a read-only second pass.
     """
     if not _PMI_AVAILABLE:
-        _log.debug("PMI extraction unavailable (OCP SetGDTMode not found)")
-        return []
+        reason = "OCP SetGDTMode is unavailable"
+        _log.debug("PMI extraction unavailable (%s)", reason)
+        return PmiExtractionReport(error=reason)
 
     path = str(step_file)
     doc = TDocStd_Document(TCollection_ExtendedString("XCAF"))
     reader = STEPCAFControl_Reader()
     reader.SetGDTMode(True)
     reader.SetNameMode(True)
-    status = reader.ReadFile(path)
+    try:
+        status = reader.ReadFile(path)
+    except Exception as exc:
+        reason = f"ReadFile failed: {_failure_reason(exc)}"
+        _log.warning("PMI extraction: %s for %s", reason, Path(step_file).name)
+        return PmiExtractionReport(error=reason)
     if status != IFSelect_RetDone:
-        _log.warning(
-            "PMI extraction: ReadFile failed for %s (status=%s)", Path(step_file).name, status
-        )
-        return []
-    reader.Transfer(doc)
+        reason = f"ReadFile failed with status {status}"
+        _log.warning("PMI extraction: %s for %s", reason, Path(step_file).name)
+        return PmiExtractionReport(error=reason)
+    try:
+        transferred = reader.Transfer(doc)
+    except Exception as exc:
+        reason = f"Transfer failed: {_failure_reason(exc)}"
+        _log.warning("PMI extraction: %s for %s", reason, Path(step_file).name)
+        return PmiExtractionReport(error=reason)
+    if transferred is False:
+        reason = "Transfer failed"
+        _log.warning("PMI extraction: %s for %s", reason, Path(step_file).name)
+        return PmiExtractionReport(error=reason)
 
     main = doc.Main()
     shape_tool = XCAFDoc_DocumentTool.ShapeTool_s(main)
     dt = XCAFDoc_DocumentTool.DimTolTool_s(main)
 
     records: list[PmiRecord] = []
+    sources: list[PmiSourceEntity] = []
 
     # ---- Dimensions --------------------------------------------------------
     dims = TDF_LabelSequence()
     dt.GetDimensionLabels(dims)
-    n_dims_ok = 0
-
-    for i in range(1, dims.Length() + 1):
-        lab = dims.Value(i)
+    for index in range(1, dims.Length() + 1):
+        label = dims.Value(index)
+        source_id = _source_id("dimension", label)
+        type_code: int | None = None
         try:
-            obj = XCAFDoc_Dimension.Set_s(lab).GetObject()
-            tc = int(obj.GetType())
-            if tc in _SKIP_TYPES:
+            obj = XCAFDoc_Dimension.Set_s(label).GetObject()
+            type_code = int(obj.GetType())
+            without_record = _dimension_without_record(source_id, type_code)
+            if without_record is not None:
+                sources.append(without_record)
                 continue
-
-            # Nominal value: scalar first, array fallback
-            val: float = 0.0
-            try:
-                val = float(obj.GetValue())
-            except Exception:
-                try:
-                    arr = obj.GetValues()
-                    if arr is not None:
-                        val = float(arr.Value(arr.Lower()))
-                except Exception:
-                    pass
-
-            # Tolerances
-            upper_tol: float | None = None
-            lower_tol: float | None = None
-            try:
-                u = float(obj.GetUpperTolValue())
-                if abs(u) > 1e-9:
-                    upper_tol = u
-            except Exception:
-                pass
-            try:
-                lo = float(obj.GetLowerTolValue())
-                if abs(lo) > 1e-9:
-                    lower_tol = lo
-            except Exception:
-                pass
-
-            # Referenced geometry → bboxes and centroids
-            f_seq = TDF_LabelSequence()
-            s_seq = TDF_LabelSequence()
-            XCAFDoc_DimTolTool.GetRefShapeLabel_s(lab, f_seq, s_seq)
-            pts: list[tuple[float, float, float]] = []
-            raw_bboxes: list[tuple[float, float, float, float, float, float]] = []
-            for seq in (f_seq, s_seq):
-                for k in range(1, seq.Length() + 1):
-                    shp = shape_tool.GetShape_s(seq.Value(k))
-                    if shp is not None and not shp.IsNull():
-                        try:
-                            bb6 = _shape_bbox(shp)
-                            raw_bboxes.append(bb6)
-                            pts.append(_bbox_centroid(bb6))
-                        except Exception:
-                            pass
-
-            # Combined bbox of all referenced shapes, used for witness placement.
-            # The outer edges of the referenced geometry give the correct measurement
-            # span (e.g., the two far sides of a ø35 bore) rather than the much
-            # shorter centroid-to-centroid distance.
-            ref_bbox = _merge_bboxes(raw_bboxes) if raw_bboxes else None
-            dom = _dominant_from_bbox(ref_bbox) if ref_bbox else "?"
-
-            kind = _DIM_TYPE.get(tc, f"type{tc}")
-            lbl = _make_label(kind, val, upper_tol, lower_tol)
-            records.append(
-                PmiRecord(
-                    kind=kind,
-                    type_code=tc,
-                    value=val,
-                    upper_tol=upper_tol,
-                    lower_tol=lower_tol,
-                    ref_pts=pts,
-                    ref_bbox=ref_bbox,
-                    dominant_axis=dom,
-                    label=lbl,
+            record, partial_reasons = _dimension_record(
+                label, obj, type_code, shape_tool, source_id
+            )
+        except Exception as exc:
+            sources.append(
+                PmiSourceEntity(
+                    source_id=source_id,
+                    category="dimension",
+                    type_code=type_code,
+                    outcome="not_extracted",
+                    reason=_failure_reason(exc),
                 )
             )
-            n_dims_ok += 1
-        except Exception as exc:
-            _log.debug("PMI dim[%d] skipped: %s", i, exc)
+            _log.debug("PMI %s not extracted: %s", source_id, exc)
+        else:
+            records.append(record)
+            sources.append(
+                PmiSourceEntity(
+                    source_id,
+                    "dimension",
+                    type_code,
+                    "partially_extracted" if partial_reasons else "extracted",
+                    "; ".join(partial_reasons),
+                )
+            )
 
     # ---- Geometric tolerances ----------------------------------------------
-    gts = TDF_LabelSequence()
-    dt.GetGeomToleranceLabels(gts)
-    n_gtol_ok = 0
-
-    for i in range(1, gts.Length() + 1):
-        lab = gts.Value(i)
+    tolerances = TDF_LabelSequence()
+    dt.GetGeomToleranceLabels(tolerances)
+    for index in range(1, tolerances.Length() + 1):
+        label = tolerances.Value(index)
+        source_id = _source_id("geometric_tolerance", label)
+        tolerance_type_code: int | None = None
         try:
-            obj = XCAFDoc_GeomTolerance.Set_s(lab).GetObject()
-            tc = int(obj.GetType())
-            val = float(obj.GetValue())
-            kind = _GTOL_TYPE.get(tc, f"gtol{tc}")
-            records.append(
-                PmiRecord(
-                    kind=kind,
-                    type_code=tc,
-                    value=val,
-                    label=f"{kind} {val:.3g}" if val else kind,
+            obj = XCAFDoc_GeomTolerance.Set_s(label).GetObject()
+            tolerance_type_code = int(obj.GetType())
+            record = _geometric_tolerance_record(obj, tolerance_type_code, source_id)
+        except Exception as exc:
+            sources.append(
+                PmiSourceEntity(
+                    source_id=source_id,
+                    category="geometric_tolerance",
+                    type_code=tolerance_type_code,
+                    outcome="not_extracted",
+                    reason=_failure_reason(exc),
                 )
             )
-            n_gtol_ok += 1
-        except Exception as exc:
-            _log.debug("PMI gtol[%d] skipped: %s", i, exc)
+            _log.debug("PMI %s not extracted: %s", source_id, exc)
+        else:
+            records.append(record)
+            sources.append(
+                PmiSourceEntity(
+                    source_id,
+                    "geometric_tolerance",
+                    tolerance_type_code,
+                    "partially_extracted",
+                    "only the characteristic type is preserved; value and references are incomplete",
+                )
+            )
+
+    # ---- Datums ------------------------------------------------------------
+    # XCAF discovers these entities, but the current extractor creates no record for them.
+    # Keeping each source identity and explicit failure is the first #623 vertical slice;
+    # datum concept lowering follows separately rather than hiding the entire category.
+    datums = TDF_LabelSequence()
+    dt.GetDatumLabels(datums)
+    for index in range(1, datums.Length() + 1):
+        source_id = _source_id("datum", datums.Value(index))
+        sources.append(
+            PmiSourceEntity(
+                source_id=source_id,
+                category="datum",
+                type_code=None,
+                outcome="not_extracted",
+                reason="datum extraction is not implemented",
+            )
+        )
+
+    semantic_dimensions = sum(
+        source.category == "dimension" and source.outcome != "presentation_only"
+        for source in sources
+    )
+    extracted_dimensions = sum(
+        source.category == "dimension" and source.outcome == "extracted" for source in sources
+    )
+    partial_dimensions = sum(
+        source.category == "dimension" and source.outcome == "partially_extracted"
+        for source in sources
+    )
+    presentation_dimensions = sum(
+        source.category == "dimension" and source.outcome == "presentation_only"
+        for source in sources
+    )
+    partial_tolerances = sum(
+        source.category == "geometric_tolerance" and source.outcome == "partially_extracted"
+        for source in sources
+    )
 
     _log.info(
-        "PMI extracted from %s: %d/%d dims, %d/%d gtols",
+        "PMI extracted from %s: %d/%d complete semantic dims (%d partial, "
+        "%d presentation-only), "
+        "0/%d complete gtols (%d partial), 0/%d datums",
         Path(step_file).name,
-        n_dims_ok,
-        dims.Length(),
-        n_gtol_ok,
-        gts.Length(),
+        extracted_dimensions,
+        semantic_dimensions,
+        partial_dimensions,
+        presentation_dimensions,
+        tolerances.Length(),
+        partial_tolerances,
+        datums.Length(),
     )
-    return records
+    return PmiExtractionReport(sources=tuple(sources), records=tuple(records))
+
+
+def extract_pmi(step_file: str | Path) -> list[PmiRecord]:
+    """Return the successful-record projection of :func:`extract_pmi_report`.
+
+    This compatibility surface deliberately remains a list. Callers that need to know what
+    the source contained or why a record is absent must use :func:`extract_pmi_report`.
+    """
+    return list(extract_pmi_report(step_file).records)

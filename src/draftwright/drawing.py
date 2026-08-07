@@ -79,6 +79,7 @@ from draftwright.linting import (
     lint_feature_coverage,
     lint_flat_coverage,
     lint_location_coverage,
+    lint_pmi_extraction,
     lint_principal_profile_coverage,
     lint_prismatic_coverage,
     lint_profiled_bore_coverage,
@@ -122,6 +123,7 @@ _GEOMETRY_AWARE_CODES = frozenset(
         "channel_width_dropped",
         "flat_dropped",
         "polygonal_boss_dropped",
+        "pmi_not_extracted",
         "placement_unsatisfiable",
         "pmi_dropped",
     }
@@ -2876,6 +2878,8 @@ class Drawing:
                     cyls,
                     recognition=recognition,
                 )
+        if physical and self._analysis is not None:
+            issues += lint_pmi_extraction(self._analysis.pmi_report, self._analysis.pmi_mode)
         issues += list(self._registry.issues)
         # Attach a ready-to-paste fix snippet where one is computable (#29).
         # str | None — None when no concrete repair can be inferred.
@@ -2928,6 +2932,7 @@ class Drawing:
                         if (s := getattr(i, "suggestion", None)) is not None
                         else {}
                     ),
+                    **({"source_ids": i.source_ids} if i.source_ids else {}),
                 }
                 for i in issues
             ],
