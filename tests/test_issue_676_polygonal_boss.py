@@ -13,6 +13,7 @@ from draftwright import build_drawing
 from draftwright.model import PolygonalBossFeature, build_part_model
 from draftwright.model.ir import RequestedDimension
 from draftwright.recognition import PolygonalBoss, recognise_polygonal_bosses
+from draftwright.recognition.polygonal_bosses import _normal
 
 CTC01 = Path(__file__).parent / "fixtures" / "nist_ctc_01_asme1_ap203.stp"
 
@@ -29,6 +30,32 @@ def _fused_hex_boss(*, angle: float = 0):
     base = Box(100, 80, 10)
     boss = Pos(0, 0, 5) * Rot(0, 0, angle) * _hex_prism()
     return base + boss
+
+
+def _polygon_from_supports(
+    supports: tuple[float, ...], *, angles: tuple[float, ...] = (0, 60, 120, 180, 240, 300)
+):
+    normals = [(math.cos(math.radians(angle)), math.sin(math.radians(angle))) for angle in angles]
+    points = []
+    for index, ((ax, ay), a_support) in enumerate(zip(normals, supports, strict=True)):
+        bx, by = normals[(index + 1) % len(normals)]
+        b_support = supports[(index + 1) % len(supports)]
+        determinant = ax * by - ay * bx
+        points.append(
+            (
+                (a_support * by - ay * b_support) / determinant,
+                (ax * b_support - a_support * bx) / determinant,
+            )
+        )
+    return Polygon(*points)
+
+
+def test_a_face_with_no_usable_normal_cannot_supply_boss_evidence():
+    class UnusableFace:
+        def center(self):
+            raise ValueError("degenerate face")
+
+    assert _normal(UnusableFace()) is None
 
 
 def test_a_bounded_fused_hex_boss_carries_manufacturing_evidence():
@@ -87,6 +114,36 @@ def test_a_six_sided_ring_without_regular_opposed_planes_is_rejected():
     assert recognise_polygonal_bosses(part) == []
 
 
+def test_a_sub_tolerance_projection_is_not_inferred_as_a_boss():
+    shallow = Box(100, 80, 10) + Pos(0, 0, 5) * _hex_prism(height=0.1)
+
+    assert recognise_polygonal_bosses(shallow) == []
+
+
+def test_locally_regular_angles_do_not_substitute_for_opposed_flat_directions():
+    almost_regular = _polygon_from_supports(
+        (20, 20, 20, 20, 20, 20),
+        angles=(0, 61.9, 123.8, 185.7, 243.8, 301.9),
+    )
+    part = Box(100, 80, 10) + Pos(0, 0, 5) * extrude(almost_regular, 30)
+
+    assert recognise_polygonal_bosses(part) == []
+
+
+def test_opposed_pairs_with_different_widths_do_not_define_one_across_flats():
+    unequal_widths = _polygon_from_supports((20, 20, 20, 22, 20, 20))
+    part = Box(100, 80, 10) + Pos(0, 0, 5) * extrude(unequal_widths, 30)
+
+    assert recognise_polygonal_bosses(part) == []
+
+
+def test_nonconcurrent_midplanes_do_not_define_a_regular_polygon_axis():
+    inconsistent_midplanes = _polygon_from_supports((20, 19, 21, 20, 21, 19))
+    part = Box(100, 80, 10) + Pos(0, 0, 5) * extrude(inconsistent_midplanes, 30)
+
+    assert recognise_polygonal_bosses(part) == []
+
+
 def test_a_blind_polygonal_recess_is_not_a_boss():
     stock = Box(100, 80, 40)
     recess = Pos(0, 0, 5) * _hex_prism(height=30)
@@ -141,6 +198,39 @@ def test_a_synthetic_hex_boss_is_directly_dimensioned_without_layout_loss():
 
     drawing.remove(height[0][0])
     assert [issue.code for issue in drawing.lint()].count("boss_height_missing") == 1
+
+
+def test_an_unusable_flat_direction_does_not_block_other_physical_anchors():
+    part = _fused_hex_boss()
+    model = build_part_model(part)
+    feature = next(item for item in model.features if item.kind == "polygonal_boss")
+    malformed = replace(
+        feature,
+        flat_directions=((0.0, 0.0, 0.0), *feature.flat_directions[1:]),
+    )
+    declared = replace(
+        model,
+        features=[malformed if item == feature else item for item in model.features],
+    )
+
+    drawing = build_drawing(part, model=declared, repair=False)
+
+    assert any(name.startswith("m_polygonal_boss_") for name in drawing.annotations())
+
+
+def test_an_unsupported_declared_axis_does_not_guess_a_characteristic_view():
+    part = _fused_hex_boss()
+    model = build_part_model(part)
+    feature = next(item for item in model.features if item.kind == "polygonal_boss")
+    unsupported = replace(feature, frame=replace(feature.frame, axis="unsupported"))
+    declared = replace(
+        model,
+        features=[unsupported if item == feature else item for item in model.features],
+    )
+
+    drawing = build_drawing(part, model=declared, repair=False)
+
+    assert not any(name.startswith("m_polygonal_boss_") for name in drawing.annotations())
 
 
 @pytest.mark.slow

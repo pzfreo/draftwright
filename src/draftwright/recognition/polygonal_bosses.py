@@ -210,8 +210,7 @@ def _recognise_one(part, *, tol: float, angle_tol: float) -> list[PolygonalBoss]
         bx = sum(nx * offset for nx, _ny, offset in midplanes)
         by = sum(ny * offset for _nx, ny, offset in midplanes)
         determinant = sxx * syy - sxy * sxy
-        if abs(determinant) <= 1e-9:
-            continue
+        # Six normals that passed the near-60-degree ring gate necessarily span the plane.
         cx = (bx * syy - by * sxy) / determinant
         cy = (sxx * by - sxy * bx) / determinant
         supports = [

@@ -2276,7 +2276,10 @@ def render_boss_heights(dwg, plan, a, *, ctx) -> int:
         )
         if pd is None or pd.span is None:
             continue
-        view, side, strip, stack = specs[b.frame.axis]
+        spec = specs.get(b.frame.axis)
+        if spec is None:
+            continue
+        view, side, strip, stack = spec
         p1 = dwg.at(view, *pd.span[0])
         p2 = dwg.at(view, *pd.span[1])
         edge = max(p1[0], p2[0]) if side == "right" else max(p1[1], p2[1])
