@@ -55,7 +55,7 @@ gh api --paginate --slurp \
             size: ([.fields[]? | select(.name == "Size") | .value.name.raw][0] // ""),
             status: ([.fields[]? | select(.name == "Status") | .value.name.raw][0] // ""),
             title: (.content.title // "Draft item"),
-            updated: (.content.updated_at // "1970-01-01T00:00:00Z")
+            updated: (.updated_at // "1970-01-01T00:00:00Z")
         }
     ]}' >"$items_file"
 
