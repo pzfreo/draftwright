@@ -131,3 +131,20 @@ def test_real_channels_on_separate_bodies_are_each_preserved():
 
     assert all(len(recognise_channels(solid)) == 1 for solid in part.solids())
     assert len(recognise_channels(part)) == 2
+
+
+def test_channel_order_does_not_depend_on_compound_child_order():
+    channelled = (
+        Box(50, 50, 12)
+        + Pos(0, -18.75, 15) * Box(50, 12.5, 18)
+        + Pos(0, 18.75, 15) * Box(50, 12.5, 18)
+    )
+    upper = Pos(0, 0, 60) * channelled
+
+    lower_first = recognise_channels(Compound(children=[channelled, upper]))
+    upper_first = recognise_channels(Compound(children=[upper, channelled]))
+    assert lower_first == upper_first
+    assert [(channel.d_lo, channel.d_hi) for channel in lower_first] == [
+        (6.0, 24.0),
+        (66.0, 84.0),
+    ]

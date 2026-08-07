@@ -1060,6 +1060,21 @@ def _channel_candidate(fa, fb, faces, part_ext, part_bounds) -> Channel | None:
     return candidate if isinstance(candidate, Channel) else None
 
 
+def _channel_sort_key(channel: Channel):
+    """Geometry-only order, including depth to break cross-solid traversal ties."""
+    return (
+        channel.long_axis,
+        channel.width_axis,
+        channel.lo,
+        channel.hi,
+        channel.w_center,
+        channel.width,
+        channel.d_lo,
+        channel.d_hi,
+        channel.open_sign,
+    )
+
+
 def _recognise_pockets_one(part) -> list[Pocket]:
     """Recognise pockets using one solid's faces and bounds."""
     faces = _planar_faces(part)
@@ -1124,7 +1139,7 @@ def _recognise_channels_one(part) -> list[Channel]:
                     candidates.append(channel)
     return sorted(
         set(candidates),
-        key=lambda c: (c.long_axis, c.width_axis, c.lo, c.hi, c.w_center, c.width),
+        key=_channel_sort_key,
     )
 
 
@@ -1139,10 +1154,7 @@ def recognise_channels(part) -> list[Channel]:
     solids = list(part.solids())
     sources = solids if len(solids) > 1 else [part]
     channels = [channel for solid in sources for channel in _recognise_channels_one(solid)]
-    return sorted(
-        channels,
-        key=lambda c: (c.long_axis, c.width_axis, c.lo, c.hi, c.w_center, c.width),
-    )
+    return sorted(channels, key=_channel_sort_key)
 
 
 def _recognise_corner_notches(faces: list[_Face], pbb, tol: float = 0.5) -> list[Pocket]:
