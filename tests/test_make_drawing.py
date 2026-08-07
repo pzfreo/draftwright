@@ -7919,7 +7919,10 @@ class TestFindSlots:
         # faces sit at w_center ± width/2; only the inward-normal test in _has_side_walls rejects them.
         d1 = Pos(0, -10, 0) * Cylinder(4, 30) & Pos(0, -12, 0) * Box(20, 4, 40)
         d2 = Pos(0, 10, 0) * Cylinder(4, 30) & Pos(0, 12, 0) * Box(20, 4, 40)
-        assert recognise_slots(Box(8, 40, 21) - d1 - d2) == []
+        split = Box(8, 40, 21) - d1 - d2
+        part = split + Pos(0, 0, 11) * Box(8, 40, 1)
+        assert len(part.solids()) == 1  # the exterior bridge keeps the predicate body-local (#958)
+        assert recognise_slots(part) == []
 
     def test_stubby_blind_obround_pocket_is_recognised_not_a_slot(self):
         # #837: the blind counterpart of the stubby through-slot — a floored obround pocket whose
