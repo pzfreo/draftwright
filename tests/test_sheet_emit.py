@@ -3194,13 +3194,14 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
             model = detect_part_model(part)
             record = PmiFeature(
                 frame=Frame((1.0, 2.0, 3.0), "z"),
-                pmi_kind="linear",
-                value=60.0,
-                label="60",
+                pmi_kind="position",
+                value=0.1,
+                label="position 0.1",
                 dominant_axis="X",
                 ref_bbox=(-30.0, -20.0, -10.0, 30.0, 20.0, 10.0),
                 ref_pts=((-30.0, 0.0, 0.0), (30.0, 0.0, 0.0)),
-                source_id="dimension:0:1:4:raw-test",
+                source_id="geometric_tolerance:0:1:4:raw-test",
+                datum_refs=("A", "B"),
             )
             return part, dataclasses.replace(model, features=[*model.features, record])
 

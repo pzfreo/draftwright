@@ -1171,6 +1171,7 @@ class PmiFeature:
     ref_bbox: tuple[float, float, float, float, float, float] | None = None
     ref_pts: tuple[Point, ...] = ()
     source_id: str = ""
+    datum_refs: tuple[str, ...] = ()
     kind: ClassVar[str] = "pmi"
 
     def parameters(self) -> list[DimParameter]:

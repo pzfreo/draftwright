@@ -62,6 +62,73 @@ class TestExtractPmi:
         ]
         assert len(gtols) >= 4
 
+    def test_occt_geometric_tolerance_enum_is_mapped_by_its_actual_values(self):
+        """Pin the installed OCCT enum, not a remembered ordering from another binding."""
+        from OCP.XCAFDimTolObjects import XCAFDimTolObjects_GeomToleranceType as GtolType
+
+        import draftwright.pmi as pmi_module
+
+        expected = {
+            "Angularity": "angularity",
+            "CircularRunout": "circular_runout",
+            "CircularityOrRoundness": "circularity",
+            "Coaxiality": "coaxiality",
+            "Concentricity": "concentricity",
+            "Cylindricity": "cylindricity",
+            "Flatness": "flatness",
+            "Parallelism": "parallelism",
+            "Perpendicularity": "perpendicularity",
+            "Position": "position",
+            "ProfileOfLine": "profile_line",
+            "ProfileOfSurface": "profile_surface",
+            "Straightness": "straightness",
+            "Symmetry": "symmetry",
+            "TotalRunout": "total_runout",
+        }
+        actual = {
+            int(getattr(GtolType, f"XCAFDimTolObjects_GeomToleranceType_{enum_name}")): kind
+            for enum_name, kind in expected.items()
+        }
+
+        assert pmi_module._GTOL_TYPE == actual
+
+    def test_nist_ctc01_gtols_keep_characteristic_geometry_and_datums(
+        self, ctc01_extraction_report
+    ):
+        """The NIST source identities are the oracle for all XCAF-owned GD&T fields."""
+        expected = {
+            "geometric_tolerance:0:1:4:1": ("position", 2, ("A", "B", "C")),
+            "geometric_tolerance:0:1:4:5": ("position", 2, ("A", "B", "C")),
+            "geometric_tolerance:0:1:4:11": ("profile_surface", 2, ("A", "B", "C")),
+            "geometric_tolerance:0:1:4:15": ("profile_surface", 6, ("A",)),
+            "geometric_tolerance:0:1:4:18": ("perpendicularity", 1, ("A",)),
+            "geometric_tolerance:0:1:4:20": ("flatness", 1, ()),
+        }
+        records = {
+            record.source_id: record
+            for record in ctc01_extraction_report.records
+            if record.source_id.startswith("geometric_tolerance:")
+        }
+
+        assert set(records) == set(expected)
+        for source_id, (kind, reference_count, datum_refs) in expected.items():
+            record = records[source_id]
+            assert record.kind == kind
+            assert len(record.ref_pts) == reference_count
+            assert record.ref_bbox is not None
+            assert record.dominant_axis in {"X", "Y", "Z"}
+            assert record.datum_refs == datum_refs
+
+        outcomes = {
+            source.source_id: source
+            for source in ctc01_extraction_report.sources
+            if source.category == "geometric_tolerance"
+        }
+        assert all(source.outcome == "partially_extracted" for source in outcomes.values())
+        assert {source.reason for source in outcomes.values()} == {
+            "tolerance magnitude is unavailable"
+        }
+
     def test_usable_dims_have_positive_value(self, ctc01_extraction_report):
         recs = ctc01_extraction_report.records
         usable = [r for r in recs if r.value > 0 and len(r.ref_pts) >= 2]
@@ -370,10 +437,10 @@ class TestExtractPmi:
         )
         original = pmi_module._geometric_tolerance_record
 
-        def fail_one(obj, type_code, source_id):
+        def fail_one(label, obj, type_code, shape_tool, dim_tol_tool, source_id):
             if source_id == target:
                 raise RuntimeError("mutation: gtol conversion failed")
-            return original(obj, type_code, source_id)
+            return original(label, obj, type_code, shape_tool, dim_tol_tool, source_id)
 
         monkeypatch.setattr(pmi_module, "_geometric_tolerance_record", fail_one)
         mutated = extract_pmi_report(CTC01)
@@ -542,10 +609,7 @@ class TestBuildDrawingPmi:
         assert (
             sum("datum extraction is not implemented" in issue.message for issue in issues) == 11
         )
-        assert (
-            sum("only the characteristic type is preserved" in issue.message for issue in issues)
-            == 6
-        )
+        assert sum("tolerance magnitude is unavailable" in issue.message for issue in issues) == 6
         summary = ctc01_annotated.lint_summary()
         assert summary["passed"] is False
         assert summary["by_code"]["pmi_not_extracted"] == 17
@@ -558,16 +622,28 @@ class TestBuildDrawingPmi:
     def test_pmi_annotate_reports_each_raw_ir_fallback(self, ctc01_annotated):
         from draftwright.model import PmiFeature
 
-        raw_source_ids = {
-            feature.source_id
+        raw_features = {
+            feature.source_id: feature
             for feature in ctc01_annotated.model().features
             if isinstance(feature, PmiFeature)
         }
         issues = [issue for issue in ctc01_annotated.lint() if issue.code == "pmi_not_lowered"]
 
-        assert len(raw_source_ids) == 10
+        assert len(raw_features) == 10
         assert {issue.severity for issue in issues} == {"error"}
-        assert {issue.source_ids[0] for issue in issues} == raw_source_ids
+        assert {issue.source_ids[0] for issue in issues} == set(raw_features)
+        expected_gtol_datums = {
+            "geometric_tolerance:0:1:4:1": ("A", "B", "C"),
+            "geometric_tolerance:0:1:4:5": ("A", "B", "C"),
+            "geometric_tolerance:0:1:4:11": ("A", "B", "C"),
+            "geometric_tolerance:0:1:4:15": ("A",),
+            "geometric_tolerance:0:1:4:18": ("A",),
+            "geometric_tolerance:0:1:4:20": (),
+        }
+        assert {
+            source_id: raw_features[source_id].datum_refs for source_id in expected_gtol_datums
+        } == expected_gtol_datums
+        assert all(raw_features[source_id].ref_pts for source_id in expected_gtol_datums)
 
     def test_pmi_annotate_accounts_for_each_typed_dimension_at_the_render_seam(
         self, ctc01_annotated

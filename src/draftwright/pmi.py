@@ -39,6 +39,7 @@ try:
     from OCP.TDF import TDF_LabelSequence, TDF_Tool
     from OCP.TDocStd import TDocStd_Document
     from OCP.XCAFDoc import (
+        XCAFDoc_Datum,
         XCAFDoc_Dimension,
         XCAFDoc_DimTolTool,
         XCAFDoc_DocumentTool,
@@ -93,20 +94,21 @@ _DIM_PREFIX: dict[str, str] = {
 
 # int → short tag for XCAFDimTolObjects_GeomToleranceType
 _GTOL_TYPE: dict[int, str] = {
-    1: "straightness",
-    2: "flatness",
+    1: "angularity",
+    2: "circular_runout",
     3: "circularity",
-    4: "cylindricity",
-    5: "profile_line",
-    6: "profile_surface",
-    7: "perpendicularity",
-    8: "angularity",
-    9: "parallelism",
+    4: "coaxiality",
+    5: "concentricity",
+    6: "cylindricity",
+    7: "flatness",
+    8: "parallelism",
+    9: "perpendicularity",
     10: "position",
-    11: "concentricity",
-    12: "symmetry",
-    13: "circular_runout",
-    14: "total_runout",
+    11: "profile_line",
+    12: "profile_surface",
+    13: "straightness",
+    14: "symmetry",
+    15: "total_runout",
 }
 
 
@@ -139,6 +141,7 @@ class PmiRecord:
                         in which the dimension primarily spans (based on the outer
                         bbox extent, not the centroid difference).
         label:          Ready-to-use annotation label (e.g. ``"ø35"``, ``"60"``).
+        datum_refs:     Ordered datum letters referenced by a geometric tolerance.
     """
 
     kind: str
@@ -156,6 +159,7 @@ class PmiRecord:
     # Appended to preserve the positional compatibility of the original record fields.
     lower_bound: float | None = None
     upper_bound: float | None = None
+    datum_refs: tuple[str, ...] = ()
 
 
 PmiSourceCategory = Literal["dimension", "geometric_tolerance", "datum"]
@@ -287,6 +291,67 @@ def _failure_reason(exc: Exception) -> str:
     return f"{type(exc).__name__}: {exc}"
 
 
+def _reference_geometry(label, shape_tool):
+    """Measure the geometry relationships shared by dimensions and tolerances."""
+    first_refs = TDF_LabelSequence()
+    second_refs = TDF_LabelSequence()
+    XCAFDoc_DimTolTool.GetRefShapeLabel_s(label, first_refs, second_refs)
+    points: list[tuple[float, float, float]] = []
+    boxes: list[tuple[float, float, float, float, float, float]] = []
+    partial_reasons: list[str] = []
+    reference_count = first_refs.Length() + second_refs.Length()
+    for refs in (first_refs, second_refs):
+        for index in range(1, refs.Length() + 1):
+            shape = shape_tool.GetShape_s(refs.Value(index))
+            if shape is None or shape.IsNull():
+                partial_reasons.append("one referenced shape is unavailable")
+                continue
+            try:
+                bbox = _shape_bbox(shape)
+                boxes.append(bbox)
+                points.append(_bbox_centroid(bbox))
+            except Exception as exc:
+                partial_reasons.append(
+                    f"one referenced shape could not be measured ({_failure_reason(exc)})"
+                )
+    if reference_count == 0:
+        partial_reasons.append("referenced geometry is unavailable")
+
+    ref_bbox = _merge_bboxes(boxes) if boxes else None
+    dominant_axis = _dominant_from_bbox(ref_bbox) if ref_bbox else "?"
+    return (
+        tuple(points),
+        ref_bbox,
+        dominant_axis,
+        tuple(dict.fromkeys(partial_reasons)),
+    )
+
+
+def _datum_references(label, dim_tol_tool) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Return the ordered datum letters attached to one tolerance label."""
+    datum_labels = TDF_LabelSequence()
+    try:
+        dim_tol_tool.GetDatumOfTolerLabels_s(label, datum_labels)
+    except Exception as exc:
+        return (), (f"datum references are unavailable ({_failure_reason(exc)})",)
+
+    datum_refs: list[str] = []
+    partial_reasons: list[str] = []
+    for index in range(1, datum_labels.Length() + 1):
+        try:
+            datum = XCAFDoc_Datum.Set_s(datum_labels.Value(index)).GetObject()
+            name = datum.GetName()
+            datum_ref = str(name.ToCString()).strip() if name is not None else ""
+        except Exception as exc:
+            partial_reasons.append(f"one datum reference is unavailable ({_failure_reason(exc)})")
+            continue
+        if datum_ref:
+            datum_refs.append(datum_ref)
+        else:
+            partial_reasons.append("one datum reference has no letter")
+    return tuple(datum_refs), tuple(dict.fromkeys(partial_reasons))
+
+
 def _dimension_record(
     label, obj, type_code: int, shape_tool, source_id: str
 ) -> tuple[PmiRecord, tuple[str, ...]]:
@@ -334,33 +399,10 @@ def _dimension_record(
         except Exception as exc:
             partial_reasons.append(f"upper range bound is unavailable ({_failure_reason(exc)})")
 
-    first_refs = TDF_LabelSequence()
-    second_refs = TDF_LabelSequence()
-    XCAFDoc_DimTolTool.GetRefShapeLabel_s(label, first_refs, second_refs)
-    points: list[tuple[float, float, float]] = []
-    boxes: list[tuple[float, float, float, float, float, float]] = []
-    reference_count = first_refs.Length() + second_refs.Length()
-    for refs in (first_refs, second_refs):
-        for index in range(1, refs.Length() + 1):
-            shape = shape_tool.GetShape_s(refs.Value(index))
-            if shape is None or shape.IsNull():
-                partial_reasons.append("one referenced shape is unavailable")
-                continue
-            try:
-                bbox = _shape_bbox(shape)
-                boxes.append(bbox)
-                points.append(_bbox_centroid(bbox))
-            except Exception as exc:
-                partial_reasons.append(
-                    f"one referenced shape could not be measured ({_failure_reason(exc)})"
-                )
-    if reference_count == 0:
-        partial_reasons.append("referenced geometry is unavailable")
-
     # The outer edges of the referenced geometry give the correct measurement span (e.g.
     # the two far sides of a diameter) rather than the shorter centroid-to-centroid distance.
-    ref_bbox = _merge_bboxes(boxes) if boxes else None
-    dominant_axis = _dominant_from_bbox(ref_bbox) if ref_bbox else "?"
+    points, ref_bbox, dominant_axis, reference_reasons = _reference_geometry(label, shape_tool)
+    partial_reasons.extend(reference_reasons)
     kind = _DIM_TYPE.get(type_code, f"type{type_code}")
     return (
         PmiRecord(
@@ -388,16 +430,34 @@ def _dimension_record(
     )
 
 
-def _geometric_tolerance_record(obj, type_code: int, source_id: str) -> PmiRecord:
-    """Convert the currently preserved subset of one XCAF geometric tolerance."""
+def _geometric_tolerance_record(
+    label, obj, type_code: int, shape_tool, dim_tol_tool, source_id: str
+) -> tuple[PmiRecord, tuple[str, ...]]:
+    """Convert the XCAF-owned fields of one geometric tolerance."""
     value = float(obj.GetValue())
     kind = _GTOL_TYPE.get(type_code, f"gtol{type_code}")
-    return PmiRecord(
-        kind=kind,
-        type_code=type_code,
-        value=value,
-        label=f"{kind} {value:.3g}" if value else kind,
-        source_id=source_id,
+    partial_reasons: list[str] = []
+    if type_code not in _GTOL_TYPE:
+        partial_reasons.append(f"geometric-tolerance type {type_code} is unsupported")
+    if value <= 0:
+        partial_reasons.append("tolerance magnitude is unavailable")
+    points, ref_bbox, dominant_axis, reference_reasons = _reference_geometry(label, shape_tool)
+    partial_reasons.extend(reference_reasons)
+    datum_refs, datum_reasons = _datum_references(label, dim_tol_tool)
+    partial_reasons.extend(datum_reasons)
+    return (
+        PmiRecord(
+            kind=kind,
+            type_code=type_code,
+            value=value,
+            ref_pts=points,
+            ref_bbox=ref_bbox,
+            dominant_axis=dominant_axis,
+            label=f"{kind} {value:.3g}" if value > 0 else kind,
+            source_id=source_id,
+            datum_refs=datum_refs,
+        ),
+        tuple(dict.fromkeys(partial_reasons)),
     )
 
 
@@ -510,7 +570,9 @@ def extract_pmi_report(step_file: str | Path) -> PmiExtractionReport:
         try:
             obj = XCAFDoc_GeomTolerance.Set_s(label).GetObject()
             tolerance_type_code = int(obj.GetType())
-            record = _geometric_tolerance_record(obj, tolerance_type_code, source_id)
+            record, partial_reasons = _geometric_tolerance_record(
+                label, obj, tolerance_type_code, shape_tool, dt, source_id
+            )
         except Exception as exc:
             sources.append(
                 PmiSourceEntity(
@@ -529,8 +591,8 @@ def extract_pmi_report(step_file: str | Path) -> PmiExtractionReport:
                     source_id,
                     "geometric_tolerance",
                     tolerance_type_code,
-                    "partially_extracted",
-                    "only the characteristic type is preserved; value and references are incomplete",
+                    "partially_extracted" if partial_reasons else "extracted",
+                    "; ".join(partial_reasons),
                 )
             )
 
@@ -571,16 +633,21 @@ def extract_pmi_report(step_file: str | Path) -> PmiExtractionReport:
         source.category == "geometric_tolerance" and source.outcome == "partially_extracted"
         for source in sources
     )
+    extracted_tolerances = sum(
+        source.category == "geometric_tolerance" and source.outcome == "extracted"
+        for source in sources
+    )
 
     _log.info(
         "PMI extracted from %s: %d/%d complete semantic dims (%d partial, "
         "%d presentation-only), "
-        "0/%d complete gtols (%d partial), 0/%d datums",
+        "%d/%d complete gtols (%d partial), 0/%d datums",
         Path(step_file).name,
         extracted_dimensions,
         semantic_dimensions,
         partial_dimensions,
         presentation_dimensions,
+        extracted_tolerances,
         tolerances.Length(),
         partial_tolerances,
         datums.Length(),
