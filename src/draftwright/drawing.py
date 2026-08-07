@@ -80,12 +80,14 @@ from draftwright.linting import (
     lint_flat_coverage,
     lint_location_coverage,
     lint_pmi_extraction,
+    lint_pmi_ignored,
     lint_pmi_lowering,
     lint_pmi_rendering,
     lint_principal_profile_coverage,
     lint_prismatic_coverage,
     lint_profiled_bore_coverage,
     lint_slot_coverage,
+    pmi_stage_summary,
 )
 from draftwright.projection import (
     project_view_geometry,
@@ -2883,6 +2885,11 @@ class Drawing:
                     recognition=recognition,
                 )
         if physical and self._analysis is not None:
+            issues += lint_pmi_ignored(
+                self._analysis.pmi_report,
+                self._analysis.pmi_mode,
+                defaulted=self._analysis.pmi_defaulted,
+            )
             issues += lint_pmi_extraction(self._analysis.pmi_report, self._analysis.pmi_mode)
             issues += lint_pmi_lowering(
                 self._analysis.pmi_report,
@@ -2914,6 +2921,8 @@ class Drawing:
         - ``geometry_issues`` — count of standards/geometry-correctness issues
           as opposed to pure layout (see ``_GEOMETRY_AWARE_CODES``);
         - ``issues`` — the full list, each as a plain dict.
+        - ``pmi`` — when source PMI exists, source-to-render stage counts derived from the
+          extraction report, final IR, annotation registry, and structured placement drops.
         """
         issues = self.lint()
         errors = sum(1 for i in issues if i.severity == "error")
@@ -2925,6 +2934,16 @@ class Drawing:
         score = max(
             0.0,
             1.0 - errors * _SCORE_ERROR_PENALTY - warnings * _SCORE_WARNING_PENALTY,
+        )
+        pmi = (
+            pmi_stage_summary(
+                self._analysis.pmi_report,
+                getattr(self._part_model, "features", ()),
+                self._registry,
+                self._analysis.pmi_mode,
+            )
+            if self._analysis is not None
+            else None
         )
         return {
             "passed": errors == 0,
@@ -2950,6 +2969,7 @@ class Drawing:
                 }
                 for i in issues
             ],
+            **({"pmi": pmi} if pmi is not None else {}),
         }
 
     # The output formats export() understands. PDF renders from the SVG, PNG from the PDF —

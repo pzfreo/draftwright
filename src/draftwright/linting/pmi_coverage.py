@@ -2,10 +2,86 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import Literal
 
 from draftwright.linting.issues import LintIssue
 from draftwright.pmi import PmiExtractionReport
+
+
+def _source_category_counts(report: PmiExtractionReport) -> dict[str, int]:
+    return dict(sorted(Counter(source.category for source in report.sources).items()))
+
+
+def lint_pmi_ignored(
+    report: PmiExtractionReport | None, mode: str, *, defaulted: bool
+) -> list[LintIssue]:
+    """Report one source-level event when off mode deliberately ignores authored PMI."""
+    if report is None or mode != "off" or not report.sources:
+        return []
+
+    counts = _source_category_counts(report)
+    names = {
+        "dimension": "dimension",
+        "geometric_tolerance": "geometric tolerance",
+        "datum": "datum",
+    }
+    inventory = ", ".join(
+        f"{count} {names[category]}{'s' if count != 1 else ''}"
+        for category, count in counts.items()
+    )
+    reason = "PMI annotation is disabled by default" if defaulted else "pmi='off' was selected"
+    return [
+        LintIssue(
+            severity="info",
+            code="pmi_present_but_ignored",
+            message=(
+                f"AP242 PMI is present but ignored because {reason} ({inventory}); "
+                "use --pmi report to inspect it or --pmi annotate to place supported PMI"
+            ),
+        )
+    ]
+
+
+def pmi_stage_summary(
+    report: PmiExtractionReport | None, features, registry, mode: str
+) -> dict[str, object] | None:
+    """Derive source-to-render stage counts from the canonical report, IR, and registry.
+
+    The counts are stage inventories, not an additive funnel: presentation-only source labels
+    are inventoried but produce no extracted record, while a partially extracted record still
+    reached the extraction stage. Distinct source IDs keep every count per source entity.
+    """
+    if report is None or not report.sources:
+        return None
+
+    extracted = {record.source_id for record in report.records if record.source_id}
+    lowered_features = [
+        feature
+        for feature in features
+        if getattr(feature, "source_id", "") in extracted
+        and getattr(feature, "kind", None) != "pmi"
+    ]
+    lowered = {feature.source_id for feature in lowered_features}
+    rendered = {
+        feature.source_id for feature in lowered_features if registry.names_for_feature(feature)
+    }
+    dropped = {
+        source_id
+        for issue in registry.issues
+        if getattr(issue, "code", None) == "pmi_dropped"
+        for source_id in getattr(issue, "source_ids", ())
+        if source_id in lowered
+    }
+    return {
+        "mode": mode,
+        "sources": len(report.sources),
+        "by_category": _source_category_counts(report),
+        "extracted": len(extracted),
+        "lowered": len(lowered),
+        "rendered": len(rendered),
+        "dropped": len(dropped),
+    }
 
 
 def lint_pmi_extraction(report: PmiExtractionReport | None, mode: str) -> list[LintIssue]:

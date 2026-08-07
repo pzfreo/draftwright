@@ -132,10 +132,10 @@ def main(
         help="--script flavour: only 'sheet' (the declarative Sheet script, one line per "
         "feature). Retained for scripts that pass it",
     ),
-    pmi: PmiMode = typer.Option(
-        PmiMode.off,
+    pmi: PmiMode | None = typer.Option(
+        None,
         help=(
-            "AP242 PMI handling: 'off' ignore; 'report' log extracted PMI without "
+            "AP242 PMI handling (default: off): 'off' ignore; 'report' log extracted PMI without "
             "annotating; 'annotate' add PMI-derived dimensions to the drawing"
         ),
     ),
@@ -217,7 +217,7 @@ def main(
                 frame=frame,
                 zones=zones,
                 projection=projection or None,
-                pmi=pmi.value,
+                pmi=pmi.value if pmi is not None else "off",
                 formats=tuple(formats),
             )
         print(py_path)
@@ -232,7 +232,7 @@ def main(
         drawn_by=drawn_by,
         scale=scale,
         page=page,
-        pmi=pmi.value,
+        pmi=pmi.value if pmi is not None else None,
         material=material,
         date=date,
         revision=revision,

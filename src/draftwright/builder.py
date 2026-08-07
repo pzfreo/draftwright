@@ -763,7 +763,7 @@ def build_drawing(
     page: str | tuple | None = None,
     auto_dims: bool = True,
     detail_view: bool = True,
-    pmi: Literal["off", "report", "annotate"] = "off",
+    pmi: Literal["off", "report", "annotate"] | None = None,
     repair: bool = True,
     assembly: bool | None = None,
     model: Sequence[Feature] | PartModel | None = None,
@@ -797,6 +797,11 @@ def build_drawing(
         detail_view: automatically recover crowded prismatic step dimensions in an
             enlarged detail view. Default ``True``; pass ``False`` to leave them on the
             parent view only and report ``step_dim_dropped`` when they do not fit.
+        pmi: AP242 PMI handling. ``None`` (the default) behaves as ``"off"`` but retains
+            that it was defaulted so a source containing authored PMI can say annotation is
+            disabled by default. Explicit ``"off"`` produces no PMI annotations or per-record
+            failures but reports the ignored source inventory; ``"report"`` inventories and
+            lowers without rendering; ``"annotate"`` also requires render outcomes.
         repair: run the bounded lint→repair loop (:meth:`Drawing.repair`) after
             placement to fix mechanically-clear violations (a dim on the wrong
             side, two overlapping labels). Default ``True``; a no-op on a clean
@@ -934,7 +939,7 @@ def make_drawing(
     page: str | tuple | None = None,
     auto_dims: bool = True,
     detail_view: bool = True,
-    pmi: Literal["off", "report", "annotate"] = "off",
+    pmi: Literal["off", "report", "annotate"] | None = None,
     assembly: bool | None = None,
     material: str = "",
     date: str = "",

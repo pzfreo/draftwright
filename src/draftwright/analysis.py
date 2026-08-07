@@ -502,7 +502,7 @@ def _analyse(
     out,
     scale=None,
     page=None,
-    pmi="off",
+    pmi=None,
     model=None,
     decorations=None,
     material="",
@@ -531,15 +531,21 @@ def _analyse(
         src = str(step_file)
     part = _solids_body(part, src)
 
-    # Semantic PMI extraction (AP242 only; separate read-only pass).
+    pmi_defaulted = pmi is None
+    pmi_mode = "off" if pmi_defaulted else pmi
+
+    # Semantic PMI census (AP242 only; separate read-only pass). Even off mode inventories a
+    # STEP source so it can say authored PMI was ignored; it deliberately does not feed those
+    # records into the IR. In-memory Shapes have no AP242 document to inspect.
     pmi_report = None
     pmi_records: list = []
-    if pmi != "off" and not isinstance(step_file, Shape):
+    if not isinstance(step_file, Shape):
         from draftwright.pmi import PmiExtractionReport, extract_pmi_report
 
         try:
             pmi_report = extract_pmi_report(step_file)
-            pmi_records = list(pmi_report.records)
+            if pmi_mode != "off":
+                pmi_records = list(pmi_report.records)
         except Exception as exc:
             _log.warning("PMI extraction failed: %s", exc)
             pmi_report = PmiExtractionReport(error=f"{type(exc).__name__}: {exc}")
@@ -889,7 +895,8 @@ def _analyse(
         zones=zones,
         out=out,
         pmi_report=pmi_report,
-        pmi_mode=pmi,
+        pmi_mode=pmi_mode,
+        pmi_defaulted=pmi_defaulted,
         # The sizing model IS the render model when detection ran (identical inputs by
         # construction — #584 WP1 A); store it so the pipeline never detects twice
         # (ADR 0008 Amdt 5, #602). A declared model (layout_model) is NOT stored: the

@@ -1015,11 +1015,16 @@ class Analysis:
     tolerance: str
     drawn_by: str
     out: str
-    # Canonical AP242 source census + extraction outcomes, or None when PMI was not requested
-    # (or the input is an in-memory Shape). Typed as object to keep the rank-1 core from
-    # importing rank-2 pmi; the compatibility `pmi` property below is its records projection.
+    # Canonical AP242 source census + extraction outcomes for a STEP input, including off mode
+    # (which inventories but does not lower records); None for an in-memory Shape. Typed as
+    # object to keep the rank-1 core from importing rank-2 pmi; the compatibility `pmi` property
+    # below is its records projection.
     pmi_report: object | None
     pmi_mode: str
+    # True when the caller omitted `pmi` and the public default selected off. Kept separate
+    # from the effective mode so the ignored-PMI diagnostic can distinguish that default from
+    # an explicit opt-out without widening the three-mode renderer contract (#623).
+    pmi_defaulted: bool
     # Standing ISO 7200 title-block fields (#766) — defaulted, so they sit after the
     # non-default fields above. Defaults preserve the prior output: revision "A", the rest
     # blank (the TitleBlock helper's own defaults).

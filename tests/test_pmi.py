@@ -1,4 +1,4 @@
-"""Tests for PMI extraction and annotation (Phase 1–3)."""
+"""Tests for AP242 PMI extraction, lowering, rendering, and mode reconciliation."""
 
 from collections import Counter
 from pathlib import Path
@@ -12,6 +12,7 @@ from draftwright.pmi import _PMI_AVAILABLE, PmiExtractionReport, PmiRecord
 
 FIXTURES = Path(__file__).parent / "fixtures"
 CTC01 = FIXTURES / "nist_ctc_01_asme1_ap242.stp"
+CTC01_AP203 = FIXTURES / "nist_ctc_01_asme1_ap203.stp"
 
 pytestmark = pytest.mark.skipif(not _PMI_AVAILABLE, reason="OCP GDT support not available")
 
@@ -373,14 +374,53 @@ def _single_source_dimension_drawing():
 
 
 class TestBuildDrawingPmi:
-    def test_pmi_off_leaves_drawing_unchanged(self, tmp_path):
-        """pmi='off' produces an identical drawing to not passing pmi at all."""
+    def test_explicit_pmi_off_reports_one_ignored_inventory_without_render_failures(
+        self, tmp_path
+    ):
         stem = str(tmp_path / "ctc01_no_pmi")
         dwg = build_drawing(str(CTC01), out=stem, title="CTC-01", number="NIST-01", pmi="off")
         pmi_names = [n for n in dwg.annotations() if n.startswith("pmi_")]
         assert pmi_names == [], f"pmi='off' should add no pmi_ annotations, got {pmi_names}"
-        assert not [issue for issue in dwg.lint() if issue.code == "pmi_not_extracted"]
-        assert not [issue for issue in dwg.lint() if issue.code == "pmi_not_rendered"]
+        issues = dwg.lint()
+        ignored = [issue for issue in issues if issue.code == "pmi_present_but_ignored"]
+        assert len(ignored) == 1
+        assert ignored[0].severity == "info"
+        assert "pmi='off' was selected" in ignored[0].message
+        assert "21 dimensions" in ignored[0].message
+        assert "6 geometric tolerances" in ignored[0].message
+        assert "11 datums" in ignored[0].message
+        assert "--pmi report" in ignored[0].message
+        assert "--pmi annotate" in ignored[0].message
+        assert not [issue for issue in issues if issue.code.startswith("pmi_not_")]
+
+        assert dwg.lint_summary()["pmi"] == {
+            "mode": "off",
+            "sources": 38,
+            "by_category": {"datum": 11, "dimension": 21, "geometric_tolerance": 6},
+            "extracted": 18,
+            "lowered": 0,
+            "rendered": 0,
+            "dropped": 0,
+        }
+
+    def test_default_pmi_off_says_annotation_is_disabled_by_default(self, tmp_path, caplog):
+        drawing = build_drawing(CTC01, out=str(tmp_path / "ctc01_default"))
+        ignored = [issue for issue in drawing.lint() if issue.code == "pmi_present_but_ignored"]
+
+        assert len(ignored) == 1
+        assert "PMI annotation is disabled by default" in ignored[0].message
+        assert "pmi='off' was selected" not in ignored[0].message
+        assert not [name for name in drawing.annotations() if name.startswith("pmi_")]
+
+        caplog.clear()
+        drawing.export(formats=("svg",))
+        assert sum("pmi_present_but_ignored" in record.message for record in caplog.records) == 1
+
+    def test_default_pmi_probe_keeps_ap203_quiet(self, tmp_path):
+        drawing = build_drawing(CTC01_AP203, out=str(tmp_path / "ctc01_ap203"))
+
+        assert not [issue for issue in drawing.lint() if issue.code.startswith("pmi_")]
+        assert "pmi" not in drawing.lint_summary()
 
     def test_a_top_level_extraction_failure_cannot_become_no_pmi(self, tmp_path, monkeypatch):
         import draftwright.pmi as pmi_module
@@ -417,6 +457,15 @@ class TestBuildDrawingPmi:
         assert {issue.severity for issue in lowering} == {"info"}
         assert len({issue.source_ids for issue in lowering}) == 10
         assert not [issue for issue in dwg.lint() if issue.code == "pmi_not_rendered"]
+        assert dwg.lint_summary()["pmi"] == {
+            "mode": "report",
+            "sources": 38,
+            "by_category": {"datum": 11, "dimension": 21, "geometric_tolerance": 6},
+            "extracted": 18,
+            "lowered": 8,
+            "rendered": 0,
+            "dropped": 0,
+        }
 
     def test_pmi_annotate_adds_dims(self, ctc01_annotated):
         """pmi='annotate' adds at least one pmi_ dimension to the drawing."""
@@ -487,6 +536,15 @@ class TestBuildDrawingPmi:
         assert rendered.isdisjoint(dropped)
         assert rendered | dropped == {feature.source_id for feature in authored}
         assert not [issue for issue in ctc01_annotated.lint() if issue.code == "pmi_not_rendered"]
+        assert ctc01_annotated.lint_summary()["pmi"] == {
+            "mode": "annotate",
+            "sources": 38,
+            "by_category": {"datum": 11, "dimension": 21, "geometric_tolerance": 6},
+            "extracted": 18,
+            "lowered": 8,
+            "rendered": 6,
+            "dropped": 2,
+        }
 
     def test_a_deleted_render_dispatch_is_reported_by_source_identity(self, monkeypatch):
         import draftwright.annotations.from_model as from_model
@@ -559,6 +617,48 @@ class TestBuildDrawingPmi:
         """All pmi_ annotation names in the drawing are unique."""
         pmi_names = [n for n in ctc01_annotated.annotations() if n.startswith("pmi_")]
         assert len(pmi_names) == len(set(pmi_names)), f"duplicate pmi names: {pmi_names}"
+
+
+def test_pmi_summary_is_derived_from_registry_outcomes():
+    from draftwright.linting import LintIssue, pmi_stage_summary
+    from draftwright.pmi import PmiSourceEntity
+
+    drawing = _single_source_dimension_drawing()
+    feature = next(
+        feature
+        for feature in drawing.model().features
+        if feature.source_id == "dimension:mutation"
+    )
+    report = PmiExtractionReport(
+        sources=(PmiSourceEntity("dimension:mutation", "dimension", 1, "extracted"),),
+        records=(PmiRecord("linear", 1, 20, source_id="dimension:mutation"),),
+    )
+
+    placed = pmi_stage_summary(report, drawing.model().features, drawing.registry, "annotate")
+    (annotation_name,) = drawing.registry.names_for_feature(feature)
+    drawing.remove(annotation_name)
+    missing = pmi_stage_summary(report, drawing.model().features, drawing.registry, "annotate")
+    drawing.registry.record_issue(
+        LintIssue(
+            severity="warning",
+            code="pmi_dropped",
+            message="mutation: solver rejected the candidate",
+            source_ids=("dimension:mutation",),
+        )
+    )
+    dropped = pmi_stage_summary(report, drawing.model().features, drawing.registry, "annotate")
+
+    assert placed == {
+        "mode": "annotate",
+        "sources": 1,
+        "by_category": {"dimension": 1},
+        "extracted": 1,
+        "lowered": 1,
+        "rendered": 1,
+        "dropped": 0,
+    }
+    assert missing["rendered"] == 0 and missing["dropped"] == 0
+    assert dropped["rendered"] == 0 and dropped["dropped"] == 1
 
 
 class TestDeclaredModelPmi:

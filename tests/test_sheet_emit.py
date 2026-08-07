@@ -1096,6 +1096,30 @@ class TestLooksLikeSpec:
 
 
 class TestCli:
+    def test_cli_preserves_default_vs_explicit_pmi_off(self, tmp_path, monkeypatch):
+        from typer.testing import CliRunner
+
+        import draftwright.builder as builder_module
+        from draftwright.cli import app
+
+        seen = []
+
+        class DrawingStub:
+            def export(self, *, formats):
+                return {name: str(tmp_path / f"out.{name}") for name in formats}
+
+        def build_stub(**kwargs):
+            seen.append(kwargs["pmi"])
+            return DrawingStub()
+
+        monkeypatch.setattr(builder_module, "build_drawing", build_stub)
+        defaulted = CliRunner().invoke(app, ["part.step"])
+        explicit = CliRunner().invoke(app, ["part.step", "--pmi", "off"])
+
+        assert defaulted.exit_code == 0, defaulted.output
+        assert explicit.exit_code == 0, explicit.output
+        assert seen == [None, "off"]
+
     def test_style_sheet_routes_to_the_declarative_emitter(self, tmp_path):
         from typer.testing import CliRunner
 
