@@ -1133,6 +1133,32 @@ def _axial_covered_from_drawing(part, dwg, prof, tol: float = 0.6) -> int:
     return len(covered_steps)
 
 
+def _overall_axial_extent_is_dimensioned(part, dwg, prof, tol: float = 0.6) -> bool:
+    """Whether a profile-view dimension witnesses the turned profile's two outer ends."""
+    if not prof.shoulders:
+        return False
+    view = "side" if prof.axis == "y" else "front"
+    use_x = prof.axis in ("x", "y")
+
+    def projected(station: float) -> float:
+        c = part.bounding_box().center()
+        point = [c.X, c.Y, c.Z]
+        point["xyz".index(prof.axis)] = station
+        x, y, *_ = dwg.at(view, *point)
+        return float(x if use_x else y)
+
+    lo, hi = projected(min(prof.shoulders)), projected(max(prof.shoulders))
+    for _name, annotation in dwg.annotations_in_view(view):
+        if not isinstance(annotation, Dimension):
+            continue
+        coords = {(x if use_x else y) for x, y in _dim_vertices(annotation)}
+        if any(abs(value - lo) <= tol for value in coords) and any(
+            abs(value - hi) <= tol for value in coords
+        ):
+            return True
+    return False
+
+
 def lint_axial_coverage(part, dwg, assembly=None, prof=_UNSET) -> list:
     """Report a stepped turned part whose axial step lengths are undimensioned.
 
@@ -1167,6 +1193,18 @@ def lint_axial_coverage(part, dwg, assembly=None, prof=_UNSET) -> list:
     # leaves its band uncovered, so a genuine gap still fires (reconcile rendered, not intent).
     covered += sum(1 for name in dwg.annotations() if name.startswith(f"m_groove_{prof.axis}"))
     if covered >= n:
+        return []
+    # #955: when placement drops the complete chain, its specific warning already says the
+    # shoulders remain unresolved. If the compiler-approved overall fallback survived, the
+    # generic "axial length absent" warning would duplicate that diagnosis even though the
+    # part's total extent is now stated. The drop is a required half of this condition: an
+    # authored drawing that chooses only the overall extent still lacks shoulder locations
+    # and must continue to receive ``axial_length_missing``.
+    registry = getattr(dwg, "registry", None)
+    chain_drop_reported = any(
+        issue.code == "step_dim_dropped" for issue in getattr(registry, "issues", ())
+    )
+    if chain_drop_reported and _overall_axial_extent_is_dimensioned(part, dwg, prof):
         return []
     return [
         LintIssue(

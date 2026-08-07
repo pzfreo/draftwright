@@ -1309,3 +1309,30 @@ silently acquiring an obligation.
 Incidentally the softer label is the louder signal: `DeprecationWarning` is filtered by
 default in notebooks, several test runners and library-internal call paths, whereas a
 `UserWarning` shows unconditionally.
+
+## Amendment 5 — placement may release a compiler-approved contingency (2026-08-07)
+
+**A plan may carry an approved alternative that stays inactive unless the primary
+representation places no marks.** The alternative is dimensional content, not permission for
+a renderer to derive content after placement.
+
+#955 supplied the concrete case. A Z-turned part normally states its axial extent through the
+step-length chain, so the overall height is omitted. Whether that chain survives is known only
+at placement: a crowded chain can be dropped transactionally. The compiler cannot predict the
+drop, while the renderer must not recover the height from the bounding box. Treating either
+layer as the owner breaks Amendment 1's WHAT/WHERE split.
+
+`RenderableDimensionPlan.contingencies` therefore carries the compiler-built
+`ApprovedLadder` for the overall height, paired with the primary representation and its
+inactive diagnostic. The orchestrator observes only the primary renderer's placement result:
+when the complete chain places zero marks, it releases the already-approved ladder and removes
+the now-stale omission. `render_height_ladder` receives an ordinary approved entry and remains
+unable to read the model or bounding box. If the released height also cannot fit, that is an
+ordinary placement drop, not suppression.
+
+Three constraints keep this from becoming a conditional-suppression flag under another name:
+
+- an authored omission prevents the contingency from being compiled at all;
+- a surviving primary leaves the fallback inactive and the omission diagnostic intact;
+- contingencies are addressable, so a generated authored `Sheet` script carries the fallback
+  intent and makes the same runtime selection as the detected build.

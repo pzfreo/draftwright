@@ -663,7 +663,8 @@ def mirror_model(model):
         return model, None
     from draftwright.model.compiled import compile_dimensions
 
-    if compile_dimensions(model).ladder("overall_height") is None:
+    plan = compile_dimensions(model)
+    if plan.ladder("overall_height") is None and plan.contingency("step_length") is None:
         return model, None  # the compiler withholds it (Z-turned, rotational OD)
     from dataclasses import replace
 

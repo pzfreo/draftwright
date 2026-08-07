@@ -49,7 +49,7 @@ completeness:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from draftwright._geometry import _fmt
@@ -412,6 +412,22 @@ class Omission:
         return self.reason == _AUTHORED_OMISSION
 
 
+@dataclass(frozen=True)
+class ApprovedContingency:
+    """Compiler-approved content released only when its primary representation places none.
+
+    The fallback is dimensional content, not a renderer recipe: it is the same
+    :class:`ApprovedLadder` the renderer would receive on the ordinary path. ``inactive`` is
+    the planner diagnostic that remains truthful while the primary survives and is removed
+    when the fallback is released. Placement decides only whether the primary survived; it
+    never derives the fallback measurement.
+    """
+
+    primary: str
+    fallback: ApprovedLadder
+    inactive: Omission
+
+
 #: The role a script names for each ladder kind. The step kinds are absent deliberately:
 #: their members are the step feature's own parameters, already addressed through the group
 #: traversal, so naming them again would ask a script to declare one measurement twice.
@@ -497,6 +513,10 @@ class RenderableDimensionPlan:
     #: `span` is ``(datum, located point)`` and `axis` is the feature's frame axis — the
     #: two things the renderer needs and cannot derive.
     locations: tuple[ApprovedDimension, ...] = ()
+    #: Approved alternatives that are not drawn with their primary representation. They are
+    #: addressable because a generated authored script must carry the fallback intent even
+    #: when the automatic build did not need to release it.
+    contingencies: tuple[ApprovedContingency, ...] = ()
     diagnostics: tuple[Omission, ...] = field(default=())
 
     def of_kind(self, *kinds: str) -> tuple[ApprovedGroup, ...]:
@@ -511,13 +531,34 @@ class RenderableDimensionPlan:
         """The approved ladder of *kind*, or ``None`` if it was not approved."""
         return next((lad for lad in self.ladders if lad.kind == kind), None)
 
+    def contingency(self, primary: str) -> ApprovedContingency | None:
+        """The approved fallback for *primary*, or ``None`` when none was compiled."""
+        return next((item for item in self.contingencies if item.primary == primary), None)
+
+    def release_contingency(self, primary: str) -> RenderableDimensionPlan:
+        """Return a plan in which *primary*'s already-approved fallback is active.
+
+        Releasing removes the inactive planner diagnostic. A fallback that later fails to fit
+        is a placement drop and is reported by the renderer, not as a stale suppression.
+        """
+        selected = tuple(item for item in self.contingencies if item.primary == primary)
+        if not selected:
+            return self
+        inactive_ids = {id(item.inactive) for item in selected}
+        return replace(
+            self,
+            ladders=(*self.ladders, *(item.fallback for item in selected)),
+            contingencies=tuple(item for item in self.contingencies if item.primary != primary),
+            diagnostics=tuple(item for item in self.diagnostics if id(item) not in inactive_ids),
+        )
+
     #: The fields carrying approved dimensional content, each with how it names itself.
     #: `addressable()` iterates exactly this, and
     #: `test_compiled_plan_boundary.py::test_every_approved_collection_is_addressable` requires
     #: it to cover every such field — so a NEW compiler-owned category cannot be added without
     #: either flowing into generated scripts or being explicitly, visibly excluded (#946).
     #: `diagnostics` is not here: it is what was NOT approved, and has its own contract.
-    _ADDRESSABLE = ("groups", "ladders", "locations")
+    _ADDRESSABLE = ("groups", "ladders", "locations", "contingencies")
 
     def addressable(self) -> tuple[AddressableIntent, ...]:
         """Every approved intent, in plan order, as the target a script would name.
@@ -572,6 +613,14 @@ class RenderableDimensionPlan:
                 continue
             named.add(id(feature))
             out.append(AddressableIntent(approved.ref, "location"))
+        return out
+
+    def _addressable_contingencies(self) -> list[AddressableIntent]:
+        out: list[AddressableIntent] = []
+        for item in self.contingencies:
+            ladder = item.fallback
+            if ladder.kind in _LADDER_ROLE:
+                out.append(AddressableIntent(ladder.ref, _LADDER_ROLE[ladder.kind]))
         return out
 
     def omitted(self, kind: str) -> tuple[Omission, ...]:
@@ -739,8 +788,8 @@ def _compile_step_ladders(model: PartModel, marked) -> tuple[list[ApprovedLadder
 
 
 def _compile_overall_height(
-    model: PartModel, marked, *, include_overall: bool
-) -> tuple[ApprovedLadder | None, list[Omission]]:
+    model: PartModel, marked, *, include_overall: bool, step_chain_approved: bool
+) -> tuple[ApprovedLadder | None, ApprovedContingency | None, list[Omission]]:
     """The part's overall height — the envelope's ``height`` parameter, drawn in the
     front-view right strip rather than below a view, which is why it rides the ladder.
 
@@ -758,29 +807,11 @@ def _compile_overall_height(
     bb: Any = model.bbox  # build123d BoundBox
     rot = next((f for f in model.features if isinstance(f, RotationalFeature)), None)
     if not include_overall:
-        return None, []
-    if model.orientation == "z":
-        return None, [
-            Omission(
-                env,
-                "height.length",
-                float(bb.size.Z),
-                "Z-turned (the step chain tiles the height)",
-            )
-        ]
-    if rot is not None and rot.frame.axis in ("x", "y"):
-        return None, [
-            Omission(
-                env,
-                "height.length",
-                float(bb.size.Z),
-                f"rotational OD ({rot.frame.axis}-axis) conveys the height",
-            )
-        ]
+        return None, None, []
+    mark = marked.get((id(env), "height.length")) if env is not None else None
     if env is not None:
-        mark = marked.get((id(env), "height.length"))
-        if mark is not None:
-            return None, [Omission(env, "height.length", mark[0], mark[1])]
+        if mark is not None and mark[1] == _AUTHORED_OMISSION:
+            return None, None, [Omission(env, "height.length", mark[0], mark[1])]
     elif model.authored_dimensions is not None:
         # No `EnvelopeFeature`, so the height falls back to the bounding box and no
         # parameter anywhere names it. An AUTHORED set is the drawing's complete
@@ -788,29 +819,58 @@ def _compile_overall_height(
         # for: declaring `.envelope()` is how the overall height becomes nameable (#876).
         # This is the one place the fallback lives, so refusing it is one branch rather
         # than a rule every renderer has to remember.
-        return None, [
-            Omission(None, "height.length", float(bb.size.Z), "not in the authored dimension set")
-        ]
+        return (
+            None,
+            None,
+            [
+                Omission(
+                    None, "height.length", float(bb.size.Z), "not in the authored dimension set"
+                )
+            ],
+        )
     value = float(env.height) if env is not None else float(bb.size.Z)
     env_ref = FeatureRef(env) if env is not None else None
     x, y = float(bb.max.X), float(bb.min.Y)
-    return (
-        ApprovedLadder(
-            "overall_height",
-            (
-                ApprovedDimension(
-                    id=_dim_id(env, "height.length"),
-                    value_text=_fmt(value),
-                    value=value,
-                    span=((x, y, float(bb.min.Z)), (x, y, float(bb.max.Z))),
-                    ref=env_ref,
-                    rendered_label=_fmt(value),
-                ),
+    ladder = ApprovedLadder(
+        "overall_height",
+        (
+            ApprovedDimension(
+                id=_dim_id(env, "height.length"),
+                value_text=_fmt(value),
+                value=value,
+                span=((x, y, float(bb.min.Z)), (x, y, float(bb.max.Z))),
+                ref=env_ref,
+                rendered_label=_fmt(value),
             ),
-            ref=env_ref,
         ),
-        [],
+        ref=env_ref,
     )
+    if model.orientation == "z":
+        if step_chain_approved:
+            inactive = Omission(
+                env,
+                "height.length",
+                value,
+                "Z-turned (the step chain tiles the height)",
+            )
+            return None, ApprovedContingency("step_length", ladder, inactive), [inactive]
+        return ladder, None, []
+    if rot is not None and rot.frame.axis in ("x", "y"):
+        return (
+            None,
+            None,
+            [
+                Omission(
+                    env,
+                    "height.length",
+                    value,
+                    f"rotational OD ({rot.frame.axis}-axis) conveys the height",
+                )
+            ],
+        )
+    if mark is not None:
+        return None, None, [Omission(env, "height.length", mark[0], mark[1])]
+    return ladder, None, []
 
 
 def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[Omission]]:
@@ -1120,9 +1180,33 @@ def compile_dimensions(
             )
     marked = _suppressed_dims(model, planned)
     ladders, omissions = _compile_step_ladders(model, marked)
-    overall, height_omissions = _compile_overall_height(
-        model, marked, include_overall=include_overall
+    groups_out, group_omissions = _compile_groups(planned)
+    step_chain_approved = any(
+        group.feature_kind == "step"
+        and group.facts.frame.axis == "z"
+        and group.dim(kind="length") is not None
+        for group in groups_out
     )
+    overall, contingency, height_omissions = _compile_overall_height(
+        model,
+        marked,
+        include_overall=include_overall,
+        step_chain_approved=step_chain_approved,
+    )
+    height_ladder = overall or (contingency.fallback if contingency is not None else None)
+    if height_ladder is not None:
+        # The bespoke compiler can deliberately override the planner's old Z-turn
+        # suppression, either as direct content or as a contingency. Its diagnostic is the
+        # canonical one, so do not retain the general traversal's duplicate (whose legacy
+        # wording differs and would survive value/reason deduplication).
+        overall_feature = resolve_feature(height_ladder.ref)
+        group_omissions = [
+            omission
+            for omission in group_omissions
+            if not (
+                omission.feature is overall_feature and omission.parameter_id == "height.length"
+            )
+        ]
     if overall is not None:
         ladders.append(overall)
     locations, location_omissions = _compile_locations(model)
@@ -1132,11 +1216,11 @@ def compile_dimensions(
     off_axis, off_axis_omissions = _compile_off_axis_hole_locations(model)
     locations.extend(off_axis)
     location_omissions.extend(off_axis_omissions)
-    groups_out, group_omissions = _compile_groups(planned)
     return RenderableDimensionPlan(
         groups=tuple(groups_out),
         ladders=tuple(ladders),
         locations=tuple(locations),
+        contingencies=(contingency,) if contingency is not None else (),
         diagnostics=_dedupe_omissions(
             omissions, height_omissions, location_omissions, group_omissions
         ),

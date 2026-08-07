@@ -41,6 +41,10 @@ The part-drawing engine is a **compiler**:
   dimensioning planner (model/planner.py)   │  plan_dimensions → DimensionGroup
   plan_locations / plan_sections            │  per feature; convention + view +
                                             ▼  model-level suppression + datum
+  compile_dimensions() → RenderableDimensionPlan
+        approved groups / ladders / locations / contingencies + omission diagnostics
+                                            │
+                                            ▼
   render-intents → the IR render layer (annotations/from_model.py, holes.py)
                                             │
   shared layout / projection / export  (ADR 0014 placement, ADR 0004 pack,

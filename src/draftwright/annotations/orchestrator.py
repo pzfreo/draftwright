@@ -37,6 +37,7 @@ from draftwright.analysis import _sizing_bores
 from draftwright.annotations._common import PlacementContext
 from draftwright.annotations.balloons import render_balloons
 from draftwright.annotations.from_model import (
+    ladder_plan_for,
     render_boss_diameters,
     render_boss_heights,
     render_centermarks,
@@ -345,6 +346,9 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # ladder, the shoulders and the detail escalation each hold a separately
     # derived decision — three chances to disagree about one drawing.
     _compiled = compile_dimensions(_model, groups=_groups)
+    # Placement may release compiler-approved alternatives. Keep that runtime selection
+    # separate from the immutable base plan consumed by every ordinary stage.
+    _runtime_plan = _compiled
 
     # Hole callouts, location dims, and the section view fire on *feature
     # presence*, independent of the turned/prismatic class (#10): the
@@ -526,8 +530,20 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # X-turned head queues an enlarged detail request (#304/#307) instead of
         # cramming; the envelope dim along the turning axis was suppressed so the chain
         # does not double-dimension the length.
+        nonlocal _runtime_plan
         if a.prof is not None:
-            render_step_lengths(dwg, _compiled, ctx=ctx)
+            placed = render_step_lengths(dwg, _compiled, ctx=ctx)
+            if placed == 0:
+                released = _runtime_plan.release_contingency("step_length")
+                if released is not _runtime_plan:
+                    _runtime_plan = released
+                    render_height_ladder(
+                        dwg,
+                        ladder_plan_for(_runtime_plan, step_height=False, overall=True),
+                        layout_frame(a),
+                        ctx=ctx,
+                        detail_view=detail_view,
+                    )
 
     def _s_off_axis_along():
         # Side-drilled (X/Y-axis) hole HEIGHT locations — queued after the mandatory
@@ -658,7 +674,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # The escalations live only on this per-run ctx (#639), discarded when _auto_annotate
     # returns — so nothing carries stale drops into a later deferred edit (#440), and there is
     # no drawing-level list to clear.
-    return _compiled.diagnostics
+    return _runtime_plan.diagnostics
 
 
 def _maybe_tabulate_holes(dwg, a: Analysis, *, ctx):

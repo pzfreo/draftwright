@@ -1397,12 +1397,11 @@ class TestRoundTripParity:
         moment that output was declared rather than detected.
 
         Signature parity alone would also be satisfied by two identically BLANK drawings, so
-        this pins the content on both sides as well — including the part that is still wrong.
+        this pins the content on both sides as well.
         This shaft's shoulders sit 4 mm apart, which fails the legibility gate, which drops the
-        whole step chain; the overall height was already suppressed at compile time on the
-        premise that chain would convey it, so nothing states the 60 mm. That is #955, it
-        predates this fix and affects the detected path identically, and it is asserted here
-        rather than glossed: when #955 lands this test must fail and be updated."""
+        whole step chain. #955 recovers the overall height from a compiler-approved contingency
+        while retaining the specific chain-drop diagnostic; direct and generated-script builds
+        must make that same runtime selection."""
         from build123d import Align
 
         shaft = Cylinder(12, 60, align=(Align.CENTER, Align.CENTER, Align.MIN))
@@ -1419,17 +1418,14 @@ class TestRoundTripParity:
             assert any(n.startswith("m_groove") for n in names), (which, names)
             assert "4 WIDE × ø18" in labels, (which, labels)
             assert "ø24" in labels, (which, labels)
-            # The #955 gap, stated: no height, and lint says so on both paths. These four
-            # assertions are expected to fail when #955 lands — that is deliberate. Replace
-            # them with the height's presence then, and check parity still holds; do not
-            # relax them, or the fixture stops describing the drawing it produces. (Asserting
-            # only the lint codes would not decouple this: they change when #955 lands too.)
-            gap = f"{which}: #955 fixed? see the note above — update, don't relax."
-            assert "dim_height" not in names, (gap, names)
-            assert "60" not in labels, (gap, labels)
+            assert "dim_height" in names, (which, names)
+            assert "60" in labels, (which, labels)
             codes = dwg.lint_summary()["by_code"]
-            assert codes.get("axial_length_missing") == 1, (gap, codes)
-            assert codes.get("step_dim_dropped") == 1, (gap, codes)
+            assert codes.get("axial_length_missing", 0) == 0, (which, codes)
+            assert codes.get("step_dim_dropped") == 1, (which, codes)
+            assert not [
+                row for row in dwg.suppressions() if row["parameter_id"] == "height.length"
+            ], (which, dwg.suppressions())
 
     def test_pocket_pattern_parity(self, tmp_path, monkeypatch):
         """#957 review: the emitted script named `pocket` without importing it, so a
@@ -2209,6 +2205,8 @@ _PLAN_DIMENSIONAL_FIELDS = {
     "locations": "walked per approved location, matched on the coarse 'location' role",
     "ladders": "walked per ladder; the compiler states the role it is named by "
     "(`_LADDER_ROLE`), so the emitter no longer carries its own copy (#975)",
+    "contingencies": "walked as approved alternative ladders; generated authored scripts "
+    "must retain a fallback even when the automatic build leaves it inactive",
     "diagnostics": "NOT dimensional — the omissions channel; nothing to mirror by definition",
 }
 
