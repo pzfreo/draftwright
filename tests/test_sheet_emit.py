@@ -2157,6 +2157,23 @@ class TestTheDimensionMirror:
         assert 'sheet.dimension(envelope1, "width.length")' not in src
         assert 'sheet.dimension(envelope1, "depth.length")' not in src
 
+    def test_a_withheld_model_level_height_does_not_synthesise_an_envelope(self):
+        from dataclasses import replace
+
+        from build123d import Align, Rotation
+
+        part = Rotation(0, 90, 0) * Cylinder(10, 30, align=(Align.CENTER, Align.CENTER, Align.MIN))
+        model = detect_part_model(part)
+        model = replace(
+            model, features=[feature for feature in model.features if feature.kind != "envelope"]
+        )
+        assert not any(feature.kind == "envelope" for feature in model.features)
+
+        mirrored, synthesised = mirror_model(model)
+
+        assert mirrored is model
+        assert synthesised is None
+
 
 #: Annotations a generated script legitimately does NOT declare, keyed by EXACT name prefix
 #: where the family is closed, and each carrying the argument that it can never be a

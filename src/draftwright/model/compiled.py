@@ -619,8 +619,10 @@ class RenderableDimensionPlan:
         out: list[AddressableIntent] = []
         for item in self.contingencies:
             ladder = item.fallback
-            if ladder.kind in _LADDER_ROLE:
-                out.append(AddressableIntent(ladder.ref, _LADDER_ROLE[ladder.kind]))
+            # Contingencies are approved dimensional content, so silently ignoring an
+            # unregistered kind would let generated scripts lose it. Indexing is deliberately
+            # fail-closed, matching the addressability ratchet on the containing plan.
+            out.append(AddressableIntent(ladder.ref, _LADDER_ROLE[ladder.kind]))
         return out
 
     def omitted(self, kind: str) -> tuple[Omission, ...]:

@@ -5,12 +5,19 @@ from __future__ import annotations
 from dataclasses import replace
 
 import pytest
-from build123d import Align, Cylinder, Pos
+from build123d import Align, Box, Cylinder, Pos
 
 from draftwright import Sheet, build_drawing
 from draftwright.builder import detect_part_model
-from draftwright.model.compiled import compile_dimensions
+from draftwright.model.compiled import (
+    ApprovedContingency,
+    ApprovedLadder,
+    Omission,
+    RenderableDimensionPlan,
+    compile_dimensions,
+)
 from draftwright.model.ir import EnvelopeFeature, Frame, RequestedDimension, StepFeature
+from draftwright.model.planner import plan_dimensions
 
 
 def _crowded_grooved_shaft():
@@ -54,6 +61,22 @@ def test_the_compiler_owns_the_z_turned_height_contingency():
     assert _height_rows(released) == []
 
 
+def test_an_unregistered_contingency_kind_fails_closed():
+    inactive = Omission(None, "height.length", 1.0, "inactive")
+    plan = RenderableDimensionPlan(
+        contingencies=(
+            ApprovedContingency(
+                "primary",
+                ApprovedLadder("unregistered", ()),
+                inactive,
+            ),
+        )
+    )
+
+    with pytest.raises(KeyError, match="unregistered"):
+        plan.addressable()
+
+
 def test_an_authored_omission_never_becomes_a_contingency():
     model = detect_part_model(_crowded_grooved_shaft())
     envelope = _envelope_for(model)
@@ -89,6 +112,31 @@ def test_z_turned_without_an_approved_chain_gets_the_height_directly():
     assert overall is not None
     assert overall.rungs[0].value == pytest.approx(60)
     assert _height_rows(plan) == []
+
+
+def test_an_unrelated_planner_suppression_still_withholds_height():
+    model = detect_part_model(Box(40, 30, 20))
+    groups = []
+    for group in plan_dimensions(model):
+        units = tuple(
+            replace(
+                unit,
+                members=tuple(
+                    replace(pd, suppressed=True, reason="test policy")
+                    if pd.param.parameter_id == "height.length"
+                    else pd
+                    for pd in unit.members
+                ),
+            )
+            for unit in group.units
+        )
+        groups.append(replace(group, units=units))
+
+    plan = compile_dimensions(model, groups=groups)
+
+    assert plan.ladder("overall_height") is None
+    assert plan.contingency("step_length") is None
+    assert [o.reason for o in _height_rows(plan)] == ["test policy"]
 
 
 @pytest.mark.timeout(120)

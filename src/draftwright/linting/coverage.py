@@ -1135,8 +1135,6 @@ def _axial_covered_from_drawing(part, dwg, prof, tol: float = 0.6) -> int:
 
 def _overall_axial_extent_is_dimensioned(part, dwg, prof, tol: float = 0.6) -> bool:
     """Whether a profile-view dimension witnesses the turned profile's two outer ends."""
-    if not prof.shoulders:
-        return False
     view = "side" if prof.axis == "y" else "front"
     use_x = prof.axis in ("x", "y")
 
