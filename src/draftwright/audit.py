@@ -25,11 +25,8 @@ was believable both times, which is the point.
 The answer lives in `tests/test_audit_differential.py`, whose ratchet scans both placement
 paths (corridor candidates and direct `ctx.place`) across the whole `annotations/` package,
 and whose EXEMPT map IS the exception inventory — every entry carrying its reason, and a
-stale entry failing so the list cannot outlive the gaps it describes. Read that, not this
-paragraph. At the time of writing the gaps are hole callouts (legacy surface, #926), PMI
-(from STEP, never compiled), GD&T frames (not measurements), the direct-placing rotational
-group (#754), the turned step-length chain (#1004) and the pattern pitch/side-hole
-placers (#1005).
+stale entry failing so the list cannot outlive the gaps it describes. Read that, not a
+second prose inventory here.
 
 Even where identity IS recorded, matching it across two builds is approximate. The ledger's
 key embeds the feature's origin and scalars, so it cannot join two builds that differ — the

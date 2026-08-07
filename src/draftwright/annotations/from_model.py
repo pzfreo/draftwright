@@ -19,6 +19,7 @@ once the holes epic landed (#251).
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass, replace
 from typing import Any
 
 from build123d_drafting import DatumFeature, FeatureControlFrame, SurfaceFinish, TextBlock
@@ -2603,7 +2604,35 @@ def render_envelope(dwg, plan, a, *, ctx) -> int:
     return n
 
 
-def _record_step_chain_drop(dwg, why: str, *, ctx) -> None:
+@dataclass(frozen=True)
+class _StepChainSegment:
+    """One step-length claim as it moves from part space through page projection.
+
+    The old positional tuples lost the compiled measurement id when they were rebuilt by
+    projection, repeat-run collapse, and detail redraws. Keeping the claim named makes those
+    transformations state explicitly whether they preserve, combine, or intentionally omit
+    identity (#1004).
+    """
+
+    pa: tuple[float, float, float]
+    pb: tuple[float, float, float]
+    value: float
+    tolerance: Any = None
+    measurements: tuple[Any, ...] = ()
+    label: str | None = None
+
+
+def _step_measurements(segs: list[_StepChainSegment]) -> tuple[Any, ...]:
+    """Stable union of the measurements represented by *segs*."""
+    result: list[Any] = []
+    for seg in segs:
+        for measurement in seg.measurements:
+            if measurement not in result:
+                result.append(measurement)
+    return tuple(result)
+
+
+def _record_step_chain_drop(dwg, why: str, *, ctx, measurement=()) -> None:
     """Record the ``step_dim_dropped`` lint warning when a turned step-length chain
     is dropped whole (#362). These drops were silent (debug log only) — the user got
     a drawing with no step-length dimensioning and no signal. Mirrors
@@ -2616,14 +2645,15 @@ def _record_step_chain_drop(dwg, why: str, *, ctx) -> None:
         "warning",
         "step_dim_dropped",
         f"step-length chain dropped: {why} at this scale (use a detail view)",
+        measurement=measurement,
     )
 
 
 def _draw_step_chain(
     dwg, view, segs, name_prefix, detail_scale=None, allow_collapse=True, *, ctx, start=0
 ) -> int:
-    """Place a turned step-length chain in *view* from *segs* — each ``(pa, pb,
-    value)`` already projected to *view*'s page coords, in axis order. Orientation is
+    """Place a turned step-length chain in *view* from structured *segs*, each already
+    projected to *view*'s page coords in axis order. Orientation is
     data (the projected span direction): horizontal → chain above the view, vertical
     → chain to the right. A uniform run collapses to one ``N× v`` dim (#230); else a
     per-segment chain, staggered into a near/far tier only when crowded (ISO 129-1,
@@ -2643,34 +2673,37 @@ def _draw_step_chain(
     x0, y0, x1, y1 = vb
     draft = dwg.draft
     gap = draft.font_size + 4 * draft.pad_around_text
-    horizontal = abs(segs[0][1][0] - segs[0][0][0]) >= abs(segs[0][1][1] - segs[0][0][1])
-    vals = [s[2] for s in segs]  # value is index 2 (segs are 4-tuples: pa, pb, value, tol)
-    labels = [s[4] if len(s) > 4 and s[4] is not None else _fmt(s[2]) for s in segs]
+    horizontal = abs(segs[0].pb[0] - segs[0].pa[0]) >= abs(segs[0].pb[1] - segs[0].pa[1])
+    vals = [seg.value for seg in segs]
+    labels = [seg.label if seg.label is not None else _fmt(seg.value) for seg in segs]
     mean_v = sum(vals) / len(vals)
     if (
         allow_collapse
-        and all(len(s) < 5 or s[4] is None for s in segs)
+        and all(seg.label is None for seg in segs)
         and len(segs) >= 3
         and (max(vals) - min(vals)) <= 0.10 * mean_v
     ):
         # A uniform run collapses to one "N× v" dim; a per-step ± would be a false claim on
         # N equal steps, so the collapse carries NO tolerance (#28 / P2a).
         label = f"{len(segs)}× {_fmt(mean_v)}"
-        xs = [p[0] for pa, pb, *_ in segs for p in (pa, pb)]
-        ys = [p[1] for pa, pb, *_ in segs for p in (pa, pb)]
+        xs = [p[0] for seg in segs for p in (seg.pa, seg.pb)]
+        ys = [p[1] for seg in segs for p in (seg.pa, seg.pb)]
         if horizontal:
             dim = _dim((min(xs), y1, 0), (max(xs), y1, 0), "above", gap, draft, label=label)
         else:
             dim = _dim((x1, min(ys), 0), (x1, max(ys), 0), "right", gap, draft, label=label)
         typ_name = f"{name_prefix}_typ" if start == 0 else f"{name_prefix}_typ{start}"
-        candidates = [(typ_name, dim)]
+        candidates = [(typ_name, dim, _step_measurements(segs))]
     else:
         tier_step = draft.font_size + 2 * draft.pad_around_text
         tiers = [0] * len(segs)
         if horizontal:
             cw = [
-                ((s[0][0] + s[1][0]) / 2, len(labels[i]) * draft.font_size * _EST_CHAR_WIDTH_EM)
-                for i, s in enumerate(segs)
+                (
+                    (seg.pa[0] + seg.pb[0]) / 2,
+                    len(labels[i]) * draft.font_size * _EST_CHAR_WIDTH_EM,
+                )
+                for i, seg in enumerate(segs)
             ]
 
             def _clear(items):
@@ -2686,7 +2719,10 @@ def _draw_step_chain(
             else:
                 _log.info("step-length chain skipped: too dense even when staggered")
                 _record_step_chain_drop(
-                    dwg, "shoulders too dense to dimension even when staggered", ctx=ctx
+                    dwg,
+                    "shoulders too dense to dimension even when staggered",
+                    ctx=ctx,
+                    measurement=_step_measurements(segs),
                 )
                 if ev is not None:
                     ev["items"].append(
@@ -2694,11 +2730,14 @@ def _draw_step_chain(
                     )
                 return 0
         else:
-            shoulder_ys = sorted({c for pa, pb, *_ in segs for c in (pa[1], pb[1])})
+            shoulder_ys = sorted({c for seg in segs for c in (seg.pa[1], seg.pb[1])})
             if any(b - a < tier_step for a, b in zip(shoulder_ys, shoulder_ys[1:])):
                 _log.info("step-length chain skipped: shoulders too close to dimension")
                 _record_step_chain_drop(
-                    dwg, "turned shoulders too closely spaced to dimension", ctx=ctx
+                    dwg,
+                    "turned shoulders too closely spaced to dimension",
+                    ctx=ctx,
+                    measurement=_step_measurements(segs),
                 )
                 if ev is not None:
                     ev["items"].append(
@@ -2712,37 +2751,50 @@ def _draw_step_chain(
 
         candidates = []
         for i, seg in enumerate(segs):
-            pa, pb, value, seg_tol, *_rest = seg
             if horizontal:
-                p1, p2, side = (pa[0], y1, 0), (pb[0], y1, 0), "above"
+                p1, p2, side = (seg.pa[0], y1, 0), (seg.pb[0], y1, 0), "above"
                 dist = gap + tiers[i] * tier_step
             else:
-                p1, p2, side = (x1, pa[1], 0), (x1, pb[1], 0), "right"
+                p1, p2, side = (x1, seg.pa[1], 0), (x1, seg.pb[1], 0), "right"
                 dist = gap
             candidates.append(
                 (
                     f"{name_prefix}{start + i}",
-                    _dim(p1, p2, side, dist, draft, label=labels[i], tolerance=seg_tol),
+                    _dim(
+                        p1,
+                        p2,
+                        side,
+                        dist,
+                        draft,
+                        label=labels[i],
+                        tolerance=seg.tolerance,
+                    ),
+                    seg.measurements,
                 )
             )
 
     # Room guard: if any dim would fall off the drawable page, place NONE.
     page = (_MARGIN, _MARGIN, dwg.page_w - _MARGIN, dwg.page_h - _MARGIN)
-    for _, dim in candidates:
+    for _, dim, _measurements in candidates:
         box = _anno_box(dim)
         if box is not None and not (
             page[0] <= box[0] and box[2] <= page[2] and page[1] <= box[1] and box[3] <= page[3]
         ):
-            _record_step_chain_drop(dwg, "a dimension would fall off the drawable page", ctx=ctx)
+            _record_step_chain_drop(
+                dwg,
+                "a dimension would fall off the drawable page",
+                ctx=ctx,
+                measurement=_step_measurements(segs),
+            )
             if ev is not None:
                 ev["items"].append(
                     {"name": name_prefix, "outcome": "dropped", "reason": "off_page"}
                 )
             return 0
-    for name, dim in candidates:
+    for name, dim, measurements in candidates:
         if detail_scale is not None:
             dim._dw_scale = detail_scale
-        ctx.place(dim, name, view=view)
+        ctx.place(dim, name, view=view, measurement=measurements)
         if ev is not None:
             b = _anno_box(dim)
             ev["items"].append(
@@ -2781,7 +2833,7 @@ def render_step_lengths(dwg, plan, *, ctx, only=None) -> int:
     `DetailRequest` (#304/#307) is queued to break it down. If the detail later can't
     place, the block still locates the head extent and lint reports the un-located
     interior shoulders — never worse than the prior skip. Returns the count placed."""
-    rows = []  # (axis, a_world, b_world, value, tolerance) in axis order
+    rows: list[tuple[str, _StepChainSegment]] = []
     step_origins = []
     for g in plan.of_kind("step"):
         if g.facts.frame.axis not in ("x", "y", "z"):
@@ -2794,10 +2846,13 @@ def render_step_lengths(dwg, plan, *, ctx, only=None) -> int:
         rows.append(
             (
                 g.facts.frame.axis,
-                length.span[0],
-                length.span[1],
-                length.value,
-                length.tolerance,
+                _StepChainSegment(
+                    length.span[0],
+                    length.span[1],
+                    length.value,
+                    length.tolerance,
+                    (length.id,) if length.id is not None else (),
+                ),
             )
         )
         step_origins.append(g.facts.frame.origin)
@@ -2807,7 +2862,7 @@ def render_step_lengths(dwg, plan, *, ctx, only=None) -> int:
     # only=None (auto-pass) → start=0, historical m_steplen naming, byte-identical. The
     # finalize path (only set) starts past existing m_steplen names (#426 naming seam).
     start = _next_steplen_start(ctx) if only is not None else 0
-    axes = {axis for axis, *_ in rows}
+    axes = {axis for axis, _seg in rows}
     if len(axes) != 1:
         _log.warning(
             "step-length chain has mixed axes; rendering each axis requires separate groups"
@@ -2815,9 +2870,9 @@ def render_step_lengths(dwg, plan, *, ctx, only=None) -> int:
         return 0
     turn_axis = next(iter(axes))
     view = "side" if turn_axis == "y" else "front"
-    bare_rows = [(a, b, v, t) for _axis, a, b, v, t in rows]
-    fsegs = [(dwg.at(view, *a), dwg.at(view, *b), v, t) for a, b, v, t in bare_rows]
-    horizontal = abs(fsegs[0][1][0] - fsegs[0][0][0]) >= abs(fsegs[0][1][1] - fsegs[0][0][1])
+    bare_rows = [seg for _axis, seg in rows]
+    fsegs = [replace(seg, pa=dwg.at(view, *seg.pa), pb=dwg.at(view, *seg.pb)) for seg in bare_rows]
+    horizontal = abs(fsegs[0].pb[0] - fsegs[0].pa[0]) >= abs(fsegs[0].pb[1] - fsegs[0].pa[1])
 
     # A Y-turned chain that would need near/far staggering is ambiguous in the
     # narrow side view: an interior far-tier segment reads like an overall
@@ -2826,29 +2881,27 @@ def render_step_lengths(dwg, plan, *, ctx, only=None) -> int:
     if horizontal and turn_axis == "y" and len(fsegs) >= 2:
         label_widths = [
             _text_size(
-                _fmt(v) + _tol_suffix(t, draft),
+                _fmt(seg.value) + _tol_suffix(seg.tolerance, draft),
                 draft.font_size,
                 font=getattr(draft, "font", "Arial"),
             )[0]
-            for *_span, v, t in bare_rows
+            for seg in bare_rows
         ]
-        cw = sorted(
-            ((pa[0] + pb[0]) / 2, label_widths[i]) for i, (pa, pb, *_rest) in enumerate(fsegs)
-        )
+        cw = sorted(((seg.pa[0] + seg.pb[0]) / 2, label_widths[i]) for i, seg in enumerate(fsegs))
         labels_clear = all(
             c2 - c1 >= (w1 + w2) / 2 + draft.pad_around_text
             for (c1, w1), (c2, w2) in zip(cw, cw[1:])
         )
         inside_arrows_fit = all(
-            abs(pb[0] - pa[0])
+            abs(seg.pb[0] - seg.pa[0])
             >= label_widths[i] + 2 * draft.arrow_length + 2 * draft.pad_around_text
-            for i, (pa, pb, *_rest) in enumerate(fsegs)
+            for i, seg in enumerate(fsegs)
         )
         # A long repeated-pitch tail can be stated once on the main view. This
         # removes several competing short labels and may make the remaining
         # isolated links readable without an enlarged detail (#881/#896).
-        ordered = sorted(fsegs, key=lambda seg: (seg[0][0] + seg[1][0]) / 2)
-        compact: list[tuple] = []
+        ordered = sorted(fsegs, key=lambda seg: (seg.pa[0] + seg.pb[0]) / 2)
+        compact: list[_StepChainSegment] = []
         collapsed = False
         j = 0
         while j < len(ordered):
@@ -2856,27 +2909,27 @@ def render_step_lengths(dwg, plan, *, ctx, only=None) -> int:
             k = j + 1
             while k < len(ordered):
                 prev, cur = repeat_run[-1], ordered[k]
-                contiguous = abs(max(prev[0][0], prev[1][0]) - min(cur[0][0], cur[1][0])) <= 1e-4
+                contiguous = abs(max(prev.pa[0], prev.pb[0]) - min(cur.pa[0], cur.pb[0])) <= 1e-4
                 if not (
                     contiguous
-                    and _fmt(cur[2]) == _fmt(repeat_run[0][2])
-                    and prev[3] is None
-                    and cur[3] is None
+                    and _fmt(cur.value) == _fmt(repeat_run[0].value)
+                    and prev.tolerance is None
+                    and cur.tolerance is None
                 ):
                     break
                 repeat_run.append(cur)
                 k += 1
             if len(repeat_run) >= 3:
-                xs = [p[0] for seg in repeat_run for p in seg[:2]]
-                y = repeat_run[0][0][1]
-                pitch = sum(seg[2] for seg in repeat_run) / len(repeat_run)
+                xs = [p[0] for seg in repeat_run for p in (seg.pa, seg.pb)]
+                y = repeat_run[0].pa[1]
+                pitch = sum(seg.value for seg in repeat_run) / len(repeat_run)
                 compact.append(
-                    (
+                    _StepChainSegment(
                         (min(xs), y, 0.0),
                         (max(xs), y, 0.0),
-                        sum(seg[2] for seg in repeat_run),
-                        None,
-                        f"{len(repeat_run)}× {_fmt(pitch)}",
+                        sum(seg.value for seg in repeat_run),
+                        measurements=_step_measurements(repeat_run),
+                        label=f"{len(repeat_run)}× {_fmt(pitch)}",
                     )
                 )
                 collapsed = True
@@ -2894,22 +2947,21 @@ def render_step_lengths(dwg, plan, *, ctx, only=None) -> int:
                 start=start,
             )
         if not (labels_clear and inside_arrows_fit):
-            axis_lo = min(min(a[1], b[1]) for a, b, *_ in bare_rows)
-            axis_hi = max(max(a[1], b[1]) for a, b, *_ in bare_rows)
-            page_xs = [p[0] for pa, pb, *_ in fsegs for p in (pa, pb)]
-            page_y = fsegs[0][0][1]
+            axis_lo = min(min(seg.pa[1], seg.pb[1]) for seg in bare_rows)
+            axis_hi = max(max(seg.pa[1], seg.pb[1]) for seg in bare_rows)
+            page_xs = [p[0] for seg in fsegs for p in (seg.pa, seg.pb)]
+            page_y = fsegs[0].pa[1]
             block = [
-                (
+                _StepChainSegment(
                     (min(page_xs), page_y, 0.0),
                     (max(page_xs), page_y, 0.0),
                     axis_hi - axis_lo,
-                    None,
                 )
             ]
             scale_needed = max(
-                (w + 2 * draft.arrow_length + 2 * draft.pad_around_text) / row[2]
+                (w + 2 * draft.arrow_length + 2 * draft.pad_around_text) / row.value
                 for w, row in zip(label_widths, bare_rows)
-                if row[2] > 0
+                if row.value > 0
             )
 
             # Use the detected turning axis, not the sheet/bounding-box centroid:
@@ -2943,11 +2995,11 @@ def render_step_lengths(dwg, plan, *, ctx, only=None) -> int:
                     return (px, py, 0.0)
 
                 dpairs = [
-                    ((_at(*a), _at(*b), v, t), label_widths[i])
-                    for i, (a, b, v, t) in enumerate(_rows)
+                    (replace(seg, pa=_at(*seg.pa), pb=_at(*seg.pb)), label_widths[i])
+                    for i, seg in enumerate(_rows)
                 ]
-                dpairs.sort(key=lambda item: (item[0][0][0] + item[0][1][0]) / 2)
-                dsegs: list[tuple] = []
+                dpairs.sort(key=lambda item: (item[0].pa[0] + item[0].pb[0]) / 2)
+                dsegs: list[_StepChainSegment] = []
                 detail_widths: list[float] = []
                 j = 0
                 while j < len(dpairs):
@@ -2958,29 +3010,29 @@ def render_step_lengths(dwg, plan, *, ctx, only=None) -> int:
                         prev, _prev_width = run[-1]
                         cur, _cur_width = dpairs[k]
                         contiguous = (
-                            abs(max(prev[0][0], prev[1][0]) - min(cur[0][0], cur[1][0])) <= 1e-4
+                            abs(max(prev.pa[0], prev.pb[0]) - min(cur.pa[0], cur.pb[0])) <= 1e-4
                         )
                         # A repeated-pitch claim must be true at the drawing's
                         # displayed precision, not merely "within 10%".
-                        equal = _fmt(cur[2]) == _fmt(seg0[2])
-                        untoleranced = prev[3] is None and cur[3] is None
+                        equal = _fmt(cur.value) == _fmt(seg0.value)
+                        untoleranced = prev.tolerance is None and cur.tolerance is None
                         if not (contiguous and equal and untoleranced):
                             break
                         run.append(dpairs[k])
                         k += 1
                     if len(run) >= 3:
                         run_segs = [seg for seg, _width in run]
-                        xs = [p[0] for seg in run_segs for p in seg[:2]]
-                        y = run_segs[0][0][1]
-                        pitch = sum(seg[2] for seg in run_segs) / len(run_segs)
+                        xs = [p[0] for seg in run_segs for p in (seg.pa, seg.pb)]
+                        y = run_segs[0].pa[1]
+                        pitch = sum(seg.value for seg in run_segs) / len(run_segs)
                         label = f"{len(run_segs)}× {_fmt(pitch)}"
                         dsegs.append(
-                            (
+                            _StepChainSegment(
                                 (min(xs), y, 0.0),
                                 (max(xs), y, 0.0),
-                                sum(seg[2] for seg in run_segs),
-                                None,
-                                label,
+                                sum(seg.value for seg in run_segs),
+                                measurements=_step_measurements(run_segs),
+                                label=label,
                             )
                         )
                         detail_widths.append(
@@ -2999,8 +3051,7 @@ def render_step_lengths(dwg, plan, *, ctx, only=None) -> int:
                 # both text clearance and full inside-arrow capacity at the actual
                 # fitted scale; returning zero transactionally drops the detail.
                 dcw = sorted(
-                    ((pa[0] + pb[0]) / 2, detail_widths[i])
-                    for i, (pa, pb, *_rest) in enumerate(dsegs)
+                    ((seg.pa[0] + seg.pb[0]) / 2, detail_widths[i]) for i, seg in enumerate(dsegs)
                 )
                 if not all(
                     c2 - c1 >= (w1 + w2) / 2 + draft.pad_around_text
@@ -3012,9 +3063,9 @@ def render_step_lengths(dwg, plan, *, ctx, only=None) -> int:
                     )
                     return 0
                 if any(
-                    abs(pb[0] - pa[0])
+                    abs(seg.pb[0] - seg.pa[0])
                     < detail_widths[i] + 2 * draft.arrow_length + 2 * draft.pad_around_text
-                    for i, (pa, pb, *_rest) in enumerate(dsegs)
+                    for i, seg in enumerate(dsegs)
                 ):
                     _log.info(
                         "Y-chain detail rejected at scale %.3g: label + inside arrows "
@@ -3063,7 +3114,7 @@ def render_step_lengths(dwg, plan, *, ctx, only=None) -> int:
     # (#307 review). The legible steps + blocks stay as the main chain.
     if horizontal and turn_axis == "x":
         floor_pg = 2 * draft.arrow_length
-        sub = [i for i, (pa, pb, *_) in enumerate(fsegs) if abs(pb[0] - pa[0]) < floor_pg]
+        sub = [i for i, seg in enumerate(fsegs) if abs(seg.pb[0] - seg.pa[0]) < floor_pg]
         runs: list[list[int]] = []
         for j in sub:
             (runs[-1].append(j) if runs and j == runs[-1][-1] + 1 else runs.append([j]))
@@ -3072,15 +3123,19 @@ def render_step_lengths(dwg, plan, *, ctx, only=None) -> int:
             blocks = []
             for run in heads:
                 ra = [bare_rows[i] for i in run]
-                hlo = min(min(a[0], b[0]) for a, b, *_ in ra)
-                hhi = max(max(a[0], b[0]) for a, b, *_ in ra)
-                minlen = min(r[2] for r in ra)  # value is index 2 (rows are 4-tuples: a,b,v,tol)
+                hlo = min(min(seg.pa[0], seg.pb[0]) for seg in ra)
+                hhi = max(max(seg.pa[0], seg.pb[0]) for seg in ra)
+                minlen = min(seg.value for seg in ra)
                 # World→page scale for the detail (no sheet factor — detail_scale is an
                 # absolute world→page scale). (#307 review)
                 scale_needed = _MIN_STEP_SEP_MM / minlen if minlen > 0 else float("inf")
                 # A head *block* is a synthetic span, not one toleranced step — carry no ± (None).
                 blocks.append(
-                    (dwg.at("front", hlo, 0, 0), dwg.at("front", hhi, 0, 0), hhi - hlo, None)
+                    _StepChainSegment(
+                        dwg.at("front", hlo, 0, 0),
+                        dwg.at("front", hhi, 0, 0),
+                        hhi - hlo,
+                    )
                 )
 
                 def _redraw(dwg, view, coords, detail_scale, _hw=ra):
@@ -3091,7 +3146,7 @@ def render_step_lengths(dwg, plan, *, ctx, only=None) -> int:
                         px, py = coords.pp(x, y, z)
                         return (px, py, 0.0)
 
-                    hsegs = [(_at(*a), _at(*b), v, t) for a, b, v, t in _hw]
+                    hsegs = [replace(seg, pa=_at(*seg.pa), pb=_at(*seg.pb)) for seg in _hw]
                     return _draw_step_chain(
                         dwg, view, hsegs, f"dim_{view}_steplen", detail_scale, ctx=ctx
                     )
@@ -3110,7 +3165,7 @@ def render_step_lengths(dwg, plan, *, ctx, only=None) -> int:
                 )
             head = {i for run in heads for i in run}
             main = [fsegs[i] for i in range(len(fsegs)) if i not in head] + blocks
-            main.sort(key=lambda s: s[0][0])
+            main.sort(key=lambda seg: seg.pa[0])
             # The chain now mixes head-block(s) with real steps — never collapse it to a
             # uniform "N× v" representative (a block is not a repeated step, #307 review).
             return _draw_step_chain(
@@ -3137,8 +3192,6 @@ def ladder_plan_for(plan, *, step_height: bool, overall: bool):
     `step_position` rides `step_height`: it is not content here, it is how those rungs are
     placed, so it is meaningless without them.
     """
-    from dataclasses import replace
-
     kinds = []
     if step_height:
         kinds += ["step_height", "step_position"]

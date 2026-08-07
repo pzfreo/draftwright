@@ -185,7 +185,7 @@ class TestStepChainDrop:
 
     def test_crowded_vertical_chain_records_the_drop(self):
         from draftwright.annotations._common import PlacementContext
-        from draftwright.annotations.from_model import _draw_step_chain
+        from draftwright.annotations.from_model import _draw_step_chain, _StepChainSegment
         from draftwright.registry import AnnotationRegistry
 
         dwg = self._stub_dwg()
@@ -195,13 +195,15 @@ class TestStepChainDrop:
         # far below tier_step (= font_size + 2*pad = 4). Values differ so the
         # uniform-collapse path is not taken. The chain is dropped whole.
         segs = [
-            ((80.0, 10.0, 0), (80.0, 10.1, 0), 5.0),
-            ((80.0, 10.1, 0), (80.0, 10.2, 0), 8.0),
+            _StepChainSegment((80.0, 10.0, 0), (80.0, 10.1, 0), 5.0, measurements=("step-a",)),
+            _StepChainSegment((80.0, 10.1, 0), (80.0, 10.2, 0), 8.0, measurements=("step-b",)),
         ]
         placed = _draw_step_chain(dwg, "front", segs, "m_steplen", ctx=ctx)
         assert placed == 0
         codes = [i.code for i in ctx.registry.issues]
         assert "step_dim_dropped" in codes, "silent drop no longer allowed (#362)"
+        drop = next(i for i in ctx.registry.issues if i.code == "step_dim_dropped")
+        assert drop.measurement_ids == ("step-a", "step-b")
         assert ctx.escalations == []  # _record_step_chain_drop records lint only, no Escalation
 
 

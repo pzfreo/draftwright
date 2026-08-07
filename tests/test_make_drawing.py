@@ -8818,6 +8818,18 @@ def _x_stepped_shaft():
     return Rotation(0, 90, 0) * (Cylinder(15, 40) + Pos(0, 0, 35) * Cylinder(8, 30))
 
 
+def _compiled_step_length_ids(dwg):
+    from draftwright.model.compiled import compile_dimensions
+
+    ids = {
+        dimension.id
+        for group in compile_dimensions(dwg.model()).of_kind("step")
+        if (dimension := group.dim(kind="length")) is not None
+    }
+    assert None not in ids
+    return ids
+
+
 class TestPrismaticBossDiameter:
     """#629: a boss on a PRISMATIC part gets its ø as a plan-view leader to the boss
     circle (names ``m_bossdia_*``), free to exit into clear margin — not the turned
@@ -9122,6 +9134,9 @@ class TestTurnedDiameters:
         assert step_labels >= {"8", "4"}
         assert "2" in step_labels or "4× 2" in step_labels
         assert {dwg.view_of(n) for n in dwg.annotations() if n.startswith("m_steplen")} == {"side"}
+        for name in (n for n in dwg.annotations() if n.startswith("m_steplen")):
+            expected = 4 if dwg.get_annotation(name).label == "4× 2" else 1
+            assert len(dwg.measurement_keys(name)) == expected
 
         # The central Y-axis bore shares the detected turned-profile axis. Its
         # centreline locates it; generic minimum-edge offsets would redundantly
@@ -9385,6 +9400,10 @@ class TestTurnedDiameters:
         assert {o.label for o in detail.values()} == {"3", "5.5", "3.5"}
         assert {dwg.view_of(n) for n in detail} == {"detail_a"}
         assert len({round(o._dw_spec.distance, 6) for o in detail.values()}) == 1
+        assert all(dwg.measurement_keys(name) == [] for name in main), (
+            "the aggregate block is not any one approved step measurement"
+        )
+        assert all(len(dwg.measurement_keys(name)) == 1 for name in detail)
 
         labels = sorted((o.label_bbox for o in detail.values()), key=lambda bb: bb[0])
         assert all(
@@ -9847,6 +9866,25 @@ class TestTurnedLengths:
         labels = {o.label for n, o in dwg.iter_annotations() if n.startswith("m_steplen")}
         assert labels == {"40", "30"}
 
+    @pytest.mark.parametrize(
+        "shaft",
+        [
+            pytest.param(_x_stepped_shaft(), id="x-turned"),
+            pytest.param(Cylinder(15, 30) + Pos(0, 0, 30) * Cylinder(8, 30), id="z-turned"),
+        ],
+    )
+    def test_each_step_length_records_its_measurement_identity(self, shaft):
+        dwg = build_drawing(shaft)
+        names = [name for name in dwg.annotations() if name.startswith("m_steplen")]
+        assert names
+        for name in names:
+            keys = dwg.measurement_keys(name)
+            assert len(keys) == 1, f"{name} must identify exactly the step length it draws"
+            assert keys[0]["feature"].startswith("step@")
+            assert keys[0]["parameter_id"] == "step.length"
+        recorded = {mid for name in names for mid in dwg.registry.measurement_of(name)}
+        assert recorded == _compiled_step_length_ids(dwg)
+
     def test_overall_width_suppressed_for_turned_part(self):
         # The complete chain conveys the overall length, so the envelope width dim
         # is dropped — no double dimensioning (ISO 129).
@@ -9886,6 +9924,12 @@ class TestTurnedLengths:
         steplen = {n: o.label for n, o in dwg.iter_annotations() if n.startswith("m_steplen")}
         assert steplen == {"m_steplen_typ": "4× 10"}, steplen
         assert "axial_length_missing" not in {i.code for i in dwg.lint()}
+
+        keys = dwg.measurement_keys("m_steplen_typ")
+        assert len(keys) == 4, "the collapsed annotation draws all four step lengths"
+        assert len({key["feature"] for key in keys}) == 4
+        assert {key["parameter_id"] for key in keys} == {"step.length"}
+        assert set(dwg.registry.measurement_of("m_steplen_typ")) == _compiled_step_length_ids(dwg)
 
     def test_prismatic_part_has_no_step_lengths(self):
         dwg = build_drawing(Box(80, 60, 20))
@@ -10011,8 +10055,13 @@ class TestTurnedLengths:
             z += ln
         dwg = build_drawing(Rotation(0, 90, 0) * shaft, scale=2.0)
         assert "detail_a" in dwg.views  # crowded head → enlarged detail
-        assert "25" in {o.label for n, o in dwg.iter_annotations() if n.startswith("m_steplen")}
-        assert len([n for n in dwg.annotations() if n.startswith("dim_detail_a_steplen")]) >= 3
+        main = {n: o for n, o in dwg.iter_annotations() if n.startswith("m_steplen")}
+        assert "25" in {o.label for o in main.values()}
+        block = next(name for name, obj in main.items() if obj.label != "25")
+        assert dwg.measurement_keys(block) == [], "the synthetic head extent is not one step"
+        detail = [n for n in dwg.annotations() if n.startswith("dim_detail_a_steplen")]
+        assert len(detail) >= 3
+        assert all(len(dwg.measurement_keys(name)) == 1 for name in detail)
         assert dwg.lint_summary()["by_code"].get("axial_length_missing", 0) == 0
 
     def test_two_sub_floor_runs_get_separate_non_colliding_details(self):
