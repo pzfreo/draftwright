@@ -1176,8 +1176,19 @@ class Sheet:
         return _Params(self, len(self._features) - 1)
 
     def envelope(self, obj=None) -> _Params:
-        """Declare the overall bounding dimensions. Defaults to the whole part."""
-        self._features.append(_envelope(obj if obj is not None else self._part))
+        """Declare the overall bounding dimensions. Defaults to the whole part.
+
+        The no-argument form reuses an equal whole-part envelope already seeded by
+        :meth:`from_part`; its returned handle therefore decorates and dimensions that
+        detected feature instead of appending a duplicate. An explicit *obj* remains a
+        distinct declaration, including when another envelope is already present.
+        """
+        feature = _envelope(obj if obj is not None else self._part)
+        if obj is None:
+            for index, existing in enumerate(self._features):
+                if existing == feature:
+                    return _Params(self, index)
+        self._features.append(feature)
         return _Params(self, len(self._features) - 1)
 
     # -- GD&T / finish aspects (ADR 0011 P2c, #479) ---------------------------
