@@ -200,37 +200,23 @@ def test_a_synthetic_hex_boss_is_directly_dimensioned_without_layout_loss():
     assert [issue.code for issue in drawing.lint()].count("boss_height_missing") == 1
 
 
-def test_an_unusable_flat_direction_does_not_block_other_physical_anchors():
+def test_an_unusable_flat_direction_is_refused_at_the_ir_boundary():
     part = _fused_hex_boss()
     model = build_part_model(part)
     feature = next(item for item in model.features if item.kind == "polygonal_boss")
-    malformed = replace(
-        feature,
-        flat_directions=((0.0, 0.0, 0.0), *feature.flat_directions[1:]),
-    )
-    declared = replace(
-        model,
-        features=[malformed if item == feature else item for item in model.features],
-    )
-
-    drawing = build_drawing(part, model=declared, repair=False)
-
-    assert any(name.startswith("m_polygonal_boss_") for name in drawing.annotations())
+    with pytest.raises(ValueError, match="unit vector perpendicular"):
+        replace(
+            feature,
+            flat_directions=((0.0, 0.0, 0.0), *feature.flat_directions[1:]),
+        )
 
 
-def test_an_unsupported_declared_axis_does_not_guess_a_characteristic_view():
+def test_an_unsupported_declared_axis_is_refused_at_the_ir_boundary():
     part = _fused_hex_boss()
     model = build_part_model(part)
     feature = next(item for item in model.features if item.kind == "polygonal_boss")
-    unsupported = replace(feature, frame=replace(feature.frame, axis="unsupported"))
-    declared = replace(
-        model,
-        features=[unsupported if item == feature else item for item in model.features],
-    )
-
-    drawing = build_drawing(part, model=declared, repair=False)
-
-    assert not any(name.startswith("m_polygonal_boss_") for name in drawing.annotations())
+    with pytest.raises(ValueError, match="axis must be"):
+        replace(feature, frame=replace(feature.frame, axis="unsupported"))
 
 
 @pytest.mark.slow

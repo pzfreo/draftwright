@@ -122,7 +122,7 @@ _SAMPLES: dict[str, ir.Feature] = {
     ),
     "BossFeature": ir.BossFeature(_F, 25.0, height=12.0, thread="M25x1.5"),
     "PolygonalBossFeature": ir.PolygonalBossFeature(
-        _F,
+        ir.Frame((0.0, 0.0, 6.0), "z"),
         side_count=6,
         across_flats=20.0,
         height=12.0,

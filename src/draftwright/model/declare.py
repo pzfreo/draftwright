@@ -8,8 +8,9 @@ geometry, unreliable (cf. #298). These constructors turn a known build123d objec
 can hand a ``model=[...]`` to :func:`draftwright.build_drawing` (or a
 :class:`draftwright.Sheet`) and skip detection.
 
-Every constructor has two flavours (with one deliberate exception, :func:`rotational`, which is
-explicit-only — see its docstring and #950):
+Every constructor has two flavours, with two deliberate explicit-only exceptions:
+:func:`rotational` (see its docstring and #950) and :func:`polygonal_boss` (a detached prism
+cannot prove attached-boss semantics):
 
 - **reference an object** — ``hole(tool_cylinder)`` reads the geometry (⌀ from the
   cylindrical *face*, axis + location from the bounding box); or
@@ -53,6 +54,7 @@ from draftwright.model.ir import (
     PocketFeature,
     PocketPatternFeature,
     Point,
+    PolygonalBossFeature,
     RotationalFeature,
     SlotFeature,
     SlotPatternFeature,
@@ -373,6 +375,39 @@ def boss(
         height=height,
         span=span,
         thread=thread,
+    )
+
+
+def polygonal_boss(
+    *,
+    side_count,
+    across_flats,
+    height,
+    at,
+    axis,
+    flat_directions,
+    flat_centres,
+    span=None,
+) -> PolygonalBossFeature:
+    """A declared regular polygonal-prism boss, sized across flats and by height.
+
+    This explicit form carries the physical side-face directions and anchor points used by
+    placement.  Geometry-object inference is deliberately absent: a detached prism does not
+    prove that it is an attached boss, while an author calling this verb does.
+    """
+    axis = _norm_axis(axis)
+    _require_positive(across_flats=across_flats, height=height)
+    _require_point("at", at)
+    if span is None:
+        span = _span(at, axis, height)
+    return PolygonalBossFeature(
+        frame=Frame(tuple(at), axis),
+        side_count=side_count,
+        across_flats=across_flats,
+        height=height,
+        span=span,
+        flat_directions=flat_directions,
+        flat_centres=flat_centres,
     )
 
 

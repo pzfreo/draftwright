@@ -25,8 +25,8 @@ deprecated (#1043)::
     sheet.export("plate")
 
 **Scope (this module):** the *feature-declaration* surface over the renderers the
-engine has today — dimensions, ⌀ callouts, holes (through / blind), turned steps,
-slots, patterns, the overall envelope, and the auto section — plus the P2a
+engine has today — dimensions, ⌀ callouts, holes (through / blind), circular and polygonal
+bosses, turned steps, slots, patterns, the overall envelope, and the auto section — plus the P2a
 **``.tolerance``** (a ± / limit tolerance on a diameter, a step, or a hole bore) and
 **``.fit``** (fit-class → ISO 286 deviation, P2a.2) aspects, the P2c GD&T side-layer
 (**``.finish``** surface symbols, **``sheet.datum``** feature symbols, and
@@ -79,6 +79,7 @@ from draftwright.model import pattern as _pattern
 from draftwright.model import plate as _plate
 from draftwright.model import pocket as _pocket
 from draftwright.model import pocket_pattern as _pocket_pattern
+from draftwright.model import polygonal_boss as _polygonal_boss
 from draftwright.model import rotational as _rotational
 from draftwright.model import slot as _slot
 from draftwright.model import slot_pattern as _slot_pattern
@@ -1058,6 +1059,11 @@ class Sheet:
     def boss(self, obj=None, **kw) -> _Dim:
         """Alias of :meth:`diameter` — an external cylindrical boss / OD."""
         return self.diameter(obj, **kw)
+
+    def polygonal_boss(self, **kw) -> _Params:
+        """Declare a regular polygonal-prism boss sized across flats and by height."""
+        self._features.append(_polygonal_boss(**kw))
+        return _Params(self, len(self._features) - 1)
 
     def step(self, obj=None, **kw) -> _Dim:
         """Declare one axial segment of a turned profile (its OD + length). A model with any

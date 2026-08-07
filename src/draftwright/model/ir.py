@@ -21,7 +21,7 @@ stay one callout.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from math import hypot, isfinite
+from math import atan2, cos, hypot, isclose, isfinite, pi
 from typing import TYPE_CHECKING, ClassVar, Literal, Protocol, runtime_checkable
 
 from draftwright._geometry import (
@@ -712,6 +712,149 @@ class PolygonalBossFeature:
     flat_directions: tuple[Point, ...]
     flat_centres: tuple[Point, ...]
     kind: ClassVar[str] = "polygonal_boss"
+
+    def __post_init__(self) -> None:
+        """Keep the regular-prism evidence complete at the public IR waist.
+
+        ``flat_directions`` and ``flat_centres`` are placement evidence, not optional
+        presentation hints.  Accepting a partial record would let its measurements plan and
+        then disappear in the renderer, so detection, declaration and direct IR construction
+        all inherit the same fail-closed contract here.
+        """
+        if not (
+            isinstance(self.side_count, int)
+            and not isinstance(self.side_count, bool)
+            and self.side_count >= 4
+            and self.side_count % 2 == 0
+        ):
+            raise ValueError("a polygonal boss needs an even side_count >= 4")
+        if not isinstance(self.frame, Frame):
+            raise ValueError("a polygonal boss needs a Frame")
+        if (
+            not isinstance(self.frame.axis, str)
+            or self.frame.axis not in "xyz"
+            or len(self.frame.axis) != 1
+        ):
+            raise ValueError("a polygonal boss axis must be 'x', 'y', or 'z'")
+        if isinstance(self.across_flats, bool) or isinstance(self.height, bool):
+            raise ValueError("a polygonal boss needs finite positive across_flats and height")
+        try:
+            across_flats = float(self.across_flats)
+            height = float(self.height)
+        except (OverflowError, TypeError, ValueError) as exc:
+            raise ValueError(
+                "a polygonal boss needs finite positive across_flats and height"
+            ) from exc
+        if not (isfinite(across_flats) and across_flats > 0 and isfinite(height) and height > 0):
+            raise ValueError("a polygonal boss needs finite positive across_flats and height")
+        try:
+            direction_values = tuple(self.flat_directions)
+        except TypeError as exc:
+            raise ValueError(
+                "flat_directions must contain one direction per polygon side"
+            ) from exc
+        try:
+            centre_values = tuple(self.flat_centres)
+        except TypeError as exc:
+            raise ValueError(
+                "flat_centres must contain one physical anchor per polygon side"
+            ) from exc
+        if len(direction_values) != self.side_count:
+            raise ValueError("flat_directions must contain one direction per polygon side")
+        if len(centre_values) != self.side_count:
+            raise ValueError("flat_centres must contain one physical anchor per polygon side")
+
+        def point(name: str, value) -> tuple[float, float, float]:
+            try:
+                components = tuple(value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"{name} must be a finite 3-vector") from exc
+            if len(components) != 3 or any(
+                isinstance(component, bool) for component in components
+            ):
+                raise ValueError(f"{name} must be a finite 3-vector")
+            try:
+                result = tuple(float(component) for component in components)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"{name} must be a finite 3-vector") from exc
+            if len(result) != 3 or not all(isfinite(component) for component in result):
+                raise ValueError(f"{name} must be a finite 3-vector")
+            return result
+
+        origin = point("frame.origin", self.frame.origin)
+        try:
+            span_values = tuple(self.span)
+        except TypeError as exc:
+            raise ValueError("span must contain two finite 3-vector endpoints") from exc
+        span = tuple(point("span endpoint", endpoint) for endpoint in span_values)
+        if len(span) != 2:
+            raise ValueError("span must contain two finite 3-vector endpoints")
+        axis_i = "xyz".index(self.frame.axis)
+        in_plane = [index for index in range(3) if index != axis_i]
+        # Recognition admits 0.2 mm / 2 degree modelling noise and generated scripts write
+        # coordinates to 3 decimal places.  The public waist may reject weaker evidence, but
+        # it must not narrow either producer's documented precision contract.
+        point_tol = 2e-3
+        support_tol = 0.202
+        angle_tol = pi / 90 + 2e-3
+        if any(
+            abs(endpoint[index] - origin[index]) > point_tol
+            for endpoint in span
+            for index in in_plane
+        ):
+            raise ValueError("span endpoints must lie on the polygonal boss axis line")
+        if any(
+            abs((span[0][index] + span[1][index]) / 2 - origin[index]) > point_tol
+            for index in range(3)
+        ):
+            raise ValueError("span must be centred on frame.origin")
+        if abs(abs(span[1][axis_i] - span[0][axis_i]) - height) > point_tol:
+            raise ValueError("span length along the boss axis must equal height")
+
+        directions = tuple(point("flat direction", direction) for direction in direction_values)
+        centres = tuple(point("flat centre", centre) for centre in centre_values)
+        span_lo, span_hi = sorted((span[0][axis_i], span[1][axis_i]))
+        angles: list[float] = []
+        for direction, centre in zip(directions, centres, strict=True):
+            norm = hypot(*direction)
+            if abs(norm - 1.0) > 1e-3 or abs(direction[axis_i]) > 1e-6:
+                raise ValueError(
+                    "each flat direction must be a unit vector perpendicular to the boss axis"
+                )
+            support = sum((centre[index] - origin[index]) * direction[index] for index in in_plane)
+            if not isclose(support, across_flats / 2, rel_tol=1e-3, abs_tol=support_tol):
+                raise ValueError("each flat centre must lie on its outward A/F support plane")
+            if not span_lo - 1e-6 <= centre[axis_i] <= span_hi + 1e-6:
+                raise ValueError("each flat centre must lie within the polygonal boss span")
+            angles.append(atan2(direction[in_plane[1]], direction[in_plane[0]]) % (2 * pi))
+        gaps = [
+            (angles[(index + 1) % self.side_count] - angles[index]) % (2 * pi)
+            for index in range(self.side_count)
+        ]
+        expected = 2 * pi / self.side_count
+        counter_clockwise = all(abs(gap - expected) <= angle_tol for gap in gaps)
+        clockwise = all(abs(gap - (2 * pi - expected)) <= angle_tol for gap in gaps)
+        opposed = all(
+            sum(
+                directions[index][component] * directions[index + self.side_count // 2][component]
+                for component in range(3)
+            )
+            <= -cos(angle_tol)
+            * hypot(*directions[index])
+            * hypot(*directions[index + self.side_count // 2])
+            for index in range(self.side_count // 2)
+        )
+        if not ((counter_clockwise or clockwise) and opposed):
+            raise ValueError(
+                "flat_directions must be ordered as one regular polygon ring with opposed pairs"
+            )
+
+        object.__setattr__(self, "frame", Frame(origin, self.frame.axis))
+        object.__setattr__(self, "across_flats", across_flats)
+        object.__setattr__(self, "height", height)
+        object.__setattr__(self, "span", span)
+        object.__setattr__(self, "flat_directions", directions)
+        object.__setattr__(self, "flat_centres", centres)
 
     def parameters(self) -> list[DimParameter]:
         return [

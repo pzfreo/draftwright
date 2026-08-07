@@ -319,11 +319,10 @@ def _feature_line(f, part_envelope=None) -> str:
         directions = f"tuple({_pts_arg(f.flat_directions)})"
         flats = f"tuple({_pts_arg(f.flat_centres)})"
         return (
-            "sheet.add(PolygonalBossFeature("
-            f"frame=Frame({_pt(f.frame.origin)}, {f.frame.axis!r}), "
+            "sheet.polygonal_boss("
             f"side_count={f.side_count}, across_flats={_n(f.across_flats)}, "
-            f"height={_n(f.height)}, span={span}, flat_directions={directions}, "
-            f"flat_centres={flats}))"
+            f"height={_n(f.height)}, at={_pt(f.frame.origin)}, axis={f.frame.axis!r}, "
+            f"span={span}, flat_directions={directions}, flat_centres={flats})"
         )
     if k == "step":
         thr = (
@@ -1037,8 +1036,6 @@ def emit_sheet_script(
         model_imports.update(["EnvelopeFeature", "Frame"])
     if any(f.kind == "pmi" for f in model.features):
         model_imports.update(["Frame", "PmiFeature"])
-    if any(f.kind == "polygonal_boss" for f in model.features):
-        model_imports.update(["Frame", "PolygonalBossFeature"])
     # Only carry an aspect into the emitted constructor when it differs from build_drawing's
     # default (mirrors the CLI's inert-flag test) — an unset aspect stays off the script.
     ctor = [f"title={title!r}", f"number={number!r}"]

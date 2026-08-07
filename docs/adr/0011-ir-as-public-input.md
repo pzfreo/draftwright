@@ -317,7 +317,12 @@ role-keyed `(rot, "diameter", "od")` vs `(rot, "diameter", "bore")` decoration, 
 time `RotationalFeature` was detection-only, so a caller authored it against the detected
 feature via the raw `decorations=` map rather than a fluent handle. **Since #945 there is a
 `sheet.rotational(od=…, bores=…, axis=…)` verb** returning the usual `_Params` handle — the
-last kind without one, which is what closed this ADR's round trip. It is **keyword-only**:
+last kind in the then-current IR without one, which closed that round trip. #676 later added
+`PolygonalBossFeature`; it has the same `_Params` handle and an explicit-only
+`sheet.polygonal_boss(...)` verb. A detached polygonal prism cannot prove that it is an attached
+boss, so the caller supplies its side count, A/F, height/span, ordered flat directions and
+physical flat centres rather than a second declaration-side inference. `rotational` is likewise
+**keyword-only**:
 unlike its siblings it takes no object, because the OD, the turning axis and which concentric
 bores are *sizing* bores come from the part classification (`analysis._classify_geometry` /
 `_sizing_bores`), not from a geometry read, so a declare-side derivation would be a second

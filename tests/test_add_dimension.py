@@ -1195,6 +1195,15 @@ class TestEveryFeatureVerbIsNameable:
         ),
         "diameter": dict(diameter=20, at=(0, 0, 0), axis="z"),
         "boss": dict(diameter=20, height=5, at=(0, 0, 0), axis="z"),
+        "polygonal_boss": dict(
+            side_count=4,
+            across_flats=20,
+            height=5,
+            at=(0, 0, 0),
+            axis="z",
+            flat_directions=((1, 0, 0), (0, 1, 0), (-1, 0, 0), (0, -1, 0)),
+            flat_centres=((10, 0, 0), (0, 10, 0), (-10, 0, 0), (0, -10, 0)),
+        ),
         "step": dict(diameter=20, length=10, at=(0, 0, 0), axis="z"),
         "slot": dict(width=8, length=20, long_axis="x", width_axis="y", w_center=0, lo=-10, hi=10),
         "pocket": dict(
