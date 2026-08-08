@@ -292,7 +292,14 @@ class TestEmit:
         assert "source='ap242_pmi'" in src
         assert "sheet.add(PmiFeature(" in src
         assert "sheet.add(ControlFrame(" in src
-        assert "sheet.add(DatumRef(" in src
+        assert src.count("sheet.add(DatumRef(") == 3
+        assert all(
+            f"letter={letter!r}" in src and f"part21_id={part21_id!r}" in src
+            for letter, part21_id in (("A", "#34"), ("B", "#35"), ("C", "#36"))
+        )
+        assert "reference_item_ids=('#861',)" in src
+        assert "reference_item_ids=('#854', '#853')" in src
+        assert "reference_item_ids=('#839', '#840')" in src
         assert "part21_id='#21'" in src
         assert "part21_id='#27'" in src and "all_around=True" in src
         assert "sheet.step_level(" in src  # #578: fluent verb, no StepLevelFeature import

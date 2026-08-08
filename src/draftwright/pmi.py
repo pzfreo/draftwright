@@ -43,13 +43,16 @@ try:
     from OCP.Bnd import Bnd_Box
     from OCP.BRepAdaptor import BRepAdaptor_Surface
     from OCP.BRepBndLib import BRepBndLib
-    from OCP.GeomAbs import GeomAbs_Plane
+    from OCP.GeomAbs import GeomAbs_Cylinder, GeomAbs_Plane
     from OCP.IFSelect import IFSelect_RetDone
     from OCP.STEPCAFControl import STEPCAFControl_Reader
     from OCP.TCollection import TCollection_AsciiString, TCollection_ExtendedString
     from OCP.TDF import TDF_LabelSequence, TDF_Tool
     from OCP.TDocStd import TDocStd_Document
+    from OCP.TopAbs import TopAbs_FACE
+    from OCP.TopExp import TopExp
     from OCP.TopoDS import TopoDS
+    from OCP.TopTools import TopTools_IndexedMapOfShape
     from OCP.XCAFDoc import (
         XCAFDoc_Datum,
         XCAFDoc_Dimension,
@@ -383,51 +386,174 @@ def _reference_geometry(label, shape_tool):
     )
 
 
-def _datum_reference_geometry(label, shape_tool):
-    """Measure a datum feature and require an axis-aligned planar reference surface."""
-    points, ref_bbox, _dominant_axis, geometry_reasons = _reference_geometry(label, shape_tool)
-    first_refs = TDF_LabelSequence()
-    second_refs = TDF_LabelSequence()
-    XCAFDoc_DimTolTool.GetRefShapeLabel_s(label, first_refs, second_refs)
+def _datum_geometry_from_shapes(shapes):
+    """Measure exact datum faces and require one compatible axis-aligned surface."""
+    points: list[tuple[float, float, float]] = []
+    boxes: list[tuple[float, float, float, float, float, float]] = []
     axes: list[str] = []
-    axis_positions: list[float] = []
-    reasons = list(geometry_reasons)
-    for refs in (first_refs, second_refs):
-        for index in range(1, refs.Length() + 1):
-            shape = shape_tool.GetShape_s(refs.Value(index))
-            if shape is None or shape.IsNull():
+    surface_kinds: list[str] = []
+    supports: list[tuple[float, ...]] = []
+    reasons: list[str] = []
+    for shape in shapes:
+        if shape is None or shape.IsNull():
+            reasons.append("one referenced shape is unavailable")
+            continue
+        try:
+            bbox = _shape_bbox(shape)
+            boxes.append(bbox)
+            points.append(_bbox_centroid(bbox))
+            surface = BRepAdaptor_Surface(TopoDS.Face_s(shape))
+            surface_type = surface.GetType()
+            if surface_type == GeomAbs_Plane:
+                kind = "plane"
+                geometry = surface.Plane()
+            elif surface_type == GeomAbs_Cylinder:
+                kind = "cylinder"
+                geometry = surface.Cylinder()
+            else:
+                reasons.append("one datum reference is neither planar nor cylindrical")
                 continue
-            try:
-                surface = BRepAdaptor_Surface(TopoDS.Face_s(shape))
-                if surface.GetType() != GeomAbs_Plane:
-                    reasons.append("one datum reference is not planar")
-                    continue
-                plane = surface.Plane()
-                direction = plane.Axis().Direction()
-                components = (abs(direction.X()), abs(direction.Y()), abs(direction.Z()))
-                axis_index = max(range(3), key=components.__getitem__)
-                if (
-                    components[axis_index] < 1e-6
-                    or sum(components) - components[axis_index] > 0.1 * components[axis_index]
-                ):
-                    reasons.append("one datum reference plane is not axis-aligned")
-                    continue
-                axes.append("XYZ"[axis_index])
-                location = plane.Location()
-                axis_positions.append((location.X(), location.Y(), location.Z())[axis_index])
-            except Exception as exc:
-                reasons.append(
-                    f"one datum reference plane is unavailable ({_failure_reason(exc)})"
+            axis = geometry.Axis()
+            direction = axis.Direction()
+            components = (abs(direction.X()), abs(direction.Y()), abs(direction.Z()))
+            axis_index = max(range(3), key=components.__getitem__)
+            if (
+                components[axis_index] < 1e-6
+                or sum(components) - components[axis_index] > 0.1 * components[axis_index]
+            ):
+                reasons.append("one datum reference surface is not axis-aligned")
+                continue
+            location = axis.Location()
+            coordinates = (location.X(), location.Y(), location.Z())
+            if kind == "plane":
+                support = (coordinates[axis_index],)
+            else:
+                support = tuple(
+                    value for index, value in enumerate(coordinates) if index != axis_index
                 )
+            axes.append("XYZ"[axis_index])
+            surface_kinds.append(kind)
+            supports.append(support)
+        except Exception as exc:
+            reasons.append(f"one datum reference surface is unavailable ({_failure_reason(exc)})")
+    if not shapes:
+        reasons.append("referenced geometry is unavailable")
+
+    ref_bbox = _merge_bboxes(boxes) if boxes else None
     if not axes:
-        reasons.append("datum reference plane is unavailable")
+        reasons.append("datum reference surface is unavailable")
         reference_axis = ""
-    elif len(set(axes)) != 1 or max(axis_positions) - min(axis_positions) > 1e-4:
-        reasons.append("datum reference faces are not coplanar")
+    elif len(set(surface_kinds)) != 1:
+        reasons.append("datum reference faces mix planar and cylindrical surfaces")
+        reference_axis = ""
+    elif len(set(axes)) != 1 or any(
+        any(abs(value - supports[0][index]) > 1e-4 for index, value in enumerate(support))
+        for support in supports[1:]
+    ):
+        qualifier = "coplanar" if surface_kinds[0] == "plane" else "coaxial"
+        reasons.append(f"datum reference faces are not {qualifier}")
         reference_axis = ""
     else:
         reference_axis = axes[0]
-    return points, ref_bbox, reference_axis, tuple(dict.fromkeys(reasons))
+    return tuple(points), ref_bbox, reference_axis, tuple(dict.fromkeys(reasons))
+
+
+def _datum_reference_geometry(label, shape_tool):
+    """Measure datum faces reached through the direct XCAF relationship."""
+    first_refs = TDF_LabelSequence()
+    second_refs = TDF_LabelSequence()
+    XCAFDoc_DimTolTool.GetRefShapeLabel_s(label, first_refs, second_refs)
+    shapes = []
+    for refs in (first_refs, second_refs):
+        for index in range(1, refs.Length() + 1):
+            shapes.append(shape_tool.GetShape_s(refs.Value(index)))
+    return _datum_geometry_from_shapes(shapes)
+
+
+class _DatumTopologyResolver:
+    """Resolve Part21 face labels through OCCT's native transfer binders.
+
+    ``TransferOne(rank)`` stays inside C++, avoiding the OCP wrapper's loss of pointer
+    identity when a STEP entity is returned to Python.  It reuses the existing transfer
+    binder.  ``FindIndex`` then proves that result is ``IsSame`` to a face in the original
+    imported topology; no geometric comparison participates in correspondence.
+    """
+
+    def __init__(self, step_reader, imported_faces):
+        self._reader = step_reader
+        self._model = step_reader.StepModel()
+        self._imported_faces = imported_faces
+        self._items: dict[str, tuple[object, int]] = {}
+        self._definitions: dict[str, tuple[object, ...]] = {}
+        self._claims: dict[int, str] = {}
+
+    def _transfer_face(self, item_id: str):
+        cached = self._items.get(item_id)
+        if cached is not None:
+            return cached, ""
+        rank = self._model.NextNumberForLabel(item_id, 0, True)
+        if rank <= 0:
+            return None, f"Part21 representation item {item_id} is unavailable"
+        entity = self._model.Value(rank)
+        if entity.DynamicType().Name() != "StepShape_AdvancedFace":
+            return None, f"Part21 representation item {item_id} is not an advanced face"
+        before = self._reader.NbShapes()
+        try:
+            transferred = self._reader.TransferOne(rank)
+        except Exception as exc:
+            return None, (
+                f"Part21 representation item {item_id} could not be transferred "
+                f"({_failure_reason(exc)})"
+            )
+        after = self._reader.NbShapes()
+        if not transferred or after != before + 1:
+            return None, f"Part21 representation item {item_id} could not be transferred"
+        shape = self._reader.Shape(after)
+        if shape is None or shape.IsNull() or shape.ShapeType() != TopAbs_FACE:
+            return None, f"Part21 representation item {item_id} did not transfer to one face"
+        face_index = self._imported_faces.FindIndex(shape)
+        if face_index <= 0:
+            return None, (
+                f"Part21 representation item {item_id} is not a face in the imported topology"
+            )
+        result = (shape, face_index)
+        self._items[item_id] = result
+        return result, ""
+
+    def resolve(self, definition_id: str, item_ids: tuple[str, ...]):
+        """Return exact imported faces, or reasons that make the definition unsafe."""
+        cached = self._definitions.get(definition_id)
+        if cached is not None:
+            return cached, ()
+        if not item_ids:
+            return (), ("datum feature has no Part21 representation items",)
+
+        resolved = []
+        reasons: list[str] = []
+        for item_id in item_ids:
+            result, reason = self._transfer_face(item_id)
+            if reason:
+                reasons.append(reason)
+            elif result is not None:
+                resolved.append(result)
+        if reasons:
+            return (), tuple(dict.fromkeys(reasons))
+
+        indices = [face_index for _shape, face_index in resolved]
+        if len(set(indices)) != len(indices):
+            return (), ("datum feature representation items resolve to the same imported face",)
+        for face_index in indices:
+            owner = self._claims.get(face_index)
+            if owner is not None and owner != definition_id:
+                reasons.append(f"one imported face is already claimed by datum feature {owner}")
+        if reasons:
+            return (), tuple(dict.fromkeys(reasons))
+
+        shapes = tuple(shape for shape, _face_index in resolved)
+        for face_index in indices:
+            self._claims[face_index] = definition_id
+        self._definitions[definition_id] = shapes
+        return shapes, ()
 
 
 def _datum_letter(label) -> tuple[str, str]:
@@ -902,12 +1028,24 @@ def extract_pmi_report(step_file: str | Path) -> PmiExtractionReport:
     dt.GetDatumLabels(datums)
     datum_facts: tuple[DatumOccurrenceFact, ...] = ()
     datum_part21_error = ""
+    datum_topology = None
+    datum_topology_error = ""
     if datums.Length() > 0:
         try:
             datum_facts = read_datum_occurrences(step_file)
         except Exception as exc:
             datum_part21_error = f"Part21 datum read failed: {_failure_reason(exc)}"
             _log.debug("PMI datum overlay unavailable for %s: %s", Path(step_file).name, exc)
+        if not datum_part21_error:
+            try:
+                step_reader = reader.Reader()
+                imported_faces = TopTools_IndexedMapOfShape()
+                TopExp.MapShapes_s(step_reader.OneShape(), TopAbs_FACE, imported_faces)
+                datum_topology = _DatumTopologyResolver(step_reader, imported_faces)
+            except Exception as exc:
+                datum_topology_error = (
+                    f"datum imported-topology map is unavailable ({_failure_reason(exc)})"
+                )
     datum_records: list[PmiRecord] = []
     for index in range(1, datums.Length() + 1):
         label = datums.Value(index)
@@ -922,6 +1060,20 @@ def extract_pmi_report(step_file: str | Path) -> PmiExtractionReport:
             points, ref_bbox, reference_axis, geometry_reasons = _datum_reference_geometry(
                 label, shape_tool
             )
+            if fact is not None and fact.reference_item_ids:
+                if datum_topology is None:
+                    topology_shapes = ()
+                    topology_reasons = (datum_topology_error or datum_part21_error,)
+                else:
+                    topology_shapes, topology_reasons = datum_topology.resolve(
+                        fact.datum_feature_id, fact.reference_item_ids
+                    )
+                if topology_shapes:
+                    points, ref_bbox, reference_axis, geometry_reasons = (
+                        _datum_geometry_from_shapes(topology_shapes)
+                    )
+                else:
+                    geometry_reasons = tuple(dict.fromkeys((*geometry_reasons, *topology_reasons)))
             blockers = tuple(
                 dict.fromkeys(
                     reason

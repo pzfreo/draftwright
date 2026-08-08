@@ -30,6 +30,66 @@ class _Sequence:
         return self.items[index - 1]
 
 
+class _Face:
+    def __init__(self, identity):
+        self.identity = identity
+
+    def IsNull(self):
+        return False
+
+    def ShapeType(self):
+        return "face"
+
+    def IsSame(self, other):
+        return self.identity == other.identity
+
+
+class _ImportedFaces:
+    def __init__(self, *faces):
+        self.faces = faces
+
+    def FindIndex(self, shape):
+        return next((index for index, face in enumerate(self.faces, 1) if face.IsSame(shape)), 0)
+
+
+class _StepModel:
+    def __init__(self, ranks):
+        self.ranks = ranks
+
+    def NextNumberForLabel(self, label, lastnum=0, exact=True):
+        assert lastnum == 0
+        assert exact is True
+        return self.ranks.get(label, 0)
+
+    def Value(self, rank):
+        return SimpleNamespace(
+            DynamicType=lambda: SimpleNamespace(Name=lambda: "StepShape_AdvancedFace")
+        )
+
+
+class _StepReader:
+    def __init__(self, ranks, results):
+        self.model = _StepModel(ranks)
+        self.results = results
+        self.shapes = []
+
+    def StepModel(self):
+        return self.model
+
+    def TransferOne(self, rank):
+        shape = self.results.get(rank)
+        if shape is None:
+            return False
+        self.shapes.append(shape)
+        return True
+
+    def NbShapes(self):
+        return len(self.shapes)
+
+    def Shape(self, index):
+        return self.shapes[index - 1]
+
+
 def _record(*, blockers=(), axis="Z") -> PmiRecord:
     return PmiRecord(
         kind="datum",
@@ -63,6 +123,72 @@ def test_complete_datum_definition_lowers_once_for_all_source_occurrences():
     assert isinstance(feature.origin, PmiFeature)
     assert feature.origin.datum_contexts == ("Position.1", "Perpendicularity.1")
     assert feature.origin.reference_item_ids == ("#861",)
+
+
+def test_datum_topology_resolution_uses_part21_labels_and_exact_imported_identity(monkeypatch):
+    imported = (_Face("left"), _Face("right"))
+    reader = _StepReader({"#839": 7, "#840": 11}, {7: imported[0], 11: imported[1]})
+    monkeypatch.setattr(pmi_module, "TopAbs_FACE", "face")
+    resolver = pmi_module._DatumTopologyResolver(reader, _ImportedFaces(*imported))
+
+    shapes, reasons = resolver.resolve("#36", ("#839", "#840"))
+
+    assert reasons == ()
+    assert shapes == imported
+
+
+@pytest.mark.parametrize(
+    ("ranks", "results", "imported", "expected"),
+    (
+        ({"#839": 7}, {}, (_Face("left"),), "could not be transferred"),
+        (
+            {"#839": 7},
+            {7: _Face("other")},
+            (_Face("left"),),
+            "is not a face in the imported topology",
+        ),
+        (
+            {"#839": 7, "#840": 11},
+            {7: _Face("left"), 11: _Face("left")},
+            (_Face("left"),),
+            "resolve to the same imported face",
+        ),
+    ),
+)
+def test_datum_topology_resolution_fails_closed_for_missing_unimported_or_collapsed_faces(
+    monkeypatch, ranks, results, imported, expected
+):
+    monkeypatch.setattr(pmi_module, "TopAbs_FACE", "face")
+    resolver = pmi_module._DatumTopologyResolver(
+        _StepReader(ranks, results), _ImportedFaces(*imported)
+    )
+
+    shapes, reasons = resolver.resolve("#36", tuple(ranks))
+
+    assert shapes == ()
+    assert any(expected in reason for reason in reasons)
+
+
+def test_datum_topology_resolution_rejects_two_definitions_claiming_one_face(monkeypatch):
+    imported = (_Face("shared"), _Face("other"))
+    reader = _StepReader(
+        {"#839": 7, "#840": 11, "#853": 13},
+        {7: imported[0], 11: imported[1], 13: imported[0]},
+    )
+    monkeypatch.setattr(pmi_module, "TopAbs_FACE", "face")
+    resolver = pmi_module._DatumTopologyResolver(reader, _ImportedFaces(*imported))
+
+    assert resolver.resolve("#36", ("#839", "#840"))[1] == ()
+    shapes, reasons = resolver.resolve("#35", ("#853",))
+
+    assert shapes == ()
+    assert any("already claimed by datum feature #36" in reason for reason in reasons)
+
+    # The same source item reused by another definition takes the cache path and is rejected
+    # by the same imported-topology ownership guard.
+    shapes, reasons = resolver.resolve("#34", ("#839",))
+    assert shapes == ()
+    assert any("already claimed by datum feature #36" in reason for reason in reasons)
 
 
 def test_unresolved_datum_geometry_remains_one_provenance_rich_raw_definition():
@@ -134,9 +260,9 @@ def test_datum_geometry_rejects_unusable_reference_shapes(monkeypatch):
             dx, dy, dz = self.direction
             x, y, z = self.location
             direction = SimpleNamespace(X=lambda: dx, Y=lambda: dy, Z=lambda: dz)
-            axis = SimpleNamespace(Direction=lambda: direction)
             location = SimpleNamespace(X=lambda: x, Y=lambda: y, Z=lambda: z)
-            return SimpleNamespace(Axis=lambda: axis, Location=lambda: location)
+            axis = SimpleNamespace(Direction=lambda: direction, Location=lambda: location)
+            return SimpleNamespace(Axis=lambda: axis)
 
     def get_refs(label, first, second):
         for item in label[0]:
@@ -153,26 +279,25 @@ def test_datum_geometry_rejects_unusable_reference_shapes(monkeypatch):
     monkeypatch.setattr(
         pmi_module, "XCAFDoc_DimTolTool", SimpleNamespace(GetRefShapeLabel_s=get_refs)
     )
-    monkeypatch.setattr(
-        pmi_module,
-        "_reference_geometry",
-        lambda *_args: (((1.0, 2.0, 3.0),), (0.0, 0.0, 0.0, 1.0, 1.0, 1.0), "Z", ()),
-    )
+    monkeypatch.setattr(pmi_module, "_shape_bbox", lambda _shape: (0.0, 1.0, 2.0, 2.0, 3.0, 4.0))
     monkeypatch.setattr(pmi_module, "TopoDS", SimpleNamespace(Face_s=as_face))
     monkeypatch.setattr(pmi_module, "BRepAdaptor_Surface", lambda shape: shape.surface)
     monkeypatch.setattr(pmi_module, "GeomAbs_Plane", "plane")
     shape_tool = SimpleNamespace(GetShape_s=lambda ref: ref)
 
     cases = (
-        ((Shape(null=True),), "datum reference plane is unavailable"),
-        ((Shape(surface=Surface("cylinder")),), "one datum reference is not planar"),
+        ((Shape(null=True),), "datum reference surface is unavailable"),
+        (
+            (Shape(surface=Surface("unsupported")),),
+            "one datum reference is neither planar nor cylindrical",
+        ),
         (
             (Shape(surface=Surface("plane", direction=(1.0, 0.2, 0.0))),),
-            "one datum reference plane is not axis-aligned",
+            "one datum reference surface is not axis-aligned",
         ),
         (
             (Shape(broken=True),),
-            "one datum reference plane is unavailable (TypeError: not a face)",
+            "one datum reference surface is unavailable (TypeError: not a face)",
         ),
         (
             (
@@ -186,9 +311,10 @@ def test_datum_geometry_rejects_unusable_reference_shapes(monkeypatch):
         points, bbox, axis, reasons = pmi_module._datum_reference_geometry(
             (shapes, ()), shape_tool
         )
-        assert points == ((1.0, 2.0, 3.0),)
-        assert bbox == (0.0, 0.0, 0.0, 1.0, 1.0, 1.0)
-        assert axis == ""
+        usable_shape_count = sum(not shape.null for shape in shapes)
+        assert points == ((1.0, 2.0, 3.0),) * usable_shape_count
+        assert bbox == ((0.0, 1.0, 2.0, 2.0, 3.0, 4.0) if usable_shape_count else None)
+        assert axis == "", expected_reason
         assert expected_reason in reasons
 
 

@@ -242,8 +242,7 @@ class TestExtractPmi:
                 ("dimension", "extracted"): 12,
                 ("dimension", "presentation_only"): 9,
                 ("geometric_tolerance", "extracted"): 6,
-                ("datum", "extracted"): 5,
-                ("datum", "partially_extracted"): 6,
+                ("datum", "extracted"): 11,
             }
         )
         assert {
@@ -302,7 +301,7 @@ class TestExtractPmi:
                 ("datum:0:1:4:3", "datum:0:1:4:7", "datum:0:1:4:13"),
                 ("Position.1", "Position.2", "Position surfacic profile.3"),
                 ("#854", "#853"),
-                "",
+                "Z",
             ),
             (
                 "C",
@@ -310,15 +309,11 @@ class TestExtractPmi:
                 ("datum:0:1:4:4", "datum:0:1:4:8", "datum:0:1:4:14"),
                 ("Position.1", "Position.2", "Position surfacic profile.3"),
                 ("#839", "#840"),
-                "",
+                "Z",
             ),
         ]
-        assert datums[0].lowering_blockers == ()
-        assert datums[0].ref_bbox is not None
-        assert all(
-            "referenced geometry is unavailable" in record.lowering_blockers
-            for record in datums[1:]
-        )
+        assert all(record.lowering_blockers == () for record in datums)
+        assert all(record.ref_bbox is not None for record in datums)
 
     def test_non_record_dimension_types_fail_closed(self):
         import draftwright.pmi as pmi_module
@@ -716,6 +711,45 @@ class TestExtractPmi:
         )
         assert all(record.part21_id == "" and len(record.source_ids) == 1 for record in records)
 
+    def test_a_failed_exact_topology_guard_keeps_all_datum_definitions_raw(self, monkeypatch):
+        import draftwright.pmi as pmi_module
+        from draftwright.model import DatumRef, build_pmi_features
+
+        def reject(_self, _definition_id, _item_ids):
+            return (), ("mutation: exact imported-topology identity is unavailable",)
+
+        monkeypatch.setattr(pmi_module._DatumTopologyResolver, "resolve", reject)
+        report = pmi_module.extract_pmi_report(CTC01)
+        sources = [source for source in report.sources if source.category == "datum"]
+        records = [record for record in report.records if record.source_category == "datum"]
+
+        assert len(sources) == 11
+        assert all(source.outcome == "partially_extracted" for source in sources)
+        assert len(records) == 3
+        assert all(
+            any(
+                "exact imported-topology identity is unavailable" in reason
+                for reason in record.lowering_blockers
+            )
+            for record in records
+        )
+        features = build_pmi_features(records, Box(20, 20, 20).bounding_box())
+        assert not any(isinstance(feature, DatumRef) for feature in features)
+
+    def test_a_failed_topology_map_setup_is_a_per_datum_blocker(self, monkeypatch):
+        import draftwright.pmi as pmi_module
+
+        def fail():
+            raise RuntimeError("mutation: topology map setup failed")
+
+        monkeypatch.setattr(pmi_module, "TopTools_IndexedMapOfShape", fail)
+        report = pmi_module.extract_pmi_report(CTC01)
+        sources = [source for source in report.sources if source.category == "datum"]
+
+        assert len(sources) == 11
+        assert all(source.outcome == "partially_extracted" for source in sources)
+        assert all("topology map setup failed" in source.reason for source in sources)
+
     def test_a_failed_datum_conversion_keeps_every_source_identity(self, monkeypatch):
         import draftwright.pmi as pmi_module
 
@@ -946,20 +980,18 @@ class TestBuildDrawingPmi:
         pmi_names = [n for n in dwg.annotations() if n.startswith("pmi_")]
         assert pmi_names == [], "pmi='report' should not add drawing annotations"
         issues = [issue for issue in dwg.lint() if issue.code == "pmi_not_extracted"]
-        assert len(issues) == 6
-        assert {issue.severity for issue in issues} == {"info"}
-        assert len({issue.source_ids for issue in issues}) == 6
+        assert issues == []
         lowering = [issue for issue in dwg.lint() if issue.code == "pmi_not_lowered"]
-        assert len(lowering) == 10
+        assert len(lowering) == 4
         assert {issue.severity for issue in lowering} == {"info"}
-        assert len({issue.source_ids for issue in lowering}) == 10
+        assert len({issue.source_ids for issue in lowering}) == 4
         assert not [issue for issue in dwg.lint() if issue.code == "pmi_not_rendered"]
         assert dwg.lint_summary()["pmi"] == {
             "mode": "report",
             "sources": 38,
             "by_category": {"datum": 11, "dimension": 21, "geometric_tolerance": 6},
             "extracted": 29,
-            "lowered": 19,
+            "lowered": 25,
             "rendered": 0,
             "dropped": 0,
         }
@@ -989,19 +1021,10 @@ class TestBuildDrawingPmi:
 
     def test_pmi_annotate_reports_each_incomplete_source_record(self, ctc01_annotated):
         issues = [issue for issue in ctc01_annotated.lint() if issue.code == "pmi_not_extracted"]
-        assert len(issues) == 6
-        assert {issue.severity for issue in issues} == {"error"}
-        assert len({issue.source_ids for issue in issues}) == 6
-        assert all(issue.source_ids[0] in issue.message for issue in issues)
-        assert all("referenced geometry is unavailable" in issue.message for issue in issues)
+        assert issues == []
         summary = ctc01_annotated.lint_summary()
         assert summary["passed"] is False
-        assert summary["by_code"]["pmi_not_extracted"] == 6
-        assert all(
-            "source_ids" in issue
-            for issue in summary["issues"]
-            if issue["code"] == "pmi_not_extracted"
-        )
+        assert "pmi_not_extracted" not in summary["by_code"]
 
     def test_pmi_annotate_reports_each_raw_ir_fallback(self, ctc01_annotated):
         from draftwright.model import ControlFrame, PmiFeature
@@ -1019,7 +1042,7 @@ class TestBuildDrawingPmi:
             if isinstance(feature, ControlFrame) and feature.source_id
         }
 
-        assert len(raw_features) == 6
+        assert len(raw_features) == 4
         assert {issue.severity for issue in issues} == {"error"}
         assert {issue.source_ids[0] for issue in issues} == {
             source_id
@@ -1048,7 +1071,7 @@ class TestBuildDrawingPmi:
         }
         assert frames["geometric_tolerance:0:1:4:15"].all_around is True
 
-    def test_pmi_annotate_renders_the_proven_datum_feature_once(self, ctc01_annotated):
+    def test_pmi_annotate_renders_each_proven_datum_feature_once(self, ctc01_annotated):
         from draftwright.model import DatumRef
 
         datums = [
@@ -1057,11 +1080,15 @@ class TestBuildDrawingPmi:
             if isinstance(feature, DatumRef)
         ]
 
-        assert len(datums) == 1
-        (datum,) = datums
-        assert (datum.letter, datum.part21_id) == ("A", "#34")
-        assert len(datum.source_ids) == 5
-        assert len(ctc01_annotated.registry.names_for_feature(datum.origin)) == 1
+        assert {(datum.letter, datum.part21_id) for datum in datums} == {
+            ("A", "#34"),
+            ("B", "#35"),
+            ("C", "#36"),
+        }
+        assert sum(len(datum.source_ids) for datum in datums) == 11
+        assert all(
+            len(ctc01_annotated.registry.names_for_feature(datum.origin)) == 1 for datum in datums
+        )
 
     def test_pmi_annotate_accounts_for_each_typed_dimension_at_the_render_seam(
         self, ctc01_annotated
@@ -1096,8 +1123,8 @@ class TestBuildDrawingPmi:
             "sources": 38,
             "by_category": {"datum": 11, "dimension": 21, "geometric_tolerance": 6},
             "extracted": 29,
-            "lowered": 19,
-            "rendered": 17,
+            "lowered": 25,
+            "rendered": 23,
             "dropped": 2,
         }
 
@@ -1277,9 +1304,9 @@ def test_build_pmi_features_mirrors_detection(ctc01_extraction_report):
     assert len(authored) == 8
     # Four location dimensions remain explicit raw fallbacks; all six supported geometric
     # tolerances lower to the existing control-frame drafting concept.
-    assert len(raw) == 6
+    assert len(raw) == 4
     assert len(frames) == 6
-    assert len(datum_refs) == 1
+    assert len(datum_refs) == 3
     assert all(f.kind == "authored_dimension" for f in authored)
     assert all(f.kind == "pmi" for f in raw)
     assert {
@@ -1287,11 +1314,14 @@ def test_build_pmi_features_mirrors_detection(ctc01_extraction_report):
         for feature in feats
         for source_id in (getattr(feature, "source_ids", ()) or (feature.source_id,))
     } == {source_id for record in recs for source_id in (record.source_ids or (record.source_id,))}
-    assert datum_refs[0].letter == "A"
-    assert datum_refs[0].part21_id == "#34"
-    assert datum_refs[0].source_ids == next(
-        record.source_ids for record in recs if record.part21_id == "#34"
-    )
+    assert {(datum.letter, datum.part21_id) for datum in datum_refs} == {
+        ("A", "#34"),
+        ("B", "#35"),
+        ("C", "#36"),
+    }
+    assert {datum.part21_id: datum.source_ids for datum in datum_refs} == {
+        record.part21_id: record.source_ids for record in recs if record.source_category == "datum"
+    }
     assert {feature.source_id: feature.part21_id for feature in frames if feature.part21_id} == {
         record.source_id: record.part21_id
         for record in recs
