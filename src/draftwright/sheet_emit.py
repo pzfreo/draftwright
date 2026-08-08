@@ -1004,7 +1004,11 @@ def _feature_block(features, part_envelope=None) -> tuple[list[str], dict[int, s
                     "emit_sheet_script(): cannot preserve a control frame whose origin has "
                     "no emitted binding"
                 )
-            line = _feature_line(f, part_envelope, origin_ref=origin_ref)
+            line = (
+                _feature_line(f, part_envelope, origin_ref=origin_ref)
+                if f.kind == "control_frame"
+                else _feature_line(f, part_envelope)
+            )
             name = _binding(f, line, counts)
             if name is not None:
                 names[id(f)] = name
