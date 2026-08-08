@@ -164,9 +164,12 @@ class _DraftwrightDXF(ExportDXF):
     """
 
     def _convert_bspline(self, edge, attribs):
-        if not edge or edge.location is None:
+        if edge.is_null:
             raise ValueError(f"Edge is empty {edge}.")
         edge = edge.to_splines()
+        location = edge.location
+        if location is None:
+            raise ValueError(f"Edge has no location {edge}.")
         adaptor = edge.geom_adaptor()
         curve = adaptor.Curve().Curve()
         spline = GeomConvert.SplitBSplineCurve_s(
@@ -176,7 +179,7 @@ class _DraftwrightDXF(ExportDXF):
             self.PARAMETRIC_TOLERANCE,
         )
 
-        spline.Transform(edge.location.wrapped.Transformation())
+        spline.Transform(location.wrapped.Transformation())
 
         order = spline.Degree() + 1
         knots = [

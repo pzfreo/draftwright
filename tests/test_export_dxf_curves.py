@@ -28,6 +28,18 @@ def test_empty_curve_fails_before_occt_conversion():
         _DraftwrightDXF()._convert_bspline(Edge(), {})
 
 
+def test_curve_without_location_fails_before_occt_conversion():
+    class MissingLocationEdge:
+        is_null = False
+        location = None
+
+        def to_splines(self):
+            return self
+
+    with pytest.raises(ValueError, match="Edge has no location"):
+        _DraftwrightDXF()._convert_bspline(MissingLocationEdge(), {})
+
+
 def test_trimmed_rational_bezier_exports_exactly_without_bulk_curve_arrays(monkeypatch):
     source = Edge.make_bezier(
         (0, 0),
