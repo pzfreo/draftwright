@@ -127,8 +127,8 @@ _GTOL_TYPE: dict[int, str] = {
 }
 
 # int → stable semantic name for XCAFDimTolObjects_GeomToleranceModif.  The whole OCCT
-# vocabulary is inventoried even though only the all-around leader-scope symbol has a faithful,
-# export-safe drafting representation today; every other known value remains explicit and
+# vocabulary is inventoried even though only the leader-scope symbols have faithful,
+# export-safe drafting representations today; every other known value remains explicit and
 # fail-closed.
 _GTOL_MODIFIER: dict[int, str] = {
     0: "any_cross_section",
@@ -149,7 +149,7 @@ _GTOL_MODIFIER: dict[int, str] = {
     15: "all_around",
     16: "all_over",
 }
-_SUPPORTED_GTOL_SCOPE_MODIFIERS = frozenset(("all_around",))
+_SUPPORTED_GTOL_SCOPE_MODIFIERS = frozenset(("all_around", "all_over"))
 
 
 # ---------------------------------------------------------------------------
@@ -668,7 +668,7 @@ def _semantic_name(obj) -> tuple[str, str]:
 
 
 def _geometric_tolerance_modifiers(obj) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """Inventory XCAF's modifier sequence and admit only one representable scope symbol."""
+    """Inventory XCAF's modifier sequence and admit representable scope symbols."""
     try:
         codes = tuple(int(modifier) for modifier in obj.GetModifiers())
     except Exception as exc:

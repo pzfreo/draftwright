@@ -283,6 +283,8 @@ def _control_frame_line(f, origin_ref: str | None = None) -> str:
         kw.append(f"modifier={f.modifier!r}")
     if f.all_around:
         kw.append("all_around=True")
+    if f.all_over:
+        kw.append("all_over=True")
     if f.source_id:
         kw.append(f"source_id={f.source_id!r}")
     if f.part21_id:

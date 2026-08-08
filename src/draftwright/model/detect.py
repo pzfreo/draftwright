@@ -287,6 +287,7 @@ def build_pmi_features(
                 replace(
                     item,
                     all_around="all_around" in r.gtol_modifiers,
+                    all_over="all_over" in r.gtol_modifiers,
                     source_id=r.source_id,
                     part21_id=r.part21_id,
                 )

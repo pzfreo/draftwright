@@ -1217,6 +1217,8 @@ class ControlFrame:
     all_around: bool = False
     source_id: str = ""
     part21_id: str = ""
+    # Appended after the existing public fields to preserve positional ControlFrame construction.
+    all_over: bool = False
     kind: ClassVar[str] = "control_frame"
 
     def parameters(self) -> list[DimParameter]:

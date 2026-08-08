@@ -42,7 +42,7 @@ def test_occt_geometric_tolerance_modifier_enum_is_fully_inventoried():
     assert pmi_module._GTOL_MODIFIER == actual
 
 
-def test_only_one_supported_scope_modifier_is_complete():
+def test_supported_scope_modifiers_are_complete():
     def modifiers(*codes):
         return SimpleNamespace(GetModifiers=lambda: codes)
 
@@ -52,7 +52,7 @@ def test_only_one_supported_scope_modifier_is_complete():
     )
     assert pmi_module._geometric_tolerance_modifiers(modifiers(16)) == (
         ("all_over",),
-        ("geometric-tolerance modifier 'all_over' is not supported",),
+        (),
     )
     assert pmi_module._geometric_tolerance_modifiers(modifiers(1)) == (
         ("common_zone",),
@@ -64,10 +64,7 @@ def test_only_one_supported_scope_modifier_is_complete():
     )
     assert pmi_module._geometric_tolerance_modifiers(modifiers(15, 16)) == (
         ("all_around", "all_over"),
-        (
-            "geometric-tolerance modifier 'all_over' is not supported",
-            "geometric-tolerance modifier combination ('all_around', 'all_over') is not supported",
-        ),
+        ("geometric-tolerance modifier combination ('all_around', 'all_over') is not supported",),
     )
 
     def unreadable():
@@ -114,6 +111,18 @@ def test_complete_geometric_tolerance_lowers_to_control_frame():
     assert feature.origin.gtol_modifiers == ("all_around",)
 
 
+def test_complete_all_over_tolerance_lowers_to_control_frame():
+    (feature,) = build_pmi_features(
+        (_record(modifiers=("all_over",)),), Box(20, 20, 20).bounding_box()
+    )
+
+    assert isinstance(feature, ControlFrame)
+    assert feature.all_around is False
+    assert feature.all_over is True
+    assert isinstance(feature.origin, PmiFeature)
+    assert feature.origin.gtol_modifiers == ("all_over",)
+
+
 def test_lowering_does_not_round_the_source_tolerance_magnitude():
     (feature,) = build_pmi_features((_record(value=0.12345),), Box(20, 20, 20).bounding_box())
 
@@ -121,7 +130,7 @@ def test_lowering_does_not_round_the_source_tolerance_magnitude():
     assert feature.tolerance == "0.12345"
 
 
-@pytest.mark.parametrize("modifier", ["common_zone", "all_over"])
+@pytest.mark.parametrize("modifier", ["common_zone"])
 def test_incomplete_geometric_tolerance_remains_a_provenance_rich_raw_fallback(modifier):
     blocker = f"geometric-tolerance modifier {modifier!r} is not supported"
     (feature,) = build_pmi_features(
@@ -166,6 +175,20 @@ def test_generated_sheet_line_round_trips_imported_control_frame():
     assert restored.origin.part21_id == restored.part21_id
 
 
+def test_generated_sheet_line_round_trips_imported_all_over_control_frame():
+    (feature,) = build_pmi_features(
+        (_record(modifiers=("all_over",)),), Box(20, 20, 20).bounding_box()
+    )
+
+    restored = _execute_feature_line(feature)
+
+    assert isinstance(restored, ControlFrame)
+    assert restored.all_around is False
+    assert restored.all_over is True
+    assert isinstance(restored.origin, PmiFeature)
+    assert restored.origin.gtol_modifiers == ("all_over",)
+
+
 def test_generated_sheet_line_round_trips_control_frame_zone_fields():
     feature = ControlFrame(
         frame=Frame((1.0, 2.0, 3.0), "z"),
@@ -183,6 +206,7 @@ def test_generated_sheet_line_round_trips_control_frame_zone_fields():
     assert restored.modifier == "M"
     assert restored.datums == ()
     assert restored.all_around is False
+    assert restored.all_over is False
     assert restored.source_id == ""
     assert restored.part21_id == ""
     assert restored.origin is None
@@ -202,7 +226,7 @@ def test_generated_sheet_refuses_a_control_frame_with_an_unbound_feature_origin(
         _feature_block([feature])
 
 
-@pytest.mark.parametrize("modifier", ["common_zone", "all_over"])
+@pytest.mark.parametrize("modifier", ["common_zone"])
 def test_generated_sheet_line_round_trips_raw_modifier_fallback(modifier):
     blocker = f"geometric-tolerance modifier {modifier!r} is not supported"
     (feature,) = build_pmi_features(

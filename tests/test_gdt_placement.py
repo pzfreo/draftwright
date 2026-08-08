@@ -8,8 +8,11 @@ never overlap, a full strip drops honestly (a warning, not a silent vanish), and
 placement stays lint-clean.
 """
 
+from collections import defaultdict
 from pathlib import Path
+from xml.etree import ElementTree
 
+import ezdxf
 import pytest
 from build123d import Box, Cylinder, Draft, Pos
 from build123d_drafting import FeatureControlFrame
@@ -82,6 +85,43 @@ def test_imported_scope_modifier_reaches_the_solver_owned_leader(monkeypatch, tm
     assert dwg.registry.names_for_feature(frame) == ["m_gdt0"]
     paths = dwg.export(str(tmp_path / "all-around"), formats=("svg", "dxf"))
     assert all(Path(path).exists() and Path(path).stat().st_size > 0 for path in paths.values())
+
+
+@pytest.mark.timeout(60)
+def test_all_over_control_frame_exports_two_rings_to_svg_and_dxf(tmp_path):
+    frame = ControlFrame(
+        frame=Frame((0.0, 0.0, 0.0), "z"),
+        characteristic="profile_surface",
+        tolerance="0.5",
+        view="plan",
+        side="above",
+        all_over=True,
+        source_id="geometric_tolerance:fixture",
+        part21_id="#27",
+    )
+    dwg = _build(frame)
+
+    paths = dwg.export(str(tmp_path / "all-over"), formats=("svg", "dxf"))
+    assert all(Path(path).exists() and Path(path).stat().st_size > 0 for path in paths.values())
+
+    svg = ElementTree.parse(paths["svg"])
+    dims = next(element for element in svg.iter() if element.attrib.get("id") == "dims")
+    annular_paths = [
+        element.attrib["d"]
+        for element in dims
+        if element.tag.endswith("path")
+        and element.attrib.get("d", "").count(" A ") == 4
+        and element.attrib["d"].count("M ") == 2
+        and " L " not in element.attrib["d"]
+    ]
+    assert len(annular_paths) == 2
+
+    circles_by_center = defaultdict(set)
+    for entity in ezdxf.readfile(paths["dxf"]).modelspace():
+        if entity.dxf.layer == "dims" and entity.dxftype() == "CIRCLE":
+            center = tuple(round(value, 6) for value in entity.dxf.center)
+            circles_by_center[center].add(round(entity.dxf.radius, 6))
+    assert any(len(radii) == 4 for radii in circles_by_center.values())
 
 
 def test_automatically_imported_frame_stays_diagnostic_in_report_mode():

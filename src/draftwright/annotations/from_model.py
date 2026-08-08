@@ -4587,6 +4587,7 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
                 draft=draft,
                 callout=g,
                 all_around=getattr(_it, "all_around", False),
+                all_over=getattr(_it, "all_over", False),
             )
 
         def _drop(
