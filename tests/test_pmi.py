@@ -696,6 +696,45 @@ class TestExtractPmi:
         )
         assert all(record.value == 0.0 and record.part21_id == "" for record in records)
 
+    def test_part21_failure_keeps_each_xcaf_datum_occurrence_explicitly_partial(self, monkeypatch):
+        import draftwright.pmi as pmi_module
+
+        def fail(_step_file):
+            raise RuntimeError("mutation: Part21 datum parser failed")
+
+        monkeypatch.setattr(pmi_module, "read_datum_occurrences", fail)
+        report = pmi_module.extract_pmi_report(CTC01)
+        sources = [source for source in report.sources if source.category == "datum"]
+        records = [record for record in report.records if record.source_category == "datum"]
+
+        assert len(sources) == len(records) == 11
+        assert all(source.outcome == "partially_extracted" for source in sources)
+        assert all(
+            "Part21 datum read failed: RuntimeError: mutation: Part21 datum parser failed"
+            in source.reason
+            for source in sources
+        )
+        assert all(record.part21_id == "" and len(record.source_ids) == 1 for record in records)
+
+    def test_a_failed_datum_conversion_keeps_every_source_identity(self, monkeypatch):
+        import draftwright.pmi as pmi_module
+
+        def fail(_label):
+            raise RuntimeError("mutation: datum conversion failed")
+
+        monkeypatch.setattr(pmi_module, "_datum_letter", fail)
+        report = pmi_module.extract_pmi_report(CTC01)
+        sources = [source for source in report.sources if source.category == "datum"]
+        records = [record for record in report.records if record.source_category == "datum"]
+
+        assert len(sources) == 11
+        assert records == []
+        assert all(source.outcome == "not_extracted" for source in sources)
+        assert all(
+            source.reason == "RuntimeError: mutation: datum conversion failed"
+            for source in sources
+        )
+
     def test_a_failed_conversion_does_not_disappear_from_the_source_denominator(
         self, monkeypatch, ctc01_extraction_report
     ):

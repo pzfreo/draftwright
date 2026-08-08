@@ -153,6 +153,10 @@ def test_datum_correspondence_requires_exact_context_and_letter():
         None,
         "XCAF datum occurrence has no tolerance context",
     )
+    assert match_datum_occurrence(facts, "Position.1", "") == (
+        None,
+        "XCAF datum occurrence has no letter",
+    )
 
 
 def test_datum_correspondence_fails_closed_when_context_and_letter_are_ambiguous():
@@ -197,6 +201,79 @@ def test_part21_datum_with_two_feature_relationships_stays_ambiguous(tmp_path):
     assert match_datum_occurrence(facts, "Probe", "A") == (
         facts[0],
         "datum #4 has 2 related DATUM_FEATUREs",
+    )
+
+
+def test_reversed_datum_relationship_is_exact_but_missing_items_remain_explicit(tmp_path):
+    facts = _read_datums(
+        tmp_path,
+        "reversed-datum-feature",
+        "#1=(GEOMETRIC_TOLERANCE('Probe','',#90,#91) "
+        "GEOMETRIC_TOLERANCE_WITH_DATUM_REFERENCE((#2)) POSITION_TOLERANCE());",
+        "#2=DATUM_SYSTEM('',$,#99,.F.,(#3));",
+        "#3=DATUM_REFERENCE_COMPARTMENT('',$,#99,.F.,#4,$);",
+        "#4=DATUM('',$,#99,.F.,'A');",
+        "#5=DATUM_FEATURE('first',$,#99,.T.);",
+        "#6=SHAPE_ASPECT_RELATIONSHIP('',$,#4,#5);",
+    )
+
+    assert facts == (
+        DatumOccurrenceFact(
+            "#1",
+            "Probe",
+            "position",
+            "#5",
+            "#4",
+            "A",
+            reason="datum feature #5 has no representation items",
+        ),
+    )
+
+
+def test_malformed_part21_datum_graphs_fail_closed(tmp_path):
+    no_base_parameters = _read_datums(tmp_path, "empty-tolerance", "#1=POSITION_TOLERANCE();")
+    assert no_base_parameters == ()
+
+    no_datum = _read_datums(
+        tmp_path,
+        "empty-compartment",
+        "#1=(GEOMETRIC_TOLERANCE('Probe','',#90,#91) "
+        "GEOMETRIC_TOLERANCE_WITH_DATUM_REFERENCE((#2)) POSITION_TOLERANCE());",
+        "#2=DATUM_SYSTEM('',$,#99,.F.,(#3));",
+        "#3=DATUM_REFERENCE_COMPARTMENT('',$,#99,.F.,$,$);",
+    )
+    assert no_datum == (
+        DatumOccurrenceFact(
+            "#1",
+            "Probe",
+            "position",
+            "",
+            "",
+            "",
+            reason="datum compartment #3 has 0 datum references",
+        ),
+    )
+
+    no_feature = _read_datums(
+        tmp_path,
+        "unrelated-datum",
+        "#1=(GEOMETRIC_TOLERANCE('Probe','',#90,#91) "
+        "GEOMETRIC_TOLERANCE_WITH_DATUM_REFERENCE((#2)) POSITION_TOLERANCE());",
+        "#2=DATUM_SYSTEM('',$,#99,.F.,(#3));",
+        "#3=DATUM_REFERENCE_COMPARTMENT('',$,#99,.F.,#4,$);",
+        "#4=DATUM('',$,#99,.F.,'A');",
+        "#5=SHAPE_ASPECT_RELATIONSHIP('',$,$,$);",
+    )
+    assert no_feature == (
+        DatumOccurrenceFact(
+            "#1",
+            "Probe",
+            "position",
+            "",
+            "#4",
+            "A",
+            reason="datum #4 has 0 related DATUM_FEATUREs",
+        ),
     )
 
 

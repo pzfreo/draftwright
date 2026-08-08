@@ -16,6 +16,20 @@ from draftwright.sheet_emit import _feature_block, _feature_line
 SOURCE_IDS = ("datum:one", "datum:two")
 
 
+class _Sequence:
+    def __init__(self):
+        self.items = []
+
+    def Append(self, item):
+        self.items.append(item)
+
+    def Length(self):
+        return len(self.items)
+
+    def Value(self, index):
+        return self.items[index - 1]
+
+
 def _record(*, blockers=(), axis="Z") -> PmiRecord:
     return PmiRecord(
         kind="datum",
@@ -78,6 +92,7 @@ def test_definition_projection_rejects_a_wrong_letter_or_reference_face():
         datum_contexts=(),
         label="B",
         ref_bbox=(-9.0, -10.0, 0.0, 10.0, 10.0, 0.0),
+        reference_item_ids=("#other",),
     )
 
     (projected,) = pmi_module._coalesce_datum_records([first, second])
@@ -89,7 +104,138 @@ def test_definition_projection_rejects_a_wrong_letter_or_reference_face():
         "datum feature occurrences disagree about referenced geometry"
         in projected.lowering_blockers
     )
+    assert (
+        "datum feature occurrences disagree about referenced Part21 items"
+        in projected.lowering_blockers
+    )
     assert projected.datum_contexts == ("Position.1",)
+
+
+def test_datum_geometry_rejects_unusable_reference_shapes(monkeypatch):
+    class Shape:
+        def __init__(self, *, null=False, surface=None, broken=False):
+            self.null = null
+            self.surface = surface
+            self.broken = broken
+
+        def IsNull(self):
+            return self.null
+
+    class Surface:
+        def __init__(self, kind, direction=(0.0, 0.0, 1.0), location=(0.0, 0.0, 0.0)):
+            self.kind = kind
+            self.direction = direction
+            self.location = location
+
+        def GetType(self):
+            return self.kind
+
+        def Plane(self):
+            dx, dy, dz = self.direction
+            x, y, z = self.location
+            direction = SimpleNamespace(X=lambda: dx, Y=lambda: dy, Z=lambda: dz)
+            axis = SimpleNamespace(Direction=lambda: direction)
+            location = SimpleNamespace(X=lambda: x, Y=lambda: y, Z=lambda: z)
+            return SimpleNamespace(Axis=lambda: axis, Location=lambda: location)
+
+    def get_refs(label, first, second):
+        for item in label[0]:
+            first.Append(item)
+        for item in label[1]:
+            second.Append(item)
+
+    def as_face(shape):
+        if shape.broken:
+            raise TypeError("not a face")
+        return shape
+
+    monkeypatch.setattr(pmi_module, "TDF_LabelSequence", _Sequence)
+    monkeypatch.setattr(
+        pmi_module, "XCAFDoc_DimTolTool", SimpleNamespace(GetRefShapeLabel_s=get_refs)
+    )
+    monkeypatch.setattr(
+        pmi_module,
+        "_reference_geometry",
+        lambda *_args: (((1.0, 2.0, 3.0),), (0.0, 0.0, 0.0, 1.0, 1.0, 1.0), "Z", ()),
+    )
+    monkeypatch.setattr(pmi_module, "TopoDS", SimpleNamespace(Face_s=as_face))
+    monkeypatch.setattr(pmi_module, "BRepAdaptor_Surface", lambda shape: shape.surface)
+    monkeypatch.setattr(pmi_module, "GeomAbs_Plane", "plane")
+    shape_tool = SimpleNamespace(GetShape_s=lambda ref: ref)
+
+    cases = (
+        ((Shape(null=True),), "datum reference plane is unavailable"),
+        ((Shape(surface=Surface("cylinder")),), "one datum reference is not planar"),
+        (
+            (Shape(surface=Surface("plane", direction=(1.0, 0.2, 0.0))),),
+            "one datum reference plane is not axis-aligned",
+        ),
+        (
+            (Shape(broken=True),),
+            "one datum reference plane is unavailable (TypeError: not a face)",
+        ),
+        (
+            (
+                Shape(surface=Surface("plane", location=(0.0, 0.0, 0.0))),
+                Shape(surface=Surface("plane", location=(0.0, 0.0, 1.0))),
+            ),
+            "datum reference faces are not coplanar",
+        ),
+    )
+    for shapes, expected_reason in cases:
+        points, bbox, axis, reasons = pmi_module._datum_reference_geometry(
+            (shapes, ()), shape_tool
+        )
+        assert points == ((1.0, 2.0, 3.0),)
+        assert bbox == (0.0, 0.0, 0.0, 1.0, 1.0, 1.0)
+        assert axis == ""
+        assert expected_reason in reasons
+
+
+def test_datum_metadata_failures_are_explicit(monkeypatch):
+    def explode(*_args):
+        raise RuntimeError("metadata unavailable")
+
+    monkeypatch.setattr(pmi_module, "TDF_LabelSequence", _Sequence)
+    monkeypatch.setattr(pmi_module, "XCAFDoc_Datum", SimpleNamespace(Set_s=explode))
+    assert pmi_module._datum_letter(object()) == (
+        "",
+        "datum letter is unavailable (RuntimeError: metadata unavailable)",
+    )
+    monkeypatch.setattr(
+        pmi_module,
+        "XCAFDoc_Datum",
+        SimpleNamespace(Set_s=lambda _label: SimpleNamespace(GetIdentification=lambda: None)),
+    )
+    assert pmi_module._datum_letter(object()) == ("", "datum occurrence has no letter")
+
+    assert pmi_module._datum_context(object(), SimpleNamespace(GetTolerOfDatumLabels=explode)) == (
+        "",
+        "datum tolerance context is unavailable (RuntimeError: metadata unavailable)",
+    )
+    assert pmi_module._datum_context(
+        object(), SimpleNamespace(GetTolerOfDatumLabels=lambda _label, _seq: None)
+    ) == ("", "datum occurrence has 0 tolerance contexts")
+
+    def one_context(_label, sequence):
+        sequence.Append(object())
+
+    monkeypatch.setattr(pmi_module, "XCAFDoc_GeomTolerance", SimpleNamespace(Set_s=explode))
+    assert pmi_module._datum_context(
+        object(), SimpleNamespace(GetTolerOfDatumLabels=one_context)
+    ) == ("", "datum tolerance context is unavailable (RuntimeError: metadata unavailable)")
+    monkeypatch.setattr(
+        pmi_module,
+        "XCAFDoc_GeomTolerance",
+        SimpleNamespace(
+            Set_s=lambda _label: SimpleNamespace(
+                GetObject=lambda: SimpleNamespace(GetSemanticName=lambda: None)
+            )
+        ),
+    )
+    assert pmi_module._datum_context(
+        object(), SimpleNamespace(GetTolerOfDatumLabels=one_context)
+    ) == ("", "datum occurrence has no tolerance context")
 
 
 def test_lowering_reconciliation_counts_every_occurrence_represented_by_one_feature():
@@ -141,3 +287,19 @@ def test_generated_sheet_refuses_a_datum_with_an_unbound_feature_origin():
 
     with pytest.raises(ValueError, match="datum_ref.*origin has no emitted binding"):
         _feature_block([feature])
+
+
+def test_generated_sheet_line_omits_absent_datum_provenance():
+    feature = DatumRef(
+        frame=Frame((1.0, 2.0, 3.0), "z"),
+        letter="A",
+        view="front",
+        side="below",
+    )
+
+    line = _feature_line(feature)
+
+    assert "source_id=" not in line
+    assert "source_ids=" not in line
+    assert "part21_id=" not in line
+    assert "origin=" not in line

@@ -310,8 +310,6 @@ def read_datum_occurrences(step_file: str | Path) -> tuple[DatumOccurrenceFact, 
             )
             for system_ref in system_refs:
                 system = _entity_named(step.get(system_ref), "DATUM_SYSTEM")
-                if system is None:
-                    continue
                 compartment_refs = tuple(
                     ref
                     for param in system.params
@@ -322,15 +320,11 @@ def read_datum_occurrences(step_file: str | Path) -> tuple[DatumOccurrenceFact, 
                     compartment = _entity_named(
                         step.get(compartment_ref), "DATUM_REFERENCE_COMPARTMENT"
                     )
-                    datum_refs = (
-                        tuple(
-                            ref
-                            for param in compartment.params
-                            for ref in _references(param)
-                            if _instance_is(step, ref, "DATUM")
-                        )
-                        if compartment is not None
-                        else ()
+                    datum_refs = tuple(
+                        ref
+                        for param in compartment.params
+                        for ref in _references(param)
+                        if _instance_is(step, ref, "DATUM")
                     )
                     if len(datum_refs) != 1:
                         facts.append(
@@ -349,21 +343,7 @@ def read_datum_occurrences(step_file: str | Path) -> tuple[DatumOccurrenceFact, 
                         )
                         continue
                     datum_id = datum_refs[0]
-                    relation = datum_features.get(datum_id)
-                    if relation is None:
-                        facts.append(
-                            DatumOccurrenceFact(
-                                tolerance_id,
-                                tolerance_name,
-                                kind,
-                                "",
-                                datum_id,
-                                "",
-                                reason=f"datum {datum_id} has no related DATUM_FEATURE",
-                            )
-                        )
-                        continue
-                    letter, feature_ids = relation
+                    letter, feature_ids = datum_features[datum_id]
                     if len(feature_ids) != 1:
                         facts.append(
                             DatumOccurrenceFact(
