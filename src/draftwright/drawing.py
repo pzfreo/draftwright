@@ -32,7 +32,6 @@ else:
 
 from build123d import (
     Color,
-    ExportDXF,
     ExportSVG,
     LineType,
     Location,
@@ -55,6 +54,7 @@ from draftwright.annotations._common import (
 )
 from draftwright.annotations.balloons import render_balloons
 from draftwright.export import (
+    _DraftwrightDXF,
     _export_shape,
     _render_pdf,
     _render_png,
@@ -3011,7 +3011,7 @@ class Drawing:
 
     def _write_dxf(self, out: str) -> str:
         """Write the DXF (part/hidden/dims layers + metadata) and return its path."""
-        dxf_exp = ExportDXF()
+        dxf_exp = _DraftwrightDXF()
         dxf_exp.add_layer("part", line_weight=0.5)
         dxf_exp.add_layer("hidden", line_weight=0.25)
         dxf_exp.add_layer("dims", line_weight=0.05)
@@ -3200,6 +3200,7 @@ class Drawing:
             _export_shape(exporter, vis, "part", f"view {name!r}")
             if hid:
                 _export_shape(exporter, hid, "hidden", f"view {name!r}")
+        names = {id(annotation): name for name, annotation in self.iter_annotations()}
         for ann in self.items:
-            label = getattr(ann, "label", "") or type(ann).__name__
-            _export_shape(exporter, ann, "dims", f"annotation {label!r}")
+            identity = names.get(id(ann)) or getattr(ann, "label", "") or type(ann).__name__
+            _export_shape(exporter, ann, "dims", f"annotation {identity!r}")

@@ -15,7 +15,9 @@ import logging
 import re
 from pathlib import Path
 
-from build123d import ExportSVG
+import ezdxf
+from build123d import ExportDXF, ExportSVG
+from OCP.GeomConvert import GeomConvert
 
 from draftwright._core import _DRAFTWRIGHT_URL
 
@@ -148,6 +150,57 @@ def write_dxf(dxf, path: str, page_w: float, page_h: float) -> None:
         dxf.write(path)
         return
     doc.saveas(path, fmt="asc")
+
+
+class _DraftwrightDXF(ExportDXF):
+    """build123d's DXF exporter with bounded OCCT curve-array extraction.
+
+    ``Geom_BSplineCurve.Poles()`` and ``KnotSequence()`` expose OCCT arrays through
+    unusually expensive Python sequence wrappers.  A glyph-dense CTC-02 hole table has
+    4,504 Bezier edges; iterating just its 13,512 poles took 8.6 seconds while the
+    equivalent indexed ``Pole(i)`` calls took 0.014 seconds (#1070).  Keep build123d's
+    conversion and ezdxf construction unchanged, but read the same values through OCCT's
+    indexed API so output geometry is identical and cost is linear in the actual array size.
+    """
+
+    def _convert_bspline(self, edge, attribs):
+        if not edge or edge.location is None:
+            raise ValueError(f"Edge is empty {edge}.")
+        edge = edge.to_splines()
+        adaptor = edge.geom_adaptor()
+        curve = adaptor.Curve().Curve()
+        spline = GeomConvert.SplitBSplineCurve_s(
+            curve,
+            adaptor.FirstParameter(),
+            adaptor.LastParameter(),
+            self.PARAMETRIC_TOLERANCE,
+        )
+
+        spline.Transform(edge.location.wrapped.Transformation())
+
+        order = spline.Degree() + 1
+        knots = [
+            spline.Knot(index)
+            for index in range(1, spline.NbKnots() + 1)
+            for _ in range(spline.Multiplicity(index))
+        ]
+        poles = [
+            self._convert_point(spline.Pole(index)) for index in range(1, spline.NbPoles() + 1)
+        ]
+        weights = (
+            [spline.Weight(index) for index in range(1, spline.NbPoles() + 1)]
+            if spline.IsRational()
+            else None
+        )
+
+        # SplitBSplineCurve currently deperiodicizes every bounded edge.  Retain
+        # build123d's padding rule if a future OCCT version preserves periodicity.
+        if spline.IsPeriodic():  # pragma: no cover - defensive upstream parity
+            pad = spline.NbKnots() - spline.LastUKnotIndex()
+            poles += poles[:pad]
+
+        dxf_spline = ezdxf.math.BSpline(poles, order, knots, weights)
+        self._modelspace.add_spline(dxfattribs=attribs).apply_construction_tool(dxf_spline)
 
 
 def sanitize_svg_arcs(svg_path: str) -> int:
