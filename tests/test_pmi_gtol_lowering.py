@@ -9,7 +9,7 @@ import draftwright.pmi as pmi_module
 from draftwright.model import build_pmi_features
 from draftwright.model.ir import ControlFrame, Frame, PmiFeature
 from draftwright.pmi import PmiRecord
-from draftwright.sheet_emit import _feature_line
+from draftwright.sheet_emit import _feature_block, _feature_line
 
 
 def test_occt_geometric_tolerance_modifier_enum_is_fully_inventoried():
@@ -164,6 +164,42 @@ def test_generated_sheet_line_round_trips_imported_control_frame():
     assert restored.origin.lowering_blockers == ()
     assert restored.origin.source_id == restored.source_id
     assert restored.origin.part21_id == restored.part21_id
+
+
+def test_generated_sheet_line_round_trips_control_frame_zone_fields():
+    feature = ControlFrame(
+        frame=Frame((1.0, 2.0, 3.0), "z"),
+        characteristic="position",
+        tolerance="0.0125",
+        view="plan",
+        side="above",
+        diameter=True,
+        modifier="M",
+    )
+
+    restored = _execute_feature_line(feature)
+
+    assert restored.diameter is True
+    assert restored.modifier == "M"
+    assert restored.datums == ()
+    assert restored.all_around is False
+    assert restored.source_id == ""
+    assert restored.part21_id == ""
+    assert restored.origin is None
+
+
+def test_generated_sheet_refuses_a_control_frame_with_an_unbound_feature_origin():
+    feature = ControlFrame(
+        frame=Frame((1.0, 2.0, 3.0), "z"),
+        characteristic="position",
+        tolerance="0.1",
+        view="plan",
+        side="above",
+        origin=SimpleNamespace(kind="hole"),
+    )
+
+    with pytest.raises(ValueError, match="origin has no emitted binding"):
+        _feature_block([feature])
 
 
 @pytest.mark.parametrize("modifier", ["common_zone", "all_over"])
