@@ -53,8 +53,9 @@ class _ImportedFaces:
 
 
 class _StepModel:
-    def __init__(self, ranks):
+    def __init__(self, ranks, entity_type="StepShape_AdvancedFace"):
         self.ranks = ranks
+        self.entity_type = entity_type
 
     def NextNumberForLabel(self, label, lastnum=0, exact=True):
         assert lastnum == 0
@@ -62,14 +63,12 @@ class _StepModel:
         return self.ranks.get(label, 0)
 
     def Value(self, rank):
-        return SimpleNamespace(
-            DynamicType=lambda: SimpleNamespace(Name=lambda: "StepShape_AdvancedFace")
-        )
+        return SimpleNamespace(DynamicType=lambda: SimpleNamespace(Name=lambda: self.entity_type))
 
 
 class _StepReader:
-    def __init__(self, ranks, results):
-        self.model = _StepModel(ranks)
+    def __init__(self, ranks, results, *, entity_type="StepShape_AdvancedFace"):
+        self.model = _StepModel(ranks, entity_type)
         self.results = results
         self.shapes = []
 
@@ -169,6 +168,29 @@ def test_datum_topology_resolution_fails_closed_for_missing_unimported_or_collap
     assert any(expected in reason for reason in reasons)
 
 
+def test_datum_topology_resolution_rejects_empty_nonface_and_transfer_exception(monkeypatch):
+    monkeypatch.setattr(pmi_module, "TopAbs_FACE", "face")
+
+    resolver = pmi_module._DatumTopologyResolver(_StepReader({}, {}), _ImportedFaces())
+    assert resolver.resolve("#36", ())[1] == ("datum feature has no Part21 representation items",)
+    assert "is unavailable" in resolver.resolve("#36", ("#missing",))[1][0]
+
+    reader = _StepReader({"#839": 7}, {}, entity_type="StepRepr_RepresentationItem")
+    resolver = pmi_module._DatumTopologyResolver(reader, _ImportedFaces())
+    assert "is not an advanced face" in resolver.resolve("#36", ("#839",))[1][0]
+
+    reader = _StepReader({"#839": 7}, {})
+    reader.TransferOne = lambda _rank: (_ for _ in ()).throw(RuntimeError("binder failed"))
+    resolver = pmi_module._DatumTopologyResolver(reader, _ImportedFaces())
+    assert "RuntimeError: binder failed" in resolver.resolve("#36", ("#839",))[1][0]
+
+    bad_shape = _Face("bad")
+    bad_shape.ShapeType = lambda: "edge"
+    reader = _StepReader({"#839": 7}, {7: bad_shape})
+    resolver = pmi_module._DatumTopologyResolver(reader, _ImportedFaces(bad_shape))
+    assert "did not transfer to one face" in resolver.resolve("#36", ("#839",))[1][0]
+
+
 def test_datum_topology_resolution_rejects_two_definitions_claiming_one_face(monkeypatch):
     imported = (_Face("shared"), _Face("other"))
     reader = _StepReader(
@@ -264,6 +286,8 @@ def test_datum_geometry_rejects_unusable_reference_shapes(monkeypatch):
             axis = SimpleNamespace(Direction=lambda: direction, Location=lambda: location)
             return SimpleNamespace(Axis=lambda: axis)
 
+        Cylinder = Plane
+
     def get_refs(label, first, second):
         for item in label[0]:
             first.Append(item)
@@ -283,6 +307,7 @@ def test_datum_geometry_rejects_unusable_reference_shapes(monkeypatch):
     monkeypatch.setattr(pmi_module, "TopoDS", SimpleNamespace(Face_s=as_face))
     monkeypatch.setattr(pmi_module, "BRepAdaptor_Surface", lambda shape: shape.surface)
     monkeypatch.setattr(pmi_module, "GeomAbs_Plane", "plane")
+    monkeypatch.setattr(pmi_module, "GeomAbs_Cylinder", "cylinder")
     shape_tool = SimpleNamespace(GetShape_s=lambda ref: ref)
 
     cases = (
@@ -305,6 +330,13 @@ def test_datum_geometry_rejects_unusable_reference_shapes(monkeypatch):
                 Shape(surface=Surface("plane", location=(0.0, 0.0, 1.0))),
             ),
             "datum reference faces are not coplanar",
+        ),
+        (
+            (
+                Shape(surface=Surface("plane")),
+                Shape(surface=Surface("cylinder")),
+            ),
+            "datum reference faces mix planar and cylindrical surfaces",
         ),
     )
     for shapes, expected_reason in cases:
