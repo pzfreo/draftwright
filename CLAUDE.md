@@ -231,7 +231,9 @@ entry. Keep `_LAYERS` and this section in step.
   Depends only on `_core`.
 - **`pmi.py`** — PMI (product manufacturing information) extraction from STEP AP242.
   Owns the XCAF source census and overlays `_pmi_part21` facts only after exact
-  correspondence, preserving both XCAF and Part21 source identities in the raw IR fallback.
+  correspondence. It inventories the complete OCCT geometric-tolerance modifier vocabulary,
+  preserves unsupported facts in the raw IR fallback, and exposes explicit blockers to typed
+  lowering; XCAF and Part21 source identities survive both paths.
 
 ## Architecture decisions — READ `docs/adr/` FIRST
 
@@ -322,10 +324,13 @@ Current ADRs:
   are standalone IR features (`ControlFrame`/`DatumRef`/`Finish`, `model/ir.py`) placed as
   first-class ADR 0014 corridor candidates by `render_gdt` (P2b #478), authored via
   `sheet.datum`/`sheet.control(…).position(…)`/`.finish` whose target view+strip derive
-  from the referenced feature/face (`declare.gdt_target`, P2c #480/#482). PMI-sourced
-  auto-GD&T remains #62; number-free aspects remain #462 and raw-cutter slot reading
-  remains #495. Sidesteps #298 misdetection; complements #400 (read + edit → now also
-  input). Roadmap: `docs/plans/0011-phase2-aspects-roadmap.md`; #446/#445.
+  from the referenced feature/face (`declare.gdt_target`, P2c #480/#482). Complete AP242
+  geometric tolerances with no modifier, or the export-safe all-around modifier, lower through
+  that same `ControlFrame` path (#1095); unsupported modifiers remain provenance-rich raw
+  fallbacks, and all-over export is tracked by #1097. Datum lowering remains #62; number-free
+  aspects remain #462 and raw-cutter slot reading remains #495. Sidesteps #298 misdetection;
+  complements #400 (read + edit → now also input). Roadmap:
+  `docs/plans/0011-phase2-aspects-roadmap.md`; #446/#445.
 - **0012** — **Accepted; partially landed** (2026-07-08; corrected 2026-07-19):
   user annotation edits are pinned, priority-ranked corridor candidates. A
   `dimension(..., pin=, priority=)` edit records a

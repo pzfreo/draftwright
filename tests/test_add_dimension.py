@@ -23,7 +23,7 @@ import pytest
 from build123d import Box, Cylinder, Pos, Rot
 
 from draftwright import Sheet
-from draftwright.model import Frame, HoleFeature, PartModel
+from draftwright.model import ControlFrame, Frame, HoleFeature, PartModel
 from draftwright.model.ir import RequestedDimension
 from draftwright.model.planner import plan_dimensions
 
@@ -708,6 +708,29 @@ def test_a_gdt_aspect_alongside_a_dimension_intent_is_legitimate():
     assert sheet.model() is not None
     assert sheet.build() is not None
     assert sheet.build() is not None, "and again — repeated builds must stay legal"
+
+
+def test_a_raw_control_frame_added_against_a_handle_tracks_the_final_feature():
+    sheet = Sheet(_part(), title="T", number="N").auto_dimensions()
+    bore = sheet.hole(diameter=10, at=(0, 0, 14), axis="z").depth(12)
+    sheet.add(
+        ControlFrame(
+            frame=Frame((0, 0, 14), "z"),
+            characteristic="position",
+            tolerance="0.1",
+            view="plan",
+            side="above",
+            origin=bore,
+        )
+    )
+
+    sheet.features.reverse()
+    bore.depth(8)
+    sheet._prepare()
+
+    frame = next(feature for feature in sheet.features if feature.kind == "control_frame")
+    assert frame.origin.diameter == 10
+    assert frame.origin.depth == 8
 
 
 class TestFeatureViewIdentity:

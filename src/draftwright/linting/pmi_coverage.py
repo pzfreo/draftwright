@@ -9,6 +9,11 @@ from draftwright.linting.issues import LintIssue
 from draftwright.pmi import PmiExtractionReport
 
 
+def _registry_subject(feature):
+    """The feature a placed annotation is registered against for source-bearing IR."""
+    return getattr(feature, "origin", None) or feature
+
+
 def _source_category_counts(report: PmiExtractionReport) -> dict[str, int]:
     return dict(sorted(Counter(source.category for source in report.sources).items()))
 
@@ -64,7 +69,9 @@ def pmi_stage_summary(
     ]
     lowered = {feature.source_id for feature in lowered_features}
     rendered = {
-        feature.source_id for feature in lowered_features if registry.names_for_feature(feature)
+        feature.source_id
+        for feature in lowered_features
+        if registry.names_for_feature(_registry_subject(feature))
     }
     dropped = {
         source_id
@@ -167,7 +174,7 @@ def lint_pmi_rendering(features, registry, mode: str) -> list[LintIssue]:
     by_source: dict[str, list[object]] = {}
     for feature in features:
         source_id = getattr(feature, "source_id", "")
-        if source_id and getattr(feature, "kind", None) == "authored_dimension":
+        if source_id and getattr(feature, "kind", None) != "pmi":
             by_source.setdefault(source_id, []).append(feature)
 
     dropped = {
@@ -191,5 +198,7 @@ def lint_pmi_rendering(features, registry, mode: str) -> list[LintIssue]:
         )
         for source_id, source_features in by_source.items()
         if source_id not in dropped | already_reported
-        and not any(registry.names_for_feature(feature) for feature in source_features)
+        and not any(
+            registry.names_for_feature(_registry_subject(feature)) for feature in source_features
+        )
     ]

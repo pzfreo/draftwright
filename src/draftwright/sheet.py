@@ -817,8 +817,19 @@ class Sheet:
         :meth:`envelope`, so while `add` returned the sheet, `sheet.dimension(env, "width")`
         — ADR 0016's own worked example — could not be written against a generated script.
         Naming would have been uniform across the verbs and silently absent for one feature
-        in the middle of the file, which is worse than being absent everywhere."""
+        in the middle of the file, which is worse than being absent everywhere. A raw
+        ``ControlFrame`` may name a handle as its ``origin``; ``add`` resolves and token-binds
+        that provenance exactly like the public GD&T verbs."""
+        src_token = None
+        if getattr(feature, "kind", None) == "control_frame" and feature.origin is not None:
+            src_token = self._declared_token(feature.origin, verb="add() control-frame origin")
+            if src_token is not None:
+                feature = replace(
+                    feature,
+                    origin=self._features[self._index_of_token(src_token)],
+                )
         self._features.append(feature)
+        self._bind_gdt_source(self._token_at(len(self._features) - 1), src_token)
         return _Params(self, len(self._features) - 1)
 
     #: The keyword set that identifies a call to the pre-rename `dimension(...)`. `kind` alone
@@ -1302,8 +1313,12 @@ class Sheet:
         Takes an already-resolved token rather than an index so that a caller which stores the
         value between resolve and append — :class:`_Control` — cannot hand over a stale slot."""
         self._features.append(item)
+        self._bind_gdt_source(self._token_at(len(self._features) - 1), src_token)
+
+    def _bind_gdt_source(self, gdt_token, src_token) -> None:
+        """Remember the source of a GD&T item when it names a declared feature."""
         if src_token is not None:
-            self._gdt_src.append((self._token_at(len(self._features) - 1), src_token))
+            self._gdt_src.append((gdt_token, src_token))
 
     def _gdt_ref(self, ref):
         """Resolve a GD&T target to ``(target, source_token)``: a fluent handle / index / a

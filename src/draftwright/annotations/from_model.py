@@ -4494,7 +4494,14 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
     stacking extent (the same reason dims reserve one label-height). Cross-view separation
     is the compose-then-pack repack's job (ADR 0004): every placed frame is ``view=``-tagged,
     so ``_measure_blocks`` folds it into the block. Returns the count registered."""
-    items = [f for f in model.features if f.kind in _GDT_KINDS]
+    items = [
+        f
+        for f in model.features
+        if f.kind in _GDT_KINDS
+        # Automatic AP242 discovery keeps typed IR available in report mode, but report must
+        # not draw it. Explicit/round-tripped models remain declarations and therefore render.
+        and (not getattr(f, "source_id", "") or a.pmi_mode == "annotate" or ctx.model_declared)
+    ]
     if not items:
         return 0
     draft = dwg.draft
@@ -4513,10 +4520,14 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
     n = 0
     for i, item in enumerate(items):
         name = f"m_gdt{i}"
+        source_id = getattr(item, "source_id", "")
         vk = views.get(item.view)
         if vk is None or item.side not in ("above", "below", "left", "right"):
             ctx.record_issue(
-                "warning", "gdt_dropped", f"{name}: bad target {item.view!r}/{item.side!r}"
+                "warning",
+                "pmi_dropped" if source_id else "gdt_dropped",
+                f"{name}: bad target {item.view!r}/{item.side!r}",
+                source=source_id,
             )
             continue
         zones, hproj, vproj, hi, vi = vk
@@ -4535,7 +4546,10 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
             gb = _gdt_glyph(item, draft).bounding_box().size
         except Exception as e:  # noqa: BLE001 — any glyph-spec error drops one item, not the build
             ctx.record_issue(
-                "warning", "gdt_dropped", f"{name}: cannot render ({type(e).__name__}: {e})"
+                "warning",
+                "pmi_dropped" if source_id else "gdt_dropped",
+                f"{name}: cannot render ({type(e).__name__}: {e})",
+                source=source_id,
             )
             continue
         size = (gb.X, gb.Y)
@@ -4560,7 +4574,14 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
                     pos if abs(dx) >= _MIN_LEADER else _px + math.copysign(_MIN_LEADER, dx or 1.0)
                 )
                 elbow = (pos, _py)
-            return Leader(tip=tip, elbow=elbow, label="", draft=draft, callout=g)
+            return Leader(
+                tip=tip,
+                elbow=elbow,
+                label="",
+                draft=draft,
+                callout=g,
+                all_around=getattr(_it, "all_around", False),
+            )
 
         def _drop(
             nm,
@@ -4572,8 +4593,9 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
             _hz=horizontal,
             _sz=size,
             _bld=_build,
-            _feat=item.origin,
+            _feat=item.origin or item,
             _tb=tb_box,
+            _source=source_id,
         ):
             # Fallthrough (#481): the declared/derived side is full — try the OPPOSITE side of
             # the same view before dropping, so a congested default still places somewhere
@@ -4632,8 +4654,9 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
                     return
                 ctx.record_issue(
                     "warning",
-                    "gdt_dropped",
+                    "pmi_dropped" if _source else "gdt_dropped",
                     f"{nm} not placed (no room in any {_v} strip)",
+                    source=_source,
                 )
 
             ctx.post_drain.append(_retry)
@@ -4657,7 +4680,9 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
                 # A declared frame has no alternate view — force-keep (policy B) rather than
                 # drop a user-authored annotation; only a physically full strip drops.
                 force=True,
-                feature=item.origin,  # provenance (ADR 0010): the decorated feature
+                # Declared frames belong to their decorated feature. An imported frame has
+                # external source provenance but no separately-owned geometric IR feature.
+                feature=item.origin or item,
                 size=size,
                 # Even a force-kept frame must not stack into the title block (#481 review) —
                 # place_strip_candidates rejects a placement hitting this box, then on_drop's

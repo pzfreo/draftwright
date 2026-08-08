@@ -410,7 +410,9 @@ def _assemble(
         # so a re-run reproduces the PMI dims (#472). Gated on the caller not having declared
         # imported authored annotations, so an explicit set wins.
         if a.pmi_mode == "annotate" and not any(
-            f.kind in ("authored_dimension", "pmi") for f in pm.features
+            f.kind in ("authored_dimension", "pmi")
+            or (f.kind == "control_frame" and bool(getattr(f, "source_id", "")))
+            for f in pm.features
         ):
             pmi_feats = build_pmi_features(a.pmi, a.part.bounding_box())
             if pmi_feats:

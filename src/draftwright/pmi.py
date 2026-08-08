@@ -117,10 +117,37 @@ _GTOL_TYPE: dict[int, str] = {
     15: "total_runout",
 }
 
+# int → stable semantic name for XCAFDimTolObjects_GeomToleranceModif.  The whole OCCT
+# vocabulary is inventoried even though only the all-around leader-scope symbol has a faithful,
+# export-safe drafting representation today; every other known value remains explicit and
+# fail-closed.
+_GTOL_MODIFIER: dict[int, str] = {
+    0: "any_cross_section",
+    1: "common_zone",
+    2: "each_radial_element",
+    3: "free_state",
+    4: "least_material_requirement",
+    5: "line_element",
+    6: "major_diameter",
+    7: "maximum_material_requirement",
+    8: "minor_diameter",
+    9: "not_convex",
+    10: "pitch_diameter",
+    11: "reciprocity_requirement",
+    12: "separate_requirement",
+    13: "statistical_tolerance",
+    14: "tangent_plane",
+    15: "all_around",
+    16: "all_over",
+}
+_SUPPORTED_GTOL_SCOPE_MODIFIERS = frozenset(("all_around",))
+
 
 # ---------------------------------------------------------------------------
 # Data classes
 # ---------------------------------------------------------------------------
+
+PmiSourceCategory = Literal["dimension", "geometric_tolerance", "datum"]
 
 
 @dataclass(frozen=True)
@@ -149,6 +176,9 @@ class PmiRecord:
         label:          Ready-to-use annotation label (e.g. ``"ø35"``, ``"60"``).
         datum_refs:     Ordered datum letters referenced by a geometric tolerance.
         part21_id:      Part21 entity id supplying an overlaid tolerance magnitude.
+        source_category: Source inventory category; structural evidence for concept lowering.
+        gtol_modifiers: Stable names for the source geometric-tolerance modifier sequence.
+        lowering_blockers: Missing/unrepresented facts that make concept lowering unsafe.
     """
 
     kind: str
@@ -168,9 +198,11 @@ class PmiRecord:
     upper_bound: float | None = None
     datum_refs: tuple[str, ...] = ()
     part21_id: str = ""
+    source_category: PmiSourceCategory | Literal[""] = ""
+    gtol_modifiers: tuple[str, ...] = ()
+    lowering_blockers: tuple[str, ...] = ()
 
 
-PmiSourceCategory = Literal["dimension", "geometric_tolerance", "datum"]
 PmiExtractionOutcome = Literal[
     "extracted", "partially_extracted", "presentation_only", "not_extracted"
 ]
@@ -372,6 +404,32 @@ def _semantic_name(obj) -> tuple[str, str]:
     return name, ""
 
 
+def _geometric_tolerance_modifiers(obj) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Inventory XCAF's modifier sequence and admit only one representable scope symbol."""
+    try:
+        codes = tuple(int(modifier) for modifier in obj.GetModifiers())
+    except Exception as exc:
+        return (), (f"geometric-tolerance modifiers are unavailable ({_failure_reason(exc)})",)
+
+    names: list[str] = []
+    reasons: list[str] = []
+    for code in codes:
+        name = _GTOL_MODIFIER.get(code)
+        if name is None:
+            names.append(f"unknown({code})")
+            reasons.append(f"geometric-tolerance modifier {code} is unknown")
+            continue
+        names.append(name)
+        if name not in _SUPPORTED_GTOL_SCOPE_MODIFIERS:
+            reasons.append(f"geometric-tolerance modifier {name!r} is not supported")
+
+    if len(names) > 1:
+        reasons.append(
+            f"geometric-tolerance modifier combination {tuple(names)!r} is not supported"
+        )
+    return tuple(names), tuple(dict.fromkeys(reasons))
+
+
 def _unpreserved_geometric_tolerance_fields(obj) -> tuple[str, ...]:
     """Keep a source partial when XCAF exposes requirement fields we do not yet carry."""
     reasons: list[str] = []
@@ -408,14 +466,6 @@ def _unpreserved_geometric_tolerance_fields(obj) -> tuple[str, ...]:
                     f"geometric-tolerance {description} {numeric_value:g} is not preserved"
                 )
 
-    try:
-        modifiers = tuple(int(modifier) for modifier in obj.GetModifiers())
-    except Exception as exc:
-        reasons.append(f"geometric-tolerance modifiers are unavailable ({_failure_reason(exc)})")
-    else:
-        if modifiers:
-            codes = ", ".join(str(modifier) for modifier in modifiers)
-            reasons.append(f"geometric-tolerance modifier(s) {codes} are not preserved")
     return tuple(reasons)
 
 
@@ -492,6 +542,7 @@ def _dimension_record(
                 upper_bound=upper_bound,
             ),
             source_id=source_id,
+            source_category="dimension",
         ),
         tuple(dict.fromkeys(partial_reasons)),
     )
@@ -531,11 +582,14 @@ def _geometric_tolerance_record(
                         value = fact.value_mm
         if value <= 0:
             partial_reasons.append(f"tolerance magnitude is unavailable ({magnitude_reason})")
+    gtol_modifiers, modifier_reasons = _geometric_tolerance_modifiers(obj)
+    partial_reasons.extend(modifier_reasons)
     partial_reasons.extend(_unpreserved_geometric_tolerance_fields(obj))
     points, ref_bbox, dominant_axis, reference_reasons = _reference_geometry(label, shape_tool)
     partial_reasons.extend(reference_reasons)
     datum_refs, datum_reasons = _datum_references(label, dim_tol_tool)
     partial_reasons.extend(datum_reasons)
+    lowering_blockers = tuple(dict.fromkeys(partial_reasons))
     return (
         PmiRecord(
             kind=kind,
@@ -548,8 +602,11 @@ def _geometric_tolerance_record(
             source_id=source_id,
             datum_refs=datum_refs,
             part21_id=part21_id,
+            source_category="geometric_tolerance",
+            gtol_modifiers=gtol_modifiers,
+            lowering_blockers=lowering_blockers,
         ),
-        tuple(dict.fromkeys(partial_reasons)),
+        lowering_blockers,
     )
 
 

@@ -70,10 +70,10 @@ Remaining gaps are narrower and more explicit:
 - Raw page-coordinate `place_dim(...)` is now deprecated for normal editable scripts and
   remains only as an escape hatch. It can place a one-off annotation, but feature-referenced
   `dimension(...)` is the route that participates in re-solving.
-- Emitted Sheet-script AP242 PMI round-trip is still separate work: `import_step()` strips the
-  semantic PMI before the generated script can re-read it, so PMI must be baked as declared
-  features instead of re-extracted (#503).
+- `import_step()` strips semantic AP242 PMI, so emitted Sheet scripts materialize it as declared
+  measured dimensions, supported control frames, and provenance-rich raw fallbacks instead of
+  pretending to re-extract it (#503/#1095).
 
 The next destination is **complete editable-script trust**: ordinary geometry already has a
-strong parity guard, and the remaining high-value gap is preserving PMI through generated Sheet
-scripts without pretending it can be recovered from a stripped imported shape.
+strong parity guard, and the remaining high-value gap is broadening typed PMI lowering (notably
+datums and export-safe scope modifiers) while keeping unsupported source facts explicit.

@@ -227,21 +227,66 @@ def _measured_dimension_line(f) -> str:
     return "sheet.measured_dimension(" + ", ".join(kw) + ")"
 
 
-def _raw_pmi_line(f) -> str:
+def _raw_pmi_expr(f) -> str:
     source_id = f", source_id={f.source_id!r}" if f.source_id else ""
     datum_refs = f", datum_refs={f.datum_refs!r}" if f.datum_refs else ""
     part21_id = f", part21_id={f.part21_id!r}" if f.part21_id else ""
+    source_category = f", source_category={f.source_category!r}" if f.source_category else ""
+    gtol_modifiers = f", gtol_modifiers={f.gtol_modifiers!r}" if f.gtol_modifiers else ""
+    lowering_blockers = (
+        f", lowering_blockers={f.lowering_blockers!r}" if f.lowering_blockers else ""
+    )
     return (
-        "sheet.add(PmiFeature("
+        "PmiFeature("
         f"frame=Frame({_pt(f.frame.origin)}, {f.frame.axis!r}), "
         f"pmi_kind={f.pmi_kind!r}, value={_n(f.value)}, label={f.label!r}, "
         f"dominant_axis={f.dominant_axis!r}, ref_bbox={_bbox_arg(f.ref_bbox)}, "
         f"ref_pts=tuple({_pts_arg(f.ref_pts)}){source_id}{datum_refs}{part21_id}"
-        "))   # raw AP242 PMI fallback; not yet lowered to a drafting concept"
+        f"{source_category}{gtol_modifiers}{lowering_blockers}"
+        ")"
     )
 
 
-def _feature_line(f, part_envelope=None) -> str:
+def _raw_pmi_line(f) -> str:
+    return (
+        f"sheet.add({_raw_pmi_expr(f)})"
+        "   # raw AP242 PMI fallback; not yet lowered to a drafting concept"
+    )
+
+
+def _control_frame_line(f, origin_ref: str | None = None) -> str:
+    kw = [
+        f"frame=Frame({_pt(f.frame.origin)}, {f.frame.axis!r})",
+        f"characteristic={f.characteristic!r}",
+        f"tolerance={f.tolerance!r}",
+        f"view={f.view!r}",
+        f"side={f.side!r}",
+    ]
+    if f.datums:
+        kw.append(f"datums={f.datums!r}")
+    if f.diameter:
+        kw.append("diameter=True")
+    if f.modifier is not None:
+        kw.append(f"modifier={f.modifier!r}")
+    if f.all_around:
+        kw.append("all_around=True")
+    if f.source_id:
+        kw.append(f"source_id={f.source_id!r}")
+    if f.part21_id:
+        kw.append(f"part21_id={f.part21_id!r}")
+    if origin_ref is not None:
+        kw.append(f"origin={origin_ref}")
+    elif getattr(f.origin, "kind", None) == "pmi":
+        # Imported frames decorate an extraction record that is not itself a top-level model
+        # feature. Keep that structural provenance nested rather than silently discarding it.
+        kw.append(f"origin={_raw_pmi_expr(f.origin)}")
+    return (
+        "sheet.add(ControlFrame(" + ", ".join(kw) + "))"
+        "   # control frame declaration; placement remains solver-owned"
+    )
+
+
+def _feature_line(f, part_envelope=None, *, origin_ref: str | None = None) -> str:
     """The declaration for one feature.
 
     *part_envelope* is the whole-part `EnvelopeFeature` when the caller knows it, so an
@@ -254,6 +299,8 @@ def _feature_line(f, part_envelope=None) -> str:
         return _measured_dimension_line(f)
     if k == "pmi":
         return _raw_pmi_line(f)
+    if k == "control_frame":
+        return _control_frame_line(f, origin_ref)
     if k == "envelope":
         if part_envelope is not None and f == part_envelope:
             # `sheet.envelope()` defaults to the whole part and now measures its SOLIDS with a
@@ -470,8 +517,8 @@ def _feature_line(f, part_envelope=None) -> str:
             f'sheet.plate(axis="{f.axis}", lo={_n(f.lo)}, hi={_n(f.hi)}, u={_n(f.u)}, v={_n(f.v)})'
         )
     # Kinds with no declarative verb: flag inline so they aren't silently lost. Since #945 every
-    # geometric kind has a verb, so this catches the aspect kinds (finish/note/control_frame/
-    # datum_ref) and, more usefully, a newly added kind whose emit line nobody wrote.
+    # geometric kind has a verb, so this catches the remaining aspect kinds
+    # (finish/note/datum_ref) and, more usefully, a newly added kind whose emit line nobody wrote.
     return f"# {k} @ {_pt(f.frame.origin)} — no declarative verb yet; drawn by the auto-pass"
 
 
@@ -946,7 +993,18 @@ def _feature_block(features, part_envelope=None) -> tuple[list[str], dict[int, s
         summary = _run_summary(run)
         out.append(f"#   {section}" + (f" · {summary}" if summary else "") + " ─────")
         for f in run:
-            line = _feature_line(f, part_envelope)
+            origin_ref = names.get(id(f.origin)) if f.kind == "control_frame" else None
+            if (
+                f.kind == "control_frame"
+                and f.origin is not None
+                and getattr(f.origin, "kind", None) != "pmi"
+                and origin_ref is None
+            ):
+                raise ValueError(
+                    "emit_sheet_script(): cannot preserve a control frame whose origin has "
+                    "no emitted binding"
+                )
+            line = _feature_line(f, part_envelope, origin_ref=origin_ref)
             name = _binding(f, line, counts)
             if name is not None:
                 names[id(f)] = name
@@ -1010,9 +1068,10 @@ def emit_sheet_script(
     (the CLI's ``--format``, #709) is always spelled out on that call, so a re-run reproduces the
     requested outputs.
 
-    AP242 PMI cannot be re-extracted from the ``import_step`` seam, so detected dimensional PMI is
-    emitted as declared Sheet dimensions; unsupported raw PMI records are kept as explicit
-    ``sheet.add(PmiFeature(...))`` fallbacks (#503 / #422).
+    AP242 PMI cannot be re-extracted from the ``import_step`` seam, so detected dimensional PMI
+    is emitted as declared Sheet dimensions and supported geometric tolerances as declared
+    ``ControlFrame`` objects; unsupported raw PMI records stay explicit
+    ``sheet.add(PmiFeature(...))`` fallbacks (#503 / #422 / #1095).
 
     A model carrying an **authored** dimension set emits `sheet.dimension(feature, role)`
     declarations after the features (#922). That was refused until every feature had a name to
@@ -1045,6 +1104,13 @@ def emit_sheet_script(
         model_imports.update(["EnvelopeFeature", "Frame"])
     if any(f.kind == "pmi" for f in model.features):
         model_imports.update(["Frame", "PmiFeature"])
+    if any(f.kind == "control_frame" for f in model.features):
+        model_imports.update(["ControlFrame", "Frame"])
+    if any(
+        f.kind == "control_frame" and getattr(getattr(f, "origin", None), "kind", None) == "pmi"
+        for f in model.features
+    ):
+        model_imports.add("PmiFeature")
     # Only carry an aspect into the emitted constructor when it differs from build_drawing's
     # default (mirrors the CLI's inert-flag test) — an unset aspect stays off the script.
     ctor = [f"title={title!r}", f"number={number!r}"]

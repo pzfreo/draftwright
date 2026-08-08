@@ -1161,7 +1161,8 @@ class PmiFeature:
     records should eventually lower to ``ControlFrame`` / ``DatumRef`` / ``Finish``. This
     type remains as an explicit provenance-preserving escape hatch so unsupported records
     are visible instead of silently lost. ``source_id`` retains the external record identity
-    needed to report that missing concept lowering."""
+    needed to report that missing concept lowering; ``gtol_modifiers`` and
+    ``lowering_blockers`` retain the source facts and the explicit reason it stayed raw."""
 
     frame: Frame
     pmi_kind: str  # the PMI category: "linear" | "diameter" | "radius" | "angular" | ...
@@ -1173,6 +1174,9 @@ class PmiFeature:
     source_id: str = ""
     datum_refs: tuple[str, ...] = ()
     part21_id: str = ""
+    source_category: str = ""
+    gtol_modifiers: tuple[str, ...] = ()
+    lowering_blockers: tuple[str, ...] = ()
     kind: ClassVar[str] = "pmi"
 
     def parameters(self) -> list[DimParameter]:
@@ -1203,6 +1207,11 @@ class ControlFrame:
     # The IR feature this frame decorates — recorded as provenance (ADR 0010); ``None``
     # leaves it feature-less. Untyped to avoid an import cycle with the geometric features.
     origin: object | None = None
+    # An imported AP242 scope symbol belongs at the leader kink, not in the tolerance cell's
+    # material-condition ``modifier`` field.
+    all_around: bool = False
+    source_id: str = ""
+    part21_id: str = ""
     kind: ClassVar[str] = "control_frame"
 
     def parameters(self) -> list[DimParameter]:

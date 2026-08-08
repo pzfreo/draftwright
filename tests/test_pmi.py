@@ -147,23 +147,27 @@ class TestExtractPmi:
             assert record.kind == kind
             assert record.value == value
             assert record.part21_id == part21_id
+            assert record.source_category == "geometric_tolerance"
             assert len(record.ref_pts) == reference_count
             assert record.ref_bbox is not None
             assert record.dominant_axis in {"X", "Y", "Z"}
             assert record.datum_refs == datum_refs
+            assert record.lowering_blockers == ()
+
+        assert records["geometric_tolerance:0:1:4:15"].gtol_modifiers == ("all_around",)
+        assert all(
+            record.gtol_modifiers == ()
+            for source_id, record in records.items()
+            if source_id != "geometric_tolerance:0:1:4:15"
+        )
 
         outcomes = {
             source.source_id: source
             for source in ctc01_extraction_report.sources
             if source.category == "geometric_tolerance"
         }
-        modifier_source = outcomes["geometric_tolerance:0:1:4:15"]
-        assert modifier_source.outcome == "partially_extracted"
-        assert modifier_source.reason == "geometric-tolerance modifier(s) 15 are not preserved"
         assert all(
-            source.outcome == "extracted" and source.reason == ""
-            for source_id, source in outcomes.items()
-            if source_id != modifier_source.source_id
+            source.outcome == "extracted" and source.reason == "" for source in outcomes.values()
         )
 
     def test_usable_dims_have_positive_value(self, ctc01_extraction_report):
@@ -237,8 +241,7 @@ class TestExtractPmi:
             {
                 ("dimension", "extracted"): 12,
                 ("dimension", "presentation_only"): 9,
-                ("geometric_tolerance", "extracted"): 5,
-                ("geometric_tolerance", "partially_extracted"): 1,
+                ("geometric_tolerance", "extracted"): 6,
                 ("datum", "not_extracted"): 11,
             }
         )
@@ -457,7 +460,6 @@ class TestExtractPmi:
             "geometric-tolerance zone modifier 3 is not preserved",
             "geometric-tolerance zone-modifier value 0.4 is not preserved",
             "geometric-tolerance maximum-value modifier 0.5 is not preserved",
-            "geometric-tolerance modifier(s) 15, 16 are not preserved",
         )
 
         def unreadable():
@@ -472,7 +474,7 @@ class TestExtractPmi:
             GetModifiers=unreadable,
         )
         reasons = pmi_module._unpreserved_geometric_tolerance_fields(broken)
-        assert len(reasons) == 6
+        assert len(reasons) == 5
         assert all("RuntimeError: unreadable" in reason for reason in reasons)
 
     def test_xcaf_semantic_name_failures_are_explicit(self):
@@ -836,20 +838,20 @@ class TestBuildDrawingPmi:
         pmi_names = [n for n in dwg.annotations() if n.startswith("pmi_")]
         assert pmi_names == [], "pmi='report' should not add drawing annotations"
         issues = [issue for issue in dwg.lint() if issue.code == "pmi_not_extracted"]
-        assert len(issues) == 12
+        assert len(issues) == 11
         assert {issue.severity for issue in issues} == {"info"}
-        assert len({issue.source_ids for issue in issues}) == 12
+        assert len({issue.source_ids for issue in issues}) == 11
         lowering = [issue for issue in dwg.lint() if issue.code == "pmi_not_lowered"]
-        assert len(lowering) == 10
+        assert len(lowering) == 4
         assert {issue.severity for issue in lowering} == {"info"}
-        assert len({issue.source_ids for issue in lowering}) == 10
+        assert len({issue.source_ids for issue in lowering}) == 4
         assert not [issue for issue in dwg.lint() if issue.code == "pmi_not_rendered"]
         assert dwg.lint_summary()["pmi"] == {
             "mode": "report",
             "sources": 38,
             "by_category": {"datum": 11, "dimension": 21, "geometric_tolerance": 6},
             "extracted": 18,
-            "lowered": 8,
+            "lowered": 14,
             "rendered": 0,
             "dropped": 0,
         }
@@ -879,17 +881,16 @@ class TestBuildDrawingPmi:
 
     def test_pmi_annotate_reports_each_incomplete_source_record(self, ctc01_annotated):
         issues = [issue for issue in ctc01_annotated.lint() if issue.code == "pmi_not_extracted"]
-        assert len(issues) == 12
+        assert len(issues) == 11
         assert {issue.severity for issue in issues} == {"error"}
-        assert len({issue.source_ids for issue in issues}) == 12
+        assert len({issue.source_ids for issue in issues}) == 11
         assert all(issue.source_ids[0] in issue.message for issue in issues)
         assert (
             sum("datum extraction is not implemented" in issue.message for issue in issues) == 11
         )
-        assert sum("modifier(s) 15 are not preserved" in issue.message for issue in issues) == 1
         summary = ctc01_annotated.lint_summary()
         assert summary["passed"] is False
-        assert summary["by_code"]["pmi_not_extracted"] == 12
+        assert summary["by_code"]["pmi_not_extracted"] == 11
         assert all(
             "source_ids" in issue
             for issue in summary["issues"]
@@ -897,7 +898,7 @@ class TestBuildDrawingPmi:
         )
 
     def test_pmi_annotate_reports_each_raw_ir_fallback(self, ctc01_annotated):
-        from draftwright.model import PmiFeature
+        from draftwright.model import ControlFrame, PmiFeature
 
         raw_features = {
             feature.source_id: feature
@@ -906,7 +907,13 @@ class TestBuildDrawingPmi:
         }
         issues = [issue for issue in ctc01_annotated.lint() if issue.code == "pmi_not_lowered"]
 
-        assert len(raw_features) == 10
+        frames = {
+            feature.source_id: feature
+            for feature in ctc01_annotated.model().features
+            if isinstance(feature, ControlFrame) and feature.source_id
+        }
+
+        assert len(raw_features) == 4
         assert {issue.severity for issue in issues} == {"error"}
         assert {issue.source_ids[0] for issue in issues} == set(raw_features)
         expected_gtol_datums = {
@@ -917,13 +924,11 @@ class TestBuildDrawingPmi:
             "geometric_tolerance:0:1:4:18": ("A",),
             "geometric_tolerance:0:1:4:20": (),
         }
-        assert {
-            source_id: raw_features[source_id].datum_refs for source_id in expected_gtol_datums
-        } == expected_gtol_datums
-        assert all(raw_features[source_id].ref_pts for source_id in expected_gtol_datums)
-        assert {
-            source_id: raw_features[source_id].part21_id for source_id in expected_gtol_datums
-        } == {
+        assert {source_id: frames[source_id].datums for source_id in expected_gtol_datums} == (
+            expected_gtol_datums
+        )
+        assert all(frames[source_id].origin.ref_pts for source_id in expected_gtol_datums)
+        assert {source_id: frames[source_id].part21_id for source_id in expected_gtol_datums} == {
             "geometric_tolerance:0:1:4:1": "#21",
             "geometric_tolerance:0:1:4:5": "#22",
             "geometric_tolerance:0:1:4:11": "#26",
@@ -931,6 +936,7 @@ class TestBuildDrawingPmi:
             "geometric_tolerance:0:1:4:18": "#56",
             "geometric_tolerance:0:1:4:20": "#57",
         }
+        assert frames["geometric_tolerance:0:1:4:15"].all_around is True
 
     def test_pmi_annotate_accounts_for_each_typed_dimension_at_the_render_seam(
         self, ctc01_annotated
@@ -965,8 +971,8 @@ class TestBuildDrawingPmi:
             "sources": 38,
             "by_category": {"datum": 11, "dimension": 21, "geometric_tolerance": 6},
             "extracted": 18,
-            "lowered": 8,
-            "rendered": 6,
+            "lowered": 14,
+            "rendered": 12,
             "dropped": 2,
         }
 
@@ -1114,7 +1120,7 @@ class TestDeclaredModelPmi:
 def test_build_pmi_features_mirrors_detection(ctc01_extraction_report):
     """build_pmi_features (shared by build_part_model and the declared-model synthesis) builds one
     imported drafting annotation per record; both callers construct them identically (#472)."""
-    from draftwright.model import AuthoredDimension, PmiFeature, build_pmi_features
+    from draftwright.model import AuthoredDimension, ControlFrame, PmiFeature, build_pmi_features
 
     recs = ctc01_extraction_report.records
     dim_kinds = {
@@ -1135,15 +1141,19 @@ def test_build_pmi_features_mirrors_detection(ctc01_extraction_report):
     assert len(feats) == len(recs)
     authored = [f for f in feats if isinstance(f, AuthoredDimension)]
     raw = [f for f in feats if isinstance(f, PmiFeature)]
+    frames = [f for f in feats if isinstance(f, ControlFrame)]
     assert len(authored) == 8
-    # Four location dimensions and six geometric tolerances remain explicit raw fallbacks.
-    assert len(raw) == 10
+    # Four location dimensions remain explicit raw fallbacks; all six supported geometric
+    # tolerances lower to the existing control-frame drafting concept.
+    assert len(raw) == 4
+    assert len(frames) == 6
     assert all(f.kind == "authored_dimension" for f in authored)
     assert all(f.kind == "pmi" for f in raw)
     assert {feature.source_id for feature in feats} == {record.source_id for record in recs}
-    assert {feature.source_id: feature.part21_id for feature in raw if feature.part21_id} == {
+    assert {feature.source_id: feature.part21_id for feature in frames if feature.part21_id} == {
         record.source_id: record.part21_id for record in recs if record.part21_id
     }
+    assert next(frame for frame in frames if frame.part21_id == "#27").all_around is True
     # A dimensional PMI record's measured semantics ride onto its authored dimension verbatim.
     assert {f.label for f in authored} >= {r.label for r in dims}
     for r in dims:

@@ -291,12 +291,14 @@ class TestEmit:
         assert "# authored_dimension" not in src
         assert "source='ap242_pmi'" in src
         assert "sheet.add(PmiFeature(" in src
+        assert "sheet.add(ControlFrame(" in src
         assert "part21_id='#21'" in src
+        assert "part21_id='#27'" in src and "all_around=True" in src
         assert "sheet.step_level(" in src  # #578: fluent verb, no StepLevelFeature import
         import_line = next(
             ln for ln in src.splitlines() if ln.startswith("from draftwright.model")
         )
-        assert "Frame" in import_line and "PmiFeature" in import_line
+        assert all(name in import_line for name in ("ControlFrame", "Frame", "PmiFeature"))
         assert "StepLevelFeature" not in import_line
 
     def test_measured_dimension_declares_renderable_authored_dimension(self, tmp_path):
@@ -373,6 +375,9 @@ class TestEmit:
             source_id="geometric_tolerance:roundtrip",
             datum_refs=("A", "B"),
             part21_id="#123",
+            source_category="geometric_tolerance",
+            gtol_modifiers=("common_zone",),
+            lowering_blockers=("geometric-tolerance modifier 'common_zone' is not supported",),
         )
         model = dataclasses.replace(model, features=[*model.features, source])
 
@@ -388,6 +393,11 @@ class TestEmit:
 
         assert restored.part21_id == "#123"
         assert restored.datum_refs == ("A", "B")
+        assert restored.source_category == "geometric_tolerance"
+        assert restored.gtol_modifiers == ("common_zone",)
+        assert restored.lowering_blockers == (
+            "geometric-tolerance modifier 'common_zone' is not supported",
+        )
 
     def test_measured_dimension_rejects_unrenderable_kind(self):
         from draftwright import Sheet
@@ -1992,7 +2002,7 @@ class TestAuthoredSetRoundTrips:
         Driven SYNTHETICALLY since #945. This used `rotational`, which was then the one kind
         carrying planned dimensions without a declarative verb; giving it that verb left no
         real model able to reach the branch — the remaining comment-only kinds are aspects
-        (`control_frame`, `datum_ref`, `finish`, `note`), which carry no `DimParameter`, so
+        (`datum_ref`, `finish`, `note`), which carry no `DimParameter`, so
         `_check_authored_targets` rejects an authored dimension on them first.
 
         The branch is kept and tested rather than deleted: it is defensive against a FUTURE
@@ -2403,7 +2413,7 @@ _KIND_MIRROR_COVERAGE = {
     # entirely — the string did not equal "corpus", so the guard skipped it and nothing
     # verified the claim (#948). Its own route, with its own obligation, below.
     "authored_dimension": "declared",
-    "control_frame": "aspect — carries no DimParameter, so nothing to mirror",
+    "control_frame": "declared",
     "datum_ref": "aspect — carries no DimParameter, so nothing to mirror",
     "finish": "aspect — carries no DimParameter, so nothing to mirror",
     "note": "aspect — carries no DimParameter, so nothing to mirror",
@@ -2520,6 +2530,10 @@ def _declared_models():
     yield "authored_dimension", measured, "sheet.measured_dimension("
     _part, pmi = TestTheDeclaredModelMatchesTheDetectedOne._declared_corpus()["raw pmi"]()
     yield "pmi", pmi, "sheet.add(PmiFeature("
+    _part, control = TestTheDeclaredModelMatchesTheDetectedOne._declared_corpus()[
+        "control frame"
+    ]()
+    yield "control_frame", control, "sheet.add(ControlFrame("
 
 
 def _declarable_kinds() -> set[str]:
@@ -2890,8 +2904,9 @@ _FIDELITY_ROUTE = {
     "envelope": ("detected", "every fixture carries one"),
     # Declared: nothing detects one, so emitting a detected model cannot reach it.
     "authored_dimension": ("declared", "an imported AP242 or hand-written measurement"),
-    # Aspects: carry no geometry to lose, and no declarative feature line to round-trip.
-    "control_frame": ("aspect", "GD&T; carries no DimParameter"),
+    # Imported control frames are structural declarations; the remaining aspects carry no
+    # geometry to lose and have no declarative feature line to round-trip.
+    "control_frame": ("declared", "GD&T, emitted as sheet.add(ControlFrame(...))"),
     "datum_ref": ("aspect", "GD&T; carries no DimParameter"),
     "finish": ("aspect", "surface finish; carries no DimParameter"),
     "note": ("aspect", "free text"),
@@ -3242,7 +3257,34 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
             )
             return part, dataclasses.replace(model, features=[*model.features, record])
 
-        return {"measured dimension": measured_dimension, "raw pmi": raw_pmi}
+        def control_frame():
+            import dataclasses
+
+            from draftwright.builder import detect_part_model
+            from draftwright.model import ControlFrame, Frame
+
+            part = Box(60, 40, 20)
+            model = detect_part_model(part)
+            origin = next(feature for feature in model.features if feature.kind == "envelope")
+            frame = ControlFrame(
+                frame=Frame((1.0, 2.0, 3.0), "z"),
+                characteristic="profile_surface",
+                tolerance="0.5",
+                view="plan",
+                side="above",
+                datums=("A",),
+                all_around=True,
+                source_id="geometric_tolerance:0:1:4:control-test",
+                part21_id="#27",
+                origin=origin,
+            )
+            return part, dataclasses.replace(model, features=[*model.features, frame])
+
+        return {
+            "control frame": control_frame,
+            "measured dimension": measured_dimension,
+            "raw pmi": raw_pmi,
+        }
 
     @pytest.mark.parametrize("route", sorted(_ROUTE_OBLIGATIONS))
     def test_each_obligation_actually_depends_on_the_corpora(self, route):

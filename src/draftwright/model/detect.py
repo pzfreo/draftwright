@@ -15,16 +15,18 @@ for any part.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from draftwright._geometry import _axis_letter, _xyz
+from draftwright.model.declare import control_frame
 from draftwright.model.ir import (
     AUTHORED_DIMENSION_KINDS,
     AuthoredDimension,
     BossFeature,
     ChamferFeature,
     ChannelFeature,
+    ControlFrame,
     Datum,
     Feature,
     FilletFeature,
@@ -215,16 +217,16 @@ _STEP_LEN_PAD = 1.0  # a groove's step is no longer than its width + this (mm); 
 _UNSET = object()  # sentinel: distinguishes "not supplied" from a valid prof=None
 
 
-def build_pmi_features(pmi, bbox) -> list[AuthoredDimension | PmiFeature]:
+def build_pmi_features(pmi, bbox) -> list[AuthoredDimension | PmiFeature | ControlFrame]:
     """Re-home extracted STEP AP242 PMI records into drafting-concept IR (#208).
 
     Shared by :func:`build_part_model` (the detection path) and the declared-model PMI
     synthesis in ``builder._assemble`` (#472) so both construct features identically.
     Dimensional PMI becomes :class:`AuthoredDimension`, because users edit drafting
-    dimensions rather than source-format PMI. Unsupported GD&T/datum records remain raw
-    :class:`PmiFeature` fallbacks until their concept lowering lands. Empty/``None``
-    ``pmi`` → ``[]``."""
-    out: list[AuthoredDimension | PmiFeature] = []
+    dimensions rather than source-format PMI. Complete, supported geometric tolerances become
+    :class:`ControlFrame`; unsupported GD&T/datum records remain raw :class:`PmiFeature`
+    fallbacks until their concept lowering lands. Empty/``None`` ``pmi`` → ``[]``."""
+    out: list[AuthoredDimension | PmiFeature | ControlFrame] = []
     for r in pmi or ():
         if r.ref_bbox is not None:
             x0, y0, z0, x1, y1, z1 = r.ref_bbox
@@ -251,20 +253,38 @@ def build_pmi_features(pmi, bbox) -> list[AuthoredDimension | PmiFeature]:
                 )
             )
             continue
-        out.append(
-            PmiFeature(
-                frame=Frame(origin=pmi_origin, axis=ax),
-                pmi_kind=r.kind,
-                value=r.value,
-                label=r.label,
-                dominant_axis=r.dominant_axis,
-                ref_bbox=r.ref_bbox,
-                ref_pts=tuple(r.ref_pts),
-                source_id=r.source_id,
-                datum_refs=r.datum_refs,
-                part21_id=r.part21_id,
-            )
+        raw = PmiFeature(
+            frame=Frame(origin=pmi_origin, axis=ax),
+            pmi_kind=r.kind,
+            value=r.value,
+            label=r.label,
+            dominant_axis=r.dominant_axis,
+            ref_bbox=r.ref_bbox,
+            ref_pts=tuple(r.ref_pts),
+            source_id=r.source_id,
+            datum_refs=r.datum_refs,
+            part21_id=r.part21_id,
+            source_category=r.source_category,
+            gtol_modifiers=r.gtol_modifiers,
+            lowering_blockers=r.lowering_blockers,
         )
+        if r.source_category == "geometric_tolerance" and not r.lowering_blockers:
+            item = control_frame(
+                r.kind,
+                str(r.value),
+                raw,
+                datums=r.datum_refs,
+            )
+            out.append(
+                replace(
+                    item,
+                    all_around="all_around" in r.gtol_modifiers,
+                    source_id=r.source_id,
+                    part21_id=r.part21_id,
+                )
+            )
+            continue
+        out.append(raw)
     return out
 
 

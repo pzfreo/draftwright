@@ -8,6 +8,8 @@ never overlap, a full strip drops honestly (a warning, not a silent vanish), and
 placement stays lint-clean.
 """
 
+from pathlib import Path
+
 import pytest
 from build123d import Box, Cylinder, Draft, Pos
 from build123d_drafting import FeatureControlFrame
@@ -50,6 +52,60 @@ def test_control_frame_places_first_class():
     assert not [i for i in dwg.registry.issues if i.code == "gdt_dropped"]
     # It rendered the actual frame geometry (a wide box, not an empty leader).
     assert dwg.get_annotation("m_gdt0").bounding_box().size.X > 15
+
+
+def test_imported_scope_modifier_reaches_the_solver_owned_leader(monkeypatch, tmp_path):
+    import draftwright.annotations.from_model as from_model
+
+    seen: list[tuple[bool, bool]] = []
+    real_leader = from_model.Leader
+
+    def recording_leader(*args, **kwargs):
+        seen.append((kwargs.get("all_around", False), kwargs.get("all_over", False)))
+        return real_leader(*args, **kwargs)
+
+    monkeypatch.setattr(from_model, "Leader", recording_leader)
+    frame = ControlFrame(
+        frame=Frame((0.0, 0.0, 0.0), "z"),
+        characteristic="profile_surface",
+        tolerance="0.5",
+        view="plan",
+        side="above",
+        all_around=True,
+        source_id="geometric_tolerance:fixture",
+        part21_id="#27",
+    )
+    dwg = _build(frame)
+
+    assert (True, False) in seen
+    assert "m_gdt0" in dwg.annotations()
+    assert dwg.registry.names_for_feature(frame) == ["m_gdt0"]
+    paths = dwg.export(str(tmp_path / "all-around"), formats=("svg", "dxf"))
+    assert all(Path(path).exists() and Path(path).stat().st_size > 0 for path in paths.values())
+
+
+def test_automatically_imported_frame_stays_diagnostic_in_report_mode():
+    from types import SimpleNamespace
+
+    from draftwright.annotations.from_model import render_gdt
+
+    frame = ControlFrame(
+        frame=Frame((0.0, 0.0, 0.0), "z"),
+        characteristic="profile_surface",
+        tolerance="0.5",
+        view="plan",
+        side="above",
+        source_id="geometric_tolerance:fixture",
+    )
+
+    registered = render_gdt(
+        None,
+        SimpleNamespace(features=[frame]),
+        SimpleNamespace(pmi_mode="report"),
+        ctx=SimpleNamespace(model_declared=False),
+    )
+
+    assert registered == 0
 
 
 def test_datum_and_finish_place():
