@@ -242,14 +242,83 @@ class TestExtractPmi:
                 ("dimension", "extracted"): 12,
                 ("dimension", "presentation_only"): 9,
                 ("geometric_tolerance", "extracted"): 6,
-                ("datum", "not_extracted"): 11,
+                ("datum", "extracted"): 5,
+                ("datum", "partially_extracted"): 6,
             }
         )
-        assert {record.source_id for record in report.records} == {
+        assert {
+            source_id
+            for record in report.records
+            for source_id in (record.source_ids or (record.source_id,))
+        } == {
             source.source_id
             for source in report.sources
             if source.outcome in ("extracted", "partially_extracted")
         }
+
+    def test_ctc01_datum_occurrences_project_to_three_feature_definitions(
+        self, ctc01_extraction_report
+    ):
+        datums = [
+            record
+            for record in ctc01_extraction_report.records
+            if record.source_category == "datum"
+        ]
+
+        assert [
+            (
+                record.label,
+                record.part21_id,
+                record.source_ids,
+                record.datum_contexts,
+                record.reference_item_ids,
+                record.reference_axis,
+            )
+            for record in datums
+        ] == [
+            (
+                "A",
+                "#34",
+                (
+                    "datum:0:1:4:2",
+                    "datum:0:1:4:6",
+                    "datum:0:1:4:12",
+                    "datum:0:1:4:16",
+                    "datum:0:1:4:19",
+                ),
+                (
+                    "Position.1",
+                    "Position.2",
+                    "Position surfacic profile.3",
+                    "Position surfacic profile.2",
+                    "Perpendicularity.1",
+                ),
+                ("#861",),
+                "Z",
+            ),
+            (
+                "B",
+                "#35",
+                ("datum:0:1:4:3", "datum:0:1:4:7", "datum:0:1:4:13"),
+                ("Position.1", "Position.2", "Position surfacic profile.3"),
+                ("#854", "#853"),
+                "",
+            ),
+            (
+                "C",
+                "#36",
+                ("datum:0:1:4:4", "datum:0:1:4:8", "datum:0:1:4:14"),
+                ("Position.1", "Position.2", "Position surfacic profile.3"),
+                ("#839", "#840"),
+                "",
+            ),
+        ]
+        assert datums[0].lowering_blockers == ()
+        assert datums[0].ref_bbox is not None
+        assert all(
+            "referenced geometry is unavailable" in record.lowering_blockers
+            for record in datums[1:]
+        )
 
     def test_non_record_dimension_types_fail_closed(self):
         import draftwright.pmi as pmi_module
@@ -777,7 +846,7 @@ class TestBuildDrawingPmi:
         assert "pmi='off' was selected" in ignored[0].message
         assert "21 dimensions" in ignored[0].message
         assert "6 geometric tolerances" in ignored[0].message
-        assert "11 datums" in ignored[0].message
+        assert "11 datum references" in ignored[0].message
         assert "--pmi report" in ignored[0].message
         assert "--pmi annotate" in ignored[0].message
         assert not [issue for issue in issues if issue.code.startswith("pmi_not_")]
@@ -786,7 +855,7 @@ class TestBuildDrawingPmi:
             "mode": "off",
             "sources": 38,
             "by_category": {"datum": 11, "dimension": 21, "geometric_tolerance": 6},
-            "extracted": 18,
+            "extracted": 29,
             "lowered": 0,
             "rendered": 0,
             "dropped": 0,
@@ -838,20 +907,20 @@ class TestBuildDrawingPmi:
         pmi_names = [n for n in dwg.annotations() if n.startswith("pmi_")]
         assert pmi_names == [], "pmi='report' should not add drawing annotations"
         issues = [issue for issue in dwg.lint() if issue.code == "pmi_not_extracted"]
-        assert len(issues) == 11
+        assert len(issues) == 6
         assert {issue.severity for issue in issues} == {"info"}
-        assert len({issue.source_ids for issue in issues}) == 11
+        assert len({issue.source_ids for issue in issues}) == 6
         lowering = [issue for issue in dwg.lint() if issue.code == "pmi_not_lowered"]
-        assert len(lowering) == 4
+        assert len(lowering) == 10
         assert {issue.severity for issue in lowering} == {"info"}
-        assert len({issue.source_ids for issue in lowering}) == 4
+        assert len({issue.source_ids for issue in lowering}) == 10
         assert not [issue for issue in dwg.lint() if issue.code == "pmi_not_rendered"]
         assert dwg.lint_summary()["pmi"] == {
             "mode": "report",
             "sources": 38,
             "by_category": {"datum": 11, "dimension": 21, "geometric_tolerance": 6},
-            "extracted": 18,
-            "lowered": 14,
+            "extracted": 29,
+            "lowered": 19,
             "rendered": 0,
             "dropped": 0,
         }
@@ -881,16 +950,14 @@ class TestBuildDrawingPmi:
 
     def test_pmi_annotate_reports_each_incomplete_source_record(self, ctc01_annotated):
         issues = [issue for issue in ctc01_annotated.lint() if issue.code == "pmi_not_extracted"]
-        assert len(issues) == 11
+        assert len(issues) == 6
         assert {issue.severity for issue in issues} == {"error"}
-        assert len({issue.source_ids for issue in issues}) == 11
+        assert len({issue.source_ids for issue in issues}) == 6
         assert all(issue.source_ids[0] in issue.message for issue in issues)
-        assert (
-            sum("datum extraction is not implemented" in issue.message for issue in issues) == 11
-        )
+        assert all("referenced geometry is unavailable" in issue.message for issue in issues)
         summary = ctc01_annotated.lint_summary()
         assert summary["passed"] is False
-        assert summary["by_code"]["pmi_not_extracted"] == 11
+        assert summary["by_code"]["pmi_not_extracted"] == 6
         assert all(
             "source_ids" in issue
             for issue in summary["issues"]
@@ -913,9 +980,13 @@ class TestBuildDrawingPmi:
             if isinstance(feature, ControlFrame) and feature.source_id
         }
 
-        assert len(raw_features) == 4
+        assert len(raw_features) == 6
         assert {issue.severity for issue in issues} == {"error"}
-        assert {issue.source_ids[0] for issue in issues} == set(raw_features)
+        assert {issue.source_ids[0] for issue in issues} == {
+            source_id
+            for feature in raw_features.values()
+            for source_id in (feature.source_ids or (feature.source_id,))
+        }
         expected_gtol_datums = {
             "geometric_tolerance:0:1:4:1": ("A", "B", "C"),
             "geometric_tolerance:0:1:4:5": ("A", "B", "C"),
@@ -937,6 +1008,21 @@ class TestBuildDrawingPmi:
             "geometric_tolerance:0:1:4:20": "#57",
         }
         assert frames["geometric_tolerance:0:1:4:15"].all_around is True
+
+    def test_pmi_annotate_renders_the_proven_datum_feature_once(self, ctc01_annotated):
+        from draftwright.model import DatumRef
+
+        datums = [
+            feature
+            for feature in ctc01_annotated.model().features
+            if isinstance(feature, DatumRef)
+        ]
+
+        assert len(datums) == 1
+        (datum,) = datums
+        assert (datum.letter, datum.part21_id) == ("A", "#34")
+        assert len(datum.source_ids) == 5
+        assert len(ctc01_annotated.registry.names_for_feature(datum.origin)) == 1
 
     def test_pmi_annotate_accounts_for_each_typed_dimension_at_the_render_seam(
         self, ctc01_annotated
@@ -970,9 +1056,9 @@ class TestBuildDrawingPmi:
             "mode": "annotate",
             "sources": 38,
             "by_category": {"datum": 11, "dimension": 21, "geometric_tolerance": 6},
-            "extracted": 18,
-            "lowered": 14,
-            "rendered": 12,
+            "extracted": 29,
+            "lowered": 19,
+            "rendered": 17,
             "dropped": 2,
         }
 
@@ -1120,7 +1206,13 @@ class TestDeclaredModelPmi:
 def test_build_pmi_features_mirrors_detection(ctc01_extraction_report):
     """build_pmi_features (shared by build_part_model and the declared-model synthesis) builds one
     imported drafting annotation per record; both callers construct them identically (#472)."""
-    from draftwright.model import AuthoredDimension, ControlFrame, PmiFeature, build_pmi_features
+    from draftwright.model import (
+        AuthoredDimension,
+        ControlFrame,
+        DatumRef,
+        PmiFeature,
+        build_pmi_features,
+    )
 
     recs = ctc01_extraction_report.records
     dim_kinds = {
@@ -1142,16 +1234,29 @@ def test_build_pmi_features_mirrors_detection(ctc01_extraction_report):
     authored = [f for f in feats if isinstance(f, AuthoredDimension)]
     raw = [f for f in feats if isinstance(f, PmiFeature)]
     frames = [f for f in feats if isinstance(f, ControlFrame)]
+    datum_refs = [f for f in feats if isinstance(f, DatumRef)]
     assert len(authored) == 8
     # Four location dimensions remain explicit raw fallbacks; all six supported geometric
     # tolerances lower to the existing control-frame drafting concept.
-    assert len(raw) == 4
+    assert len(raw) == 6
     assert len(frames) == 6
+    assert len(datum_refs) == 1
     assert all(f.kind == "authored_dimension" for f in authored)
     assert all(f.kind == "pmi" for f in raw)
-    assert {feature.source_id for feature in feats} == {record.source_id for record in recs}
+    assert {
+        source_id
+        for feature in feats
+        for source_id in (getattr(feature, "source_ids", ()) or (feature.source_id,))
+    } == {source_id for record in recs for source_id in (record.source_ids or (record.source_id,))}
+    assert datum_refs[0].letter == "A"
+    assert datum_refs[0].part21_id == "#34"
+    assert datum_refs[0].source_ids == next(
+        record.source_ids for record in recs if record.part21_id == "#34"
+    )
     assert {feature.source_id: feature.part21_id for feature in frames if feature.part21_id} == {
-        record.source_id: record.part21_id for record in recs if record.part21_id
+        record.source_id: record.part21_id
+        for record in recs
+        if record.source_category == "geometric_tolerance" and record.part21_id
     }
     assert next(frame for frame in frames if frame.part21_id == "#27").all_around is True
     # A dimensional PMI record's measured semantics ride onto its authored dimension verbatim.

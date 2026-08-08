@@ -71,9 +71,10 @@ Remaining gaps are narrower and more explicit:
   remains only as an escape hatch. It can place a one-off annotation, but feature-referenced
   `dimension(...)` is the route that participates in re-solving.
 - `import_step()` strips semantic AP242 PMI, so emitted Sheet scripts materialize it as declared
-  measured dimensions, supported control frames, and provenance-rich raw fallbacks instead of
-  pretending to re-extract it (#503/#1095).
+  measured dimensions, supported control frames and datum features, and provenance-rich raw
+  fallbacks instead of pretending to re-extract it (#503/#1095/#1099).
 
 The next destination is **complete editable-script trust**: ordinary geometry already has a
 strong parity guard, and the remaining high-value gap is broadening typed PMI lowering (notably
-datums and export-safe scope modifiers) while keeping unsupported source facts explicit.
+datum references exposed only through Part21 representation usages, and export-safe scope
+modifiers) while keeping unsupported source facts explicit.

@@ -25,8 +25,11 @@ from pathlib import Path
 from typing import Literal, cast
 
 from draftwright._pmi_part21 import (
+    DatumOccurrenceFact,
     GeometricToleranceFact,
+    match_datum_occurrence,
     match_geometric_tolerance,
+    read_datum_occurrences,
     read_geometric_tolerances,
 )
 
@@ -38,12 +41,15 @@ _log = logging.getLogger(__name__)
 
 try:
     from OCP.Bnd import Bnd_Box
+    from OCP.BRepAdaptor import BRepAdaptor_Surface
     from OCP.BRepBndLib import BRepBndLib
+    from OCP.GeomAbs import GeomAbs_Plane
     from OCP.IFSelect import IFSelect_RetDone
     from OCP.STEPCAFControl import STEPCAFControl_Reader
     from OCP.TCollection import TCollection_AsciiString, TCollection_ExtendedString
     from OCP.TDF import TDF_LabelSequence, TDF_Tool
     from OCP.TDocStd import TDocStd_Document
+    from OCP.TopoDS import TopoDS
     from OCP.XCAFDoc import (
         XCAFDoc_Datum,
         XCAFDoc_Dimension,
@@ -179,10 +185,14 @@ class PmiRecord:
         source_category: Source inventory category; structural evidence for concept lowering.
         gtol_modifiers: Stable names for the source geometric-tolerance modifier sequence.
         lowering_blockers: Missing/unrepresented facts that make concept lowering unsafe.
+        source_ids:     All source occurrences represented by one projected definition.
+        datum_contexts: Tolerance semantic names in which a datum definition is referenced.
+        reference_item_ids: Exact Part21 representation items bound to a datum feature.
+        reference_axis: Axis normal to a proven datum reference plane.
     """
 
     kind: str
-    type_code: int
+    type_code: int | None
     value: float
     upper_tol: float | None = None
     lower_tol: float | None = None
@@ -201,6 +211,12 @@ class PmiRecord:
     source_category: PmiSourceCategory | Literal[""] = ""
     gtol_modifiers: tuple[str, ...] = ()
     lowering_blockers: tuple[str, ...] = ()
+    # One datum feature can be referenced by several source occurrences. Non-datum records
+    # keep this empty and use the compatible singular ``source_id`` above.
+    source_ids: tuple[str, ...] = ()
+    datum_contexts: tuple[str, ...] = ()
+    reference_item_ids: tuple[str, ...] = ()
+    reference_axis: str = ""
 
 
 PmiExtractionOutcome = Literal[
@@ -365,6 +381,127 @@ def _reference_geometry(label, shape_tool):
         dominant_axis,
         tuple(dict.fromkeys(partial_reasons)),
     )
+
+
+def _datum_reference_geometry(label, shape_tool):
+    """Measure a datum feature and require an axis-aligned planar reference surface."""
+    points, ref_bbox, _dominant_axis, geometry_reasons = _reference_geometry(label, shape_tool)
+    first_refs = TDF_LabelSequence()
+    second_refs = TDF_LabelSequence()
+    XCAFDoc_DimTolTool.GetRefShapeLabel_s(label, first_refs, second_refs)
+    axes: list[str] = []
+    axis_positions: list[float] = []
+    reasons = list(geometry_reasons)
+    for refs in (first_refs, second_refs):
+        for index in range(1, refs.Length() + 1):
+            shape = shape_tool.GetShape_s(refs.Value(index))
+            if shape is None or shape.IsNull():
+                continue
+            try:
+                surface = BRepAdaptor_Surface(TopoDS.Face_s(shape))
+                if surface.GetType() != GeomAbs_Plane:
+                    reasons.append("one datum reference is not planar")
+                    continue
+                plane = surface.Plane()
+                direction = plane.Axis().Direction()
+                components = (abs(direction.X()), abs(direction.Y()), abs(direction.Z()))
+                axis_index = max(range(3), key=components.__getitem__)
+                if (
+                    components[axis_index] < 1e-6
+                    or sum(components) - components[axis_index] > 0.1 * components[axis_index]
+                ):
+                    reasons.append("one datum reference plane is not axis-aligned")
+                    continue
+                axes.append("XYZ"[axis_index])
+                location = plane.Location()
+                axis_positions.append((location.X(), location.Y(), location.Z())[axis_index])
+            except Exception as exc:
+                reasons.append(
+                    f"one datum reference plane is unavailable ({_failure_reason(exc)})"
+                )
+    if not axes:
+        reasons.append("datum reference plane is unavailable")
+        reference_axis = ""
+    elif len(set(axes)) != 1 or max(axis_positions) - min(axis_positions) > 1e-4:
+        reasons.append("datum reference faces are not coplanar")
+        reference_axis = ""
+    else:
+        reference_axis = axes[0]
+    return points, ref_bbox, reference_axis, tuple(dict.fromkeys(reasons))
+
+
+def _datum_letter(label) -> tuple[str, str]:
+    try:
+        identification = XCAFDoc_Datum.Set_s(label).GetIdentification()
+        letter = str(identification.ToCString()).strip() if identification is not None else ""
+    except Exception as exc:
+        return "", f"datum letter is unavailable ({_failure_reason(exc)})"
+    return (letter, "") if letter else ("", "datum occurrence has no letter")
+
+
+def _datum_context(label, dim_tol_tool) -> tuple[str, str]:
+    tolerances = TDF_LabelSequence()
+    try:
+        dim_tol_tool.GetTolerOfDatumLabels(label, tolerances)
+    except Exception as exc:
+        return "", f"datum tolerance context is unavailable ({_failure_reason(exc)})"
+    if tolerances.Length() != 1:
+        return "", f"datum occurrence has {tolerances.Length()} tolerance contexts"
+    try:
+        tolerance = XCAFDoc_GeomTolerance.Set_s(tolerances.Value(1)).GetObject()
+        name = tolerance.GetSemanticName()
+        context = str(name.ToCString()).strip() if name is not None else ""
+    except Exception as exc:
+        return "", f"datum tolerance context is unavailable ({_failure_reason(exc)})"
+    return (context, "") if context else ("", "datum occurrence has no tolerance context")
+
+
+def _coalesce_datum_records(records: list[PmiRecord]) -> list[PmiRecord]:
+    """Project occurrence records onto authored datum-feature definitions."""
+    grouped: dict[str, list[PmiRecord]] = {}
+    for record in records:
+        grouped.setdefault(record.part21_id or record.source_id, []).append(record)
+
+    projected: list[PmiRecord] = []
+    for group in grouped.values():
+        source_ids = tuple(record.source_id for record in group)
+        letters = {record.label for record in group if record.label}
+        item_ids = {record.reference_item_ids for record in group}
+        geometry = next((record for record in group if record.ref_bbox is not None), group[0])
+        blockers = list(geometry.lowering_blockers)
+        if len(letters) != 1:
+            blockers.append("datum feature occurrences disagree about the datum letter")
+        if len(item_ids) != 1:
+            blockers.append("datum feature occurrences disagree about referenced Part21 items")
+        geometry_signatures = {
+            (record.ref_bbox, record.reference_axis)
+            for record in group
+            if record.ref_bbox is not None
+        }
+        if len(geometry_signatures) > 1:
+            blockers.append("datum feature occurrences disagree about referenced geometry")
+        projected.append(
+            PmiRecord(
+                kind="datum",
+                type_code=None,
+                value=0.0,
+                ref_pts=geometry.ref_pts,
+                ref_bbox=geometry.ref_bbox,
+                dominant_axis=geometry.reference_axis or "?",
+                label=group[0].label,
+                source_id=source_ids[0],
+                part21_id=group[0].part21_id,
+                source_category="datum",
+                lowering_blockers=tuple(dict.fromkeys(blockers)),
+                source_ids=source_ids,
+                datum_contexts=tuple(
+                    context for record in group for context in record.datum_contexts
+                ),
+                reference_item_ids=group[0].reference_item_ids,
+                reference_axis=geometry.reference_axis,
+            )
+        )
+    return projected
 
 
 def _datum_references(label, dim_tol_tool) -> tuple[tuple[str, ...], tuple[str, ...]]:
@@ -619,9 +756,9 @@ def extract_pmi_report(step_file: str | Path) -> PmiExtractionReport:
     """Inventory and extract semantic PMI from an AP242 STEP file in one XCAF pass.
 
     The report retains one source outcome for every dimension, geometric tolerance and
-    datum label. Graphical presentation-only dimension labels are inventoried but are not
-    manufacturing requirements. Datums are currently reported as ``not_extracted`` rather
-    than disappearing from the records-only projection.
+    datum-reference occurrence. Graphical presentation-only dimension labels are inventoried
+    but are not manufacturing requirements. Repeated datum occurrences project onto their
+    authored datum-feature definition without shrinking the source denominator.
 
     Returns an empty report (with a report-level error where applicable) when:
 
@@ -761,22 +898,83 @@ def extract_pmi_report(step_file: str | Path) -> PmiExtractionReport:
             )
 
     # ---- Datums ------------------------------------------------------------
-    # XCAF discovers these entities, but the current extractor creates no record for them.
-    # Keeping each source identity and explicit failure is the first #623 vertical slice;
-    # datum concept lowering follows separately rather than hiding the entire category.
     datums = TDF_LabelSequence()
     dt.GetDatumLabels(datums)
+    datum_facts: tuple[DatumOccurrenceFact, ...] = ()
+    datum_part21_error = ""
+    if datums.Length() > 0:
+        try:
+            datum_facts = read_datum_occurrences(step_file)
+        except Exception as exc:
+            datum_part21_error = f"Part21 datum read failed: {_failure_reason(exc)}"
+            _log.debug("PMI datum overlay unavailable for %s: %s", Path(step_file).name, exc)
+    datum_records: list[PmiRecord] = []
     for index in range(1, datums.Length() + 1):
-        source_id = _source_id("datum", datums.Value(index))
-        sources.append(
-            PmiSourceEntity(
-                source_id=source_id,
-                category="datum",
-                type_code=None,
-                outcome="not_extracted",
-                reason="datum extraction is not implemented",
+        label = datums.Value(index)
+        source_id = _source_id("datum", label)
+        try:
+            letter, letter_reason = _datum_letter(label)
+            context, context_reason = _datum_context(label, dt)
+            fact: DatumOccurrenceFact | None = None
+            correspondence_reason = datum_part21_error
+            if not correspondence_reason and not letter_reason and not context_reason:
+                fact, correspondence_reason = match_datum_occurrence(datum_facts, context, letter)
+            points, ref_bbox, reference_axis, geometry_reasons = _datum_reference_geometry(
+                label, shape_tool
             )
-        )
+            blockers = tuple(
+                dict.fromkeys(
+                    reason
+                    for reason in (
+                        letter_reason,
+                        context_reason,
+                        correspondence_reason,
+                        *geometry_reasons,
+                    )
+                    if reason
+                )
+            )
+            datum_records.append(
+                PmiRecord(
+                    kind="datum",
+                    type_code=None,
+                    value=0.0,
+                    ref_pts=points,
+                    ref_bbox=ref_bbox,
+                    dominant_axis=reference_axis or "?",
+                    label=letter,
+                    source_id=source_id,
+                    part21_id=fact.datum_feature_id if fact is not None else "",
+                    source_category="datum",
+                    lowering_blockers=blockers,
+                    source_ids=(source_id,),
+                    datum_contexts=(context,) if context else (),
+                    reference_item_ids=fact.reference_item_ids if fact is not None else (),
+                    reference_axis=reference_axis,
+                )
+            )
+        except Exception as exc:
+            sources.append(
+                PmiSourceEntity(
+                    source_id=source_id,
+                    category="datum",
+                    type_code=None,
+                    outcome="not_extracted",
+                    reason=_failure_reason(exc),
+                )
+            )
+            _log.debug("PMI %s not extracted: %s", source_id, exc)
+        else:
+            sources.append(
+                PmiSourceEntity(
+                    source_id,
+                    "datum",
+                    None,
+                    "partially_extracted" if blockers else "extracted",
+                    "; ".join(blockers),
+                )
+            )
+    records.extend(_coalesce_datum_records(datum_records))
 
     semantic_dimensions = sum(
         source.category == "dimension" and source.outcome != "presentation_only"
@@ -801,11 +999,18 @@ def extract_pmi_report(step_file: str | Path) -> PmiExtractionReport:
         source.category == "geometric_tolerance" and source.outcome == "extracted"
         for source in sources
     )
+    extracted_datums = sum(
+        source.category == "datum" and source.outcome == "extracted" for source in sources
+    )
+    partial_datums = sum(
+        source.category == "datum" and source.outcome == "partially_extracted"
+        for source in sources
+    )
 
     _log.info(
         "PMI extracted from %s: %d/%d complete semantic dims (%d partial, "
         "%d presentation-only), "
-        "%d/%d complete gtols (%d partial), 0/%d datums",
+        "%d/%d complete gtols (%d partial), %d/%d datum occurrences (%d partial)",
         Path(step_file).name,
         extracted_dimensions,
         semantic_dimensions,
@@ -814,7 +1019,9 @@ def extract_pmi_report(step_file: str | Path) -> PmiExtractionReport:
         extracted_tolerances,
         tolerances.Length(),
         partial_tolerances,
+        extracted_datums,
         datums.Length(),
+        partial_datums,
     )
     return PmiExtractionReport(sources=tuple(sources), records=tuple(records))
 

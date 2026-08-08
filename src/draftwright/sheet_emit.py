@@ -16,7 +16,7 @@ Kinds with no declarative verb are flagged inline — never silently dropped —
 auto-pass that runs over the declared model on re-run. Every *geometric* kind now has one
 (``rotational`` was the last, #945, keyword-only — see :func:`draftwright.model.rotational`);
 what remains on the comment floor is the aspect kinds a detector never emits (``finish``,
-``note``, ``control_frame``, ``datum_ref``), so the branch is a live guard against a NEW kind
+``note``), so the branch is a live guard against a NEW kind
 arriving unemitted rather than a standing gap. Imported authored
 dimensions, including AP242 dimensional PMI, emit as Sheet ``measured_dimension(...)``
 declarations (#873 — never the transitional ``dimension`` overload, so a regenerated script is
@@ -236,13 +236,26 @@ def _raw_pmi_expr(f) -> str:
     lowering_blockers = (
         f", lowering_blockers={f.lowering_blockers!r}" if f.lowering_blockers else ""
     )
+    source_ids = f", source_ids={f.source_ids!r}" if getattr(f, "source_ids", ()) else ""
+    datum_contexts = (
+        f", datum_contexts={f.datum_contexts!r}" if getattr(f, "datum_contexts", ()) else ""
+    )
+    reference_item_ids = (
+        f", reference_item_ids={f.reference_item_ids!r}"
+        if getattr(f, "reference_item_ids", ())
+        else ""
+    )
+    reference_axis = (
+        f", reference_axis={f.reference_axis!r}" if getattr(f, "reference_axis", "") else ""
+    )
     return (
         "PmiFeature("
         f"frame=Frame({_pt(f.frame.origin)}, {f.frame.axis!r}), "
         f"pmi_kind={f.pmi_kind!r}, value={_n(f.value)}, label={f.label!r}, "
         f"dominant_axis={f.dominant_axis!r}, ref_bbox={_bbox_arg(f.ref_bbox)}, "
         f"ref_pts=tuple({_pts_arg(f.ref_pts)}){source_id}{datum_refs}{part21_id}"
-        f"{source_category}{gtol_modifiers}{lowering_blockers}"
+        f"{source_category}{gtol_modifiers}{lowering_blockers}{source_ids}{datum_contexts}"
+        f"{reference_item_ids}{reference_axis}"
         ")"
     )
 
@@ -286,6 +299,29 @@ def _control_frame_line(f, origin_ref: str | None = None) -> str:
     )
 
 
+def _datum_ref_line(f, origin_ref: str | None = None) -> str:
+    kw = [
+        f"frame=Frame({_pt(f.frame.origin)}, {f.frame.axis!r})",
+        f"letter={f.letter!r}",
+        f"view={f.view!r}",
+        f"side={f.side!r}",
+    ]
+    if f.source_id:
+        kw.append(f"source_id={f.source_id!r}")
+    if f.source_ids:
+        kw.append(f"source_ids={f.source_ids!r}")
+    if f.part21_id:
+        kw.append(f"part21_id={f.part21_id!r}")
+    if origin_ref is not None:
+        kw.append(f"origin={origin_ref}")
+    elif getattr(f.origin, "kind", None) == "pmi":
+        kw.append(f"origin={_raw_pmi_expr(f.origin)}")
+    return (
+        "sheet.add(DatumRef(" + ", ".join(kw) + "))"
+        "   # datum feature declaration; placement remains solver-owned"
+    )
+
+
 def _feature_line(f, part_envelope=None, *, origin_ref: str | None = None) -> str:
     """The declaration for one feature.
 
@@ -301,6 +337,8 @@ def _feature_line(f, part_envelope=None, *, origin_ref: str | None = None) -> st
         return _raw_pmi_line(f)
     if k == "control_frame":
         return _control_frame_line(f, origin_ref)
+    if k == "datum_ref":
+        return _datum_ref_line(f, origin_ref)
     if k == "envelope":
         if part_envelope is not None and f == part_envelope:
             # `sheet.envelope()` defaults to the whole part and now measures its SOLIDS with a
@@ -518,7 +556,7 @@ def _feature_line(f, part_envelope=None, *, origin_ref: str | None = None) -> st
         )
     # Kinds with no declarative verb: flag inline so they aren't silently lost. Since #945 every
     # geometric kind has a verb, so this catches the remaining aspect kinds
-    # (finish/note/datum_ref) and, more usefully, a newly added kind whose emit line nobody wrote.
+    # (finish/note) and, more usefully, a newly added kind whose emit line nobody wrote.
     return f"# {k} @ {_pt(f.frame.origin)} — no declarative verb yet; drawn by the auto-pass"
 
 
@@ -577,6 +615,7 @@ _NOUN = {
     "step_level": "step-ladder",
     "authored_dimension": "measured dimension",
     "pmi": "PMI record",
+    "datum_ref": "datum feature",
 }
 # Kinds whose _feature_line carries NO inline comment of its own — the emit loop appends a
 # describing comment for these. envelope/step_level/pmi and the no-verb fallback already end in a
@@ -993,20 +1032,21 @@ def _feature_block(features, part_envelope=None) -> tuple[list[str], dict[int, s
         summary = _run_summary(run)
         out.append(f"#   {section}" + (f" · {summary}" if summary else "") + " ─────")
         for f in run:
-            origin_ref = names.get(id(f.origin)) if f.kind == "control_frame" else None
+            gdt_with_origin = f.kind in ("control_frame", "datum_ref")
+            origin_ref = names.get(id(f.origin)) if gdt_with_origin else None
             if (
-                f.kind == "control_frame"
+                gdt_with_origin
                 and f.origin is not None
                 and getattr(f.origin, "kind", None) != "pmi"
                 and origin_ref is None
             ):
                 raise ValueError(
-                    "emit_sheet_script(): cannot preserve a control frame whose origin has "
+                    f"emit_sheet_script(): cannot preserve a {f.kind} whose origin has "
                     "no emitted binding"
                 )
             line = (
                 _feature_line(f, part_envelope, origin_ref=origin_ref)
-                if f.kind == "control_frame"
+                if gdt_with_origin
                 else _feature_line(f, part_envelope)
             )
             name = _binding(f, line, counts)
@@ -1073,8 +1113,8 @@ def emit_sheet_script(
     requested outputs.
 
     AP242 PMI cannot be re-extracted from the ``import_step`` seam, so detected dimensional PMI
-    is emitted as declared Sheet dimensions and supported geometric tolerances as declared
-    ``ControlFrame`` objects; unsupported raw PMI records stay explicit
+    is emitted as declared Sheet dimensions and supported geometric tolerances/datums as
+    declared ``ControlFrame`` / ``DatumRef`` objects; unsupported raw PMI records stay explicit
     ``sheet.add(PmiFeature(...))`` fallbacks (#503 / #422 / #1095).
 
     A model carrying an **authored** dimension set emits `sheet.dimension(feature, role)`
@@ -1110,8 +1150,11 @@ def emit_sheet_script(
         model_imports.update(["Frame", "PmiFeature"])
     if any(f.kind == "control_frame" for f in model.features):
         model_imports.update(["ControlFrame", "Frame"])
+    if any(f.kind == "datum_ref" for f in model.features):
+        model_imports.update(["DatumRef", "Frame"])
     if any(
-        f.kind == "control_frame" and getattr(getattr(f, "origin", None), "kind", None) == "pmi"
+        f.kind in ("control_frame", "datum_ref")
+        and getattr(getattr(f, "origin", None), "kind", None) == "pmi"
         for f in model.features
     ):
         model_imports.add("PmiFeature")

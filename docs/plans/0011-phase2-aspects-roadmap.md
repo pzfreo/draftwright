@@ -211,14 +211,16 @@ without an override.
 - **Follow-up #481** — `render_gdt` side-fallthrough: on a congested default side, try the
   other side before dropping (the view-aware default is the current stopgap).
 
-### P2d — Auto-GD&T from STEP PMI (#62) · later · **the last Phase-2 item**
+### P2d — Auto-GD&T from STEP PMI (#62) · in progress · **the last Phase-2 item**
 
 Complementary, not on the P2a→P2c critical path.
 
-- Wire `pmi.py`'s already-extracted `gtol` / `datum` `PmiRecord`s into the P2b IR items
-  (`ControlFrame` / `DatumRef`) under `pmi="annotate"` (today they hit a "not yet
-  annotatable (Phase 4)" debug log in `render_pmi`) — a detector that emits the same IR
-  the declarative verbs do, so `render_gdt` places them with no new plumbing.
+- Geometric tolerances lower to `ControlFrame` when their magnitude, references, and modifiers
+  are representable (#1095/#1098). Unsupported modifiers remain provenance-rich raw fallbacks.
+- Datum-reference occurrences are reconciled separately from datum-feature definitions (#1099):
+  repeated uses do not duplicate symbols, and a definition with an exact XCAF planar reference
+  lowers to `DatumRef`. Part21-only representation-item references remain explicit until their
+  topology can be mapped without guessing.
 - Second producer, same placement path — the read/auto complement to P2c's declarative
   authoring.
 

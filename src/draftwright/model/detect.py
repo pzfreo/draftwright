@@ -19,7 +19,7 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 from draftwright._geometry import _axis_letter, _xyz
-from draftwright.model.declare import control_frame
+from draftwright.model.declare import control_frame, datum
 from draftwright.model.ir import (
     AUTHORED_DIMENSION_KINDS,
     AuthoredDimension,
@@ -28,6 +28,7 @@ from draftwright.model.ir import (
     ChannelFeature,
     ControlFrame,
     Datum,
+    DatumRef,
     Feature,
     FilletFeature,
     FlatFeature,
@@ -217,16 +218,19 @@ _STEP_LEN_PAD = 1.0  # a groove's step is no longer than its width + this (mm); 
 _UNSET = object()  # sentinel: distinguishes "not supplied" from a valid prof=None
 
 
-def build_pmi_features(pmi, bbox) -> list[AuthoredDimension | PmiFeature | ControlFrame]:
+def build_pmi_features(
+    pmi, bbox
+) -> list[AuthoredDimension | PmiFeature | ControlFrame | DatumRef]:
     """Re-home extracted STEP AP242 PMI records into drafting-concept IR (#208).
 
     Shared by :func:`build_part_model` (the detection path) and the declared-model PMI
     synthesis in ``builder._assemble`` (#472) so both construct features identically.
     Dimensional PMI becomes :class:`AuthoredDimension`, because users edit drafting
     dimensions rather than source-format PMI. Complete, supported geometric tolerances become
-    :class:`ControlFrame`; unsupported GD&T/datum records remain raw :class:`PmiFeature`
-    fallbacks until their concept lowering lands. Empty/``None`` ``pmi`` → ``[]``."""
-    out: list[AuthoredDimension | PmiFeature | ControlFrame] = []
+    :class:`ControlFrame`; complete datum-feature definitions become :class:`DatumRef`;
+    unsupported records remain raw :class:`PmiFeature` fallbacks. Empty/``None`` ``pmi`` →
+    ``[]``."""
+    out: list[AuthoredDimension | PmiFeature | ControlFrame | DatumRef] = []
     for r in pmi or ():
         if r.ref_bbox is not None:
             x0, y0, z0, x1, y1, z1 = r.ref_bbox
@@ -267,6 +271,10 @@ def build_pmi_features(pmi, bbox) -> list[AuthoredDimension | PmiFeature | Contr
             source_category=r.source_category,
             gtol_modifiers=r.gtol_modifiers,
             lowering_blockers=r.lowering_blockers,
+            source_ids=r.source_ids,
+            datum_contexts=r.datum_contexts,
+            reference_item_ids=r.reference_item_ids,
+            reference_axis=r.reference_axis,
         )
         if r.source_category == "geometric_tolerance" and not r.lowering_blockers:
             item = control_frame(
@@ -280,6 +288,22 @@ def build_pmi_features(pmi, bbox) -> list[AuthoredDimension | PmiFeature | Contr
                     item,
                     all_around="all_around" in r.gtol_modifiers,
                     source_id=r.source_id,
+                    part21_id=r.part21_id,
+                )
+            )
+            continue
+        if r.source_category == "datum" and not r.lowering_blockers and r.reference_axis:
+            edge_view = {"X": "front", "Y": "side", "Z": "front"}[r.reference_axis]
+            vertical_index = 2 if edge_view in ("front", "side") else 1
+            center = bbox.center()
+            center_coord = (center.X, center.Y, center.Z)[vertical_index]
+            side = "above" if pmi_origin[vertical_index] >= center_coord else "below"
+            datum_item = datum(r.label, raw, view=edge_view, side=side)
+            out.append(
+                replace(
+                    datum_item,
+                    source_id=r.source_id,
+                    source_ids=r.source_ids or ((r.source_id,) if r.source_id else ()),
                     part21_id=r.part21_id,
                 )
             )

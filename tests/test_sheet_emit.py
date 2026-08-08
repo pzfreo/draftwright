@@ -292,13 +292,16 @@ class TestEmit:
         assert "source='ap242_pmi'" in src
         assert "sheet.add(PmiFeature(" in src
         assert "sheet.add(ControlFrame(" in src
+        assert "sheet.add(DatumRef(" in src
         assert "part21_id='#21'" in src
         assert "part21_id='#27'" in src and "all_around=True" in src
         assert "sheet.step_level(" in src  # #578: fluent verb, no StepLevelFeature import
         import_line = next(
             ln for ln in src.splitlines() if ln.startswith("from draftwright.model")
         )
-        assert all(name in import_line for name in ("ControlFrame", "Frame", "PmiFeature"))
+        assert all(
+            name in import_line for name in ("ControlFrame", "DatumRef", "Frame", "PmiFeature")
+        )
         assert "StepLevelFeature" not in import_line
 
     def test_measured_dimension_declares_renderable_authored_dimension(self, tmp_path):
@@ -2002,7 +2005,7 @@ class TestAuthoredSetRoundTrips:
         Driven SYNTHETICALLY since #945. This used `rotational`, which was then the one kind
         carrying planned dimensions without a declarative verb; giving it that verb left no
         real model able to reach the branch — the remaining comment-only kinds are aspects
-        (`datum_ref`, `finish`, `note`), which carry no `DimParameter`, so
+        (`finish`, `note`), which carry no `DimParameter`, so
         `_check_authored_targets` rejects an authored dimension on them first.
 
         The branch is kept and tested rather than deleted: it is defensive against a FUTURE
@@ -2904,10 +2907,10 @@ _FIDELITY_ROUTE = {
     "envelope": ("detected", "every fixture carries one"),
     # Declared: nothing detects one, so emitting a detected model cannot reach it.
     "authored_dimension": ("declared", "an imported AP242 or hand-written measurement"),
-    # Imported control frames are structural declarations; the remaining aspects carry no
+    # Imported GD&T records are structural declarations. The remaining aspects carry no
     # geometry to lose and have no declarative feature line to round-trip.
     "control_frame": ("declared", "GD&T, emitted as sheet.add(ControlFrame(...))"),
-    "datum_ref": ("aspect", "GD&T; carries no DimParameter"),
+    "datum_ref": ("declared", "GD&T, emitted as sheet.add(DatumRef(...))"),
     "finish": ("aspect", "surface finish; carries no DimParameter"),
     "note": ("aspect", "free text"),
     # Also declared: `_raw_pmi_line` SERIALISES every raw record as `sheet.add(PmiFeature(...))`,
@@ -3280,8 +3283,30 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
             )
             return part, dataclasses.replace(model, features=[*model.features, frame])
 
+        def datum_ref():
+            import dataclasses
+
+            from draftwright.builder import detect_part_model
+            from draftwright.model import DatumRef, Frame
+
+            part = Box(60, 40, 20)
+            model = detect_part_model(part)
+            origin = next(feature for feature in model.features if feature.kind == "envelope")
+            datum = DatumRef(
+                frame=Frame((1.0, 2.0, -10.0), "z"),
+                letter="A",
+                view="front",
+                side="below",
+                origin=origin,
+                source_id="datum:0:1:4:test",
+                source_ids=("datum:0:1:4:test", "datum:0:1:4:test-2"),
+                part21_id="#34",
+            )
+            return part, dataclasses.replace(model, features=[*model.features, datum])
+
         return {
             "control frame": control_frame,
+            "datum feature": datum_ref,
             "measured dimension": measured_dimension,
             "raw pmi": raw_pmi,
         }

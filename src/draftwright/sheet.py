@@ -818,11 +818,14 @@ class Sheet:
         — ADR 0016's own worked example — could not be written against a generated script.
         Naming would have been uniform across the verbs and silently absent for one feature
         in the middle of the file, which is worse than being absent everywhere. A raw
-        ``ControlFrame`` may name a handle as its ``origin``; ``add`` resolves and token-binds
-        that provenance exactly like the public GD&T verbs."""
+        ``ControlFrame`` or ``DatumRef`` may name a handle as its ``origin``; ``add`` resolves
+        and token-binds that provenance exactly like the public GD&T verbs."""
         src_token = None
-        if getattr(feature, "kind", None) == "control_frame" and feature.origin is not None:
-            src_token = self._declared_token(feature.origin, verb="add() control-frame origin")
+        if (
+            getattr(feature, "kind", None) in ("control_frame", "datum_ref")
+            and feature.origin is not None
+        ):
+            src_token = self._declared_token(feature.origin, verb=f"add() {feature.kind} origin")
             if src_token is not None:
                 feature = replace(
                     feature,

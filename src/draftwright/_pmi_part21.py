@@ -65,6 +65,25 @@ class GeometricToleranceFact:
     reason: str = ""
 
 
+@dataclass(frozen=True)
+class DatumOccurrenceFact:
+    """One datum reference used by one Part21 geometric-tolerance context.
+
+    ``datum_feature_id`` identifies the authored physical feature; several occurrence facts
+    may therefore share it. ``reference_item_ids`` are the exact representation items bound
+    to that feature, retained for correspondence rather than interpreted as page geometry.
+    """
+
+    tolerance_id: str
+    tolerance_name: str
+    tolerance_kind: str
+    datum_feature_id: str
+    datum_id: str
+    letter: str
+    reference_item_ids: tuple[str, ...] = ()
+    reason: str = ""
+
+
 def _entities(instance) -> tuple:
     entity = getattr(instance, "entity", None)
     if entity is not None:
@@ -74,6 +93,69 @@ def _entities(instance) -> tuple:
 
 def _entity_named(instance, name: str):
     return next((entity for entity in _entities(instance) if entity.name == name), None)
+
+
+def _references(value) -> tuple[str, ...]:
+    """Return Part21 references nested in a parameter, preserving source order."""
+    if isinstance(value, p21.Reference):
+        return (str(value),)
+    if isinstance(value, p21.TypedParameter):
+        return _references(value.param)
+    if isinstance(value, (tuple, list)):
+        return tuple(ref for item in value for ref in _references(item))
+    return ()
+
+
+def _instance_is(step, ref: str, name: str) -> bool:
+    instance = step.get(ref)
+    return instance is not None and _entity_named(instance, name) is not None
+
+
+def _datum_feature_relationships(step) -> dict[str, tuple[str, tuple[str, ...]]]:
+    """Return ``datum id -> (letter, datum-feature ids)`` without hiding ambiguity."""
+    datums: dict[str, str] = {}
+    relationships: list[tuple[str, str]] = []
+    for section in step.data:
+        for entity_id, instance in section.instances.items():
+            datum = _entity_named(instance, "DATUM")
+            if datum is not None and len(datum.params) >= 5:
+                letter = datum.params[4]
+                datums[entity_id] = str(letter).strip() if isinstance(letter, str) else ""
+            relationship = _entity_named(instance, "SHAPE_ASPECT_RELATIONSHIP")
+            if relationship is not None and len(relationship.params) >= 4:
+                left, right = relationship.params[2:4]
+                if isinstance(left, p21.Reference) and isinstance(right, p21.Reference):
+                    relationships.append((str(left), str(right)))
+
+    result: dict[str, list[str]] = {datum_id: [] for datum_id in datums}
+    for left, right in relationships:
+        if left in datums and _instance_is(step, right, "DATUM_FEATURE"):
+            result[left].append(right)
+        elif right in datums and _instance_is(step, left, "DATUM_FEATURE"):
+            result[right].append(left)
+    return {
+        datum_id: (datums[datum_id], tuple(dict.fromkeys(feature_ids)))
+        for datum_id, feature_ids in result.items()
+    }
+
+
+def _datum_feature_items(step) -> dict[str, tuple[str, ...]]:
+    """Return exact representation-item references for each authored datum feature."""
+    result: dict[str, list[str]] = {}
+    usage_names = ("GEOMETRIC_ITEM_SPECIFIC_USAGE", "ITEM_IDENTIFIED_REPRESENTATION_USAGE")
+    for section in step.data:
+        for instance in section.instances.values():
+            for usage_name in usage_names:
+                usage = _entity_named(instance, usage_name)
+                if usage is None or len(usage.params) < 5:
+                    continue
+                feature = usage.params[2]
+                if not isinstance(feature, p21.Reference) or not _instance_is(
+                    step, str(feature), "DATUM_FEATURE"
+                ):
+                    continue
+                result.setdefault(str(feature), []).extend(_references(usage.params[4]))
+    return {key: tuple(dict.fromkeys(values)) for key, values in result.items()}
 
 
 def _unit_factor_mm(step, unit_ref: str) -> tuple[float | None, str]:
@@ -190,6 +272,155 @@ def read_geometric_tolerances(step_file: str | Path) -> tuple[GeometricTolerance
             value_mm, reason = _length_value_mm(step, str(magnitude_param))
             facts.append(GeometricToleranceFact(entity_id, semantic_name, kind, value_mm, reason))
     return tuple(facts)
+
+
+def read_datum_occurrences(step_file: str | Path) -> tuple[DatumOccurrenceFact, ...]:
+    """Read exact datum-feature uses from Part21 without collapsing repeated occurrences."""
+    step = p21.readfile(step_file)
+    datum_features = _datum_feature_relationships(step)
+    feature_items = _datum_feature_items(step)
+    facts: list[DatumOccurrenceFact] = []
+
+    for section in step.data:
+        for tolerance_id, instance in section.instances.items():
+            entities = _entities(instance)
+            characteristic_names = [
+                entity.name for entity in entities if entity.name in _GTOL_ENTITY_KIND
+            ]
+            if len(characteristic_names) != 1:
+                continue
+            characteristic_name = characteristic_names[0]
+            kind = _GTOL_ENTITY_KIND[characteristic_name]
+            base = _entity_named(instance, "GEOMETRIC_TOLERANCE") or _entity_named(
+                instance, characteristic_name
+            )
+            if base is None or not base.params:
+                continue
+            name_param = base.params[0]
+            tolerance_name = str(name_param).strip() if isinstance(name_param, str) else ""
+
+            system_refs = tuple(
+                dict.fromkeys(
+                    ref
+                    for entity in entities
+                    for param in entity.params
+                    for ref in _references(param)
+                    if _instance_is(step, ref, "DATUM_SYSTEM")
+                )
+            )
+            for system_ref in system_refs:
+                system = _entity_named(step.get(system_ref), "DATUM_SYSTEM")
+                if system is None:
+                    continue
+                compartment_refs = tuple(
+                    ref
+                    for param in system.params
+                    for ref in _references(param)
+                    if _instance_is(step, ref, "DATUM_REFERENCE_COMPARTMENT")
+                )
+                for compartment_ref in compartment_refs:
+                    compartment = _entity_named(
+                        step.get(compartment_ref), "DATUM_REFERENCE_COMPARTMENT"
+                    )
+                    datum_refs = (
+                        tuple(
+                            ref
+                            for param in compartment.params
+                            for ref in _references(param)
+                            if _instance_is(step, ref, "DATUM")
+                        )
+                        if compartment is not None
+                        else ()
+                    )
+                    if len(datum_refs) != 1:
+                        facts.append(
+                            DatumOccurrenceFact(
+                                tolerance_id,
+                                tolerance_name,
+                                kind,
+                                "",
+                                "",
+                                "",
+                                reason=(
+                                    f"datum compartment {compartment_ref} has "
+                                    f"{len(datum_refs)} datum references"
+                                ),
+                            )
+                        )
+                        continue
+                    datum_id = datum_refs[0]
+                    relation = datum_features.get(datum_id)
+                    if relation is None:
+                        facts.append(
+                            DatumOccurrenceFact(
+                                tolerance_id,
+                                tolerance_name,
+                                kind,
+                                "",
+                                datum_id,
+                                "",
+                                reason=f"datum {datum_id} has no related DATUM_FEATURE",
+                            )
+                        )
+                        continue
+                    letter, feature_ids = relation
+                    if len(feature_ids) != 1:
+                        facts.append(
+                            DatumOccurrenceFact(
+                                tolerance_id,
+                                tolerance_name,
+                                kind,
+                                "",
+                                datum_id,
+                                letter,
+                                reason=(
+                                    f"datum {datum_id} has {len(feature_ids)} related "
+                                    "DATUM_FEATUREs"
+                                ),
+                            )
+                        )
+                        continue
+                    (feature_id,) = feature_ids
+                    items = feature_items.get(feature_id, ())
+                    facts.append(
+                        DatumOccurrenceFact(
+                            tolerance_id,
+                            tolerance_name,
+                            kind,
+                            feature_id,
+                            datum_id,
+                            letter,
+                            items,
+                            ""
+                            if items
+                            else f"datum feature {feature_id} has no representation items",
+                        )
+                    )
+    return tuple(facts)
+
+
+def match_datum_occurrence(
+    facts: tuple[DatumOccurrenceFact, ...], tolerance_name: str, letter: str
+) -> tuple[DatumOccurrenceFact | None, str]:
+    """Require one exact datum occurrence for an XCAF tolerance context and letter."""
+    name, datum_letter = tolerance_name.strip(), letter.strip()
+    if not name:
+        return None, "XCAF datum occurrence has no tolerance context"
+    if not datum_letter:
+        return None, "XCAF datum occurrence has no letter"
+    matches = [
+        fact for fact in facts if fact.tolerance_name == name and fact.letter == datum_letter
+    ]
+    if not matches:
+        return None, f"Part21 has no datum {datum_letter!r} in tolerance {name!r}"
+    if len(matches) > 1:
+        ids = ", ".join(f"{fact.tolerance_id}/{fact.datum_feature_id}" for fact in matches)
+        return (
+            None,
+            f"Part21 datum correspondence is ambiguous for {name!r}/{datum_letter!r} ({ids})",
+        )
+    fact = matches[0]
+    return fact, fact.reason
 
 
 def match_geometric_tolerance(

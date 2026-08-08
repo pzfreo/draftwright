@@ -1161,8 +1161,9 @@ class PmiFeature:
     records should eventually lower to ``ControlFrame`` / ``DatumRef`` / ``Finish``. This
     type remains as an explicit provenance-preserving escape hatch so unsupported records
     are visible instead of silently lost. ``source_id`` retains the external record identity
-    needed to report that missing concept lowering; ``gtol_modifiers`` and
-    ``lowering_blockers`` retain the source facts and the explicit reason it stayed raw."""
+    needed to report that missing concept lowering; ``source_ids`` represents the repeated
+    source occurrences of one projected datum definition; ``gtol_modifiers`` and
+    ``lowering_blockers`` retain source facts and the explicit reason it stayed raw."""
 
     frame: Frame
     pmi_kind: str  # the PMI category: "linear" | "diameter" | "radius" | "angular" | ...
@@ -1177,6 +1178,10 @@ class PmiFeature:
     source_category: str = ""
     gtol_modifiers: tuple[str, ...] = ()
     lowering_blockers: tuple[str, ...] = ()
+    source_ids: tuple[str, ...] = ()
+    datum_contexts: tuple[str, ...] = ()
+    reference_item_ids: tuple[str, ...] = ()
+    reference_axis: str = ""
     kind: ClassVar[str] = "pmi"
 
     def parameters(self) -> list[DimParameter]:
@@ -1225,13 +1230,17 @@ class ControlFrame:
 class DatumRef:
     """A datum feature symbol (ISO 5459) — a boxed letter tagging a surface/axis as a
     datum (#61). Placed as an ADR 0009 corridor candidate by ``render_gdt``, not through
-    the dimension planner (``parameters()`` is empty)."""
+    the dimension planner (``parameters()`` is empty). Imported datums retain every source
+    occurrence in ``source_ids`` while rendering the physical datum feature once."""
 
     frame: Frame
     letter: str
     view: str
     side: str
     origin: object | None = None
+    source_id: str = ""
+    source_ids: tuple[str, ...] = ()
+    part21_id: str = ""
     kind: ClassVar[str] = "datum_ref"
 
     def parameters(self) -> list[DimParameter]:

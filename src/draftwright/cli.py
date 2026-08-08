@@ -136,7 +136,7 @@ def main(
         None,
         help=(
             "AP242 PMI handling (default: off): 'off' ignore; 'report' log extracted PMI without "
-            "annotating; 'annotate' add PMI-derived dimensions to the drawing"
+            "annotating; 'annotate' add supported PMI-derived annotations to the drawing"
         ),
     ),
     output_format: str = typer.Option(

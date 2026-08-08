@@ -4464,6 +4464,12 @@ _GDT_CORRIDOR_PRIORITY = PRIORITY.AUTHORED
 _MIN_LEADER = 0.05
 
 
+def _pmi_source_ids(item) -> tuple[str, ...]:
+    plural = tuple(getattr(item, "source_ids", ()))
+    singular = getattr(item, "source_id", "")
+    return tuple(dict.fromkeys(((singular,) if singular else ()) + plural))
+
+
 def _gdt_glyph(item, draft):
     """Build the ISO 1101/5459/1302 glyph sketch for one GD&T IR item at the origin
     (the :class:`Leader` repositions it). A fresh sketch per call — the leader translate
@@ -4500,7 +4506,7 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
         if f.kind in _GDT_KINDS
         # Automatic AP242 discovery keeps typed IR available in report mode, but report must
         # not draw it. Explicit/round-tripped models remain declarations and therefore render.
-        and (not getattr(f, "source_id", "") or a.pmi_mode == "annotate" or ctx.model_declared)
+        and (not _pmi_source_ids(f) or a.pmi_mode == "annotate" or ctx.model_declared)
     ]
     if not items:
         return 0
@@ -4520,14 +4526,14 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
     n = 0
     for i, item in enumerate(items):
         name = f"m_gdt{i}"
-        source_id = getattr(item, "source_id", "")
+        source_ids = _pmi_source_ids(item)
         vk = views.get(item.view)
         if vk is None or item.side not in ("above", "below", "left", "right"):
             ctx.record_issue(
                 "warning",
-                "pmi_dropped" if source_id else "gdt_dropped",
+                "pmi_dropped" if source_ids else "gdt_dropped",
                 f"{name}: bad target {item.view!r}/{item.side!r}",
-                source=source_id,
+                source=source_ids,
             )
             continue
         zones, hproj, vproj, hi, vi = vk
@@ -4547,9 +4553,9 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
         except Exception as e:  # noqa: BLE001 — any glyph-spec error drops one item, not the build
             ctx.record_issue(
                 "warning",
-                "pmi_dropped" if source_id else "gdt_dropped",
+                "pmi_dropped" if source_ids else "gdt_dropped",
                 f"{name}: cannot render ({type(e).__name__}: {e})",
-                source=source_id,
+                source=source_ids,
             )
             continue
         size = (gb.X, gb.Y)
@@ -4595,7 +4601,7 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
             _bld=_build,
             _feat=item.origin or item,
             _tb=tb_box,
-            _source=source_id,
+            _source=source_ids,
         ):
             # Fallthrough (#481): the declared/derived side is full — try the OPPOSITE side of
             # the same view before dropping, so a congested default still places somewhere

@@ -14,6 +14,13 @@ def _registry_subject(feature):
     return getattr(feature, "origin", None) or feature
 
 
+def _source_ids(item) -> tuple[str, ...]:
+    """Return every external source represented by one record or IR feature."""
+    plural = tuple(getattr(item, "source_ids", ()))
+    singular = getattr(item, "source_id", "")
+    return tuple(dict.fromkeys(((singular,) if singular else ()) + plural))
+
+
 def _source_category_counts(report: PmiExtractionReport) -> dict[str, int]:
     return dict(sorted(Counter(source.category for source in report.sources).items()))
 
@@ -29,7 +36,7 @@ def lint_pmi_ignored(
     names = {
         "dimension": "dimension",
         "geometric_tolerance": "geometric tolerance",
-        "datum": "datum",
+        "datum": "datum reference",
     }
     inventory = ", ".join(
         f"{count} {names[category]}{'s' if count != 1 else ''}"
@@ -60,17 +67,17 @@ def pmi_stage_summary(
     if report is None or not report.sources:
         return None
 
-    extracted = {record.source_id for record in report.records if record.source_id}
+    extracted = {source_id for record in report.records for source_id in _source_ids(record)}
     lowered_features = [
         feature
         for feature in features
-        if getattr(feature, "source_id", "") in extracted
-        and getattr(feature, "kind", None) != "pmi"
+        if set(_source_ids(feature)) & extracted and getattr(feature, "kind", None) != "pmi"
     ]
-    lowered = {feature.source_id for feature in lowered_features}
+    lowered = {source_id for feature in lowered_features for source_id in _source_ids(feature)}
     rendered = {
-        feature.source_id
+        source_id
         for feature in lowered_features
+        for source_id in _source_ids(feature)
         if registry.names_for_feature(_registry_subject(feature))
     }
     dropped = {
@@ -135,29 +142,28 @@ def lint_pmi_lowering(report: PmiExtractionReport | None, features, mode: str) -
     severity: Literal["error", "info"] = "error" if mode == "annotate" else "info"
     by_source: dict[str, list[object]] = {}
     for feature in features:
-        if source_id := getattr(feature, "source_id", ""):
+        for source_id in _source_ids(feature):
             by_source.setdefault(source_id, []).append(feature)
 
     issues = []
     for record in report.records:
-        if not record.source_id:
-            continue
-        lowered = by_source.get(record.source_id, ())
-        if lowered and any(getattr(feature, "kind", None) != "pmi" for feature in lowered):
-            continue
-        reason = (
-            f"remains a raw {record.kind!r} PMI fallback in the typed IR"
-            if lowered
-            else "did not produce a typed IR feature"
-        )
-        issues.append(
-            LintIssue(
-                severity=severity,
-                code="pmi_not_lowered",
-                message=f"AP242 source {record.source_id} {reason}",
-                source_ids=(record.source_id,),
+        for source_id in _source_ids(record):
+            lowered = by_source.get(source_id, ())
+            if lowered and any(getattr(feature, "kind", None) != "pmi" for feature in lowered):
+                continue
+            reason = (
+                f"remains a raw {record.kind!r} PMI fallback in the typed IR"
+                if lowered
+                else "did not produce a typed IR feature"
             )
-        )
+            issues.append(
+                LintIssue(
+                    severity=severity,
+                    code="pmi_not_lowered",
+                    message=f"AP242 source {source_id} {reason}",
+                    source_ids=(source_id,),
+                )
+            )
     return issues
 
 
@@ -173,9 +179,9 @@ def lint_pmi_rendering(features, registry, mode: str) -> list[LintIssue]:
 
     by_source: dict[str, list[object]] = {}
     for feature in features:
-        source_id = getattr(feature, "source_id", "")
-        if source_id and getattr(feature, "kind", None) != "pmi":
-            by_source.setdefault(source_id, []).append(feature)
+        if getattr(feature, "kind", None) != "pmi":
+            for source_id in _source_ids(feature):
+                by_source.setdefault(source_id, []).append(feature)
 
     dropped = {
         source_id
