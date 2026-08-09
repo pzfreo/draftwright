@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+## v0.4.3 — 2026-08-09
+
+**A trust and validation-throughput patch release.** Whole-part hexagonal stock now receives its
+manufacturing definition, assembly recognition no longer combines evidence across bodies, and
+performance validation is both more stable and faster to run.
+
+### Added
+
+- **Whole-part regular hexagonal stock is recognised independently of an attached boss and
+  dimensioned as `HEX … A/F` plus its axial length** (#1082). In-plane rotation preserves the
+  geometric across-flats size instead of substituting an orientation-dependent bounding-box
+  width. Automatic and declared paths share the same compiler and placement machinery, while
+  completeness lint distinguishes placed, authored-suppressed, dropped, missing, and ambiguous
+  outcomes.
+
+### Fixed
+
+- **Slot and pocket patterns cannot group members from separate assembly bodies** (#1073).
+  Recognition carries solid ownership through grouping and fails closed when ownership is
+  unavailable, preventing plausible-looking phantom patterns across disconnected parts.
+
+- **The annotation-obstacle performance guard uses deterministic work-count evidence instead of
+  a wall-clock threshold** (#1071). The regression test remains load-bearing under mutation but
+  no longer flakes because of machine load or suite ordering.
+
+### Changed
+
+- **The post-merge slow tier distributes individual tests across workers** (#1108), using
+  `pytest-xdist`'s load scheduling after local benchmark evidence showed a material speed-up
+  without weakening fixture coverage. Hosted slow validation remains the single post-merge gate.
+
 ## v0.4.2 — 2026-08-09
 
 **The trustworthy manufacturing drawings release.** AP242 PMI is now accounted for from its
