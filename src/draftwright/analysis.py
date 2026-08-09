@@ -627,6 +627,7 @@ def _analyse(
     patterns = list(recognition.hole_patterns) if recognition else []
     bosses = list(recognition.bosses) if recognition else []
     polygonal_bosses = list(recognition.polygonal_bosses) if recognition else []
+    polygonal_stock = list(recognition.polygonal_stock) if recognition else []
     slots = list(recognition.slots) if recognition else []
     pockets = list(recognition.pockets) if recognition else []
     pocket_patterns = list(recognition.pocket_patterns) if recognition else []
@@ -655,6 +656,7 @@ def _analyse(
             patterns=patterns,
             bosses=bosses,
             polygonal_bosses=polygonal_bosses,
+            polygonal_stock=polygonal_stock,
             channels=list(recognition.channels) if recognition else None,
             slots=slots,
             # Injected from the aggregate since #1026 — `build_part_model` detected these

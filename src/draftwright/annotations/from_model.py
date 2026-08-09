@@ -2195,13 +2195,14 @@ def _polygonal_boss_candidates(dwg, view, vb, boss, reach, *, provenance):
         yield (tip, elbow, provenance)
 
 
-def render_polygonal_bosses(dwg, plan, a, *, ctx) -> int:
-    """Across-flats leaders for bounded regular polygonal bosses (#676)."""
+def _render_polygonal_prisms(
+    dwg, plan, a, *, ctx, kind: str, noun: str, name_prefix: str, drop_code: str
+) -> int:
     draft = dwg.draft
     reach = _leader_callout_reach(draft)
     jobs = []
     groups = sorted(
-        plan.of_kind("polygonal_boss"),
+        plan.of_kind(kind),
         key=lambda group: (group.facts.frame.axis, group.facts.frame.origin),
     )
     for index, group in enumerate(groups):
@@ -2226,7 +2227,7 @@ def render_polygonal_bosses(dwg, plan, a, *, ctx) -> int:
         label = f"{prefix} {dimension.value_text}{_tol_suffix(dimension.tolerance, draft)} A/F"
         jobs.append(
             (
-                f"m_polygonal_boss_{boss.frame.axis}{index}",
+                f"{name_prefix}_{boss.frame.axis}{index}",
                 view,
                 bounds,
                 label,
@@ -2245,15 +2246,43 @@ def render_polygonal_bosses(dwg, plan, a, *, ctx) -> int:
         dwg,
         a,
         jobs,
-        noun="polygonal boss",
-        drop_code="polygonal_boss_dropped",
+        noun=noun,
+        drop_code=drop_code,
         ctx=ctx,
         geom_clear=True,
     )
 
 
+def render_polygonal_bosses(dwg, plan, a, *, ctx) -> int:
+    """Across-flats leaders for bounded regular polygonal bosses (#676)."""
+    return _render_polygonal_prisms(
+        dwg,
+        plan,
+        a,
+        ctx=ctx,
+        kind="polygonal_boss",
+        noun="polygonal boss",
+        name_prefix="m_polygonal_boss",
+        drop_code="polygonal_boss_dropped",
+    )
+
+
+def render_polygonal_stock(dwg, plan, a, *, ctx) -> int:
+    """Across-flats leaders for whole regular polygonal stock (#1082)."""
+    return _render_polygonal_prisms(
+        dwg,
+        plan,
+        a,
+        ctx=ctx,
+        kind="polygonal_stock",
+        noun="polygonal stock",
+        name_prefix="m_polygonal_stock",
+        drop_code="polygonal_stock_dropped",
+    )
+
+
 def render_boss_heights(dwg, plan, a, *, ctx) -> int:
-    """Queue the axial height of each prismatic boss in a profile-view corridor (#632)."""
+    """Queue prismatic boss heights and polygonal-stock lengths in a profile corridor."""
     if a.is_rotational or a.prof is not None:
         return 0
     tier = dwg.draft.font_size + 2 * dwg.draft.pad_around_text
@@ -2265,15 +2294,17 @@ def render_boss_heights(dwg, plan, a, *, ctx) -> int:
     n = 0
     for bi, g in enumerate(
         sorted(
-            [*plan.of_kind("boss"), *plan.of_kind("polygonal_boss")],
+            [
+                *plan.of_kind("boss"),
+                *plan.of_kind("polygonal_boss"),
+                *plan.of_kind("polygonal_stock"),
+            ],
             key=lambda g: (g.facts.frame.axis, g.facts.frame.origin),
         )
     ):
         b = g.facts
-        pd = next(
-            (d for d in g.dims if (d.role, d.kind) == ("boss_height", "length")),
-            None,
-        )
+        role = "stock_length" if g.ref.kind == "polygonal_stock" else "boss_height"
+        pd = next((d for d in g.dims if (d.role, d.kind) == (role, "length")), None)
         if pd is None or pd.span is None:
             continue
         spec = specs.get(b.frame.axis)
@@ -2284,13 +2315,23 @@ def render_boss_heights(dwg, plan, a, *, ctx) -> int:
         p2 = dwg.at(view, *pd.span[1])
         edge = max(p1[0], p2[0]) if side == "right" else max(p1[1], p2[1])
         label = pd.value_text + _tol_suffix(pd.tolerance, dwg.draft)
-        name = f"m_bossheight_{b.frame.axis}{bi}"
+        prefix = "m_stocklength" if g.ref.kind == "polygonal_stock" else "m_bossheight"
+        name = f"{prefix}_{b.frame.axis}{bi}"
 
         def build(pos, p1=p1, p2=p2, side=side, edge=edge, label=label):
             return _dim(p1, p2, side, abs(pos - edge), dwg.draft, label=label)
 
         def footprint(pos, p1=p1, p2=p2, side=side, edge=edge, label=label):
             return dim_footprint(p1, p2, side, abs(pos - edge), dwg.draft, label)
+
+        def dropped(_name, *, stock=g.ref.kind == "polygonal_stock", measurement=pd.id):
+            if stock:
+                ctx.record_issue(
+                    "warning",
+                    "polygonal_stock_length_dropped",
+                    "polygonal stock axial length was not placed (profile strip full)",
+                    measurement=measurement,
+                )
 
         register_corridor(
             ctx,
@@ -2304,10 +2345,10 @@ def render_boss_heights(dwg, plan, a, *, ctx) -> int:
                 build=build,
                 order=(_SIZE_SUBCHAIN, bi, name),
                 on_place=lambda _nm: None,
-                # Live feature reconciliation below Drawing.lint() is authoritative:
-                # an absent height becomes one boss_height_missing issue. Recording a
-                # second build-time drop here would double-count the same omission.
-                on_drop=lambda _nm: None,
+                # Boss heights retain their historical reconciliation-only outcome. Stock
+                # length additionally records the compiler measurement identity so its
+                # completeness check can distinguish a placement drop from missing output.
+                on_drop=dropped,
                 force=True,
                 feature=g.ref,
                 measurement=pd.id,

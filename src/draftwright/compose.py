@@ -72,7 +72,7 @@ def _est_right_strip_depth(n_steps: int, n_extra: int = 0) -> float:
 
 
 def _n_right_strip_boss_heights(model) -> int:
-    """How many boss-height dims will contend for the front view's right strip (#1022).
+    """How many axial-size dims need slots beyond the canonical overall-height slot (#1022).
 
     ``render_boss_heights`` puts a Z-axis boss's height there, sharing the strip with the step
     ladder — but the depth estimate counted only ladder steps, so the strip was sized for one
@@ -88,13 +88,16 @@ def _n_right_strip_boss_heights(model) -> int:
     """
     if any(getattr(f, "kind", None) == "step" for f in model.features):
         return 0
-    return sum(
-        1
+    occupants = [
+        f
         for f in model.features
-        if getattr(f, "kind", None) in ("boss", "polygonal_boss")
-        and getattr(f, "height", None) is not None
+        if getattr(f, "kind", None) in ("boss", "polygonal_boss", "polygonal_stock")
+        and (getattr(f, "height", None) is not None or getattr(f, "length", None) is not None)
         and f.frame.axis == "z"
-    )
+    ]
+    # Polygonal stock replaces (rather than supplements) `dim_height`, so its axial length
+    # uses the estimator's canonical first slot. Other boss heights remain extra occupants.
+    return max(0, len(occupants) - any(f.kind == "polygonal_stock" for f in occupants))
 
 
 def _est_pv_below_depth() -> float:

@@ -55,6 +55,7 @@ from draftwright.annotations.from_model import (
     render_pmi,
     render_pockets,
     render_polygonal_bosses,
+    render_polygonal_stock,
     render_rotational,
     render_slots,
     render_step_lengths,
@@ -214,6 +215,7 @@ def build_model(a: Analysis):
         patterns=a.patterns,
         bosses=a.bosses,
         polygonal_bosses=a.recognition.polygonal_bosses,
+        polygonal_stock=a.recognition.polygonal_stock,
         channels=a.recognition.channels,
         slots=a.slots,
         # The engine's SECOND build_part_model call site; unthreaded, these three were
@@ -522,6 +524,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
 
     def _s_polygonal_bosses():
         render_polygonal_bosses(dwg, _compiled, a, ctx=ctx)
+        render_polygonal_stock(dwg, _compiled, a, ctx=ctx)
 
     def _s_diameters():
         # Turned-part dimensions via the IR (ADR 0008 convergence). The model is built

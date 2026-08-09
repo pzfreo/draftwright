@@ -43,6 +43,7 @@ from draftwright.recognition import (
     recognise_pocket_patterns,
     recognise_pockets,
     recognise_polygonal_bosses,
+    recognise_polygonal_stock,
     recognise_rectangular_pads,
     recognise_risers,
     recognise_slot_patterns,
@@ -98,6 +99,10 @@ def _polygonal_boss_plate():
     return Box(100, 80, 10) + Pos(0, 0, 5) * extrude(RegularPolygon(20, 6), 30)
 
 
+def _polygonal_stock():
+    return extrude(RegularPolygon(20, 6), 30)
+
+
 def _double_d_plate():
     centre = (Align.CENTER, Align.CENTER, Align.CENTER)
     cutter = Cylinder(5, 20, align=centre) & Box(7.2, 20, 30, align=centre)
@@ -151,6 +156,7 @@ _ORACLE_FIXTURES = [
     ("stepped shaft", _stepped_shaft),
     ("padded plate", _padded_plate),
     ("polygonal boss plate", _polygonal_boss_plate),
+    ("polygonal stock", _polygonal_stock),
     ("double-D plate", _double_d_plate),
     ("stepped block", _stepped_block),
     ("U-channel", _u_channel),
@@ -355,6 +361,7 @@ def _expected_inventory(part, *, rotational: bool = False) -> dict:
         "hole_patterns": tuple(recognise_hole_patterns(holes)),
         "bosses": tuple(recognise_bosses(part, cyls=cyls)),
         "polygonal_bosses": tuple(recognise_polygonal_bosses(part)),
+        "polygonal_stock": tuple(recognise_polygonal_stock(part)),
         "channels": tuple(channels),
         "slots": tuple(slots),
         "slot_patterns": tuple(recognise_slot_patterns(slots)),

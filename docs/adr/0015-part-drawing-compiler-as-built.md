@@ -113,7 +113,7 @@ by #754 (Amendment 2): those labels are now planner-fed.
 | holes / patterns (bore, counterbore, spotface, thread, BCD, pitch) | `holes._annotate_holes` (+ centre marks via `from_model.render_centermarks`) | `plan_dimensions` |
 | hole / pattern locations | `from_model.render_locations` | `plan_locations` (refs + datum) |
 | turned diameters (ø leaders, row/column) | `from_model.render_diameters` | `plan_dimensions` |
-| circular boss diameters, polygonal-boss A/F, and direct boss heights | `from_model.render_boss_diameters`, `from_model.render_polygonal_bosses`, `from_model.render_boss_heights` | `plan_dimensions` |
+| circular boss diameters, polygonal-boss/stock A/F, and direct boss heights/stock lengths | `from_model.render_boss_diameters`, `from_model.render_polygonal_bosses`, `from_model.render_polygonal_stock`, `from_model.render_boss_heights` | `plan_dimensions` |
 | rotational OD + concentric bore diameters (labels; #754) | `from_model.render_rotational` | `plan_dimensions` |
 | envelope (overall W/D/L, with model-level suppression) | `from_model.render_envelope` | `plan_dimensions` |
 | turned step lengths (the chain) | `from_model.render_step_lengths` | `plan_dimensions` |
@@ -194,6 +194,12 @@ records cross is the sanctioned `build_part_model` boundary itself.
   IR adapter/declaration, planner convention for dimension parameters,
   renderer/stage support, coverage, and tests. Orientation and view selection
   must remain data-driven rather than growing producer- or axis-specific paths.
+- Whole-part regular hexagonal stock follows that rule as `polygonal_stock`: its exact-prism
+  recogniser and explicit declaration share a dedicated IR feature; A/F and axial length are
+  compiled measurements; the A/F leader and profile length use the established polygon/prism
+  placement machinery; and semantic coverage reconciles placed, authored-suppressed, dropped,
+  missing, or ambiguous outcomes. It does not weaken `polygonal_boss` attachment evidence or
+  retain the orientation-dependent envelope dimensions that the stock definition replaces.
 - The duplicate-recogniser and orientation-gate bug classes stay designed out
   (one inventory, axis-as-data).
 - The ADR now matches the code: readers get the real planner coverage and the

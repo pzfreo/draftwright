@@ -101,7 +101,12 @@ from draftwright.recognition.levels import (
 )
 from draftwright.recognition.pads import RaisedPad, recognise_rectangular_pads
 from draftwright.recognition.plates import Plate, has_multi_axis_plates, recognise_plates
-from draftwright.recognition.polygonal_bosses import PolygonalBoss, recognise_polygonal_bosses
+from draftwright.recognition.polygonal_bosses import (
+    PolygonalBoss,
+    PolygonalStock,
+    recognise_polygonal_bosses,
+    recognise_polygonal_stock,
+)
 from draftwright.recognition.profiled_bores import DoubleDBore, recognise_double_d_bores
 from draftwright.recognition.result import RecognitionResult, build_recognition_result
 from draftwright.recognition.slots import (
@@ -140,6 +145,7 @@ __all__ = [
     "PocketArray",
     "PocketGrid",
     "PolygonalBoss",
+    "PolygonalStock",
     "RaisedPad",
     "RectGrid",
     "Slot",
@@ -177,6 +183,7 @@ __all__ = [
     "recognise_pocket_patterns",
     "recognise_pockets",
     "recognise_polygonal_bosses",
+    "recognise_polygonal_stock",
     "recognise_rectangular_pads",
     "recognise_slot_patterns",
     "recognise_slots",

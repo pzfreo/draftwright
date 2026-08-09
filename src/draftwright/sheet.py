@@ -80,6 +80,7 @@ from draftwright.model import plate as _plate
 from draftwright.model import pocket as _pocket
 from draftwright.model import pocket_pattern as _pocket_pattern
 from draftwright.model import polygonal_boss as _polygonal_boss
+from draftwright.model import polygonal_stock as _polygonal_stock
 from draftwright.model import rotational as _rotational
 from draftwright.model import slot as _slot
 from draftwright.model import slot_pattern as _slot_pattern
@@ -1101,6 +1102,11 @@ class Sheet:
     def polygonal_boss(self, **kw) -> _Params:
         """Declare a regular polygonal-prism boss sized across flats and by height."""
         self._features.append(_polygonal_boss(**kw))
+        return _Params(self, len(self._features) - 1)
+
+    def polygonal_stock(self, **kw) -> _Params:
+        """Declare whole regular polygonal-prism stock sized A/F and axially."""
+        self._features.append(_polygonal_stock(**kw))
         return _Params(self, len(self._features) - 1)
 
     def step(self, obj=None, **kw) -> _Dim:

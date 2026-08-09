@@ -83,6 +83,7 @@ from draftwright.linting import (
     lint_pmi_ignored,
     lint_pmi_lowering,
     lint_pmi_rendering,
+    lint_polygonal_stock_coverage,
     lint_principal_profile_coverage,
     lint_prismatic_coverage,
     lint_profiled_bore_coverage,
@@ -129,6 +130,8 @@ _GEOMETRY_AWARE_CODES = frozenset(
         "channel_width_dropped",
         "flat_dropped",
         "polygonal_boss_dropped",
+        "polygonal_stock_dropped",
+        "polygonal_stock_length_dropped",
         "pmi_not_extracted",
         "placement_unsatisfiable",
         "pmi_dropped",
@@ -2869,6 +2872,14 @@ class Drawing:
                 assembly=self.assembly,
             )
             issues += lint_channel_coverage(
+                self.part,
+                recognition=recognition,
+                features=getattr(model, "features", ()) if model is not None else (),
+                registry=self._registry,
+                omissions=self._build.omissions,
+                assembly=self.assembly,
+            )
+            issues += lint_polygonal_stock_coverage(
                 self.part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),

@@ -44,6 +44,7 @@ from draftwright.model.ir import (
     PocketFeature,
     PocketPatternFeature,
     PolygonalBossFeature,
+    PolygonalStockFeature,
     RotationalFeature,
     SlotFeature,
     SlotPatternFeature,
@@ -69,6 +70,7 @@ from draftwright.recognition import (
     PocketArray,
     PocketGrid,
     PolygonalBoss,
+    PolygonalStock,
     RaisedPad,
     RectGrid,
     RiserEvidence,
@@ -94,6 +96,7 @@ from draftwright.recognition import (
     recognise_pocket_patterns,
     recognise_pockets,
     recognise_polygonal_bosses,
+    recognise_polygonal_stock,
     recognise_rectangular_pads,
     recognise_risers,
     recognise_slot_patterns,
@@ -581,6 +584,24 @@ def _convert_polygonal_boss(boss: PolygonalBoss, ctx: ConvContext) -> PolygonalB
     )
 
 
+def _convert_polygonal_stock(stock: PolygonalStock, ctx: ConvContext) -> PolygonalStockFeature:
+    centre = stock.center
+    lo = list(centre)
+    hi = list(centre)
+    axis_index = "xyz".index(stock.axis)
+    lo[axis_index] = stock.base
+    hi[axis_index] = stock.top
+    return PolygonalStockFeature(
+        frame=Frame(origin=centre, axis=stock.axis),
+        side_count=stock.side_count,
+        across_flats=stock.across_flats,
+        length=stock.length,
+        span=((lo[0], lo[1], lo[2]), (hi[0], hi[1], hi[2])),
+        flat_directions=stock.flat_directions,
+        flat_centres=stock.flat_centres,
+    )
+
+
 def _convert_plate(pl: Plate, ctx: ConvContext) -> PlateFeature:
     c = ctx.bbox.center()
     return PlateFeature(
@@ -643,6 +664,7 @@ _CONVERTERS: dict[type, Converter] = {
     TurnedStep: _convert_step,
     BossRecord: _convert_boss,
     PolygonalBoss: _convert_polygonal_boss,
+    PolygonalStock: _convert_polygonal_stock,
     Plate: _convert_plate,
     Chamfer: _convert_chamfer,
     Fillet: _convert_fillet,
@@ -700,6 +722,7 @@ def build_part_model(
     patterns=None,
     bosses=None,
     polygonal_bosses=None,
+    polygonal_stock=None,
     channels=None,
     slots=None,
     slot_patterns=None,
@@ -860,6 +883,12 @@ def build_part_model(
         polygonal_bosses = recognise_polygonal_bosses(part)
     features.extend(convert(boss, ctx) for boss in polygonal_bosses)
 
+    # A whole regular polygonal prism is stock, not a boss: it owns the form/A-F
+    # definition and its axial stock length independently of attachment evidence.
+    if polygonal_stock is None:
+        polygonal_stock = recognise_polygonal_stock(part)
+    features.extend(convert(stock, ctx) for stock in polygonal_stock)
+
     # Turned / circlip grooves (#148c) — recognised up front so the turned-step chain can
     # exclude any band a groove already dimensions: a groove floor is an annular band, and
     # its two walls read as shoulders, so recognise_turned_steps also delimits it as a
@@ -914,7 +943,7 @@ def build_part_model(
         # Overall envelope dims for a *prismatic* part — not a round single-OD body
         # (a boss whose diameter fills the footprint is the body, dimensioned by its
         # OD, not a box).
-        if not _is_round(bbox, bosses_d):
+        if not _is_round(bbox, bosses_d) and not polygonal_stock:
             # The same construction the declared verb and the emitter's synthesis use.
             # Detection was the REFERENCE the other two were fixed to match (#977/#976); with
             # three independent producers, "matches the detector" was a property to re-verify

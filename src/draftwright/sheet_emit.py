@@ -563,6 +563,16 @@ def _feature_line(
             f"height={_n(f.height)}, at={_pt(f.frame.origin)}, axis={f.frame.axis!r}, "
             f"span={span}, flat_directions={directions}, flat_centres={flats})"
         )
+    if k == "polygonal_stock":
+        span = f"({_pt(f.span[0])}, {_pt(f.span[1])})"
+        directions = f"tuple({_pts_arg(f.flat_directions)})"
+        flats = f"tuple({_pts_arg(f.flat_centres)})"
+        return (
+            "sheet.polygonal_stock("
+            f"side_count={f.side_count}, across_flats={_n(f.across_flats)}, "
+            f"length={_n(f.length)}, at={_pt(f.frame.origin)}, axis={f.frame.axis!r}, "
+            f"span={span}, flat_directions={directions}, flat_centres={flats})"
+        )
     if k == "step":
         thr = (
             f", thread={f.thread!r}" if getattr(f, "thread", None) else ""
@@ -730,6 +740,7 @@ _SECTION = {
     "pattern": "Holes",
     "boss": "Diameters",
     "polygonal_boss": "Bosses",
+    "polygonal_stock": "Stock",
     "step": "Turned steps",
     "groove": "Grooves",
     "slot": "Slots",
@@ -749,6 +760,7 @@ _NOUN = {
     "pattern": "pattern",
     "boss": "diameter",
     "polygonal_boss": "polygonal boss",
+    "polygonal_stock": "polygonal stock",
     "step": "step",
     "groove": "groove",
     "slot": "slot",
@@ -772,6 +784,7 @@ _DESCRIBED = frozenset(
         "hole",
         "boss",
         "polygonal_boss",
+        "polygonal_stock",
         "step",
         "slot",
         "pocket",
@@ -814,6 +827,9 @@ def _short_label(f) -> str:
     if k == "polygonal_boss":
         prefix = "HEX" if f.side_count == 6 else f"{f.side_count}-sided"
         return f"{prefix} {_n(f.across_flats)} A/F × {_n(f.height)} high"
+    if k == "polygonal_stock":
+        prefix = "HEX" if f.side_count == 6 else f"{f.side_count}-sided"
+        return f"{prefix} {_n(f.across_flats)} A/F × {_n(f.length)} long"
     if k == "step":
         return f"⌀{_n(f.diameter)} × {_n(f.length)} step"
     if k in ("slot", "pocket"):

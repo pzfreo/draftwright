@@ -25,7 +25,10 @@ from draftwright.recognition.grooves import recognise_grooves
 from draftwright.recognition.levels import FaceLevel, recognise_risers, step_level_records
 from draftwright.recognition.pads import recognise_rectangular_pads
 from draftwright.recognition.plates import recognise_plates
-from draftwright.recognition.polygonal_bosses import recognise_polygonal_bosses
+from draftwright.recognition.polygonal_bosses import (
+    recognise_polygonal_bosses,
+    recognise_polygonal_stock,
+)
 from draftwright.recognition.profiled_bores import recognise_double_d_bores
 from draftwright.recognition.slots import (
     recognise_channels,
@@ -60,6 +63,7 @@ MIGRATED: frozenset[str] = frozenset(
         "recognise_plates",
         "recognise_pockets",
         "recognise_polygonal_bosses",
+        "recognise_polygonal_stock",
         "recognise_rectangular_pads",
         "recognise_risers",
         "recognise_slot_patterns",
@@ -157,6 +161,7 @@ class RecognitionResult:
     hole_patterns: tuple
     bosses: tuple
     polygonal_bosses: tuple
+    polygonal_stock: tuple
     channels: tuple
     slots: tuple
     slot_patterns: tuple
@@ -261,6 +266,7 @@ def build_recognition_result(
         hole_patterns=tuple(recognise_hole_patterns(holes)),
         bosses=tuple(recognise_bosses(part, cyls=cyls)),
         polygonal_bosses=tuple(recognise_polygonal_bosses(part)),
+        polygonal_stock=tuple(recognise_polygonal_stock(part)),
         channels=tuple(channels),
         slots=tuple(slots),
         # Derived from the accepted members, like the other two pattern families — the

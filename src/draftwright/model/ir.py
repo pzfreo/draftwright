@@ -113,6 +113,7 @@ DimensionParameterId = Literal[
     "pocket_length.length",
     "pocket_width.length",
     "polygon_across_flats.length",
+    "stock_length.length",
     "profile_across_flats.length",
     "slot_length.length",
     "slot_width.length",
@@ -860,6 +861,53 @@ class PolygonalBossFeature:
         return [
             DimParameter("length", "polygon_across_flats", self.across_flats),
             DimParameter("length", "boss_height", self.height, span=self.span),
+        ]
+
+    def references(self) -> list[Datum]:
+        return []
+
+
+@dataclass(frozen=True)
+class PolygonalStockFeature:
+    """A whole regular polygonal-prism stock definition, not an attached boss."""
+
+    frame: Frame
+    side_count: int
+    across_flats: float
+    length: float
+    span: tuple[Point, Point]
+    flat_directions: tuple[Point, ...]
+    flat_centres: tuple[Point, ...]
+    kind: ClassVar[str] = "polygonal_stock"
+
+    def __post_init__(self) -> None:
+        # The geometric invariants are identical to a polygonal boss's prism, while the IR
+        # identity and axial measurement semantics remain deliberately distinct.
+        try:
+            prism = PolygonalBossFeature(
+                frame=self.frame,
+                side_count=self.side_count,
+                across_flats=self.across_flats,
+                height=self.length,
+                span=self.span,
+                flat_directions=self.flat_directions,
+                flat_centres=self.flat_centres,
+            )
+        except ValueError as exc:
+            message = str(exc).replace("polygonal boss", "polygonal stock")
+            message = message.replace("boss axis", "stock axis")
+            raise ValueError(message) from exc
+        object.__setattr__(self, "frame", prism.frame)
+        object.__setattr__(self, "across_flats", prism.across_flats)
+        object.__setattr__(self, "length", prism.height)
+        object.__setattr__(self, "span", prism.span)
+        object.__setattr__(self, "flat_directions", prism.flat_directions)
+        object.__setattr__(self, "flat_centres", prism.flat_centres)
+
+    def parameters(self) -> list[DimParameter]:
+        return [
+            DimParameter("length", "polygon_across_flats", self.across_flats),
+            DimParameter("length", "stock_length", self.length, span=self.span),
         ]
 
     def references(self) -> list[Datum]:

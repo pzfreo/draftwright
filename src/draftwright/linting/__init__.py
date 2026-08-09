@@ -36,6 +36,7 @@ from draftwright.linting.pmi_coverage import (
     lint_pmi_rendering,
     pmi_stage_summary,
 )
+from draftwright.linting.polygonal_stock_coverage import lint_polygonal_stock_coverage
 from draftwright.linting.profiled_bore_coverage import lint_profiled_bore_coverage
 from draftwright.linting.slot_coverage import lint_slot_coverage
 from draftwright.linting.structural import lint_drawing
@@ -44,6 +45,7 @@ from draftwright.linting.suggest import _suggest_fix
 __all__ = [
     "CoverageState",
     "LintIssue",
+    "lint_polygonal_stock_coverage",
     "_suggest_fix",
     "lint_axial_coverage",
     "lint_boss_height_coverage",

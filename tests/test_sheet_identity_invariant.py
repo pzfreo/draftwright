@@ -229,6 +229,7 @@ _SAME_PATH_AS_ENVELOPE = {
     "slot_pattern",
     "rotational",  # #945 — same two lines; keyword-only, but identity handling is unaffected
     "polygonal_boss",  # #676 — same explicit-only `_Params` route
+    "polygonal_stock",  # #1082 — same explicit-only `_Params` route
 }
 
 

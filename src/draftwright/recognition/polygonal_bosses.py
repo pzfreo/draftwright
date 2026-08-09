@@ -34,6 +34,28 @@ class PolygonalBoss(Record):
         return self.top - self.base
 
 
+@dataclass(frozen=True, order=True)
+class PolygonalStock(Record):
+    """A whole solid proved to be a regular hexagonal prism.
+
+    This is deliberately distinct from :class:`PolygonalBoss`: its two caps terminate the
+    complete solid, rather than one cap being an attachment to supporting material.
+    """
+
+    axis: str
+    center: tuple[float, float, float]
+    side_count: int
+    across_flats: float
+    base: float
+    top: float
+    flat_directions: tuple[tuple[float, float, float], ...]
+    flat_centres: tuple[tuple[float, float, float], ...]
+
+    @property
+    def length(self) -> float:
+        return self.top - self.base
+
+
 def _normal(face):
     try:
         normal = face.normal_at(face.center())
@@ -54,7 +76,9 @@ def _bbox_tuple(face) -> tuple[float, float, float, float, float, float]:
     )
 
 
-def _recognise_one(part, *, tol: float, angle_tol: float) -> list[PolygonalBoss]:
+def _recognise_one(
+    part, *, tol: float, angle_tol: float, whole_stock: bool = False
+) -> list[PolygonalBoss | PolygonalStock]:
     faces = list(part.faces())
     edges = [[edge.wrapped for edge in face.edges()] for face in faces]
     adjacency: dict[tuple[int, int], bool] = {}
@@ -107,12 +131,18 @@ def _recognise_one(part, *, tol: float, angle_tol: float) -> list[PolygonalBoss]
             other for other in range(len(faces)) if other != index and shares_edge(index, other)
         }
 
-    def positive_z_cap(index: int, *, lower_than: float | None, higher_than: float | None):
+    def z_cap(
+        index: int,
+        *,
+        positive: bool,
+        lower_than: float | None,
+        higher_than: float | None,
+    ):
         face = faces[index]
         if BRepAdaptor_Surface(face.wrapped).GetType() != GeomAbs_Plane:
             return None
         normal = _normal(face)
-        if normal is None or normal[2] < 0.99:
+        if normal is None or (normal[2] < 0.99 if positive else normal[2] > -0.99):
             return None
         bb = _bbox_tuple(face)
         if bb[5] - bb[4] > tol:
@@ -125,7 +155,12 @@ def _recognise_one(part, *, tol: float, angle_tol: float) -> list[PolygonalBoss]
         return z
 
     def common_cap(
-        component: tuple[int, ...], *, upper: bool, wall_lo: float, wall_hi: float
+        component: tuple[int, ...],
+        *,
+        upper: bool,
+        positive: bool,
+        wall_lo: float,
+        wall_hi: float,
     ) -> float | None:
         boundary: list[int] = []
         component_set = set(component)
@@ -150,8 +185,9 @@ def _recognise_one(part, *, tol: float, angle_tol: float) -> list[PolygonalBoss]
             cap
             for index in candidates
             if (
-                cap := positive_z_cap(
+                cap := z_cap(
                     index,
+                    positive=positive,
                     lower_than=None if upper else wall_lo,
                     higher_than=wall_hi if upper else None,
                 )
@@ -160,12 +196,17 @@ def _recognise_one(part, *, tol: float, angle_tol: float) -> list[PolygonalBoss]
         ]
         return cap_zs[0] if len(cap_zs) == 1 else None
 
-    found: list[PolygonalBoss] = []
+    found: list[PolygonalBoss | PolygonalStock] = []
     for component in components:
         side_count = len(component)
         # #676 slice 1 proves hexagonal bosses. Broader polygon classes need their own
         # corpus evidence before automatic recognition can claim them.
         if side_count != 6:
+            continue
+        # Whole stock is intentionally the exact-prism class: one closed solid made only
+        # from this side ring and its two terminal caps. Attached bosses, recesses, holes,
+        # chamfers and assemblies need different ownership/evidence.
+        if whole_stock and len(faces) != side_count + 2:
             continue
         component_set = set(component)
         if any(
@@ -230,9 +271,17 @@ def _recognise_one(part, *, tol: float, angle_tol: float) -> list[PolygonalBoss]
 
         wall_lo = sum(bounds[i][4] for i in component) / side_count
         wall_hi = sum(bounds[i][5] for i in component) / side_count
-        base = common_cap(component, upper=False, wall_lo=wall_lo, wall_hi=wall_hi)
-        top = common_cap(component, upper=True, wall_lo=wall_lo, wall_hi=wall_hi)
+        base = common_cap(
+            component,
+            upper=False,
+            positive=not whole_stock,
+            wall_lo=wall_lo,
+            wall_hi=wall_hi,
+        )
+        top = common_cap(component, upper=True, positive=True, wall_lo=wall_lo, wall_hi=wall_hi)
         if base is None or top is None or top - base <= tol:
+            continue
+        if whole_stock and (abs(base - wall_lo) > tol or abs(top - wall_hi) > tol):
             continue
         flat_centres = tuple(
             (round(float(point.X), 3), round(float(point.Y), 3), round(float(point.Z), 3))
@@ -241,8 +290,9 @@ def _recognise_one(part, *, tol: float, angle_tol: float) -> list[PolygonalBoss]
         flat_directions = tuple(
             (round(normals[index][0], 3), round(normals[index][1], 3), 0.0) for index in ordered
         )
+        record_type = PolygonalStock if whole_stock else PolygonalBoss
         found.append(
-            PolygonalBoss(
+            record_type(
                 axis="z",
                 center=(round(cx, 4), round(cy, 4), round((base + top) / 2, 4)),
                 side_count=side_count,
@@ -268,5 +318,25 @@ def recognise_polygonal_bosses(
     solids = list(part.solids())
     sources = solids if len(solids) > 1 else [part]
     return sorted(
-        boss for solid in sources for boss in _recognise_one(solid, tol=tol, angle_tol=angle_tol)
+        boss
+        for solid in sources
+        for boss in _recognise_one(solid, tol=tol, angle_tol=angle_tol)
+        if isinstance(boss, PolygonalBoss)
+    )
+
+
+def recognise_polygonal_stock(
+    part, *, tol: float = 0.2, angle_tol: float = math.radians(2)
+) -> list[PolygonalStock]:
+    """Return one record only when the complete part is a regular hexagonal prism.
+
+    The exact-prism boundary is fail closed: multi-solid assemblies and solids with any
+    additional or missing face are not silently promoted to stock.
+    """
+    if len(list(part.solids())) != 1 or len(list(part.faces())) != 8:
+        return []
+    return sorted(
+        record
+        for record in _recognise_one(part, tol=tol, angle_tol=angle_tol, whole_stock=True)
+        if isinstance(record, PolygonalStock)
     )

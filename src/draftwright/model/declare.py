@@ -55,6 +55,7 @@ from draftwright.model.ir import (
     PocketPatternFeature,
     Point,
     PolygonalBossFeature,
+    PolygonalStockFeature,
     RotationalFeature,
     SlotFeature,
     SlotPatternFeature,
@@ -405,6 +406,34 @@ def polygonal_boss(
         side_count=side_count,
         across_flats=across_flats,
         height=height,
+        span=span,
+        flat_directions=flat_directions,
+        flat_centres=flat_centres,
+    )
+
+
+def polygonal_stock(
+    *,
+    side_count,
+    across_flats,
+    length,
+    at,
+    axis,
+    flat_directions,
+    flat_centres,
+    span=None,
+) -> PolygonalStockFeature:
+    """Declare whole regular polygonal-prism stock by its manufacturing definition."""
+    axis = _norm_axis(axis)
+    _require_positive(across_flats=across_flats, length=length)
+    _require_point("at", at)
+    if span is None:
+        span = _span(at, axis, length)
+    return PolygonalStockFeature(
+        frame=Frame(tuple(at), axis),
+        side_count=side_count,
+        across_flats=across_flats,
+        length=length,
         span=span,
         flat_directions=flat_directions,
         flat_centres=flat_centres,

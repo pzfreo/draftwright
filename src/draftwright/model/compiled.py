@@ -60,6 +60,7 @@ from draftwright.model.ir import (
     PartModel,
     PocketFeature,
     Point,
+    PolygonalStockFeature,
     RotationalFeature,
     SlotFeature,
     SlotPatternFeature,
@@ -254,6 +255,7 @@ _FACTS: dict[str, tuple[str, ...]] = {
     "pad": ("frame", "width_axis", "long_axis"),
     "boss": ("frame", "thread"),
     "polygonal_boss": ("frame", "side_count", "flat_directions", "flat_centres"),
+    "polygonal_stock": ("frame", "side_count", "flat_directions", "flat_centres"),
     "step": ("frame", "thread"),
     "step_level": ("frame",),
     "envelope": ("frame",),
@@ -806,6 +808,11 @@ def _compile_overall_height(
     `.envelope()` — has no parameter naming its height, and the value falls back to the
     bounding box. The COMPILER may do that; a renderer may not, which is the whole point.
     """
+    # Whole polygonal stock already owns the same axial extent as `stock_length.length`.
+    # Letting the bbox fallback add `dim_height` would state one physical requirement twice,
+    # and would make authored suppression ineffective through an unrelated synthetic value.
+    if any(isinstance(feature, PolygonalStockFeature) for feature in model.features):
+        return None, None, []
     env = next((f for f in model.features if isinstance(f, EnvelopeFeature)), None)
     bb: Any = model.bbox  # build123d BoundBox
     rot = next((f for f in model.features if isinstance(f, RotationalFeature)), None)
