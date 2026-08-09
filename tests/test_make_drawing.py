@@ -1393,7 +1393,6 @@ class TestIsoEmptyRect:
             [(5.0, 5.0, 5.0, 5.0)],
         ) == (0.0, 0.0, 5.0, 5.0)
 
-    @pytest.mark.timeout(10)
     def test_annotation_sized_obstacle_set_stays_bounded(self):
         """Detail placement sees decomposed shafts, witnesses, and labels, not
         merely four view hulls.  A CTC-02 build supplies 571 boxes; distinct
@@ -1402,11 +1401,32 @@ class TestIsoEmptyRect:
         from draftwright._core import _largest_empty_rect
 
         drawable = (0.0, 0.0, 1000.0, 1000.0)
-        obstacles = []
+        boxes = []
         for i in range(300):
             x = 20.0 + i * 1.6
             y = 20.0 + ((i * 137) % 600) * 1.5
-            obstacles.append((x, y, x + 0.7, y + 0.7))
+            boxes.append((x, y, x + 0.7, y + 0.7))
+
+        class BoundedObstacleReads:
+            """Reject the pre-#1066 per-X-strip obstacle rescan deterministically."""
+
+            def __init__(self, values, maximum_reads):
+                self.values = values
+                self.maximum_reads = maximum_reads
+                self.reads = 0
+
+            def __iter__(self):
+                for value in self.values:
+                    self.reads += 1
+                    if self.reads > self.maximum_reads:
+                        raise AssertionError(
+                            "largest-empty-rectangle search repeatedly rescanned its obstacles"
+                        )
+                    yield value
+
+        # One linear pass each inventories X edges, Y edges, and sweep events.  This is a
+        # work/complexity contract, not a wall-clock budget, so xdist contention is irrelevant.
+        obstacles = BoundedObstacleReads(boxes, maximum_reads=3 * len(boxes))
 
         result = _largest_empty_rect(
             drawable,
@@ -1417,8 +1437,15 @@ class TestIsoEmptyRect:
 
         x0, y0, x1, y1 = result
         assert x0 < x1 and y0 < y1
+        assert obstacles.reads <= obstacles.maximum_reads
+        # Mutation oracle: pre-#1066-style repeated scans exhaust the linear budget.  Allow a
+        # future implementation to reduce the current three inventory passes without weakening
+        # this rejection direction.
+        with pytest.raises(AssertionError, match="repeatedly rescanned"):
+            for _ in range(4):
+                list(obstacles)
         assert not any(
-            x0 < ox1 and ox0 < x1 and y0 < oy1 and oy0 < y1 for ox0, oy0, ox1, oy1 in obstacles
+            x0 < ox1 and ox0 < x1 and y0 < oy1 and oy0 < y1 for ox0, oy0, ox1, oy1 in boxes
         )
 
     @pytest.mark.parametrize(
