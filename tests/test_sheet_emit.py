@@ -2730,6 +2730,7 @@ _KIND_MIRROR_COVERAGE = {
     "boss": "corpus",
     "polygonal_boss": "corpus",
     "polygonal_stock": "corpus",
+    "external_spur_gear": "declared — normative semantics are authored, never detected",
     "step": "corpus",
     "step_level": "corpus",
     "slot": "corpus",
@@ -2880,6 +2881,10 @@ def _declared_models():
         "control frame"
     ]()
     yield "control_frame", control, "sheet.add(ControlFrame("
+    _part, gear = TestTheDeclaredModelMatchesTheDetectedOne._declared_corpus()[
+        "external spur gear"
+    ]()
+    yield "external_spur_gear", gear, "sheet.external_spur_gear("
 
 
 def _declarable_kinds() -> set[str]:
@@ -3251,6 +3256,7 @@ _FIDELITY_ROUTE = {
     "envelope": ("detected", "every fixture carries one"),
     # Declared: nothing detects one, so emitting a detected model cannot reach it.
     "authored_dimension": ("declared", "an imported AP242 or hand-written measurement"),
+    "external_spur_gear": ("declared", "normative semantics are authored, never detected"),
     # Imported GD&T records are structural declarations. The remaining aspects carry no
     # geometry to lose and have no declarative feature line to round-trip.
     "control_frame": ("declared", "GD&T, emitted as sheet.add(ControlFrame(...))"),
@@ -3629,6 +3635,28 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
             )
             return part, dataclasses.replace(model, features=[*model.features, frame])
 
+        def external_spur_gear():
+            from build123d import Cylinder
+
+            from draftwright import Sheet
+
+            part = Cylinder(8, 10)
+            sheet = Sheet(part, title="T", number="N")
+            sheet.external_spur_gear(
+                at=(0, 0, 5),
+                axis="z",
+                tooth_count=13,
+                module=1.25,
+                pressure_angle=20,
+                profile_shift=0,
+                face_width=10,
+                tooth_thickness=1.9634954084936207,
+                tooth_thickness_tolerance=(-0.03, 0.01),
+                flank_tolerance_class=7,
+            )
+            sheet.authored_dimensions()
+            return part, sheet.model()
+
         def datum_ref():
             import dataclasses
 
@@ -3653,6 +3681,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
         return {
             "control frame": control_frame,
             "datum feature": datum_ref,
+            "external spur gear": external_spur_gear,
             "measured dimension": measured_dimension,
             "raw pmi": raw_pmi,
         }

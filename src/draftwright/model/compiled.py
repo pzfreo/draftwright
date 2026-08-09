@@ -279,6 +279,10 @@ _FACTS: dict[str, tuple[str, ...]] = {
     # sole printed value in this structural allowlist (ADR 0016, "Scope").
     "pmi": ("frame", "pmi_kind", "dominant_axis", "ref_bbox", "ref_pts", "label"),
     "authored_dimension": ("frame", "dimension_kind", "dominant_axis", "ref_pts", "ref_bbox"),
+    # The gear-data renderer consumes the complete correlated IR record directly and never
+    # receives a FeatureFacts projection. Classifying it empty keeps a future dimensional
+    # renderer from acquiring normative values through the compiled-plan side door.
+    "external_spur_gear": (),
     # Existing ADR 0011 aspect kinds are deliberately classified as exposing no
     # renderer facts yet. Listing them distinguishes "known, reviewed, empty" from a new
     # kind that has never crossed this boundary.

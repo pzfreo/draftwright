@@ -26,7 +26,8 @@ deprecated (#1043)::
 
 **Scope (this module):** the *feature-declaration* surface over the renderers the
 engine has today — dimensions, ⌀ callouts, holes (through / blind), circular and polygonal
-bosses, turned steps, slots, patterns, the overall envelope, and the auto section — plus the P2a
+bosses, turned steps, slots, patterns, the overall envelope, the declaration-only external-spur-
+gear requirements table, and the auto section — plus the P2a
 **``.tolerance``** (a ± / limit tolerance on a diameter, a step, or a hole bore) and
 **``.fit``** (fit-class → ISO 286 deviation, P2a.2) aspects, the P2c GD&T side-layer
 (**``.finish``** surface symbols, **``sheet.datum``** feature symbols, and
@@ -67,6 +68,7 @@ from draftwright.model import control_frame as _declare_control
 from draftwright.model import datum as _declare_datum
 from draftwright.model import double_d_bore as _double_d_bore
 from draftwright.model import envelope as _envelope
+from draftwright.model import external_spur_gear as _external_spur_gear
 from draftwright.model import fillet as _fillet
 from draftwright.model import finish as _declare_finish
 from draftwright.model import flat as _flat
@@ -1107,6 +1109,11 @@ class Sheet:
     def polygonal_stock(self, **kw) -> _Params:
         """Declare whole regular polygonal-prism stock sized A/F and axially."""
         self._features.append(_polygonal_stock(**kw))
+        return _Params(self, len(self._features) - 1)
+
+    def external_spur_gear(self, **kw) -> _Params:
+        """Declare one complete metric external spur involute gear requirement."""
+        self._features.append(_external_spur_gear(**kw))
         return _Params(self, len(self._features) - 1)
 
     def step(self, obj=None, **kw) -> _Dim:

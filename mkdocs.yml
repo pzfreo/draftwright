@@ -20,6 +20,7 @@ nav:
       - Sheet and fluent handles: reference/sheet.md
       - Drawing results: reference/drawing.md
       - Feature declarations: reference/declarations.md
+      - External spur gear requirements: reference/external-spur-gears.md
 
 theme:
   name: mkdocs

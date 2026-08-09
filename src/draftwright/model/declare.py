@@ -39,6 +39,7 @@ from draftwright.model.ir import (
     ControlFrame,
     DatumRef,
     EnvelopeFeature,
+    ExternalSpurGearFeature,
     Feature,
     FilletFeature,
     Finish,
@@ -437,6 +438,35 @@ def polygonal_stock(
         span=span,
         flat_directions=flat_directions,
         flat_centres=flat_centres,
+    )
+
+
+def external_spur_gear(
+    *,
+    at,
+    axis,
+    tooth_count,
+    module,
+    pressure_angle,
+    profile_shift,
+    face_width,
+    tooth_thickness,
+    tooth_thickness_tolerance,
+    flank_tolerance_class,
+) -> ExternalSpurGearFeature:
+    """Declare the complete supported metric external-spur-gear requirement set."""
+    axis = _norm_axis(axis)
+    _require_point("at", at)
+    return ExternalSpurGearFeature(
+        frame=Frame(tuple(at), axis),
+        tooth_count=tooth_count,
+        module=module,
+        pressure_angle=pressure_angle,
+        profile_shift=profile_shift,
+        face_width=face_width,
+        tooth_thickness=tooth_thickness,
+        tooth_thickness_tolerance=tooth_thickness_tolerance,
+        flank_tolerance_class=flank_tolerance_class,
     )
 
 

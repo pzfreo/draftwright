@@ -75,6 +75,7 @@ from draftwright.linting import (
     lint_boss_height_coverage,
     lint_channel_coverage,
     lint_declaration_reconciliation,
+    lint_declared_gear_coverage,
     lint_drawing,
     lint_feature_coverage,
     lint_flat_coverage,
@@ -2885,6 +2886,12 @@ class Drawing:
                 features=getattr(model, "features", ()) if model is not None else (),
                 registry=self._registry,
                 omissions=self._build.omissions,
+                assembly=self.assembly,
+            )
+            issues += lint_declared_gear_coverage(
+                features=getattr(model, "features", ()) if model is not None else (),
+                registry=self._registry,
+                profiles=getattr(recognition, "repeating_radial_profiles", None),
                 assembly=self.assembly,
             )
             # Reverse direction (#487): a DECLARED feature with no matching geometry (a stale

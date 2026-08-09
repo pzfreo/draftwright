@@ -168,6 +168,20 @@ def _pt(p) -> str:
     return "(" + ", ".join(str(_n(c)) for c in p) + ")"
 
 
+def _authored_n(value) -> str:
+    """Lossless numeric spelling for source-authored requirements.
+
+    Detected geometry is intentionally made readable at 3 dp by :func:`_n`; an
+    authored normative value must instead survive an emit/execute round trip.
+    """
+    value = float(value)
+    return str(int(value)) if value.is_integer() else repr(value)
+
+
+def _authored_pt(point) -> str:
+    return "(" + ", ".join(_authored_n(value) for value in point) + ")"
+
+
 def _direction(p) -> str:
     """A direction vector needs angular precision, not the 3 dp used for mm coordinates."""
     values = (round(float(component), 6) for component in p)
@@ -573,6 +587,20 @@ def _feature_line(
             f"length={_n(f.length)}, at={_pt(f.frame.origin)}, axis={f.frame.axis!r}, "
             f"span={span}, flat_directions={directions}, flat_centres={flats})"
         )
+    if k == "external_spur_gear":
+        lower, upper = f.tooth_thickness_tolerance
+        return (
+            f"sheet.external_spur_gear(at={_authored_pt(f.frame.origin)}, "
+            f'axis="{f.frame.axis}", tooth_count={f.tooth_count}, '
+            f"module={_authored_n(f.module)}, "
+            f"pressure_angle={_authored_n(f.pressure_angle)}, "
+            f"profile_shift={_authored_n(f.profile_shift)}, "
+            f"face_width={_authored_n(f.face_width)}, "
+            f"tooth_thickness={_authored_n(f.tooth_thickness)}, "
+            "tooth_thickness_tolerance="
+            f"({_authored_n(lower)}, {_authored_n(upper)}), "
+            f"flank_tolerance_class={f.flank_tolerance_class})"
+        )
     if k == "step":
         thr = (
             f", thread={f.thread!r}" if getattr(f, "thread", None) else ""
@@ -741,6 +769,7 @@ _SECTION = {
     "boss": "Diameters",
     "polygonal_boss": "Bosses",
     "polygonal_stock": "Stock",
+    "external_spur_gear": "Gear requirements",
     "step": "Turned steps",
     "groove": "Grooves",
     "slot": "Slots",
@@ -761,6 +790,7 @@ _NOUN = {
     "boss": "diameter",
     "polygonal_boss": "polygonal boss",
     "polygonal_stock": "polygonal stock",
+    "external_spur_gear": "external spur gear",
     "step": "step",
     "groove": "groove",
     "slot": "slot",
@@ -785,6 +815,7 @@ _DESCRIBED = frozenset(
         "boss",
         "polygonal_boss",
         "polygonal_stock",
+        "external_spur_gear",
         "step",
         "slot",
         "pocket",
@@ -830,6 +861,8 @@ def _short_label(f) -> str:
     if k == "polygonal_stock":
         prefix = "HEX" if f.side_count == 6 else f"{f.side_count}-sided"
         return f"{prefix} {_n(f.across_flats)} A/F × {_n(f.length)} long"
+    if k == "external_spur_gear":
+        return f"external spur gear · {f.tooth_count} teeth · module {_n(f.module)}"
     if k == "step":
         return f"⌀{_n(f.diameter)} × {_n(f.length)} step"
     if k in ("slot", "pocket"):

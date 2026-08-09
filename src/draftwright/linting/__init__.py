@@ -28,6 +28,7 @@ from draftwright.linting.coverage import (
     lint_prismatic_coverage,
 )
 from draftwright.linting.flat_coverage import lint_flat_coverage
+from draftwright.linting.gear_coverage import lint_declared_gear_coverage
 from draftwright.linting.issues import LintIssue
 from draftwright.linting.pmi_coverage import (
     lint_pmi_extraction,
@@ -54,6 +55,7 @@ __all__ = [
     "lint_drawing",
     "lint_feature_coverage",
     "lint_flat_coverage",
+    "lint_declared_gear_coverage",
     "lint_slot_coverage",
     "lint_location_coverage",
     "lint_pmi_ignored",

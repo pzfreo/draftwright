@@ -146,6 +146,11 @@ still computes a group that these passes do not consume):
   `ControlFrame`/`DatumRef`/`Finish` (ADR 0011 P2b) are placement intents, not
   `DimParameter`-bearing features — there is nothing for `plan_dimensions` to
   plan.
+- `ExternalSpurGearFeature` is model-routed by design: it is one correlated normative
+  requirement record, not a collection of independently placeable dimensions. The
+  post-ISO-fit renderer places its complete standards table through `Drawing.add_table()`'s
+  solver-owned late-furniture path. Physical lint independently reconciles the placed table
+  snapshot and, when available, geometry-only repeating-profile evidence (#1086/#1087).
 
 **Why the split matters:** the planner is where authored decorations fold onto
 dimension parameters and where dimension-level convention and suppression
@@ -200,6 +205,11 @@ records cross is the sanctioned `build_part_model` boundary itself.
   placement machinery; and semantic coverage reconciles placed, authored-suppressed, dropped,
   missing, or ambiguous outcomes. It does not weaken `polygonal_boss` attachment evidence or
   retain the orientation-dependent envelope dimensions that the stock definition replaces.
+- Declared external spur gears follow the declaration-only branch of the same compiler: a
+  complete typed IR record, a model-routed standards table, lossless Sheet-script emission,
+  and independent fail-closed coverage. No detector may populate the normative record from
+  a repeating boundary; recognition supplies only correspondence evidence such as axis and
+  repeat count.
 - The duplicate-recogniser and orientation-gate bug classes stay designed out
   (one inventory, axis-as-data).
 - The ADR now matches the code: readers get the real planner coverage and the

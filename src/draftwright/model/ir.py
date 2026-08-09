@@ -915,6 +915,132 @@ class PolygonalStockFeature:
 
 
 @dataclass(frozen=True)
+class ExternalSpurGearFeature:
+    """Authored requirements for one metric external spur involute gear.
+
+    This is deliberately a manufacturing-requirement feature, not a geometry
+    recogniser.  Its fixed standards identify the one supported class; the
+    numeric fields are all authored and are never recovered from a tooth-like
+    boundary.  The standard table is its renderer, so it exposes no ordinary
+    linear-dimension parameters to the dimension planner.
+    """
+
+    GEOMETRY_STANDARD: ClassVar[str] = "ISO 21771-1:2024"
+    TOOTH_THICKNESS_STANDARD: ClassVar[str] = "ISO 21771-2:2025"
+    BASIC_RACK_STANDARD: ClassVar[str] = "ISO 53:1998"
+    MODULE_STANDARD: ClassVar[str] = "ISO 54:1996"
+    FLANK_TOLERANCE_STANDARD: ClassVar[str] = "ISO 1328-1:2013"
+    REPRESENTATION_STANDARD: ClassVar[str] = "ISO 2203:1973"
+
+    frame: Frame
+    tooth_count: int
+    module: float
+    pressure_angle: float
+    profile_shift: float
+    face_width: float
+    tooth_thickness: float
+    tooth_thickness_tolerance: tuple[float, float]
+    flank_tolerance_class: int
+    kind: ClassVar[str] = "external_spur_gear"
+
+    def __post_init__(self) -> None:
+        if not all(
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and isfinite(float(value))
+            for value in self.frame.origin
+        ):
+            raise ValueError("gear frame origin must contain three finite numbers")
+        if isinstance(self.tooth_count, bool) or not isinstance(self.tooth_count, int):
+            raise ValueError("tooth_count must be an integer")
+        if not 5 <= self.tooth_count <= 1000:
+            raise ValueError("tooth_count must be from 5 to 1000 for ISO 1328-1")
+        for name in ("module", "face_width", "tooth_thickness"):
+            raw = getattr(self, name)
+            if not isinstance(raw, (int, float)) or isinstance(raw, bool):
+                raise ValueError(f"{name} must be a finite positive number")
+            value = float(raw)
+            if not isfinite(value) or value <= 0:
+                raise ValueError(f"{name} must be finite and positive")
+            object.__setattr__(self, name, value)
+        if not 0.5 <= self.module <= 70:
+            raise ValueError("module must be from 0.5 mm to 70 mm for ISO 1328-1")
+        if not 4 <= self.face_width <= 1200:
+            raise ValueError("face_width must be from 4 mm to 1200 mm for ISO 1328-1")
+        reference_diameter = self.module * self.tooth_count
+        if not 5 <= reference_diameter <= 15000:
+            raise ValueError(
+                "module × tooth_count must give a 5 mm to 15000 mm reference diameter "
+                "for ISO 1328-1"
+            )
+        if not isinstance(self.pressure_angle, (int, float)) or isinstance(
+            self.pressure_angle, bool
+        ):
+            raise ValueError("pressure_angle must be a finite number")
+        pressure_angle = float(self.pressure_angle)
+        if not isfinite(pressure_angle) or not 0 < pressure_angle < 90:
+            raise ValueError("pressure_angle must be finite and between 0 and 90 degrees")
+        object.__setattr__(self, "pressure_angle", pressure_angle)
+        if not isinstance(self.profile_shift, (int, float)) or isinstance(
+            self.profile_shift, bool
+        ):
+            raise ValueError("profile_shift must be a finite number")
+        profile_shift = float(self.profile_shift)
+        if not isfinite(profile_shift):
+            raise ValueError("profile_shift must be finite")
+        object.__setattr__(self, "profile_shift", profile_shift)
+        raw_tolerance = self.tooth_thickness_tolerance
+        if not isinstance(raw_tolerance, (tuple, list)) or len(raw_tolerance) != 2:
+            raise ValueError("tooth_thickness_tolerance must contain two finite deviations")
+        if not all(
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and isfinite(float(value))
+            for value in raw_tolerance
+        ):
+            raise ValueError("tooth_thickness_tolerance must contain two finite deviations")
+        tolerance = tuple(float(value) for value in raw_tolerance)
+        lower, upper = tolerance
+        if lower > upper:
+            raise ValueError("tooth_thickness_tolerance lower deviation must not exceed upper")
+        if self.tooth_thickness + lower <= 0:
+            raise ValueError("tooth_thickness tolerance must retain a positive lower limit")
+        object.__setattr__(self, "tooth_thickness_tolerance", tolerance)
+        if (
+            isinstance(self.flank_tolerance_class, bool)
+            or not isinstance(self.flank_tolerance_class, int)
+            or not 1 <= self.flank_tolerance_class <= 11
+        ):
+            raise ValueError("flank_tolerance_class must be an integer from 1 to 11")
+
+    @property
+    def span(self) -> tuple[float, float]:
+        coordinate = self.frame.origin["xyz".index(self.frame.axis)]
+        half = self.face_width / 2
+        return (coordinate - half, coordinate + half)
+
+    @property
+    def requirement_values(self) -> tuple:
+        """The exact authored payload represented by the gear data table."""
+        return (
+            self.tooth_count,
+            self.module,
+            self.pressure_angle,
+            self.profile_shift,
+            self.face_width,
+            self.tooth_thickness,
+            self.tooth_thickness_tolerance,
+            self.flank_tolerance_class,
+        )
+
+    def parameters(self) -> list[DimParameter]:
+        return []
+
+    def references(self) -> list[Datum]:
+        return []
+
+
+@dataclass(frozen=True)
 class ChamferFeature:
     """A chamfered (bevelled) edge (#560), called out ``C{leg}`` for an equal-leg 45°
     chamfer or ``{leg} × {angle}°`` otherwise. ``axis`` is the chamfered edge's direction;

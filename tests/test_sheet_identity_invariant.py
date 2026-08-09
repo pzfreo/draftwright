@@ -230,6 +230,7 @@ _SAME_PATH_AS_ENVELOPE = {
     "rotational",  # #945 — same two lines; keyword-only, but identity handling is unaffected
     "polygonal_boss",  # #676 — same explicit-only `_Params` route
     "polygonal_stock",  # #1082 — same explicit-only `_Params` route
+    "external_spur_gear",  # #1086 — same explicit-only `_Params` route
 }
 
 

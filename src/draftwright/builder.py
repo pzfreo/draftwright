@@ -41,6 +41,7 @@ from draftwright._core import (
 )
 from draftwright.analysis import _analyse
 from draftwright.annotations._common import SolveTrace
+from draftwright.annotations.gears import render_gear_tables
 from draftwright.annotations.orchestrator import (
     _auto_annotate,
     build_model,
@@ -477,6 +478,12 @@ def _assemble(
             _add_zone_grid(dwg, a)
         if a.projection:  # projection-method glyph (#769) — auto path adds it via the orchestrator
             _add_projection_symbol(dwg, a)
+
+    # Gear tables are deliberately post-fit late furniture. `_auto_annotate` runs before
+    # `_fit_iso_view`; placing a table there lets the subsequently fitted ISO view move into
+    # it. Every initial/repacked assembly reaches this common point after its final ISO fit,
+    # and `add_table()` now sees the settled views plus all earlier annotations as obstacles.
+    render_gear_tables(dwg, pm)
 
     # The audit ledger, filled at ONE site for both paths (#996 / ADR 0005 §2).
     #

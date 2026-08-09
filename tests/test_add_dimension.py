@@ -1236,6 +1236,18 @@ class TestEveryFeatureVerbIsNameable:
             flat_directions=((1, 0, 0), (0, 1, 0), (-1, 0, 0), (0, -1, 0)),
             flat_centres=((10, 0, 0), (0, 10, 0), (-10, 0, 0), (0, -10, 0)),
         ),
+        "external_spur_gear": dict(
+            at=(0, 0, 0),
+            axis="z",
+            tooth_count=13,
+            module=1.25,
+            pressure_angle=20,
+            profile_shift=0,
+            face_width=10,
+            tooth_thickness=1.9634954084936207,
+            tooth_thickness_tolerance=(-0.03, 0.01),
+            flank_tolerance_class=7,
+        ),
         "step": dict(diameter=20, length=10, at=(0, 0, 0), axis="z"),
         "slot": dict(width=8, length=20, long_axis="x", width_axis="y", w_center=0, lo=-10, hi=10),
         "pocket": dict(

@@ -98,6 +98,9 @@ entry. Keep `_LAYERS` and this section in step.
   - **`annotations/balloons.py`** — the leadered hole-balloon pass (#111/#516;
     moved down from `Drawing`, #699). `Drawing.add_balloons` is the public verb
     threading build state in; the band-assignment flow solver lives in `layout.py`.
+  - **`annotations/gears.py`** — standards-backed data-table presentation for the
+    declaration-only metric external spur gear; the table flows through the generic
+    solver-owned late-furniture path (#1086).
   - **`annotations/_common.py`** — the ADR 0014 corridor-solve engine
     (`CorridorCandidate`, `solve_corridor`, `register_corridor`/`drain_corridors`,
     `place_strip_candidates`, `PlacementContext`) plus `_box_hits`, at the
@@ -149,7 +152,8 @@ entry. Keep `_LAYERS` and this section in step.
 - **`linting/`** — the lint subpackage (#138 / ADR 0005; ADR 0007: draftwright
   owns linting): `coverage.py` (`lint_feature_coverage` + `CoverageState`),
   `structural.py` (geometry/standards checks), `issues.py` (the `LintIssue` type),
-  `suggest.py` (`_suggest_fix`, #29 snippets). Depends only on `_core`,
+  `gear_coverage.py` (declared gear table/profile reconciliation), and `suggest.py`
+  (`_suggest_fix`, #29 snippets). Depends only on `_core`,
   `recognition/` (typed hole records in `coverage.py`) + build123d_drafting. `_QUOTED_RE` (a lint-message label regex shared with the
   repair loop) lives in `_core`.
 - **`model/`** — the ADR 0015 IR waist: `ir.py` (the `Feature`/`DimParameter`/
