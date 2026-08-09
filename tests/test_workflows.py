@@ -56,6 +56,14 @@ def test_main_runs_static_and_slow_gates_without_repeating_fast_matrix():
     assert "if: github.event_name == 'pull_request'" in _job(workflow, "coverage")
 
 
+def test_slow_gate_distributes_individual_cases_instead_of_serialising_modules():
+    slow_job = _job(_workflow("ci.yml"), "test-slow")
+
+    assert re.findall(r"run: (uv run pytest tests/ -m slow[^\n]*)", slow_job) == [
+        "uv run pytest tests/ -m slow -n auto --dist load"
+    ]
+
+
 def test_testpypi_snapshot_build_and_publish_share_one_job():
     workflow = _workflow("publish.yml")
     snapshot = _job(workflow, "publish-testpypi")

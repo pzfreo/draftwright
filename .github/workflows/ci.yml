@@ -150,4 +150,7 @@ jobs:
       - name: Install dependencies
         run: uv sync --group dev
       - name: Run slow tests
-        run: uv run pytest tests/ -m slow -n auto --dist loadscope
+        # Slow cases isolate their outputs with tmp_path and carry no cross-test ordering
+        # contract. Distribute individual cases: loadscope serialized the 18-case standards
+        # module and left most workers idle (#1108).
+        run: uv run pytest tests/ -m slow -n auto --dist load
