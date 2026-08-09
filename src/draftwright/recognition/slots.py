@@ -33,6 +33,7 @@ recess rather than some other facing-wall feature with three predicates a naive
 from __future__ import annotations
 
 import math
+from collections import Counter
 from dataclasses import dataclass, replace
 from types import SimpleNamespace
 from typing import TypeVar
@@ -92,6 +93,11 @@ class Slot(Record):
     hi: float
     d_lo: float
     d_hi: float
+    # Geometry-derived identity of the physical solid that supplied this record.  A compound
+    # must not turn equal features on separate bodies into one manufacturing pattern (#1073).
+    # The empty tuple preserves hand-built record compatibility. ``None`` is reserved for
+    # unavailable/ambiguous recognised provenance and is ineligible for pattern grouping.
+    body_key: tuple[float, ...] | None = ()
 
     @property
     def depth_axis(self) -> str:
@@ -177,6 +183,8 @@ class Pocket(Record):
     # A corner interruption touches two adjacent envelope edges, so its in-plane
     # location is implicit and no centre-location dimensions are required (#897).
     edge_anchored: bool = False
+    # See Slot.body_key.  Appended after the existing defaults to preserve positional callers.
+    body_key: tuple[float, ...] | None = ()
 
     @property
     def depth_axis(self) -> str:
@@ -803,6 +811,38 @@ def _recognise_slots_one(part) -> list[Slot]:
     return _extend_obround_ends(_collapse_collinear(_merge(candidates), part), part)
 
 
+def _body_signature(solid) -> tuple[float, ...]:
+    """Exact geometry-derived correspondence key for one physical solid.
+
+    Position, envelope, volume, and area are independent of compound traversal order.  The key
+    is deliberately not a traversal index or an OCP object/hash, so it remains serializable under
+    ADR 0013.  Callers treat duplicate signatures across separate solids as ambiguous and fail
+    closed rather than using the signature as proof of shared ownership.
+    """
+    bb = solid.bounding_box()
+    return (
+        float(bb.min.X),
+        float(bb.min.Y),
+        float(bb.min.Z),
+        float(bb.max.X),
+        float(bb.max.Y),
+        float(bb.max.Z),
+        float(solid.volume),
+        float(solid.area),
+    )
+
+
+def _body_scoped_records(sources, recognise_one):
+    """Recognise each source and attach unambiguous body correspondence."""
+    signatures = [_body_signature(solid) for solid in sources]
+    counts = Counter(signatures)
+    return [
+        replace(record, body_key=signature if counts[signature] == 1 else None)
+        for solid, signature in zip(sources, signatures, strict=True)
+        for record in recognise_one(solid)
+    ]
+
+
 def recognise_slots(part) -> list[Slot]:
     """Recognise enclosed through-slots independently within each solid in *part*.
 
@@ -817,7 +857,7 @@ def recognise_slots(part) -> list[Slot]:
     """
     solids = list(part.solids())
     sources = solids if len(solids) > 1 else [part]
-    slots = [slot for solid in sources for slot in _recognise_slots_one(solid)]
+    slots = _body_scoped_records(sources, _recognise_slots_one)
     return sorted(slots, key=lambda slot: (slot.width, _region_center(slot)))
 
 
@@ -1110,7 +1150,7 @@ def recognise_pockets(part) -> list[Pocket]:
     """
     solids = list(part.solids())
     sources = solids if len(solids) > 1 else [part]
-    pockets = [pocket for solid in sources for pocket in _recognise_pockets_one(solid)]
+    pockets = _body_scoped_records(sources, _recognise_pockets_one)
     return sorted(pockets, key=lambda pocket: (pocket.width, _region_center(pocket)))
 
 
@@ -1267,6 +1307,7 @@ def _pocket_spec_key(pk: Pocket) -> tuple:
         round(pk.d_hi, 3),
         pk.open_sign,  # opposite-facing pockets sharing a depth range are on different faces
         pk.edge_anchored,  # implicit-location corner recesses are a distinct feature class
+        pk.body_key,
     )
 
 
@@ -1307,6 +1348,8 @@ def recognise_pocket_patterns(pockets) -> list[PocketArray | PocketGrid]:
     axis_unit = {"x": (1.0, 0.0, 0.0), "y": (0.0, 1.0, 0.0), "z": (0.0, 0.0, 1.0)}
     groups: dict = {}
     for pk in pockets:
+        if pk.body_key is None:
+            continue  # ambiguous physical ownership cannot authorise a pattern
         groups.setdefault(_pocket_spec_key(pk), []).append(pk)
 
     patterns: list[PocketArray | PocketGrid] = []
@@ -1351,6 +1394,7 @@ def _slot_spec_key(sl: Slot) -> tuple:
         round(sl.length, 3),
         round(sl.d_lo, 3),
         round(sl.d_hi, 3),
+        sl.body_key,
     )
 
 
@@ -1390,6 +1434,8 @@ def recognise_slot_patterns(slots) -> list[SlotArray | SlotGrid]:
     axis_unit = {"x": (1.0, 0.0, 0.0), "y": (0.0, 1.0, 0.0), "z": (0.0, 0.0, 1.0)}
     groups: dict = {}
     for sl in slots:
+        if sl.body_key is None:
+            continue  # ambiguous physical ownership cannot authorise a pattern
         groups.setdefault(_slot_spec_key(sl), []).append(sl)
 
     patterns: list[SlotArray | SlotGrid] = []
