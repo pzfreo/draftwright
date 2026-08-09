@@ -59,6 +59,7 @@ from draftwright.recognition.repeating_profiles import (
     _cyclic_edge_orbits,
     _distance,
     _one_closed_cycle,
+    _polar_signature,
     _rotate,
     _sample_wire,
 )
@@ -377,6 +378,46 @@ def test_empty_or_unsampleable_wire_evidence_fails_closed():
     wire = SimpleNamespace(edges=lambda: [_BadEdge()])
     assert not _one_closed_cycle((), tol=_CORRESPONDENCE_TOL)
     assert _sample_wire(wire, ("x", "y")) is None
+
+
+def test_ambiguous_or_self_joined_endpoint_graph_fails_closed():
+    ambiguous = (
+        _CurveEvidence("line", 1.0, ((0.0, 0.0), (1.5e-5, 0.0))),
+        _CurveEvidence("line", 1.0, ((0.75e-5, 0.0), (1.0, 0.0))),
+    )
+    self_joined = (_CurveEvidence("line", 1.0, ((0.0, 0.0), (0.0, 0.0))),)
+
+    assert not _one_closed_cycle(ambiguous, tol=1e-5)
+    assert not _one_closed_cycle(self_joined, tol=1e-5)
+
+
+def test_polar_signature_is_stable_across_the_angle_branch_cut():
+    points = ((-1.0, 0.01), (-1.0, -0.01), (-0.9, -0.02))
+
+    assert _polar_signature(points, (0.0, 0.0)) == _polar_signature(
+        tuple(reversed(points)), (0.0, 0.0)
+    )
+
+
+def test_malformed_faces_and_a_shape_without_owned_solids_fail_closed(monkeypatch):
+    import draftwright.recognition.repeating_profiles as repeating_profiles
+
+    bbox = SimpleNamespace(
+        size=_point(1.0, 1.0, 1.0),
+        min=_point(0.0, 0.0, 0.0),
+        max=_point(1.0, 1.0, 1.0),
+    )
+    shape = SimpleNamespace(
+        bounding_box=lambda: bbox,
+        faces=lambda: [object()],
+        solids=lambda: [],
+    )
+
+    def malformed_boundary(*_args, **_kwargs):
+        raise RuntimeError("malformed face")
+
+    monkeypatch.setattr(repeating_profiles, "_prove_boundary", malformed_boundary)
+    assert repeating_profiles.recognise_repeating_radial_profiles(shape) == []
 
 
 def test_one_changed_intervening_curve_breaks_full_sector_correspondence(wheel_part):
