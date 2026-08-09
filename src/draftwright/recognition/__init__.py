@@ -108,6 +108,10 @@ from draftwright.recognition.polygonal_bosses import (
     recognise_polygonal_stock,
 )
 from draftwright.recognition.profiled_bores import DoubleDBore, recognise_double_d_bores
+from draftwright.recognition.repeating_profiles import (
+    RepeatingRadialProfile,
+    recognise_repeating_radial_profiles,
+)
 from draftwright.recognition.result import RecognitionResult, build_recognition_result
 from draftwright.recognition.slots import (
     Channel,
@@ -147,6 +151,7 @@ __all__ = [
     "PolygonalBoss",
     "PolygonalStock",
     "RaisedPad",
+    "RepeatingRadialProfile",
     "RectGrid",
     "Slot",
     "SlotArray",
@@ -185,6 +190,7 @@ __all__ = [
     "recognise_polygonal_bosses",
     "recognise_polygonal_stock",
     "recognise_rectangular_pads",
+    "recognise_repeating_radial_profiles",
     "recognise_slot_patterns",
     "recognise_slots",
     "recognise_turned_steps",

@@ -1,10 +1,10 @@
 """Evidence-backed recognition and coverage for the double-D wheel profile (#1058)."""
 
 from collections import Counter
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from hashlib import sha256
 from inspect import signature
-from math import asin, cos, hypot, pi, sin, sqrt
+from math import asin, sqrt
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -43,12 +43,24 @@ from draftwright.model import (
     plan_dimensions,
 )
 from draftwright.model.callout import hole_callout_spec
-from draftwright.recognition import build_recognition_result, recognise_double_d_bores
+from draftwright.recognition import (
+    build_recognition_result,
+    recognise_double_d_bores,
+    recognise_repeating_radial_profiles,
+)
 from draftwright.recognition.profiled_bores import (
     DoubleDProfile,
     double_d_bores_from_openings,
     double_d_profile,
     principal_boundary_plane,
+)
+from draftwright.recognition.repeating_profiles import (
+    _CurveEvidence,
+    _cyclic_edge_orbits,
+    _distance,
+    _one_closed_cycle,
+    _rotate,
+    _sample_wire,
 )
 from draftwright.sheet_emit import _feature_line, _hole_line, emit_sheet_script
 
@@ -174,134 +186,11 @@ def _profile_evidence(case="valid"):
     return _ProfileWire([*lines, *arcs], size=size)
 
 
-@dataclass(frozen=True)
-class _CurveEvidence:
-    """A traversal-neutral sample of one real outer-wire edge for #1062 discovery."""
-
-    kind: GeomType
-    length: float
-    points: tuple[tuple[float, float], ...]
-
-
 def _sample_outer_wire(face, *, samples=9) -> tuple[_CurveEvidence, ...]:
-    evidence = []
-    for edge in face.outer_wire().edges():
-        points = []
-        for index in range(samples):
-            point = edge.position_at(index / (samples - 1))
-            points.append((float(point.X), float(point.Y)))
-        evidence.append(
-            _CurveEvidence(
-                kind=edge.geom_type,
-                length=float(edge.length),
-                points=tuple(points),
-            )
-        )
-    return tuple(evidence)
-
-
-def _distance(a, b) -> float:
-    return hypot(a[0] - b[0], a[1] - b[1])
-
-
-def _one_closed_cycle(edges: tuple[_CurveEvidence, ...], tol: float) -> bool:
-    """Every endpoint has degree two and every edge belongs to one connected component."""
-    if not edges:
-        return False
-    nodes: list[tuple[float, float]] = []
-    incident: list[list[int]] = []
-    edge_nodes = []
-    for edge_index, edge in enumerate(edges):
-        endpoints = []
-        for point in (edge.points[0], edge.points[-1]):
-            matches = [index for index, node in enumerate(nodes) if _distance(point, node) <= tol]
-            if len(matches) > 1:
-                return False
-            if matches:
-                node_index = matches[0]
-            else:
-                node_index = len(nodes)
-                nodes.append(point)
-                incident.append([])
-            incident[node_index].append(edge_index)
-            endpoints.append(node_index)
-        if endpoints[0] == endpoints[1]:
-            return False
-        edge_nodes.append(tuple(endpoints))
-    if any(len(edge_ids) != 2 for edge_ids in incident):
-        return False
-
-    reached_edges = set()
-    frontier = [0]
-    while frontier:
-        edge_index = frontier.pop()
-        if edge_index in reached_edges:
-            continue
-        reached_edges.add(edge_index)
-        frontier.extend(
-            neighbour
-            for node_index in edge_nodes[edge_index]
-            for neighbour in incident[node_index]
-            if neighbour not in reached_edges
-        )
-    return len(reached_edges) == len(edges)
-
-
-def _rotate(point, angle, centre):
-    x, y = point[0] - centre[0], point[1] - centre[1]
-    return (
-        centre[0] + x * cos(angle) - y * sin(angle),
-        centre[1] + x * sin(angle) + y * cos(angle),
-    )
-
-
-def _curves_match(source, target, *, angle, centre, tol) -> bool:
-    if source.kind != target.kind or abs(source.length - target.length) > tol:
-        return False
-    rotated = tuple(_rotate(point, angle, centre) for point in source.points)
-    return any(
-        max(_distance(a, b) for a, b in zip(rotated, candidate, strict=True)) <= tol
-        for candidate in (target.points, tuple(reversed(target.points)))
-    )
-
-
-def _cyclic_edge_orbits(edges, *, centre, repeat_count, tol):
-    """Prove the complete closed wire maps bijectively under one repeat rotation."""
-    edges = tuple(edges)
-    if (
-        len(edges) <= repeat_count
-        or len(edges) % repeat_count
-        or not _one_closed_cycle(edges, tol)
-    ):
-        return None
-    angle = 2 * pi / repeat_count
-    mapping = []
-    for edge in edges:
-        matches = [
-            index
-            for index, candidate in enumerate(edges)
-            if _curves_match(edge, candidate, angle=angle, centre=centre, tol=tol)
-        ]
-        if len(matches) != 1:
-            return None
-        mapping.append(matches[0])
-    if len(set(mapping)) != len(edges):
-        return None
-
-    unseen = set(range(len(edges)))
-    orbits = []
-    while unseen:
-        start = min(unseen)
-        orbit = []
-        current = start
-        while current not in orbit:
-            orbit.append(current)
-            current = mapping[current]
-        if current != start or len(orbit) != repeat_count:
-            return None
-        unseen -= set(orbit)
-        orbits.append(tuple(orbit))
-    return tuple(orbits)
+    assert samples == 9
+    evidence = _sample_wire(face.outer_wire(), ("x", "y"))
+    assert evidence is not None
+    return evidence
 
 
 @pytest.fixture(scope="module")
@@ -378,8 +267,69 @@ def test_real_wheel_proves_complete_thirteen_sector_correspondence(wheel_part):
         assert orbits is not None
         assert [len(orbit) for orbit in orbits] == [13, 13, 13, 13]
         assert Counter(evidence[orbit[0]].kind for orbit in orbits) == Counter(
-            {GeomType.BSPLINE: 3, GeomType.CIRCLE: 1}
+            {GeomType.BSPLINE.name: 3, GeomType.CIRCLE.name: 1}
         )
+
+
+def test_production_recogniser_carries_complete_serialisable_profile_evidence(wheel_part):
+    (profile,) = recognise_repeating_radial_profiles(wheel_part)
+
+    assert profile.axis == "z"
+    assert profile.centre == pytest.approx((0.0, 0.0, 0.0), abs=1e-6)
+    assert profile.span == pytest.approx((-3.8500001, 3.8500001))
+    assert profile.repeat_count == 13
+    assert profile.edge_count == 52
+    assert Counter(item[0] for item in profile.sector_signature) == Counter(
+        {GeomType.BSPLINE.name: 3, GeomType.CIRCLE.name: 1}
+    )
+    assert len(profile.to_dict()["sector_signature"]) == 4
+
+
+def test_equal_profiles_on_distinct_bodies_remain_ambiguous(wheel_part, monkeypatch):
+    import draftwright.recognition.repeating_profiles as repeating_profiles
+
+    (profile,) = recognise_repeating_radial_profiles(wheel_part)
+    bodies = (object(), object())
+    part = SimpleNamespace(solids=lambda: bodies)
+    monkeypatch.setattr(
+        repeating_profiles,
+        "_recognise_solid",
+        lambda solid, **_kwargs: [profile] if solid in bodies else [],
+    )
+
+    assert repeating_profiles.recognise_repeating_radial_profiles(part) == [profile, profile]
+
+
+def test_declared_gear_reconciles_to_the_recognition_owned_profile(wheel_part):
+    sheet = Sheet(wheel_part)
+    sheet.external_spur_gear(
+        at=(0, 0, 0),
+        axis="z",
+        tooth_count=13,
+        module=0.5,
+        pressure_angle=20,
+        profile_shift=0,
+        face_width=7.7000002,
+        tooth_thickness=0.78,
+        tooth_thickness_tolerance=(-0.03, 0.01),
+        flank_tolerance_class=7,
+    )
+    sheet.authored_dimensions()
+
+    drawing = sheet.build()
+    recognition = drawing.recognition()
+    assert recognition is None, "declared build/render must remain recognition-free"
+    codes = {issue.code for issue in drawing.lint()}
+    assert drawing.recognition() is not None
+    assert (
+        not {
+            "gear_correspondence_unverifiable",
+            "gear_axis_mismatch",
+            "gear_repeat_count_mismatch",
+        }
+        & codes
+    )
+    assert "unrecognised_defining_geometry" in codes
 
 
 def test_full_profile_correspondence_ignores_start_and_traversal(wheel_part):
@@ -403,7 +353,7 @@ def test_full_profile_correspondence_ignores_start_and_traversal(wheel_part):
 
 def test_common_circle_arcs_alone_do_not_prove_full_sector_correspondence(wheel_part):
     evidence = _sample_outer_wire(_wheel_end_faces(wheel_part)[0])
-    arcs = tuple(edge for edge in evidence if edge.kind == GeomType.CIRCLE)
+    arcs = tuple(edge for edge in evidence if edge.kind == GeomType.CIRCLE.name)
     assert len(arcs) == 13
     assert (
         _cyclic_edge_orbits(
@@ -416,10 +366,23 @@ def test_common_circle_arcs_alone_do_not_prove_full_sector_correspondence(wheel_
     )
 
 
+def test_empty_or_unsampleable_wire_evidence_fails_closed():
+    class _BadEdge:
+        geom_type = GeomType.BSPLINE
+        length = 1.0
+
+        def position_at(self, _fraction):
+            raise RuntimeError("malformed curve")
+
+    wire = SimpleNamespace(edges=lambda: [_BadEdge()])
+    assert not _one_closed_cycle((), tol=_CORRESPONDENCE_TOL)
+    assert _sample_wire(wire, ("x", "y")) is None
+
+
 def test_one_changed_intervening_curve_breaks_full_sector_correspondence(wheel_part):
     evidence = list(_sample_outer_wire(_wheel_end_faces(wheel_part)[0]))
     changed_index = next(
-        index for index, edge in enumerate(evidence) if edge.kind == GeomType.BSPLINE
+        index for index, edge in enumerate(evidence) if edge.kind == GeomType.BSPLINE.name
     )
     changed = evidence[changed_index]
     points = list(changed.points)
@@ -427,7 +390,7 @@ def test_one_changed_intervening_curve_breaks_full_sector_correspondence(wheel_p
     points[len(points) // 2] = (x + 0.01, y)
     evidence[changed_index] = replace(changed, points=tuple(points))
 
-    assert len([edge for edge in evidence if edge.kind == GeomType.CIRCLE]) == 13
+    assert len([edge for edge in evidence if edge.kind == GeomType.CIRCLE.name]) == 13
     assert (
         _cyclic_edge_orbits(
             evidence,
@@ -489,6 +452,30 @@ def test_one_unequal_sector_pitch_breaks_correspondence_even_when_closed(wheel_p
     )
 
 
+def test_non_bijective_sector_mapping_is_rejected_before_orbit_claim(wheel_part, monkeypatch):
+    import draftwright.recognition.repeating_profiles as repeating_profiles
+
+    evidence = _sample_outer_wire(_wheel_end_faces(wheel_part)[0])
+    assert _one_closed_cycle(evidence, tol=_CORRESPONDENCE_TOL)
+    targets = [(index + 4) % len(evidence) for index in range(len(evidence))]
+    targets[1] = targets[0]  # two source curves now claim the same physical target curve
+    target_for = {id(source): evidence[target] for source, target in zip(evidence, targets)}
+
+    def non_bijective(source, target, **_kwargs):
+        return target is target_for[id(source)]
+
+    monkeypatch.setattr(repeating_profiles, "_curves_match", non_bijective)
+    assert (
+        repeating_profiles._cyclic_edge_orbits(
+            evidence,
+            centre=(0.0, 0.0),
+            repeat_count=_RADIAL_REPEAT_COUNT,
+            tol=_CORRESPONDENCE_TOL,
+        )
+        is None
+    )
+
+
 def test_real_wheel_no_longer_gets_a_confident_envelope_only_result(wheel_drawing):
     assert Counter(feature.kind for feature in wheel_drawing.model().features) == Counter(
         {"envelope": 1, "hole": 1}
@@ -525,7 +512,10 @@ def test_real_wheel_no_longer_gets_a_confident_envelope_only_result(wheel_drawin
     assert tip[1] == pytest.approx(centre[1])
 
     summary = wheel_drawing.lint_summary()
-    assert summary["by_code"] == {"unrecognised_defining_geometry": 1}
+    assert summary["by_code"] == {
+        "gear_semantics_missing": 1,
+        "unrecognised_defining_geometry": 1,
+    }
     assert summary["score"] < 1.0
     assert "unsupported outer boundary" in summary["issues"][0]["message"]
     assert "13 evenly spaced common-circle arcs" in summary["issues"][0]["message"]

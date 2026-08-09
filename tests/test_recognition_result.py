@@ -132,6 +132,11 @@ def test_orchestrator_injects_each_shared_dependency_once(monkeypatch):
         result_module, "recognise_pocket_patterns", derived("pocket_patterns", pockets, [])
     )
     monkeypatch.setattr(result_module, "recognise_rectangular_pads", counted("pads", []))
+    monkeypatch.setattr(
+        result_module,
+        "recognise_repeating_radial_profiles",
+        counted("repeating_radial_profiles", []),
+    )
     monkeypatch.setattr(result_module, "recognise_turned_steps", cyl_consumer("turned_steps", []))
     # The area-filtered records retain face support (#915); `step_ladder()` projects their Z
     # values for sizing/critique. It takes the part only — no substrate identity to assert.
@@ -172,6 +177,7 @@ def test_orchestrator_injects_each_shared_dependency_once(monkeypatch):
         "pockets",
         "pocket_patterns",
         "pads",
+        "repeating_radial_profiles",
         "turned_steps",
         "step_levels",
         "slot_patterns",

@@ -150,7 +150,7 @@ still computes a group that these passes do not consume):
   requirement record, not a collection of independently placeable dimensions. The
   post-ISO-fit renderer places its complete standards table through `Drawing.add_table()`'s
   solver-owned late-furniture path. Physical lint independently reconciles the placed table
-  snapshot and, when available, geometry-only repeating-profile evidence (#1086/#1087).
+  snapshot and geometry-only repeating-profile evidence (#1086/#1087).
 
 **Why the split matters:** the planner is where authored decorations fold onto
 dimension parameters and where dimension-level convention and suppression

@@ -15,8 +15,9 @@ import pkgutil
 from contextlib import contextmanager
 from dataclasses import fields
 from math import cos, radians, sin
+from pathlib import Path
 
-from build123d import Align, Box, Cone, Cylinder, Pos, RegularPolygon, extrude
+from build123d import Align, Box, Cone, Cylinder, Pos, RegularPolygon, extrude, import_step
 from conftest import counting_calls
 
 import draftwright.model.detect as detect_module
@@ -45,6 +46,7 @@ from draftwright.recognition import (
     recognise_polygonal_bosses,
     recognise_polygonal_stock,
     recognise_rectangular_pads,
+    recognise_repeating_radial_profiles,
     recognise_risers,
     recognise_slot_patterns,
     recognise_slots,
@@ -143,6 +145,10 @@ def _u_channel():
     )
 
 
+def _repeating_wheel():
+    return import_step(str(Path(__file__).parent / "fixtures" / "issue_1058_wheel_rh.step"))
+
+
 #: Between them these cover every RecognitionResult field with a NON-EMPTY inventory, which
 #: is what makes the equality assertions in the oracle below discriminating rather than
 #: comparing () to ().
@@ -162,6 +168,7 @@ _ORACLE_FIXTURES = [
     ("U-channel", _u_channel),
     ("chamfered+filleted block", _chamfered_filleted_block),
     ("rotational shaft", _rotational_shaft),
+    ("repeating radial wheel", _repeating_wheel),
 ]
 
 
@@ -370,6 +377,7 @@ def _expected_inventory(part, *, rotational: bool = False) -> dict:
         "pockets": tuple(pockets),
         "pocket_patterns": tuple(recognise_pocket_patterns(pockets)),
         "pads": tuple(recognise_rectangular_pads(part)),
+        "repeating_radial_profiles": tuple(recognise_repeating_radial_profiles(part)),
         "turned_steps": tuple(recognise_turned_steps(part, cyls=cyls)),
         "step_levels": tuple(step_level_records(part)),
         "risers": tuple(recognise_risers(part)),

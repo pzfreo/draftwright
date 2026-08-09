@@ -156,6 +156,10 @@ entry. Keep `_LAYERS` and this section in step.
   (`_suggest_fix`, #29 snippets). Depends only on `_core`,
   `recognition/` (typed hole records in `coverage.py`) + build123d_drafting. `_QUOTED_RE` (a lint-message label regex shared with the
   repair loop) lives in `_core`.
+- **`recognition/repeating_profiles.py`** — geometry-only complete-wire cyclic
+  correspondence for declared-gear critique (#1087). It proves closed, bijective sector
+  mappings and carries only axis/centre/span/count plus a serialisable sector signature;
+  it never infers gear semantics.
 - **`model/`** — the ADR 0015 IR waist: `ir.py` (the `Feature`/`DimParameter`/
   `Datum`/`PartModel` types — the one inventory), `detect.py` (detectors →
   `Feature` objects, adapting `recognition/`), `planner.py` (`plan_dimensions` —

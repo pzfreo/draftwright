@@ -72,9 +72,13 @@ Completeness lint therefore distinguishes:
 - a tooth/repeat-count disagreement (`gear_repeat_count_mismatch`);
 - missing, ambiguous, or stale table output (`gear_requirement_*`).
 
-Issue #1087 supplies the production full-wire repeating-profile evidence. Until that producer is
-present, a declared gear stays explicitly unverifiable under physical lint, and cyclic-looking
-geometry retains `unrecognised_defining_geometry`.
+The recognition run proves repeating-profile evidence from every edge of two opposed closed
+outer wires. It requires a bijective sector mapping and carries a traversal/phase-neutral curve
+signature; common-circle arcs alone cannot certify the profile. Lint then corresponds a declared
+target by centre and axial span before checking axis and count. Missing, ambiguous, incomplete,
+or unequal evidence stays explicitly unverifiable. A proved cyclic profile still retains
+`unrecognised_defining_geometry`: geometry evidence does not manufacture gear semantics or a
+complete manufacturing definition.
 
 ## Out of scope
 

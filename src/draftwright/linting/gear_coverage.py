@@ -65,9 +65,9 @@ def lint_declared_gear_coverage(
 ) -> list[LintIssue]:
     """Reconcile authored gear requirements with tables and independent profile facts.
 
-    ``profiles=None`` means that the production full-wire evidence source is not available
-    yet; an empty tuple means it ran and proved no repeating profile.  The distinction keeps
-    #1086 fail-closed while #1087 installs the geometry-only producer.
+    ``profiles=None`` means that the run did not supply the production evidence inventory;
+    an empty tuple means it ran and proved no repeating profile.  Both states remain
+    fail-closed rather than treating unavailable geometry as correspondence.
     """
     severity: Literal["info", "warning"] = "info" if assembly else "warning"
     gears = [f for f in features if getattr(f, "kind", None) == "external_spur_gear"]
@@ -113,8 +113,8 @@ def lint_declared_gear_coverage(
                     severity=severity,
                     code="gear_correspondence_unverifiable",
                     message=(
-                        "declared gear requirements cannot yet be reconciled to independently "
-                        "proved full-wire repeating-profile evidence"
+                        "declared gear requirements could not be reconciled because the run "
+                        "did not supply full-wire repeating-profile evidence"
                     ),
                 )
             )

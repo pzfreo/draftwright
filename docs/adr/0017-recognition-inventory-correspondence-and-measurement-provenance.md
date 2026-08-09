@@ -340,6 +340,8 @@ completeness slice. The remaining abstractions are evaluated separately after Ga
 - [x] Classification-gated families are owned but skipped for inapplicable part classes.
 - [x] A counterexample/mutation fails when the cache, gate, manifest, or shared-evidence contract
   it protects is broken.
+- [x] Complete-wire repeating radial-profile evidence is scanned once by the orchestration;
+  declared-gear critique projects axis/count correspondence from it without rescanning (#1087).
 
 These guards accept the narrowed ADR. The former acceptance list for typed identities, shared
 requirements, general outcomes, reconciliation, and diagnostics belongs to the evidence-gated

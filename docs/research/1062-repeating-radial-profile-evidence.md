@@ -1,8 +1,8 @@
 # Repeating Radial Profile Evidence (#1062)
 
-> **Status:** discovery decision, 2026-08-07. The executable evidence is in
-> `tests/test_issue_1058_wheel_profile.py`. No automatic gear semantics are approved by
-> this note.
+> **Status:** productionised by #1087, 2026-08-09. The executable mutations remain in
+> `tests/test_issue_1058_wheel_profile.py`; the reusable evidence is owned by
+> `recognition/repeating_profiles.py`. No automatic gear semantics are approved by this note.
 
 ## Decision
 
@@ -91,10 +91,9 @@ No ADR amendment is required. No placement decision is made, so ADR 0014 is unaf
 
 ## Follow-up Slices
 
-1. **Productionise repeating-profile evidence when a consumer is ready.** Extract the pure
-   full-wire correspondence into recognition, add it to the one orchestration, and use it for
-   physical critique and declared-profile correspondence. Do not clear completeness merely
-   because the repeat exists.
+1. **Productionised in #1087.** The pure full-wire correspondence is owned by the one
+   recognition orchestration and consumed by physical critique for declared-profile
+   correspondence. It does not clear completeness merely because the repeat exists.
 2. **Design declared gear requirements.** Start from the applicable drawing/gear standards
    and define the minimum honest declaration, validation, IR, and table/callout output. Include
    a mismatch diagnostic when declared count or axis disagrees with geometric evidence.

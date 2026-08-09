@@ -16,9 +16,10 @@ from __future__ import annotations
 import dataclasses
 import inspect
 import json
+from pathlib import Path
 
 import pytest
-from build123d import Align, Axis, Box, Cylinder, Pos, Rot, chamfer, fillet
+from build123d import Align, Axis, Box, Cylinder, Pos, Rot, chamfer, fillet, import_step
 
 from draftwright.recognition import (
     BoltCircle,
@@ -39,6 +40,7 @@ from draftwright.recognition import (
     PocketGrid,
     PolygonalBoss,
     RectGrid,
+    RepeatingRadialProfile,
     Slot,
     SlotArray,
     SlotGrid,
@@ -61,6 +63,7 @@ from draftwright.recognition import (
     recognise_pocket_patterns,
     recognise_pockets,
     recognise_polygonal_bosses,
+    recognise_repeating_radial_profiles,
     recognise_risers,
     recognise_slot_patterns,
     recognise_slots,
@@ -97,6 +100,7 @@ _EXPECTED_RECORD_TYPES = {
     FaceLevel,
     StepShoulder,
     TurnedStep,
+    RepeatingRadialProfile,
 }
 
 
@@ -253,6 +257,12 @@ def _records_from_recognisers():
         ("recognise_plates", recognise_plates(_l_bracket())),
         ("recognise_face_levels", recognise_face_levels(stepped)),
         ("recognise_risers", recognise_risers(stepped)),
+        (
+            "recognise_repeating_radial_profiles",
+            recognise_repeating_radial_profiles(
+                import_step(str(Path(__file__).parent / "fixtures" / "issue_1058_wheel_rh.step"))
+            ),
+        ),
         # `StepShoulder` stopped being a recogniser return in #1025 — it is now what
         # `project_step_shoulders` derives from riser evidence. It stays in this roster
         # because the record contract (frozen, JSON-serialisable, no leaked build123d object)
@@ -320,6 +330,7 @@ def test_part_based_recognisers_are_keyword_only_after_part():
         recognise_plates,
         recognise_face_levels,
         recognise_risers,
+        recognise_repeating_radial_profiles,
         recognise_turned_steps,
     ):
         params = list(inspect.signature(fn).parameters.values())

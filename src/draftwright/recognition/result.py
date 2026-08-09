@@ -30,6 +30,7 @@ from draftwright.recognition.polygonal_bosses import (
     recognise_polygonal_stock,
 )
 from draftwright.recognition.profiled_bores import recognise_double_d_bores
+from draftwright.recognition.repeating_profiles import recognise_repeating_radial_profiles
 from draftwright.recognition.slots import (
     recognise_channels,
     recognise_pocket_patterns,
@@ -65,6 +66,7 @@ MIGRATED: frozenset[str] = frozenset(
         "recognise_polygonal_bosses",
         "recognise_polygonal_stock",
         "recognise_rectangular_pads",
+        "recognise_repeating_radial_profiles",
         "recognise_risers",
         "recognise_slot_patterns",
         "recognise_slots",
@@ -170,6 +172,9 @@ class RecognitionResult:
     pockets: tuple
     pocket_patterns: tuple
     pads: tuple
+    #: Complete outer-wire cyclic correspondence.  Geometry-only: consumers may compare a
+    #: declared axis/count, but this inventory never manufactures gear semantics (#1087).
+    repeating_radial_profiles: tuple
     turned_steps: tuple
     #: Area-filtered interior prismatic levels. The support spans remain on each record so IR
     #: assembly can preserve level-to-face correspondence; sizing and critique project the Z
@@ -277,6 +282,7 @@ def build_recognition_result(
         pockets=tuple(pockets),
         pocket_patterns=tuple(recognise_pocket_patterns(pockets)),
         pads=tuple(recognise_rectangular_pads(part)),
+        repeating_radial_profiles=tuple(recognise_repeating_radial_profiles(part)),
         turned_steps=tuple(turned_steps),
         rotational=rotational,
         step_levels=tuple(step_level_records(part)),

@@ -73,6 +73,7 @@ from draftwright.recognition import (
     PolygonalStock,
     RaisedPad,
     RectGrid,
+    RepeatingRadialProfile,
     RiserEvidence,
     Slot,
     SlotArray,
@@ -687,14 +688,18 @@ _DERIVED_CONVERTERS: dict[type, Callable[..., Feature]] = {
     SlotGrid: _slot_pattern_feature,
 }
 
-# Tier 3 — orchestrated records: no per-record converter, by design. Each is either a
-# nested sub-record or aggregated into a single furniture feature; the reason is the
-# residual scope ADR 0013 Phase 1 explicitly accepts.
+# Tier 3 — orchestrated/evidence records: no per-record converter, by design. Each is a
+# nested sub-record, aggregated into a correlated feature, or retained solely as independent
+# physical evidence; the reason is the residual scope ADR 0013 Phase 1 explicitly accepts.
 _ORCHESTRATED_RECORDS: dict[type, str] = {
     CounterSink: "a nested sub-record of HoleRecord — rides on the hole callout, never a top-level feature",
     FaceLevel: "aggregated into a single StepLevelFeature step ladder (one feature per part, not per level)",
     StepShoulder: "aggregated into StepLevelFeature.shoulders (in-plane step positions, not a standalone feature)",
     RiserEvidence: "pre-projection evidence (#1025) — projected to StepShoulder per consumer, never converted directly",
+    RepeatingRadialProfile: (
+        "geometry-only critique evidence (#1087) — validates a separately authored gear "
+        "declaration and must never become an inferred IR feature"
+    ),
 }
 
 
