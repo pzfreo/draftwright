@@ -42,7 +42,6 @@ def gear_table_rows(feature: ExternalSpurGearFeature) -> tuple[tuple[str, str, s
             str(feature.flank_tolerance_class),
             feature.FLANK_TOLERANCE_STANDARD,
         ),
-        ("REPRESENTATION", "CONVENTIONAL", feature.REPRESENTATION_STANDARD),
     )
 
 

@@ -53,7 +53,6 @@ def _expected_rows(feature) -> tuple[tuple[str, str, str], ...]:
             feature.TOOTH_THICKNESS_STANDARD,
         ),
         ("FLANK CLASS", str(feature.flank_tolerance_class), feature.FLANK_TOLERANCE_STANDARD),
-        ("REPRESENTATION", "CONVENTIONAL", feature.REPRESENTATION_STANDARD),
     )
 
 

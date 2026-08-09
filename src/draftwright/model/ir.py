@@ -930,7 +930,6 @@ class ExternalSpurGearFeature:
     BASIC_RACK_STANDARD: ClassVar[str] = "ISO 53:1998"
     MODULE_STANDARD: ClassVar[str] = "ISO 54:1996"
     FLANK_TOLERANCE_STANDARD: ClassVar[str] = "ISO 1328-1:2013"
-    REPRESENTATION_STANDARD: ClassVar[str] = "ISO 2203:1973"
 
     frame: Frame
     tooth_count: int

@@ -14,7 +14,7 @@ only confirm correspondence facts such as axis and repeat count.
 | [ISO 54:1996](https://www.iso.org/standard/22644.html) | Metric normal-module vocabulary |
 | [ISO 21771-2:2025](https://www.iso.org/standard/78378.html) | Tooth-thickness calculation and measurement vocabulary |
 | [ISO 1328-1:2013](https://www.iso.org/standard/45309.html) | Individual tooth-flank tolerance classification |
-| [ISO 2203:1973](https://www.iso.org/standard/7006.html) | Conventional gear representation on technical drawings |
+| [ISO 2203:1973](https://www.iso.org/standard/7006.html) | Reviewed representation standard; conventional simplification is not yet claimed |
 
 ISO 21771-2 explicitly does not select the desired tooth thickness or its tolerance. Draftwright
 therefore requires both as authored values. It does not derive them from module, pressure angle,
@@ -34,7 +34,7 @@ fields:
 - tooth thickness at the reference cylinder and its signed lower/upper deviations;
 - ISO 1328-1 flank tolerance class 1–11.
 
-The class and six standard editions are fixed by the typed feature, rather than repeated as
+The class and five requirement-standard editions are fixed by the typed feature, rather than repeated as
 free-form strings. Missing values, non-finite/non-positive sizes, invalid angles, inverted tooth-
 thickness limits, and out-of-range tooth/flank classes raise at the IR boundary. For this spur
 class, `m × z` is the reference diameter; it must also remain within ISO 1328-1's published
@@ -58,6 +58,8 @@ sheet.external_spur_gear(
 The resulting gear-data table is late furniture placed through `Drawing.add_table()`'s shared
 free-space solve. The declaration exposes no raw page coordinate. Generated Sheet scripts use a
 lossless numeric spelling for these authored values and reproduce the same frozen IR record.
+Draftwright continues to project the source B-rep exactly; it does not yet replace that geometry
+with ISO 2203's conventional simplified representation, and the table makes no such claim.
 
 ## Fail-closed correspondence
 
