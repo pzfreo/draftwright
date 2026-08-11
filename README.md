@@ -217,9 +217,23 @@ dwg = build_drawing(part)
 env = next(f for f in dwg.model().features if f.kind == "envelope")
 dwg.dimension(env, "length", role="width", side="below", pin=True)
 
-crit = dwg.lint_summary()   # {"passed", "score", "by_code", "issues":[…suggestion]}
+crit = dwg.lint_summary()
+# Legacy diagnostic severity heuristic (not overall drawing quality):
+assert crit["diagnostic_score"] == crit["score"]
+# Independently observable components; no composite quality score is invented:
+completeness = crit["quality"]["completeness"]
+# Conditional on the requirements Draftwright recognized and can currently audit:
+recognized_completeness = completeness["score"]
+assert completeness["scope"] == "audited_recognized_requirements"
+legibility = crit["quality"]["legibility"]
+restraint = crit["quality"]["restraint"]  # unavailable until provenance is complete
 dwg.repair()                # auto-fix mechanically-fixable lint; never worsens
 ```
+
+Completeness is strict about authored omissions: removing a dimension from a complete authored
+set records a `suppressed` requirement and lowers the score. The evidence distinguishes that
+choice from a placement failure, but cannot certify that the omission is engineering-correct;
+plain deletion is not an accepted-waiver mechanism.
 
 Each `LintIssue` carries a domain-meaningful `code` and, when computable, a
 ready-to-apply `suggestion`. See `docs/adr/` for the design (deterministic

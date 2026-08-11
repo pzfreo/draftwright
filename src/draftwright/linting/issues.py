@@ -27,3 +27,8 @@ class LintIssue:
     # populated narrowly by source reconciliation such as AP242 PMI (#623); this does not
     # introduce a second feature/measurement identity system.
     source_ids: tuple[str, ...] = ()
+    # Build-time outcome stage where one issue code can represent more than one failure class.
+    # In particular ``gdt_dropped``/``pmi_dropped`` historically cover both malformed input
+    # (validation) and a valid candidate that did not fit (placement). Quality components must
+    # not infer that distinction from the shared code or its message (#1127).
+    outcome_stage: Literal["placement", "validation"] | None = None

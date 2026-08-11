@@ -5237,6 +5237,8 @@ class TestLintSummaryAndDrops:
         assert set(s) == {
             "passed",
             "score",
+            "diagnostic_score",
+            "quality",
             "errors",
             "warnings",
             "infos",
@@ -5247,10 +5249,66 @@ class TestLintSummaryAndDrops:
         assert s["errors"] + s["warnings"] + s["infos"] == len(issues)
         assert s["passed"] is (s["errors"] == 0)
         assert 0.0 <= s["score"] <= 1.0
+        assert s["diagnostic_score"] == s["score"]
+        assert set(s["quality"]) == {"completeness", "restraint", "legibility"}
+        completeness = s["quality"]["completeness"]
+        assert completeness["available"] is False
+        assert completeness["score"] is None
+        assert completeness["coverage"] == "partial"
+        assert completeness["scope"] == "audited_recognized_requirements"
+        assert completeness["unscored_recognized_families"] == ["holes"]
+        assert completeness["reason"] == (
+            "recognized requirements exist only in families without outcome ledgers"
+        )
         assert sum(s["by_code"].values()) == len(issues)
         assert len(s["issues"]) == len(issues)
         # A single-hole plate doesn't overflow the per-view callout cap.
         assert "callout_dropped" not in s["by_code"]
+
+    def test_quality_components_do_not_mix_semantic_and_layout_diagnostics(self):
+        from build123d import Box
+
+        from draftwright import build_drawing
+
+        dwg = build_drawing(Box(60, 40, 30))
+        dwg.registry.record_issue(
+            LintIssue(severity="warning", code="callout_dropped", message="layout")
+        )
+        dwg.registry.record_issue(
+            LintIssue(severity="warning", code="feature_not_dimensioned", message="completeness")
+        )
+        dwg.registry.record_issue(
+            LintIssue(severity="info", code="slot_dim_dropped", message="info placement drop")
+        )
+        dwg.registry.record_issue(
+            LintIssue(
+                severity="warning",
+                code="gdt_dropped",
+                message="invalid characteristic",
+                outcome_stage="validation",
+            )
+        )
+
+        summary = dwg.lint_summary()
+        legibility = summary["quality"]["legibility"]
+        assert summary["score"] == summary["diagnostic_score"] == 0.85
+        assert legibility == {
+            "available": True,
+            "score": 0.9,
+            "errors": 0,
+            "warnings": 1,
+            "infos": 1,
+            "placement_drops": 2,
+            "by_code": {"callout_dropped": 1, "slot_dim_dropped": 1},
+            "basis": "layout_issue_severity_with_drop_floor",
+        }
+        assert summary["quality"]["restraint"] == {
+            "available": False,
+            "score": None,
+            "reason": (
+                "measurement provenance and physical requirement equivalence are incomplete"
+            ),
+        }
 
     def test_recorded_build_issue_surfaces_and_counts(self):
         from build123d import Box

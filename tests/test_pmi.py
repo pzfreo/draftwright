@@ -1185,6 +1185,7 @@ class TestBuildDrawingPmi:
         assert [(issue.severity, issue.source_ids) for issue in drops] == [
             ("warning", ("dimension:mutation",))
         ]
+        assert [issue.outcome_stage for issue in drops] == ["placement"]
         assert lint_pmi_rendering(drawing.model().features, drawing.registry, "annotate") == []
 
     def test_pmi_annotate_exports_svg_dxf(self, ctc01_annotated):

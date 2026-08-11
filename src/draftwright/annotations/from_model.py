@@ -3945,6 +3945,7 @@ def _record_pmi_drop(ctx, dwg, ax, label, rec):
         "pmi_dropped",
         f"PMI {label!r} not placed (no room beside the {view})",
         source=getattr(rec, "source_id", ""),
+        outcome_stage="placement",
     )
     ctx.escalations.append(
         Escalation(kind="pmi", view=view, feature=rec, reason="no room beside the view")
@@ -4575,6 +4576,7 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
                 "pmi_dropped" if source_ids else "gdt_dropped",
                 f"{name}: bad target {item.view!r}/{item.side!r}",
                 source=source_ids,
+                outcome_stage="validation",
             )
             continue
         zones, hproj, vproj, hi, vi = vk
@@ -4597,6 +4599,7 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
                 "pmi_dropped" if source_ids else "gdt_dropped",
                 f"{name}: cannot render ({type(e).__name__}: {e})",
                 source=source_ids,
+                outcome_stage="validation",
             )
             continue
         size = (gb.X, gb.Y)
@@ -4705,6 +4708,7 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
                     "pmi_dropped" if _source else "gdt_dropped",
                     f"{nm} not placed (no room in any {_v} strip)",
                     source=_source,
+                    outcome_stage="placement",
                 )
 
             ctx.post_drain.append(_retry)

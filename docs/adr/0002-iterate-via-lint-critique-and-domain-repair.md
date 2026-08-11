@@ -29,8 +29,8 @@ refinement model, with the lint system as the machine-readable critic.
 
 1. **`build` — automatic first pass.** `build_drawing(...)` applies all
    deterministic intelligence and returns both the drawing *and* a critique
-   (`lint_summary()`): `passed`, a coarse `score`, severity counts, and per-issue
-   records with domain-meaningful codes (`feature_not_dimensioned`,
+   (`lint_summary()`): `passed`, a coarse diagnostic score, separate quality components,
+   severity counts, and per-issue records with domain-meaningful codes (`feature_not_dimensioned`,
    `callout_dropped`, `location_ref_dropped`, …). Because of ADR 0001's
    deterministic investment, the common case ends here — no iteration needed.
 
@@ -45,7 +45,9 @@ refinement model, with the lint system as the machine-readable critic.
 3. **`domain-fix` — repair in domain vocabulary, never the layout DSL.** Each fix
    is expressed as domain intent — `dimension(feature=…)`, `section("A",
    through=…)` — not strip/zone/`dwg.at` mechanics. Then re-build and re-critique;
-   loop until `passed` (or the score plateaus).
+   loop until the relevant issue codes are resolved. The legacy scalar must not be an
+   optimisation target: #1126 demonstrated that sparse authored input can improve it while
+   making a geometry-only drawing less complete.
 
 4. **Make the loop cheap to close.** Two mechanisms reduce the fix step to near
    review-only:
@@ -75,8 +77,18 @@ same iterate-and-fix laps — with no fluency in draftwright internals required.
 - The loop is only as good as the critic: lint must keep growing toward
   "flags everything a competent reviewer would," including *never-attempted*
   coverage gaps, not just drops. Blind spots become silent failures.
-- The `score` is a heuristic; callers should gate on severity/code **counts**,
-  treating the scalar as secondary.
+- The legacy `score` is only a severity-weighted diagnostic heuristic. `diagnostic_score`
+  exposes the same value under its honest name; callers should gate on severity/code counts
+  and inspect `quality.completeness`, `quality.restraint`, and `quality.legibility` separately.
+  Components state when their evidence is partial or unavailable, and no composite
+  drawing-quality score is provided. Completeness is deliberately conditional on requirements
+  Draftwright recognized and can audit; it reports that scope and any recognized-but-unscored
+  families instead of treating unknown physical features as a reason to suppress the useful
+  score (#1127).
+- Completeness cannot infer that deleting an authored dimension was an engineering-correct
+  redundancy decision. Such an omission remains a visible `suppressed` requirement and scores
+  as unplaced. Counting every authored omission as complete would make the metric trivially
+  gameable; an accepted waiver would need a distinct, explicit, reviewable provenance state.
 - Requires building the domain-semantic API, suggestions, and repair loop
   (roadmap Cluster B / #25–#30) — the loop is aspirational until they exist.
 

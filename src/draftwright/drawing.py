@@ -91,6 +91,7 @@ from draftwright.linting import (
     lint_slot_coverage,
     pmi_stage_summary,
 )
+from draftwright.linting.quality import quality_components
 from draftwright.projection import (
     project_view_geometry,
 )
@@ -2929,13 +2930,16 @@ class Drawing:
         return issues
 
     def lint_summary(self) -> dict:
-        """Aggregate :meth:`lint` into a JSON-friendly quality summary.
+        """Aggregate :meth:`lint` into a JSON-friendly diagnostic summary.
 
-        Gives a non-interactive caller (a script, or an LLM via the API) a
-        single signal to gate and optimise on without rendering the SVG:
+        Gives a non-interactive caller (a script, or an LLM via the API) structured
+        diagnostics and independently inspectable components without rendering the SVG:
 
         - ``passed`` — no error-severity issues;
-        - ``score`` — coarse 0–1 quality heuristic (see ``_SCORE_*``);
+        - ``score`` — legacy coarse 0–1 diagnostic heuristic (see ``_SCORE_*``);
+        - ``diagnostic_score`` — the same value under its honest name;
+        - ``quality`` — separable completeness, restraint, and legibility components. No
+          composite drawing-quality score is manufactured (#1127);
         - ``errors`` / ``warnings`` / ``infos`` — counts by severity;
         - ``by_code`` — per-check counts;
         - ``geometry_issues`` — count of standards/geometry-correctness issues
@@ -2965,9 +2969,20 @@ class Drawing:
             if self._analysis is not None
             else None
         )
+        quality = quality_components(
+            recognition=self._build.recognition,
+            features=getattr(self._part_model, "features", ()),
+            registry=self._registry,
+            omissions=self._build.omissions,
+            issues=issues,
+            error_penalty=_SCORE_ERROR_PENALTY,
+            warning_penalty=_SCORE_WARNING_PENALTY,
+        )
         return {
             "passed": errors == 0,
             "score": score,
+            "diagnostic_score": score,
+            "quality": quality,
             "errors": errors,
             "warnings": warnings,
             "infos": infos,
@@ -2986,6 +3001,11 @@ class Drawing:
                         else {}
                     ),
                     **({"source_ids": i.source_ids} if i.source_ids else {}),
+                    **(
+                        {"outcome_stage": i.outcome_stage}
+                        if getattr(i, "outcome_stage", None) is not None
+                        else {}
+                    ),
                 }
                 for i in issues
             ],

@@ -106,6 +106,12 @@ def test_a_placed_engine_callout_satisfies_the_recognised_requirement():
         "coverage result would have no semantic evidence"
     )
     assert _flat_codes(dwg) == []
+    completeness = dwg.lint_summary()["quality"]["completeness"]
+    assert completeness["denominator"] == "recognition"
+    assert completeness["coverage"] == "partial"
+    assert completeness["scope"] == "audited_recognized_requirements"
+    assert completeness["requirements"] == completeness["placed"] == 1
+    assert completeness["available"] is True and completeness["score"] == 1.0
 
 
 def test_issue_914_case_study_keeps_its_only_flat_definition():
@@ -235,6 +241,10 @@ def test_authored_omission_is_suppressed_not_missing():
         "precondition: the authored set omitted the A/F measurement"
     )
     assert _flat_codes(dwg) == ["flat_requirement_suppressed"]
+    completeness = dwg.lint_summary()["quality"]["completeness"]
+    assert completeness["requirements"] == completeness["suppressed"] == 1
+    assert completeness["placed"] == 0
+    assert completeness["score"] == 0.0
 
 
 def test_a_planner_omission_is_not_authored_suppression():
@@ -287,6 +297,10 @@ def test_a_recognised_requirement_missing_from_the_declared_ir_is_unverifiable()
     dwg = sheet.build()
 
     assert _flat_codes(dwg) == ["flat_requirement_unverifiable"]
+    completeness = dwg.lint_summary()["quality"]["completeness"]
+    assert completeness["requirements"] == completeness["unverifiable"] == 1
+    assert completeness["placed"] == 0
+    assert completeness["score"] == 0.0
 
 
 def test_requirement_identity_without_source_record_correspondence_is_unverifiable():

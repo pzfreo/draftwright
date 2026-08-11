@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Added
+
+- **`lint_summary()` exposes drawing-quality evidence as separate completeness, restraint,
+  and legibility components** (#1127). The legacy `score` remains byte-compatible and is also
+  returned as the honestly named `diagnostic_score`; no composite quality verdict is invented.
+  Completeness scores recognition-owned requirements in the families with semantic outcome
+  ledgers and states that conditional scope explicitly; recognized families not yet scored are
+  listed separately. Legibility includes only layout and placement diagnostics, including
+  information-level placement drops, and restraint fails closed as unavailable until measurement
+  provenance can classify every annotation.
+
 ## v0.4.3 — 2026-08-09
 
 **A trust and validation-throughput patch release.** Whole-part hexagonal stock now receives its

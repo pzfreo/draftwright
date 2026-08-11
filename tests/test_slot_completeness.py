@@ -4,7 +4,7 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
-from build123d import Box, Pos
+from build123d import Box, Cylinder, Pos
 
 from draftwright import Drawing, Sheet, build_drawing
 from draftwright.linting.slot_coverage import slot_requirement_outcomes
@@ -15,6 +15,10 @@ from draftwright.recognition import recognise_slots
 
 def _off_centre_slot():
     return Box(100, 70, 10) - Pos(22, -11, 0) * Box(30, 8, 20)
+
+
+def _two_distinct_slots():
+    return Box(140, 90, 10) - Pos(-35, -15, 0) * Box(30, 8, 20) - Pos(30, 18, 0) * Box(24, 12, 20)
 
 
 def _slot_grid():
@@ -269,6 +273,86 @@ def test_authored_omission_is_suppressed_not_missing():
     assert _slot_requirement_codes(dwg) == ["slot_requirement_suppressed"] * 3
 
 
+def test_removing_a_slot_declaration_cannot_shrink_the_quality_denominator():
+    complete, _handle = _declared_slot_drawing()
+    sparse = Sheet(_off_centre_slot())
+    envelope = sparse.envelope()
+    sparse.dimension(envelope, "width.length")
+
+    complete_quality = complete.lint_summary()["quality"]["completeness"]
+    sparse_quality = sparse.build().lint_summary()["quality"]["completeness"]
+    assert complete_quality["available"] is sparse_quality["available"] is True
+    assert complete_quality["requirements"] == sparse_quality["requirements"] == 3
+    assert complete_quality["placed"] == 3
+    assert sparse_quality["unverifiable"] == 3
+    assert complete_quality["score"] == 1.0
+    assert sparse_quality["score"] == 0.0
+
+
+def test_audited_recognized_requirements_remain_scorable_beside_unscored_families():
+    part = _off_centre_slot() - Pos(-25, 15, -5) * Cylinder(4, 20)
+    completeness = build_drawing(part).lint_summary()["quality"]["completeness"]
+
+    assert completeness["available"] is True
+    assert completeness["score"] == 1.0
+    assert completeness["scope"] == "audited_recognized_requirements"
+    assert completeness["requirements"] == completeness["placed"] == 3
+    assert completeness["unscored_recognized_families"] == ["holes"]
+
+
+def test_deleting_declared_features_cannot_improve_a_damaged_quality_score():
+    part = _two_distinct_slots()
+    full = build_drawing(part)
+    declared_slots = [feature for feature in full.model().features if feature.kind == "slot"]
+    for name in list(full.registry.names_for_feature(declared_slots[0])):
+        full.remove(name)
+
+    source = recognise_slots(part)[0]
+    sparse_sheet = Sheet(part)
+    sparse_sheet.slot(
+        width=source.width,
+        length=source.length,
+        long_axis=source.long_axis,
+        width_axis=source.width_axis,
+        depth_axis=source.depth_axis,
+        w_center=source.w_center,
+        lo=source.lo,
+        hi=source.hi,
+        at=source.location,
+    )
+    sparse_sheet.auto_dimensions()
+    sparse = sparse_sheet.build()
+
+    empty_sheet = Sheet(part)
+    envelope = empty_sheet.envelope()
+    empty_sheet.dimension(envelope, "width.length")
+    empty = empty_sheet.build()
+
+    damaged_quality = full.lint_summary()["quality"]["completeness"]
+    sparse_quality = sparse.lint_summary()["quality"]["completeness"]
+    empty_quality = empty.lint_summary()["quality"]["completeness"]
+    assert damaged_quality["requirements"] == sparse_quality["requirements"] == 6
+    assert damaged_quality["placed"] == sparse_quality["placed"] == 3
+    assert damaged_quality["score"] == sparse_quality["score"] == 0.5
+    assert empty_quality["requirements"] == empty_quality["unverifiable"] == 6
+    assert empty_quality["score"] == 0.0
+
+
+@pytest.mark.parametrize(("part_factory", "requirement_count"), [(_slot_row, 5), (_slot_grid, 6)])
+def test_removing_a_pattern_declaration_preserves_recognised_cardinality(
+    part_factory, requirement_count
+):
+    part = part_factory()
+    complete = build_drawing(part).lint_summary()["quality"]["completeness"]
+    sparse = Sheet(part)
+    envelope = sparse.envelope()
+    sparse.dimension(envelope, "width.length")
+    omitted = sparse.build().lint_summary()["quality"]["completeness"]
+
+    assert complete["requirements"] == omitted["requirements"] == requirement_count
+    assert omitted["unverifiable"] == requirement_count
+
+
 def test_authored_pattern_omission_suppresses_both_location_directions():
     part = _slot_grid()
     detected = build_drawing(part)
@@ -313,6 +397,10 @@ def test_authored_pattern_omission_suppresses_both_location_directions():
 def test_a_real_placement_failure_retains_the_dropped_measurement():
     dwg = build_drawing(_off_centre_slot(), page="A4", scale=1.5)
     (drop,) = [issue for issue in dwg.lint() if issue.code == "slot_dim_dropped"]
+    legibility = dwg.lint_summary()["quality"]["legibility"]
+    assert legibility["by_code"]["slot_dim_dropped"] == 1
+    assert legibility["placement_drops"] >= 1
+    assert legibility["score"] < 1.0
     assert len(drop.measurement_ids) == 1
     dropped_parameter = drop.measurement_ids[0].parameter
     outcome = next(item for item in _outcomes(dwg) if item.parameter_id == dropped_parameter)

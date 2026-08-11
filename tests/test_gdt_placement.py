@@ -236,7 +236,12 @@ def test_bad_target_drops_without_crashing():
         side="above",
     )
     dwg = _build(frame)
-    assert [i for i in dwg.registry.issues if i.code == "gdt_dropped"]
+    dropped = [i for i in dwg.registry.issues if i.code == "gdt_dropped"]
+    assert dropped and dropped[0].outcome_stage == "validation"
+    summary = dwg.lint_summary()
+    assert "gdt_dropped" not in summary["quality"]["legibility"]["by_code"]
+    serialized = next(issue for issue in summary["issues"] if issue["code"] == "gdt_dropped")
+    assert serialized["outcome_stage"] == "validation"
     assert "m_gdt0" not in dwg.annotations()
 
 
@@ -253,6 +258,7 @@ def test_invalid_glyph_spec_drops_not_crashes():
     dwg = _build(frame)  # must not raise
     dropped = [i for i in dwg.registry.issues if i.code == "gdt_dropped"]
     assert dropped and "m_gdt0" in dropped[0].message
+    assert dropped[0].outcome_stage == "validation"
     assert "m_gdt0" not in dwg.annotations()
 
 

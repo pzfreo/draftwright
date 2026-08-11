@@ -28,6 +28,11 @@ class SlotRequirementOutcome:
     member_count: int
     parameter_id: str
     state: SlotRequirementState
+    # Normally one outcome row is one measurement. When exact IR correspondence is
+    # unavailable, the row is a fail-closed placeholder for the physical source's whole
+    # recognition-derived requirement vocabulary. Preserve that cardinality so deleting a
+    # declaration cannot shrink a completeness denominator (#1127).
+    requirement_count: int = 1
 
 
 def _rounded(value) -> float:
@@ -175,6 +180,20 @@ def _matches(measurement, feature, parameter: str) -> bool:
     )
 
 
+def _physical_requirement_count(kind: SlotSourceKind, source) -> int:
+    """Requirement cardinality derived from recognition, never declared IR.
+
+    A lone slot requires width, length, and location. A pattern adds its independent pitch
+    vocabulary and two datum locations: linear = width/length/pitch/X/Y; grid =
+    width/length/row-pitch/column-pitch/X/Y. This mirrors the semantic roles enforced by
+    ``_parameter_ids`` while remaining available when the declaration is absent.
+    """
+
+    if kind == "slot":
+        return 3
+    return 5 if _pattern_key(source)[0] == "linear" else 6
+
+
 def _state(feature, parameter, *, placed, suppressed, dropped, registry):
     if any(_matches(measurement, feature, parameter) for measurement in placed):
         return "placed"
@@ -257,7 +276,16 @@ def slot_requirement_outcomes(
         if parameter_ids is None:
             # The association or required compiler vocabulary is not provable. Keep the
             # physical item visible as one unchecked outcome rather than inventing ids.
-            outcomes.append(SlotRequirementOutcome(kind, at, member_count, "?", "unverifiable"))
+            outcomes.append(
+                SlotRequirementOutcome(
+                    kind,
+                    at,
+                    member_count,
+                    "?",
+                    "unverifiable",
+                    requirement_count=_physical_requirement_count(kind, _source),
+                )
+            )
             continue
         outcomes.extend(
             SlotRequirementOutcome(
