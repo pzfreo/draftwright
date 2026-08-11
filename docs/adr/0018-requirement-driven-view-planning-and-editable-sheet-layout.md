@@ -48,13 +48,13 @@ editable, semantic **view plan**.
 
 ## Decision
 
-**Draftwright will introduce one first-class `ViewPlan` between drawing requirements and
-projection.  The automatic planner and the `Sheet` DSL operate on the same plan.  It owns named
-view specifications and authored layout constraints; it does not own feature-annotation
-coordinates.  Page, preferred standard scale, view set and arrangement are evaluated jointly
-against complete view blocks measured with fixed paper-space typography.  A plan is feasible
-only when the real shared annotation solve preserves every supported requirement and all blocks
-remain in bounds.**
+**Draftwright will introduce one view-planning model between drawing requirements and
+projection.  Authored `ViewConstraints` and the automatic planner use the same semantic
+`ViewSpec` / layout-constraint vocabulary; the planner produces one immutable
+`ResolvedViewPlan`.  Neither owns feature-annotation coordinates.  Page, preferred standard
+scale, view set and arrangement are evaluated jointly against complete view blocks measured
+with fixed paper-space typography.  A result is feasible only when the real shared annotation
+solve preserves every supported requirement and all blocks remain in bounds.**
 
 The conceptual pipeline becomes:
 
@@ -62,30 +62,42 @@ The conceptual pipeline becomes:
 recognition evidence / declared features
                   │
                   ▼
-PartModel + applicable drawing requirements
+PartModel + applicable drawing requirements + projection convention
                   │
                   ▼
-     automatic proposal + authored ViewPlan edits
+       authored ViewConstraints / resolved-plan snapshot
                   │
                   ▼
- view projection / observability / block estimation
+ candidate ViewSpecs → projection / observability / estimates
                   │
                   ▼
- candidate view set × standard scale × sheet × arrangement
+ planner: view set × standard scale × sheet × arrangement
                   │
                   ▼
  exact labels + complete blocks + ADR 0014 placement solve
                   │
                   ▼
- requirement outcomes, layout diagnostics and lint
+ immutable ResolvedViewPlan + outcomes, diagnostics and lint
 ```
 
-### 1. `ViewPlan` is the editable boundary
+### 1. One value vocabulary, distinct request and result states
 
-A plan contains stable named `ViewSpec` values and layout constraints.  A specification may
-describe a principal orthographic view, section, detail or orientation/isometric view.  It
-contains semantic projection inputs—direction, up vector, section target, detail target and
-scale policy—not projected edge geometry or annotation positions.
+The public boundary distinguishes lifecycle states so planning does not become circular:
+
+- `ViewSpec` is a stable semantic value describing one principal orthographic view, section,
+  detail or orientation/isometric view.  It contains direction, up vector, section/detail target
+  and scale policy—not projected edge geometry or annotation positions.
+- `ViewConstraints` is the authored request: required/forbidden specs, relational layout,
+  page/scale/style constraints and optional whole-block pins.  `Sheet.views` / `Sheet.layout`
+  build this value before projection.
+- `ResolvedViewPlan` is the immutable planner result: selected `ViewSpec`s, resolved page and
+  scale, block anchors, requirement eligibility/assignment, feasibility and diagnostics.  It is
+  produced only after candidate projection and the exact solve; it is never mutated in place.
+
+Automatic and authored modes therefore share one planner and one value vocabulary without
+pretending its input and output are the same state.  A generated resolved script converts a
+`ResolvedViewPlan` into explicit `ViewConstraints`; it does not feed a result object back into
+the builder or mutate a built `Drawing`.
 
 The exact Python spelling is deliberately left to the implementation issue, but the intended
 capability is:
@@ -107,8 +119,9 @@ The unchanged automatic front door stays clean:
 dwg = Sheet(part).auto_dimensions().build()
 ```
 
-Automatic planning is the default proposal, not a separate engine.  Authored edits constrain
-or replace parts of that proposal before projection and annotation compilation.
+Automatic view selection is the absence of authored view-selection/layout constraints, not a
+separate engine; page, scale, style or projection convention may still be authored.  View edits
+constrain or replace candidates before projection and annotation compilation.
 
 ### 2. Users edit complete view blocks, never feature-annotation coordinates
 
@@ -122,13 +135,16 @@ An advanced absolute pin may anchor a **whole view block** at a page-space posit
 s.layout.pin("side", at=(210, 160))
 ```
 
-That is not hand-placement of a feature annotation.  The view's projected geometry and owned
-annotations are recomposed as one block, and ADR 0014 still decides the dimension, callout and
-GD&T positions.  An infeasible pin produces a diagnostic; it does not silently drop content.
+`at` names the projected view origin (the point from which its `ViewCoordinates` are derived),
+not the annotation-dependent block centre or corner.  That anchor remains stable when a label
+changes the block bounds.  This is not hand-placement of a feature annotation.  The view's
+projected geometry and owned annotations are recomposed as one block, and ADR 0014 still decides
+the dimension, callout and GD&T positions.  An infeasible pin produces a diagnostic; it does not
+silently drop content or move the authored anchor.
 
 Post-build view mutation is not sanctioned.  It could leave projection transforms,
 registration, requirement outcomes and annotation geometry stale.  The user edits `Sheet` or
-`ViewPlan`, then rebuilds the `Drawing`.
+its `ViewConstraints`, then rebuilds the `Drawing`.
 
 ### 3. View removal is requirement-aware
 
@@ -145,7 +161,20 @@ fail conservatively; it must not certify completeness from a similar-looking pro
 Projection/HLR supplies geometry and observability evidence.  It does not decide whether a
 diameter, depth or location is a drawing requirement, and it does not own the selected view set.
 
-### 4. Page, scale, views and arrangement are one constrained choice
+### 4. Projection convention constrains principal-view layout
+
+First-angle and third-angle projection give principal-view positions semantic meaning.  The
+projection convention is therefore a hard planning input, not a title-block symbol added after
+packing.  By default, principal orthographic views retain the conventional side and alignment
+relationships required by that convention.  A relational constraint that contradicts them is
+infeasible; it does not silently override the convention.
+
+Sections, details and NTS orientation views have the placement freedom allowed by drafting
+convention.  An explicitly requested unconventional principal-view arrangement must opt out of
+the conventional constraint and carry whatever labelling is required to remain unambiguous.  It
+is never inferred merely because an unconventional row packs more tightly.
+
+### 5. Page, scale, views and arrangement are one constrained choice
 
 The planner evaluates complete alternatives rather than fixing four views and changing only
 paper/scale:
@@ -157,19 +186,25 @@ candidate semantic view sets
 × plausible relational arrangements
 ```
 
-Selection is lexicographic, not a single opaque weighted score:
+A candidate is feasible only if every hard gate holds; feasibility is not a weighted score:
 
 1. preserve every supported requirement or reject the candidate;
 2. keep all view blocks and required annotations in bounds and conflict-free;
 3. satisfy minimum legibility and selected drawing style;
-4. prefer useful standard scales;
-5. prefer economical paper;
-6. reduce redundant views and wasted area;
-7. prefer conventional projection/section arrangements when otherwise equivalent.
+4. obey projection convention and every authored view/layout/page/scale constraint.
 
-The exact ordering between scale and paper may be configurable as drafting policy, but neither
-may outrank requirement survival or legibility.  A smaller sheet whose geometry fits while
-dimensions drop is not a successful plan.
+Among feasible candidates, the default page/scale policy is deterministic:
+
+1. choose the smallest standard sheet that admits a feasible candidate—feasibility already
+   includes style-defined minimum projected spans for every requirement/view kind, which a
+   section or detail may satisfy without inflating every principal view;
+2. on that sheet choose the largest feasible preferred ISO 5455 scale;
+3. reduce redundant views and wasted area;
+4. prefer conventional projection/section arrangements when otherwise equivalent.
+
+Drafting policy may replace this ordering explicitly, but neither paper economy nor scale may
+outrank requirement survival, legibility, projection convention or authored constraints.  A
+smaller sheet whose geometry fits while dimensions drop is not a successful plan.
 
 Planning uses two levels of evidence.  A cheap estimate rejects clearly infeasible candidates
 from requirement counts and expected annotation grammar.  The survivor is then compiled with
@@ -177,7 +212,33 @@ the actual labels, actual bundled-font metrics and real ADR 0014 placement solve
 second pass proves feasibility.  If it fails, the planner tries the next candidate or returns an
 explicit infeasibility diagnostic.
 
-### 5. Typography is fixed paper-space input
+This ADR plans one physical sheet.  Multi-sheet drawing documents require sheet numbering,
+cross-sheet requirement assignment and document-level title/revision semantics that do not
+exist today; they are a future extension, not an implicit fallback.  When no one-sheet candidate
+is feasible, the planner follows the terminal behavior below.
+
+### 6. Infeasibility is a first-class result, not a silent relaxation
+
+Automatic planning explores a bounded, deterministic candidate set and may escalate page,
+preferred scale, semantic view set and unconstrained arrangement within policy.  It never
+relaxes an authored page, scale, projection convention, required/forbidden view or pin.
+
+If no candidate is feasible but at least one candidate is renderable, `build()` returns the
+least-bad diagnostic `Drawing` so Draftwright's lint-and-repair workflow remains inspectable.
+Its `ResolvedViewPlan.feasible` is false and lint contains an error-severity `plan_infeasible`
+issue plus the particular uncovered, dropped, conflicting or out-of-bounds outcomes.  Candidate
+ranking among infeasible results first minimises lost supported requirements, then
+unverifiable associations, then geometric/layout violations; unsupported capabilities remain
+explicit outcomes rather than becoming fictional plan choices.  The ordering is deterministic
+and is not presented as success.
+
+If no candidate can be projected/rendered at all, `build()` raises the existing class of build
+error with the accumulated planning diagnostics.  Export keeps today's lint-first behavior and
+may export a diagnostic drawing; callers that require a gate use the existing lint/quality
+surface and fail on `plan_infeasible`.  A future strict convenience may wrap that gate, but this
+ADR does not create a second build/export path.
+
+### 7. Typography is fixed paper-space input
 
 Drawing scale transforms model geometry into paper geometry.  It does not scale ordinary text,
 arrowheads, extension gaps, line weights or title-block furniture.  A style is an authored or
@@ -198,15 +259,15 @@ measurement and export.
 
 The optimiser must not progressively shrink text until a sheet fits.  It first reflows,
 changes view selection, introduces an appropriate section/detail, selects another standard
-scale, enlarges the sheet or uses another sheet.  A different valid font size is selected only
-through an explicit drawing style/policy.
+scale or enlarges the sheet.  A different valid font size is selected only through an explicit
+drawing style/policy; multi-sheet output is outside this ADR.
 
 Principal orthographic views normally share the drawing scale.  Independently enlarged detail
 views carry their scale, and orientation/isometric views whose size is adjusted independently
 are labelled NTS as appropriate.  Arbitrary unequal principal-view scales are rejected rather
 than producing a misleading sheet.
 
-### 6. Generated scripts have explicit automatic and resolved semantics
+### 8. Generated scripts have explicit automatic and resolved semantics
 
 The generated Python surface must support two distinct promises:
 
@@ -221,20 +282,26 @@ dwg = s.build()
 An automatically selected page, scale or arrangement is not emitted as authored intent.
 
 **Editable resolved plan.**  The script emits the selected named semantic views and relational
-layout so a user can modify them.  It may emit authored or deliberately frozen page/scale/style
-constraints, but never raw projected edges or feature-annotation coordinates.  Feature-targeted
-sections/details refer to stable Sheet feature handles where possible rather than incidental
-cut coordinates.
+layout as explicit `ViewConstraints` so a user can modify them.  It may emit authored or
+deliberately frozen page/scale/style constraints, but never raw projected edges or
+feature-annotation coordinates.  Feature-targeted sections/details refer to stable Sheet feature
+handles.  If the emitter cannot name the recognised feature or express an equivalent semantic
+section target, resolved-plan emission fails with a named unsupported capability.  It does not
+silently substitute an incidental cut coordinate and claim semantic round-trip.  A raw cut
+coordinate is emitted only when that coordinate was itself the user's authored constraint.
 
 The script mode must state which promise it makes.  Explicit user constraints—page, scale,
 style, sections/details and view/layout edits—round-trip in either mode.  A resolved script can
 return to automatic planning explicitly rather than by deleting mysterious generated state.
 
-### 7. The finished plan and its failures are inspectable
+### 9. The finished plan and its failures are inspectable
 
-`Drawing` exposes the resolved plan as a read-only value for tooling, lint and explanation.  It
-includes selected views, page, scale, arrangement, requirement assignments and diagnostics; it
-is not a post-build mutator.
+The builder produces one immutable `ResolvedViewPlan` and attaches it exactly once to typed
+`BuildState`, the existing ADR 0005 owner of per-build state.  `Drawing.view_plan()` is a
+read-only projection of that value for tooling, lint and explanation.  No `_view_plan` or
+planner cache is added as an ad-hoc `Drawing` private, and no later stage replaces the attached
+result.  It includes selected views, page, scale, arrangement, requirement assignments,
+feasibility and diagnostics; it is not a post-build mutator.
 
 At minimum, diagnostics distinguish:
 
@@ -242,14 +309,20 @@ At minimum, diagnostics distinguish:
 - no supported candidate view exposes a requirement;
 - a requirement was view-eligible but its annotation was dropped during placement;
 - correspondence is not yet verifiable;
-- a non-standard/NTS view scale is deliberate and labelled.
+- a non-standard/NTS view scale is deliberate and labelled;
+- no complete candidate exists (`plan_infeasible`), including which authored constraints could
+  not be satisfied without relaxing them.
 
 ## Boundaries with existing ADRs
 
 - **ADR 0001 remains authoritative for generated code.**  The resolved plan is an editable
   domain-semantic representation, not a primitive edge/coordinate DSL.
-- **ADR 0004 remains authoritative for outer packing.**  The new stage chooses and constrains
-  blocks; compose-then-pack still measures a view with its annotation footprint.
+- **ADR 0004 remains authoritative for compose-then-pack, but this ADR supersedes its
+  fixed-topology assumption if accepted.**  The new stage chooses and constrains which blocks
+  exist; ADR 0004 still requires each selected view to be composed with its annotation footprint
+  before outer packing.
+- **ADR 0005 owns the resolved state.**  `ResolvedViewPlan` is attached once through typed
+  `BuildState`; this ADR does not introduce a second mutable layout cache on `Drawing`.
 - **ADR 0006 remains authoritative for deterministic text metrics.**  The planner consumes the
   same pinned font face the exporter renders.
 - **ADR 0011 remains the public declared-model front door.**  `Sheet` gains view/layout intent;
@@ -267,8 +340,8 @@ At minimum, diagnostics distinguish:
 
 - Automatic planning can solve the actual communication problem rather than a fixed four-view
   packing problem.
-- Users can make conventional drafting choices in the same `Sheet` script without bypassing the
-  placement engine.
+- Users can make conventional drafting choices through `ViewConstraints` in the same `Sheet`
+  script without bypassing the placement engine.
 - Page and scale decisions become explainable from requirement survival, font metrics and real
   block feasibility.
 - Generated scripts expose meaningful view/layout decisions while remaining resilient to label
@@ -288,6 +361,8 @@ At minimum, diagnostics distinguish:
   early slices must be conservative.
 - Resolved scripts add a second explicit script mode and need round-trip/mutation guards.
 - Absolute whole-block pins can make a plan infeasible and require clear diagnostics.
+- Request/result separation adds explicit conversion when a resolved automatic plan is frozen
+  into editable authored constraints, but avoids a stateful half-resolved public object.
 
 ## Rejected alternatives
 
@@ -319,14 +394,32 @@ Rejected because it makes legibility depend on part complexity and hides a defic
 ### Make automatic and authored view planning separate engines
 
 Rejected for the same reason detected and declared feature paths converge on one compiler: two
-planners would drift.  Both authoring modes produce or modify the same `ViewPlan`.
+planners would drift.  Both modes use the same `ViewSpec` / layout-constraint vocabulary and the
+same planner to produce a `ResolvedViewPlan`.
+
+### Use one mutable object for authored constraints and resolved output
+
+Rejected because automatic selection needs projection/observability evidence that does not exist
+when authored constraints are declared.  One object would acquire ambiguous “draft”, “partly
+resolved” and “finished” states.  The modes share `ViewSpec` and layout-constraint values and one
+planner, while `ViewConstraints` and immutable `ResolvedViewPlan` make lifecycle explicit.
+
+### Fall back to another sheet when one sheet is infeasible
+
+Rejected from this ADR's scope.  A multi-sheet drawing is a document model with sheet numbering,
+cross-sheet requirement assignment and revision/title semantics.  Until that model exists, a
+one-sheet failure remains an explicit infeasible result rather than an unmodelled extra page.
 
 ## Required evidence before acceptance
 
 - A synthetic thin rotational plate reproduces the A1/fixed-four-view failure without relying on
   a proprietary or externally supplied STEP file.
-- A no-behaviour-change slice represents the current four views through `ViewSpec`/`ViewPlan` and
-  preserves representative rendered semantics.
+- A no-behaviour-change slice represents the current four views through `ViewSpec` and
+  `ResolvedViewPlan` and preserves representative rendered semantics.
+- Authored `ViewConstraints` cannot be mistaken for an immutable `ResolvedViewPlan`; conversion
+  of a resolved snapshot into editable constraints is explicit and round-trip guarded.
+- `ResolvedViewPlan` has one typed `BuildState` attachment and a read-only `Drawing` surface;
+  structural guards reject another writer or ad-hoc private cache.
 - Mutation tests prove deleting each authored view/layout constraint changes the named plan
   decision or fails explicitly.
 - Removing a visually similar but semantically necessary view is rejected by an asymmetric
@@ -336,13 +429,25 @@ planners would drift.  Both authoring modes produce or modify the same `ViewPlan
   cannot make an overlong label disappear from the estimate.
 - A forced small sheet/large scale that drops a requirement is rejected, not accepted with a
   warning-only incomplete drawing.
+- Exhausting automatic candidates returns a deterministic diagnostic drawing with
+  `plan_infeasible`; an unrenderable candidate set raises with the accumulated diagnostics, and
+  authored constraints are never silently relaxed.
+- First- and third-angle counterexamples preserve their conventional principal-view relationships;
+  a contradictory relational constraint is infeasible rather than silently repacked.
 - Generated automatic and resolved scripts round-trip their distinct promises.
+- Resolved emission for an unnameable feature-targeted section fails with a named capability;
+  deleting that refusal must make a counterexample falsely emit and fail the guard.
 - Principal unequal-scale misuse fails; detail/NTS scale differences remain explicit.
+- A whole-view pin anchors the projection origin and remains stable when annotation bounds change.
+- The default feasible-smallest-sheet → largest-preferred-scale ordering is deterministic
+  on a fixture where each alternative would otherwise be feasible.
 - The worm-style synthetic case selects a materially better complete plan, targeting A2 at 1:1
   if final feasibility supports it.
 
 ## Delivery
 
 The phased implementation and case-study measurements are tracked in #1130.  The first slice is
-an explicit plan reproducing current behaviour; automatic semantic view selection comes only
-after the editable plan, script round-trip and requirement-coverage invariants are guarded.
+an explicit `ViewSpec` / `ResolvedViewPlan` representation reproducing current behaviour; typed
+`ViewConstraints` and script round-trip follow.  Automatic semantic view selection comes only
+after request/result lifecycle, projection-convention, terminal-failure and
+requirement-coverage invariants are guarded.
