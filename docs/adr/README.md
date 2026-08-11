@@ -34,6 +34,7 @@ architecture** table; open retired or superseded records only for design history
 | [0015](0015-part-drawing-compiler-as-built.md) | The part-drawing compiler, as built | Use one detected-or-declared feature IR and planner-fed dimension groups as the compiler waist. | Accepted; supersedes 0008 | `test_part_model.py`, `test_detect_once.py`, `test_import_boundaries.py` |
 | [0016](0016-declared-dimensioning-intent.md) | Declared dimensioning intent: capture what to measure, let the engine place it | Declare which measurements matter as scale-independent intent routed through the planner and corridor solve; never hardcode dimension geometry. | Accepted; epic #867 complete; phase 6 landed (#940) | `test_compiled_plan_boundary.py`, `test_label_provenance.py`, `test_sheet_emit.py`, `test_add_dimension.py` |
 | [0017](0017-recognition-inventory-correspondence-and-measurement-provenance.md) | One recognition result per run; correspondence is evidence-gated | Produce one explicit recognition result owned by `BuildState`; require vertical-slice evidence before generalising correspondence, identity, requirements, outcomes, or reconciliation. | Accepted; ownership phase landed, extensions gated by #1018 | `test_recognition_manifest.py`, `test_recognition_result.py`, `test_declared_recognition_gate.py` |
+| [0018](0018-requirement-driven-view-planning-and-editable-sheet-layout.md) | Requirement-driven view planning and editable sheet layout | Use one editable `ViewPlan` for automatic and authored view selection; jointly validate views, fixed paper-space typography, scale, paper and layout against requirement survival. | Proposed; tracked by #1130 | Required guards are listed in the ADR |
 
 ## Historical records
 
@@ -47,8 +48,8 @@ architecture** table; open retired or superseded records only for design history
 
 - Compiler and state ownership: 0001 → 0005 → 0015.
 - Recognition and public declaration: 0007 → 0013 → 0011 → 0015.
-- Layout and placement: 0004 → 0014 → 0012.
-- Declared intent and the editable surface: 0001 → 0011 → 0012 → 0016.
+- Layout and placement: 0004 → 0014 → 0012 → 0018.
+- Declared intent and the editable surface: 0001 → 0011 → 0012 → 0016 → 0018.
 - Quality and correction: 0002, with provenance from 0010.
 - Recognition correspondence and completeness: 0007 → 0013 → 0015 → 0017.
 
