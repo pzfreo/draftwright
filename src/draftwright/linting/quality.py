@@ -76,11 +76,14 @@ _PLACEMENT_DROP_CODES = frozenset(
     }
 )
 
+# The two ambiguous codes, named rather than merely absent so the vocabulary ratchet can tell
+# "deliberately classified as stage-carrying" from "nobody classified this at all".
+_STAGE_CLASSIFIED_DROP_CODES = frozenset({"gdt_dropped", "pmi_dropped"})
+
 # Recognition inventories that represent potentially dimension-bearing physical families.
-# Substrates (cylinders, face levels, risers, plates) are intentionally omitted: listing the
-# same physical requirement twice would make the coverage admission less honest, not more.
 _RECOGNISED_REQUIREMENT_FAMILIES = {
     "holes": "holes",
+    "countersinks": "countersinks",
     "double_d_bores": "profiled_bores",
     "hole_patterns": "hole_patterns",
     "bosses": "bosses",
@@ -99,6 +102,15 @@ _RECOGNISED_REQUIREMENT_FAMILIES = {
     "chamfers": "chamfers",
     "fillets": "fillets",
 }
+
+# Inventories that are deliberately NOT requirement families: the substrates would list the
+# same physical requirement a second time, and ``rotational`` is a classification flag rather
+# than an inventory. Kept explicit rather than implied by absence so that a new
+# ``RecognitionResult`` inventory cannot silently join the blind spot the completeness
+# component exists to report (``tests/test_quality_components.py``).
+_NON_REQUIREMENT_INVENTORIES = frozenset(
+    {"cylinders", "plates", "risers", "rotational", "step_levels"}
+)
 
 _AUDITED_FAMILIES = ("channels", "flats", "polygonal_stock", "slot_patterns", "slots")
 
