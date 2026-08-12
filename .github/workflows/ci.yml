@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    # Weekly full cross-platform sweep. See the `test` matrix comment for why the
+    # per-PR matrix is Linux-only.
+    - cron: "17 4 * * 6"
+  workflow_dispatch:
 
 # A PR needs results only for its latest head. Each main push gets a unique group because it
 # owns a post-merge slow-suite run that must survive later merges.
@@ -31,7 +36,7 @@ jobs:
   test:
     # The PR is the compatibility gate. A merge to protected main has already passed these
     # exact checks, so main keeps lint + the slow post-merge safety net without repeating them.
-    if: github.event_name == 'pull_request'
+    if: github.event_name != 'push'
     permissions:
       contents: read
     strategy:
@@ -39,18 +44,37 @@ jobs:
       matrix:
         # 3.10-3.12 resolve build123d 0.10 (cadquery-ocp + VTK); 3.13/3.14 resolve build123d
         # 0.11 (cadquery-ocp-novtk — VTK dropped, and the only kernel with 3.13/3.14 wheels).
-        # Linux covers every supported Python (3.13 is the coverage job below). macOS and
-        # Windows each cover the last VTK kernel and the current no-VTK kernel. This preserves
-        # every compatibility dimension without paying for the uninformative 3 x 5 product.
-        include:
-          - {os: ubuntu-latest, python-version: "3.10"}
-          - {os: ubuntu-latest, python-version: "3.11"}
-          - {os: ubuntu-latest, python-version: "3.12"}
-          - {os: ubuntu-latest, python-version: "3.14"}
-          - {os: macos-latest, python-version: "3.12"}
-          - {os: macos-latest, python-version: "3.14"}
-          - {os: windows-latest, python-version: "3.12"}
-          - {os: windows-latest, python-version: "3.14"}
+        # Linux covers every supported Python (3.13 is the coverage job below).
+        #
+        # Non-Linux runners meter far above their wall clock — macOS at 10x, Windows at 2x.
+        # Measured on run 31570091735, the four non-Linux jobs were 43 of 100 wall-clock
+        # minutes but 236 of 294 billed minutes: 80% of the cost. At the observed rate of
+        # roughly 234 pull-request CI runs a month that is ~55,000 billed minutes, and it
+        # exhausted the account's Actions allowance.
+        #
+        # So pull requests run Linux only, and the full cross-platform surface runs in the
+        # weekly sweep, on `workflow_dispatch`, or on any PR carrying the `full-matrix`
+        # label — which is the one to use for a branch touching packaging or kernel
+        # resolution. The sweep costs ~1,265 billed minutes a month against the ~55,000
+        # the trim saves.
+        #
+        # One matrix widened by expression rather than a second job: a duplicate job would
+        # repeat every step below and the two copies would drift.
+        include: ${{ fromJSON(
+          (github.event_name == 'pull_request'
+            && !contains(github.event.pull_request.labels.*.name, 'full-matrix'))
+          && '[{"os":"ubuntu-latest","python-version":"3.10"},
+               {"os":"ubuntu-latest","python-version":"3.11"},
+               {"os":"ubuntu-latest","python-version":"3.12"},
+               {"os":"ubuntu-latest","python-version":"3.14"}]'
+          || '[{"os":"ubuntu-latest","python-version":"3.10"},
+                {"os":"ubuntu-latest","python-version":"3.11"},
+                {"os":"ubuntu-latest","python-version":"3.12"},
+                {"os":"ubuntu-latest","python-version":"3.14"},
+                {"os":"macos-latest","python-version":"3.12"},
+                {"os":"macos-latest","python-version":"3.14"},
+                {"os":"windows-latest","python-version":"3.12"},
+                {"os":"windows-latest","python-version":"3.14"}]' ) }}
     runs-on: ${{ matrix.os }}
 
     steps:
