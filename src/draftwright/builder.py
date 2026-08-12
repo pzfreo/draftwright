@@ -295,6 +295,7 @@ def _assemble(
     requested=None,
     authored=None,
     trace=None,
+    shape=None,
 ) -> Drawing:
     """Project the 4 views for analysis *a*, run the automatic annotation
     passes, and fit the iso.  This is pass 1 of :func:`build_drawing`; with a
@@ -433,7 +434,12 @@ def _assemble(
     dwg._build.trace = trace
     dwg._model_declared = model is not None  # ADR 0011 #448: gate model-driven hole render
 
-    part_s = a.part.scale(a.SCALE)
+    # The solid this assembly projects. ADR 0004 wants the real geometry built ONCE, but the
+    # measure-and-repack loop assembles up to three times, so today it is projected up to three
+    # times — the root cause of #1135's hour-long build. This parameter is the seam where the
+    # loop's intermediate assemblies will pass a cheap stand-in and only the final one the real
+    # solid (#1137). Every caller currently takes the default, so nothing has changed yet.
+    part_s = (a.part if shape is None else shape).scale(a.SCALE)
     dwg._add_view(
         "front", part_s, (cxs, cys - dist, czs), (0, 0, 1), (a.FV_X, a.FV_Y), scaled=True
     )
