@@ -65,7 +65,7 @@ recognition evidence / declared features
 PartModel + applicable drawing requirements + projection convention
                   │
                   ▼
-       authored ViewConstraints / resolved-plan snapshot
+       authored ViewConstraints / automatic defaults
                   │
                   ▼
  candidate ViewSpecs → projection / observability / estimates
@@ -195,12 +195,18 @@ A candidate is feasible only if every hard gate holds; feasibility is not a weig
 
 Among feasible candidates, the default page/scale policy is deterministic:
 
-1. choose the smallest standard sheet that admits a feasible candidate—feasibility already
-   includes style-defined minimum projected spans for every requirement/view kind, which a
-   section or detail may satisfy without inflating every principal view;
-2. on that sheet choose the largest feasible preferred ISO 5455 scale;
+1. choose the largest appropriate preferred ISO 5455 scale admitted by a feasible candidate;
+   “appropriate” is bounded by the authored scale policy and drawing style, not by opportunistic
+   use of a larger sheet merely to magnify already-legible geometry;
+2. at that scale choose the smallest standard sheet that admits a feasible candidate;
 3. reduce redundant views and wasted area;
 4. prefer conventional projection/section arrangements when otherwise equivalent.
+
+This makes scale preference explicit instead of hiding it in a minimum-legibility threshold.
+The default preferred-scale order starts at 1:1 when the model and style make full scale
+appropriate, then considers the next smaller preferred scales.  A drafting policy may provide
+a different bounded preferred-scale sequence—for example, for very small or very large parts—
+without making paper economy the implicit reason to shrink otherwise appropriate geometry.
 
 Drafting policy may replace this ordering explicitly, but neither paper economy nor scale may
 outrank requirement survival, legibility, projection convention or authored constraints.  A
@@ -439,7 +445,7 @@ one-sheet failure remains an explicit infeasible result rather than an unmodelle
   deleting that refusal must make a counterexample falsely emit and fail the guard.
 - Principal unequal-scale misuse fails; detail/NTS scale differences remain explicit.
 - A whole-view pin anchors the projection origin and remains stable when annotation bounds change.
-- The default feasible-smallest-sheet → largest-preferred-scale ordering is deterministic
+- The default largest-appropriate-preferred-scale → feasible-smallest-sheet ordering is deterministic
   on a fixture where each alternative would otherwise be feasible.
 - The worm-style synthetic case selects a materially better complete plan, targeting A2 at 1:1
   if final feasibility supports it.
