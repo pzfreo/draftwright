@@ -111,7 +111,7 @@ def test_a_placed_engine_callout_satisfies_the_recognised_requirement():
     assert completeness["coverage"] == "partial"
     assert completeness["scope"] == "audited_recognized_requirements"
     assert completeness["requirements"] == completeness["placed"] == 1
-    assert completeness["available"] is True and completeness["score"] == 1.0
+    assert completeness["available"] is True and completeness["audited_score"] == 1.0
 
 
 def test_issue_914_case_study_keeps_its_only_flat_definition():
@@ -244,7 +244,7 @@ def test_authored_omission_is_suppressed_not_missing():
     completeness = dwg.lint_summary()["quality"]["completeness"]
     assert completeness["requirements"] == completeness["suppressed"] == 1
     assert completeness["placed"] == 0
-    assert completeness["score"] == 0.0
+    assert completeness["audited_score"] == 0.0
 
 
 def test_a_planner_omission_is_not_authored_suppression():
@@ -300,7 +300,7 @@ def test_a_recognised_requirement_missing_from_the_declared_ir_is_unverifiable()
     completeness = dwg.lint_summary()["quality"]["completeness"]
     assert completeness["requirements"] == completeness["unverifiable"] == 1
     assert completeness["placed"] == 0
-    assert completeness["score"] == 0.0
+    assert completeness["audited_score"] == 0.0
 
 
 def test_requirement_identity_without_source_record_correspondence_is_unverifiable():

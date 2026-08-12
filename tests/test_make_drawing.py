@@ -5253,7 +5253,7 @@ class TestLintSummaryAndDrops:
         assert set(s["quality"]) == {"completeness", "restraint", "legibility"}
         completeness = s["quality"]["completeness"]
         assert completeness["available"] is False
-        assert completeness["score"] is None
+        assert completeness["audited_score"] is None
         assert completeness["coverage"] == "partial"
         assert completeness["scope"] == "audited_recognized_requirements"
         assert completeness["unscored_recognized_families"] == ["holes"]

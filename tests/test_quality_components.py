@@ -31,6 +31,51 @@ def _legibility(*issues):
     )["legibility"]
 
 
+def _completeness(*issues):
+    return quality_components(
+        recognition=None,
+        features=(),
+        registry=None,
+        omissions=(),
+        issues=issues,
+        error_penalty=0.15,
+        warning_penalty=0.05,
+    )["completeness"]
+
+
+def test_the_audited_score_carries_its_qualifier_in_its_own_name():
+    """A recogniser gap makes a perfect score reachable, so the caveat cannot live in a
+    sibling key: metadata is dropped when a number is quoted, a field name is not."""
+    completeness = _completeness()
+
+    assert "score" not in completeness
+    assert "audited_score" in completeness
+
+
+def test_the_denominator_states_what_it_cannot_see():
+    completeness = _completeness()
+
+    assert completeness["excludes"] == [
+        "physical geometry that recognition did not identify",
+        "recognized families without a semantic outcome ledger",
+    ]
+
+
+def test_a_recognition_gap_the_linter_did_notice_is_reported_beside_the_score():
+    """A floor on the blind spot, not a measure of it — but absent geometry gets a number
+    whenever lint could name it, instead of leaving the score to imply there is none."""
+    completeness = _completeness(
+        LintIssue(
+            severity="warning",
+            code="unrecognised_defining_geometry",
+            message="dimension-relevant source geometry is absent from recognised IR",
+        )
+    )
+
+    assert completeness["unrecognised_geometry_reports"] == 1
+    assert _completeness()["unrecognised_geometry_reports"] == 0
+
+
 def test_a_drop_code_nobody_registered_still_counts_against_legibility():
     """The fail-closed half: no list to update, so a new drop cannot score as legible."""
     legibility = _legibility(
@@ -111,7 +156,9 @@ def test_an_unavailable_completeness_component_is_data_not_a_zero_score():
     completeness = components["completeness"]
 
     assert completeness["available"] is False
-    assert completeness["score"] is None, "a missing inventory must not read as zero coverage"
+    assert completeness["audited_score"] is None, (
+        "a missing inventory must not read as zero coverage"
+    )
     assert completeness["coverage"] == "unavailable"
     assert completeness["reason"] == "physical recognition inventory unavailable"
     assert completeness["requirements"] == 0

@@ -11,6 +11,13 @@ them into another blessed scalar:
 Completeness is deliberately marked partial.  Only the feature families with a semantic
 ``*_outcomes`` ledger participate today; warning counts and declared IR are never substituted
 for the missing physical denominator.
+
+Its scalar is therefore named ``audited_score``, not ``score``.  A drawing of a part whose
+geometry recognition missed entirely still scores 1.0, because the missed feature never
+became a requirement — so the qualifier belongs in the field name, where it survives being
+quoted, and not only in the metadata beside it.  **It is not a completion gate**: gate on
+issue codes and severities (ADR 0002), and read ``excludes`` for what the denominator
+cannot see.
 """
 
 from __future__ import annotations
@@ -86,6 +93,19 @@ _NON_REQUIREMENT_INVENTORIES = frozenset(
 
 _AUDITED_FAMILIES = ("channels", "flats", "polygonal_stock", "slot_patterns", "slots")
 
+# What the audited score does not cover, emitted as data rather than left to prose. The
+# first entry is the dangerous one: a requirement recognition never produced cannot appear
+# in any state, so it is absent rather than "missing".
+_EXCLUDES = (
+    "physical geometry that recognition did not identify",
+    "recognized families without a semantic outcome ledger",
+)
+
+# The lint check that reports geometry recognition could not account for. Its count is a
+# FLOOR on the unrecognised-geometry blind spot, never a measure of it: zero means nothing
+# was noticed, not that nothing was missed.
+_UNRECOGNISED_GEOMETRY_CODE = "unrecognised_defining_geometry"
+
 
 def _is_placement_drop(issue) -> bool:
     """Whether this issue reports a valid annotation candidate that did not land.
@@ -130,13 +150,15 @@ def _issue_component(issues, *, error_penalty: float, warning_penalty: float) ->
     }
 
 
-def _empty_completeness(reason: str) -> dict:
+def _empty_completeness(reason: str, unrecognised: int) -> dict:
     return {
         "available": False,
-        "score": None,
+        "audited_score": None,
         "scope": "audited_recognized_requirements",
         "coverage": "unavailable",
         "reason": reason,
+        "excludes": list(_EXCLUDES),
+        "unrecognised_geometry_reports": unrecognised,
         "denominator": "recognition",
         "audited_families": list(_AUDITED_FAMILIES),
         "unscored_recognized_families": [],
@@ -146,9 +168,10 @@ def _empty_completeness(reason: str) -> dict:
     }
 
 
-def _completeness_component(recognition, features, registry, omissions) -> dict:
+def _completeness_component(recognition, features, registry, omissions, issues) -> dict:
+    unrecognised = sum(issue.code == _UNRECOGNISED_GEOMETRY_CODE for issue in issues)
     if recognition is None:
-        return _empty_completeness("physical recognition inventory unavailable")
+        return _empty_completeness("physical recognition inventory unavailable", unrecognised)
 
     outcomes = {
         "channels": channel_requirement_outcomes(recognition, features, registry, omissions),
@@ -180,7 +203,10 @@ def _completeness_component(recognition, features, registry, omissions) -> dict:
     unaudited = sorted(recognised - set(_AUDITED_FAMILIES))
     audited_score = counts["placed"] / requirements if requirements else None
     if requirements:
-        reason = "score covers recognized requirements in audited families"
+        reason = (
+            "audited_score covers recognized requirements in audited families only; it is "
+            "not evidence that the drawing is complete"
+        )
     elif unaudited:
         reason = "recognized requirements exist only in families without outcome ledgers"
     else:
@@ -190,10 +216,12 @@ def _completeness_component(recognition, features, registry, omissions) -> dict:
         # recognised AND for which Draftwright has a semantic outcome ledger. Missing
         # recognisers are outside the scope; recognised-but-unscored families remain explicit.
         "available": requirements > 0,
-        "score": audited_score,
+        "audited_score": audited_score,
         "scope": "audited_recognized_requirements",
         "coverage": "partial",
         "reason": reason,
+        "excludes": list(_EXCLUDES),
+        "unrecognised_geometry_reports": unrecognised,
         "denominator": "recognition",
         "audited_families": list(_AUDITED_FAMILIES),
         "unscored_recognized_families": unaudited,
@@ -217,12 +245,17 @@ def quality_components(
 
     No composite score is returned.  In particular, an unavailable restraint component is
     data, not zero: treating unclassified annotations as redundant would recreate the false
-    confidence this API is intended to remove.
+    confidence this API is intended to remove.  For the same reason completeness reports an
+    ``audited_score`` over a stated denominator rather than a ``score``, and lists what that
+    denominator ``excludes`` — a feature recognition never identified is absent from the
+    ledger entirely, so a perfect audited score is not a complete drawing.
     """
 
     legibility_issues = [issue for issue in issues if _is_legibility_issue(issue)]
     return {
-        "completeness": _completeness_component(recognition, features, registry, omissions),
+        "completeness": _completeness_component(
+            recognition, features, registry, omissions, issues
+        ),
         "restraint": {
             "available": False,
             "score": None,

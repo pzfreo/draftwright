@@ -222,18 +222,27 @@ crit = dwg.lint_summary()
 assert crit["diagnostic_score"] == crit["score"]
 # Independently observable components; no composite quality score is invented:
 completeness = crit["quality"]["completeness"]
-# Conditional on the requirements Draftwright recognized and can currently audit:
-recognized_completeness = completeness["score"]
+# Named for its denominator: the requirements Draftwright recognized AND can audit.
+# 1.0 does NOT mean the drawing is complete — a feature recognition missed never became
+# a requirement, so it is absent from the ledger rather than counted against it.
+audited = completeness["audited_score"]
 assert completeness["scope"] == "audited_recognized_requirements"
+completeness["excludes"]                     # what the denominator cannot see
+completeness["unrecognised_geometry_reports"]  # a floor on that gap, never a measure
 legibility = crit["quality"]["legibility"]
 restraint = crit["quality"]["restraint"]  # unavailable until provenance is complete
 dwg.repair()                # auto-fix mechanically-fixable lint; never worsens
 ```
 
 Completeness is strict about authored omissions: removing a dimension from a complete authored
-set records a `suppressed` requirement and lowers the score. The evidence distinguishes that
-choice from a placement failure, but cannot certify that the omission is engineering-correct;
-plain deletion is not an accepted-waiver mechanism.
+set records a `suppressed` requirement and lowers the audited score. The evidence distinguishes
+that choice from a placement failure, but cannot certify that the omission is
+engineering-correct; plain deletion is not an accepted-waiver mechanism.
+
+**`audited_score` is not a completion gate.** It answers "of the requirements we recognised and
+can audit, how many were placed?" — so a part whose geometry recognition missed entirely still
+scores 1.0. Gate on issue codes and severities, and read `excludes` and
+`unrecognised_geometry_reports` for what the denominator cannot account for.
 
 Each `LintIssue` carries a domain-meaningful `code` and, when computable, a
 ready-to-apply `suggestion`. See `docs/adr/` for the design (deterministic

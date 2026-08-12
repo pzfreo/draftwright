@@ -9,7 +9,11 @@
   returned as the honestly named `diagnostic_score`; no composite quality verdict is invented.
   Completeness scores recognition-owned requirements in the families with semantic outcome
   ledgers and states that conditional scope explicitly; recognized families not yet scored are
-  listed separately. Legibility includes only layout and placement diagnostics, and scores
+  listed separately. Its scalar is `audited_score`, not `score`, because a feature recognition
+  missed never became a requirement — so a part with a recogniser gap can reach 1.0, and the
+  qualifier belongs where it survives being quoted. The block also lists what its denominator
+  `excludes` and counts `unrecognised_geometry_reports` (a floor on that gap, not a measure).
+  It is not a completion gate. Legibility includes only layout and placement diagnostics, and scores
   information-severity ones — "place what fits" drops, a leader crossing a silhouette — against
   the warning floor, so it cannot read 1.0 while itemising output it calls unreadable. A drop is
   identified by its `*_dropped` code suffix unless its producer records an explicit

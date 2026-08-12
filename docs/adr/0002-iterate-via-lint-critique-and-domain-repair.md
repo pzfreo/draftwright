@@ -89,6 +89,16 @@ same iterate-and-fix laps — with no fluency in draftwright internals required.
   redundancy decision. Such an omission remains a visible `suppressed` requirement and scores
   as unplaced. Counting every authored omission as complete would make the metric trivially
   gameable; an accepted waiver would need a distinct, explicit, reviewable provenance state.
+- **Completeness is bounded by recognition, and its scalar says so in its own name.** The
+  component reports `audited_score` — placed over *recognised and auditable* requirements — not
+  `score`. A feature recognition never identified never became a requirement, so it is absent
+  from the ledger rather than counted as missing, and a part with a recogniser gap can reach
+  1.0. The qualifier lives in the field name because a caveat kept in a sibling key is lost the
+  moment the number is quoted, and the primary consumer of this API is an agent summarising it.
+  The block also emits `excludes` and an `unrecognised_geometry_reports` count (a floor on the
+  gap, from the `unrecognised_defining_geometry` check — zero means nothing was *noticed*).
+  **Neither is a completion gate**: closing the loop still means driving issue codes to zero,
+  and closing a recogniser gap is recognition work, not a metric change.
 - Requires building the domain-semantic API, suggestions, and repair loop
   (roadmap Cluster B / #25–#30) — the loop is aspirational until they exist.
 

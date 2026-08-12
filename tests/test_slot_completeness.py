@@ -285,8 +285,8 @@ def test_removing_a_slot_declaration_cannot_shrink_the_quality_denominator():
     assert complete_quality["requirements"] == sparse_quality["requirements"] == 3
     assert complete_quality["placed"] == 3
     assert sparse_quality["unverifiable"] == 3
-    assert complete_quality["score"] == 1.0
-    assert sparse_quality["score"] == 0.0
+    assert complete_quality["audited_score"] == 1.0
+    assert sparse_quality["audited_score"] == 0.0
 
 
 def test_audited_recognized_requirements_remain_scorable_beside_unscored_families():
@@ -294,7 +294,7 @@ def test_audited_recognized_requirements_remain_scorable_beside_unscored_familie
     completeness = build_drawing(part).lint_summary()["quality"]["completeness"]
 
     assert completeness["available"] is True
-    assert completeness["score"] == 1.0
+    assert completeness["audited_score"] == 1.0
     assert completeness["scope"] == "audited_recognized_requirements"
     assert completeness["requirements"] == completeness["placed"] == 3
     assert completeness["unscored_recognized_families"] == ["holes"]
@@ -333,9 +333,9 @@ def test_deleting_declared_features_cannot_improve_a_damaged_quality_score():
     empty_quality = empty.lint_summary()["quality"]["completeness"]
     assert damaged_quality["requirements"] == sparse_quality["requirements"] == 6
     assert damaged_quality["placed"] == sparse_quality["placed"] == 3
-    assert damaged_quality["score"] == sparse_quality["score"] == 0.5
+    assert damaged_quality["audited_score"] == sparse_quality["audited_score"] == 0.5
     assert empty_quality["requirements"] == empty_quality["unverifiable"] == 6
-    assert empty_quality["score"] == 0.0
+    assert empty_quality["audited_score"] == 0.0
 
 
 @pytest.mark.parametrize(("part_factory", "requirement_count"), [(_slot_row, 5), (_slot_grid, 6)])
