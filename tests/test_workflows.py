@@ -1,5 +1,6 @@
 """Executable guards for the hosted-runner budget and protected release topology."""
 
+import json
 import re
 from pathlib import Path
 
@@ -24,26 +25,53 @@ def _job(workflow: str, name: str) -> str:
     return "\n".join(lines[start:end])
 
 
-def test_pr_matrix_preserves_compatibility_dimensions_with_nine_test_jobs():
+def _matrix_variants(test_job: str) -> tuple[list[dict], list[dict]]:
+    """The pull-request matrix and the full matrix, as the workflow expression defines them."""
+    literals = re.findall(r"'(\[\{.*?\}\])'", test_job, re.S)
+    assert len(literals) == 2, "expected exactly two matrix variants in the include expression"
+    return tuple(json.loads(re.sub(r"\s+", " ", literal)) for literal in literals)
+
+
+def test_pull_requests_run_linux_only_to_stay_inside_the_runner_budget():
     workflow = _workflow("ci.yml")
     test_job = _job(workflow, "test")
-    entries = set(re.findall(r'- \{os: ([^,]+), python-version: "([^"]+)"\}', test_job))
+    pr_matrix, full_matrix = _matrix_variants(test_job)
 
-    assert "if: github.event_name == 'pull_request'" in test_job
-    assert "if: github.event_name == 'pull_request'" in _job(workflow, "coverage")
-    assert len(entries) + 1 == 9  # the separate Ubuntu 3.13 coverage job
-    assert {version for os_name, version in entries if os_name == "ubuntu-latest"} | {"3.13"} == {
+    # macOS meters at 10x and Windows at 2x. Measured on run 31570091735, the four
+    # non-Linux jobs were 43 of 100 wall-clock minutes but 236 of 294 billed ones. At the
+    # observed ~234 pull-request CI runs a month that is ~55,000 billed minutes, and it
+    # exhausted the account's Actions allowance. Hence: no non-Linux runner on a plain PR.
+    assert {entry["os"] for entry in pr_matrix} == {"ubuntu-latest"}
+
+    # Every supported Python still runs on every PR; 3.13 is the separate coverage job.
+    assert {entry["python-version"] for entry in pr_matrix} | {"3.13"} == {
         "3.10",
         "3.11",
         "3.12",
         "3.13",
         "3.14",
     }
+
+    # The full surface still exists and still covers both kernels on both non-Linux OSes:
+    # 3.12 is the last release carrying VTK, 3.14 the current no-VTK kernel.
     for os_name in ("macos-latest", "windows-latest"):
-        assert {version for os_entry, version in entries if os_entry == os_name} == {
+        assert {e["python-version"] for e in full_matrix if e["os"] == os_name} == {
             "3.12",
             "3.14",
         }
+
+    assert "if: github.event_name != 'push'" in test_job
+    assert "if: github.event_name == 'pull_request'" in _job(workflow, "coverage")
+
+
+def test_the_full_matrix_stays_reachable_without_editing_the_workflow():
+    """Linux-only PRs are only defensible while the rest of the surface still runs."""
+    workflow = _workflow("ci.yml")
+    test_job = _job(workflow, "test")
+
+    assert "schedule:" in workflow and "cron:" in workflow  # weekly sweep
+    assert "workflow_dispatch:" in workflow  # on demand, any branch
+    assert "full-matrix" in test_job  # opt in on a single pull request
 
 
 def test_main_runs_static_and_slow_gates_without_repeating_fast_matrix():
@@ -52,7 +80,9 @@ def test_main_runs_static_and_slow_gates_without_repeating_fast_matrix():
     assert "push:\n    branches: [main]" in workflow
     assert "if:" not in _job(workflow, "lint")
     assert "if: github.event_name == 'push'" in _job(workflow, "test-slow")
-    assert "if: github.event_name == 'pull_request'" in _job(workflow, "test")
+    # `test` also serves the weekly sweep and workflow_dispatch, so it is gated on "not a
+    # merge to main" rather than on "is a pull request".
+    assert "if: github.event_name != 'push'" in _job(workflow, "test")
     assert "if: github.event_name == 'pull_request'" in _job(workflow, "coverage")
 
 
