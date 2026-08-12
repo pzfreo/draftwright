@@ -46,6 +46,7 @@ from draftwright.annotations._common import (
     carve_free_segments,
     clear_label_of_centerlines,
     dim_footprint,
+    leader_footprint,
     place_strip_candidates,
     register_corridor,
     strip_obstacles,
@@ -1768,36 +1769,30 @@ def _rim_tip(centre, elbow, dia, scale, *, callout=None, location=None, to_page=
     return (centre[0] + dx / norm * r, centre[1] + dy / norm * r)
 
 
-def _build_leader_at(s, edge, side, y, to_page, elbow_dx, draft, scale):
-    """The Leader a callout would draw for queue entry *s* at elbow-Y *y* — built but not
-    placed, so its footprint can be checked before committing (ADR 0009 P5 strand 3). Returns
-    ``(leader, tip, elbow)``. Promoted (#638; pure)."""
+def _leader_anchors(s, edge, side, y, to_page, elbow_dx, draft, scale):
+    """The ``(tip, elbow)`` page points a callout leader for queue entry *s* would span at
+    elbow-Y *y* — pure arithmetic, no OCC. Shared by :func:`_build_leader_at` (which then
+    builds the geometry) and :func:`_probe_box` (which only needs the footprint), so the
+    two cannot describe different leaders (#1138)."""
     _locs, dia, callout, _feat, _ny, rep = s
     centre = to_page(rep)
     if side == "right":
         elbow = (edge + elbow_dx, y)
-        tip = _rim_tip(
-            centre,
-            elbow,
-            dia,
-            scale,
-            callout=callout,
-            location=rep,
-            to_page=to_page,
-        )
+        tip = _rim_tip(centre, elbow, dia, scale, callout=callout, location=rep, to_page=to_page)
         tip = (min(tip[0], edge - draft.arrow_length), tip[1])
     else:
         elbow = (edge - elbow_dx, y)
-        tip = _rim_tip(
-            centre,
-            elbow,
-            dia,
-            scale,
-            callout=callout,
-            location=rep,
-            to_page=to_page,
-        )
+        tip = _rim_tip(centre, elbow, dia, scale, callout=callout, location=rep, to_page=to_page)
         tip = (max(tip[0], edge + draft.arrow_length), tip[1])
+    return tip, elbow
+
+
+def _build_leader_at(s, edge, side, y, to_page, elbow_dx, draft, scale):
+    """The Leader a callout would draw for queue entry *s* at elbow-Y *y* — built but not
+    placed, so its footprint can be checked before committing (ADR 0009 P5 strand 3). Returns
+    ``(leader, tip, elbow)``. Promoted (#638; pure)."""
+    callout = s[2]
+    tip, elbow = _leader_anchors(s, edge, side, y, to_page, elbow_dx, draft, scale)
     leader = _profiled_callout_leader(
         tip=(tip[0], tip[1], 0),
         elbow=(elbow[0], elbow[1], 0),
@@ -1824,17 +1819,26 @@ def _is_central(s, a, to_page, view_cx, view_cy, draft):
     return abs(cx - view_cx) < tol and abs(cy - view_cy) < tol
 
 
-def _probe_box(s, edge, side, to_page, elbow_dx, draft, scale):
+def _probe_box(s, edge, side, to_page, elbow_dx, draft, scale, cache=None):
     """Probe a queued candidate's leader footprint up front (before it's chosen for placement),
     so a degenerate geometry (a hole essentially coincident with the strip edge) gets a
     defensive catch, matching _geom_box's "not every annotation bbox-es cleanly" idiom. Returns
-    the box or ``None``. Promoted (#638; side-effect-free bar a debug log on failure)."""
+    the box or ``None``. Promoted (#638; side-effect-free bar a debug log on failure).
+
+    Computed analytically (#1138). Building the Leader to measure it cost 0.12–0.21 s per
+    probe — 6–10 % of a whole drawing — to fuse an Arrow, a swept shelf and the callout
+    sketch, all of which was then discarded: the caller reads only the horizontal extent,
+    to decide which obstacles the carve should consider. The one measurement that is not
+    arithmetic, the callout's own box, goes through the drawing's shared memo, so a callout
+    probed at several candidate rows is measured once rather than once per row."""
+    callout = s[2]
     try:
-        leader, _, _ = _build_leader_at(s, edge, side, s[4], to_page, elbow_dx, draft, scale)
-    except Exception as exc:  # noqa: BLE001 — geometry construction raises broadly
+        tip, elbow = _leader_anchors(s, edge, side, s[4], to_page, elbow_dx, draft, scale)
+        callout_box = None if callout is None else _geom_box(callout, cache)
+        return leader_footprint(tip, elbow, draft, text_side=side, callout_box=callout_box)
+    except Exception as exc:  # noqa: BLE001 — degenerate placements raise broadly
         _log.debug("plan/side %s strip: probe leader failed (%s); omitted", side, exc)
         return None
-    return _geom_box(leader)
 
 
 class _StripCtx(NamedTuple):
@@ -2201,10 +2205,11 @@ def _place_queue(
     # position-dependent geometry (it runs from the fixed hole location
     # to the elbow), so probing everyone at one far-away Y badly
     # misjudges it.
+    cache = getattr(dwg, "box_cache", None)  # measure each callout once (#1138)
     probe_boxes = [
         b
         for s in queue
-        if (b := _probe_box(s, edge, side, to_page, elbow_dx, draft, a.SCALE)) is not None
+        if (b := _probe_box(s, edge, side, to_page, elbow_dx, draft, a.SCALE, cache)) is not None
     ]
     occupied = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
     if probe_boxes:
