@@ -9,9 +9,13 @@
   returned as the honestly named `diagnostic_score`; no composite quality verdict is invented.
   Completeness scores recognition-owned requirements in the families with semantic outcome
   ledgers and states that conditional scope explicitly; recognized families not yet scored are
-  listed separately. Legibility includes only layout and placement diagnostics, including
-  information-level placement drops, and restraint fails closed as unavailable until measurement
-  provenance can classify every annotation.
+  listed separately. Legibility includes only layout and placement diagnostics, and scores
+  information-severity ones — "place what fits" drops, a leader crossing a silhouette — against
+  the warning floor, so it cannot read 1.0 while itemising output it calls unreadable. A drop is
+  identified by its `*_dropped` code suffix unless its producer records an explicit
+  `outcome_stage`, so a drop code added later counts without being registered anywhere.
+  Restraint fails closed as unavailable until measurement provenance can classify every
+  annotation.
 
 ## v0.4.3 — 2026-08-09
 

@@ -44,41 +44,13 @@ _LEGIBILITY_CODES = frozenset(
     }
 )
 
-# Codes whose meaning is unambiguously "a valid annotation candidate did not land". The two
-# historically ambiguous codes (``gdt_dropped`` and ``pmi_dropped``) are deliberately absent;
-# their producers attach ``outcome_stage`` so validation and placement are separable.
-_PLACEMENT_DROP_CODES = frozenset(
-    {
-        "balloon_dropped",
-        "boss_dia_dropped",
-        "callout_dropped",
-        "chamfer_dropped",
-        "channel_width_dropped",
-        "diameter_dropped",
-        "dimension_dropped",
-        "fillet_dropped",
-        "flat_dropped",
-        "groove_dropped",
-        "location_ref_dropped",
-        "off_axis_location_dropped",
-        "pad_dim_dropped",
-        "plate_thickness_dropped",
-        "pocket_dim_dropped",
-        "pocket_dropped",
-        "polygonal_boss_dropped",
-        "polygonal_stock_dropped",
-        "polygonal_stock_length_dropped",
-        "slot_dim_dropped",
-        "slot_dropped",
-        "step_dim_dropped",
-        "step_position_dropped",
-        "table_dropped",
-    }
-)
-
-# The two ambiguous codes, named rather than merely absent so the vocabulary ratchet can tell
-# "deliberately classified as stage-carrying" from "nobody classified this at all".
-_STAGE_CLASSIFIED_DROP_CODES = frozenset({"gdt_dropped", "pmi_dropped"})
+# Codes whose meaning is unambiguously "a valid annotation candidate did not land" are
+# recognised by their ``*_dropped`` suffix rather than by a listed vocabulary. A list has to
+# be remembered; the suffix cannot be forgotten, so a drop code introduced tomorrow counts
+# against legibility on the day it is introduced instead of scoring as perfectly legible
+# until somebody notices (#1127 review). The two codes that cannot be read off their suffix
+# (``gdt_dropped``/``pmi_dropped``, which cover validation failures too) carry an explicit
+# ``outcome_stage`` from their producers instead; see ``_is_placement_drop``.
 
 # Recognition inventories that represent potentially dimension-bearing physical families.
 _RECOGNISED_REQUIREMENT_FAMILIES = {
@@ -116,10 +88,17 @@ _AUDITED_FAMILIES = ("channels", "flats", "polygonal_stock", "slot_patterns", "s
 
 
 def _is_placement_drop(issue) -> bool:
+    """Whether this issue reports a valid annotation candidate that did not land.
+
+    ``gdt_dropped`` and ``pmi_dropped`` each cover both malformed input and a candidate that
+    simply did not fit, so their producers attach an explicit ``outcome_stage``; that always
+    decides. Every other drop is read off the code suffix, which fails closed — an
+    unclassified new drop code is counted as a lost annotation rather than ignored.
+    """
     stage = getattr(issue, "outcome_stage", None)
     if stage is not None:
         return bool(stage == "placement")
-    return issue.code in _PLACEMENT_DROP_CODES
+    return bool(issue.code.endswith("_dropped"))
 
 
 def _is_legibility_issue(issue) -> bool:
@@ -131,23 +110,23 @@ def _issue_component(issues, *, error_penalty: float, warning_penalty: float) ->
     warnings = sum(issue.severity == "warning" for issue in issues)
     infos = sum(issue.severity == "info" for issue in issues)
     placement_drops = sum(_is_placement_drop(issue) for issue in issues)
-    # "Place what fits" feature drops are intentionally info severity in lint, but they are
-    # still lost annotations. Give each info-level drop the warning floor so legibility cannot
-    # remain 1.0 after arbitrarily many dimensions disappear (#1127 adversarial review).
-    info_drops = sum(issue.severity == "info" and _is_placement_drop(issue) for issue in issues)
     by_code = Counter(issue.code for issue in issues)
     return {
         "available": True,
+        # Every issue reaching here is a legibility defect by construction, so info severity
+        # takes the warning floor too. Lint uses it for "place what fits" drops and for
+        # readability faults like a leader crossing a silhouette; either way the component
+        # cannot report 1.0 while itemising output it has just called unreadable (#1127).
         "score": max(
             0.0,
-            1.0 - errors * error_penalty - (warnings + info_drops) * warning_penalty,
+            1.0 - errors * error_penalty - (warnings + infos) * warning_penalty,
         ),
         "errors": errors,
         "warnings": warnings,
         "infos": infos,
         "placement_drops": placement_drops,
         "by_code": dict(sorted(by_code.items())),
-        "basis": "layout_issue_severity_with_drop_floor",
+        "basis": "layout_issue_severity_with_info_floor",
     }
 
 

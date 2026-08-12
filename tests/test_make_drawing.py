@@ -5300,7 +5300,7 @@ class TestLintSummaryAndDrops:
             "infos": 1,
             "placement_drops": 2,
             "by_code": {"callout_dropped": 1, "slot_dim_dropped": 1},
-            "basis": "layout_issue_severity_with_drop_floor",
+            "basis": "layout_issue_severity_with_info_floor",
         }
         assert summary["quality"]["restraint"] == {
             "available": False,

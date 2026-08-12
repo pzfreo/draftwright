@@ -1,80 +1,87 @@
-"""Fail-closed guards over the quality components' hand-maintained vocabularies (#1127).
+"""Fail-closed guards over the quality components' classifications (#1127).
 
-The completeness and legibility components each classify a vocabulary the rest of the engine
-owns: the lint drop codes, and the recognition inventories. Both are literal collections, so
-a code or an inventory added elsewhere would join them by omission — legibility would stop
-counting a lost annotation, and completeness would stop reporting a blind spot it advertises
-as explicit. These tests turn "somebody remembered" into "CI refuses".
+Legibility decides what counts as a lost annotation, and completeness decides which
+recognition inventories it can admit to not scoring. Both decisions used to depend on a
+literal collection being kept up to date, which fails open: a code or an inventory added
+elsewhere joins by omission, and the component keeps reporting a clean sheet. These tests
+pin the behaviour that replaced the drop-code list, and ratchet the one classification that
+is still a literal map.
 """
 
 from __future__ import annotations
 
-import re
-from pathlib import Path
-
+from draftwright.linting.issues import LintIssue
 from draftwright.linting.quality import (
     _NON_REQUIREMENT_INVENTORIES,
-    _PLACEMENT_DROP_CODES,
     _RECOGNISED_REQUIREMENT_FAMILIES,
-    _STAGE_CLASSIFIED_DROP_CODES,
     quality_components,
 )
 from draftwright.recognition import RecognitionResult
 
-_SRC = Path(__file__).resolve().parents[1] / "src" / "draftwright"
 
-# The one site that builds a drop code at runtime rather than writing it out
-# (``annotations/from_model.py``'s slot/pad/pocket dim drop). Its expansion is listed here
-# because a literal scrape cannot see it; the scrape's blind spot is itself guarded below.
-_DYNAMIC_DROP_CODES = frozenset({"pad_dim_dropped", "pocket_dim_dropped", "slot_dim_dropped"})
-
-
-def _producer_files():
-    """Every engine module except the classifier itself.
-
-    Scanning ``quality.py`` would make both directions of the ratchet vacuous: its own
-    frozensets would supply every code the scrape then finds.
-    """
-
-    return sorted(path for path in _SRC.rglob("*.py") if path.name != "quality.py")
+def _legibility(*issues):
+    return quality_components(
+        recognition=None,
+        features=(),
+        registry=None,
+        omissions=(),
+        issues=issues,
+        error_penalty=0.15,
+        warning_penalty=0.05,
+    )["legibility"]
 
 
-def _recorded_drop_codes() -> set[str]:
-    pattern = re.compile(r"""["']([a-z_]+_dropped)["']""")
-    return {
-        code for path in _producer_files() for code in pattern.findall(path.read_text("utf-8"))
-    } | set(_DYNAMIC_DROP_CODES)
+def test_a_drop_code_nobody_registered_still_counts_against_legibility():
+    """The fail-closed half: no list to update, so a new drop cannot score as legible."""
+    legibility = _legibility(
+        LintIssue(severity="info", code="teleporter_dropped", message="a brand new drop")
+    )
+
+    assert legibility["placement_drops"] == 1
+    assert legibility["score"] < 1.0
+    assert legibility["by_code"] == {"teleporter_dropped": 1}
 
 
-def test_every_drop_code_the_engine_can_record_is_classified():
-    classified = _PLACEMENT_DROP_CODES | _STAGE_CLASSIFIED_DROP_CODES
-    unclassified = sorted(_recorded_drop_codes() - classified)
+def test_an_explicit_validation_stage_keeps_a_drop_out_of_legibility():
+    """The other half: a producer can still say "this was malformed input, not a layout loss"."""
+    legibility = _legibility(
+        LintIssue(
+            severity="warning",
+            code="gdt_dropped",
+            message="bad target",
+            outcome_stage="validation",
+        )
+    )
 
-    assert unclassified == [], (
-        "these lint drop codes are neither placement drops nor stage-carrying, so an "
-        f"annotation they report as lost would still score as perfectly legible: {unclassified}"
+    assert legibility["placement_drops"] == 0
+    assert legibility["by_code"] == {}
+    assert legibility["score"] == 1.0
+
+
+def test_an_info_severity_readability_fault_lowers_the_score():
+    """A leader through the outline is a legibility defect at info severity, not a free pass."""
+    legibility = _legibility(
+        LintIssue(
+            severity="info",
+            code="leader_crosses_silhouette",
+            message="leader shaft crosses the view silhouette",
+        )
+    )
+
+    assert legibility["infos"] == 1
+    assert legibility["placement_drops"] == 0, "precondition: this is not a drop"
+    assert legibility["score"] < 1.0, (
+        "legibility cannot read 1.0 while itemising output it calls unreadable"
     )
 
 
-def test_no_classified_drop_code_has_left_the_engine():
-    """The other direction: a stale entry means the classification is no longer exercised."""
-    stale = sorted((_PLACEMENT_DROP_CODES | _STAGE_CLASSIFIED_DROP_CODES) - _recorded_drop_codes())
-
-    assert stale == [], f"classified drop codes that no producer records any more: {stale}"
-
-
-def test_a_runtime_built_drop_code_cannot_evade_the_literal_scrape():
-    f_string_drop = re.compile(r"""f["'][^"']*\{[^}]+\}[a-z_]*_dropped["']""")
-    sites = sorted(
-        (str(path.relative_to(_SRC)), match)
-        for path in _producer_files()
-        for match in f_string_drop.findall(path.read_text("utf-8"))
+def test_semantic_issues_stay_out_of_the_legibility_component():
+    legibility = _legibility(
+        LintIssue(severity="warning", code="feature_not_dimensioned", message="completeness")
     )
 
-    assert sites == [("annotations/from_model.py", 'f"{noun}_dim_dropped"')], (
-        "a drop code assembled at runtime is invisible to the literal scrape; add its "
-        f"expansion to _DYNAMIC_DROP_CODES and record the new site here: {sites}"
-    )
+    assert legibility["by_code"] == {}
+    assert legibility["score"] == 1.0
 
 
 def test_every_recognition_inventory_is_either_a_requirement_family_or_excluded():
