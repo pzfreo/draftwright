@@ -493,11 +493,11 @@ def leader_footprint(tip, elbow, draft, *, text_side="auto", callout_box=None):
     Mirrors ``helpers.Leader.__init__``: the shelf runs ``pad_around_text`` from
     the elbow in ``shelf_dir`` (``text_side``, or tip→elbow's horizontal sense when
     ``"auto"``), and the callout hangs at the shelf end — its near edge on the
-    shelf end, centred vertically on the elbow. The shaft is inflated by half the
-    arrow length rather than half the line width: the arrowhead at *tip* is the
-    widest thing on it, and over-claiming is the safe direction (this box selects
-    which obstacles a carve considers, so a box that is too big keeps an
-    irrelevant obstacle, while one that is too small drops a real one).
+    shelf end, centred vertically on the elbow. The shaft is inflated by half of
+    whichever of *arrow_length* / *line_width* dominates, and over-claiming is the
+    safe direction (this box selects which obstacles a carve considers, so a box
+    that is too big keeps an irrelevant obstacle, while one that is too small drops
+    a real one).
 
     Returns ``None`` where ``Leader`` itself would raise — a forced *text_side*
     that runs the shaft through the label — so callers omit the candidate exactly
@@ -510,7 +510,10 @@ def leader_footprint(tip, elbow, draft, *, text_side="auto", callout_box=None):
         shelf_dir = 1.0 if text_side == "right" else -1.0
     shelf_end_x = elbow[0] + shelf_dir * gap
 
-    half_shaft = draft.arrow_length / 2.0  # head half-width bounds the shaft's
+    # The arrowhead bounds the shaft only while it is the wider of the two; a style with a
+    # heavy line and a small arrow inverts that, and a diagonal shaft then pushes its stroke
+    # past an arrow-only box. Pad by whichever dominates.
+    half_shaft = max(draft.arrow_length, draft.line_width) / 2.0
     xs = [tip[0] - half_shaft, tip[0] + half_shaft, elbow[0] - half_shaft, elbow[0] + half_shaft]
     ys = [tip[1] - half_shaft, tip[1] + half_shaft, elbow[1] - half_shaft, elbow[1] + half_shaft]
 

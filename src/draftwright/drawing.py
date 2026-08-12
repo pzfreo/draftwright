@@ -665,12 +665,17 @@ class Drawing:
     def box_cache(self) -> dict:
         """The ONE annotation bounding-box memo for this build (#1138).
 
-        Placement and lint measure the same annotations. Until now they measured them
-        twice: ``_common._geom_box`` boxed each occupant while solving a strip, then
-        ``linting.structural._ann_box`` boxed it again from a cold cache — 46% of lint's
-        bounding-box time on a plate build was re-measuring geometry placement had
-        already measured. An *optimal* ``bounding_box()`` tessellates, so a Dimension
-        costs ~10 ms and a Leader ~16 ms; doing it twice is the whole of that waste.
+        Placement and lint both measure annotations, and an *optimal* ``bounding_box()``
+        tessellates (~16 ms for a Leader), so anything measured on both paths is worth
+        measuring once. Sharing one memo makes that hold by construction.
+
+        Keep its measured scope in mind before attributing a build's cost to it: on a
+        plate build it holds **two** entries, on a flange **three**, all leaders and
+        their callouts. Dimensions are *not* among them and cannot be — ``strip_obstacles``
+        decomposes anything exposing ``.segments`` instead of boxing it whole, and
+        ``corridor_blockers`` skips ``Dimension``/``SafeDimension`` outright. The memo is
+        worth tens of milliseconds, not a phase; the leader work in #1138 is what moved
+        the number.
 
         Exposed publicly (not as ``_ann_box_cache``) because the annotations layer is
         duck-typed against ``dwg`` and, per ADR 0005, reads no private Drawing state.

@@ -1,15 +1,22 @@
 """Placement and lint share ONE annotation bounding-box memo (#1138).
 
-An *optimal* ``bounding_box()`` tessellates, so boxing a placed annotation costs ~10 ms
-for a Dimension and ~16 ms for a Leader. Placement boxes every occupant while solving a
-strip; lint then boxes the same objects for its overlap checks. Measuring twice was ~1/3
-of every labelling pass's bounding-box time.
+An *optimal* ``bounding_box()`` tessellates (~16 ms for a Leader), so an annotation both
+paths measure is worth measuring once: placement boxes occupants while solving a strip,
+and lint boxes them again for its overlap checks.
 
-The guard below is deliberately NOT "the cache attribute exists" — an unused dict passes
-that. It asserts the observable consequence: an annotation placement already measured is
-never handed to OCC again by lint. Reverting either seeding call site (``strip_obstacles``
-or ``corridor_blockers`` back to a bare ``_geom_box(o)``) empties the memo and fails the
-first assertion; keeping the memo but giving lint a *separate* one fails the second.
+Be precise about the scope, because the obvious reading of "placement and lint share a
+memo" is too generous. Measured on the fixture below, the memo holds **two** entries: the
+placed leader (via ``corridor_blockers``) and the callout ``_probe_box`` measured to size
+it. It holds no *dimension* and structurally cannot — ``strip_obstacles`` decomposes
+anything exposing ``.segments`` rather than boxing it whole, and ``corridor_blockers``
+skips ``Dimension``/``SafeDimension``. So this guards a real but small win, and asserting
+on the leader specifically is what keeps it from passing on an unrelated entry.
+
+The guard is deliberately NOT "the cache attribute exists" — an unused dict passes that.
+It asserts the observable consequence: an annotation placement already measured is never
+handed to OCC again by lint. Reverting ``corridor_blockers`` to a bare ``_geom_box(o)``
+fails the first assertion; keeping the memo but giving lint a *separate* one fails the
+second.
 """
 
 from __future__ import annotations
@@ -17,14 +24,15 @@ from __future__ import annotations
 import pytest
 from build123d import Box, Cylinder, Pos
 from build123d.topology import Shape
+from build123d_drafting.helpers import Leader
 
 from draftwright.analysis import _analyse
 from draftwright.builder import _assemble
 
 
 def _plate():
-    """Enough distinct annotations — hole callouts, envelope dims, a notch — that the
-    memo has real occupants rather than a single dimension's worth."""
+    """Holes on one face and a notch: enough to place a callout leader, which is the
+    annotation kind the memo actually holds."""
     part = Box(120, 80, 12)
     for x in (-40, 0, 40):
         part -= Pos(x, 20, 0) * Cylinder(4, 40)
@@ -42,13 +50,19 @@ def built():
 
 
 def test_placement_seeds_the_memo(built):
-    """Placement must leave measured boxes behind, not throw them away."""
-    placed = {name: o for name, o in built.iter_annotations()}
-    cached = {k for k in built.box_cache if any(id(o) == k for o in placed.values())}
+    """Placement must leave measured boxes behind, not throw them away.
 
+    Asserted on the placed *leader* rather than on "some entry": the probe's callout box
+    is also in the memo, so a laxer assertion would still pass with the placement-side
+    seeding removed entirely.
+    """
+    leaders = {id(o): n for n, o in built.iter_annotations() if isinstance(o, Leader)}
+    assert leaders, "the fixture must place a callout leader for this test to mean anything"
+
+    cached = [n for k, n in leaders.items() if k in built.box_cache]
     assert cached, (
-        "placement measured every strip occupant and cached none of them: "
-        f"{len(placed)} annotations placed, box_cache holds {len(built.box_cache)} entries"
+        "placement boxed every strip occupant and cached none of the leaders it placed: "
+        f"{len(leaders)} leaders placed, box_cache holds {len(built.box_cache)} entries"
     )
 
 

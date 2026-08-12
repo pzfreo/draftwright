@@ -28,10 +28,22 @@ from draftwright.analysis import _analyse
 from draftwright.annotations._common import _geom_box, leader_footprint
 from draftwright.builder import _assemble
 
+# The footprint reads its padding off ``Draft``, and ``Drawing.draft`` is public, live state
+# — so the styles are an axis of the contract, not a constant. ``inverted`` is the one that
+# matters: while the arrowhead is the widest thing on the shaft, padding by the arrow alone
+# happens to contain the stroke, but a heavy line with a small arrow inverts that and a
+# diagonal shaft escapes an arrow-only box by ~1.4 mm.
+DRAFT_STYLES = {
+    "default": Draft(),
+    "inverted": Draft(line_width=4, arrow_length=1),
+    "equal": Draft(line_width=2, arrow_length=2),
+    "hairline": Draft(line_width=0.1, arrow_length=6),
+}
 
-@pytest.fixture(scope="module")
-def draft():
-    return Draft()
+
+@pytest.fixture(scope="module", params=sorted(DRAFT_STYLES), ids=sorted(DRAFT_STYLES))
+def draft(request):
+    return DRAFT_STYLES[request.param]
 
 
 @pytest.fixture(scope="module")
