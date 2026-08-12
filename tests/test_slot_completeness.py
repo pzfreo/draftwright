@@ -290,6 +290,8 @@ def test_removing_a_slot_declaration_cannot_shrink_the_quality_denominator():
 
 
 def test_audited_recognized_requirements_remain_scorable_beside_unscored_families():
+    """A perfect audited score is reachable while the component is itself reporting a blind
+    spot — which is why the scalar is named for its denominator (#1127)."""
     part = _off_centre_slot() - Pos(-25, 15, -5) * Cylinder(4, 20)
     completeness = build_drawing(part).lint_summary()["quality"]["completeness"]
 

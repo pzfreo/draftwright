@@ -223,8 +223,9 @@ assert crit["diagnostic_score"] == crit["score"]
 # Independently observable components; no composite quality score is invented:
 completeness = crit["quality"]["completeness"]
 # Named for its denominator: the requirements Draftwright recognized AND can audit.
-# 1.0 does NOT mean the drawing is complete — a feature recognition missed never became
-# a requirement, so it is absent from the ledger rather than counted against it.
+# 1.0 does NOT mean the drawing is complete — it means every requirement recognition did
+# identify was placed, however much of the part it missed. What was never recognized never
+# became a requirement. (Recognized nothing auditable at all? available is False, not 1.0.)
 audited = completeness["audited_score"]
 assert completeness["scope"] == "audited_recognized_requirements"
 completeness["excludes"]                     # what the denominator cannot see
@@ -240,9 +241,9 @@ that choice from a placement failure, but cannot certify that the omission is
 engineering-correct; plain deletion is not an accepted-waiver mechanism.
 
 **`audited_score` is not a completion gate.** It answers "of the requirements we recognised and
-can audit, how many were placed?" — so a part whose geometry recognition missed entirely still
-scores 1.0. Gate on issue codes and severities, and read `excludes` and
-`unrecognised_geometry_reports` for what the denominator cannot account for.
+can audit, how many were placed?" — so a part can score 1.0 with whole features missing from the
+drawing, if recognition never identified them. Gate on issue codes and severities, and read
+`excludes` and `unrecognised_geometry_reports` for what the denominator cannot account for.
 
 Each `LintIssue` carries a domain-meaningful `code` and, when computable, a
 ready-to-apply `suggestion`. See `docs/adr/` for the design (deterministic

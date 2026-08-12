@@ -44,8 +44,14 @@ def _completeness(*issues):
 
 
 def test_the_audited_score_carries_its_qualifier_in_its_own_name():
-    """A recogniser gap makes a perfect score reachable, so the caveat cannot live in a
-    sibling key: metadata is dropped when a number is quoted, a field name is not."""
+    """Only the key naming is checked here — sibling metadata is dropped when a number is
+    quoted, a field name is not.
+
+    That a perfect score really is reachable beside an admitted blind spot is a claim about
+    a built drawing, not about this dict, and is established on a real part by
+    ``test_audited_recognized_requirements_remain_scorable_beside_unscored_families`` in
+    ``tests/test_slot_completeness.py``.
+    """
     completeness = _completeness()
 
     assert "score" not in completeness

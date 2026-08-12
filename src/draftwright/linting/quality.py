@@ -12,12 +12,14 @@ Completeness is deliberately marked partial.  Only the feature families with a s
 ``*_outcomes`` ledger participate today; warning counts and declared IR are never substituted
 for the missing physical denominator.
 
-Its scalar is therefore named ``audited_score``, not ``score``.  A drawing of a part whose
-geometry recognition missed entirely still scores 1.0, because the missed feature never
-became a requirement — so the qualifier belongs in the field name, where it survives being
-quoted, and not only in the metadata beside it.  **It is not a completion gate**: gate on
-issue codes and severities (ADR 0002), and read ``excludes`` for what the denominator
-cannot see.
+Its scalar is therefore named ``audited_score``, not ``score``.  A part reaches 1.0 whenever
+every requirement recognition *did* identify was placed, however much of the part it missed:
+what was never recognised never became a requirement, so it is absent from the ledger rather
+than counted against it.  (Where nothing auditable was recognised at all, the component
+reports ``available: False`` and a ``None`` score — not a perfect one.)  The qualifier
+belongs in the field name, where it survives being quoted, and not only in the metadata
+beside it.  **It is not a completion gate**: gate on issue codes and severities (ADR 0002),
+and read ``excludes`` for what the denominator cannot see.
 """
 
 from __future__ import annotations
