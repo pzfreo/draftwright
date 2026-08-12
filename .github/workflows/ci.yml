@@ -154,3 +154,39 @@ jobs:
         # contract. Distribute individual cases: loadscope serialized the 18-case standards
         # module and left most workers idle (#1108).
         run: uv run pytest tests/ -m slow -n auto --dist load
+
+  ci-ok:
+    # The single status check branch protection should require.
+    #
+    # Protection currently names each matrix leg individually — `test (macos-latest, 3.12)`
+    # and nine others. A required context that names a job is only satisfied when a job of
+    # that exact name reports, so changing the matrix at all leaves those contexts stuck on
+    # "Expected" and makes every pull request permanently unmergeable. Requiring this job
+    # instead lets the matrix change shape without touching repository settings.
+    #
+    # `if: always()` is load-bearing, not decoration. Without it a failing dependency
+    # skips this job, and GitHub counts a skipped required check as satisfied — so a
+    # broken test suite would report a green gate.
+    if: always()
+    needs: [lint, test, coverage]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every gating job to have succeeded or been legitimately skipped
+        env:
+          LINT: ${{ needs.lint.result }}
+          TEST: ${{ needs.test.result }}
+          COVERAGE: ${{ needs.coverage.result }}
+        run: |
+          echo "lint=$LINT test=$TEST coverage=$COVERAGE"
+          failed=0
+          for pair in "lint:$LINT" "test:$TEST" "coverage:$COVERAGE"; do
+            name=${pair%%:*}
+            result=${pair#*:}
+            # `skipped` is a pass: `test` does not run on push and `coverage` runs only on
+            # pull_request, by design. `failure` and `cancelled` are not passes.
+            case "$result" in
+              success|skipped) ;;
+              *) echo "::error::$name did not pass (result: $result)"; failed=1 ;;
+            esac
+          done
+          exit $failed
