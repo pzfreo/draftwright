@@ -34,21 +34,23 @@ class LintIssue:
     outcome_stage: Literal["placement", "validation"] | None = None
 
 
-class _PairLintIssue(LintIssue):
-    """Internal pair observation carrying its primary annotation by identity (#1147).
+class _IssueAggregation:
+    """Summary-scoped side ledger for pairwise score grouping (#1147).
 
-    ``LintIssue`` is a public structured-diagnostic dataclass, so run-local aggregation state
-    must not become one of its fields. This private subclass stores the subject outside the
-    dataclass schema: :func:`dataclasses.asdict` sees only the stable public fields, while
-    quality aggregation can still recognise several raw comparisons of the same object.
-
-    Holding the object itself (not only ``id(subject)``) also owns the token's lifetime. Two
-    issue lists accumulated from separate lint runs cannot accidentally merge after CPython
-    reuses a released object's address.
+    Public lint results remain ordinary ``LintIssue`` values. During one ``lint_summary`` call,
+    structural lint records an opaque token for each primary annotation beside the emitted issue.
+    The ledger retains neither annotations nor their process-local ids after aggregation and is
+    never serialised. A fresh instance per summary also makes separate lint runs independent.
     """
 
-    __slots__ = ("_aggregation_subject",)
+    def __init__(self) -> None:
+        self._tokens_by_annotation_id: dict[int, object] = {}
+        self._tokens_by_issue_id: dict[int, object] = {}
 
-    def __init__(self, *, aggregation_subject, **kwargs) -> None:
-        super().__init__(**kwargs)
-        self._aggregation_subject = aggregation_subject
+    def record_pair(self, issue: LintIssue, annotation) -> None:
+        annotation_id = id(annotation)
+        token = self._tokens_by_annotation_id.setdefault(annotation_id, object())
+        self._tokens_by_issue_id[id(issue)] = token
+
+    def token_for(self, issue: LintIssue):
+        return self._tokens_by_issue_id.get(id(issue))

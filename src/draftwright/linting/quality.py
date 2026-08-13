@@ -133,29 +133,27 @@ def _is_legibility_issue(issue) -> bool:
 _SEVERITY_RANK = {"info": 0, "warning": 1, "error": 2}
 
 
-def _primary_issues(issues) -> list[LintIssue]:
+def _primary_issues(issues, aggregation=None) -> list[LintIssue]:
     """Collapse explicit pair observations to one issue per subject and mechanism.
 
-    Pair-producing lint checks opt in through an internal pair-issue representation. Everything else is
-    deliberately independent, even when code and message happen to match: blanket text/code
-    deduplication would hide genuinely distinct collisions. If a malformed producer gives one
-    group mixed severities, its strongest observation owns the score penalty.
+    Pair-producing lint checks opt in through a summary-scoped side ledger. Everything else
+    is deliberately independent, even when code and message happen to match: blanket
+    text/code deduplication would hide genuinely distinct collisions. If a malformed producer
+    gives one group mixed severities, its strongest observation owns the score penalty.
     """
     primary: dict[tuple, LintIssue] = {}
     for ordinal, issue in enumerate(issues):
-        subject = getattr(issue, "_aggregation_subject", None)
-        # The private pair issue retains the subject object for the issue list's lifetime;
-        # its address is therefore a collision-free identity within and across accumulated
-        # lint runs. Never invoke annotation equality or hashing: geometry objects may define
-        # either in domain-specific ways.
-        key = (issue.code, id(subject)) if subject is not None else (None, ordinal)
+        token = aggregation.token_for(issue) if aggregation is not None else None
+        key = (issue.code, token) if token is not None else (None, ordinal)
         previous = primary.get(key)
         if previous is None or _SEVERITY_RANK[issue.severity] > _SEVERITY_RANK[previous.severity]:
             primary[key] = issue
     return list(primary.values())
 
 
-def _issue_component(issues, *, error_penalty: float, warning_penalty: float) -> dict:
+def _issue_component(
+    issues, *, error_penalty: float, warning_penalty: float, aggregation=None
+) -> dict:
     # Compatibility fields remain raw lint-finding counts. Only the scalar penalty uses the
     # explicitly grouped primary inventory; both inventories are exposed and documented.
     errors = sum(issue.severity == "error" for issue in issues)
@@ -163,7 +161,7 @@ def _issue_component(issues, *, error_penalty: float, warning_penalty: float) ->
     infos = sum(issue.severity == "info" for issue in issues)
     placement_drops = sum(_is_placement_drop(issue) for issue in issues)
     by_code = Counter(issue.code for issue in issues)
-    primary = _primary_issues(issues)
+    primary = _primary_issues(issues, aggregation)
     primary_errors = sum(issue.severity == "error" for issue in primary)
     primary_warnings = sum(issue.severity == "warning" for issue in primary)
     primary_infos = sum(issue.severity == "info" for issue in primary)
@@ -197,7 +195,8 @@ def _issue_component(issues, *, error_penalty: float, warning_penalty: float) ->
         "primary_infos": primary_infos,
         "primary_by_code": dict(sorted(primary_by_code.items())),
         "affected_pairs": sum(
-            getattr(issue, "_aggregation_subject", None) is not None for issue in issues
+            aggregation is not None and aggregation.token_for(issue) is not None
+            for issue in issues
         ),
         # Keep the established basis value: severity and the info floor did not change.
         # This additive field names the inventory to which that basis is now applied.
@@ -296,6 +295,7 @@ def quality_components(
     issues,
     error_penalty: float,
     warning_penalty: float,
+    _aggregation=None,
 ) -> dict:
     """Return independently usable drawing-quality observations.
 
@@ -328,6 +328,7 @@ def quality_components(
             legibility_issues,
             error_penalty=error_penalty,
             warning_penalty=warning_penalty,
+            aggregation=_aggregation,
         ),
     }
 
