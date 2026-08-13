@@ -49,6 +49,7 @@ from draftwright._core import (
 )
 from draftwright.annotations._common import (
     PlacementContext,
+    _register_hole_table_coverage,
     carve_free_position,
     strip_obstacles,
 )
@@ -178,7 +179,7 @@ class _HoleInstance(NamedTuple):
 
 
 def _ir_hole_groups(model, target_axis: str) -> list[tuple]:
-    """``(spec, [member positions], count)`` groups of *model*'s holes on *target_axis*.
+    """``(owner, spec, [member positions], count)`` groups on *target_axis*.
 
     One group per IR hole/pattern feature — the spec-grouping + pattern recognition
     detection already did, so no ``HoleRecord``/``HoleSpec`` re-grouping is needed
@@ -190,9 +191,9 @@ def _ir_hole_groups(model, target_axis: str) -> list[tuple]:
     groups: list[tuple] = []
     for f in model.features:
         if f.kind == "hole" and f.frame.axis == target_axis:
-            groups.append((f, list(f.members) or [f.frame.origin], f.count))
+            groups.append((f, f, list(f.members) or [f.frame.origin], f.count))
         elif f.kind == "pattern" and f.member.frame.axis == target_axis:
-            groups.append((f.member, list(f.members) or [f.member.frame.origin], f.count))
+            groups.append((f, f.member, list(f.members) or [f.member.frame.origin], f.count))
     return groups
 
 
@@ -586,7 +587,7 @@ class Drawing:
             return []
 
         result = []
-        for spec, positions, count in _ir_hole_groups(model, target_axis):
+        for _owner, spec, positions, count in _ir_hole_groups(model, target_axis):
             result.append(
                 FeatureInfo(
                     type="hole",
@@ -2564,14 +2565,15 @@ class Drawing:
 
         glist = [
             (
+                owner,
                 [_HoleInstance(pos, spec.diameter, spec.through, spec.depth) for pos in positions],
                 count,
             )
-            for spec, positions, count in _ir_hole_groups(model, target)
+            for owner, spec, positions, count in _ir_hole_groups(model, target)
         ]
         return [
-            (tag, holes, count)
-            for tag, (holes, count) in zip(_tag_sequence(len(glist)), glist, strict=True)
+            (tag, owner, holes, count)
+            for tag, (owner, holes, count) in zip(_tag_sequence(len(glist)), glist, strict=True)
         ]
 
     def add_balloons(self, view, specs):
@@ -2605,29 +2607,70 @@ class Drawing:
         One row per hole spec-group — ``TAG | ⌀ | DEPTH | QTY`` with tags
         ``A, B, …`` — placed via :meth:`add_table`. With *balloons* (the
         default) a circled tag is added at each hole keyed to its row. The table
-        carries ``covers_diameters`` so the coverage lint counts the tabulated
-        holes as dimensioned. Returns the table, or ``None`` when *view* has no
-        holes or it will not fit.
+        carries the same semantic measurement and structured requirement provenance as
+        automatic table escalation, so physical hole outcomes count only the facts the
+        table visibly states. Returns the table, or ``None`` when *view* has no holes or it
+        will not fit.
         """
         groups = self._hole_spec_groups(view)
         if not groups:
             return None
         rows = [("TAG", "⌀", "DEPTH", "QTY")]
         diams = []
-        for tag, holes, count in groups:
+        for tag, _owner, holes, count in groups:
             h = holes[0]
             depth = "THRU" if h.through else (_fmt(h.depth) if h.depth else "")
             rows.append((tag, f"ø{_fmt(h.diameter)}", depth, str(count)))
             diams.append(h.diameter)
-        table = self.add_table(rows, prefer=prefer, name=name or f"hole_table_{view}")
+        table_name = name or f"hole_table_{view}"
+        table = self.add_table(rows, prefer=prefer, name=table_name)
         if table is None:
             return None
         # The table documents these diameters — let lint see that (#93).
         table.covers_diameters = tuple(diams)
+        from draftwright.model.compiled import compile_dimensions, resolve_feature
+
+        owners = tuple(owner for _tag, owner, _holes, _count in groups)
+        compiled = compile_dimensions(self._part_model)
+        approved = {
+            resolve_feature(group.ref): {
+                dim.parameter_id: dim.id for dim in group.dims if dim.id is not None
+            }
+            for group in compiled.of_kind("hole")
+            if resolve_feature(group.ref) in owners
+        }
+        measurements = tuple(
+            identity
+            for owner in owners
+            for parameter, identity in approved.get(owner, {}).items()
+            if parameter in {"bore.diameter", "bore.depth"}
+        )
+        requirements = tuple(
+            (owner, "bore.through", 1)
+            for owner in owners
+            if getattr(owner, "member", owner).through
+            and "bore.diameter" in approved.get(owner, {})
+        ) + tuple(
+            (owner, "grouping.count", int(getattr(owner, "count", 1) or 1))
+            for owner in owners
+            if int(getattr(owner, "count", 1) or 1) > 1
+            and "bore.diameter" in approved.get(owner, {})
+        )
+        _register_hole_table_coverage(
+            table,
+            self._registry,
+            table_name,
+            measurements=measurements,
+            requirements=requirements,
+        )
         if balloons:
             self.add_balloons(
                 view,
-                [(tag, j, h) for tag, holes, _count in groups for j, h in enumerate(holes)],
+                [
+                    (tag, j, h)
+                    for tag, _owner, holes, _count in groups
+                    for j, h in enumerate(holes)
+                ],
             )
         return table
 

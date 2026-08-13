@@ -40,6 +40,7 @@ from draftwright.annotations._common import (
     Escalation,
     _box_hits,
     _geom_box,
+    _same_location_ordinate,
     _segment_crosses_box,
     _with_hole_center_coverage,
     _with_hole_location_coverage,
@@ -344,7 +345,10 @@ def add_feature_location(
             continue
         # Coincident X (or Y) across this feature's own members → one dim, not a stack
         # of identical position dims (matches render_locations' x_refs/y_refs dedup).
-        prior_x = next((name for value, name in seen_x.items() if abs(rx - value) < 0.5), None)
+        prior_x = next(
+            (name for value, name in seen_x.items() if _same_location_ordinate(rx, value)),
+            None,
+        )
         if prior_x is not None and loc.discriminator in (None, "x"):
             _extend_location_coverage(prior_x, loc)
         elif "x" in want and loc.discriminator in (None, "x") and abs(rx - dx) * a.SCALE >= 1.0:
@@ -360,7 +364,10 @@ def add_feature_location(
             )
             seen_x[rx] = name
             names.append(name)
-        prior_y = next((name for value, name in seen_y.items() if abs(ry - value) < 0.5), None)
+        prior_y = next(
+            (name for value, name in seen_y.items() if _same_location_ordinate(ry, value)),
+            None,
+        )
         if prior_y is not None and loc.discriminator in (None, "y"):
             _extend_location_coverage(prior_y, loc)
         elif "y" in want and loc.discriminator in (None, "y") and abs(ry - dy) * a.SCALE >= 1.0:

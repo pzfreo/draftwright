@@ -68,6 +68,7 @@ from draftwright.annotations._common import (
     _anno_box,
     _box_hits,
     _geom_box,
+    _same_location_ordinate,
     _with_hole_center_coverage,
     _with_hole_location_coverage,
     carve_free_position,
@@ -702,7 +703,7 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
     x_refs: list = []
     for r in refs:
         for u in x_refs:
-            if abs(r[0] - u[0]) < 0.5:
+            if _same_location_ordinate(r[0], u[0]):
                 u[3] = u[3] or r[2] in pinned_set
                 # Collapsing coincident Xs into one dim must ACCUMULATE what it draws
                 # (#1002 r4): the survivor genuinely measures every collapsed feature's X.
@@ -753,7 +754,7 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
         # A single X-location dim shared by two *distinct* features at this X belongs to
         # neither exclusively — leave it unowned so drop() cannot over-strip a sibling's
         # dimension and annotations_of never over-claims it (review #406, ADR 0010).
-        _shared_x = any(abs(o[0] - rx) < 0.5 and o[2] != feat for o in refs)
+        _shared_x = any(_same_location_ordinate(o[0], rx) and o[2] != feat for o in refs)
         _xfeat = None if _shared_x else feat
         # The measurement does NOT follow the feature (#1002 r4). Feature-unowned is an
         # ADR 0010 *ownership* rule — it stops drop(feature) stripping a sibling's dim. It
@@ -807,7 +808,7 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
     y_refs: list = []
     for r in refs:
         for u in y_refs:
-            if abs(r[1] - u[1]) < 0.5:
+            if _same_location_ordinate(r[1], u[1]):
                 u[3] = u[3] or r[2] in pinned_set
                 if r[4] in (None, "y") and r[3] is not None and r[3] not in u[4]:
                     u[4].append(r[3])  # accumulate, as in the X loop (#1002 r4)
@@ -853,7 +854,7 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
             continue
         n += 1
         # Shared-Y location dim → unowned (see the X loop; review #406).
-        _shared_y = any(abs(o[1] - ry) < 0.5 and o[2] != feat for o in refs)
+        _shared_y = any(_same_location_ordinate(o[1], ry) and o[2] != feat for o in refs)
         _yfeat = None if _shared_y else feat
         _ymid = tuple(mids)  # every collapsed feature's Y — see the X loop (#1002 r4)
         register_corridor(

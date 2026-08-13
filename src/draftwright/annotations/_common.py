@@ -49,6 +49,38 @@ def _with_hole_center_coverage(annotation, feature, member, view):
     return annotation
 
 
+def _same_location_ordinate(left, right) -> bool:
+    """Whether two compiled locations state the same physical ordinate.
+
+    Layout may reject distinct dimensions that are too close to print legibly, but that
+    spacing policy must never merge their semantic provenance.  Compiler coordinates are
+    stable to six decimals; this tolerance absorbs only floating-point construction noise.
+    """
+    return abs(float(left) - float(right)) <= 1e-6
+
+
+def _register_hole_table_coverage(
+    table,
+    registry,
+    name,
+    *,
+    measurements=(),
+    locations=(),
+    requirements=(),
+):
+    """Register the semantic facts visibly carried by a placed hole table.
+
+    Automatic escalation and the public table verb share this seam so the table object,
+    registry measurement inventory, and physical hole ledger cannot drift apart.
+    """
+    table.covers_hole_locations = tuple(locations)
+    table.covers_hole_requirements_by_feature = tuple(requirements)
+    identity = registry.identity_of(name)
+    identity["measurement"] = tuple(measurements)
+    registry.reapply(name, identity)
+    return table
+
+
 @dataclass(frozen=True)
 class Escalation:
     """A first-class "could not place this here" signal (ADR 0009 Amendment 1, P5-strand-2).

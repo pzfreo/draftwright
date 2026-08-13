@@ -146,10 +146,11 @@ def _hole_partitions(spec, members, features, *, projected: bool) -> tuple[tuple
     """Return the one forced exact feature cover of physical members, if it exists.
 
     A loose recognition group may correspond to one grouped ``HoleFeature`` or to one
-    object-backed declared feature per member. A candidate is consumed only when some
-    remaining member has exactly one compatible owner. If no such forced choice exists,
-    correspondence is unresolved and fails closed. This conservative propagation is
-    bounded by the declared inventory; it never performs exponential exact-cover search.
+    object-backed declared feature per member. Every physical member must have exactly one
+    compatible declared owner and the union of those owners must equal the physical
+    multiset. Any overlap or extra owner is ambiguous and fails closed. This is the same
+    conservative contract as forced-choice propagation, expressed as one linear incidence
+    pass rather than repeatedly rescanning the shrinking inventory.
     """
     target = Counter(members)
 
@@ -168,40 +169,15 @@ def _hole_partitions(spec, members, features, *, projected: bool) -> tuple[tuple
             eligible.append((feature, coverage))
     if len({id(feature) for feature, _coverage in eligible}) != len(eligible):
         return ()
-
-    by_member: dict[tuple[float, float, float], list[int]] = defaultdict(list)
-    for candidate_index, (_feature, coverage) in enumerate(eligible):
+    owners: dict[tuple[float, float, float], int] = defaultdict(int)
+    combined: Counter[tuple[float, float, float]] = Counter()
+    for _feature, coverage in eligible:
+        combined.update(coverage)
         for member in coverage:
-            by_member[member].append(candidate_index)
-
-    remaining = target.copy()
-    chosen = []
-    used: set[int] = set()
-    while remaining:
-        forced = None
-        for member in remaining:
-            compatible = [
-                candidate_index
-                for candidate_index in by_member.get(member, ())
-                if candidate_index not in used and fits(eligible[candidate_index][1], remaining)
-            ]
-            if not compatible:
-                return ()
-            if len(compatible) == 1:
-                forced = compatible[0]
-                break
-        if forced is None:
-            return ()
-        feature, coverage = eligible[forced]
-        chosen.append(feature)
-        used.add(forced)
-        for member, count in coverage.items():
-            remaining[member] -= count
-            if remaining[member] == 0:
-                del remaining[member]
-    if len(chosen) != len(eligible):
+            owners[member] += 1
+    if combined != target or any(owners[member] != 1 for member in target):
         return ()
-    return (tuple(chosen),)
+    return (tuple(feature for feature, _coverage in eligible),)
 
 
 def _unoriented_direction(value):
@@ -320,19 +296,53 @@ def _source_at(source) -> tuple[float, float, float]:
     )
 
 
+def _recognised_turned_axis_center(recognition, axis):
+    """Recover the one external-cylinder axis that supports the turned-step ladder."""
+    steps = tuple(step for step in recognition.turned_steps if step.axis == axis)
+    if not steps:
+        return None
+    perpendicular = tuple(i for i, letter in enumerate("xyz") if letter != axis)
+    support: dict[tuple[float, float], tuple[set[int], float]] = {}
+    for cylinder in (item for group in recognition.cylinders for item in group):
+        if not cylinder.get("external") or cylinder.get("axis") != axis:
+            continue
+        center_values = tuple(
+            round(float(cylinder["axis_xyz"][index]), 3) for index in perpendicular
+        )
+        center = (center_values[0], center_values[1])
+        matched, overlap = support.setdefault(center, (set(), 0.0))
+        for index, step in enumerate(steps):
+            if abs(float(cylinder["diameter"]) - float(step.diameter)) > 1e-3:
+                continue
+            shared = max(
+                0.0,
+                min(float(cylinder["s_hi"]), float(step.hi))
+                - max(float(cylinder["s_lo"]), float(step.lo)),
+            )
+            if shared > 0:
+                matched.add(index)
+                overlap += shared
+        support[center] = (matched, overlap)
+    ranked = {
+        center: (len(matched), round(overlap, 3))
+        for center, (matched, overlap) in support.items()
+        if matched
+    }
+    if not ranked:
+        return None
+    best = max(ranked.values())
+    winners = [center for center, score in ranked.items() if score == best]
+    return winners[0] if len(winners) == 1 else None
+
+
 def _member_coaxial_with_turned_profile(feature, member, recognition) -> bool:
     axis = feature.frame.axis
     perpendicular = tuple(i for i, letter in enumerate("xyz") if letter != axis)
-    if not any(step.axis == axis for step in recognition.turned_steps):
+    center = _recognised_turned_axis_center(recognition, axis)
+    if center is None:
         return False
-    cylinders = tuple(cylinder for group in recognition.cylinders for cylinder in group)
-    return any(
-        cylinder.get("external")
-        and cylinder.get("axis") == axis
-        and all(
-            abs(cylinder["axis_xyz"][index] - member[index]) <= 1e-3 for index in perpendicular
-        )
-        for cylinder in cylinders
+    return all(
+        abs(center[offset] - member[index]) <= 1e-3 for offset, index in enumerate(perpendicular)
     )
 
 
@@ -596,6 +606,9 @@ def hole_requirement_outcomes(
     hole_features = tuple(
         feature for feature in features if getattr(feature, "kind", None) == "hole"
     )
+    hole_features_by_spec: dict[tuple, list] = defaultdict(list)
+    for feature in hole_features:
+        hole_features_by_spec[_feature_spec(feature)].append(feature)
     pattern_features = tuple(
         feature for feature in features if getattr(feature, "kind", None) == "pattern"
     )
@@ -613,7 +626,7 @@ def hole_requirement_outcomes(
             partitions = _hole_partitions(
                 source_spec,
                 source_members,
-                hole_features,
+                hole_features_by_spec.get(source_spec, ()),
                 projected=False,
             )
             candidates = partitions[0] if len(partitions) == 1 else ()
@@ -653,7 +666,7 @@ def hole_requirement_outcomes(
             projected_key = _projected_hole_key(source_spec, source_members)
             candidate_features = tuple(
                 feature
-                for feature in hole_features
+                for feature in hole_features_by_spec.get(source_spec, ())
                 if id(feature) not in used_feature_ids
                 and id(feature) not in exact_overlap_feature_ids
             )
