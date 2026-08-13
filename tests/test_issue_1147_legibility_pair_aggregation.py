@@ -380,24 +380,38 @@ def test_nested_summary_context_restores_the_outer_ledger():
 
 def test_overlapping_async_summary_contexts_keep_distinct_task_local_ledgers():
     async def exercise():
-        both_entered = asyncio.Event()
-        entered = 0
+        first_entered = asyncio.Event()
+        second_entered = asyncio.Event()
+        first_observed = asyncio.Event()
+        second_exited = asyncio.Event()
 
-        async def collect():
-            nonlocal entered
+        async def collect_first():
             with _collect_issue_aggregation() as aggregation:
-                entered += 1
-                if entered == 2:
-                    both_entered.set()
-                await both_entered.wait()
-                # Force another scheduling boundary while both contexts remain active.
-                await asyncio.sleep(0)
-                return aggregation, _current_issue_aggregation()
+                first_entered.set()
+                await second_entered.wait()
+                # Observe A while B's context is still active. A module-global stack would
+                # expose B here; task-local context must continue to expose A.
+                while_second_is_active = _current_issue_aggregation()
+                first_observed.set()
+                await second_exited.wait()
+                after_second_exits = _current_issue_aggregation()
+                return aggregation, while_second_is_active, after_second_exits
 
-        return await asyncio.gather(collect(), collect())
+        async def collect_second():
+            await first_entered.wait()
+            with _collect_issue_aggregation() as aggregation:
+                second_entered.set()
+                await first_observed.wait()
+                while_first_is_active = _current_issue_aggregation()
+            second_exited.set()
+            return aggregation, while_first_is_active
 
-    results = asyncio.run(exercise())
+        return await asyncio.gather(collect_first(), collect_second())
 
-    assert results[0][0] is not results[1][0]
-    assert all(aggregation is observed for aggregation, observed in results)
+    first, second = asyncio.run(exercise())
+
+    assert first[0] is not second[0]
+    assert first[1] is first[0]
+    assert first[2] is first[0]
+    assert second[1] is second[0]
     assert _current_issue_aggregation() is None
