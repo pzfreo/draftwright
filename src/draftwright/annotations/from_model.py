@@ -121,21 +121,51 @@ def callout_from_spec(spec, draft, count) -> HoleCallout | None:
         # diameter carrying tolerance/fit text, "8 ±0.05"); no tolerance → empty suffix.
         dia += _tol_suffix(spec.get("tolerance"), draft)
 
+    depth = f(spec["depth"])
+    cbore_dia = f(spec["cbore_dia"])
+    cbore_depth = f(spec["cbore_depth"])
+    csink_dia = f(spec.get("csink_dia"))
+    csink_angle = f(spec.get("csink_angle"))
+    suffix = spec["suffix"]
     callout = HoleCallout(
         dia,
         count=count,
         through=spec["through"],
-        depth=f(spec["depth"]),
-        cbore_dia=f(spec["cbore_dia"]),
-        cbore_depth=f(spec["cbore_depth"]),
-        csink_dia=f(spec.get("csink_dia")),
+        depth=depth,
+        cbore_dia=cbore_dia,
+        cbore_depth=cbore_depth,
+        csink_dia=csink_dia,
         # Every value crosses as a _fmt string (the #261 invariant) — a raw float renders
         # "90.0°" and, worse, mismatches the width estimators' `_fmt` (they'd under-reserve).
         # `.get()`: hand-built specs (tolerance/fit tests) omit csk keys.
-        csink_angle=f(spec.get("csink_angle")),
-        suffix=spec["suffix"],
+        csink_angle=csink_angle,
+        suffix=suffix,
         draft=draft,
     )
+    # ``HoleCallout`` renders ISO symbols as geometry and consequently exposes an empty
+    # helper-level label. Preserve an equivalent semantic string at this sole construction
+    # seam so critique, audit and downstream tooling can identify what the geometry says.
+    # Build it from the exact formatted arguments passed above: a second read from the model
+    # or raw numbers here could drift from the visible callout (ADR 0015/0016).
+    terms = []
+    if count:
+        terms.append(f"{count}×")
+    terms.append(f"⌀{dia}")
+    if spec["through"]:
+        terms.append("THRU")
+    elif depth is not None:
+        terms.extend(("↧", depth))
+    if cbore_dia is not None:
+        terms.extend(("⌴", f"⌀{cbore_dia}"))
+        if cbore_depth is not None:
+            terms.extend(("↧", cbore_depth))
+    if csink_dia is not None:
+        terms.extend(("⌵", f"⌀{csink_dia}"))
+        if csink_angle is not None:
+            terms.extend(("×", f"{csink_angle}°"))
+    if suffix:
+        terms.append(suffix)
+    callout.label = " ".join(terms)
     profile_coverage = spec.get("profile_coverage")
     callout.covers_profiles = () if profile_coverage is None else (profile_coverage,)
     callout.profile_boundary = spec.get("profile_boundary")

@@ -75,13 +75,18 @@ _AXIS_ALIGN_COS = 0.9996
 
 
 def _profiled_callout_leader(*, callout, **kw):
-    """Build a leader and preserve draftwright's structured profile coverage metadata.
+    """Build a leader and preserve callout semantics plus structured profile metadata.
 
     The helpers' ``Leader`` copies its native diameter/count coverage from ``HoleCallout``;
-    profiled-bore coverage is draftwright-owned, so it is forwarded explicitly at this one
-    construction seam.
+    its geometric-callout path does not copy the callout's semantic label. Profiled-bore
+    coverage and that label are draftwright-owned, so both are forwarded explicitly at this
+    one construction seam.
     """
+    semantic_label = getattr(callout, "label", "")
+    if not semantic_label:
+        raise ValueError("a rendered hole callout must carry a non-empty semantic label")
     leader = Leader(callout=callout, **kw)
+    leader.label = semantic_label
     leader.covers_profiles = getattr(callout, "covers_profiles", ())
     return leader
 
