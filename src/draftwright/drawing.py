@@ -2403,7 +2403,7 @@ class Drawing:
             # this per-run ctx (#639), discarded when finalize returns (#440).
             if routable:
                 assert a is not None
-                _maybe_tabulate_holes(self, a, ctx=ctx)
+                _maybe_tabulate_holes(self, a, ctx=ctx, plan=compile_dimensions(model))
 
         run_stages(
             {

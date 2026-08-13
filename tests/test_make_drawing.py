@@ -9473,7 +9473,15 @@ class TestTurnedDiameters:
         assert (
             auto.get_annotation("dim_height").label == replayed.get_annotation("dim_height").label
         )
-        assert not auto.lint_summary()["by_code"] and not replayed.lint_summary()["by_code"]
+        # The off-axis four-hole pattern has relative pitch/count but no absolute X/Z
+        # location dimensions. The hole-family ledger added by #1143 reports those two
+        # physical requirements honestly on both paths; reconstruction must preserve the
+        # same critique as well as the same annotation set.
+        assert (
+            auto.lint_summary()["by_code"]
+            == replayed.lint_summary()["by_code"]
+            == {"hole_requirement_missing": 2}
+        )
 
         # ── from #881: the Y-step furniture lands in the right views on the replay ──
         assert replayed.view_of("centerline_side") == "side"

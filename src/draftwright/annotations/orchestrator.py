@@ -84,7 +84,7 @@ from draftwright.model import (
     plan_dimensions,
     plan_sections,
 )
-from draftwright.model.compiled import compile_dimensions
+from draftwright.model.compiled import compile_dimensions, resolve_feature
 from draftwright.repair import reconcile_witness_labels
 
 # ── the ONE auto-pass stage sequence (#699 slice b) ──────────────────────────
@@ -638,7 +638,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # Escalate to a hole table when the plan view is too dense to dimension
         # every hole — runs last so the table avoids every placed annotation
         # including the title block (#93).
-        _maybe_tabulate_holes(dwg, a, ctx=ctx)
+        _maybe_tabulate_holes(dwg, a, ctx=ctx, plan=_compiled)
 
     run_stages(
         {
@@ -687,7 +687,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     return _runtime_plan.diagnostics
 
 
-def _maybe_tabulate_holes(dwg, a: Analysis, *, ctx):
+def _maybe_tabulate_holes(dwg, a: Analysis, *, ctx, plan=None):
     """Escalate to a per-instance hole table + balloons when the plan view is too
     dense to dimension every hole individually (#93); a dropped ISO pattern
     callout gets one grouped balloon of its own (#351 PR-3, ADR 0009 Amdt 1
@@ -736,7 +736,7 @@ def _maybe_tabulate_holes(dwg, a: Analysis, *, ctx):
     # HoleRecord crosses here (ADR 0008 Am6; #584 WP1 B4).
     _model = ctx.part_model
     holes = [
-        SimpleNamespace(location=pos, diameter=f.diameter)
+        SimpleNamespace(location=pos, diameter=f.diameter, feature=f)
         for f in (_model.features if _model is not None else ())
         if f.kind == "hole" and f.frame.axis == "z"
         for pos in (f.members or (f.frame.origin,))
@@ -818,6 +818,39 @@ def _maybe_tabulate_holes(dwg, a: Analysis, *, ctx):
             # that the table documents every instance, not just each distinct
             # diameter.
             table.covers_diameters = tuple(h.diameter for h in holes)
+            compiled = plan if plan is not None else compile_dimensions(_model)
+            table_features = tuple(dict.fromkeys(h.feature for h in holes))
+            table_measurements = tuple(
+                dim.id
+                for group in compiled.of_kind("hole")
+                if resolve_feature(group.ref) in table_features
+                for dim in group.dims
+                if dim.id is not None and dim.parameter_id in {"bore.diameter", "bore.depth"}
+            ) + tuple(
+                location.id
+                for location in compiled.locations
+                if location.id is not None and resolve_feature(location.ref) in table_features
+            )
+            table.covers_hole_locations = tuple(
+                (location.id, tuple(location.span[1]))
+                for location in compiled.locations
+                if location.id is not None
+                and location.span is not None
+                and resolve_feature(location.ref) in table_features
+            )
+            table.covers_hole_requirements_by_feature = tuple(
+                (feature, "bore.through", 1) for feature in table_features if feature.through
+            ) + tuple(
+                (
+                    feature,
+                    "grouping.count",
+                    int(feature.count or len(feature.members) or 1),
+                )
+                for feature in table_features
+            )
+            identity = dwg.registry.identity_of("hole_table_plan")
+            identity["measurement"] = table_measurements
+            dwg.registry.reapply("hole_table_plan", identity)
             scattered_specs = [(tag, 0, h) for tag, h in zip(scattered_tags, holes, strict=True)]
             table_placed = True
             # The table's X/Y columns document every scattered hole's location, so the

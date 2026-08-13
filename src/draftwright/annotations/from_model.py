@@ -571,6 +571,7 @@ def _location_candidate(
     measurement=None,
     pinned=False,
     footprint=None,
+    location_coverage=(),
 ):
     """A :class:`CorridorCandidate` for a datum-referenced hole/pattern location dim.
     Location dims outrank a coincident slot-position line in dedup (#345) and form the
@@ -596,7 +597,7 @@ def _location_candidate(
 
     return CorridorCandidate(
         name=name,
-        build=build,
+        build=lambda pos: _with_hole_location_coverage(build(pos), location_coverage),
         order=(_LOC_SUBCHAIN, distance, name),
         # A placed location may later be replaced by the scattered-hole table (#351 PR-4c).
         on_place=_placed,
@@ -609,6 +610,12 @@ def _location_candidate(
         measurement=measurement,  # which of its measurements this is (#1002)
         footprint=footprint,  # analytical measure — no probe build (#602)
     )
+
+
+def _with_hole_location_coverage(annotation, coverage):
+    """Attach exact compiler location/member facts at the render seam."""
+    annotation.covers_hole_locations = tuple(coverage)
+    return annotation
 
 
 def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
@@ -665,7 +672,16 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
         # `loc.id` rides along as the measurement identity (#1002): the compiler already
         # minted it for this very entry, so the renderer records WHICH measurement it drew
         # rather than leaving the audit to infer it from the annotation's name.
-        refs.append((rx, ry, resolve_feature(loc.ref), loc.id, loc.discriminator))
+        refs.append(
+            (
+                rx,
+                ry,
+                resolve_feature(loc.ref),
+                loc.id,
+                loc.discriminator,
+                tuple(loc.span[1]),
+            )
+        )
     if not refs:
         return 0
     pinned_set = set(pinned or ())
@@ -696,6 +712,10 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                 # (#1002 r4): the survivor genuinely measures every collapsed feature's X.
                 if r[4] in (None, "x") and r[3] is not None and r[3] not in u[4]:
                     u[4].append(r[3])
+                if r[4] in (None, "x") and r[3] is not None:
+                    fact = (r[3], r[5])
+                    if fact not in u[5]:
+                        u[5].append(fact)
                 break
         else:
             x_refs.append(
@@ -705,6 +725,7 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                     r[2],
                     r[2] in pinned_set,
                     [r[3]] if r[3] is not None and r[4] in (None, "x") else [],
+                    [(r[3], r[5])] if r[3] is not None and r[4] in (None, "x") else [],
                 ]
             )
     _x_drawable = {r[0] for r in x_refs if abs(r[0] - datum_x) * a.SCALE >= 1.0}
@@ -727,7 +748,7 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
     # pass carving around the other and interleaving. No alternate view for a plan-X
     # location, so a corridor-blocked dim is force-kept (policy B), not relocated; only a
     # physically full strip drops (→ location_ref_dropped, escalates the hole table).
-    for i, (rx, ry, feat, pin_ref, mids) in enumerate(
+    for i, (rx, ry, feat, pin_ref, mids, location_facts) in enumerate(
         sorted(x_refs, key=lambda r: abs(r[0] - datum_x))
     ):
         if abs(rx - datum_x) * a.SCALE < 1.0:
@@ -770,6 +791,7 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                 ),
                 feature=_xfeat,
                 measurement=_xmid,
+                location_coverage=location_facts,
                 pinned=pin_ref,
                 footprint=lambda pos, _rx=rx, _ry=ry: dim_footprint(
                     (PX(datum_x), PY(_ry), 0),
@@ -793,6 +815,10 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                 u[3] = u[3] or r[2] in pinned_set
                 if r[4] in (None, "y") and r[3] is not None and r[3] not in u[4]:
                     u[4].append(r[3])  # accumulate, as in the X loop (#1002 r4)
+                if r[4] in (None, "y") and r[3] is not None:
+                    fact = (r[3], r[5])
+                    if fact not in u[5]:
+                        u[5].append(fact)
                 break
         else:
             y_refs.append(
@@ -802,6 +828,7 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                     r[2],
                     r[2] in pinned_set,
                     [r[3]] if r[3] is not None and r[4] in (None, "y") else [],
+                    [(r[3], r[5])] if r[3] is not None and r[4] in (None, "y") else [],
                 ]
             )
     _y_drawable = {r[1] for r in y_refs if abs(r[1] - datum_y) * a.SCALE >= 1.0}
@@ -821,9 +848,9 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
     # Cap the side-above strip below the iso view so Y-location dims never run under it
     # (the carve respects outer_limit); the dim_pitch_side dims are obstacles the carve
     # avoids structurally, retiring the old manual allocate(10.0) reservation + cursor.
-    if y_refs and any(SX(ry) + 10 > iso_x0 - 4 for _, ry, _feat, _pin, _mids in y_refs):
+    if y_refs and any(SX(ry) + 10 > iso_x0 - 4 for _, ry, _feat, _pin, _mids, _facts in y_refs):
         a.sv_zones.above.outer_limit = min(a.sv_zones.above.outer_limit, iso_y0 - 4)
-    for i, (rx, ry, feat, pin_ref, mids) in enumerate(
+    for i, (rx, ry, feat, pin_ref, mids, location_facts) in enumerate(
         sorted(y_refs, key=lambda r: abs(r[1] - datum_y))
     ):
         if abs(ry - datum_y) * a.SCALE < 1.0:
@@ -857,6 +884,7 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                 ),
                 feature=_yfeat,
                 measurement=_ymid,
+                location_coverage=location_facts,
                 pinned=pin_ref,
                 footprint=lambda pos, _ry=ry: dim_footprint(
                     (SX(datum_y), SZ(a.bb.max.Z), 0),

@@ -43,6 +43,13 @@ def _axis_letter(axis) -> str:
     return max(zip("xyz", axis, strict=True), key=lambda item: abs(float(item[1])))[0]
 
 
+def _signed_axis(axis) -> tuple[float, float, float]:
+    """Canonical signed drilling direction for recognition-owned grouping."""
+    vector = tuple(float(component) for component in axis)
+    norm = sum(component * component for component in vector) ** 0.5
+    return _point(tuple(component / norm for component in vector))
+
+
 def _recess_key(value):
     if value is None:
         return None
@@ -84,23 +91,45 @@ def _members(source) -> tuple[tuple[float, float, float], ...]:
     if recognised is not None:
         points = tuple(hole.location for hole in recognised)
         axis = _axis_letter(recognised[0].axis)
+        through = all(HoleSpec.from_hole(hole).bottom == "through" for hole in recognised)
     elif hasattr(source, "location"):
         points = (source.location,)
         axis = _axis_letter(source.axis)
+        through = HoleSpec.from_hole(source).bottom == "through"
     else:
         points = getattr(source, "members", ()) or (source.frame.origin,)
-        axis = getattr(getattr(source, "member", source), "frame").axis
+        hole = getattr(source, "member", source)
+        axis = hole.frame.axis
+        through = bool(hole.through)
     index = "xyz".index(axis)
     sites = []
     for point in points:
         site = list(_point(point))
-        # A hole's opening coordinate along its own axis is not retained consistently at
-        # the public IR waist (object declarations use a tool centre; recognition uses the
-        # opening face), and is not a location dimension. Correspond on the projected axis
-        # line, which is the physical identity both sides actually share.
-        site[index] = 0.0
+        # A through hole's opening coordinate along its own axis is not retained
+        # consistently at the public IR waist (object declarations may use a tool centre;
+        # recognition uses one opening face), and is not a location dimension. Blind-hole
+        # axial position *is* load-bearing identity: opposed bores can share the projected
+        # axis, diameter and depth while being two distinct machining requirements.
+        if through:
+            site[index] = 0.0
         sites.append((site[0], site[1], site[2]))
     return tuple(sorted(sites))
+
+
+def _projected_members(source) -> tuple[tuple[float, float, float], ...]:
+    """Member axis lines, for the unique declared-blind tool-centre fallback."""
+    points = [list(point) for point in _members(source)]
+    recognised = getattr(source, "holes", None)
+    if recognised is not None:
+        axis = _axis_letter(recognised[0].axis)
+    elif hasattr(source, "location"):
+        axis = _axis_letter(source.axis)
+    else:
+        axis = getattr(getattr(source, "member", source), "frame").axis
+    index = "xyz".index(axis)
+    for point in points:
+        point[index] = 0.0
+    return tuple(sorted((point[0], point[1], point[2]) for point in points))
 
 
 def _unoriented_direction(value):
@@ -227,10 +256,16 @@ def _parameter_ids(
             in_plane = "y" if feature.frame.axis == "x" else "x"
             ids.extend((f"{stem}.{in_plane}", f"{stem}.z"))
     else:
-        # The current off-axis pattern renderer owns pitch/BCD and grouping, but has no
-        # datum-location pass. Do not invent an outcome for a measurement the compiler does
-        # not expose; its member arrangement is already fixed by that pattern definition.
-        pass
+        # Pitch/direction/count define only relative arrangement. The current compiler has
+        # no off-axis pattern location producer, so retain both absolute in-plane physical
+        # requirements as explicit missing outcomes instead of deleting them from the
+        # recognition denominator. These stable ids extend the feature-owned location stem;
+        # a future compiler/renderer can make them placed without changing the ledger schema.
+        stem = getattr(feature, "LOCATION_STEM", None)
+        if stem is None:
+            return None
+        in_plane = "y" if feature.frame.axis == "x" else "x"
+        ids.extend((f"{stem}.location.{in_plane}", f"{stem}.location.z"))
     return tuple(ids)
 
 
@@ -247,6 +282,34 @@ def _evidence_parameter(parameter: str) -> str:
     return parameter
 
 
+def _location_members(feature, parameter: str):
+    if parameter.startswith("location_pattern."):
+        point = list(_point(feature.frame.origin))
+        if getattr(feature, "member", feature).through:
+            point["xyz".index(feature.frame.axis)] = 0.0
+        return ((point[0], point[1], point[2]),)
+    return _members(feature)
+
+
+def _structured_locations_placed(registry, features, parameter: str) -> bool:
+    expected = {
+        (feature, point) for feature in features for point in _location_members(feature, parameter)
+    }
+    covered = set()
+    for name in registry.names():
+        for measurement, point in getattr(registry.named(name), "covers_hole_locations", ()):
+            feature = getattr(measurement, "feature", None)
+            if feature not in features or getattr(measurement, "parameter", None) != parameter:
+                continue
+            assert feature is not None
+            normalized = list(_point(point))
+            hole = getattr(feature, "member", feature)
+            if hole.through:
+                normalized["xyz".index(feature.frame.axis)] = 0.0
+            covered.add((feature, (normalized[0], normalized[1], normalized[2])))
+    return bool(expected) and expected <= covered
+
+
 def _synthetic_placed(registry, features, parameter: str, member_count: int) -> bool:
     if ".centerline." in parameter:
         return any(
@@ -255,6 +318,16 @@ def _synthetic_placed(registry, features, parameter: str, member_count: int) -> 
             for name in registry.names_for_feature(feature)
         )
     covered_count = 0
+    for name in registry.names():
+        for feature, requirement, count in getattr(
+            registry.named(name), "covers_hole_requirements_by_feature", ()
+        ):
+            if feature not in features or requirement != parameter:
+                continue
+            if parameter == "bore.through":
+                return True
+            if parameter == "grouping.count":
+                covered_count += int(count)
     for feature in features:
         for name in registry.names_for_feature(feature):
             annotation = registry.named(name)
@@ -268,12 +341,17 @@ def _synthetic_placed(registry, features, parameter: str, member_count: int) -> 
                 return True
             if parameter == "grouping.count":
                 covered_count += int(getattr(annotation, "covers_count", 1) or 1)
-    return parameter == "grouping.count" and covered_count >= member_count
+    # Cardinality is a definition, not minimum coverage: 3× cannot truthfully certify a
+    # physical two-hole group, and duplicate count-bearing annotations must fail closed.
+    return parameter == "grouping.count" and covered_count == member_count
 
 
 def _state(features, parameter, *, member_count, placed, suppressed, dropped, registry):
     evidence = _evidence_parameter(parameter)
-    if parameter in {"bore.through", "grouping.count"} or ".centerline." in parameter:
+    if parameter.startswith("location.location."):
+        if _structured_locations_placed(registry, features, parameter):
+            return "placed"
+    elif parameter in {"bore.through", "grouping.count"} or ".centerline." in parameter:
         if _synthetic_placed(registry, features, parameter, member_count):
             return "placed"
     else:
@@ -301,8 +379,7 @@ def _physical_requirement_count(kind: HoleSourceKind, source, member_count: int)
     count += 2 if hole.spotface is not None else 0
     count += 2 if hole.csink is not None else 0
     count += 1 if member_count > 1 else 0
-    if kind == "hole" or _axis_letter(hole.axis) == "z":
-        count += 2  # independent datum-location axes
+    count += 2  # independent datum-location axes
     if kind == "hole_pattern":
         pattern_kind = _pattern_kind(source)
         count += 2 if pattern_kind == "grid" else 1
@@ -328,15 +405,19 @@ def hole_requirement_outcomes(
     loose_groups: dict[tuple, list] = defaultdict(list)
     for hole in recognition.holes:
         if hole not in pattern_members:
-            loose_groups[_recognised_spec(hole)].append(hole)
+            # HoleSpec's signed axis is part of machining identity. Keep opposite-face
+            # blind bores in separate source groups even when every printed size matches.
+            loose_groups[(_recognised_spec(hole), _signed_axis(hole.axis))].append(hole)
 
     sources: list[tuple[HoleSourceKind, object, tuple, int]] = []
-    for spec, holes in loose_groups.items():
+    for (spec, _direction), holes in loose_groups.items():
         axis_index = "xyz".index(spec[0])
+        through = spec[3]
         member_sites = []
         for hole in holes:
             site = list(_point(hole.location))
-            site[axis_index] = 0.0
+            if through:
+                site[axis_index] = 0.0
             member_sites.append((site[0], site[1], site[2]))
         members = tuple(sorted(member_sites))
         sources.append(("hole", holes[0], (spec, members), len(holes)))
@@ -367,7 +448,7 @@ def hole_requirement_outcomes(
     suppressed = {
         (omission.feature, omission.parameter_id)
         for omission in omissions
-        if omission.feature is not None
+        if omission.feature is not None and omission.authored
     }
     dropped = {
         measurement
@@ -387,6 +468,14 @@ def hole_requirement_outcomes(
                 sorted(member for feature in candidates for member in _members(feature))
             )
             if candidate_members == source_members:
+                matches = candidates
+            elif len(candidates) == 1 and _projected_members(candidates[0]) == _projected_members(
+                source
+            ):
+                # Object declarations retain the blind cutter's centre while recognition
+                # retains its opening. Projecting away that axial offset is evidence only
+                # when one machining-spec candidate exists; opposed/same-axis alternatives
+                # remain ambiguous and therefore fail closed.
                 matches = candidates
         expected_matches = source_counts[(kind, key)]
         # Detected IR groups a loose machining-spec family into one HoleFeature; a declared

@@ -1,5 +1,6 @@
 """Regression coverage for hole-family semantic outcomes (#1143)."""
 
+import itertools
 from dataclasses import replace
 
 import pytest
@@ -30,8 +31,23 @@ def _single_hole():
     return Box(80, 50, 10, align=_XYZ_MIN) - Pos(12, 7, 0) * Cylinder(4, 10, align=_XYZ_MIN)
 
 
+def _two_scattered_same_spec_holes():
+    part = Box(80, 60, 10, align=_XYZ_MIN)
+    part -= Pos(-20, -10, 0) * Cylinder(4, 10, align=_XYZ_MIN)
+    part -= Pos(15, 12, 0) * Cylinder(4, 10, align=_XYZ_MIN)
+    return part
+
+
 def _blind_hole():
     return Box(80, 50, 20, align=_XYZ_MIN) - Pos(12, 7, 12) * Cylinder(4, 8, align=_XYZ_MIN)
+
+
+def _opposed_blind_holes():
+    xyz_min = (Align.MIN, Align.MIN, Align.MIN)
+    part = Box(40, 40, 20, align=xyz_min)
+    part -= Pos(20, 20, 0) * Cylinder(3, 5, align=xyz_min)
+    part -= Pos(20, 20, 15) * Cylinder(3, 5, align=xyz_min)
+    return part
 
 
 def _linear_pattern():
@@ -49,11 +65,26 @@ def _grid_pattern():
     return part
 
 
+def _off_axis_linear_pattern():
+    part = Box(20, 80, 40)
+    for y in (-25, 0, 25):
+        part -= Pos(0, y, 6) * Rot(0, 90, 0) * Cylinder(3, 20)
+    return part
+
+
 def _countersunk_pattern():
     part = Box(90, 60, 12)
     for x, y in ((-30, -15), (5, 12), (30, -8)):
         part -= Pos(x, y, 0) * Cylinder(3, 12)
         part -= Pos(x, y, 4) * Cone(3, 7, 4)
+    return part
+
+
+def _dense_scattered_plate():
+    part = Box(90, 60, 12)
+    columns = [-40 + i * 20 for i in range(5)]
+    for i, (column, y) in enumerate(itertools.product(range(5), (-18, -6, 6, 18))):
+        part -= Pos(columns[column], y, 0) * Cylinder(1.0 + i * 0.2, 20)
     return part
 
 
@@ -161,6 +192,40 @@ def test_blind_depth_and_linear_pitch_have_exact_placed_outcomes():
     assert [key["parameter_id"] for key in pattern.measurement_keys(pitch)] == ["pitch.length"]
 
 
+def test_opposite_face_blind_holes_remain_two_physical_requirement_groups():
+    drawing = build_drawing(_opposed_blind_holes(), page="A3")
+    outcomes = _outcomes(drawing)
+
+    assert len([item for item in outcomes if item.parameter_id == "bore.diameter"]) == 2
+    assert len([item for item in outcomes if item.parameter_id == "bore.depth"]) == 2
+    assert not [item for item in outcomes if item.parameter_id == "grouping.count"]
+    assert len(outcomes) == 8  # diameter + depth + X/Y location for each physical bore
+    assert all(item.state == "placed" for item in outcomes)
+    callouts = [name for name in drawing.annotations() if name.startswith("hc_")]
+    assert len(callouts) == 2
+    assert all(not drawing.get_annotation(name).label.startswith("2×") for name in callouts)
+    assert _completeness(drawing)["requirements"] == 8
+
+
+def test_unique_declared_blind_tool_center_corresponds_to_its_recognised_opening():
+    xyz_min = (Align.CENTER, Align.CENTER, Align.MIN)
+    plate = Box(80, 50, 20, align=xyz_min)
+    tool = Pos(12, 7, 12) * Cylinder(4, 8, align=xyz_min)
+    sheet = Sheet(plate - tool).auto_dimensions()
+    sheet.hole(tool).depth(8)
+    sheet.envelope()
+
+    drawing = sheet.build()
+    outcomes = _outcomes(drawing)
+    assert {item.parameter_id for item in outcomes} == {
+        "bore.diameter",
+        "bore.depth",
+        "location.location.x",
+        "location.location.y",
+    }
+    assert all(item.state == "placed" for item in outcomes)
+
+
 def test_grid_pattern_accounts_for_both_independent_pitch_measurements():
     drawing = build_drawing(_grid_pattern(), page="A3")
     outcomes = _outcomes(drawing)
@@ -196,6 +261,23 @@ def test_linear_pattern_correspondence_treats_opposite_directions_as_the_same_ax
 
     drawing = build_drawing(part, model=declared, page="A3")
     assert all(item.state == "placed" for item in _outcomes(drawing))
+
+
+def test_off_axis_pattern_keeps_absolute_location_requirements_fail_closed():
+    drawing = build_drawing(_off_axis_linear_pattern(), page="A3")
+    outcomes = {item.parameter_id: item.state for item in _outcomes(drawing)}
+
+    assert outcomes == {
+        "bore.diameter": "placed",
+        "bore.through": "placed",
+        "grouping.count": "placed",
+        "pitch.length": "placed",
+        "location_pattern.location.y": "missing",
+        "location_pattern.location.z": "missing",
+    }
+    completeness = _completeness(drawing)
+    assert completeness["requirements"] == 6
+    assert completeness["audited_score"] == pytest.approx(4 / 6)
 
 
 def test_compound_countersink_callout_accounts_for_every_printed_measurement():
@@ -288,6 +370,47 @@ def test_removing_a_required_callout_or_location_reduces_completeness():
     assert _completeness(location_drawing)["audited_score"] == 0.8
 
 
+def test_grouped_loose_holes_require_every_member_location_mark():
+    drawing = build_drawing(_two_scattered_same_spec_holes(), page="A3")
+    assert all(item.state == "placed" for item in _outcomes(drawing))
+
+    x_marks = sorted(name for name in drawing.annotations() if name.startswith("m_locx"))
+    y_marks = sorted(name for name in drawing.annotations() if name.startswith("m_locy"))
+    assert len(x_marks) == len(y_marks) == 2
+    drawing.remove(x_marks[1])
+    drawing.remove(y_marks[1])
+
+    outcomes = {item.parameter_id: item.state for item in _outcomes(drawing)}
+    assert outcomes["location.location.x"] == "missing"
+    assert outcomes["location.location.y"] == "missing"
+    assert _completeness(drawing)["audited_score"] == pytest.approx(3 / 5)
+
+
+def test_successful_hole_table_escalation_carries_every_replaced_requirement():
+    drawing = build_drawing(_dense_scattered_plate())
+
+    assert "hole_table_plan" in drawing.annotations()
+    assert len(drawing.measurement_keys("hole_table_plan")) == 60
+    outcomes = _outcomes(drawing)
+    assert len(outcomes) == 80
+    assert all(item.state == "placed" for item in outcomes)
+    assert not [issue for issue in drawing.lint() if issue.code.startswith("hole_requirement_")]
+    assert _completeness(drawing)["audited_score"] == 1.0
+
+
+def test_failed_hole_table_escalation_restores_semantic_fallback_evidence(monkeypatch):
+    import draftwright.drawing as drawing_module
+
+    monkeypatch.setattr(drawing_module, "fit_box", lambda *_args, **_kwargs: None)
+    drawing = build_drawing(_dense_scattered_plate())
+
+    assert "hole_table_plan" not in drawing.annotations()
+    assert "table_dropped" in {issue.code for issue in drawing.lint()}
+    outcomes = _outcomes(drawing)
+    assert not [item for item in outcomes if item.state == "missing"]
+    assert {item.state for item in outcomes} <= {"placed", "dropped"}
+
+
 def test_callout_drop_retains_semantic_outcomes_without_duplicate_hole_lint():
     drawing = build_drawing(_single_hole())
     callout = next(name for name in drawing.annotations() if name.startswith("hc_"))
@@ -333,6 +456,23 @@ def test_authored_omissions_are_suppressed_on_the_declared_path():
     assert _completeness(drawing)["suppressed"] == 4
 
 
+def test_planner_omission_without_a_datum_is_missing_not_authored_suppression():
+    part = _single_hole()
+    detected = build_drawing(part).model()
+    drawing = build_drawing(part, model=replace(detected, datums=[]))
+
+    outcomes = {item.parameter_id: item.state for item in _outcomes(drawing)}
+    assert outcomes == {
+        "bore.diameter": "placed",
+        "bore.through": "placed",
+        "location.location.x": "missing",
+        "location.location.y": "missing",
+    }
+    issues = [issue for issue in drawing.lint() if issue.code.startswith("hole_requirement_")]
+    assert {issue.code for issue in issues} == {"hole_requirement_missing"}
+    assert all("deliberately omitted" not in issue.message for issue in issues)
+
+
 def test_deleting_a_declaration_cannot_shrink_the_recognition_denominator():
     part = _pattern_and_central_bore()
     complete = build_drawing(part)
@@ -374,11 +514,31 @@ def test_through_and_grouping_outcomes_require_structured_callout_facts():
     assert outcomes["bore.through"] == "placed"
     assert outcomes["grouping.count"] == "missing"
 
+    leader.covers_count = 4
+    outcomes = {item.parameter_id: item.state for item in _outcomes(drawing)}
+    assert outcomes["grouping.count"] == "missing", "an over-count is not physical coverage"
+
+
+def test_duplicate_count_facts_cannot_over_certify_a_hole_group():
+    drawing = build_drawing(_linear_pattern(), page="A3")
+    feature = next(feature for feature in drawing.model().features if feature.kind == "pattern")
+    duplicate = drawing.callout(feature)
+    assert duplicate is not None
+
+    outcomes = {item.parameter_id: item.state for item in _outcomes(drawing)}
+    assert outcomes["grouping.count"] == "missing"
+
+
+def test_through_fact_is_independent_of_diameter_provenance():
+    drawing = build_drawing(_linear_pattern(), page="A3")
+    name = next(name for name in drawing.annotations() if name.startswith("hc_"))
+    leader = drawing.get_annotation(name)
+
     leader.covers_hole_requirements = ()
     outcomes = {item.parameter_id: item.state for item in _outcomes(drawing)}
     assert outcomes["bore.diameter"] == "placed"
     assert outcomes["bore.through"] == "missing"
-    assert outcomes["grouping.count"] == "missing"
+    assert outcomes["grouping.count"] == "placed"
 
 
 def test_hole_outcome_boundary_rejects_an_unowned_inventory_type():
