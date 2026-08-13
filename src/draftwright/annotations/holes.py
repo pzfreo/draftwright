@@ -88,6 +88,7 @@ def _profiled_callout_leader(*, callout, **kw):
     leader = Leader(callout=callout, **kw)
     leader.label = semantic_label
     leader.covers_profiles = getattr(callout, "covers_profiles", ())
+    leader.covers_hole_requirements = getattr(callout, "covers_hole_requirements", ())
     return leader
 
 
@@ -209,6 +210,7 @@ def add_feature_callout(
         name,
         view=view,
         feature=feature,
+        measurement=callout.measurements,
     )
     return name
 
@@ -328,6 +330,7 @@ def add_feature_location(
         # of identical position dims (matches render_locations' x_refs/y_refs dedup).
         if (
             "x" in want
+            and loc.discriminator in (None, "x")
             and abs(rx - dx) * a.SCALE >= 1.0
             and not any(abs(rx - s) < 0.5 for s in seen_x)
         ):
@@ -345,6 +348,7 @@ def add_feature_location(
             )
         if (
             "y" in want
+            and loc.discriminator in (None, "y")
             and abs(ry - dy) * a.SCALE >= 1.0
             and not any(abs(ry - s) < 0.5 for s in seen_y)
         ):
@@ -559,6 +563,7 @@ def _record_callout_drop(ctx, dwg, view, diam, reason, feat=None, callout=None):
         "warning",
         "callout_dropped",
         f"hole callout ø{_fmt(diam)} dropped from the {view} view ({reason})",
+        measurement=getattr(callout, "measurements", ()),
     )
     # First-class escalation object alongside the lint code (ADR 0009 Amdt 1, #351 PR-2).
     # The resolver (`_maybe_tabulate_holes`) triggers on these; the lint code stays for
@@ -621,7 +626,7 @@ def _approved_off_axis_holes(plan) -> list[_OffHole]:
     return list(holes.values())
 
 
-def _off_axis_drop(dwg, axis, view, *, ctx):
+def _off_axis_drop(dwg, axis, view, *, ctx, measurement=()):
     # Recorded at INFO under a code DISTINCT from the plan path's
     # ``location_ref_dropped`` (which is a warning). Two reasons:
     #  - Severity: a best-effort off-axis location dim that did not fit is not
@@ -639,11 +644,23 @@ def _off_axis_drop(dwg, axis, view, *, ctx):
         "info",
         "off_axis_location_dropped",
         f"{axis} location dim for a {view}-view hole not placed (no room beside the view)",
+        measurement=measurement,
     )
 
 
 def _off_axis_emit(
-    dwg, tier, strip, view, axis, cands, force=False, features=None, trace=None, *, ctx
+    dwg,
+    tier,
+    strip,
+    view,
+    axis,
+    cands,
+    force=False,
+    features=None,
+    measurements=None,
+    trace=None,
+    *,
+    ctx,
 ):
     # The collect-then-solve strip placer lives in _common as the shared
     # place_strip_candidates (P3, retiring the Strip cursor #150); this thin wrapper
@@ -660,6 +677,7 @@ def _off_axis_emit(
         ctx=ctx,
         force=force,
         features=features,
+        measurements=measurements,
         trace=trace,
         trace_label="off_axis_locations",
     )
@@ -676,6 +694,7 @@ def _off_axis_queue(
     cands,
     *,
     features=None,
+    measurements=None,
     force=True,
     on_drop=None,
     order_key=None,
@@ -704,6 +723,7 @@ def _off_axis_queue(
                 on_drop=(on_drop or (lambda _nm: None)),
                 force=force,
                 feature=(features or {}).get(name),
+                measurement=(measurements or {}).get(name),
             ),
         )
 
@@ -732,6 +752,7 @@ def _locate_across(dwg, ctx, a: Analysis, off):
     cands = []
     order_y: dict = {}
     loc_by_name: dict = {}  # dim name -> contributing hole locations (for provenance)
+    mids_by_name: dict = {}
     for h in (h for h in off if h.axis == "x"):
         # The VALUE is the approved entry's; `dy` survives only as the witness anchor.
         entry = h.approved.get("y")
@@ -742,6 +763,7 @@ def _locate_across(dwg, ctx, a: Analysis, off):
             continue
         name = f"dim_loc_side_y{round(yo * 100)}"
         loc_by_name.setdefault(name, []).append(h.location)
+        mids_by_name.setdefault(name, []).append(entry.id)
         order_y[name] = yo
         if yo not in seen_y:
             seen_y.add(yo)
@@ -757,6 +779,7 @@ def _locate_across(dwg, ctx, a: Analysis, off):
                 )
             )
     feats = {nm: _off_axis_owner(ctx, locs) for nm, locs in loc_by_name.items()}
+    measurements = {name: tuple(ids) for name, ids in mids_by_name.items()}
     _off_axis_queue(
         dwg,
         ctx,
@@ -767,7 +790,10 @@ def _locate_across(dwg, ctx, a: Analysis, off):
         "y",
         cands,
         features=feats,
-        on_drop=lambda _nm: _off_axis_drop(dwg, "y", "side", ctx=ctx),
+        measurements=measurements,
+        on_drop=lambda nm: _off_axis_drop(
+            dwg, "y", "side", ctx=ctx, measurement=measurements.get(nm, ())
+        ),
         order_key=lambda nm, _i: order_y.get(nm, _i),
     )
 
@@ -785,6 +811,7 @@ def _locate_along_planar(dwg, ctx, a: Analysis, off):
     x_cands = []
     order_x: dict = {}
     x_loc_by_name: dict = {}
+    x_mids_by_name: dict = {}
     for h in (h for h in off if h.axis == "y"):
         entry = h.approved.get("x")
         if entry is None:
@@ -794,6 +821,7 @@ def _locate_along_planar(dwg, ctx, a: Analysis, off):
             continue
         name = f"dim_loc_front_x{round(xo * 100)}"
         x_loc_by_name.setdefault(name, []).append(h.location)
+        x_mids_by_name.setdefault(name, []).append(entry.id)
         order_x[name] = xo
         if xo not in seen_x:
             seen_x.add(xo)
@@ -807,6 +835,7 @@ def _locate_along_planar(dwg, ctx, a: Analysis, off):
                 )
             )
     x_feats = {nm: _off_axis_owner(ctx, locs) for nm, locs in x_loc_by_name.items()}
+    x_measurements = {name: tuple(ids) for name, ids in x_mids_by_name.items()}
     _off_axis_queue(
         dwg,
         ctx,
@@ -817,7 +846,10 @@ def _locate_along_planar(dwg, ctx, a: Analysis, off):
         "y",
         x_cands,
         features=x_feats,
-        on_drop=lambda _nm: _off_axis_drop(dwg, "x", "front", ctx=ctx),
+        measurements=x_measurements,
+        on_drop=lambda nm: _off_axis_drop(
+            dwg, "x", "front", ctx=ctx, measurement=x_measurements.get(nm, ())
+        ),
         order_key=lambda nm, _i: order_x.get(nm, _i),
     )
 
@@ -835,10 +867,12 @@ def _locate_along_z(dwg, ctx, a: Analysis, off):
     tier = draft.font_size + 2 * draft.pad_around_text
     zr, zrf = SX(a.bb.max.Y), FX(a.bb.max.X)
     z_locs: dict = {}  # z-offset -> contributing hole locations (for provenance)
+    z_mids: dict = {}
     for h in off:
         entry = h.approved.get("z")
         if entry is not None and round(entry.value, 2) * a.SCALE >= 1.0:
             z_locs.setdefault(round(entry.value, 2), []).append(h.location)
+            z_mids.setdefault(round(entry.value, 2), []).append(entry.id)
     seen_z = set()
     for h in off:
         entry = h.approved.get("z")
@@ -862,6 +896,9 @@ def _locate_along_z(dwg, ctx, a: Analysis, off):
         def _zf(view, _zo=zo, _owner=owner):  # provenance map for the z dim in this view
             return {f"dim_loc_{view}_z{round(_zo * 100)}": _owner}
 
+        def _zm(view, _zo=zo):
+            return {f"dim_loc_{view}_z{round(_zo * 100)}": tuple(z_mids[_zo])}
+
         side_cand = (a.sv_zones.right, "side", (zr, SZ(dz), 0), (zr, SZ(hz), 0), zr)
         front_cand = (a.fv_zones.right, "front", (zrf, FZ(dz), 0), (zrf, FZ(hz), 0), zrf)
         order = (side_cand, front_cand) if h.axis == "x" else (front_cand, side_cand)
@@ -875,6 +912,8 @@ def _locate_along_z(dwg, ctx, a: Analysis, off):
             _alts=tuple(alternates),
             _cand=primary_cand,
             _feature_map=_zf,
+            _measurement_map=_zm,
+            _zo=zo,
         ):
             for alt_strip, alt_view, alt_p_lo, alt_p_hi, alt_edge in _alts:
                 alt = _zc(alt_view, alt_p_lo, alt_p_hi, alt_edge)
@@ -886,6 +925,7 @@ def _locate_along_z(dwg, ctx, a: Analysis, off):
                     "x",
                     [alt],
                     features=_feature_map(alt_view),
+                    measurements=_measurement_map(alt_view),
                     ctx=ctx,
                     trace=ctx.trace,
                 ):
@@ -900,10 +940,17 @@ def _locate_along_z(dwg, ctx, a: Analysis, off):
                 [_cand],
                 force=True,
                 features=_feature_map(p_view),
+                measurements=_measurement_map(p_view),
                 ctx=ctx,
                 trace=ctx.trace,
             ):
-                _off_axis_drop(dwg, "Z", p_view, ctx=ctx)
+                _off_axis_drop(
+                    dwg,
+                    "Z",
+                    p_view,
+                    ctx=ctx,
+                    measurement=tuple(z_mids[_zo]),
+                )
 
         _off_axis_queue(
             dwg,
@@ -915,6 +962,7 @@ def _locate_along_z(dwg, ctx, a: Analysis, off):
             "x",
             [primary_cand],
             features=_zf(view),
+            measurements=_zm(view),
             force=False,
             on_drop=_fallback,
             order_key=lambda _nm, _i, _zo=zo: _zo,
@@ -1045,6 +1093,7 @@ def _add_furniture(
             f"dim_pitch_{view}{j}",
             feature=feat,
             measurement=pitch.id,
+            drop_code="hole_pattern_dim_dropped",
             ctx=ctx,
         )
     elif feat.pattern == "grid":
@@ -1068,6 +1117,7 @@ def _add_furniture(
             (pitches["row"], pitches["col"]),
             to_page,
             feature=feat,
+            drop_code="hole_pattern_dim_dropped",
             ctx=ctx,
         )
 
@@ -1469,10 +1519,11 @@ def _place_pitch_dim(
             return
     _log.info("Pitch dimension for the %s× %s array skipped (no room)", n, pitch_text)
     if drop_code is not None:
+        noun = "hole pattern" if drop_code == "hole_pattern_dim_dropped" else "slot pattern"
         ctx.record_issue(
             "warning",
             drop_code,
-            f"slot pattern pitch {pitch_text} not placed (no clear room beside the {view})",
+            f"{noun} pitch {pitch_text} not placed (no clear room beside the {view})",
             measurement=measurement,
         )
 
@@ -2078,6 +2129,7 @@ def _place_front_callouts(
     forbid = {}
     furniture = {}
     meta = {}
+    measurements = {}
     tb_box = (tb_left, _TB_CLEAR, a.PAGE_W - _TB_CLEAR, tb_top)
     for i, (locs, dia, callout, feat) in enumerate(specs):
         w = callout.callout_width
@@ -2129,6 +2181,7 @@ def _place_front_callouts(
         forbid[name] = tb_box
         furniture[name] = (i, feat)
         meta[name] = (dia, feat, callout)
+        measurements[name] = callout.measurements
 
     left = place_strip_candidates(
         dwg,
@@ -2139,6 +2192,7 @@ def _place_front_callouts(
         min_gap,
         ctx=ctx,
         features=features,
+        measurements=measurements,
         priorities=priorities,
         forbid=forbid,
         trace=ctx.trace,
@@ -2313,7 +2367,13 @@ def _place_queue(
     for s, _elbow_y, leader in sorted(placed, key=lambda p: p[0][4]):
         _locs, dia, callout, feat, _ny, rep = s
         name = _hc_name(only, view, i, hc_used)
-        ctx.place(leader, name, view=view, feature=feat_of_callout.get(id(callout)))
+        ctx.place(
+            leader,
+            name,
+            view=view,
+            feature=feat_of_callout.get(id(callout)),
+            measurement=callout.measurements,
+        )
         # A plain (unpatterned) plan callout is a scattered-hole-table candidate
         # (#351): record its coverage against the ACTUAL placed name, regardless of
         # place_furniture, so finalize (place_furniture=False) still lets

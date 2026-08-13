@@ -443,7 +443,13 @@
       "view": null
     }
   ],
-  "build_issues": [],
+  "build_issues": [
+    [
+      "warning",
+      "hole_pattern_dim_dropped",
+      "hole pattern pitch 15 not placed (no clear room beside the plan)"
+    ]
+  ],
   "item_count": 29,
   "views": {
     "front": [

@@ -29,6 +29,7 @@ from draftwright.linting.coverage import (
 )
 from draftwright.linting.flat_coverage import lint_flat_coverage
 from draftwright.linting.gear_coverage import lint_declared_gear_coverage
+from draftwright.linting.hole_coverage import lint_hole_coverage
 from draftwright.linting.issues import LintIssue
 from draftwright.linting.pmi_coverage import (
     lint_pmi_extraction,
@@ -46,6 +47,7 @@ from draftwright.linting.suggest import _suggest_fix
 __all__ = [
     "CoverageState",
     "LintIssue",
+    "lint_hole_coverage",
     "lint_polygonal_stock_coverage",
     "_suggest_fix",
     "lint_axial_coverage",

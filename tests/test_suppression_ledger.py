@@ -69,22 +69,12 @@ def test_an_authored_omission_is_distinguished_from_a_rule_suppression():
     assert all(o["reason"] for o in dwg.suppressions()), "every omission carries a reason"
 
 
-def test_the_coincident_location_dedup_records_its_rejection():
-    """Completeness: a rule that drops a measurement must produce an `Omission`.
-
-    `plan_locations` dedups references within 0.5 of one another. That filter ran *before*
-    the compiler saw the candidate, so the rejection produced no diagnostic at all and the
-    audit could not see it (Codex #996 r1). An audit claiming completeness while a
-    suppression path is invisible is worse than no audit — its silence reads as "nothing was
-    suppressed", which is the exact false confidence this surface exists to remove.
-
-    Unit-level on purpose: the dedup compares feature *origins* in X/Y, so provoking it from
-    real geometry needs two features stacked at one plan position, and the fixture would then
-    be testing recognition rather than the rule.
-    """
+def test_coincident_locations_retain_both_semantic_identities_for_the_shared_mark():
+    """Coincident geometry may share one mark, but must not erase either measurement id."""
     from build123d import Box as _Box
 
     from draftwright.model import Datum, Frame, HoleFeature, PartModel
+    from draftwright.model.compiled import compile_dimensions
     from draftwright.model.planner import plan_locations
 
     bbox = _Box(80, 50, 20).bounding_box()
@@ -101,12 +91,16 @@ def test_the_coincident_location_dedup_records_its_rejection():
     )
 
     planned = plan_locations(model)
-    suppressed = [p for p in planned if p.suppressed]
-    assert len(suppressed) == 1, "the deduped reference must be recorded, not dropped"
-    # ...and it names the winner, so an auditor can see WHICH location absorbed it rather
-    # than only that something vanished.
-    assert "coincident" in suppressed[0].reason
-    assert "10.000" in suppressed[0].reason and "5.000" in suppressed[0].reason
+    assert len(planned) == 2
+    assert not [p for p in planned if p.suppressed]
+
+    locations = compile_dimensions(model).locations
+    assert len(locations) == 4  # X + Y for each feature; rendering collapses by coordinate
+    assert {entry.id.feature for entry in locations} == set(model.features)
+    assert {entry.id.parameter for entry in locations} == {
+        "location.location.x",
+        "location.location.y",
+    }
 
 
 def test_an_edge_anchored_pocket_records_why_it_has_no_location():

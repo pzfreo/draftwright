@@ -289,17 +289,17 @@ def test_removing_a_slot_declaration_cannot_shrink_the_quality_denominator():
     assert sparse_quality["audited_score"] == 0.0
 
 
-def test_audited_recognized_requirements_remain_scorable_beside_unscored_families():
-    """A perfect audited score is reachable while the component is itself reporting a blind
-    spot — which is why the scalar is named for its denominator (#1127)."""
+def test_independent_audited_families_contribute_to_one_recognition_owned_denominator():
     part = _off_centre_slot() - Pos(-25, 15, -5) * Cylinder(4, 20)
     completeness = build_drawing(part).lint_summary()["quality"]["completeness"]
 
     assert completeness["available"] is True
     assert completeness["audited_score"] == 1.0
     assert completeness["scope"] == "audited_recognized_requirements"
-    assert completeness["requirements"] == completeness["placed"] == 3
-    assert completeness["unscored_recognized_families"] == ["holes"]
+    assert completeness["requirements"] == completeness["placed"] == 7
+    assert completeness["by_family"]["slots"] == 3
+    assert completeness["by_family"]["holes"] == 4
+    assert completeness["unscored_recognized_families"] == []
 
 
 def test_deleting_declared_features_cannot_improve_a_damaged_quality_score():

@@ -227,6 +227,8 @@ def test_record_callout_drop_emits_a_callout_escalation():
     # PR-3 (#351): `feature` now carries the dropped group's IR feature (a PatternFeature
     # when it's a fully-surviving recognised pattern, else None) rather than the diameter —
     # the resolver groups pattern balloons on it.
+    from types import SimpleNamespace
+
     from draftwright.annotations._common import PlacementContext
     from draftwright.annotations.holes import _record_callout_drop
     from draftwright.linting.coverage import CoverageState
@@ -244,8 +246,18 @@ def test_record_callout_drop_emits_a_callout_escalation():
 
     ctx2 = PlacementContext(registry=AnnotationRegistry(), coverage=CoverageState())
     sentinel = object()
-    _record_callout_drop(ctx2, object(), "plan", 6.0, "no room beside the view", sentinel)
+    callout = SimpleNamespace(measurements=("bore.diameter",))
+    _record_callout_drop(
+        ctx2,
+        object(),
+        "plan",
+        6.0,
+        "no room beside the view",
+        sentinel,
+        callout=callout,
+    )
     assert ctx2.escalations[0].feature is sentinel
+    assert ctx2.registry.issues[0].measurement_ids == ("bore.diameter",)
 
 
 def test_record_slot_drop_emits_a_slot_escalation():

@@ -834,7 +834,7 @@ def test_a_dropped_counted_callout_records_every_profile_occurrence():
     ctx = SimpleNamespace(
         coverage=CoverageState(),
         escalations=[],
-        record_issue=lambda *_args: None,
+        record_issue=lambda *_args, **_kwargs: None,
     )
     callout = SimpleNamespace(covers_profiles=(exact,), covers_count=3)
     _record_callout_drop(ctx, None, "plan", 10.0, "test", callout=callout)

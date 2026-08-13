@@ -166,6 +166,15 @@ def callout_from_spec(spec, draft, count) -> HoleCallout | None:
     if suffix:
         terms.append(suffix)
     callout.label = " ".join(terms)
+    callout.measurements = tuple(spec.get("measurements", ()))
+    callout.covers_hole_requirements = tuple(
+        requirement
+        for requirement, covered in (
+            ("bore.through", spec["through"]),
+            ("grouping.count", bool(count and count > 1)),
+        )
+        if covered
+    )
     profile_coverage = spec.get("profile_coverage")
     callout.covers_profiles = () if profile_coverage is None else (profile_coverage,)
     callout.profile_boundary = spec.get("profile_boundary")

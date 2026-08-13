@@ -1347,8 +1347,8 @@ class TestModelSeam:
         # The plate has TWO holes; declare only ONE. Detection would find both, so a
         # model with exactly one hole proves detection was bypassed.
         plate = Box(80, 50, 8)
-        h1 = Pos(20, 10, 4) * Cylinder(3, 8)
-        h2 = Pos(-20, 10, 4) * Cylinder(3, 8)
+        h1 = Pos(20, 10, 0) * Cylinder(3, 8)
+        h2 = Pos(-20, 10, 0) * Cylinder(3, 8)
         part = plate - h1 - h2
         dwg = build_drawing(part, model=[envelope(plate), hole(h1)])
         kinds = [f.kind for f in dwg.model().features]
@@ -1356,8 +1356,8 @@ class TestModelSeam:
 
     def test_fully_declared_plate_is_lint_clean(self):
         plate = Box(80, 50, 8)
-        h1 = Pos(20, 10, 4) * Cylinder(3, 8)
-        h2 = Pos(-20, 10, 4) * Cylinder(3, 8)
+        h1 = Pos(20, 10, 0) * Cylinder(3, 8)
+        h2 = Pos(-20, 10, 0) * Cylinder(3, 8)
         part = plate - h1 - h2
         dwg = build_drawing(part, model=[envelope(plate), hole(h1), hole(h2)])
         warns = [i for i in dwg.lint() if i.severity in ("warning", "error")]
@@ -1367,8 +1367,8 @@ class TestModelSeam:
         # ADR 0011 caveat: the coverage lint re-detects, so a partial declaration is
         # correctly flagged for the geometry it left undimensioned.
         plate = Box(80, 50, 8)
-        h1 = Pos(20, 10, 4) * Cylinder(3, 8)
-        h2 = Pos(-20, 10, 4) * Cylinder(3, 8)
+        h1 = Pos(20, 10, 0) * Cylinder(3, 8)
+        h2 = Pos(-20, 10, 0) * Cylinder(3, 8)
         part = plate - h1 - h2
         dwg = build_drawing(part, model=[envelope(plate), hole(h1)])
         codes = {i.code for i in dwg.lint() if i.severity in ("warning", "error")}
@@ -1537,8 +1537,8 @@ class TestSheet:
 
     def test_sheet_builds_declared_drawing_lint_clean(self):
         plate = Box(80, 50, 8)
-        h1 = Pos(20, 10, 4) * Cylinder(3, 8)
-        h2 = Pos(-20, 10, 4) * Cylinder(3, 8)
+        h1 = Pos(20, 10, 0) * Cylinder(3, 8)
+        h2 = Pos(-20, 10, 0) * Cylinder(3, 8)
         part = plate - h1 - h2
         sheet = Sheet(part, title="PLATE", number="DWG-777", scale="2:1").auto_dimensions()
         sheet.envelope()

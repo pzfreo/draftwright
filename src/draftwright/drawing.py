@@ -79,6 +79,7 @@ from draftwright.linting import (
     lint_drawing,
     lint_feature_coverage,
     lint_flat_coverage,
+    lint_hole_coverage,
     lint_location_coverage,
     lint_pmi_extraction,
     lint_pmi_ignored,
@@ -2899,6 +2900,14 @@ class Drawing:
                 assembly=self.assembly,
             )
             issues += lint_slot_coverage(
+                self.part,
+                recognition=recognition,
+                features=getattr(model, "features", ()) if model is not None else (),
+                registry=self._registry,
+                omissions=self._build.omissions,
+                assembly=self.assembly,
+            )
+            issues += lint_hole_coverage(
                 self.part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),

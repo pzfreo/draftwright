@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from draftwright._geometry import _fmt
 from draftwright.model.ir import HoleFeature, PatternFeature
-from draftwright.model.planner import DimensionGroup
+from draftwright.model.planner import DimensionGroup, DimensionId
 
 
 def _planned(group: DimensionGroup, kind: str, *roles: str):
@@ -229,6 +229,16 @@ def _refuse_headless_callout(group: DimensionGroup) -> None:
     )
 
 
+def _recess_plan(group: DimensionGroup):
+    """The winning recess head/depth pair, preserving its planned identities."""
+    for role in ("counterbore", "spotface"):
+        dia = _planned(group, "diameter", role)
+        if dia is not None and not dia.suppressed:
+            depth = _planned(group, "depth", role)
+            return dia, None if depth is None or depth.suppressed else depth
+    return None, None
+
+
 def _recess(group: DimensionGroup) -> tuple[float | None, float | None]:
     """The counterbore-or-spotface recess as ONE segment: ``(diameter, depth)``.
 
@@ -241,15 +251,37 @@ def _recess(group: DimensionGroup) -> tuple[float | None, float | None]:
     A role wins on its HEAD being unsuppressed, matching the asymmetric segment rule — its
     depth may legitimately be suppressed, which yields a ⌀ with no stated depth.
     """
-    for role in ("counterbore", "spotface"):
-        dia = _planned(group, "diameter", role)
-        if dia is not None and not dia.suppressed:
-            depth = _planned(group, "depth", role)
-            return (
-                float(dia.param.value),
-                None if depth is None or depth.suppressed else float(depth.param.value),
-            )
-    return None, None
+    dia, depth = _recess_plan(group)
+    return (
+        None if dia is None else float(dia.param.value),
+        None if depth is None else float(depth.param.value),
+    )
+
+
+def _callout_measurements(group: DimensionGroup) -> tuple[DimensionId, ...]:
+    """Exact planned measurements whose values the compound callout prints.
+
+    This is semantic provenance, not coverage inferred from formatted text. The same
+    suppression and recess-precedence decisions used to build the visible specification
+    select the identities, so the renderer cannot certify a hidden or shadowed term.
+    """
+
+    planned = []
+
+    def add(kind: str, role: str) -> None:
+        pd = _planned(group, kind, role)
+        if pd is not None and not pd.suppressed:
+            planned.append(pd)
+
+    add("diameter", "bore")
+    add("depth", "bore")
+    add("length", "profile_across_flats")
+    recess_dia, recess_depth = _recess_plan(group)
+    planned.extend(pd for pd in (recess_dia, recess_depth) if pd is not None)
+    add("diameter", "countersink")
+    add("angle", "countersink")
+    add("diameter", "bolt_circle")
+    return tuple(DimensionId(group.feature, pd.param.parameter_id) for pd in planned)
 
 
 _AUTHORED_OMISSION = "not in the authored dimension set"
@@ -341,6 +373,10 @@ def hole_callout_spec(group: DimensionGroup) -> dict | None:
         "csink_angle": _first(group, "angle", "countersink"),
         "suffix": suffix,
         "tolerance": bore_tol,  # P2a: ± on the bore ⌀, baked into the callout string below
+        # Exact compiler identities printed by this compound callout. Count and THRU are
+        # non-dimensional facts carried separately as structured callout coverage; neither
+        # rendered text nor an invented dimensional identity certifies them.
+        "measurements": _callout_measurements(group),
         # Structured coverage for physical critique. This is deliberately absent when the
         # A/F parameter was suppressed: ``DOUBLE-D`` without its defining A/F is incomplete.
         "profile_coverage": (

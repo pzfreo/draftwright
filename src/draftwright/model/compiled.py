@@ -58,6 +58,7 @@ from draftwright.model.ir import (
     Feature,
     HoleFeature,
     PartModel,
+    PatternFeature,
     PocketFeature,
     Point,
     PolygonalStockFeature,
@@ -905,8 +906,9 @@ def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[
     for pd in plan_locations(model):
         feature = pd.feature
         span = pd.param.span
-        directional_slot_pattern = (
-            isinstance(feature, SlotPatternFeature) and feature.frame.axis == "z"
+        directional_location = (
+            isinstance(feature, HoleFeature | PatternFeature | SlotPatternFeature)
+            and feature.frame.axis == "z"
         )
         if pd.suppressed:
             # Before the span assert, deliberately: a suppressed entry records WHY a position
@@ -916,7 +918,7 @@ def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[
             # the caller it was meant to help (#996).
             parameter_ids = (
                 tuple(f"{pd.param.parameter_id}.{axis}" for axis in ("x", "y"))
-                if directional_slot_pattern
+                if directional_location
                 else (pd.param.parameter_id,)
             )
             omissions.extend(
@@ -926,8 +928,8 @@ def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[
             continue
         assert span is not None  # an APPROVED location always carries its datum → ref span
         axis = feature.frame.axis if feature is not None else None
-        if directional_slot_pattern:
-            assert isinstance(feature, SlotPatternFeature)
+        if directional_location:
+            assert feature is not None
             # One authored `location` intent, two independently observable page dimensions.
             # Keeping distinct ids is what lets completeness detect deletion of X while Y
             # remains placed; a shared set member would make that false negative structural.
@@ -983,7 +985,7 @@ def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[
         approved.append(
             ApprovedDimension(
                 id=_dim_id(feature, pd.param.parameter_id),
-                #: The Z-normal ladder is the one location entry with no per-axis value:
+                #: Pocket/pad Z-normal ladders remain one location entry with no per-axis value:
                 #: `render_locations` groups refs ACROSS features and dedups per axis before
                 #: it knows which dims exist, so an entry per axis would be approving a mark
                 #: whose existence the renderer decides. Splitting it needs that grouping to

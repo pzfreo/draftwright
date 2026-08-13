@@ -469,7 +469,10 @@ def test_a_real_build_records_which_measurement_its_location_dims_draw():
     # renderer record its *depth* under `m_env_width` and still pass, which is precisely the
     # mis-threading the audit would then report as exact.
     assert identified["m_locx0"] == [
-        {"feature": identified["m_locx0"][0]["feature"], "parameter_id": "location.location"}
+        {
+            "feature": identified["m_locx0"][0]["feature"],
+            "parameter_id": "location.location.x",
+        }
     ]
     assert identified["m_locx0"][0]["feature"].startswith("hole@"), "located hole"
     assert identified["m_env_width"][0]["parameter_id"] == "width.length"
@@ -478,9 +481,7 @@ def test_a_real_build_records_which_measurement_its_location_dims_draw():
     assert identified["m_env_width"][0]["feature"].startswith("envelope@"), "overall extent"
 
     assert dwg.measurement_keys("title_block") == [], "furniture measures nothing"
-    # Not yet threaded, and asserted so the gap is visible rather than assumed closed: the
-    # hole callout is on the legacy surface (#926) and the direct-placing group is #754.
-    assert dwg.measurement_keys("hc_plan0") == [], "callouts still record none (#926)"
+    assert [key["parameter_id"] for key in dwg.measurement_keys("hc_plan0")] == ["bore.diameter"]
 
 
 def test_identity_survives_the_repair_loops_snapshot_and_restore():
@@ -605,7 +606,7 @@ def test_a_location_dim_two_features_share_records_both_measurements():
     assert dwg.registry.feature_of("m_locx0") is None, "shared dim stays unowned (ADR 0010)"
     keys = dwg.measurement_keys("m_locx0")
     assert len(keys) == 2, "it measures BOTH holes' X location, not neither"
-    assert {k["parameter_id"] for k in keys} == {"location.location"}
+    assert {k["parameter_id"] for k in keys} == {"location.location.x"}
     assert len({k["feature"] for k in keys}) == 2, "two distinct holes, not one repeated"
 
 
@@ -718,17 +719,10 @@ def test_every_direct_placement_records_identity_or_says_why_not():
         ("sections.py", "_add_section_letters"): "the 'A' identification letters",
         ("sections.py", "_add_cutting_plane_arrows"): "ISO 128-44 arrows are not dimensions",
         ("sections.py", "_render_detail"): "detail-view geometry, caption and circle",
-        # -- hole callouts: still on the legacy surface (#926) ----------------------
-        ("holes.py", "add_feature_callout"): "hole callouts are pre-compiled-plan (#926)",
-        ("holes.py", "_place_queue"): "hole callouts are pre-compiled-plan (#926)",
         # -- the direct-placing rotational group (#754) -----------------------------
         ("from_model.py", "render_rotational"): "direct-placing rotational group (#754)",
         ("from_model.py", "_diameter_row_below"): "direct-placing rotational group (#754)",
         ("from_model.py", "_diameter_column_left"): "direct-placing rotational group (#754)",
-        # -- gaps that ARE measurements, with the id not yet plumbed ----------------
-        # Named individually rather than waved at, because each is a real hole in the
-        # audit's attribution and each needs its own plumbing.
-        ("holes.py", "_off_axis_queue"): "side-hole location candidates, no id map (#1005)",
         # -- identity arrives by another route --------------------------------------
         ("from_model.py", "_reroute_crossing_diameters"): "reapplies the saved identity",
         ("orchestrator.py", "_maybe_tabulate_holes"): "reapplies the saved identity",

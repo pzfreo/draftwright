@@ -30,6 +30,7 @@ from collections import Counter
 
 from draftwright.linting.channel_coverage import channel_requirement_outcomes
 from draftwright.linting.flat_coverage import flat_requirement_outcomes
+from draftwright.linting.hole_coverage import hole_requirement_outcomes
 from draftwright.linting.issues import LintIssue
 from draftwright.linting.polygonal_stock_coverage import polygonal_stock_outcomes
 from draftwright.linting.slot_coverage import slot_requirement_outcomes
@@ -67,7 +68,6 @@ _LEGIBILITY_CODES = frozenset(
 # Recognition inventories that represent potentially dimension-bearing physical families.
 _RECOGNISED_REQUIREMENT_FAMILIES = {
     "holes": "holes",
-    "countersinks": "countersinks",
     "double_d_bores": "profiled_bores",
     "hole_patterns": "hole_patterns",
     "bosses": "bosses",
@@ -88,15 +88,24 @@ _RECOGNISED_REQUIREMENT_FAMILIES = {
 }
 
 # Inventories that are deliberately NOT requirement families: the substrates would list the
-# same physical requirement a second time, and ``rotational`` is a classification flag rather
-# than an inventory. Kept explicit rather than implied by absence so that a new
+# same physical requirement a second time (a countersink is retained on its recognised
+# ``HoleRecord``), and ``rotational`` is a classification flag rather than an inventory. Kept
+# explicit rather than implied by absence so that a new
 # ``RecognitionResult`` inventory cannot silently join the blind spot the completeness
 # component exists to report (``tests/test_quality_components.py``).
 _NON_REQUIREMENT_INVENTORIES = frozenset(
-    {"cylinders", "plates", "risers", "rotational", "step_levels"}
+    {"countersinks", "cylinders", "plates", "risers", "rotational", "step_levels"}
 )
 
-_AUDITED_FAMILIES = ("channels", "flats", "polygonal_stock", "slot_patterns", "slots")
+_AUDITED_FAMILIES = (
+    "channels",
+    "flats",
+    "hole_patterns",
+    "holes",
+    "polygonal_stock",
+    "slot_patterns",
+    "slots",
+)
 
 # What the audited score does not cover, emitted as data rather than left to prose. The
 # first entry is the dangerous one: a requirement recognition never produced cannot appear
@@ -231,6 +240,8 @@ def _completeness_component(recognition, features, registry, omissions, issues) 
     outcomes = {
         "channels": channel_requirement_outcomes(recognition, features, registry, omissions),
         "flats": flat_requirement_outcomes(recognition, features, registry, omissions),
+        "holes": [],
+        "hole_patterns": [],
         "polygonal_stock": polygonal_stock_outcomes(recognition, features, registry, omissions),
         "slots": [],
         "slot_patterns": [],
@@ -239,6 +250,10 @@ def _completeness_component(recognition, features, registry, omissions, issues) 
         outcomes["slot_patterns" if outcome.source_kind == "slot_pattern" else "slots"].append(
             outcome
         )
+    for hole_outcome in hole_requirement_outcomes(recognition, features, registry, omissions):
+        outcomes[
+            "hole_patterns" if hole_outcome.source_kind == "hole_pattern" else "holes"
+        ].append(hole_outcome)
 
     counts: Counter = Counter()
     by_family: dict[str, int] = {}

@@ -462,7 +462,9 @@ def plan_locations(model: PartModel) -> list[PlannedDimension]:
     """Plan hole **location** dimensions — the *intent*: which features get located
     and from which datum. The renderer owns the tier/legibility/zone layout
     (Amendment 4). One ref per un-patterned Z-hole + one per Z-pattern (bolt-circle
-    centre, else the array member nearest the datum); coincident refs deduped. Each
+    centre, else the array member nearest the datum). Coincident refs remain distinct here
+    so the renderer can collapse them into one mark while retaining every measurement id.
+    Each
     returned `PlannedDimension` carries the datum and a `span` of datum → ref; the
     renderer derives the X (plan) and Y (side) distances from it (#238).
 
@@ -471,9 +473,9 @@ def plan_locations(model: PartModel) -> list[PlannedDimension]:
     location is a dimension and obeys the same completeness rule. Two consequences worth
     stating:
 
-    - The coincident-ref DEDUP runs over the surviving refs only. Deduping first would let
-      an omitted feature's ref absorb an approved sibling's and take the drawing's position
-      dim down with it — the author would have named a measurement and got nothing.
+    - Coincident-ref grouping runs over the surviving refs only. Grouping first would let an
+      omitted feature's ref absorb an approved sibling's and take the drawing's position dim
+      down with it — the author would have named a measurement and got nothing.
     - Everything else is unchanged when no set is authored: every ref survives, so the
       dedup sees the same input it always did.
     """
@@ -583,38 +585,15 @@ def plan_locations(model: PartModel) -> list[PlannedDimension]:
             else:
                 kept.append((r, role, feat))
         refs = kept
-    unique: list[tuple[Point, str, Feature]] = []
-    for r, role, feat in refs:
-        clash = next(
-            (u for u, _, _ in unique if abs(r[0] - u[0]) < 0.5 and abs(r[1] - u[1]) < 0.5),
-            None,
-        )
-        if clash is None:
-            unique.append((r, role, feat))
-        else:
-            # Record the rejection instead of dropping it silently (#996). This is a RULE
-            # deciding a measurement is redundant — the same category as the suppressions
-            # above — but it used to filter before the compiler saw the candidate, so no
-            # `Omission` existed and the audit could not see it. An audit that claims
-            # completeness while a suppression path is invisible is worse than none, because
-            # its silence reads as "nothing was suppressed" (Codex #996 r1).
-            omitted.append(
-                _plan(
-                    r,
-                    role,
-                    feat,
-                    suppressed=True,
-                    reason=(
-                        f"coincident with a location already dimensioned at "
-                        f"({clash[0]:.3f}, {clash[1]:.3f})"
-                    ),
-                )
-            )
     omitted += [
         _plan(feat.frame.origin, role, feat, suppressed=True, reason=why)
         for feat, role, why in dropped
     ]
-    return [_plan(r, role, feat) for r, role, feat in unique] + omitted
+    # Do not erase coincident semantic identities here. ``render_locations`` owns the
+    # per-axis grouping and records every collapsed id on its one shared mark (ADR 0010 /
+    # 0016). Compiler-time dedup used to make a central bore sharing a bolt-circle centre
+    # look unlocated even though the visible X/Y dimensions constrained both features.
+    return [_plan(r, role, feat) for r, role, feat in refs] + omitted
 
 
 def _request_for(model, feature, param):
