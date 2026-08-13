@@ -616,7 +616,7 @@ def clear_label_of_centerlines(label_bbox, centerlines, gap):
     return target_x - lmin_x
 
 
-def occupancy_boxes(o, stroke_pad=None, cache=None):
+def occupancy_boxes(o, stroke_pad=None):
     """*o*'s occupancy as a list of AABBs — decomposed, not one hull (#685).
 
     An annotation's rendered hull includes large EMPTY corner regions (a dimension's
@@ -635,7 +635,7 @@ def occupancy_boxes(o, stroke_pad=None, cache=None):
     """
     segs = getattr(o, "segments", None)
     if not segs:
-        b = _geom_box(o, cache)
+        b = _geom_box(o)
         return [b] if b is not None else []
     pad = _STROKE_PAD if stroke_pad is None else stroke_pad
     out = []
@@ -700,10 +700,6 @@ def strip_obstacles(dwg, view=None, *, crossable=(), named=False):
     # Preset-aware stroke pad (#688 review): arrowheads scale with font_size.
     al = getattr(getattr(dwg, "draft", None), "arrow_length", None)
     pad = max(_STROKE_PAD, al / 2) if al else _STROKE_PAD
-    # Share the drawing's one box memo (#1138) — this runs once per strip solve over
-    # every placed annotation, so it is where the double-measuring concentrated.
-    # getattr: `dwg` is duck-typed throughout annotations/, and stand-ins need not carry it.
-    cache = getattr(dwg, "box_cache", None)
     boxes: list = []
     for name, o in dwg.iter_annotations():
         if view is not None:
@@ -712,7 +708,7 @@ def strip_obstacles(dwg, view=None, *, crossable=(), named=False):
                 continue  # owned by a different ortho view → its own (disjoint) block
         if type(o).__name__ in crossable:
             continue  # this consumer may cross it (centre lines/marks for a dim)
-        occ = occupancy_boxes(o, stroke_pad=pad, cache=cache)  # decomposed, not one hull (#685)
+        occ = occupancy_boxes(o, stroke_pad=pad)  # decomposed, not one hull (#685)
         boxes.extend(((name, b) for b in occ) if named else occ)
     return boxes
 

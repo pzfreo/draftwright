@@ -112,6 +112,27 @@ def test_it_declines_exactly_where_helpers_refuses_to_build(draft, callout, call
     assert leader_footprint(tip, elbow, draft, text_side="right", callout_box=callout_box) is None
 
 
+@pytest.mark.parametrize("dx", (25.0, -25.0))
+@pytest.mark.parametrize("dy", (-12.0, 0.0, 12.0))
+def test_auto_side_picks_the_shelf_direction_helpers_picks(dx, dy, draft, callout, callout_box):
+    """``text_side="auto"`` is the footprint's default and the case a forced side cannot
+    stand in for: the shelf direction is *derived* from where the elbow sits rather than
+    given. Deriving it the other way would put the label on the wrong side of the elbow and
+    silently mis-state the footprint by the label's whole width.
+    """
+    tip, elbow = (0.0, 0.0), (dx, dy)
+
+    real = _geom_box(_build(tip, elbow, "auto", draft, callout))
+    analytic = leader_footprint(tip, elbow, draft, callout_box=callout_box)
+
+    assert analytic is not None
+    tol = 1e-6
+    assert analytic[0] <= real[0] + tol, f"under-claims left by {analytic[0] - real[0]:.4f} mm"
+    assert analytic[1] <= real[1] + tol, f"under-claims bottom by {analytic[1] - real[1]:.4f} mm"
+    assert analytic[2] >= real[2] - tol, f"under-claims right by {real[2] - analytic[2]:.4f} mm"
+    assert analytic[3] >= real[3] - tol, f"under-claims top by {real[3] - analytic[3]:.4f} mm"
+
+
 def _plate():
     part = Box(120, 80, 12)
     for x in (-40, 0, 40):
