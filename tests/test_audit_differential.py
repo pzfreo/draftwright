@@ -359,12 +359,13 @@ def test_a_suppression_on_the_same_measurement_does_explain_the_loss():
 
 
 def test_a_labelless_callout_loss_is_still_detected():
-    """A hole callout renders as a `Leader` whose own `label` is "" — its text lives on an
-    attached callout object, and on some paths nowhere readable at all.
+    """A legacy/external leader may expose no semantic label even when it is a callout.
 
-    The first cut required a non-empty label, so those were dropped from the comparison
-    entirely and a vanished hole callout produced NO loss. That is the single thing this
-    module must never do, and the type filter added to remove furniture is what introduced it.
+    Generated hole leaders now retain their callout content (#1142), but audit remains
+    compatible with older or user-supplied labelless leaders. The first cut required a
+    non-empty label, so those were dropped from the comparison entirely and a vanished
+    callout produced NO loss. That is the single thing this module must never do, and the
+    type filter added to remove furniture is what introduced it.
 
     Presence is the signal; the label is extra detail on it.
     """
