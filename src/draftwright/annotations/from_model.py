@@ -33,7 +33,6 @@ from build123d_drafting.helpers import (
 )
 
 from draftwright._core import (
-    _DIAM_RE,
     _END_ON,
     _EST_CHAR_WIDTH_EM,
     _MARGIN,
@@ -45,6 +44,7 @@ from draftwright._core import (
     _SLOT_DIM_WIDTH,
     _WITNESS_LIFT_MM,
     DetailRequest,
+    _annotation_diameter_sources,
     _concentric_with_axis,
     _dim,
     _first_free_index,
@@ -893,16 +893,20 @@ def render_centermarks(dwg, furniture_groups, *, ctx) -> int:
 
 
 def _mentioned_diameters(dwg) -> set[float]:
-    """Diameters already called out on the drawing (ø-labels + ``covers_diameters``)
-    — so a diameter another annotation already documents is not repeated."""
+    """Diameters already called out on the drawing.
+
+    Structured ``covers_diameters`` is authoritative when present; only genuinely
+    unstructured labels are parsed.  A geometric hole callout's semantic label may also
+    contain a bolt-circle or grid suffix diameter, which locates the pattern but does not
+    cover a physical feature of that diameter (#1142 / ADR 0017).
+    """
     diams: set[float] = set()
     for _, ann in dwg.iter_annotations():
         if isinstance(ann, TitleBlock):
             continue
-        for m in _DIAM_RE.finditer(getattr(ann, "label", None) or ""):
-            diams.add(float(m.group(1)))
-        for v in getattr(ann, "covers_diameters", ()):
-            diams.add(float(v))
+        structured_diameters, text_diameters = _annotation_diameter_sources(ann)
+        diams.update(structured_diameters)
+        diams.update(text_diameters)
     return diams
 
 

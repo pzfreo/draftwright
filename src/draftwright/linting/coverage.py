@@ -27,7 +27,14 @@ from typing import Literal
 from build123d import GeomType
 from build123d_drafting.helpers import CenterMark, Dimension, TitleBlock
 
-from draftwright._core import _DIAM_RE, _END_ON, HoleRef, _axis_letter, _fmt, _xyz
+from draftwright._core import (
+    _END_ON,
+    HoleRef,
+    _annotation_diameter_sources,
+    _axis_letter,
+    _fmt,
+    _xyz,
+)
 from draftwright.linting.issues import LintIssue
 from draftwright.linting.profiled_bore_coverage import profiled_bore_key
 from draftwright.recognition import (
@@ -273,21 +280,16 @@ def lint_feature_coverage(
     for ann in annotations:
         if isinstance(ann, TitleBlock):
             continue
-        structured_diameters = tuple(getattr(ann, "covers_diameters", ()))
-        label = getattr(ann, "label", None) or ""
-        if not structured_diameters:
-            # A geometric HoleCallout now exposes an equivalent semantic label (#1142),
-            # but remains structured coverage. Parsing it again could both waive its
-            # ``covers_count`` check and mistake a bolt-circle suffix (``ø60 BC``) for
-            # coverage of a physical ø60 feature. Only genuinely unstructured text enters
-            # the text inventory; structured annotations are described completely below.
-            for m in _DIAM_RE.finditer(label):
-                mentioned.add(float(m.group(1)))
-                text_mentioned.add(float(m.group(1)))
+        structured_diameters, text_diameters = _annotation_diameter_sources(ann)
+        # A geometric HoleCallout now exposes equivalent semantic text (#1142), but the
+        # shared source policy excludes it here: BCD suffixes are not physical coverage,
+        # and structured ``covers_count`` must remain authoritative.
+        mentioned.update(text_diameters)
+        text_mentioned.update(text_diameters)
         count = getattr(ann, "covers_count", 1)
         for v in structured_diameters:
-            mentioned.add(float(v))
-            provided[float(v)] = provided.get(float(v), 0) + count
+            mentioned.add(v)
+            provided[v] = provided.get(v, 0) + count
 
     exclude = exclude or ()
     issues = [

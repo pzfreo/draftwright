@@ -15,11 +15,12 @@ from draftwright.model import hole
 
 
 def _plate():
-    part = Box(80, 50, 10, align=(Align.CENTER, Align.CENTER, Align.MIN))
+    cutter_align = (Align.CENTER, Align.CENTER, Align.MIN)
+    part = Box(80, 50, 10, align=cutter_align)
     for x in (-30, 30):
         for y in (-15, 15):
-            part -= Pos(x, y, 0) * Cylinder(3, 10, align=Align.MIN)
-    return part - Cylinder(10, 10, align=Align.MIN)
+            part -= Pos(x, y, 0) * Cylinder(3, 10, align=cutter_align)
+    return part - Cylinder(10, 10, align=cutter_align)
 
 
 def _hole_leaders(drawing):
@@ -171,3 +172,58 @@ def test_structured_callout_label_does_not_claim_its_bolt_circle_as_a_feature():
     assert any(
         issue.code == "feature_not_dimensioned" and "ø60" in issue.message for issue in issues
     )
+
+
+def test_structured_callout_label_does_not_waive_a_count_shortfall():
+    cutter_align = (Align.CENTER, Align.CENTER, Align.MIN)
+    part = Box(50, 50, 10, align=cutter_align)
+    for x in (-15, 15):
+        for y in (-15, 15):
+            part -= Pos(x, y, 0) * Cylinder(5, 10, align=cutter_align)
+    incomplete_callout = SimpleNamespace(
+        label="2× ⌀10 THRU",
+        covers_diameters=(10.0,),
+        covers_count=2,
+    )
+
+    issues = lint_feature_coverage(part, [incomplete_callout], assembly=False)
+    assert any(
+        issue.code == "feature_count_mismatch" and "ø10" in issue.message for issue in issues
+    )
+
+
+def test_structured_bolt_circle_label_does_not_suppress_an_unrelated_boss_diameter():
+    """Renderer dedup must consume structured coverage, not BCD suffix text (ADR 0017)."""
+    cutter_align = (Align.CENTER, Align.CENTER, Align.MIN)
+    part = Box(200, 100, 10, align=cutter_align)
+    boss_solid = Pos(-60, 0, 10) * Cylinder(30, 5, align=cutter_align)
+    part += boss_solid
+    members = ((80, 0, 0), (50, 30, 0), (20, 0, 0), (50, -30, 0))
+    for x, y, z in members:
+        part -= Pos(x, y, z) * Cylinder(3, 10, align=cutter_align)
+
+    sheet = Sheet(part, page="A3", scale=0.5).auto_dimensions()
+    member = hole(diameter=6, through=True, at=members[0], axis="z")
+    sheet.pattern(
+        member,
+        kind="bolt_circle",
+        count=4,
+        bcd=60,
+        at=(50, 0, 5),
+        members=members,
+    )
+    sheet.boss(boss_solid)
+
+    drawing = sheet.build()
+    pattern_callout = drawing.get_annotation("hc_plan0")
+    assert pattern_callout.label == "4× ⌀6 THRU EQ SP ON ø60 BC"
+    assert pattern_callout.covers_diameters == (6.0,)
+    boss_callout = drawing.get_annotation("m_bossdia_z0")
+    assert boss_callout.label == "ø60"
+    boss_feature = next(feature for feature in drawing.model().features if feature.kind == "boss")
+    assert "m_bossdia_z0" in drawing.annotations_of(boss_feature)
+    assert not [
+        issue
+        for issue in drawing.lint()
+        if issue.code.startswith("declared_") or issue.code == "feature_not_dimensioned"
+    ]

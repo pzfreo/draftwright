@@ -280,6 +280,22 @@ def _tag_sequence(n):
 
 _DIAM_RE = re.compile(r"[øØ⌀]\s*(\d+(?:\.\d+)?)")
 
+
+def _annotation_diameter_sources(annotation) -> tuple[tuple[float, ...], tuple[float, ...]]:
+    """Return ``(structured, text)`` diameter mentions for one annotation.
+
+    Engine-produced annotations with ``covers_diameters`` describe their physical-feature
+    correspondence structurally.  Their formatted labels may contain other diameters (for
+    example ``ø60 BC``), so text parsing is a legacy/unstructured fallback and is never
+    combined with structured coverage (ADR 0017 / #1142).
+    """
+    structured = tuple(float(value) for value in getattr(annotation, "covers_diameters", ()))
+    if structured:
+        return structured, ()
+    label = getattr(annotation, "label", None) or ""
+    return (), tuple(float(match.group(1)) for match in _DIAM_RE.finditer(label))
+
+
 # A single-quoted label lifted from a lint message, e.g. "labels 'A' and 'B' …".
 # Shared by the #29 lint suggestions (linting.py) and the #30 repair loop.
 _QUOTED_RE = re.compile(r"'([^']*)'")
