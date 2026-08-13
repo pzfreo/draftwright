@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Changed
+
+- **Pairwise lint detail no longer multiplies the legibility score penalty** (#1147). Raw
+  severity and code counts retain their existing finding-level semantics, and every offending
+  pair remains in `issues`. The legibility component now also reports its primary issue counts
+  and scores one producer-identified annotation/failure mechanism once, with `affected_pairs`
+  exposing how many raw pair findings were aggregated. The legacy top-level `score` and
+  `diagnostic_score` remain unchanged.
+
 ### Added
 
 - **`lint_summary()` exposes drawing-quality evidence as separate completeness, restraint,

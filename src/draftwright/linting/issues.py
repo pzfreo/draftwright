@@ -6,7 +6,7 @@ standalone validators). draftwright owns linting; this is its ``LintIssue``.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 
@@ -32,3 +32,9 @@ class LintIssue:
     # (validation) and a valid candidate that did not fit (placement). Quality components must
     # not infer that distinction from the shared code or its message (#1127).
     outcome_stage: Literal["placement", "validation"] | None = None
+    # Opaque identity of the annotation that owns a pairwise diagnostic (#1147). Multiple
+    # raw pair findings with the same subject and code remain individually inspectable, but
+    # count as one primary issue in the legibility score. ``id(annotation)`` is intentional:
+    # the key lives for one lint aggregation only, is never serialised, and remains unique
+    # when Drawing has to lint separate scale groups. None means the finding is independent.
+    aggregation_subject: int | None = field(default=None, repr=False, compare=False)

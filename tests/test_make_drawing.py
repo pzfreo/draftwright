@@ -5300,7 +5300,15 @@ class TestLintSummaryAndDrops:
             "infos": 1,
             "placement_drops": 2,
             "by_code": {"callout_dropped": 1, "slot_dim_dropped": 1},
+            "raw_issues": 2,
+            "primary_issues": 2,
+            "primary_errors": 0,
+            "primary_warnings": 1,
+            "primary_infos": 1,
+            "primary_by_code": {"callout_dropped": 1, "slot_dim_dropped": 1},
+            "affected_pairs": 0,
             "basis": "layout_issue_severity_with_info_floor",
+            "score_inventory": "primary_issues",
         }
         assert summary["quality"]["restraint"] == {
             "available": False,

@@ -2965,7 +2965,9 @@ class Drawing:
         - ``score`` — legacy coarse 0–1 diagnostic heuristic (see ``_SCORE_*``);
         - ``diagnostic_score`` — the same value under its honest name;
         - ``quality`` — separable completeness, restraint, and legibility components. No
-          composite drawing-quality score is manufactured (#1127);
+          composite drawing-quality score is manufactured (#1127). Legibility's existing
+          severity/code counts are raw findings; its ``primary_*`` counts and scalar group
+          producer-identified pair findings by annotation and failure mechanism (#1147);
         - ``errors`` / ``warnings`` / ``infos`` — counts by severity;
         - ``by_code`` — per-check counts;
         - ``geometry_issues`` — count of standards/geometry-correctness issues

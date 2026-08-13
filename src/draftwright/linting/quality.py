@@ -5,7 +5,9 @@ quality verdict.  This module exposes the independently observable terms without
 them into another blessed scalar:
 
 - completeness follows recognition-owned physical requirements to compiler outcomes;
-- legibility contains only placement/layout diagnostics;
+- legibility contains only placement/layout diagnostics. Its compatibility counts remain raw
+  lint findings, while its score and ``primary_*`` counts collapse only producer-identified
+  pair observations from one annotation and failure mechanism;
 - restraint fails closed until measurement provenance can classify every annotation.
 
 Completeness is deliberately marked partial.  Only the feature families with a semantic
@@ -28,6 +30,7 @@ from collections import Counter
 
 from draftwright.linting.channel_coverage import channel_requirement_outcomes
 from draftwright.linting.flat_coverage import flat_requirement_outcomes
+from draftwright.linting.issues import LintIssue
 from draftwright.linting.polygonal_stock_coverage import polygonal_stock_outcomes
 from draftwright.linting.slot_coverage import slot_requirement_outcomes
 
@@ -127,12 +130,40 @@ def _is_legibility_issue(issue) -> bool:
     return issue.code in _LEGIBILITY_CODES or _is_placement_drop(issue)
 
 
+_SEVERITY_RANK = {"info": 0, "warning": 1, "error": 2}
+
+
+def _primary_issues(issues) -> list[LintIssue]:
+    """Collapse explicit pair observations to one issue per subject and mechanism.
+
+    Pair-producing lint checks opt in with ``aggregation_subject``. Everything else is
+    deliberately independent, even when code and message happen to match: blanket text/code
+    deduplication would hide genuinely distinct collisions. If a malformed producer gives one
+    group mixed severities, its strongest observation owns the score penalty.
+    """
+    primary: dict[tuple, LintIssue] = {}
+    for ordinal, issue in enumerate(issues):
+        subject = getattr(issue, "aggregation_subject", None)
+        key = (issue.code, subject) if subject is not None else (None, ordinal)
+        previous = primary.get(key)
+        if previous is None or _SEVERITY_RANK[issue.severity] > _SEVERITY_RANK[previous.severity]:
+            primary[key] = issue
+    return list(primary.values())
+
+
 def _issue_component(issues, *, error_penalty: float, warning_penalty: float) -> dict:
+    # Compatibility fields remain raw lint-finding counts. Only the scalar penalty uses the
+    # explicitly grouped primary inventory; both inventories are exposed and documented.
     errors = sum(issue.severity == "error" for issue in issues)
     warnings = sum(issue.severity == "warning" for issue in issues)
     infos = sum(issue.severity == "info" for issue in issues)
     placement_drops = sum(_is_placement_drop(issue) for issue in issues)
     by_code = Counter(issue.code for issue in issues)
+    primary = _primary_issues(issues)
+    primary_errors = sum(issue.severity == "error" for issue in primary)
+    primary_warnings = sum(issue.severity == "warning" for issue in primary)
+    primary_infos = sum(issue.severity == "info" for issue in primary)
+    primary_by_code = Counter(issue.code for issue in primary)
     return {
         "available": True,
         # Every issue reaching here is a legibility defect by construction, so info severity
@@ -141,14 +172,33 @@ def _issue_component(issues, *, error_penalty: float, warning_penalty: float) ->
         # cannot report 1.0 while itemising output it has just called unreadable (#1127).
         "score": max(
             0.0,
-            1.0 - errors * error_penalty - (warnings + infos) * warning_penalty,
+            1.0
+            - primary_errors * error_penalty
+            - (primary_warnings + primary_infos) * warning_penalty,
         ),
+        # Raw compatibility inventory. These fields keep their #1127 semantics even when
+        # several pair observations contribute only one penalty.
         "errors": errors,
         "warnings": warnings,
         "infos": infos,
         "placement_drops": placement_drops,
         "by_code": dict(sorted(by_code.items())),
+        "raw_issues": len(issues),
+        # Score inventory: one entry per independent finding, or per explicitly identified
+        # annotation/failure-mechanism group. ``affected_pairs`` counts the raw opt-in pair
+        # observations; their complete messages stay in ``lint_summary()['issues']``.
+        "primary_issues": len(primary),
+        "primary_errors": primary_errors,
+        "primary_warnings": primary_warnings,
+        "primary_infos": primary_infos,
+        "primary_by_code": dict(sorted(primary_by_code.items())),
+        "affected_pairs": sum(
+            getattr(issue, "aggregation_subject", None) is not None for issue in issues
+        ),
+        # Keep the established basis value: severity and the info floor did not change.
+        # This additive field names the inventory to which that basis is now applied.
         "basis": "layout_issue_severity_with_info_floor",
+        "score_inventory": "primary_issues",
     }
 
 
@@ -251,6 +301,11 @@ def quality_components(
     ``audited_score`` over a stated denominator rather than a ``score``, and lists what that
     denominator ``excludes`` — a feature recognition never identified is absent from the
     ledger entirely, so a perfect audited score is not a complete drawing.
+
+    Legibility's ``errors``/``warnings``/``infos``/``by_code`` fields retain their original
+    raw-finding semantics. ``primary_*`` fields describe the inventory used by ``score``;
+    ``affected_pairs`` is the number of raw pair findings that opted into that aggregation.
+    Full pair messages remain in :meth:`Drawing.lint` and ``lint_summary()['issues']``.
     """
 
     legibility_issues = [issue for issue in issues if _is_legibility_issue(issue)]

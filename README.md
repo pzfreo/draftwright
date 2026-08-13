@@ -231,6 +231,12 @@ assert completeness["scope"] == "audited_recognized_requirements"
 completeness["excludes"]                     # what the denominator cannot see
 completeness["unrecognised_geometry_reports"]  # a floor on that gap, never a measure
 legibility = crit["quality"]["legibility"]
+# Raw pair findings remain available and keep the original count semantics.
+legibility["warnings"], legibility["by_code"], crit["issues"]
+# The legibility scalar uses primary issues: one affected annotation/failure mechanism even
+# when several pairwise comparisons found it. These fields make that denominator explicit.
+legibility["primary_issues"], legibility["primary_by_code"], legibility["affected_pairs"]
+assert legibility["score_inventory"] == "primary_issues"
 restraint = crit["quality"]["restraint"]  # unavailable until provenance is complete
 dwg.repair()                # auto-fix mechanically-fixable lint; never worsens
 ```

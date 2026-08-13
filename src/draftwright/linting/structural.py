@@ -760,7 +760,17 @@ def _lint_centerline_dim_overlap(dim_item, cl_item, issues, box_cache=None, warn
                     f"{ox:.1f}×{oy:.1f} mm — use label_offset_x to shift "
                     f"or increase dim offset to clear the centerline"
                 ),
+                # Pair detail stays in the raw issue: this is the compared centre mark's
+                # extent centre, so equal-looking findings can still be traced spatially.
+                location=(
+                    (cl_min_x + cl_max_x) / 2.0,
+                    (cl_min_y + cl_max_y) / 2.0,
+                ),
                 code="label_centerline_overlap",
+                # The raw finding still represents this exact label/centreline pair. Quality
+                # aggregation uses the label identity to avoid multiplying one unreadable
+                # label into N score penalties merely because N centre marks cross it (#1147).
+                aggregation_subject=id(dim_item),
             )
         )
 
