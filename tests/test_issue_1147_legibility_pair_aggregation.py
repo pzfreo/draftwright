@@ -124,9 +124,18 @@ def test_equal_codes_without_a_shared_subject_remain_independent_primary_issues(
 
 
 def test_one_subject_with_two_failure_mechanisms_remains_two_primary_issues():
-    all_issues, aggregation = _two_labels_crossed_by_five_centre_marks()
-    issues = all_issues[:2]
-    issues[0].code = "annotation_overlap"
+    aggregation = _IssueAggregation()
+    subject_token = object()
+    issues = [
+        LintIssue(severity="warning", code="annotation_overlap", message="collision"),
+        LintIssue(
+            severity="warning",
+            code="label_centerline_overlap",
+            message="centreline crossing",
+        ),
+    ]
+    for issue in issues:
+        aggregation.record_pair(issue, subject_token)
 
     legibility = _legibility(issues, aggregation)
 
@@ -276,6 +285,30 @@ def test_public_override_replacements_cannot_inherit_discarded_base_issue_tokens
     legibility = drawing.lint_summary()["quality"]["legibility"]
 
     assert legibility["raw_issues"] == 10
+    assert legibility["affected_pairs"] == 0
+    assert legibility["primary_issues"] == 10
+    assert legibility["score"] == pytest.approx(0.5)
+
+
+def test_public_override_code_mutations_cannot_inherit_the_old_failure_mechanism(monkeypatch):
+    drawing = build_drawing(Box(20, 15, 10))
+    drawing.items = _crossed_items()
+    drawing.views.clear()
+    drawing.part = None
+    base_lint = drawing.lint
+
+    def mutating_lint(*, physical=True):
+        issues = base_lint(physical=physical)
+        assert len(issues) == 10
+        for issue in issues:
+            issue.code = "annotation_overlap"
+        return issues
+
+    monkeypatch.setattr(drawing, "lint", mutating_lint)
+
+    legibility = drawing.lint_summary()["quality"]["legibility"]
+
+    assert legibility["by_code"] == {"annotation_overlap": 10}
     assert legibility["affected_pairs"] == 0
     assert legibility["primary_issues"] == 10
     assert legibility["score"] == pytest.approx(0.5)
