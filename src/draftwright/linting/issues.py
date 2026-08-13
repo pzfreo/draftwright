@@ -6,6 +6,8 @@ standalone validators). draftwright owns linting; this is its ``LintIssue``.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Literal
 
@@ -54,3 +56,23 @@ class _IssueAggregation:
 
     def token_for(self, issue: LintIssue):
         return self._tokens_by_issue_id.get(id(issue))
+
+
+_CURRENT_AGGREGATION: ContextVar[_IssueAggregation | None] = ContextVar(
+    "draftwright_lint_aggregation", default=None
+)
+
+
+def _current_issue_aggregation() -> _IssueAggregation | None:
+    return _CURRENT_AGGREGATION.get()
+
+
+@contextmanager
+def _collect_issue_aggregation():
+    """Collect base-lint pair evidence while preserving public ``Drawing.lint`` dispatch."""
+    aggregation = _IssueAggregation()
+    token = _CURRENT_AGGREGATION.set(aggregation)
+    try:
+        yield aggregation
+    finally:
+        _CURRENT_AGGREGATION.reset(token)

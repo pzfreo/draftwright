@@ -91,7 +91,7 @@ from draftwright.linting import (
     lint_slot_coverage,
     pmi_stage_summary,
 )
-from draftwright.linting.issues import _IssueAggregation
+from draftwright.linting.issues import _collect_issue_aggregation, _current_issue_aggregation
 from draftwright.linting.quality import quality_components
 from draftwright.projection import (
     project_view_geometry,
@@ -2723,7 +2723,7 @@ class Drawing:
         (#1022). The default stays the full critique: a caller asking "is this drawing
         right?" means both halves.
         """
-        return self._lint(physical=physical)
+        return self._lint(physical=physical, aggregation=_current_issue_aggregation())
 
     def _lint(self, *, physical: bool = True, aggregation=None):
         """Internal lint path with an optional summary-scoped pair ledger (#1147)."""
@@ -2983,8 +2983,11 @@ class Drawing:
         - ``pmi`` — when source PMI exists, source-to-render stage counts derived from the
           extraction report, final IR, annotation registry, and structured placement drops.
         """
-        aggregation = _IssueAggregation()
-        issues = self._lint(aggregation=aggregation)
+        # Keep dispatch through the documented public critique method: subclasses and callers
+        # may extend ``lint``. The context is task-local, and only the base implementation
+        # records pair evidence; custom issues remain independent (fail closed).
+        with _collect_issue_aggregation() as aggregation:
+            issues = self.lint()
         errors = sum(1 for i in issues if i.severity == "error")
         warnings = sum(1 for i in issues if i.severity == "warning")
         infos = sum(1 for i in issues if i.severity == "info")

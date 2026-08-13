@@ -10,7 +10,11 @@ import pytest
 from build123d import Box
 
 from draftwright import build_drawing
-from draftwright.linting.issues import LintIssue, _IssueAggregation
+from draftwright.linting.issues import (
+    LintIssue,
+    _current_issue_aggregation,
+    _IssueAggregation,
+)
 from draftwright.linting.quality import quality_components
 from draftwright.linting.structural import lint_drawing
 
@@ -30,14 +34,15 @@ def _legibility(issues, aggregation=None):
 
 def _crossed_items():
     labels = [
-        SimpleNamespace(label="4× ⌀6 THRU", label_bbox=(0.0, 0.0, 10.0, 10.0)) for _ in range(2)
+        SimpleNamespace(label="4× ⌀6 THRU", label_bbox=(x, 20.0, x + 10.0, 30.0))
+        for x in (20.0, 40.0)
     ]
     centre_marks = [
         SimpleNamespace(
             is_centerline=True,
-            segments=(((float(x), -2.0), (float(x), 12.0)),),
+            segments=(((18.0, float(y)), (52.0, float(y))),),
         )
-        for x in range(1, 6)
+        for y in range(21, 26)
     ]
     return [*labels, *centre_marks]
 
@@ -58,7 +63,7 @@ def test_two_affected_labels_keep_ten_pair_findings_but_take_two_score_penalties
 
     assert len(issues) == 10, "every offending label/centre-mark pair remains inspectable"
     assert all("4× ⌀6 THRU" in issue.message for issue in issues)
-    assert {issue.location for issue in issues} == {(float(x), 5.0) for x in range(1, 6)}
+    assert {issue.location for issue in issues} == {(35.0, float(y)) for y in range(21, 26)}
     assert legibility["warnings"] == 10, "the compatibility count remains raw lint findings"
     assert legibility["by_code"] == {"label_centerline_overlap": 10}
     assert legibility["raw_issues"] == 10
@@ -160,14 +165,11 @@ def test_separate_lint_runs_have_independent_summary_scoped_group_tokens():
     assert all(second_aggregation.token_for(issue) is None for issue in first)
 
 
-def test_legacy_summary_counts_and_diagnostic_score_keep_raw_finding_semantics(monkeypatch):
+def test_legacy_summary_counts_and_diagnostic_score_keep_raw_finding_semantics():
     drawing = build_drawing(Box(20, 15, 10))
-
-    def fake_lint(*, physical=True, aggregation=None):
-        issues, _ = _two_labels_crossed_by_five_centre_marks(aggregation)
-        return issues
-
-    monkeypatch.setattr(drawing, "_lint", fake_lint)
+    drawing.items = _crossed_items()
+    drawing.views.clear()
+    drawing.part = None
 
     summary = drawing.lint_summary()
 
@@ -177,3 +179,36 @@ def test_legacy_summary_counts_and_diagnostic_score_keep_raw_finding_semantics(m
     assert len(summary["issues"]) == 10
     assert all(not any("aggregation" in key for key in issue) for issue in summary["issues"])
     assert summary["quality"]["legibility"]["score"] == pytest.approx(0.9)
+
+
+def test_lint_summary_still_dispatches_through_a_public_lint_override(monkeypatch):
+    drawing = build_drawing(Box(20, 15, 10))
+    calls = []
+    external = LintIssue(severity="error", code="external_policy", message="custom critique")
+
+    def custom_lint(*, physical=True):
+        calls.append(physical)
+        return [external]
+
+    monkeypatch.setattr(drawing, "lint", custom_lint)
+
+    summary = drawing.lint_summary()
+
+    assert calls == [True]
+    assert summary["by_code"] == {"external_policy": 1}
+    assert summary["issues"][0]["message"] == "custom critique"
+
+
+def test_a_failing_public_lint_override_cannot_leak_summary_context(monkeypatch):
+    drawing = build_drawing(Box(20, 15, 10))
+
+    def failing_lint(*, physical=True):
+        assert _current_issue_aggregation() is not None
+        raise RuntimeError("custom critique failed")
+
+    monkeypatch.setattr(drawing, "lint", failing_lint)
+
+    with pytest.raises(RuntimeError, match="custom critique failed"):
+        drawing.lint_summary()
+
+    assert _current_issue_aggregation() is None
