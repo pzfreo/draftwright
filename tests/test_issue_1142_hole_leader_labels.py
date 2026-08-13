@@ -9,7 +9,6 @@ from build123d_drafting.helpers import HoleCallout, draft_preset
 
 from draftwright import Sheet, build_drawing
 from draftwright.annotations.from_model import callout_from_spec
-from draftwright.annotations.holes import _profiled_callout_leader
 from draftwright.fits import fit_class
 from draftwright.linting import lint_drawing, lint_feature_coverage
 from draftwright.model import hole
@@ -97,14 +96,22 @@ def test_callout_semantic_label_covers_the_rendered_compound_grammar():
     assert callout.label == "4× ⌀8 ↧ 12 ⌴ ⌀14 ↧ 2 ⌵ ⌀16 × 90° EQ SP ON ø50 BC"
 
 
-def test_hole_leader_seam_rejects_a_labelless_geometric_callout():
-    callout = HoleCallout("8", through=True, draft=draft_preset(decimal_precision=1))
-    assert callout.label == ""  # upstream helper's geometry-only metadata contract
+def test_public_build_rejects_a_labelless_geometric_callout(monkeypatch):
+    """The semantic-label guard is load-bearing on the public compiler path."""
+    original_setattr = HoleCallout.__setattr__
 
+    def discard_semantic_label(callout, name, value):
+        # Preserve the upstream geometry-only ``label=""`` assignment, but mutate away
+        # Draftwright's semantic restoration to prove the leader seam fails loudly.
+        if name == "label" and value:
+            return
+        original_setattr(callout, name, value)
+
+    monkeypatch.setattr(HoleCallout, "__setattr__", discard_semantic_label)
     with pytest.raises(
         ValueError, match="a rendered hole callout must carry a non-empty semantic label"
     ):
-        _profiled_callout_leader(callout=callout)
+        build_drawing(_plate(), page="A4", scale=0.5)
 
 
 def test_automatic_hole_leaders_expose_nonempty_semantic_labels():
