@@ -152,12 +152,19 @@ def _hole_partitions(spec, members, features, *, projected: bool) -> tuple[tuple
     bounded by the declared inventory; it never performs exponential exact-cover search.
     """
     target = Counter(members)
+
+    def fits(coverage, available):
+        # ``Counter.__le__`` scans the union of both counters.  Here each declared owner
+        # is normally a singleton, so checking only its own support preserves the same
+        # multiset relation without turning N singleton candidates into O(N²) work.
+        return all(count <= available[member] for member, count in coverage.items())
+
     eligible = []
     for feature in features:
         if _feature_spec(feature) != spec:
             continue
         coverage = Counter(_projected_members(feature) if projected else _members(feature))
-        if coverage and coverage <= target:
+        if coverage and fits(coverage, target):
             eligible.append((feature, coverage))
     if len({id(feature) for feature, _coverage in eligible}) != len(eligible):
         return ()
@@ -167,7 +174,7 @@ def _hole_partitions(spec, members, features, *, projected: bool) -> tuple[tuple
         for member in coverage:
             by_member[member].append(candidate_index)
 
-    remaining = target
+    remaining = target.copy()
     chosen = []
     used: set[int] = set()
     while remaining:
@@ -176,7 +183,7 @@ def _hole_partitions(spec, members, features, *, projected: bool) -> tuple[tuple
             compatible = [
                 candidate_index
                 for candidate_index in by_member.get(member, ())
-                if candidate_index not in used and eligible[candidate_index][1] <= remaining
+                if candidate_index not in used and fits(eligible[candidate_index][1], remaining)
             ]
             if not compatible:
                 return ()
@@ -188,7 +195,10 @@ def _hole_partitions(spec, members, features, *, projected: bool) -> tuple[tuple
         feature, coverage = eligible[forced]
         chosen.append(feature)
         used.add(forced)
-        remaining = +(remaining - coverage)
+        for member, count in coverage.items():
+            remaining[member] -= count
+            if remaining[member] == 0:
+                del remaining[member]
     if len(chosen) != len(eligible):
         return ()
     return (tuple(chosen),)
@@ -391,6 +401,12 @@ def _matches(measurement, feature, parameter: str) -> bool:
 def _evidence_parameter(parameter: str) -> str:
     if parameter in {"bore.through", "grouping.count"}:
         return "bore.diameter"
+    if ".centerline." in parameter:
+        # The physical ledger distinguishes a turned-axis location from an ordinary
+        # numeric ordinate, but the compiler deliberately keeps the canonical Y/Z
+        # measurement identities.  Join both placed drops and authored omissions back to
+        # those compiler-owned ids instead of inventing a second suppression vocabulary.
+        return parameter.replace(".centerline.", ".")
     return parameter
 
 
@@ -612,13 +628,21 @@ def hole_requirement_outcomes(
         for proposal in exact_proposals
     ]
     used_feature_ids = {id(feature) for matches in matches_by_source for feature in matches}
-    exact_overlap_feature_ids = {
-        id(feature)
-        for kind, _source, key, _member_count in sources
-        if kind == "hole"
-        for feature in hole_features
-        if _feature_spec(feature) == key[0] and set(_members(feature)) & set(key[1])
-    }
+    # Reserve every declared owner that overlaps an exact physical source before the
+    # axial-coordinate fallback.  Index the source inventory once by machining spec: a
+    # dense N-member group with N singleton declarations must remain linear rather than
+    # rebuilding the N-member source set for every candidate.
+    exact_source_members_by_spec: dict[tuple, set[tuple[float, float, float]]] = defaultdict(set)
+    for kind, _source, key, _member_count in sources:
+        if kind == "hole":
+            exact_source_members_by_spec[key[0]].update(key[1])
+    exact_overlap_feature_ids = set()
+    for feature in hole_features:
+        source_members = exact_source_members_by_spec.get(_feature_spec(feature))
+        if source_members is not None and any(
+            member in source_members for member in _members(feature)
+        ):
+            exact_overlap_feature_ids.add(id(feature))
 
     residual_proposals: dict[int, tuple] = {}
     for index, (kind, source, key, _member_count) in enumerate(sources):

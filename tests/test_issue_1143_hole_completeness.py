@@ -445,50 +445,55 @@ def test_grouped_and_per_member_exact_owners_are_an_ambiguous_cover():
 
 def test_dense_separate_blind_tool_correspondence_scales_linearly():
     baseline = build_drawing(_blind_hole(), auto_dims=False)
-    count = 1_000
-    physical = tuple(
-        HoleRecord(
-            axis=(0.0, 0.0, 1.0),
-            location=(float(index), 0.0, 0.0),
-            diameter=8.0,
-            depth=8.0,
-            bottom="flat",
-        )
-        for index in range(count)
-    )
-    recognition = replace(
-        baseline.recognition(), holes=physical, hole_patterns=(), countersinks=()
-    )
-    singletons = tuple(
-        declare_hole(
-            diameter=8,
-            at=(float(index), 0.0, 4.0),
-            axis="z",
-            through=False,
-            depth=8,
-        )
-        for index in range(2, count)
-    )
-    grouped = replace(
-        declare_hole(
-            diameter=8,
-            at=(0.0, 0.0, 4.0),
-            axis="z",
-            through=False,
-            depth=8,
-        ),
-        count=2,
-        members=((0.0, 0.0, 4.0), (1.0, 0.0, 4.0)),
-    )
-    features = (grouped, *singletons)
 
-    started = time.perf_counter()
-    outcomes = hole_requirement_outcomes(recognition, features, baseline.registry)
-    elapsed = time.perf_counter() - started
+    def elapsed_for(count):
+        physical = tuple(
+            HoleRecord(
+                axis=(0.0, 0.0, 1.0),
+                location=(float(index), 0.0, 0.0),
+                diameter=8.0,
+                depth=8.0,
+                bottom="flat",
+            )
+            for index in range(count)
+        )
+        recognition = replace(
+            baseline.recognition(), holes=physical, hole_patterns=(), countersinks=()
+        )
+        singletons = tuple(
+            declare_hole(
+                diameter=8,
+                at=(float(index), 0.0, 4.0),
+                axis="z",
+                through=False,
+                depth=8,
+            )
+            for index in range(2, count)
+        )
+        grouped = replace(
+            declare_hole(
+                diameter=8,
+                at=(0.0, 0.0, 4.0),
+                axis="z",
+                through=False,
+                depth=8,
+            ),
+            count=2,
+            members=((0.0, 0.0, 4.0), (1.0, 0.0, 4.0)),
+        )
+        started = time.perf_counter()
+        outcomes = hole_requirement_outcomes(
+            recognition, (grouped, *singletons), baseline.registry
+        )
+        return time.perf_counter() - started, outcomes
 
-    assert len(outcomes) == 5
-    assert not [item for item in outcomes if item.state == "unverifiable"]
-    assert elapsed < 2.0
+    small_elapsed, small = elapsed_for(1_000)
+    large_elapsed, large = elapsed_for(2_000)
+
+    assert len(small) == len(large) == 5
+    assert not [item for item in (*small, *large) if item.state == "unverifiable"]
+    assert large_elapsed < 2.0
+    assert large_elapsed < small_elapsed * 3.0
 
 
 def test_overlapping_declared_covers_fail_closed_in_bounded_time():
@@ -916,6 +921,39 @@ def test_coaxial_bore_centerline_accounts_for_two_physical_location_axes():
     }
     assert all(item.state == "placed" for item in outcomes)
     assert _completeness(drawing)["requirements"] == 4
+
+
+def test_authored_coaxial_location_omissions_remain_suppressed_without_center_furniture():
+    left = Pos(-42.5, 0, 0) * Rot(0, 90, 0) * Cylinder(9, 25)
+    middle = Pos(-10, 0, 0) * Rot(0, 90, 0) * Cylinder(15, 40)
+    right = Pos(25, 0, 0) * Rot(0, 90, 0) * Cylinder(11, 30)
+    bore = Pos(-10, 0, 0) * Rot(0, 90, 0) * Cylinder(4, 100)
+    sheet = Sheet((left + middle + right) - bore, page="A3")
+    declared = sheet.hole(diameter=8, at=(40, 0, 0), axis="x").through()
+    sheet.dimension(declared, "bore.diameter")
+    drawing = sheet.build()
+    feature = next(feature for feature in drawing.model().features if feature.kind == "hole")
+    assert {
+        item.parameter_id: item.state
+        for item in _outcomes(drawing)
+        if ".centerline." in item.parameter_id
+    } == {
+        "location_off_axis.centerline.y": "placed",
+        "location_off_axis.centerline.z": "placed",
+    }
+
+    for name in tuple(drawing.annotations_of(feature)):
+        if name.startswith("m_cm"):
+            drawing.remove(name)
+
+    assert {
+        item.parameter_id: item.state
+        for item in _outcomes(drawing)
+        if ".centerline." in item.parameter_id
+    } == {
+        "location_off_axis.centerline.y": "suppressed",
+        "location_off_axis.centerline.z": "suppressed",
+    }
 
 
 def test_wrong_view_live_center_furniture_cannot_certify_coaxial_location():
