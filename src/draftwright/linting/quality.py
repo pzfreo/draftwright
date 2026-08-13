@@ -89,7 +89,8 @@ _RECOGNISED_REQUIREMENT_FAMILIES = {
 
 # Inventories that are deliberately NOT requirement families: the substrates would list the
 # same physical requirement a second time (a countersink is retained on its recognised
-# ``HoleRecord``), and ``rotational`` is a classification flag rather than an inventory. Kept
+# ``HoleRecord``; unmatched standalone seats fail closed in the hole ledger), and
+# ``rotational`` is a classification flag rather than an inventory. Kept
 # explicit rather than implied by absence so that a new
 # ``RecognitionResult`` inventory cannot silently join the blind spot the completeness
 # component exists to report (``tests/test_quality_components.py``).

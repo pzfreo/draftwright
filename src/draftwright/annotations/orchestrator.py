@@ -695,8 +695,8 @@ def _maybe_tabulate_holes(dwg, a: Analysis, *, ctx, plan=None):
 
     When callouts or location references had to be dropped, the individual
     plan-view callouts and X/Y location dims are removed and replaced by a
-    complete **hole chart** — one row per hole (``TAG | ⌀ | X | Y``, X/Y from the
-    min-corner datum) and a uniquely-tagged balloon at each hole. The table
+    complete **hole chart** — one row per hole (``TAG | ⌀ | DEPTH | X | Y``, X/Y
+    from the min-corner datum) and a uniquely-tagged balloon at each hole. The table
     carries ``covers_diameters`` so the coverage lint still counts the holes.
     Sparse parts drop nothing, so this is a no-op for them — unchanged.
 
@@ -736,7 +736,13 @@ def _maybe_tabulate_holes(dwg, a: Analysis, *, ctx, plan=None):
     # HoleRecord crosses here (ADR 0008 Am6; #584 WP1 B4).
     _model = ctx.part_model
     holes = [
-        SimpleNamespace(location=pos, diameter=f.diameter, feature=f)
+        SimpleNamespace(
+            location=pos,
+            diameter=f.diameter,
+            depth=f.depth,
+            through=f.through,
+            feature=f,
+        )
         for f in (_model.features if _model is not None else ())
         if f.kind == "hole" and f.frame.axis == "z"
         for pos in (f.members or (f.frame.origin,))
@@ -748,7 +754,6 @@ def _maybe_tabulate_holes(dwg, a: Analysis, *, ctx, plan=None):
     if not tabulate_scattered and not pattern_feats:
         return
 
-    dx, dy = a.bb.min.X, a.bb.min.Y
     n_scattered = len(holes) if tabulate_scattered else 0
     tags = _tag_sequence(n_scattered + len(pattern_feats))
     scattered_tags, pattern_tags = tags[:n_scattered], tags[n_scattered:]
@@ -775,11 +780,43 @@ def _maybe_tabulate_holes(dwg, a: Analysis, *, ctx, plan=None):
     scattered_specs: list = []
     table_placed = False
     if tabulate_scattered:
-        header = ("TAG", "⌀", "X", "Y")
-        data = [
-            (tag, f"ø{_fmt(h.diameter)}", _fmt(h.location[0] - dx), _fmt(h.location[1] - dy))
-            for tag, h in zip(scattered_tags, holes, strict=True)
-        ]
+        compiled = plan if plan is not None else compile_dimensions(_model)
+        approved_hole_dimensions = {
+            resolve_feature(group.ref): {
+                dimension.parameter_id: dimension for dimension in group.dims
+            }
+            for group in compiled.of_kind("hole")
+        }
+        approved_locations = {
+            (resolve_feature(location.ref), tuple(location.span[1]), location.discriminator): (
+                location.value_text
+            )
+            for location in compiled.locations
+            if location.span is not None
+        }
+
+        def _approved_hole_text(hole, parameter):
+            dimension = approved_hole_dimensions.get(hole.feature, {}).get(parameter)
+            return "" if dimension is None else dimension.value_text
+
+        def _table_row(tag, hole):
+            diameter_text = _approved_hole_text(hole, "bore.diameter")
+            depth_text = (
+                "THRU"
+                if hole.through and diameter_text
+                else _approved_hole_text(hole, "bore.depth")
+            )
+            location = tuple(hole.location)
+            return (
+                tag,
+                f"ø{diameter_text}" if diameter_text else "",
+                depth_text,
+                approved_locations.get((hole.feature, location, "x"), ""),
+                approved_locations.get((hole.feature, location, "y"), ""),
+            )
+
+        header = ("TAG", "⌀", "DEPTH", "X", "Y")
+        data = [_table_row(tag, h) for tag, h in zip(scattered_tags, holes, strict=True)]
         # Remove the callouts and location dims the table replaces FIRST: it frees
         # their space for the table and shrinks the obstacle set fit_box scans (the
         # dense parts have dozens), which is the dominant cost on heavy sheets (#93).
@@ -817,8 +854,11 @@ def _maybe_tabulate_holes(dwg, a: Analysis, *, ctx, plan=None):
             # One entry per hole (with repeats) so the coverage *count* check sees
             # that the table documents every instance, not just each distinct
             # diameter.
-            table.covers_diameters = tuple(h.diameter for h in holes)
-            compiled = plan if plan is not None else compile_dimensions(_model)
+            table.covers_diameters = tuple(
+                h.diameter
+                for h in holes
+                if "bore.diameter" in approved_hole_dimensions.get(h.feature, {})
+            )
             table_features = tuple(dict.fromkeys(h.feature for h in holes))
             table_measurements = tuple(
                 dim.id
@@ -839,7 +879,9 @@ def _maybe_tabulate_holes(dwg, a: Analysis, *, ctx, plan=None):
                 and resolve_feature(location.ref) in table_features
             )
             table.covers_hole_requirements_by_feature = tuple(
-                (feature, "bore.through", 1) for feature in table_features if feature.through
+                (feature, "bore.through", 1)
+                for feature in table_features
+                if feature.through and "bore.diameter" in approved_hole_dimensions.get(feature, {})
             ) + tuple(
                 (
                     feature,
@@ -847,6 +889,7 @@ def _maybe_tabulate_holes(dwg, a: Analysis, *, ctx, plan=None):
                     int(feature.count or len(feature.members) or 1),
                 )
                 for feature in table_features
+                if "bore.diameter" in approved_hole_dimensions.get(feature, {})
             )
             identity = dwg.registry.identity_of("hole_table_plan")
             identity["measurement"] = table_measurements

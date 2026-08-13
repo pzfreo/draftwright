@@ -41,6 +41,7 @@ from draftwright.annotations._common import (
     _box_hits,
     _geom_box,
     _segment_crosses_box,
+    _with_hole_location_coverage,
     box_within_page_and_clear,
     carve_free_position,
     carve_free_segments,
@@ -293,7 +294,7 @@ def add_feature_location(
     def _uniq(prefix: str) -> str:
         return f"{prefix}{_first_free_index(prefix, ctx.registry)}"
 
-    def _place(view: str, strip, p1, p2, baseline, label: str, mid=None) -> str:
+    def _place(view: str, strip, p1, p2, baseline, label: str, mid=None, coverage=()) -> str:
         perp = (min(p1, p2), max(p1, p2))
         pos = carve_free_position(dwg, strip, view, "y", tier, perp) if strip is not None else None
         if pos is None:  # strip full / absent — fall back just above the view
@@ -301,8 +302,16 @@ def add_feature_location(
             pos = vb[3] + tier
         nm = _uniq("m_locx" if view == "plan" else "m_locy")
         ctx.place(
-            _dim(
-                (p1, baseline, 0), (p2, baseline, 0), "above", pos - baseline, draft, label=label
+            _with_hole_location_coverage(
+                _dim(
+                    (p1, baseline, 0),
+                    (p2, baseline, 0),
+                    "above",
+                    pos - baseline,
+                    draft,
+                    label=label,
+                ),
+                coverage,
             ),
             nm,
             view=view,
@@ -314,8 +323,14 @@ def add_feature_location(
         return nm
 
     names: list[str] = []
-    seen_x: list[float] = []
-    seen_y: list[float] = []
+    seen_x: dict[float, str] = {}
+    seen_y: dict[float, str] = {}
+
+    def _extend_location_coverage(name: str, loc) -> None:
+        annotation = ctx.registry.named(name)
+        existing = getattr(annotation, "covers_hole_locations", ())
+        annotation.covers_hole_locations = (*existing, (loc.id, tuple(loc.span[1])))
+
     for loc in mine:
         rx, ry = _span(loc)[1][0], _span(loc)[1][1]
         # A rotational part's on-axis *hole* is located by the centreline, not a
@@ -328,42 +343,38 @@ def add_feature_location(
             continue
         # Coincident X (or Y) across this feature's own members → one dim, not a stack
         # of identical position dims (matches render_locations' x_refs/y_refs dedup).
-        if (
-            "x" in want
-            and loc.discriminator in (None, "x")
-            and abs(rx - dx) * a.SCALE >= 1.0
-            and not any(abs(rx - s) < 0.5 for s in seen_x)
-        ):
-            seen_x.append(rx)
-            names.append(
-                _place(
-                    "plan",
-                    a.pv_zones.above,
-                    PX(dx),
-                    PX(rx),
-                    PY(ry),
-                    _fmt(rx - dx),
-                    loc.id,
-                )
+        prior_x = next((name for value, name in seen_x.items() if abs(rx - value) < 0.5), None)
+        if prior_x is not None and loc.discriminator in (None, "x"):
+            _extend_location_coverage(prior_x, loc)
+        elif "x" in want and loc.discriminator in (None, "x") and abs(rx - dx) * a.SCALE >= 1.0:
+            name = _place(
+                "plan",
+                a.pv_zones.above,
+                PX(dx),
+                PX(rx),
+                PY(ry),
+                _fmt(rx - dx),
+                loc.id,
+                ((loc.id, tuple(_span(loc)[1])),),
             )
-        if (
-            "y" in want
-            and loc.discriminator in (None, "y")
-            and abs(ry - dy) * a.SCALE >= 1.0
-            and not any(abs(ry - s) < 0.5 for s in seen_y)
-        ):
-            seen_y.append(ry)
-            names.append(
-                _place(
-                    "side",
-                    a.sv_zones.above,
-                    SX(dy),
-                    SX(ry),
-                    SZ(a.bb.max.Z),
-                    _fmt(ry - dy),
-                    loc.id,
-                )
+            seen_x[rx] = name
+            names.append(name)
+        prior_y = next((name for value, name in seen_y.items() if abs(ry - value) < 0.5), None)
+        if prior_y is not None and loc.discriminator in (None, "y"):
+            _extend_location_coverage(prior_y, loc)
+        elif "y" in want and loc.discriminator in (None, "y") and abs(ry - dy) * a.SCALE >= 1.0:
+            name = _place(
+                "side",
+                a.sv_zones.above,
+                SX(dy),
+                SX(ry),
+                SZ(a.bb.max.Z),
+                _fmt(ry - dy),
+                loc.id,
+                ((loc.id, tuple(_span(loc)[1])),),
             )
+            seen_y[ry] = name
+            names.append(name)
     return names
 
 
@@ -753,6 +764,7 @@ def _locate_across(dwg, ctx, a: Analysis, off):
     order_y: dict = {}
     loc_by_name: dict = {}  # dim name -> contributing hole locations (for provenance)
     mids_by_name: dict = {}
+    coverage_by_name: dict = {}
     for h in (h for h in off if h.axis == "x"):
         # The VALUE is the approved entry's; `dy` survives only as the witness anchor.
         entry = h.approved.get("y")
@@ -764,6 +776,7 @@ def _locate_across(dwg, ctx, a: Analysis, off):
         name = f"dim_loc_side_y{round(yo * 100)}"
         loc_by_name.setdefault(name, []).append(h.location)
         mids_by_name.setdefault(name, []).append(entry.id)
+        coverage_by_name.setdefault(name, []).append((entry.id, tuple(entry.span[1])))
         order_y[name] = yo
         if yo not in seen_y:
             seen_y.add(yo)
@@ -773,8 +786,11 @@ def _locate_across(dwg, ctx, a: Analysis, off):
                     name,
                     # The label is the approved entry's text; `yo` survives only as the
                     # name key and the spacing order.
-                    lambda pos, pl=p_lo, ph=p_hi, lb=entry.value_text: _dim(
-                        pl, ph, "below", yw - pos, draft, label=lb
+                    lambda pos, pl=p_lo, ph=p_hi, lb=entry.value_text, nm=name: (
+                        _with_hole_location_coverage(
+                            _dim(pl, ph, "below", yw - pos, draft, label=lb),
+                            coverage_by_name[nm],
+                        )
                     ),
                 )
             )
@@ -812,6 +828,7 @@ def _locate_along_planar(dwg, ctx, a: Analysis, off):
     order_x: dict = {}
     x_loc_by_name: dict = {}
     x_mids_by_name: dict = {}
+    x_coverage_by_name: dict = {}
     for h in (h for h in off if h.axis == "y"):
         entry = h.approved.get("x")
         if entry is None:
@@ -822,6 +839,7 @@ def _locate_along_planar(dwg, ctx, a: Analysis, off):
         name = f"dim_loc_front_x{round(xo * 100)}"
         x_loc_by_name.setdefault(name, []).append(h.location)
         x_mids_by_name.setdefault(name, []).append(entry.id)
+        x_coverage_by_name.setdefault(name, []).append((entry.id, tuple(entry.span[1])))
         order_x[name] = xo
         if xo not in seen_x:
             seen_x.add(xo)
@@ -829,8 +847,11 @@ def _locate_along_planar(dwg, ctx, a: Analysis, off):
             x_cands.append(
                 (
                     name,
-                    lambda pos, pl=p_lo, ph=p_hi, lb=entry.value_text: _dim(
-                        pl, ph, "below", xw - pos, draft, label=lb
+                    lambda pos, pl=p_lo, ph=p_hi, lb=entry.value_text, nm=name: (
+                        _with_hole_location_coverage(
+                            _dim(pl, ph, "below", xw - pos, draft, label=lb),
+                            x_coverage_by_name[nm],
+                        )
                     ),
                 )
             )
@@ -868,11 +889,15 @@ def _locate_along_z(dwg, ctx, a: Analysis, off):
     zr, zrf = SX(a.bb.max.Y), FX(a.bb.max.X)
     z_locs: dict = {}  # z-offset -> contributing hole locations (for provenance)
     z_mids: dict = {}
+    z_coverage: dict = {}
     for h in off:
         entry = h.approved.get("z")
         if entry is not None and round(entry.value, 2) * a.SCALE >= 1.0:
             z_locs.setdefault(round(entry.value, 2), []).append(h.location)
             z_mids.setdefault(round(entry.value, 2), []).append(entry.id)
+            z_coverage.setdefault(round(entry.value, 2), []).append(
+                (entry.id, tuple(entry.span[1]))
+            )
     seen_z = set()
     for h in off:
         entry = h.approved.get("z")
@@ -888,8 +913,9 @@ def _locate_along_z(dwg, ctx, a: Analysis, off):
         def _zc(view, p_lo, p_hi, edge, _zo=zo, _lbl=entry.value_text):
             return (
                 f"dim_loc_{view}_z{round(_zo * 100)}",
-                lambda pos, pl=p_lo, ph=p_hi, e=edge: _dim(
-                    pl, ph, "right", pos - e, draft, label=_lbl
+                lambda pos, pl=p_lo, ph=p_hi, e=edge: _with_hole_location_coverage(
+                    _dim(pl, ph, "right", pos - e, draft, label=_lbl),
+                    z_coverage[_zo],
                 ),
             )
 

@@ -32,6 +32,17 @@ from draftwright.model.compiled import resolve_feature
 _log = logging.getLogger(__name__)
 
 
+def _with_hole_location_coverage(annotation, coverage):
+    """Attach exact compiler location/member facts to a rendered annotation.
+
+    Both the automatic corridor pass and live edit verbs use this seam.  Keeping it
+    below the individual renderers prevents one placement path from carrying only a
+    feature-level measurement identity while another carries the member it locates.
+    """
+    annotation.covers_hole_locations = tuple(coverage)
+    return annotation
+
+
 @dataclass(frozen=True)
 class Escalation:
     """A first-class "could not place this here" signal (ADR 0009 Amendment 1, P5-strand-2).

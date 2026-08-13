@@ -72,6 +72,13 @@ def _off_axis_linear_pattern():
     return part
 
 
+def _two_scattered_off_axis_holes():
+    part = Box(20, 80, 40)
+    for y, z in ((-20, -8), (15, 12)):
+        part -= Pos(0, y, z) * Rot(0, 90, 0) * Cylinder(3, 20)
+    return part
+
+
 def _countersunk_pattern():
     part = Box(90, 60, 12)
     for x, y in ((-30, -15), (5, 12), (30, -8)):
@@ -86,6 +93,23 @@ def _dense_scattered_plate():
     for i, (column, y) in enumerate(itertools.product(range(5), (-18, -6, 6, 18))):
         part -= Pos(columns[column], y, 0) * Cylinder(1.0 + i * 0.2, 20)
     return part
+
+
+def _dense_scattered_blind_plate():
+    part = Box(90, 60, 12, align=_XYZ_MIN)
+    columns = [-40 + i * 20 for i in range(5)]
+    for i, (column, y) in enumerate(itertools.product(range(5), (-18, -6, 6, 18))):
+        part -= Pos(columns[column], y, 6) * Cylinder(1.0 + i * 0.2, 6, align=_XYZ_MIN)
+    return part
+
+
+def _two_face_countersunk_hole():
+    return (
+        Box(50, 50, 12)
+        - Cylinder(3, 12)
+        - Pos(0, 0, 4) * Cone(3, 7, 4)
+        - Pos(0, 0, -4) * Cone(7, 3, 4)
+    )
 
 
 def _outcomes(drawing):
@@ -323,6 +347,32 @@ def test_cross_hole_locations_retain_both_off_axis_measurement_identities():
     assert placed_location_ids == {"location_off_axis.y", "location_off_axis.z"}
 
 
+def test_grouped_off_axis_locations_require_every_physical_member_mark():
+    drawing = build_drawing(_two_scattered_off_axis_holes(), page="A3")
+    feature = next(feature for feature in drawing.model().features if feature.kind == "hole")
+    assert feature.count == 2
+
+    z_marks = [
+        name
+        for name in drawing.annotations_of(feature)
+        if any(
+            key["parameter_id"] == "location_off_axis.z" for key in drawing.measurement_keys(name)
+        )
+    ]
+    assert len(z_marks) == 2
+    assert all(
+        len(getattr(drawing.get_annotation(name), "covers_hole_locations", ())) == 1
+        for name in z_marks
+    )
+    assert all(item.state == "placed" for item in _outcomes(drawing))
+
+    drawing.remove(z_marks[1])
+    outcomes = {item.parameter_id: item.state for item in _outcomes(drawing)}
+    assert outcomes["location_off_axis.y"] == "placed"
+    assert outcomes["location_off_axis.z"] == "missing"
+    assert _completeness(drawing)["audited_score"] == pytest.approx(4 / 5)
+
+
 def test_coaxial_bore_centerline_accounts_for_two_physical_location_axes():
     left = Pos(-42.5, 0, 0) * Rot(0, 90, 0) * Cylinder(9, 25)
     middle = Pos(-10, 0, 0) * Rot(0, 90, 0) * Cylinder(15, 40)
@@ -339,6 +389,29 @@ def test_coaxial_bore_centerline_accounts_for_two_physical_location_axes():
     }
     assert all(item.state == "placed" for item in outcomes)
     assert _completeness(drawing)["requirements"] == 4
+
+
+def test_live_locate_restores_member_level_location_provenance():
+    drawing = build_drawing(_single_hole())
+    feature = next(feature for feature in drawing.model().features if feature.kind == "hole")
+    for name in tuple(drawing.annotations_of(feature)):
+        if any(
+            key["parameter_id"].startswith("location.location.")
+            for key in drawing.measurement_keys(name)
+        ):
+            drawing.remove(name)
+    assert {item.parameter_id for item in _outcomes(drawing) if item.state == "missing"} == {
+        "location.location.x",
+        "location.location.y",
+    }
+
+    names = drawing.locate(feature)
+    assert len(names) == 2
+    assert all(
+        len(getattr(drawing.get_annotation(name), "covers_hole_locations", ())) == 1
+        for name in names
+    )
+    assert all(item.state == "placed" for item in _outcomes(drawing))
 
 
 def test_removing_a_required_callout_or_location_reduces_completeness():
@@ -396,6 +469,54 @@ def test_successful_hole_table_escalation_carries_every_replaced_requirement():
     assert all(item.state == "placed" for item in outcomes)
     assert not [issue for issue in drawing.lint() if issue.code.startswith("hole_requirement_")]
     assert _completeness(drawing)["audited_score"] == 1.0
+
+
+def test_blind_hole_table_prints_every_depth_it_claims(monkeypatch):
+    from draftwright.drawing import Drawing
+
+    captured_rows = []
+    original = Drawing.add_table
+
+    def capture_rows(self, rows, **kwargs):
+        captured_rows.append(tuple(tuple(cell for cell in row) for row in rows))
+        return original(self, rows, **kwargs)
+
+    monkeypatch.setattr(Drawing, "add_table", capture_rows)
+    drawing = build_drawing(_dense_scattered_blind_plate(), page="A3")
+
+    assert "hole_table_plan" in drawing.annotations()
+    rows = captured_rows[-1]
+    block_cols = 5
+    assert all(rows[0][offset + 2] == "DEPTH" for offset in range(0, len(rows[0]), block_cols))
+    assert {
+        row[offset + 2]
+        for row in rows[1:]
+        for offset in range(0, len(row), block_cols)
+        if row[offset]
+    } == {"6"}
+    outcomes = _outcomes(drawing)
+    assert len(outcomes) == 80
+    assert all(item.state == "placed" for item in outcomes)
+
+
+def test_unmatched_second_face_countersink_fails_closed_in_hole_ledger():
+    drawing = build_drawing(_two_face_countersunk_hole(), page="A3")
+    assert len(drawing.recognition().countersinks) == 2
+    assert sum(hole.csink is not None for hole in drawing.recognition().holes) == 1
+
+    unverifiable = [item for item in _outcomes(drawing) if item.state == "unverifiable"]
+    assert {item.parameter_id for item in unverifiable} == {
+        "countersink.angle",
+        "countersink.diameter",
+    }
+    completeness = _completeness(drawing)
+    assert completeness["requirements"] == 8
+    assert completeness["placed"] == 6
+    assert completeness["unverifiable"] == 2
+    assert completeness["audited_score"] == pytest.approx(0.75)
+    assert [
+        issue.code for issue in drawing.lint() if issue.code == "hole_requirement_unverifiable"
+    ] == ["hole_requirement_unverifiable"] * 2
 
 
 def test_failed_hole_table_escalation_restores_semantic_fallback_evidence(monkeypatch):

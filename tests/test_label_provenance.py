@@ -75,7 +75,6 @@ _FMT_BUDGET: dict[str, tuple[int, str]] = {
     # consume. That is the IR gap `_FACTS` records; the leg itself now uses `value_text`.
     "from_model._chamfer_label": (1, "ch.angle is a fact with no DimParameter (IR gap)"),
     # --- Not dimensional plan content at all.
-    "orchestrator._maybe_tabulate_holes": (3, "hole-table cell text, not a placed dim"),
     "sections._overall_height_name": (1, "detail-view caption from the analysis"),
 }
 

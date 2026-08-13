@@ -7,7 +7,7 @@ suppressed, and dropped outcomes. Rendered labels and annotation names are never
 
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from typing import Literal
 
@@ -348,7 +348,10 @@ def _synthetic_placed(registry, features, parameter: str, member_count: int) -> 
 
 def _state(features, parameter, *, member_count, placed, suppressed, dropped, registry):
     evidence = _evidence_parameter(parameter)
-    if parameter.startswith("location.location."):
+    if (
+        parameter.startswith(("location.location.", "location_off_axis."))
+        and ".centerline." not in parameter
+    ):
         if _structured_locations_placed(registry, features, parameter):
             return "placed"
     elif parameter in {"bore.through", "grouping.count"} or ".centerline." in parameter:
@@ -425,8 +428,15 @@ def hole_requirement_outcomes(
         ("hole_pattern", pattern, _pattern_key(pattern), len(pattern.holes))
         for pattern in recognition.hole_patterns
     )
-    if not sources:
-        return []
+    attached_countersinks = Counter(
+        hole.csink for hole in recognition.holes if getattr(hole, "csink", None) is not None
+    )
+    unmatched_countersinks = []
+    for countersink in recognition.countersinks:
+        if attached_countersinks[countersink]:
+            attached_countersinks[countersink] -= 1
+        else:
+            unmatched_countersinks.append(countersink)
 
     source_counts: dict[tuple[str, tuple], int] = defaultdict(int)
     for source_kind, _source, key, _member_count in sources:
@@ -522,6 +532,17 @@ def hole_requirement_outcomes(
                 ),
             )
             for parameter in parameters
+        )
+    # The current HoleRecord waist has one countersink slot.  A second seat on the
+    # opposite face is still a recognised physical requirement, but cannot be joined to
+    # IR/compiler provenance without guessing which face the single slot represents.
+    # Keep both of its dimensional facts in the denominator as explicit unverifiable
+    # outcomes instead of hiding the standalone recognition inventory as a duplicate.
+    for countersink in unmatched_countersinks:
+        at = _point(countersink.location)
+        outcomes.extend(
+            HoleRequirementOutcome("hole", at, 1, parameter, "unverifiable")
+            for parameter in ("countersink.diameter", "countersink.angle")
         )
     return outcomes
 

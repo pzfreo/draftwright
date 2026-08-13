@@ -68,6 +68,7 @@ from draftwright.annotations._common import (
     _anno_box,
     _box_hits,
     _geom_box,
+    _with_hole_location_coverage,
     carve_free_position,
     dim_footprint,
     full_strip_message,
@@ -610,12 +611,6 @@ def _location_candidate(
         measurement=measurement,  # which of its measurements this is (#1002)
         footprint=footprint,  # analytical measure — no probe build (#602)
     )
-
-
-def _with_hole_location_coverage(annotation, coverage):
-    """Attach exact compiler location/member facts at the render seam."""
-    annotation.covers_hole_locations = tuple(coverage)
-    return annotation
 
 
 def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
