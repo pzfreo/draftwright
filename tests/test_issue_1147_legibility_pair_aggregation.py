@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pickle
+import weakref
 from dataclasses import asdict, replace
 from types import SimpleNamespace
 
@@ -175,6 +176,19 @@ def test_separate_structural_passes_in_one_summary_ledger_get_distinct_tokens():
     assert combined["raw_issues"] == 20
     assert combined["primary_issues"] == 4
     assert aggregation.token_for(first[0]) is not aggregation.token_for(second[0])
+
+
+def test_ledger_retains_plain_issue_values_so_custom_replacements_cannot_reuse_their_ids():
+    aggregation = _IssueAggregation()
+    issues, returned_aggregation = _two_labels_crossed_by_five_centre_marks(aggregation)
+    assert returned_aggregation is aggregation
+    recorded = weakref.ref(issues[0])
+    del issues
+
+    assert recorded() is not None, "the summary ledger must keep the address owner alive"
+
+    del returned_aggregation, aggregation
+    assert recorded() is None, "the summary ledger must not retain issues beyond its scope"
 
 
 def test_multi_scale_drawing_groups_each_annotation_inside_its_own_structural_pass():
