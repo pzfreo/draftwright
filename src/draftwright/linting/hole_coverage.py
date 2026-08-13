@@ -116,33 +116,21 @@ def _members(source) -> tuple[tuple[float, float, float], ...]:
     return tuple(sorted(sites))
 
 
-def _projected_members(source) -> tuple[tuple[float, float, float], ...]:
-    """Member axis lines, for the unique declared-blind tool-centre fallback."""
-    points = [list(point) for point in _members(source)]
+def _tool_center_members(source, members, depth) -> tuple[tuple[float, float, float], ...]:
+    """Expected cutter centres for a recognised blind source's opening members."""
     recognised = getattr(source, "holes", None)
-    if recognised is not None:
-        axis = _axis_letter(recognised[0].axis)
-    elif hasattr(source, "location"):
-        axis = _axis_letter(source.axis)
-    else:
-        axis = getattr(getattr(source, "member", source), "frame").axis
-    index = "xyz".index(axis)
-    for point in points:
-        point[index] = 0.0
-    return tuple(sorted((point[0], point[1], point[2]) for point in points))
+    axis = recognised[0].axis if recognised is not None else source.axis
+    direction = _signed_axis(axis)
+    distance = float(depth) / 2.0
+    return tuple(
+        sorted(
+            _point(tuple(member[index] + direction[index] * distance for index in range(3)))
+            for member in members
+        )
+    )
 
 
-def _projected_hole_key(spec, members) -> tuple:
-    projected = []
-    index = "xyz".index(spec[0])
-    for member in members:
-        point = list(member)
-        point[index] = 0.0
-        projected.append((point[0], point[1], point[2]))
-    return (spec, tuple(sorted(projected)))
-
-
-def _hole_partitions(spec, members, features, *, projected: bool) -> tuple[tuple, ...]:
+def _hole_partitions(spec, members, features) -> tuple[tuple, ...]:
     """Return the one forced exact feature cover of physical members, if it exists.
 
     A loose recognition group may correspond to one grouped ``HoleFeature`` or to one
@@ -164,7 +152,7 @@ def _hole_partitions(spec, members, features, *, projected: bool) -> tuple[tuple
     for feature in features:
         if _feature_spec(feature) != spec:
             continue
-        coverage = Counter(_projected_members(feature) if projected else _members(feature))
+        coverage = Counter(_members(feature))
         if coverage and fits(coverage, target):
             eligible.append((feature, coverage))
     if len({id(feature) for feature, _coverage in eligible}) != len(eligible):
@@ -277,10 +265,13 @@ def _pattern_key(pattern) -> tuple:
     )
 
 
-def _projected_pattern_key(pattern) -> tuple:
-    """Pattern identity with only the drilling-axis opening coordinate relaxed."""
+def _tool_center_pattern_key(pattern) -> tuple:
+    """Pattern identity at the cutter centre implied by its recognised opening."""
     key = list(_pattern_key(pattern))
-    key[2] = _projected_members(pattern)
+    depth = key[1][2]
+    if depth is None or key[1][3]:
+        return tuple(key)
+    key[2] = _tool_center_members(pattern, key[2], depth)
     return tuple(key)
 
 
@@ -627,7 +618,6 @@ def hole_requirement_outcomes(
                 source_spec,
                 source_members,
                 hole_features_by_spec.get(source_spec, ()),
-                projected=False,
             )
             candidates = partitions[0] if len(partitions) == 1 else ()
         else:
@@ -663,27 +653,30 @@ def hole_requirement_outcomes(
             continue
         if kind == "hole":
             source_spec, source_members = key
-            projected_key = _projected_hole_key(source_spec, source_members)
             candidate_features = tuple(
                 feature
                 for feature in hole_features_by_spec.get(source_spec, ())
                 if id(feature) not in used_feature_ids
                 and id(feature) not in exact_overlap_feature_ids
             )
-            partitions = _hole_partitions(
-                source_spec,
-                projected_key[1],
-                candidate_features,
-                projected=True,
+            depth = source_spec[2]
+            expected_centres = (
+                _tool_center_members(source, source_members, depth)
+                if depth is not None and not source_spec[3]
+                else ()
+            )
+            partitions = (
+                _hole_partitions(source_spec, expected_centres, candidate_features)
+                if expected_centres
+                else ()
             )
             candidates = partitions[0] if len(partitions) == 1 else ()
         else:
-            projected_key = _projected_pattern_key(source)
+            projected_key = _tool_center_pattern_key(source)
             candidates = tuple(
                 feature
                 for feature in pattern_features
-                if id(feature) not in used_feature_ids
-                and _projected_pattern_key(feature) == projected_key
+                if id(feature) not in used_feature_ids and _pattern_key(feature) == projected_key
             )
             if len(candidates) != 1:
                 candidates = ()

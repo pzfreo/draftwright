@@ -2628,33 +2628,23 @@ class Drawing:
             return None
         # The table documents these diameters — let lint see that (#93).
         table.covers_diameters = tuple(diams)
-        from draftwright.model.compiled import compile_dimensions, resolve_feature
+        from draftwright.model.compiled import DimensionId
 
-        owners = tuple(owner for _tag, owner, _holes, _count in groups)
-        compiled = compile_dimensions(self._part_model)
-        approved = {
-            resolve_feature(group.ref): {
-                dim.parameter_id: dim.id for dim in group.dims if dim.id is not None
-            }
-            for group in compiled.of_kind("hole")
-            if resolve_feature(group.ref) in owners
-        }
+        # Calling the public verb is an explicit edit: the table itself authors every
+        # measurement it visibly prints, even when the original dimension set omitted a
+        # generated callout.  Construct the same stable identities the compiler uses so
+        # holes and patterns join the physical outcome ledger through one seam.
         measurements = tuple(
-            identity
-            for owner in owners
-            for parameter, identity in approved.get(owner, {}).items()
-            if parameter in {"bore.diameter", "bore.depth"}
+            DimensionId(owner, parameter)
+            for _tag, owner, holes, _count in groups
+            for parameter in (
+                ("bore.diameter",) if holes[0].through else ("bore.diameter", "bore.depth")
+            )
         )
         requirements = tuple(
-            (owner, "bore.through", 1)
-            for owner in owners
-            if getattr(owner, "member", owner).through
-            and "bore.diameter" in approved.get(owner, {})
+            (owner, "bore.through", 1) for _tag, owner, holes, _count in groups if holes[0].through
         ) + tuple(
-            (owner, "grouping.count", int(getattr(owner, "count", 1) or 1))
-            for owner in owners
-            if int(getattr(owner, "count", 1) or 1) > 1
-            and "bore.diameter" in approved.get(owner, {})
+            (owner, "grouping.count", count) for _tag, owner, _holes, count in groups if count > 1
         )
         _register_hole_table_coverage(
             table,

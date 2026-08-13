@@ -329,6 +329,35 @@ def test_exact_blind_hole_match_disambiguates_residual_tool_centre_match():
     assert _completeness(drawing)["audited_score"] == 1.0
 
 
+def test_same_face_tool_centre_cannot_certify_omitted_opposed_blind_bore():
+    part = _opposed_blind_holes()
+    detected = build_drawing(part, page="A3").model()
+    holes = sorted(
+        (feature for feature in detected.features if feature.kind == "hole"),
+        key=lambda feature: feature.frame.origin[2],
+    )
+    lower = holes[0]
+    x, y, z = lower.frame.origin
+    cutter_centre = (x, y, z + lower.depth / 2)
+    duplicate_lower = replace(
+        lower,
+        frame=replace(lower.frame, origin=cutter_centre),
+        members=(cutter_centre,),
+    )
+    retained = [
+        feature for feature in detected.features if feature.kind not in {"hole", "pattern"}
+    ]
+    declared = replace(detected, features=[lower, duplicate_lower, *retained])
+
+    drawing = build_drawing(part, model=declared, page="A3")
+    outcomes = _outcomes(drawing)
+    assert len([item for item in outcomes if item.state == "placed"]) == 4
+    unverifiable = [item for item in outcomes if item.state == "unverifiable"]
+    assert len(unverifiable) == 1
+    assert unverifiable[0].requirement_count == 4
+    assert _completeness(drawing)["audited_score"] == 0.5
+
+
 def test_extra_exact_owner_cannot_be_reused_for_omitted_opposed_blind_bore():
     part = _partial_lower_group_with_opposed_blind_hole()
     detected = build_drawing(part, page="A3").model()
@@ -845,6 +874,42 @@ def test_exact_blind_pattern_match_disambiguates_residual_tool_centres():
     assert _completeness(drawing)["audited_score"] == 1.0
 
 
+def test_same_face_pattern_tool_centres_cannot_certify_omitted_opposed_pattern():
+    part = _opposed_blind_patterns()
+    detected = build_drawing(part, page="A3").model()
+    patterns = sorted(
+        (feature for feature in detected.features if feature.kind == "pattern"),
+        key=lambda feature: feature.frame.origin[2],
+    )
+    lower = patterns[0]
+    shift = lower.member.depth / 2
+
+    def shifted(point):
+        return (point[0], point[1], point[2] + shift)
+
+    duplicate_lower = replace(
+        lower,
+        frame=replace(lower.frame, origin=shifted(lower.frame.origin)),
+        member=replace(
+            lower.member,
+            frame=replace(lower.member.frame, origin=shifted(lower.member.frame.origin)),
+        ),
+        members=tuple(shifted(point) for point in lower.members),
+    )
+    retained = [
+        feature for feature in detected.features if feature.kind not in {"hole", "pattern"}
+    ]
+    declared = replace(detected, features=[lower, duplicate_lower, *retained])
+
+    drawing = build_drawing(part, model=declared, page="A3")
+    outcomes = _outcomes(drawing)
+    assert len([item for item in outcomes if item.state == "placed"]) == 6
+    unverifiable = [item for item in outcomes if item.state == "unverifiable"]
+    assert len(unverifiable) == 1
+    assert unverifiable[0].requirement_count == 6
+    assert _completeness(drawing)["audited_score"] == 0.5
+
+
 def test_off_axis_pattern_keeps_absolute_location_requirements_fail_closed():
     drawing = build_drawing(_off_axis_linear_pattern(), page="A3")
     outcomes = {item.parameter_id: item.state for item in _outcomes(drawing)}
@@ -1231,6 +1296,58 @@ def test_public_hole_table_replaces_callout_with_semantic_bore_coverage():
     }
     assert table.covers_hole_requirements_by_feature == ((feature, "bore.through", 1),)
     assert all(item.state == "placed" for item in _outcomes(drawing))
+
+
+def test_public_pattern_hole_table_covers_only_the_facts_it_prints():
+    drawing = build_drawing(_linear_pattern(), page="A3")
+    pattern = next(feature for feature in drawing.model().features if feature.kind == "pattern")
+    for name in tuple(drawing.annotations_of(pattern)):
+        if name.startswith(("hc_", "dim_pitch_")):
+            drawing.remove(name)
+    assert {item.parameter_id for item in _outcomes(drawing) if item.state == "missing"} == {
+        "bore.diameter",
+        "bore.through",
+        "grouping.count",
+        "pitch.length",
+    }
+
+    table = drawing.add_hole_table("plan", balloons=False)
+
+    assert table is not None
+    assert [key["parameter_id"] for key in drawing.measurement_keys("hole_table_plan")] == [
+        "bore.diameter"
+    ]
+    assert table.covers_hole_requirements_by_feature == (
+        (pattern, "bore.through", 1),
+        (pattern, "grouping.count", 3),
+    )
+    outcomes = {item.parameter_id: item.state for item in _outcomes(drawing)}
+    assert outcomes["bore.diameter"] == "placed"
+    assert outcomes["bore.through"] == "placed"
+    assert outcomes["grouping.count"] == "placed"
+    assert outcomes["pitch.length"] == "missing"
+
+
+def test_public_hole_table_explicitly_places_printed_authored_omissions():
+    part = _blind_hole()
+    sheet = Sheet(part)
+    sheet.hole(diameter=8, at=(12, 7, 20), axis="z").depth(8)
+    envelope = sheet.envelope()
+    sheet.dimension(envelope, "width.length")
+    drawing = sheet.build()
+    before = {item.parameter_id: item.state for item in _outcomes(drawing)}
+    assert before["bore.diameter"] == before["bore.depth"] == "suppressed"
+
+    table = drawing.add_hole_table("plan", balloons=False)
+
+    assert table is not None
+    assert {key["parameter_id"] for key in drawing.measurement_keys("hole_table_plan")} == {
+        "bore.diameter",
+        "bore.depth",
+    }
+    after = {item.parameter_id: item.state for item in _outcomes(drawing)}
+    assert after["bore.diameter"] == after["bore.depth"] == "placed"
+    assert after["location.location.x"] == after["location.location.y"] == "suppressed"
 
 
 def test_blind_hole_table_prints_every_depth_it_claims(monkeypatch):
