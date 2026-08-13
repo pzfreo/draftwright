@@ -142,23 +142,41 @@ def _projected_hole_key(spec, members) -> tuple:
     return (spec, tuple(sorted(projected)))
 
 
-def _projected_hole_partitions(spec, members, features) -> tuple[tuple, ...]:
-    """Return at most two exact feature covers of projected physical members.
+def _hole_partitions(spec, members, features, *, projected: bool) -> tuple[tuple, ...]:
+    """Return at most two exact feature covers of physical members.
 
     A loose recognition group may correspond to one grouped ``HoleFeature`` or to one
     object-backed declared feature per member.  Enumerating only until a second distinct
-    exact cover is enough: one cover is a safe residual bijection; zero is absent and two
-    is ambiguous.  Choosing the least-supported remaining member keeps ordinary many-hole
-    declared groups linear while still handling grouped candidates.
+    exact cover is enough: one cover is a safe bijection; zero is absent and two is
+    ambiguous. The ordinary one-feature-per-member path is indexed and resolved in linear
+    time; grouped/overlapping candidates use a bounded search that stops at ambiguity.
     """
     target = Counter(members)
     eligible = []
     for feature in features:
         if _feature_spec(feature) != spec:
             continue
-        coverage = Counter(_projected_members(feature))
+        coverage = Counter(_projected_members(feature) if projected else _members(feature))
         if coverage and coverage <= target:
             eligible.append((feature, coverage))
+    if len({id(feature) for feature, _coverage in eligible}) != len(eligible):
+        return ()
+
+    by_member: dict[tuple[float, float, float], list[int]] = defaultdict(list)
+    for candidate_index, (_feature, coverage) in enumerate(eligible):
+        for member in coverage:
+            by_member[member].append(candidate_index)
+
+    # The common Sheet path declares each tool separately. Resolve it without recursion or
+    # repeated scans; duplicate owners are ambiguity, not extra evidence.
+    if all(sum(coverage.values()) == 1 for _feature, coverage in eligible):
+        chosen = []
+        for member, count in target.items():
+            candidates = by_member.get(member, ())
+            if count != 1 or len(candidates) != 1:
+                return ()
+            chosen.append(eligible[candidates[0]][0])
+        return (tuple(chosen),)
 
     solutions: list[tuple] = []
     solution_ids: set[frozenset[int]] = set()
@@ -172,19 +190,13 @@ def _projected_hole_partitions(spec, members, features) -> tuple[tuple, ...]:
                 solution_ids.add(identity)
                 solutions.append(chosen)
             return
-        feasible = [
-            (feature, coverage)
-            for feature, coverage in eligible
-            if id(feature) not in used and coverage <= remaining
-        ]
-        if not feasible:
-            return
         anchor = min(
             remaining,
-            key=lambda point: sum(coverage[point] > 0 for _feature, coverage in feasible),
+            key=lambda point: len(by_member.get(point, ())),
         )
-        for feature, coverage in feasible:
-            if coverage[anchor] <= 0:
+        for candidate_index in by_member.get(anchor, ()):
+            feature, coverage = eligible[candidate_index]
+            if id(feature) in used or not coverage <= remaining:
                 continue
             next_remaining = remaining.copy()
             next_remaining.subtract(coverage)
@@ -550,9 +562,6 @@ def hole_requirement_outcomes(
         elif any(countersink_matches_hole(countersink, hole) for hole in recognition.holes):
             unmatched_countersinks.append(countersink)
 
-    source_counts: dict[tuple[str, tuple], int] = defaultdict(int)
-    for source_kind, _source, key, _member_count in sources:
-        source_counts[(source_kind, key)] += 1
     ir_by_key: dict[tuple[str, tuple], list] = defaultdict(list)
     for feature in features:
         feature_kind = getattr(feature, "kind", None)
@@ -574,25 +583,21 @@ def hole_requirement_outcomes(
     # valid tool-centred declaration on the opposed face, while two projected-only owners
     # remain unverifiable.
     exact_proposals: list[tuple] = []
-    for kind, _source, key, member_count in sources:
-        candidates = tuple(ir_by_key.get((kind, key), ()))
-        if kind == "hole" and not candidates:
+    for kind, _source, key, _member_count in sources:
+        direct = tuple(ir_by_key.get((kind, key), ()))
+        # Every direct candidate already owns the complete semantic group. More than one is
+        # duplicate ownership, never a per-member partition.
+        candidates = direct if len(direct) == 1 else ()
+        if kind == "hole" and not direct:
             source_spec, source_members = key
-            same_spec = tuple(
-                feature for feature in hole_features if _feature_spec(feature) == source_spec
+            partitions = _hole_partitions(
+                source_spec,
+                source_members,
+                hole_features,
+                projected=False,
             )
-            candidate_members = tuple(
-                sorted(member for feature in same_spec for member in _members(feature))
-            )
-            if candidate_members == source_members:
-                candidates = same_spec
-        expected_matches = source_counts[(kind, key)]
-        admissible_counts = {1, expected_matches}
-        if kind == "hole":
-            admissible_counts.add(member_count)
-        exact_proposals.append(
-            candidates if expected_matches == 1 and len(candidates) in admissible_counts else ()
-        )
+            candidates = partitions[0] if len(partitions) == 1 else ()
+        exact_proposals.append(candidates)
 
     exact_claims = Counter(id(feature) for proposal in exact_proposals for feature in proposal)
     matches_by_source = [
@@ -611,8 +616,11 @@ def hole_requirement_outcomes(
             candidate_features = tuple(
                 feature for feature in hole_features if id(feature) not in used_feature_ids
             )
-            partitions = _projected_hole_partitions(
-                source_spec, projected_key[1], candidate_features
+            partitions = _hole_partitions(
+                source_spec,
+                projected_key[1],
+                candidate_features,
+                projected=True,
             )
             candidates = partitions[0] if len(partitions) == 1 else ()
         else:

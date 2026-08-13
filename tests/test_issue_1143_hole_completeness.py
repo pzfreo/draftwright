@@ -1,6 +1,7 @@
 """Regression coverage for hole-family semantic outcomes (#1143)."""
 
 import itertools
+import time
 from dataclasses import replace
 
 import pytest
@@ -12,6 +13,7 @@ from draftwright.linting.issues import LintIssue
 from draftwright.model.compiled import compile_dimensions
 from draftwright.model.declare import hole as declare_hole
 from draftwright.model.declare import pattern as declare_pattern
+from draftwright.recognition import HoleRecord
 
 _XYZ_MIN = (Align.CENTER, Align.CENTER, Align.MIN)
 
@@ -362,6 +364,57 @@ def test_separate_declared_blind_tools_cover_one_physical_loose_group():
     }
     assert all(item.state == "placed" for item in outcomes)
     assert _completeness(drawing)["audited_score"] == 1.0
+
+
+def test_duplicate_exact_grouped_hole_owners_fail_closed():
+    part = _two_scattered_same_spec_holes()
+    detected = build_drawing(part, page="A3").model()
+    grouped = next(feature for feature in detected.features if feature.kind == "hole")
+    retained = [feature for feature in detected.features if feature is not grouped]
+    declared = replace(detected, features=[grouped, replace(grouped), *retained])
+
+    drawing = build_drawing(part, model=declared, page="A3")
+    outcomes = _outcomes(drawing)
+    assert len(outcomes) == 1
+    assert outcomes[0].state == "unverifiable"
+    assert outcomes[0].requirement_count == 5
+    assert _completeness(drawing)["audited_score"] == 0.0
+
+
+def test_dense_separate_blind_tool_correspondence_scales_linearly():
+    baseline = build_drawing(_blind_hole(), auto_dims=False)
+    count = 1_000
+    physical = tuple(
+        HoleRecord(
+            axis=(0.0, 0.0, 1.0),
+            location=(float(index), 0.0, 0.0),
+            diameter=8.0,
+            depth=8.0,
+            bottom="flat",
+        )
+        for index in range(count)
+    )
+    recognition = replace(
+        baseline.recognition(), holes=physical, hole_patterns=(), countersinks=()
+    )
+    features = tuple(
+        declare_hole(
+            diameter=8,
+            at=(float(index), 0.0, 4.0),
+            axis="z",
+            through=False,
+            depth=8,
+        )
+        for index in range(count)
+    )
+
+    started = time.perf_counter()
+    outcomes = hole_requirement_outcomes(recognition, features, baseline.registry)
+    elapsed = time.perf_counter() - started
+
+    assert len(outcomes) == 5
+    assert not [item for item in outcomes if item.state == "unverifiable"]
+    assert elapsed < 2.0
 
 
 def test_grid_pattern_accounts_for_both_independent_pitch_measurements():
