@@ -43,9 +43,9 @@ def _with_hole_location_coverage(annotation, coverage):
     return annotation
 
 
-def _with_hole_center_coverage(annotation, feature, member):
+def _with_hole_center_coverage(annotation, feature, member, view):
     """Attach the physical member identified by hole/pattern centre furniture."""
-    annotation.covers_hole_centers = ((feature, tuple(member)),)
+    annotation.covers_hole_centers = ((feature, tuple(member), view),)
     return annotation
 
 

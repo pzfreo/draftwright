@@ -189,6 +189,8 @@ def _hole_partitions(spec, members, features, *, projected: bool) -> tuple[tuple
         chosen.append(feature)
         used.add(forced)
         remaining = +(remaining - coverage)
+    if len(chosen) != len(eligible):
+        return ()
     return (tuple(chosen),)
 
 
@@ -308,28 +310,31 @@ def _source_at(source) -> tuple[float, float, float]:
     )
 
 
-def _member_coaxial_with_turned_profile(feature, member, features) -> bool:
+def _member_coaxial_with_turned_profile(feature, member, recognition) -> bool:
     axis = feature.frame.axis
     perpendicular = tuple(i for i, letter in enumerate("xyz") if letter != axis)
+    if not any(step.axis == axis for step in recognition.turned_steps):
+        return False
+    cylinders = tuple(cylinder for group in recognition.cylinders for cylinder in group)
     return any(
-        getattr(candidate, "kind", None) == "step"
-        and candidate.frame.axis == axis
+        cylinder.get("external")
+        and cylinder.get("axis") == axis
         and all(
-            abs(candidate.frame.origin[index] - member[index]) <= 1e-6 for index in perpendicular
+            abs(cylinder["axis_xyz"][index] - member[index]) <= 1e-3 for index in perpendicular
         )
-        for candidate in features
+        for cylinder in cylinders
     )
 
 
-def _coaxial_with_turned_profile(feature, features) -> bool:
+def _coaxial_with_turned_profile(feature, recognition) -> bool:
     return all(
-        _member_coaxial_with_turned_profile(feature, member, features)
+        _member_coaxial_with_turned_profile(feature, member, recognition)
         for member in _members(feature)
     )
 
 
 def _parameter_ids(
-    feature, *, member_count: int | None = None, features=()
+    feature, *, member_count: int | None = None, recognition
 ) -> tuple[str, ...] | None:
     try:
         parameters = tuple(feature.parameters())
@@ -353,7 +358,7 @@ def _parameter_ids(
         stem = getattr(feature, "LOCATION_OFF_AXIS_STEM", None)
         if stem is None:
             return None
-        if _coaxial_with_turned_profile(feature, features):
+        if _coaxial_with_turned_profile(feature, recognition):
             # The axis line constrains both otherwise-independent in-plane positions. Keep
             # two outcomes so a declaration mismatch cannot shrink the recognition-owned
             # denominator merely because the visible evidence is one centreline.
@@ -398,7 +403,7 @@ def _location_members(feature, parameter: str):
     return _members(feature)
 
 
-def _structured_locations_placed(registry, features, parameter: str, all_features) -> bool:
+def _structured_locations_placed(registry, features, parameter: str, recognition) -> bool:
     expected = {
         (feature, point) for feature in features for point in _location_members(feature, parameter)
     }
@@ -414,15 +419,17 @@ def _structured_locations_placed(registry, features, parameter: str, all_feature
             if hole.through:
                 normalized["xyz".index(feature.frame.axis)] = 0.0
             covered.add((feature, (normalized[0], normalized[1], normalized[2])))
-        for feature, point in getattr(registry.named(name), "covers_hole_centers", ()):
+        for feature, point, view in getattr(registry.named(name), "covers_hole_centers", ()):
             if feature not in features or getattr(feature, "kind", None) != "hole":
+                continue
+            if view != {"x": "side", "y": "front", "z": "plan"}[feature.frame.axis]:
                 continue
             normalized = list(_point(point))
             hole = getattr(feature, "member", feature)
             if hole.through:
                 normalized["xyz".index(feature.frame.axis)] = 0.0
             normalized_point = (normalized[0], normalized[1], normalized[2])
-            if _member_coaxial_with_turned_profile(feature, normalized_point, all_features):
+            if _member_coaxial_with_turned_profile(feature, normalized_point, recognition):
                 covered.add((feature, normalized_point))
     return bool(expected) and expected <= covered
 
@@ -473,11 +480,11 @@ def _synthetic_placed(registry, features, parameter: str, member_count: int) -> 
 
 
 def _state(
-    features, parameter, *, member_count, placed, suppressed, dropped, registry, all_features
+    features, parameter, *, member_count, placed, suppressed, dropped, registry, recognition
 ):
     evidence = _evidence_parameter(parameter)
     if parameter.startswith(("location.location.", "location_off_axis.")):
-        if _structured_locations_placed(registry, features, parameter, all_features):
+        if _structured_locations_placed(registry, features, parameter, recognition):
             return "placed"
     elif parameter in {"bore.through", "grouping.count"}:
         if _synthetic_placed(registry, features, parameter, member_count):
@@ -605,6 +612,13 @@ def hole_requirement_outcomes(
         for proposal in exact_proposals
     ]
     used_feature_ids = {id(feature) for matches in matches_by_source for feature in matches}
+    exact_overlap_feature_ids = {
+        id(feature)
+        for kind, _source, key, _member_count in sources
+        if kind == "hole"
+        for feature in hole_features
+        if _feature_spec(feature) == key[0] and set(_members(feature)) & set(key[1])
+    }
 
     residual_proposals: dict[int, tuple] = {}
     for index, (kind, source, key, _member_count) in enumerate(sources):
@@ -614,7 +628,10 @@ def hole_requirement_outcomes(
             source_spec, source_members = key
             projected_key = _projected_hole_key(source_spec, source_members)
             candidate_features = tuple(
-                feature for feature in hole_features if id(feature) not in used_feature_ids
+                feature
+                for feature in hole_features
+                if id(feature) not in used_feature_ids
+                and id(feature) not in exact_overlap_feature_ids
             )
             partitions = _hole_partitions(
                 source_spec,
@@ -662,7 +679,7 @@ def hole_requirement_outcomes(
         matched = matches_by_source[index]
         representative = matched[0] if matched else None
         parameters = (
-            _parameter_ids(representative, member_count=member_count, features=features)
+            _parameter_ids(representative, member_count=member_count, recognition=recognition)
             if representative is not None
             else None
         )
@@ -693,7 +710,7 @@ def hole_requirement_outcomes(
                     suppressed=suppressed,
                     dropped=dropped,
                     registry=registry,
-                    all_features=features,
+                    recognition=recognition,
                 ),
             )
             for parameter in parameters

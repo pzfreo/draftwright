@@ -420,7 +420,9 @@ def add_feature_furniture(dwg, feature, model, a, *, view: str | None = None, ct
         while (nm := f"m_cm{j}") in ctx.registry:
             j += 1
         ctx.place(
-            _with_hole_center_coverage(CenterMark((px, py, 0), size, dwg.draft), feature, loc),
+            _with_hole_center_coverage(
+                CenterMark((px, py, 0), size, dwg.draft), feature, loc, view
+            ),
             nm,
             view=view,
             feature=feature,

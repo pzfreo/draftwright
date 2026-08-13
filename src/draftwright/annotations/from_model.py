@@ -919,7 +919,9 @@ def render_centermarks(dwg, furniture_groups, *, ctx) -> int:
         for loc in members:
             px, py, *_ = dwg.at(view, *loc)
             ctx.place(
-                _with_hole_center_coverage(CenterMark((px, py, 0), size, dwg.draft), feat, loc),
+                _with_hole_center_coverage(
+                    CenterMark((px, py, 0), size, dwg.draft), feat, loc, view
+                ),
                 f"m_cm{n}",
                 view=view,
                 feature=feat,

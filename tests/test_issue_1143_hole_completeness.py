@@ -13,6 +13,7 @@ from draftwright.linting.issues import LintIssue
 from draftwright.model.compiled import compile_dimensions
 from draftwright.model.declare import hole as declare_hole
 from draftwright.model.declare import pattern as declare_pattern
+from draftwright.model.ir import Frame, StepFeature
 from draftwright.recognition import HoleRecord
 
 _XYZ_MIN = (Align.CENTER, Align.CENTER, Align.MIN)
@@ -61,6 +62,15 @@ def _opposed_blind_patterns():
     for z in (0, 15):
         for x in (-25, 0, 25):
             part -= Pos(x, 10, z) * Cylinder(3, 5, align=xyz_min)
+    return part
+
+
+def _partial_lower_group_with_opposed_blind_hole():
+    xyz_min = (Align.MIN, Align.MIN, Align.MIN)
+    part = Box(40, 40, 20, align=xyz_min)
+    cutter_align = (Align.CENTER, Align.CENTER, Align.MIN)
+    for x, z in ((10, 0), (30, 0), (10, 15)):
+        part -= Pos(x, 20, z) * Cylinder(3, 5, align=cutter_align)
     return part
 
 
@@ -316,6 +326,30 @@ def test_exact_blind_hole_match_disambiguates_residual_tool_centre_match():
     assert len(outcomes) == 8
     assert all(item.state == "placed" for item in outcomes)
     assert _completeness(drawing)["audited_score"] == 1.0
+
+
+def test_extra_exact_owner_cannot_be_reused_for_omitted_opposed_blind_bore():
+    part = _partial_lower_group_with_opposed_blind_hole()
+    detected = build_drawing(part, page="A3").model()
+    holes = [feature for feature in detected.features if feature.kind == "hole"]
+    lower = next(feature for feature in holes if feature.count == 2)
+    retained = [
+        feature for feature in detected.features if feature.kind not in {"hole", "pattern"}
+    ]
+    duplicate_member = replace(
+        lower,
+        frame=replace(lower.frame, origin=lower.members[0]),
+        count=1,
+        members=(lower.members[0],),
+    )
+    declared = replace(detected, features=[lower, duplicate_member, *retained])
+
+    drawing = build_drawing(part, model=declared, page="A3")
+    completeness = _completeness(drawing)
+    assert completeness["requirements"] == 9
+    assert completeness["placed"] == 0
+    assert completeness["unverifiable"] == 9
+    assert completeness["audited_score"] == 0.0
 
 
 def test_blind_hole_with_unknown_declared_depth_fails_closed_without_crashing():
@@ -800,7 +834,7 @@ def test_mixed_coaxial_group_requires_location_evidence_for_the_offset_member():
         if name.startswith("m_cm")
         and any(
             owner is feature and round(member[1], 3) == 5.0
-            for owner, member in drawing.get_annotation(name).covers_hole_centers
+            for owner, member, _view in drawing.get_annotation(name).covers_hole_centers
         )
     )
     removed = [
@@ -833,7 +867,37 @@ def test_live_furniture_retains_physical_member_center_provenance():
 
     names = drawing.furniture(feature)
     mark = drawing.get_annotation(names[0])
-    assert mark.covers_hole_centers == ((feature, feature.members[0]),)
+    assert mark.covers_hole_centers == ((feature, feature.members[0], "plan"),)
+
+
+def test_declared_step_cannot_make_plate_center_mark_replace_location_dimensions():
+    part = _single_hole()
+    detected = build_drawing(part).model()
+    hole = next(feature for feature in detected.features if feature.kind == "hole")
+    synthetic_step = StepFeature(
+        frame=Frame(origin=hole.frame.origin, axis="z"),
+        length=10,
+        diameter=20,
+        span=((12, 7, 0), (12, 7, 10)),
+    )
+    drawing = build_drawing(
+        part, model=replace(detected, features=[*detected.features, synthetic_step])
+    )
+    drawing.lint()
+    assert not drawing.recognition().turned_steps
+    for name in tuple(drawing.annotations_of(hole)):
+        if name.startswith("m_loc"):
+            drawing.remove(name)
+
+    locations = {
+        item.parameter_id: item.state
+        for item in _outcomes(drawing)
+        if "location" in item.parameter_id
+    }
+    assert locations == {
+        "location.location.x": "missing",
+        "location.location.y": "missing",
+    }
 
 
 def test_coaxial_bore_centerline_accounts_for_two_physical_location_axes():
@@ -852,6 +916,27 @@ def test_coaxial_bore_centerline_accounts_for_two_physical_location_axes():
     }
     assert all(item.state == "placed" for item in outcomes)
     assert _completeness(drawing)["requirements"] == 4
+
+
+def test_wrong_view_live_center_furniture_cannot_certify_coaxial_location():
+    left = Pos(-42.5, 0, 0) * Rot(0, 90, 0) * Cylinder(9, 25)
+    middle = Pos(-10, 0, 0) * Rot(0, 90, 0) * Cylinder(15, 40)
+    right = Pos(25, 0, 0) * Rot(0, 90, 0) * Cylinder(11, 30)
+    bore = Pos(-10, 0, 0) * Rot(0, 90, 0) * Cylinder(4, 100)
+    drawing = build_drawing((left + middle + right) - bore, page="A3")
+    coaxial = next(feature for feature in drawing.model().features if feature.kind == "hole")
+    for name in tuple(drawing.annotations_of(coaxial)):
+        if name.startswith("m_cm"):
+            drawing.remove(name)
+    assert {item.state for item in _outcomes(drawing) if ".centerline." in item.parameter_id} == {
+        "missing"
+    }
+
+    wrong_view_marks = drawing.furniture(coaxial, view="front")
+    assert wrong_view_marks
+    assert {item.state for item in _outcomes(drawing) if ".centerline." in item.parameter_id} == {
+        "missing"
+    }
 
 
 def test_live_locate_restores_member_level_location_provenance():
