@@ -43,6 +43,12 @@ def _with_hole_location_coverage(annotation, coverage):
     return annotation
 
 
+def _with_hole_center_coverage(annotation, feature, member):
+    """Attach the physical member identified by hole/pattern centre furniture."""
+    annotation.covers_hole_centers = ((feature, tuple(member)),)
+    return annotation
+
+
 @dataclass(frozen=True)
 class Escalation:
     """A first-class "could not place this here" signal (ADR 0009 Amendment 1, P5-strand-2).

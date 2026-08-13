@@ -41,6 +41,7 @@ from draftwright.annotations._common import (
     _box_hits,
     _geom_box,
     _segment_crosses_box,
+    _with_hole_center_coverage,
     _with_hole_location_coverage,
     box_within_page_and_clear,
     carve_free_position,
@@ -418,7 +419,12 @@ def add_feature_furniture(dwg, feature, model, a, *, view: str | None = None, ct
         j = 0
         while (nm := f"m_cm{j}") in ctx.registry:
             j += 1
-        ctx.place(CenterMark((px, py, 0), size, dwg.draft), nm, view=view, feature=feature)
+        ctx.place(
+            _with_hole_center_coverage(CenterMark((px, py, 0), size, dwg.draft), feature, loc),
+            nm,
+            view=view,
+            feature=feature,
+        )
 
     # Pattern furniture — bolt-circle centre-cross / linear-or-grid pitch dims.
     if isinstance(feature, PatternFeature):

@@ -144,6 +144,15 @@ def _external_stepped_shaft_with_conical_transition():
     )
 
 
+def _stepped_x_shaft_with_coaxial_and_offset_bores():
+    left = Pos(-42.5, 0, 0) * Rot(0, 90, 0) * Cylinder(9, 25)
+    middle = Pos(-10, 0, 0) * Rot(0, 90, 0) * Cylinder(15, 40)
+    right = Pos(25, 0, 0) * Rot(0, 90, 0) * Cylinder(11, 30)
+    central = Pos(-10, 0, 0) * Rot(0, 90, 0) * Cylinder(2, 100)
+    offset = Pos(-10, 5, 0) * Rot(0, 90, 0) * Cylinder(2, 100)
+    return (left + middle + right) - central - offset
+
+
 def _outcomes(drawing):
     drawing.lint()
     return hole_requirement_outcomes(
@@ -381,6 +390,25 @@ def test_duplicate_exact_grouped_hole_owners_fail_closed():
     assert _completeness(drawing)["audited_score"] == 0.0
 
 
+def test_grouped_and_per_member_exact_owners_are_an_ambiguous_cover():
+    part = _two_scattered_same_spec_holes()
+    detected = build_drawing(part, page="A3").model()
+    grouped = next(feature for feature in detected.features if feature.kind == "hole")
+    separate = [
+        declare_hole(diameter=grouped.diameter, at=member, axis="z", through=True)
+        for member in grouped.members
+    ]
+    retained = [feature for feature in detected.features if feature is not grouped]
+    declared = replace(detected, features=[grouped, *separate, *retained])
+
+    drawing = build_drawing(part, model=declared, page="A3")
+    outcomes = _outcomes(drawing)
+    assert len(outcomes) == 1
+    assert outcomes[0].state == "unverifiable"
+    assert outcomes[0].requirement_count == 5
+    assert _completeness(drawing)["audited_score"] == 0.0
+
+
 def test_dense_separate_blind_tool_correspondence_scales_linearly():
     baseline = build_drawing(_blind_hole(), auto_dims=False)
     count = 1_000
@@ -397,7 +425,7 @@ def test_dense_separate_blind_tool_correspondence_scales_linearly():
     recognition = replace(
         baseline.recognition(), holes=physical, hole_patterns=(), countersinks=()
     )
-    features = tuple(
+    singletons = tuple(
         declare_hole(
             diameter=8,
             at=(float(index), 0.0, 4.0),
@@ -405,8 +433,20 @@ def test_dense_separate_blind_tool_correspondence_scales_linearly():
             through=False,
             depth=8,
         )
-        for index in range(count)
+        for index in range(2, count)
     )
+    grouped = replace(
+        declare_hole(
+            diameter=8,
+            at=(0.0, 0.0, 4.0),
+            axis="z",
+            through=False,
+            depth=8,
+        ),
+        count=2,
+        members=((0.0, 0.0, 4.0), (1.0, 0.0, 4.0)),
+    )
+    features = (grouped, *singletons)
 
     started = time.perf_counter()
     outcomes = hole_requirement_outcomes(recognition, features, baseline.registry)
@@ -414,6 +454,50 @@ def test_dense_separate_blind_tool_correspondence_scales_linearly():
 
     assert len(outcomes) == 5
     assert not [item for item in outcomes if item.state == "unverifiable"]
+    assert elapsed < 2.0
+
+
+def test_overlapping_declared_covers_fail_closed_in_bounded_time():
+    baseline = build_drawing(_blind_hole(), auto_dims=False)
+    count = 15
+    physical = tuple(
+        HoleRecord(
+            axis=(0.0, 0.0, 1.0),
+            location=(float(index), 0.0, 0.0),
+            diameter=8.0,
+            depth=8.0,
+            bottom="flat",
+        )
+        for index in range(count)
+    )
+    recognition = replace(
+        baseline.recognition(), holes=physical, hole_patterns=(), countersinks=()
+    )
+    template = declare_hole(
+        diameter=8,
+        at=(0.0, 0.0, 4.0),
+        axis="z",
+        through=False,
+        depth=8,
+    )
+    features = tuple(
+        replace(
+            template,
+            frame=replace(template.frame, origin=(float(left), 0.0, 4.0)),
+            count=2,
+            members=((float(left), 0.0, 4.0), (float(right), 0.0, 4.0)),
+        )
+        for left in range(count)
+        for right in range(left + 1, count)
+    )
+
+    started = time.perf_counter()
+    outcomes = hole_requirement_outcomes(recognition, features, baseline.registry)
+    elapsed = time.perf_counter() - started
+
+    assert len(outcomes) == 1
+    assert outcomes[0].state == "unverifiable"
+    assert outcomes[0].requirement_count == 5
     assert elapsed < 2.0
 
 
@@ -698,6 +782,58 @@ def test_grouped_off_axis_locations_require_every_physical_member_mark():
     assert outcomes["location_off_axis.y"] == "placed"
     assert outcomes["location_off_axis.z"] == "missing"
     assert _completeness(drawing)["audited_score"] == pytest.approx(4 / 5)
+
+
+def test_mixed_coaxial_group_requires_location_evidence_for_the_offset_member():
+    drawing = build_drawing(_stepped_x_shaft_with_coaxial_and_offset_bores(), page="A3")
+    feature = next(
+        feature
+        for feature in drawing.model().features
+        if feature.kind == "hole" and feature.count == 2
+    )
+    assert sorted(round(member[1], 3) for member in feature.members) == [0.0, 5.0]
+    assert all(item.state == "placed" for item in _outcomes(drawing))
+
+    offset_mark = next(
+        name
+        for name in drawing.annotations_of(feature)
+        if name.startswith("m_cm")
+        and any(
+            owner is feature and round(member[1], 3) == 5.0
+            for owner, member in drawing.get_annotation(name).covers_hole_centers
+        )
+    )
+    removed = [
+        name
+        for name in tuple(drawing.annotations())
+        if name == offset_mark or name.startswith("dim_loc")
+    ]
+    assert offset_mark in removed
+    assert any(name.startswith("dim_loc") for name in removed)
+    for name in removed:
+        drawing.remove(name)
+
+    locations = {
+        item.parameter_id: item.state
+        for item in _outcomes(drawing)
+        if "location" in item.parameter_id
+    }
+    assert locations == {
+        "location_off_axis.y": "missing",
+        "location_off_axis.z": "missing",
+    }
+    assert _completeness(drawing)["audited_score"] == pytest.approx(3 / 5)
+
+
+def test_live_furniture_retains_physical_member_center_provenance():
+    drawing = build_drawing(_single_hole(), auto_dims=False)
+    feature = next(feature for feature in drawing.model().features if feature.kind == "hole")
+    for name in tuple(drawing.annotations_of(feature)):
+        drawing.remove(name)
+
+    names = drawing.furniture(feature)
+    mark = drawing.get_annotation(names[0])
+    assert mark.covers_hole_centers == ((feature, feature.members[0]),)
 
 
 def test_coaxial_bore_centerline_accounts_for_two_physical_location_axes():

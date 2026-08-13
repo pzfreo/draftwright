@@ -143,13 +143,13 @@ def _projected_hole_key(spec, members) -> tuple:
 
 
 def _hole_partitions(spec, members, features, *, projected: bool) -> tuple[tuple, ...]:
-    """Return at most two exact feature covers of physical members.
+    """Return the one forced exact feature cover of physical members, if it exists.
 
     A loose recognition group may correspond to one grouped ``HoleFeature`` or to one
-    object-backed declared feature per member.  Enumerating only until a second distinct
-    exact cover is enough: one cover is a safe bijection; zero is absent and two is
-    ambiguous. The ordinary one-feature-per-member path is indexed and resolved in linear
-    time; grouped/overlapping candidates use a bounded search that stops at ambiguity.
+    object-backed declared feature per member. A candidate is consumed only when some
+    remaining member has exactly one compatible owner. If no such forced choice exists,
+    correspondence is unresolved and fails closed. This conservative propagation is
+    bounded by the declared inventory; it never performs exponential exact-cover search.
     """
     target = Counter(members)
     eligible = []
@@ -167,43 +167,29 @@ def _hole_partitions(spec, members, features, *, projected: bool) -> tuple[tuple
         for member in coverage:
             by_member[member].append(candidate_index)
 
-    # The common Sheet path declares each tool separately. Resolve it without recursion or
-    # repeated scans; duplicate owners are ambiguity, not extra evidence.
-    if all(sum(coverage.values()) == 1 for _feature, coverage in eligible):
-        chosen = []
-        for member, count in target.items():
-            candidates = by_member.get(member, ())
-            if count != 1 or len(candidates) != 1:
+    remaining = target
+    chosen = []
+    used: set[int] = set()
+    while remaining:
+        forced = None
+        for member in remaining:
+            compatible = [
+                candidate_index
+                for candidate_index in by_member.get(member, ())
+                if candidate_index not in used and eligible[candidate_index][1] <= remaining
+            ]
+            if not compatible:
                 return ()
-            chosen.append(eligible[candidates[0]][0])
-        return (tuple(chosen),)
-
-    solutions: list[tuple] = []
-    solution_ids: set[frozenset[int]] = set()
-
-    def search(remaining: Counter, chosen: tuple, used: frozenset[int]) -> None:
-        if len(solutions) >= 2:
-            return
-        if not remaining:
-            identity = frozenset(id(feature) for feature in chosen)
-            if identity not in solution_ids:
-                solution_ids.add(identity)
-                solutions.append(chosen)
-            return
-        anchor = min(
-            remaining,
-            key=lambda point: len(by_member.get(point, ())),
-        )
-        for candidate_index in by_member.get(anchor, ()):
-            feature, coverage = eligible[candidate_index]
-            if id(feature) in used or not coverage <= remaining:
-                continue
-            next_remaining = remaining.copy()
-            next_remaining.subtract(coverage)
-            search(+next_remaining, (*chosen, feature), used | {id(feature)})
-
-    search(target, (), frozenset())
-    return tuple(solutions)
+            if len(compatible) == 1:
+                forced = compatible[0]
+                break
+        if forced is None:
+            return ()
+        feature, coverage = eligible[forced]
+        chosen.append(feature)
+        used.add(forced)
+        remaining = +(remaining - coverage)
+    return (tuple(chosen),)
 
 
 def _unoriented_direction(value):
@@ -322,17 +308,23 @@ def _source_at(source) -> tuple[float, float, float]:
     )
 
 
-def _coaxial_with_turned_profile(feature, features) -> bool:
+def _member_coaxial_with_turned_profile(feature, member, features) -> bool:
     axis = feature.frame.axis
     perpendicular = tuple(i for i, letter in enumerate("xyz") if letter != axis)
     return any(
         getattr(candidate, "kind", None) == "step"
         and candidate.frame.axis == axis
         and all(
-            abs(candidate.frame.origin[index] - feature.frame.origin[index]) <= 1e-6
-            for index in perpendicular
+            abs(candidate.frame.origin[index] - member[index]) <= 1e-6 for index in perpendicular
         )
         for candidate in features
+    )
+
+
+def _coaxial_with_turned_profile(feature, features) -> bool:
+    return all(
+        _member_coaxial_with_turned_profile(feature, member, features)
+        for member in _members(feature)
     )
 
 
@@ -406,7 +398,7 @@ def _location_members(feature, parameter: str):
     return _members(feature)
 
 
-def _structured_locations_placed(registry, features, parameter: str) -> bool:
+def _structured_locations_placed(registry, features, parameter: str, all_features) -> bool:
     expected = {
         (feature, point) for feature in features for point in _location_members(feature, parameter)
     }
@@ -422,6 +414,16 @@ def _structured_locations_placed(registry, features, parameter: str) -> bool:
             if hole.through:
                 normalized["xyz".index(feature.frame.axis)] = 0.0
             covered.add((feature, (normalized[0], normalized[1], normalized[2])))
+        for feature, point in getattr(registry.named(name), "covers_hole_centers", ()):
+            if feature not in features or getattr(feature, "kind", None) != "hole":
+                continue
+            normalized = list(_point(point))
+            hole = getattr(feature, "member", feature)
+            if hole.through:
+                normalized["xyz".index(feature.frame.axis)] = 0.0
+            normalized_point = (normalized[0], normalized[1], normalized[2])
+            if _member_coaxial_with_turned_profile(feature, normalized_point, all_features):
+                covered.add((feature, normalized_point))
     return bool(expected) and expected <= covered
 
 
@@ -470,15 +472,14 @@ def _synthetic_placed(registry, features, parameter: str, member_count: int) -> 
     return member_count in possible
 
 
-def _state(features, parameter, *, member_count, placed, suppressed, dropped, registry):
+def _state(
+    features, parameter, *, member_count, placed, suppressed, dropped, registry, all_features
+):
     evidence = _evidence_parameter(parameter)
-    if (
-        parameter.startswith(("location.location.", "location_off_axis."))
-        and ".centerline." not in parameter
-    ):
-        if _structured_locations_placed(registry, features, parameter):
+    if parameter.startswith(("location.location.", "location_off_axis.")):
+        if _structured_locations_placed(registry, features, parameter, all_features):
             return "placed"
-    elif parameter in {"bore.through", "grouping.count"} or ".centerline." in parameter:
+    elif parameter in {"bore.through", "grouping.count"}:
         if _synthetic_placed(registry, features, parameter, member_count):
             return "placed"
     else:
@@ -584,11 +585,7 @@ def hole_requirement_outcomes(
     # remain unverifiable.
     exact_proposals: list[tuple] = []
     for kind, _source, key, _member_count in sources:
-        direct = tuple(ir_by_key.get((kind, key), ()))
-        # Every direct candidate already owns the complete semantic group. More than one is
-        # duplicate ownership, never a per-member partition.
-        candidates = direct if len(direct) == 1 else ()
-        if kind == "hole" and not direct:
+        if kind == "hole":
             source_spec, source_members = key
             partitions = _hole_partitions(
                 source_spec,
@@ -597,6 +594,9 @@ def hole_requirement_outcomes(
                 projected=False,
             )
             candidates = partitions[0] if len(partitions) == 1 else ()
+        else:
+            direct = tuple(ir_by_key.get((kind, key), ()))
+            candidates = direct if len(direct) == 1 else ()
         exact_proposals.append(candidates)
 
     exact_claims = Counter(id(feature) for proposal in exact_proposals for feature in proposal)
@@ -693,6 +693,7 @@ def hole_requirement_outcomes(
                     suppressed=suppressed,
                     dropped=dropped,
                     registry=registry,
+                    all_features=features,
                 ),
             )
             for parameter in parameters

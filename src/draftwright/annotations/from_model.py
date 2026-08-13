@@ -68,6 +68,7 @@ from draftwright.annotations._common import (
     _anno_box,
     _box_hits,
     _geom_box,
+    _with_hole_center_coverage,
     _with_hole_location_coverage,
     carve_free_position,
     dim_footprint,
@@ -918,7 +919,10 @@ def render_centermarks(dwg, furniture_groups, *, ctx) -> int:
         for loc in members:
             px, py, *_ = dwg.at(view, *loc)
             ctx.place(
-                CenterMark((px, py, 0), size, dwg.draft), f"m_cm{n}", view=view, feature=feat
+                _with_hole_center_coverage(CenterMark((px, py, 0), size, dwg.draft), feat, loc),
+                f"m_cm{n}",
+                view=view,
+                feature=feat,
             )
             n += 1
     return n
