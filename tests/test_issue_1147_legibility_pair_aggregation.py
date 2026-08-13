@@ -252,6 +252,35 @@ def test_lint_summary_still_dispatches_through_a_public_lint_override(monkeypatc
     assert summary["issues"][0]["message"] == "custom critique"
 
 
+def test_public_override_replacements_cannot_inherit_discarded_base_issue_tokens(monkeypatch):
+    drawing = build_drawing(Box(20, 15, 10))
+    drawing.items = _crossed_items()
+    drawing.views.clear()
+    drawing.part = None
+    base_lint = drawing.lint
+
+    def replacing_lint(*, physical=True):
+        discarded = base_lint(physical=physical)
+        assert len(discarded) == 10
+        return [
+            LintIssue(
+                severity="warning",
+                code="label_centerline_overlap",
+                message=f"custom replacement {index}",
+            )
+            for index in range(10)
+        ]
+
+    monkeypatch.setattr(drawing, "lint", replacing_lint)
+
+    legibility = drawing.lint_summary()["quality"]["legibility"]
+
+    assert legibility["raw_issues"] == 10
+    assert legibility["affected_pairs"] == 0
+    assert legibility["primary_issues"] == 10
+    assert legibility["score"] == pytest.approx(0.5)
+
+
 def test_a_failing_public_lint_override_cannot_leak_summary_context(monkeypatch):
     drawing = build_drawing(Box(20, 15, 10))
 
