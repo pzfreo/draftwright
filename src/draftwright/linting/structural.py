@@ -17,7 +17,7 @@ from build123d import GeomType
 
 from draftwright._core import _shape_box2d
 from draftwright._geometry import _boxes_overlap, _segment_clips_box
-from draftwright.linting.issues import LintIssue
+from draftwright.linting.issues import LintIssue, _PairLintIssue
 
 _log = logging.getLogger(__name__)
 
@@ -753,7 +753,7 @@ def _lint_centerline_dim_overlap(dim_item, cl_item, issues, box_cache=None, warn
     if ox > 0.5 and oy > 0.5:
         dim_label = getattr(dim_item, "label", "?")
         issues.append(
-            LintIssue(
+            _PairLintIssue(
                 severity="warning",
                 message=(
                     f"label '{dim_label}' overlaps centerline by "
@@ -770,7 +770,7 @@ def _lint_centerline_dim_overlap(dim_item, cl_item, issues, box_cache=None, warn
                 # The raw finding still represents this exact label/centreline pair. Quality
                 # aggregation uses the label identity to avoid multiplying one unreadable
                 # label into N score penalties merely because N centre marks cross it (#1147).
-                aggregation_subject=id(dim_item),
+                aggregation_subject=dim_item,
             )
         )
 

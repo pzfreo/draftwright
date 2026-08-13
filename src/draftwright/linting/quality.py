@@ -136,15 +136,19 @@ _SEVERITY_RANK = {"info": 0, "warning": 1, "error": 2}
 def _primary_issues(issues) -> list[LintIssue]:
     """Collapse explicit pair observations to one issue per subject and mechanism.
 
-    Pair-producing lint checks opt in with ``aggregation_subject``. Everything else is
+    Pair-producing lint checks opt in through an internal pair-issue representation. Everything else is
     deliberately independent, even when code and message happen to match: blanket text/code
     deduplication would hide genuinely distinct collisions. If a malformed producer gives one
     group mixed severities, its strongest observation owns the score penalty.
     """
     primary: dict[tuple, LintIssue] = {}
     for ordinal, issue in enumerate(issues):
-        subject = getattr(issue, "aggregation_subject", None)
-        key = (issue.code, subject) if subject is not None else (None, ordinal)
+        subject = getattr(issue, "_aggregation_subject", None)
+        # The private pair issue retains the subject object for the issue list's lifetime;
+        # its address is therefore a collision-free identity within and across accumulated
+        # lint runs. Never invoke annotation equality or hashing: geometry objects may define
+        # either in domain-specific ways.
+        key = (issue.code, id(subject)) if subject is not None else (None, ordinal)
         previous = primary.get(key)
         if previous is None or _SEVERITY_RANK[issue.severity] > _SEVERITY_RANK[previous.severity]:
             primary[key] = issue
@@ -193,7 +197,7 @@ def _issue_component(issues, *, error_penalty: float, warning_penalty: float) ->
         "primary_infos": primary_infos,
         "primary_by_code": dict(sorted(primary_by_code.items())),
         "affected_pairs": sum(
-            getattr(issue, "aggregation_subject", None) is not None for issue in issues
+            getattr(issue, "_aggregation_subject", None) is not None for issue in issues
         ),
         # Keep the established basis value: severity and the info floor did not change.
         # This additive field names the inventory to which that basis is now applied.

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import asdict
 from types import SimpleNamespace
 
 import pytest
@@ -28,8 +28,7 @@ def _legibility(issues):
 
 def _two_labels_crossed_by_five_centre_marks():
     labels = [
-        SimpleNamespace(label=f"hole callout {index}", label_bbox=(0.0, 0.0, 10.0, 10.0))
-        for index in range(2)
+        SimpleNamespace(label="4× ⌀6 THRU", label_bbox=(0.0, 0.0, 10.0, 10.0)) for _ in range(2)
     ]
     centre_marks = [
         SimpleNamespace(
@@ -50,8 +49,7 @@ def test_two_affected_labels_keep_ten_pair_findings_but_take_two_score_penalties
     legibility = _legibility(issues)
 
     assert len(issues) == 10, "every offending label/centre-mark pair remains inspectable"
-    assert sum("hole callout 0" in issue.message for issue in issues) == 5
-    assert sum("hole callout 1" in issue.message for issue in issues) == 5
+    assert all("4× ⌀6 THRU" in issue.message for issue in issues)
     assert {issue.location for issue in issues} == {(float(x), 5.0) for x in range(1, 6)}
     assert legibility["warnings"] == 10, "the compatibility count remains raw lint findings"
     assert legibility["by_code"] == {"label_centerline_overlap": 10}
@@ -66,8 +64,25 @@ def test_two_affected_labels_keep_ten_pair_findings_but_take_two_score_penalties
 
     # Prove the producer identity is load-bearing: without it, the raw Cartesian findings
     # once again become ten independent penalties, reproducing the original 0.5 score.
-    ungrouped = [replace(issue, aggregation_subject=None) for issue in issues]
+    ungrouped = [
+        LintIssue(
+            severity=issue.severity,
+            message=issue.message,
+            location=issue.location,
+            code=issue.code,
+        )
+        for issue in issues
+    ]
     assert _legibility(ungrouped)["score"] == pytest.approx(0.5)
+
+
+def test_run_local_pair_subject_is_not_part_of_the_public_lint_issue_schema():
+    issue = _two_labels_crossed_by_five_centre_marks()[0]
+
+    assert isinstance(issue, LintIssue)
+    assert "aggregation" not in repr(issue)
+    assert not any("aggregation" in key for key in asdict(issue))
+    assert not any("aggregation" in key for key in vars(issue))
 
 
 def test_equal_codes_without_a_shared_subject_remain_independent_primary_issues():
@@ -84,20 +99,8 @@ def test_equal_codes_without_a_shared_subject_remain_independent_primary_issues(
 
 
 def test_one_subject_with_two_failure_mechanisms_remains_two_primary_issues():
-    issues = [
-        LintIssue(
-            severity="warning",
-            code="annotation_overlap",
-            message="collision",
-            aggregation_subject=17,
-        ),
-        LintIssue(
-            severity="warning",
-            code="label_centerline_overlap",
-            message="centreline crossing",
-            aggregation_subject=17,
-        ),
-    ]
+    issues = _two_labels_crossed_by_five_centre_marks()[:2]
+    issues[0].code = "annotation_overlap"
 
     legibility = _legibility(issues)
 
@@ -107,6 +110,23 @@ def test_one_subject_with_two_failure_mechanisms_remains_two_primary_issues():
         "label_centerline_overlap": 1,
     }
     assert legibility["score"] == pytest.approx(0.9)
+
+
+@pytest.mark.parametrize("severities", [("info", "error"), ("error", "info")])
+def test_one_group_uses_its_strongest_severity_in_either_observation_order(severities):
+    issues = _two_labels_crossed_by_five_centre_marks()[:2]
+    for issue, severity in zip(issues, severities, strict=True):
+        issue.severity = severity
+        issue.message = severity
+
+    legibility = _legibility(issues)
+
+    assert legibility["errors"] == 1
+    assert legibility["infos"] == 1
+    assert legibility["primary_issues"] == 1
+    assert legibility["primary_errors"] == 1
+    assert legibility["primary_infos"] == 0
+    assert legibility["score"] == pytest.approx(0.85)
 
 
 def test_legacy_summary_counts_and_diagnostic_score_keep_raw_finding_semantics(monkeypatch):
@@ -120,5 +140,5 @@ def test_legacy_summary_counts_and_diagnostic_score_keep_raw_finding_semantics(m
     assert summary["by_code"] == {"label_centerline_overlap": 10}
     assert summary["score"] == summary["diagnostic_score"] == pytest.approx(0.5)
     assert len(summary["issues"]) == 10
-    assert all("aggregation_subject" not in issue for issue in summary["issues"])
+    assert all(not any("aggregation" in key for key in issue) for issue in summary["issues"])
     assert summary["quality"]["legibility"]["score"] == pytest.approx(0.9)
