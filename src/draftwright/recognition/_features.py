@@ -43,7 +43,7 @@ from OCP.TopAbs import TopAbs_Orientation
 
 from draftwright._geometry import plane_axes
 from draftwright.recognition._record import Record
-from draftwright.recognition.countersinks import CounterSink
+from draftwright.recognition.countersinks import CounterSink, countersink_matches_hole
 
 # Cylinder patches around one axis spanning half a turn or less in total are
 # not holes or bosses: quarter-turn patches are edge blends (fillets/rounds)
@@ -474,11 +474,6 @@ def _merge_stacks(stacks, edge_faces, cache=None):
     return merged
 
 
-_CSK_DIA_TOL = 0.2  # mm — countersink drill ⌀ vs bore ⌀
-_CSK_COAX_TOL = 0.2  # mm — countersink opening off the bore axis line
-_CSK_MOUTH_TOL = 0.5  # mm — countersink must sit at the bore's mouth, not deep inside
-
-
 def _csink_for_hole(h: HoleRecord, csinks: list[CounterSink]) -> CounterSink | None:
     """The countersink seated on hole *h*, or None (#558). A countersink belongs to the
     hole when its **minor circle** — where the cone meets the drilled bore — sits coaxially
@@ -487,18 +482,8 @@ def _csink_for_hole(h: HoleRecord, csinks: list[CounterSink]) -> CounterSink | N
     opening face, nor the axis direction) makes association independent of which end
     ``recognise_holes`` happened to call the opening, and still excludes a *separate*
     coaxial hole on the opposite face — whose own bore ends are elsewhere."""
-    hx = h.axis
-    through = h.bottom == "through"
     for cs in csinks:
-        # The cone's minor circle: the opening (major) advanced by the cone depth along the
-        # csk axis, i.e. where the countersink meets the drilled bore.
-        m = tuple(cs.location[i] + cs.depth * cs.axis[i] for i in range(3))
-        v = tuple(m[i] - h.location[i] for i in range(3))
-        s = sum(v[i] * hx[i] for i in range(3))
-        perp = math.hypot(*(v[i] - s * hx[i] for i in range(3)))
-        if perp > _CSK_COAX_TOL or abs(cs.drill_diameter - h.diameter) > _CSK_DIA_TOL:
-            continue
-        if abs(s) <= _CSK_MOUTH_TOL or (through and abs(s - h.depth) <= _CSK_MOUTH_TOL):
+        if countersink_matches_hole(cs, h):
             return cs
     return None
 

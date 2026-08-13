@@ -85,7 +85,12 @@ from draftwright.recognition.chamfers import (
     classify_bevel,
     recognise_chamfers,
 )
-from draftwright.recognition.countersinks import CounterSink, cone_rims, recognise_countersinks
+from draftwright.recognition.countersinks import (
+    CounterSink,
+    cone_rims,
+    countersink_matches_hole,
+    recognise_countersinks,
+)
 from draftwright.recognition.fillets import Fillet, fillet_anchor, recognise_fillets
 from draftwright.recognition.flats import Flat, recognise_flats
 from draftwright.recognition.grooves import Groove, floor_face_anchor, recognise_grooves
@@ -139,6 +144,7 @@ __all__ = [
     "BossRecord",
     "CounterBore",
     "CounterSink",
+    "countersink_matches_hole",
     "DoubleDBore",
     "FaceLevel",
     "HoleRecord",

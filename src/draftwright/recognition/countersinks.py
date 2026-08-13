@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import Protocol
 
 from build123d import GeomType
 
@@ -54,6 +55,9 @@ _MAX_INCLUDED_ANGLE = 160.0
 # bore. Require the major to reach this multiple of the drill radius to exclude those —
 # else every chamfered hole mouth would be called out as a countersink (#558 review).
 _MIN_MAJOR_RATIO = 1.5
+_HOLE_DIA_TOL = 0.2
+_HOLE_AXIS_TOL = 0.2
+_HOLE_MOUTH_TOL = 0.5
 
 
 @dataclass(frozen=True)
@@ -69,6 +73,49 @@ class CounterSink(Record):
     drill_diameter: float
     included_angle: float
     depth: float
+
+
+class _HoleLike(Protocol):
+    @property
+    def axis(self) -> tuple[float, float, float]: ...
+
+    @property
+    def location(self) -> tuple[float, float, float]: ...
+
+    @property
+    def diameter(self) -> float: ...
+
+    @property
+    def depth(self) -> float: ...
+
+    @property
+    def bottom(self) -> str: ...
+
+
+def countersink_matches_hole(countersink: CounterSink, hole: _HoleLike) -> bool:
+    """Return whether *countersink* is seated at a recognised bore mouth.
+
+    The standalone countersink recogniser deliberately admits an external stepped-shaft
+    false positive.  Association with a :class:`HoleRecord` is therefore the semantic
+    boundary that proves the cone is a hole requirement.  Keep that geometry predicate
+    recognition-owned so feature construction and downstream completeness cannot drift.
+    """
+    minor = tuple(
+        countersink.location[index] + countersink.depth * countersink.axis[index]
+        for index in range(3)
+    )
+    offset = tuple(minor[index] - hole.location[index] for index in range(3))
+    axial = sum(offset[index] * hole.axis[index] for index in range(3))
+    perpendicular = math.hypot(*(offset[index] - axial * hole.axis[index] for index in range(3)))
+    if (
+        perpendicular > _HOLE_AXIS_TOL
+        or abs(countersink.drill_diameter - hole.diameter) > _HOLE_DIA_TOL
+    ):
+        return False
+    return bool(
+        abs(axial) <= _HOLE_MOUTH_TOL
+        or (hole.bottom == "through" and abs(axial - hole.depth) <= _HOLE_MOUTH_TOL)
+    )
 
 
 def cone_rims(face):

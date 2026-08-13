@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from draftwright.linting.issues import LintIssue
-from draftwright.recognition import HoleSpec, RecognitionResult
+from draftwright.recognition import HoleSpec, RecognitionResult, countersink_matches_hole
 
 HoleRequirementState = Literal["placed", "suppressed", "dropped", "missing", "unverifiable"]
 HoleSourceKind = Literal["hole", "hole_pattern"]
@@ -78,7 +78,7 @@ def _feature_spec(feature) -> tuple:
     return (
         hole.frame.axis,
         _rounded(hole.diameter),
-        None if hole.through else _rounded(hole.depth),
+        None if hole.through or hole.depth is None else _rounded(hole.depth),
         bool(hole.through),
         _recess_key(hole.cbore),
         _recess_key(hole.spotface),
@@ -207,6 +207,24 @@ def _pattern_key(pattern) -> tuple:
         direction = _default_linear_direction(pattern)
     if kind == "grid" and angle is None:
         angle = 0.0
+    if (
+        kind == "grid"
+        and grid is not None
+        and rows is not None
+        and cols is not None
+        and angle is not None
+    ):
+        row_pitch, col_pitch = (_rounded(value) for value in grid)
+        direct = (int(rows), int(cols), row_pitch, col_pitch, _rounded(float(angle) % 180.0))
+        transposed = (
+            int(cols),
+            int(rows),
+            col_pitch,
+            row_pitch,
+            _rounded((float(angle) + 90.0) % 180.0),
+        )
+        rows, cols, row_pitch, col_pitch, angle = min(direct, transposed)
+        grid = (row_pitch, col_pitch)
     return (
         kind,
         spec,
@@ -477,7 +495,7 @@ def hole_requirement_outcomes(
     for countersink in recognition.countersinks:
         if attached_countersinks[countersink]:
             attached_countersinks[countersink] -= 1
-        else:
+        elif any(countersink_matches_hole(countersink, hole) for hole in recognition.holes):
             unmatched_countersinks.append(countersink)
 
     source_counts: dict[tuple[str, tuple], int] = defaultdict(int)
@@ -496,22 +514,71 @@ def hole_requirement_outcomes(
     pattern_features = tuple(
         feature for feature in features if getattr(feature, "kind", None) == "pattern"
     )
-    projected_pattern_sources = Counter(
-        _projected_pattern_key(source)
-        for source_kind, source, _key, _member_count in sources
-        if source_kind == "hole_pattern"
+    # Establish exact correspondences first, then solve the residual projected fallback.
+    # Object-backed blind declarations may retain a cutter centre while recognition owns
+    # its opening. Projection is safe only when, after exact owners are consumed, one
+    # remaining source has one remaining feature. This is a global bijection rather than a
+    # per-source uniqueness guess: an exact declaration on one face can disambiguate the
+    # valid tool-centred declaration on the opposed face, while two projected-only owners
+    # remain unverifiable.
+    exact_proposals: list[tuple] = []
+    for kind, _source, key, member_count in sources:
+        candidates = tuple(ir_by_key.get((kind, key), ()))
+        if kind == "hole" and not candidates:
+            source_spec, source_members = key
+            same_spec = tuple(
+                feature for feature in hole_features if _feature_spec(feature) == source_spec
+            )
+            candidate_members = tuple(
+                sorted(member for feature in same_spec for member in _members(feature))
+            )
+            if candidate_members == source_members:
+                candidates = same_spec
+        expected_matches = source_counts[(kind, key)]
+        admissible_counts = {1, expected_matches}
+        if kind == "hole":
+            admissible_counts.add(member_count)
+        exact_proposals.append(
+            candidates if expected_matches == 1 and len(candidates) in admissible_counts else ()
+        )
+
+    exact_claims = Counter(id(feature) for proposal in exact_proposals for feature in proposal)
+    matches_by_source = [
+        proposal if all(exact_claims[id(feature)] == 1 for feature in proposal) else ()
+        for proposal in exact_proposals
+    ]
+    used_feature_ids = {id(feature) for matches in matches_by_source for feature in matches}
+
+    residual_proposals: dict[int, tuple] = {}
+    for index, (kind, source, key, _member_count) in enumerate(sources):
+        if matches_by_source[index]:
+            continue
+        if kind == "hole":
+            source_spec, source_members = key
+            projected_key = _projected_hole_key(source_spec, source_members)
+            candidates = tuple(
+                feature
+                for feature in hole_features
+                if id(feature) not in used_feature_ids
+                and (_feature_spec(feature), _projected_members(feature)) == projected_key
+            )
+        else:
+            projected_key = _projected_pattern_key(source)
+            candidates = tuple(
+                feature
+                for feature in pattern_features
+                if id(feature) not in used_feature_ids
+                and _projected_pattern_key(feature) == projected_key
+            )
+        if candidates:
+            residual_proposals[index] = candidates
+
+    residual_claims = Counter(
+        id(feature) for proposal in residual_proposals.values() for feature in proposal
     )
-    projected_pattern_features = Counter(
-        _projected_pattern_key(feature) for feature in pattern_features
-    )
-    projected_hole_sources = Counter(
-        _projected_hole_key(key[0], key[1])
-        for source_kind, _source, key, _member_count in sources
-        if source_kind == "hole"
-    )
-    projected_hole_features = Counter(
-        (_feature_spec(feature), _projected_members(feature)) for feature in hole_features
-    )
+    for index, proposal in residual_proposals.items():
+        if len(proposal) == 1 and residual_claims[id(proposal[0])] == 1:
+            matches_by_source[index] = proposal
 
     placed = {
         measurement for name in registry.names() for measurement in registry.measurement_of(name)
@@ -528,57 +595,8 @@ def hole_requirement_outcomes(
     }
 
     outcomes = []
-    for kind, source, key, member_count in sources:
-        matches = tuple(ir_by_key.get((kind, key), ()))
-        if kind == "hole" and not matches:
-            source_spec, source_members = key
-            projected_key = _projected_hole_key(source_spec, source_members)
-            candidates = tuple(
-                feature for feature in hole_features if _feature_spec(feature) == source_spec
-            )
-            candidate_members = tuple(
-                sorted(member for feature in candidates for member in _members(feature))
-            )
-            if candidate_members == source_members:
-                matches = candidates
-            elif (
-                len(candidates) == 1
-                and (_feature_spec(candidates[0]), _projected_members(candidates[0]))
-                == projected_key
-                and projected_hole_sources[projected_key] == 1
-                and projected_hole_features[projected_key] == 1
-            ):
-                # Object declarations retain the blind cutter's centre while recognition
-                # retains its opening. Projection is evidence only for a global
-                # one-source/one-candidate correspondence; an opposed physical bore must
-                # not reuse the same declared owner.
-                matches = candidates
-        elif kind == "hole_pattern" and not matches:
-            projected_key = _projected_pattern_key(source)
-            candidates = tuple(
-                feature
-                for feature in pattern_features
-                if _projected_pattern_key(feature) == projected_key
-            )
-            if (
-                len(candidates) == 1
-                and projected_pattern_sources[projected_key] == 1
-                and projected_pattern_features[projected_key] == 1
-            ):
-                # As for a declared blind HoleFeature, object-backed pattern members retain
-                # cutter centres while recognition owns opening points.  Projection is safe
-                # only for a global one-source/one-candidate correspondence; opposed or
-                # coincident sources must not reuse the same declared owner.
-                matches = candidates
-        expected_matches = source_counts[(kind, key)]
-        # Detected IR groups a loose machining-spec family into one HoleFeature; a declared
-        # model may faithfully retain one feature per member. Both converge on the same
-        # semantic requirements, so accept either one grouped feature or one exact match per
-        # physical source. Ambiguous partial/multiple correspondence stays fail closed.
-        admissible_counts = {1, expected_matches}
-        if kind == "hole":
-            admissible_counts.add(member_count)
-        matched = matches if expected_matches == 1 and len(matches) in admissible_counts else ()
+    for index, (kind, source, _key, member_count) in enumerate(sources):
+        matched = matches_by_source[index]
         representative = matched[0] if matched else None
         parameters = (
             _parameter_ids(representative, member_count=member_count, features=features)

@@ -134,6 +134,14 @@ def _two_face_countersunk_hole():
     )
 
 
+def _external_stepped_shaft_with_conical_transition():
+    return (
+        Cylinder(3, 5, align=_XYZ_MIN)
+        + Pos(0, 0, 5) * Cone(3, 7, 4, align=_XYZ_MIN)
+        + Pos(0, 0, 9) * Cylinder(7, 5, align=_XYZ_MIN)
+    )
+
+
 def _outcomes(drawing):
     drawing.lint()
     return hole_requirement_outcomes(
@@ -275,6 +283,44 @@ def test_one_declared_blind_hole_cannot_certify_two_opposed_physical_bores():
     assert completeness["unverifiable"] == 4
 
 
+def test_exact_blind_hole_match_disambiguates_residual_tool_centre_match():
+    part = _opposed_blind_holes()
+    detected = build_drawing(part, page="A3").model()
+    holes = [feature for feature in detected.features if feature.kind == "hole"]
+    retained = [
+        feature for feature in detected.features if feature.kind not in {"hole", "pattern"}
+    ]
+    exact, tool_centred = holes
+    x, y, z = tool_centred.frame.origin
+    centred_at = (x, y, z - tool_centred.depth / 2)
+    tool_centred = replace(
+        tool_centred,
+        frame=replace(tool_centred.frame, origin=centred_at),
+        members=(centred_at,),
+    )
+    declared = replace(detected, features=[exact, tool_centred, *retained])
+
+    drawing = build_drawing(part, model=declared, page="A3")
+    outcomes = _outcomes(drawing)
+    assert len(outcomes) == 8
+    assert all(item.state == "placed" for item in outcomes)
+    assert _completeness(drawing)["audited_score"] == 1.0
+
+
+def test_blind_hole_with_unknown_declared_depth_fails_closed_without_crashing():
+    part = _blind_hole()
+    detected = build_drawing(part, auto_dims=False).model()
+    hole = next(feature for feature in detected.features if feature.kind == "hole")
+    declared = _declared_model(part, replace(hole, depth=None))
+
+    drawing = build_drawing(part, model=declared, auto_dims=False)
+    completeness = drawing.lint_summary()["quality"]["completeness"]
+    unverifiable = [item for item in _outcomes(drawing) if item.state == "unverifiable"]
+    assert len(unverifiable) == 1
+    assert unverifiable[0].requirement_count == 4
+    assert completeness["requirements"] == completeness["unverifiable"] == 4
+
+
 def test_unique_declared_blind_tool_center_corresponds_to_its_recognised_opening():
     xyz_min = (Align.CENTER, Align.CENTER, Align.MIN)
     plate = Box(80, 50, 20, align=xyz_min)
@@ -315,6 +361,44 @@ def test_grid_pattern_accounts_for_both_independent_pitch_measurements():
         for key in drawing.measurement_keys(name)
     }
     assert pitch_ids == {"grid_pitch.length.col", "grid_pitch.length.row"}
+
+
+def test_transposed_grid_declaration_corresponds_to_the_same_physical_lattice():
+    part = _grid_pattern()
+    detected = build_drawing(part, page="A3").model()
+    features = []
+    for feature in detected.features:
+        if getattr(feature, "pattern", None) == "grid":
+            assert (feature.rows, feature.cols, feature.grid, feature.angle) == (
+                2,
+                3,
+                (30.0, 25.0),
+                0.0,
+            )
+            feature = replace(feature, rows=3, cols=2, grid=(25.0, 30.0), angle=90.0)
+        features.append(feature)
+
+    drawing = build_drawing(part, model=replace(detected, features=features), page="A3")
+    outcomes = _outcomes(drawing)
+    assert len(outcomes) == 7
+    assert all(item.state == "placed" for item in outcomes)
+    assert _completeness(drawing)["audited_score"] == 1.0
+
+
+def test_inconsistent_grid_definition_cannot_be_certified_from_member_points_alone():
+    part = _grid_pattern()
+    detected = build_drawing(part, page="A3").model()
+    features = [
+        replace(feature, grid=(30.0, 26.0))
+        if getattr(feature, "pattern", None) == "grid"
+        else feature
+        for feature in detected.features
+    ]
+
+    drawing = build_drawing(part, model=replace(detected, features=features), page="A3")
+    unverifiable = [item for item in _outcomes(drawing) if item.state == "unverifiable"]
+    assert len(unverifiable) == 1
+    assert unverifiable[0].requirement_count == 7
 
 
 def test_linear_pattern_correspondence_treats_opposite_directions_as_the_same_axis():
@@ -417,6 +501,40 @@ def test_one_declared_blind_pattern_cannot_certify_two_opposed_physical_patterns
     assert completeness["requirements"] == 12
     assert completeness["placed"] == 6
     assert completeness["unverifiable"] == 6
+
+
+def test_exact_blind_pattern_match_disambiguates_residual_tool_centres():
+    part = _opposed_blind_patterns()
+    detected = build_drawing(part, page="A3").model()
+    patterns = [feature for feature in detected.features if feature.kind == "pattern"]
+    retained = [
+        feature for feature in detected.features if feature.kind not in {"hole", "pattern"}
+    ]
+    exact, tool_centred = patterns
+    shift = -tool_centred.member.depth / 2
+
+    def shifted(point):
+        return (point[0], point[1], point[2] + shift)
+
+    tool_centred = replace(
+        tool_centred,
+        frame=replace(tool_centred.frame, origin=shifted(tool_centred.frame.origin)),
+        member=replace(
+            tool_centred.member,
+            frame=replace(
+                tool_centred.member.frame,
+                origin=shifted(tool_centred.member.frame.origin),
+            ),
+        ),
+        members=tuple(shifted(point) for point in tool_centred.members),
+    )
+    declared = replace(detected, features=[exact, tool_centred, *retained])
+
+    drawing = build_drawing(part, model=declared, page="A3")
+    outcomes = _outcomes(drawing)
+    assert len(outcomes) == 12
+    assert all(item.state == "placed" for item in outcomes)
+    assert _completeness(drawing)["audited_score"] == 1.0
 
 
 def test_off_axis_pattern_keeps_absolute_location_requirements_fail_closed():
@@ -649,6 +767,17 @@ def test_unmatched_second_face_countersink_fails_closed_in_hole_ledger():
     assert [
         issue.code for issue in drawing.lint() if issue.code == "hole_requirement_unverifiable"
     ] == ["hole_requirement_unverifiable"] * 2
+
+
+def test_unattached_external_countersink_false_positive_is_not_a_hole_requirement():
+    drawing = build_drawing(_external_stepped_shaft_with_conical_transition(), auto_dims=False)
+    assert not drawing.recognition().holes
+    assert len(drawing.recognition().countersinks) == 1
+
+    assert _outcomes(drawing) == []
+    assert not [issue for issue in drawing.lint() if issue.code.startswith("hole_requirement_")]
+    completeness = _completeness(drawing)
+    assert completeness["by_family"]["holes"] == 0
 
 
 def test_failed_hole_table_escalation_restores_semantic_fallback_evidence(monkeypatch):
