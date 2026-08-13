@@ -229,9 +229,12 @@ def lint_feature_coverage(
 
     Builds a feature inventory from *part*'s hole/boss diameters (cylinder
     patches spanning at least ~half a turn around their axis in total, so
-    fillets are ignored) and diffs it against every ø value mentioned in the
-    annotations' labels, plus the structured ``covers_diameters`` metadata on
-    annotations that draw their values geometrically (e.g. ``HoleCallout``).
+    fillets are ignored) and diffs it against either the structured
+    ``covers_diameters`` metadata on annotations that draw their values
+    geometrically (e.g. ``HoleCallout``), or every ø value mentioned in an
+    unstructured annotation's label. A structured annotation is never parsed as
+    free text too: suffix diameters such as a bolt-circle definition are not
+    physical-feature coverage, and ``covers_count`` remains authoritative.
     Radius callouts are *not* counted — "R5 TYP" fillet notes would otherwise
     mask an undimensioned ø10 bore. Title blocks are skipped — part numbers
     like "BRACKET R8" are not callouts. Each uncovered diameter yields one

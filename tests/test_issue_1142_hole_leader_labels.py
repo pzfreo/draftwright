@@ -3,11 +3,13 @@
 import math
 from types import SimpleNamespace
 
+import pytest
 from build123d import Align, Box, Cylinder, Pos
 from build123d_drafting.helpers import draft_preset
 
 from draftwright import Sheet, build_drawing
 from draftwright.annotations.from_model import callout_from_spec
+from draftwright.fits import fit_class
 from draftwright.linting import lint_drawing, lint_feature_coverage
 from draftwright.model import hole
 
@@ -16,34 +18,81 @@ def _plate():
     part = Box(80, 50, 10, align=(Align.CENTER, Align.CENTER, Align.MIN))
     for x in (-30, 30):
         for y in (-15, 15):
-            part -= Pos(x, y, 0) * Cylinder(3, 10)
-    return part - Cylinder(10, 10)
+            part -= Pos(x, y, 0) * Cylinder(3, 10, align=Align.MIN)
+    return part - Cylinder(10, 10, align=Align.MIN)
 
 
 def _hole_leaders(drawing):
     return [ann for name, ann in drawing.iter_annotations() if name.startswith("hc_")]
 
 
+def _spec(**overrides):
+    spec = {
+        "diameter": 8,
+        "count": None,
+        "through": True,
+        "depth": None,
+        "cbore_dia": None,
+        "cbore_depth": None,
+        "csink_dia": None,
+        "csink_angle": None,
+        "suffix": None,
+        "tolerance": None,
+    }
+    spec.update(overrides)
+    return spec
+
+
+@pytest.mark.parametrize(
+    ("spec", "count", "expected"),
+    [
+        (_spec(), None, "⌀8 THRU"),
+        (_spec(through=False, depth=12), None, "⌀8 ↧ 12"),
+        (_spec(tolerance=0.1), None, "⌀8 ±0.1 THRU"),
+        (_spec(tolerance=(0.0, 0.2)), None, "⌀8 +0.2 -0.0 THRU"),
+        (_spec(tolerance=fit_class("H7", 8)), None, "⌀8 H7 THRU"),
+        (_spec(suffix="M8x1.25"), None, "⌀8 THRU M8x1.25"),
+        (_spec(count=9, suffix="(3×3)"), 9, "9× ⌀8 THRU (3×3)"),
+        (_spec(count=5, suffix="EQ SP ON ø50 BC"), 5, "5× ⌀8 THRU EQ SP ON ø50 BC"),
+        (_spec(suffix="DOUBLE-D 6 A/F"), None, "⌀8 THRU DOUBLE-D 6 A/F"),
+    ],
+    ids=[
+        "through",
+        "blind",
+        "symmetric-tolerance",
+        "limit-tolerance",
+        "fit",
+        "thread",
+        "grid",
+        "bolt-circle",
+        "double-d",
+    ],
+)
+def test_callout_semantic_label_covers_rendered_branches(spec, count, expected):
+    callout = callout_from_spec(spec, draft_preset(decimal_precision=1), count=count)
+
+    assert callout is not None
+    assert callout.label == expected
+
+
 def test_callout_semantic_label_covers_the_rendered_compound_grammar():
     callout = callout_from_spec(
-        {
-            "diameter": 8,
-            "count": 4,
-            "through": False,
-            "depth": 12,
-            "cbore_dia": 14,
-            "cbore_depth": 2,
-            "csink_dia": 16,
-            "csink_angle": 90,
-            "suffix": "EQ SP ON ⌀50 BC",
-            "tolerance": None,
-        },
+        _spec(
+            count=4,
+            through=False,
+            depth=12,
+            cbore_dia=14,
+            cbore_depth=2,
+            csink_dia=16,
+            csink_angle=90,
+            suffix="EQ SP ON ø50 BC",
+        ),
         draft_preset(decimal_precision=1),
         count=4,
     )
 
     assert callout is not None
-    assert callout.label == "4× ⌀8 ↧ 12 ⌴ ⌀14 ↧ 2 ⌵ ⌀16 × 90° EQ SP ON ⌀50 BC"
+    assert callout.label == "4× ⌀8 ↧ 12 ⌴ ⌀14 ↧ 2 ⌵ ⌀16 × 90° EQ SP ON ø50 BC"
 
 
 def test_automatic_hole_leaders_expose_nonempty_semantic_labels():
@@ -52,14 +101,13 @@ def test_automatic_hole_leaders_expose_nonempty_semantic_labels():
 
     assert len(leaders) == 2
     labels_by_diameter = {leader.covers_diameters[0]: leader.label for leader in leaders}
-    assert labels_by_diameter[6.0].startswith("4× ⌀6")
-    assert labels_by_diameter[20.0].startswith("⌀20")
+    assert labels_by_diameter == {6.0: "4× ⌀6 THRU", 20.0: "⌀20 THRU"}
     assert all(leader.label_bbox is not None for leader in leaders)
 
 
 def test_declared_pattern_and_bore_have_semantic_labels_and_clean_centerline_lint():
     sheet = Sheet(_plate(), page="A4", scale=0.5).authored_dimensions()
-    member = hole(diameter=6, depth=10, through=True, at=(-30, -15, 0), axis="z")
+    member = hole(diameter=6, through=True, at=(-30, -15, 0), axis="z")
     pattern = sheet.pattern(
         member,
         kind="other",

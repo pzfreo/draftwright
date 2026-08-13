@@ -49,14 +49,14 @@ so a grouped callout dropping a member is caught — but a like-for-like exchang
   NAMES by substring and cancelled real alarms with unrelated suppressions.
 - **An unnamed annotation is invisible.** ``Drawing.annotations()`` returns only *named*
   annotations by contract, so anything placed without a name cannot be compared here at all.
-- **A hole callout's CONTENT is invisible; only its presence is seen.** It renders as a
-  ``Leader`` whose ``label`` is ``""`` — the text is built at draw time and never exposed on
-  the object. Measured: changing a bore from ⌀8 to ⌀12 produces an identical diff. So a lost
-  callout is reported, and a callout that starts saying something different is not.
+- **A legacy or external labelless callout exposes presence only.** Generated hole leaders
+  retain their geometric callout's semantic text, so a changed diameter/depth is observable.
+  A user-supplied or older ``Leader`` may still have ``label == ""``; its loss is reported,
+  but two such present annotations remain indistinguishable by content.
 
-Closing the rest needs the remaining renderers to record identity too (#754), and a callout to
-expose its own text. Until then this is a **triage aid, not a proof** — and shaped so its weakest part
-cannot silence its strongest: a candidate suppression annotates a loss, it never removes it.
+Closing the rest needs the remaining renderers to record identity too (#754). Until then this
+is a **triage aid, not a proof** — and shaped so its weakest part cannot silence its strongest:
+a candidate suppression annotates a loss, it never removes it.
 An earlier cut let a weak substring match cancel the alarm outright, so any newly-suppressed
 ``width.*`` excused every lost annotation whose name contained "width", across unrelated
 features (Codex #1001). That is the exact false confidence this epic exists to remove.
@@ -87,11 +87,10 @@ def _measurements(dwg) -> dict[str, str]:
     for name, type_name in dwg.annotations().items():
         if type_name in _FURNITURE:
             continue
-        # NO non-empty-label requirement. A hole callout renders as a `Leader` whose own
-        # `label` is "" — its text lives on an attached callout object, and on some paths
-        # nowhere readable at all. Requiring a label dropped those from the comparison
-        # entirely, so a vanished hole callout produced NO loss: the one thing this must
-        # never do (#996). Presence is the signal; the label is extra detail on it.
+        # NO non-empty-label requirement. Generated hole leaders carry semantic labels, but
+        # an external/legacy callout may still expose only presence. Requiring a label dropped
+        # those from the comparison entirely, so a vanished callout produced NO loss: the one
+        # thing this must never do (#996). Presence is the floor; the label is extra detail.
         label = getattr(dwg.get_annotation(name), "label", None)
         out[name] = "" if label is None else str(label)
     return out
