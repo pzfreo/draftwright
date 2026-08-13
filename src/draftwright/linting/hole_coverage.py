@@ -374,7 +374,7 @@ def _synthetic_placed(registry, features, parameter: str, member_count: int) -> 
     # cardinality; conflicting claims remain alternatives rather than being summed.
     possible = {0}
     for claims in counts_by_feature.values():
-        possible = {subtotal + claim for subtotal in possible for claim in claims}
+        possible |= {subtotal + claim for subtotal in possible for claim in claims}
     return member_count in possible
 
 
