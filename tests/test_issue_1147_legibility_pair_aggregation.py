@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import gc
 import pickle
 import weakref
 from dataclasses import asdict, replace
@@ -13,6 +15,7 @@ from build123d import Box
 from draftwright import build_drawing
 from draftwright.linting.issues import (
     LintIssue,
+    _collect_issue_aggregation,
     _current_issue_aggregation,
     _IssueAggregation,
 )
@@ -108,6 +111,41 @@ def test_run_local_pair_subject_does_not_change_public_lint_issue_value_behaviou
     assert not any("aggregation" in key for key in vars(issue))
     assert replace(issue) == issue
     assert pickle.loads(pickle.dumps(issue)) == issue
+
+
+def test_summary_evidence_does_not_retain_source_annotations_or_their_graphs():
+    class SourceGraph:
+        pass
+
+    class Annotation:
+        pass
+
+    source_graph = SourceGraph()
+    annotation = Annotation()
+    annotation.label = "4× ⌀6 THRU"
+    annotation.label_bbox = (20.0, 20.0, 30.0, 30.0)
+    annotation.source_graph = source_graph
+    annotation_ref = weakref.ref(annotation)
+    graph_ref = weakref.ref(source_graph)
+    aggregation = _IssueAggregation()
+    issues = lint_drawing(
+        [
+            annotation,
+            SimpleNamespace(
+                is_centerline=True,
+                segments=(((18.0, 25.0), (52.0, 25.0)),),
+            ),
+        ],
+        _aggregation=aggregation,
+    )
+    assert [issue.code for issue in issues] == ["label_centerline_overlap"]
+
+    del annotation, source_graph
+    gc.collect()
+
+    assert annotation_ref() is None
+    assert graph_ref() is None
+    assert aggregation.token_for(issues[0]) is not None
 
 
 def test_equal_codes_without_a_shared_subject_remain_independent_primary_issues():
@@ -326,4 +364,40 @@ def test_a_failing_public_lint_override_cannot_leak_summary_context(monkeypatch)
     with pytest.raises(RuntimeError, match="custom critique failed"):
         drawing.lint_summary()
 
+    assert _current_issue_aggregation() is None
+
+
+def test_nested_summary_context_restores_the_outer_ledger():
+    with _collect_issue_aggregation() as outer:
+        assert _current_issue_aggregation() is outer
+        with _collect_issue_aggregation() as inner:
+            assert inner is not outer
+            assert _current_issue_aggregation() is inner
+        assert _current_issue_aggregation() is outer
+
+    assert _current_issue_aggregation() is None
+
+
+def test_overlapping_async_summary_contexts_keep_distinct_task_local_ledgers():
+    async def exercise():
+        both_entered = asyncio.Event()
+        entered = 0
+
+        async def collect():
+            nonlocal entered
+            with _collect_issue_aggregation() as aggregation:
+                entered += 1
+                if entered == 2:
+                    both_entered.set()
+                await both_entered.wait()
+                # Force another scheduling boundary while both contexts remain active.
+                await asyncio.sleep(0)
+                return aggregation, _current_issue_aggregation()
+
+        return await asyncio.gather(collect(), collect())
+
+    results = asyncio.run(exercise())
+
+    assert results[0][0] is not results[1][0]
+    assert all(aggregation is observed for aggregation, observed in results)
     assert _current_issue_aggregation() is None
