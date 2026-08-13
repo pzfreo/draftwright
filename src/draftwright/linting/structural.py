@@ -253,6 +253,10 @@ def lint_drawing(
     # Per-run label_bbox warning memo (#711 review / Codex sweep): threaded to every
     # check so one bad item warns once per lint run, with no cross-run global state.
     warned_label_bbox: set[int] = set()
+    # Opaque primary-subject tokens exist only for this call. Every input object remains live
+    # in ``items`` while the map is used, so its id cannot be recycled; the summary ledger gets
+    # only the tokens, never annotation ids or CAD graphs (#1147 review).
+    pair_tokens = {id(item): object() for item in items} if _aggregation is not None else {}
 
     # Resolve page bounds: explicit arg beats module-level context.
     if page_bbox is None and _DRAWING_PAGE is not None:
@@ -312,6 +316,7 @@ def lint_drawing(
                     box_cache,
                     warned=warned_label_bbox,
                     aggregation=_aggregation,
+                    subject_token=pair_tokens.get(id(dim_item)),
                 )
                 continue
 
@@ -719,7 +724,13 @@ def _lint_view_shapes(
 
 
 def _lint_centerline_dim_overlap(
-    dim_item, cl_item, issues, box_cache=None, warned=None, aggregation=None
+    dim_item,
+    cl_item,
+    issues,
+    box_cache=None,
+    warned=None,
+    aggregation=None,
+    subject_token=None,
 ) -> None:
     """Flag label-vs-centerline overlap for a (dim, centerline) pair.
 
@@ -776,10 +787,10 @@ def _lint_centerline_dim_overlap(
             code="label_centerline_overlap",
         )
         issues.append(issue)
-        if aggregation is not None:
+        if aggregation is not None and subject_token is not None:
             # The side ledger sees which half of the pair owns the readability defect;
             # neither the annotation nor its run-local identity enters public diagnostics.
-            aggregation.record_pair(issue, dim_item)
+            aggregation.record_pair(issue, subject_token)
 
 
 def _lint_dim(item, part_bbox, issues, drawing_scale: float = 1.0, box_cache=None) -> None:

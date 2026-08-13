@@ -46,12 +46,9 @@ class _IssueAggregation:
     """
 
     def __init__(self) -> None:
-        self._tokens_by_annotation_id: dict[int, object] = {}
         self._tokens_by_issue_id: dict[int, object] = {}
 
-    def record_pair(self, issue: LintIssue, annotation) -> None:
-        annotation_id = id(annotation)
-        token = self._tokens_by_annotation_id.setdefault(annotation_id, object())
+    def record_pair(self, issue: LintIssue, token: object) -> None:
         self._tokens_by_issue_id[id(issue)] = token
 
     def token_for(self, issue: LintIssue):

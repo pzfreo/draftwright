@@ -165,6 +165,45 @@ def test_separate_lint_runs_have_independent_summary_scoped_group_tokens():
     assert all(second_aggregation.token_for(issue) is None for issue in first)
 
 
+def test_separate_structural_passes_in_one_summary_ledger_get_distinct_tokens():
+    aggregation = _IssueAggregation()
+    first, _ = _two_labels_crossed_by_five_centre_marks(aggregation)
+    second, _ = _two_labels_crossed_by_five_centre_marks(aggregation)
+
+    combined = _legibility([*first, *second], aggregation)
+
+    assert combined["raw_issues"] == 20
+    assert combined["primary_issues"] == 4
+    assert aggregation.token_for(first[0]) is not aggregation.token_for(second[0])
+
+
+def test_multi_scale_drawing_groups_each_annotation_inside_its_own_structural_pass():
+    drawing = build_drawing(Box(20, 15, 10))
+    items = _crossed_items()
+    for item in items[:1] + items[2:7]:
+        item._dw_scale = 1.0
+    for item in items[1:2]:
+        item._dw_scale = 2.0
+    # Give the second label its own five centre marks in the second scale group.
+    second_marks = [
+        SimpleNamespace(
+            is_centerline=True,
+            segments=mark.segments,
+            _dw_scale=2.0,
+        )
+        for mark in items[2:7]
+    ]
+    drawing.items = [items[0], *items[2:7], items[1], *second_marks]
+    drawing.views.clear()
+    drawing.part = None
+
+    legibility = drawing.lint_summary()["quality"]["legibility"]
+
+    assert legibility["raw_issues"] == 10
+    assert legibility["primary_issues"] == 2
+    assert legibility["score"] == pytest.approx(0.9)
+
+
 def test_legacy_summary_counts_and_diagnostic_score_keep_raw_finding_semantics():
     drawing = build_drawing(Box(20, 15, 10))
     drawing.items = _crossed_items()
