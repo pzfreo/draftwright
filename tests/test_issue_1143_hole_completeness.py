@@ -340,6 +340,30 @@ def test_unique_declared_blind_tool_center_corresponds_to_its_recognised_opening
     assert all(item.state == "placed" for item in outcomes)
 
 
+def test_separate_declared_blind_tools_cover_one_physical_loose_group():
+    plate = Box(80, 50, 20, align=_XYZ_MIN)
+    tools = [Pos(x, 7, 12) * Cylinder(4, 8, align=_XYZ_MIN) for x in (-15, 15)]
+    part = plate
+    for tool in tools:
+        part -= tool
+    sheet = Sheet(part).auto_dimensions()
+    for tool in tools:
+        sheet.hole(tool).depth(8)
+    sheet.envelope()
+
+    drawing = sheet.build()
+    outcomes = _outcomes(drawing)
+    assert {item.parameter_id for item in outcomes} == {
+        "bore.depth",
+        "bore.diameter",
+        "grouping.count",
+        "location.location.x",
+        "location.location.y",
+    }
+    assert all(item.state == "placed" for item in outcomes)
+    assert _completeness(drawing)["audited_score"] == 1.0
+
+
 def test_grid_pattern_accounts_for_both_independent_pitch_measurements():
     drawing = build_drawing(_grid_pattern(), page="A3")
     outcomes = _outcomes(drawing)

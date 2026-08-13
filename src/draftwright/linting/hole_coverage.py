@@ -142,6 +142,58 @@ def _projected_hole_key(spec, members) -> tuple:
     return (spec, tuple(sorted(projected)))
 
 
+def _projected_hole_partitions(spec, members, features) -> tuple[tuple, ...]:
+    """Return at most two exact feature covers of projected physical members.
+
+    A loose recognition group may correspond to one grouped ``HoleFeature`` or to one
+    object-backed declared feature per member.  Enumerating only until a second distinct
+    exact cover is enough: one cover is a safe residual bijection; zero is absent and two
+    is ambiguous.  Choosing the least-supported remaining member keeps ordinary many-hole
+    declared groups linear while still handling grouped candidates.
+    """
+    target = Counter(members)
+    eligible = []
+    for feature in features:
+        if _feature_spec(feature) != spec:
+            continue
+        coverage = Counter(_projected_members(feature))
+        if coverage and coverage <= target:
+            eligible.append((feature, coverage))
+
+    solutions: list[tuple] = []
+    solution_ids: set[frozenset[int]] = set()
+
+    def search(remaining: Counter, chosen: tuple, used: frozenset[int]) -> None:
+        if len(solutions) >= 2:
+            return
+        if not remaining:
+            identity = frozenset(id(feature) for feature in chosen)
+            if identity not in solution_ids:
+                solution_ids.add(identity)
+                solutions.append(chosen)
+            return
+        feasible = [
+            (feature, coverage)
+            for feature, coverage in eligible
+            if id(feature) not in used and coverage <= remaining
+        ]
+        if not feasible:
+            return
+        anchor = min(
+            remaining,
+            key=lambda point: sum(coverage[point] > 0 for _feature, coverage in feasible),
+        )
+        for feature, coverage in feasible:
+            if coverage[anchor] <= 0:
+                continue
+            next_remaining = remaining.copy()
+            next_remaining.subtract(coverage)
+            search(+next_remaining, (*chosen, feature), used | {id(feature)})
+
+    search(target, (), frozenset())
+    return tuple(solutions)
+
+
 def _unoriented_direction(value):
     if value is None:
         return None
@@ -556,12 +608,13 @@ def hole_requirement_outcomes(
         if kind == "hole":
             source_spec, source_members = key
             projected_key = _projected_hole_key(source_spec, source_members)
-            candidates = tuple(
-                feature
-                for feature in hole_features
-                if id(feature) not in used_feature_ids
-                and (_feature_spec(feature), _projected_members(feature)) == projected_key
+            candidate_features = tuple(
+                feature for feature in hole_features if id(feature) not in used_feature_ids
             )
+            partitions = _projected_hole_partitions(
+                source_spec, projected_key[1], candidate_features
+            )
+            candidates = partitions[0] if len(partitions) == 1 else ()
         else:
             projected_key = _projected_pattern_key(source)
             candidates = tuple(
@@ -570,6 +623,8 @@ def hole_requirement_outcomes(
                 if id(feature) not in used_feature_ids
                 and _projected_pattern_key(feature) == projected_key
             )
+            if len(candidates) != 1:
+                candidates = ()
         if candidates:
             residual_proposals[index] = candidates
 
@@ -577,7 +632,7 @@ def hole_requirement_outcomes(
         id(feature) for proposal in residual_proposals.values() for feature in proposal
     )
     for index, proposal in residual_proposals.items():
-        if len(proposal) == 1 and residual_claims[id(proposal[0])] == 1:
+        if all(residual_claims[id(feature)] == 1 for feature in proposal):
             matches_by_source[index] = proposal
 
     placed = {
