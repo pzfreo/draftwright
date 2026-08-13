@@ -78,6 +78,7 @@ _DRAWING_PRIVATES: frozenset[str] = frozenset(
         "_drop_view_coordinates",
         "_hole_spec_groups",
         "_is_scattered_hole_doc",
+        "_lint",
         "_lint_and_log",
         "_part_model",
         "_place_dim",
