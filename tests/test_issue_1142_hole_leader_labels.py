@@ -1,5 +1,6 @@
 """Regression coverage for semantic hole-callout leader labels (#1142)."""
 
+import math
 from types import SimpleNamespace
 
 from build123d import Align, Box, Cylinder, Pos
@@ -7,7 +8,7 @@ from build123d_drafting.helpers import draft_preset
 
 from draftwright import Sheet, build_drawing
 from draftwright.annotations.from_model import callout_from_spec
-from draftwright.linting import lint_drawing
+from draftwright.linting import lint_drawing, lint_feature_coverage
 from draftwright.model import hole
 
 
@@ -105,3 +106,20 @@ def test_centerline_overlap_uses_text_bbox_not_full_leader_footprint():
         for issue in lint_drawing([leader, centerline])
         if issue.code == "label_centerline_overlap"
     ]
+
+
+def test_structured_callout_label_does_not_claim_its_bolt_circle_as_a_feature():
+    part = Cylinder(30, 10)
+    for index in range(5):
+        angle = 2 * math.pi * index / 5
+        part -= Pos(20 * math.cos(angle), 20 * math.sin(angle), 0) * Cylinder(3, 10)
+    callout = SimpleNamespace(
+        label="5× ⌀6 THRU EQ SP ON ø60 BC",
+        covers_diameters=(6.0,),
+        covers_count=5,
+    )
+
+    issues = lint_feature_coverage(part, [callout], assembly=False)
+    assert any(
+        issue.code == "feature_not_dimensioned" and "ø60" in issue.message for issue in issues
+    )

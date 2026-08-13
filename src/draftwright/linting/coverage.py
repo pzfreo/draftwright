@@ -272,13 +272,14 @@ def lint_feature_coverage(
             continue
         structured_diameters = tuple(getattr(ann, "covers_diameters", ()))
         label = getattr(ann, "label", None) or ""
-        for m in _DIAM_RE.finditer(label):
-            mentioned.add(float(m.group(1)))
+        if not structured_diameters:
             # A geometric HoleCallout now exposes an equivalent semantic label (#1142),
-            # but remains structured coverage: its ``covers_count`` is authoritative.
-            # Only genuinely unstructured text waives the count check. Treating the same
-            # annotation as both would let a one-hole callout certify an N-hole feature.
-            if not structured_diameters:
+            # but remains structured coverage. Parsing it again could both waive its
+            # ``covers_count`` check and mistake a bolt-circle suffix (``ø60 BC``) for
+            # coverage of a physical ø60 feature. Only genuinely unstructured text enters
+            # the text inventory; structured annotations are described completely below.
+            for m in _DIAM_RE.finditer(label):
+                mentioned.add(float(m.group(1)))
                 text_mentioned.add(float(m.group(1)))
         count = getattr(ann, "covers_count", 1)
         for v in structured_diameters:
