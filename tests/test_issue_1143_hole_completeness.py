@@ -10,6 +10,8 @@ from draftwright import Sheet, build_drawing
 from draftwright.linting.hole_coverage import hole_requirement_outcomes
 from draftwright.linting.issues import LintIssue
 from draftwright.model.compiled import compile_dimensions
+from draftwright.model.declare import hole as declare_hole
+from draftwright.model.declare import pattern as declare_pattern
 
 _XYZ_MIN = (Align.CENTER, Align.CENTER, Align.MIN)
 
@@ -55,6 +57,16 @@ def _linear_pattern():
     for x in (-25, 0, 25):
         part -= Pos(x, 10, 0) * Cylinder(3, 10, align=_XYZ_MIN)
     return part
+
+
+def _declared_model(part, feature):
+    detected = build_drawing(part, auto_dims=False).model()
+    retained = [
+        candidate
+        for candidate in detected.features
+        if getattr(candidate, "kind", None) not in {"hole", "pattern"}
+    ]
+    return replace(detected, features=[feature, *retained])
 
 
 def _grid_pattern():
@@ -285,6 +297,72 @@ def test_linear_pattern_correspondence_treats_opposite_directions_as_the_same_ax
 
     drawing = build_drawing(part, model=declared, page="A3")
     assert all(item.state == "placed" for item in _outcomes(drawing))
+
+
+@pytest.mark.parametrize(
+    ("part", "feature"),
+    [
+        (
+            _linear_pattern(),
+            declare_pattern(
+                declare_hole(diameter=6, at=(0, 10, 0), axis="z"),
+                kind="linear",
+                count=3,
+                at=(0, 10, 0),
+                pitch=25,
+            ),
+        ),
+        (
+            _grid_pattern(),
+            declare_pattern(
+                declare_hole(diameter=6, at=(0, 0, 0), axis="z"),
+                kind="grid",
+                count=6,
+                at=(0, 0, 0),
+                grid=(30, 25),
+                rows=2,
+                cols=3,
+            ),
+        ),
+    ],
+    ids=("linear-default-direction", "grid-default-angle"),
+)
+def test_declared_pattern_defaults_correspond_to_recognition(part, feature):
+    drawing = build_drawing(part, model=_declared_model(part, feature), page="A3")
+
+    outcomes = _outcomes(drawing)
+    assert outcomes
+    assert all(item.state == "placed" for item in outcomes)
+    assert _completeness(drawing)["audited_score"] == 1.0
+
+
+def test_declared_blind_pattern_tool_centres_correspond_to_recognised_openings():
+    plate = Box(100, 60, 20, align=_XYZ_MIN)
+    tools = [Pos(x, 10, 12) * Cylinder(3, 8, align=_XYZ_MIN) for x in (-25, 0, 25)]
+    part = plate
+    for tool in tools:
+        part -= tool
+    member = declare_hole(tools[1], through=False, depth=8)
+    feature = declare_pattern(
+        member,
+        kind="linear",
+        count=3,
+        at=member.frame.origin,
+        pitch=25,
+        direction=(1, 0, 0),
+    )
+
+    drawing = build_drawing(part, model=_declared_model(part, feature), page="A3")
+    outcomes = _outcomes(drawing)
+    assert {item.parameter_id for item in outcomes} == {
+        "bore.depth",
+        "bore.diameter",
+        "grouping.count",
+        "location_pattern.location.x",
+        "location_pattern.location.y",
+        "pitch.length",
+    }
+    assert all(item.state == "placed" for item in outcomes)
 
 
 def test_off_axis_pattern_keeps_absolute_location_requirements_fail_closed():
@@ -640,14 +718,14 @@ def test_through_and_grouping_outcomes_require_structured_callout_facts():
     assert outcomes["grouping.count"] == "missing", "an over-count is not physical coverage"
 
 
-def test_duplicate_count_facts_cannot_over_certify_a_hole_group():
+def test_duplicate_truthful_count_facts_do_not_erase_coverage():
     drawing = build_drawing(_linear_pattern(), page="A3")
     feature = next(feature for feature in drawing.model().features if feature.kind == "pattern")
     duplicate = drawing.callout(feature)
     assert duplicate is not None
 
     outcomes = {item.parameter_id: item.state for item in _outcomes(drawing)}
-    assert outcomes["grouping.count"] == "missing"
+    assert outcomes["grouping.count"] == "placed"
 
 
 def test_through_fact_is_independent_of_diameter_provenance():

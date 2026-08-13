@@ -154,6 +154,18 @@ def _pattern_kind(pattern) -> str:
     return "linear"
 
 
+def _default_linear_direction(pattern):
+    """The declared linear default, derived from its already-materialised members."""
+    members = _members(pattern)
+    if len(members) < 2:
+        return None
+    start, end = max(
+        ((a, b) for index, a in enumerate(members) for b in members[index + 1 :]),
+        key=lambda pair: sum((pair[1][i] - pair[0][i]) ** 2 for i in range(3)),
+    )
+    return tuple(end[i] - start[i] for i in range(3))
+
+
 def _pattern_key(pattern) -> tuple:
     recognised = getattr(pattern, "holes", None)
     if recognised is not None:
@@ -181,6 +193,10 @@ def _pattern_key(pattern) -> tuple:
         cols = getattr(pattern, "cols", None)
         angle = getattr(pattern, "angle", None)
         spec = _feature_spec(pattern)
+    if kind == "linear" and direction is None:
+        direction = _default_linear_direction(pattern)
+    if kind == "grid" and angle is None:
+        angle = 0.0
     return (
         kind,
         spec,
@@ -193,6 +209,13 @@ def _pattern_key(pattern) -> tuple:
         cols,
         None if angle is None else _rounded(float(angle) % 180.0),
     )
+
+
+def _projected_pattern_key(pattern) -> tuple:
+    """Pattern identity with only the drilling-axis opening coordinate relaxed."""
+    key = list(_pattern_key(pattern))
+    key[2] = _projected_members(pattern)
+    return tuple(key)
 
 
 def _source_at(source) -> tuple[float, float, float]:
@@ -317,7 +340,7 @@ def _synthetic_placed(registry, features, parameter: str, member_count: int) -> 
             for feature in features
             for name in registry.names_for_feature(feature)
         )
-    covered_count = 0
+    counts_by_feature: dict[object, set[int]] = defaultdict(set)
     for name in registry.names():
         for feature, requirement, count in getattr(
             registry.named(name), "covers_hole_requirements_by_feature", ()
@@ -327,7 +350,7 @@ def _synthetic_placed(registry, features, parameter: str, member_count: int) -> 
             if parameter == "bore.through":
                 return True
             if parameter == "grouping.count":
-                covered_count += int(count)
+                counts_by_feature[feature].add(int(count))
     for feature in features:
         for name in registry.names_for_feature(feature):
             annotation = registry.named(name)
@@ -340,10 +363,19 @@ def _synthetic_placed(registry, features, parameter: str, member_count: int) -> 
             if parameter == "bore.through" and parameter in covered:
                 return True
             if parameter == "grouping.count":
-                covered_count += int(getattr(annotation, "covers_count", 1) or 1)
+                counts_by_feature[feature].add(int(getattr(annotation, "covers_count", 1) or 1))
     # Cardinality is a definition, not minimum coverage: 3× cannot truthfully certify a
     # physical two-hole group, and duplicate count-bearing annotations must fail closed.
-    return parameter == "grouping.count" and covered_count == member_count
+    if parameter != "grouping.count":
+        return False
+    # One exact group claim is sufficient.  A declared model may instead retain one
+    # independently called-out feature per physical member, so accept an exact partition
+    # across distinct feature owners.  Duplicate annotations of the same feature add no
+    # cardinality; conflicting claims remain alternatives rather than being summed.
+    possible = {0}
+    for claims in counts_by_feature.values():
+        possible = {subtotal + claim for subtotal in possible for claim in claims}
+    return member_count in possible
 
 
 def _state(features, parameter, *, member_count, placed, suppressed, dropped, registry):
@@ -451,6 +483,9 @@ def hole_requirement_outcomes(
     hole_features = tuple(
         feature for feature in features if getattr(feature, "kind", None) == "hole"
     )
+    pattern_features = tuple(
+        feature for feature in features if getattr(feature, "kind", None) == "pattern"
+    )
 
     placed = {
         measurement for name in registry.names() for measurement in registry.measurement_of(name)
@@ -486,6 +521,18 @@ def hole_requirement_outcomes(
                 # retains its opening. Projecting away that axial offset is evidence only
                 # when one machining-spec candidate exists; opposed/same-axis alternatives
                 # remain ambiguous and therefore fail closed.
+                matches = candidates
+        elif kind == "hole_pattern" and not matches:
+            candidates = tuple(
+                feature
+                for feature in pattern_features
+                if _projected_pattern_key(feature) == _projected_pattern_key(source)
+            )
+            if len(candidates) == 1:
+                # As for a declared blind HoleFeature, object-backed pattern members retain
+                # cutter centres while recognition owns opening points.  Projection is safe
+                # only for one exact pattern-definition candidate; opposed/coincident
+                # alternatives remain ambiguous and fail closed.
                 matches = candidates
         expected_matches = source_counts[(kind, key)]
         # Detected IR groups a loose machining-spec family into one HoleFeature; a declared
