@@ -52,6 +52,16 @@ def _opposed_blind_holes():
     return part
 
 
+def _opposed_blind_patterns():
+    xyz_min = (Align.CENTER, Align.CENTER, Align.MIN)
+    plate = Box(100, 60, 20, align=xyz_min)
+    part = plate
+    for z in (0, 15):
+        for x in (-25, 0, 25):
+            part -= Pos(x, 10, z) * Cylinder(3, 5, align=xyz_min)
+    return part
+
+
 def _linear_pattern():
     part = Box(100, 60, 10, align=_XYZ_MIN)
     for x in (-25, 0, 25):
@@ -243,6 +253,28 @@ def test_opposite_face_blind_holes_remain_two_physical_requirement_groups():
     assert _completeness(drawing)["requirements"] == 8
 
 
+def test_one_declared_blind_hole_cannot_certify_two_opposed_physical_bores():
+    part = _opposed_blind_holes()
+    detected = build_drawing(part, page="A3").model()
+    holes = [feature for feature in detected.features if feature.kind == "hole"]
+    assert len(holes) == 2
+    retained = [
+        feature for feature in detected.features if feature.kind not in {"hole", "pattern"}
+    ]
+    declared = replace(detected, features=[holes[0], *retained])
+
+    drawing = build_drawing(part, model=declared, page="A3")
+    outcomes = _outcomes(drawing)
+    assert len([item for item in outcomes if item.state == "placed"]) == 4
+    unverifiable = [item for item in outcomes if item.state == "unverifiable"]
+    assert len(unverifiable) == 1
+    assert unverifiable[0].requirement_count == 4
+    completeness = _completeness(drawing)
+    assert completeness["requirements"] == 8
+    assert completeness["placed"] == 4
+    assert completeness["unverifiable"] == 4
+
+
 def test_unique_declared_blind_tool_center_corresponds_to_its_recognised_opening():
     xyz_min = (Align.CENTER, Align.CENTER, Align.MIN)
     plate = Box(80, 50, 20, align=xyz_min)
@@ -363,6 +395,28 @@ def test_declared_blind_pattern_tool_centres_correspond_to_recognised_openings()
         "pitch.length",
     }
     assert all(item.state == "placed" for item in outcomes)
+
+
+def test_one_declared_blind_pattern_cannot_certify_two_opposed_physical_patterns():
+    part = _opposed_blind_patterns()
+    detected = build_drawing(part, page="A3").model()
+    patterns = [feature for feature in detected.features if feature.kind == "pattern"]
+    assert len(patterns) == 2
+    retained = [
+        feature for feature in detected.features if feature.kind not in {"hole", "pattern"}
+    ]
+    declared = replace(detected, features=[patterns[0], *retained])
+
+    drawing = build_drawing(part, model=declared, page="A3")
+    outcomes = _outcomes(drawing)
+    assert len([item for item in outcomes if item.state == "placed"]) == 6
+    unverifiable = [item for item in outcomes if item.state == "unverifiable"]
+    assert len(unverifiable) == 1
+    assert unverifiable[0].requirement_count == 6
+    completeness = _completeness(drawing)
+    assert completeness["requirements"] == 12
+    assert completeness["placed"] == 6
+    assert completeness["unverifiable"] == 6
 
 
 def test_off_axis_pattern_keeps_absolute_location_requirements_fail_closed():

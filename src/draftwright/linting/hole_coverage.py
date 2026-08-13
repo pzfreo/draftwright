@@ -132,6 +132,16 @@ def _projected_members(source) -> tuple[tuple[float, float, float], ...]:
     return tuple(sorted((point[0], point[1], point[2]) for point in points))
 
 
+def _projected_hole_key(spec, members) -> tuple:
+    projected = []
+    index = "xyz".index(spec[0])
+    for member in members:
+        point = list(member)
+        point[index] = 0.0
+        projected.append((point[0], point[1], point[2]))
+    return (spec, tuple(sorted(projected)))
+
+
 def _unoriented_direction(value):
     if value is None:
         return None
@@ -486,6 +496,22 @@ def hole_requirement_outcomes(
     pattern_features = tuple(
         feature for feature in features if getattr(feature, "kind", None) == "pattern"
     )
+    projected_pattern_sources = Counter(
+        _projected_pattern_key(source)
+        for source_kind, source, _key, _member_count in sources
+        if source_kind == "hole_pattern"
+    )
+    projected_pattern_features = Counter(
+        _projected_pattern_key(feature) for feature in pattern_features
+    )
+    projected_hole_sources = Counter(
+        _projected_hole_key(key[0], key[1])
+        for source_kind, _source, key, _member_count in sources
+        if source_kind == "hole"
+    )
+    projected_hole_features = Counter(
+        (_feature_spec(feature), _projected_members(feature)) for feature in hole_features
+    )
 
     placed = {
         measurement for name in registry.names() for measurement in registry.measurement_of(name)
@@ -506,6 +532,7 @@ def hole_requirement_outcomes(
         matches = tuple(ir_by_key.get((kind, key), ()))
         if kind == "hole" and not matches:
             source_spec, source_members = key
+            projected_key = _projected_hole_key(source_spec, source_members)
             candidates = tuple(
                 feature for feature in hole_features if _feature_spec(feature) == source_spec
             )
@@ -514,25 +541,34 @@ def hole_requirement_outcomes(
             )
             if candidate_members == source_members:
                 matches = candidates
-            elif len(candidates) == 1 and _projected_members(candidates[0]) == _projected_members(
-                source
+            elif (
+                len(candidates) == 1
+                and (_feature_spec(candidates[0]), _projected_members(candidates[0]))
+                == projected_key
+                and projected_hole_sources[projected_key] == 1
+                and projected_hole_features[projected_key] == 1
             ):
                 # Object declarations retain the blind cutter's centre while recognition
-                # retains its opening. Projecting away that axial offset is evidence only
-                # when one machining-spec candidate exists; opposed/same-axis alternatives
-                # remain ambiguous and therefore fail closed.
+                # retains its opening. Projection is evidence only for a global
+                # one-source/one-candidate correspondence; an opposed physical bore must
+                # not reuse the same declared owner.
                 matches = candidates
         elif kind == "hole_pattern" and not matches:
+            projected_key = _projected_pattern_key(source)
             candidates = tuple(
                 feature
                 for feature in pattern_features
-                if _projected_pattern_key(feature) == _projected_pattern_key(source)
+                if _projected_pattern_key(feature) == projected_key
             )
-            if len(candidates) == 1:
+            if (
+                len(candidates) == 1
+                and projected_pattern_sources[projected_key] == 1
+                and projected_pattern_features[projected_key] == 1
+            ):
                 # As for a declared blind HoleFeature, object-backed pattern members retain
                 # cutter centres while recognition owns opening points.  Projection is safe
-                # only for one exact pattern-definition candidate; opposed/coincident
-                # alternatives remain ambiguous and fail closed.
+                # only for a global one-source/one-candidate correspondence; opposed or
+                # coincident sources must not reuse the same declared owner.
                 matches = candidates
         expected_matches = source_counts[(kind, key)]
         # Detected IR groups a loose machining-spec family into one HoleFeature; a declared
