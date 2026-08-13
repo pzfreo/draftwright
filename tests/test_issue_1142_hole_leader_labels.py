@@ -5,10 +5,11 @@ from types import SimpleNamespace
 
 import pytest
 from build123d import Align, Box, Cylinder, Pos
-from build123d_drafting.helpers import draft_preset
+from build123d_drafting.helpers import HoleCallout, draft_preset
 
 from draftwright import Sheet, build_drawing
 from draftwright.annotations.from_model import callout_from_spec
+from draftwright.annotations.holes import _profiled_callout_leader
 from draftwright.fits import fit_class
 from draftwright.linting import lint_drawing, lint_feature_coverage
 from draftwright.model import hole
@@ -94,6 +95,16 @@ def test_callout_semantic_label_covers_the_rendered_compound_grammar():
 
     assert callout is not None
     assert callout.label == "4× ⌀8 ↧ 12 ⌴ ⌀14 ↧ 2 ⌵ ⌀16 × 90° EQ SP ON ø50 BC"
+
+
+def test_hole_leader_seam_rejects_a_labelless_geometric_callout():
+    callout = HoleCallout("8", through=True, draft=draft_preset(decimal_precision=1))
+    assert callout.label == ""  # upstream helper's geometry-only metadata contract
+
+    with pytest.raises(
+        ValueError, match="a rendered hole callout must carry a non-empty semantic label"
+    ):
+        _profiled_callout_leader(callout=callout)
 
 
 def test_automatic_hole_leaders_expose_nonempty_semantic_labels():
