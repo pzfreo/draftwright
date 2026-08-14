@@ -16,7 +16,13 @@ from draftwright.model.declare import hole as declare_hole
 from draftwright.model.declare import pattern as declare_pattern
 from draftwright.model.detect import build_part_model
 from draftwright.model.ir import Frame, StepFeature
-from draftwright.recognition import BoltCircle, HoleRecord, LinearArray, build_recognition_result
+from draftwright.recognition import (
+    BoltCircle,
+    HoleRecord,
+    LinearArray,
+    build_recognition_result,
+    recognise_hole_patterns,
+)
 from draftwright.registry import AnnotationRegistry
 
 _XYZ_MIN = (Align.CENTER, Align.CENTER, Align.MIN)
@@ -910,7 +916,7 @@ def test_default_linear_direction_uses_bounded_member_traversal(monkeypatch):
 
     assert key[7] == (1.0, 0.0, 0.0)
     assert calls == 1
-    assert visits == 2
+    assert visits <= 2 * pattern.count + 1
 
 
 def test_overlapping_declared_covers_fail_closed_with_bounded_work(monkeypatch):
@@ -1077,6 +1083,38 @@ def test_declared_pattern_defaults_correspond_to_recognition(part, feature):
     assert outcomes
     assert all(item.state == "placed" for item in outcomes)
     assert _completeness(drawing)["audited_score"] == 1.0
+
+
+def test_default_linear_direction_matches_recogniser_accepted_step_noise():
+    holes = tuple(
+        HoleRecord(
+            axis=(0.0, 0.0, 1.0),
+            location=location,
+            diameter=6.0,
+            depth=10.0,
+            bottom="through",
+        )
+        for location in ((0.05, -10.0, 0.0), (0.0, 0.0, 0.0), (0.06, 10.0, 0.0))
+    )
+    patterns = recognise_hole_patterns(holes)
+    assert len(patterns) == 1 and isinstance(patterns[0], LinearArray)
+    part = Box(60, 40, 10, align=_XYZ_MIN)
+    model = build_part_model(part, holes=holes, patterns=tuple(patterns))
+    declared = tuple(
+        replace(feature, direction=None) if feature.kind == "pattern" else feature
+        for feature in model.features
+    )
+    recognition = replace(
+        build_recognition_result(part),
+        holes=holes,
+        hole_patterns=tuple(patterns),
+        countersinks=(),
+    )
+
+    outcomes = hole_requirement_outcomes(recognition, declared, AnnotationRegistry())
+
+    assert len(outcomes) == 6
+    assert {item.state for item in outcomes} == {"missing"}
 
 
 def test_declared_blind_pattern_tool_centres_correspond_to_recognised_openings():

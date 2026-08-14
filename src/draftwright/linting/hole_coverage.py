@@ -199,10 +199,16 @@ def _default_linear_direction(members):
     """The declared linear default, derived from sorted materialised members."""
     if len(members) < 2:
         return None
-    # Linear-pattern members are collinear. `_members` sorts them lexicographically,
-    # therefore its endpoints define the unoriented array axis without an all-pairs
-    # farthest-point search (#1143).
-    start, end = members[0], members[-1]
+    # Two linear scans find the endpoints of a collinear set without the quadratic
+    # farthest-pair search.  Unlike lexicographic endpoints, this remains stable when
+    # recogniser-accepted STEP noise perturbs the nominally constant cross-axis coordinate.
+    anchor = members[0]
+
+    def distance_squared(a, b):
+        return sum((b[index] - a[index]) ** 2 for index in range(3))
+
+    start = max(members, key=lambda point: distance_squared(anchor, point))
+    end = max(members, key=lambda point: distance_squared(start, point))
     return tuple(end[i] - start[i] for i in range(3))
 
 
