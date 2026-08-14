@@ -575,6 +575,26 @@ def test_guarded_assignment_is_bounded_and_fails_an_infeasible_flow_closed(monke
     assert dropped == member_count
 
 
+def test_guarded_solver_budget_rolls_the_automatic_table_transaction_back(monkeypatch):
+    import draftwright.layout as layout_module
+
+    # Make the production resource guard load-bearing without constructing a
+    # pathological state matrix in the test process.  Exceeding the budget is
+    # an ordinary infeasible guarded inventory: the shared table and all of its
+    # balloons must lose to the complete feature-backed fallback inventory.
+    monkeypatch.setattr(layout_module, "_GUARDED_STRIP_MAX_STATES", 1)
+
+    drawing = build_drawing(_dense_scattered_plate(), page="A3")
+
+    assert "hole_table_plan" not in drawing.annotations()
+    assert not [name for name in drawing.annotations() if name.startswith("balloon_plan_")]
+    assert len([name for name in drawing.annotations() if name.startswith("hc_plan")]) == 17
+    codes = [issue.code for issue in drawing.registry.issues]
+    assert "table_dropped" in codes
+    assert "balloon_dropped" in codes
+    assert not [issue for issue in drawing.lint() if issue.code == "hole_requirement_missing"]
+
+
 def test_real_shaft_crossing_carves_the_guarded_band_without_aabb_sampling():
     from draftwright.annotations.balloons import (
         _balloon_shaft_segments,

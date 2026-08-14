@@ -12,7 +12,9 @@
   clear of retained callout labels without changing the existing additive
   `add_hole_table()`/`add_balloons()` behavior. Compound, thread, profile, pattern, tolerance, and
   fit facts the table cannot state remain active, while independently replaceable X/Y locations
-  may still move to the table. Hole outcomes identify the winning representation per requirement;
+  may still move to the table. Guarded interval solving has a deterministic work/state budget;
+  an adversarially fragmented band fails the replacement closed before excessive allocation.
+  Hole outcomes identify the winning representation per requirement;
   mixed table/feature evidence deliberately claims no single winner. Exceptions restore those
   semantic markers, and automatic escalation fails closed rather than overwrite an existing
   annotation that owns a reserved table or balloon name.

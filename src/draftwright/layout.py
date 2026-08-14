@@ -51,6 +51,11 @@ from typing import Literal, NamedTuple
 Axis = Literal["x", "y"]
 _LAYOUT_EPSILON = 1e-9
 _FLOW_COST_SCALE = 1000
+# The guarded DP allocates three count×coordinate matrices; these caps keep that
+# inventory to tens—not thousands—of MiB and bound the preceding interval scan.
+# They are safety limits, not layout heuristics: hitting either returns infeasible.
+_GUARDED_STRIP_MAX_STATES = 500_000
+_GUARDED_STRIP_MAX_INTERVAL_PROBES = 2_000_000
 
 
 # ---------------------------------------------------------------------------
@@ -109,6 +114,13 @@ def _solve_guarded_strip_1d(naturals, min_gap, allowed_segments):
     an interval boundary, its natural position, or another coordinate's
     ``min_gap`` boundary.  Adding every such source shifted by up to ``n`` gaps
     therefore contains a feasible representative whenever one exists.
+
+    Candidate expansion is deliberately resource-bounded.  A dense inventory
+    crossed with many disjoint label keep-outs can otherwise create millions of
+    Python DP cells before the caller gets a chance to restore its fallbacks.
+    Returning ``None`` at the budget is the conservative result: guarded balloon
+    placement treats it exactly like any other infeasible inventory and fails the
+    replacement transaction closed (ADR 0014 Policy B).
     """
     if not naturals:
         return []
@@ -127,9 +139,20 @@ def _solve_guarded_strip_1d(naturals, min_gap, allowed_segments):
             if hi < lo:
                 raise ValueError("allowed segment has descending bounds")
             sources.update((float(lo), float(hi), min(max(float(natural), lo), hi)))
-    coordinates = sorted(
-        {source + offset * min_gap for source in sources for offset in range(-count, count + 1)}
+    total_segments = sum(len(segments) for segments in allowed_segments)
+    coordinate_budget = min(
+        _GUARDED_STRIP_MAX_STATES // count,
+        _GUARDED_STRIP_MAX_INTERVAL_PROBES // total_segments,
     )
+    if coordinate_budget <= 0:
+        return None
+    coordinate_set: set[float] = set()
+    for source in sources:
+        for offset in range(-count, count + 1):
+            coordinate_set.add(source + offset * min_gap)
+            if len(coordinate_set) > coordinate_budget:
+                return None
+    coordinates = sorted(coordinate_set)
 
     allowed = [
         [any(lo <= value <= hi for lo, hi in segments) for value in coordinates]

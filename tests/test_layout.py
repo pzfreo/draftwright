@@ -146,6 +146,41 @@ class TestSolveStrip1d:
         with pytest.raises(ValueError, match="descending"):
             _solve_guarded_strip_1d([0.0], 5.0, [[(2.0, 1.0)]])
 
+    def test_guarded_solve_fails_closed_before_dense_interval_state_explodes(self):
+        # A valid dense sheet may leave dozens of disjoint free intervals per
+        # balloon after retained-label keep-outs are carved.  Expanding every
+        # boundary by every possible gap used to allocate more than a gigabyte
+        # for a 61-member band before transactional fallback could run.
+        count = 61
+        allowed = [
+            [
+                (float(interval * 30 + member), float(interval * 30 + member + 20))
+                for interval in range(40)
+            ]
+            for member in range(count)
+        ]
+
+        assert (
+            _solve_guarded_strip_1d(
+                [float(member * 11) for member in range(count)],
+                11.0,
+                allowed,
+            )
+            is None
+        )
+
+    def test_guarded_solve_keeps_a_dense_unfragmented_band_within_budget(self):
+        naturals = [float(member * 11) for member in range(61)]
+
+        assert (
+            _solve_guarded_strip_1d(
+                naturals,
+                11.0,
+                [[(0.0, 1000.0)] for _member in naturals],
+            )
+            == naturals
+        )
+
     def test_deterministic_across_runs(self):
         args = ([1.0, 1.0, 1.0, 1.0], 3.0, 0.0, 100.0)
         assert _solve_strip_1d(*args) == _solve_strip_1d(*args)
