@@ -784,6 +784,16 @@ def _label_centerline_overlap(dim_item, cl_item, box_cache=None, warned=None):
         return None
     lmin_x, lmin_y, lmax_x, lmax_y = label_bbox
 
+    # A diagonal or elbowed centreline's aggregate AABB contains a large empty
+    # triangle.  ADR 0009 makes its real segments authoritative: the AABB remains
+    # useful for overlap magnitude/reporting, but cannot create a warning unless at
+    # least one rendered shaft actually reaches the label box.
+    segments = getattr(cl_item, "segments", None)
+    if segments and not any(
+        _segment_clips_box(start, end, label_bbox, pad=0.0) for start, end in segments
+    ):
+        return None
+
     cl_w = cl_max_x - cl_min_x
     cl_h = cl_max_y - cl_min_y
     if cl_w < 0.1:

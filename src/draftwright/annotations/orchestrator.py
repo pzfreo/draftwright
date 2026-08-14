@@ -42,6 +42,7 @@ from draftwright.annotations._common import (
     _hole_location_coverage_fact,
     _hole_table_replaceable_annotation,
     _hole_table_replaceable_feature,
+    _hole_table_replaceable_location_annotation,
     _register_hole_table_coverage,
     _restore_annotation_transaction,
     _restore_stashed_annotations,
@@ -813,8 +814,9 @@ def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
     table_ncols = None
     table_features: tuple = ()
     replacement_features: set = set()
-    replaceable_table_features: set = set()
-    table_replacement_features: set = set()
+    replaceable_callout_features: set = set()
+    table_callout_replacement_features: set = set()
+    table_location_replacement_features: set = set()
     replaced = {}
     table_transaction_snap = None
 
@@ -861,7 +863,7 @@ def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
             feature = resolve_feature(location.ref)
             if getattr(feature, "kind", None) == "hole":
                 compiled_dimensions_by_feature.setdefault(feature, []).append(location)
-        replaceable_table_features = {
+        replaceable_callout_features = {
             hole.feature
             for hole in holes
             if _hole_table_replaceable_feature(
@@ -911,9 +913,14 @@ def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
                 n
                 for n, annotation in list(dwg.iter_annotations())
                 if ctx.coverage.is_scattered_hole_doc(n)
-                and _hole_table_replaceable_annotation(dwg.registry, n, annotation)
-                and _annotation_hole_features(dwg.registry, n, annotation)
-                <= replaceable_table_features
+                and (
+                    _hole_table_replaceable_location_annotation(dwg.registry, n, annotation)
+                    or (
+                        _hole_table_replaceable_annotation(dwg.registry, n, annotation)
+                        and _annotation_hole_features(dwg.registry, n, annotation)
+                        <= replaceable_callout_features
+                    )
+                )
             ],
         )
 
@@ -954,7 +961,15 @@ def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
         dwg.registry.restore_issues(balloon_issue_base)
         _discard_attempt_annotations(dwg, attempted)
         previous_objects = {name: dwg.registry.named(name) for name in attempted}
-        render_balloons(dwg, a, "plan", specs, ctx, perimeter=perimeter)
+        render_balloons(
+            dwg,
+            a,
+            "plan",
+            specs,
+            ctx,
+            perimeter=perimeter,
+            avoid_annotation_labels=table_placed,
+        )
         placed_names = {
             name
             for name, previous in previous_objects.items()
@@ -1118,31 +1133,95 @@ def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
             if int(feature.count or len(feature.members) or 1) > 1
             and "bore.diameter" in approved_hole_dimensions.get(feature, {})
         )
-        escalated_replacement_features = {
+        stashed_callout_features = {
+            feature
+            for record in replaced.values()
+            if any(
+                isinstance(parameter := getattr(measurement, "parameter", None), str)
+                and parameter.startswith("bore.")
+                for measurement in record.identity.get("measurement", ())
+            )
+            for feature in record.features
+        }
+        stashed_location_features = {
+            feature
+            for record in replaced.values()
+            if any(
+                isinstance(parameter := getattr(measurement, "parameter", None), str)
+                and parameter.startswith("location")
+                for measurement in record.identity.get("measurement", ())
+            )
+            for feature in record.features
+        }
+        escalated_callout_features = {
             escalation.feature
             for escalation in escalations
-            if escalation.kind in {"callout", "location"}
+            if escalation.kind == "callout"
             and escalation.view == "plan"
-            and escalation.feature in replaceable_table_features
+            and escalation.feature in replaceable_callout_features
         }
-        dropped_replacement_features = {
+        escalated_location_features = {
+            escalation.feature
+            for escalation in escalations
+            if escalation.kind == "location"
+            and escalation.view == "plan"
+            and escalation.feature in table_features
+        }
+        dropped_callout_features = {
             feature
             for issue in ctx.registry.issues
-            if issue.code in {"callout_dropped", "location_ref_dropped"}
+            if issue.code == "callout_dropped"
             for feature in (
                 *(getattr(measurement, "feature", None) for measurement in issue.measurement_ids),
                 *(requirement[0] for requirement in issue.hole_requirement_ids),
             )
-            if feature in replaceable_table_features
+            if feature in replaceable_callout_features
         }
-        table_replacement_features = (
-            table_success_features
-            & (
-                replacement_features
-                | escalated_replacement_features
-                | dropped_replacement_features
+        dropped_location_features = {
+            feature
+            for issue in ctx.registry.issues
+            if issue.code == "location_ref_dropped"
+            for feature in (
+                *(getattr(measurement, "feature", None) for measurement in issue.measurement_ids),
+                *(requirement[0] for requirement in issue.hole_requirement_ids),
             )
+            if feature in table_features
+        }
+        table_callout_replacement_features = (
+            table_success_features
+            & (stashed_callout_features | escalated_callout_features | dropped_callout_features)
             - restored_features
+        )
+        table_location_replacement_features = (
+            table_success_features
+            & (stashed_location_features | escalated_location_features | dropped_location_features)
+            - restored_features
+        )
+        representation_requirements = tuple(
+            dict.fromkeys(
+                [
+                    (measurement.feature, measurement.parameter)
+                    for measurement in table_measurements
+                    if (
+                        measurement.parameter.startswith("location")
+                        and measurement.feature in table_location_replacement_features
+                    )
+                    or (
+                        not measurement.parameter.startswith("location")
+                        and measurement.feature in table_callout_replacement_features
+                    )
+                ]
+                + [
+                    (feature, parameter)
+                    for feature, parameter, _point in table_locations
+                    if feature in table_location_replacement_features
+                ]
+                + [
+                    (feature, parameter)
+                    for feature, parameter, _count in table_requirements
+                    if feature in table_callout_replacement_features
+                ]
+            )
         )
         _register_hole_table_coverage(
             table,
@@ -1152,7 +1231,7 @@ def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
             locations=table_locations,
             requirements=table_requirements,
             representation_reason="required_balloons_placed",
-            representation_features=table_replacement_features,
+            representation_requirements=representation_requirements,
         )
 
         # Resolve only drops whose complete semantic requirement set belongs to the
@@ -1162,7 +1241,7 @@ def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
             lambda issue: (
                 bool(issue.hole_requirement_ids)
                 and all(
-                    requirement[0] in table_replacement_features
+                    requirement[0] in table_location_replacement_features
                     for requirement in issue.hole_requirement_ids
                 )
             ),
@@ -1208,6 +1287,6 @@ def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
             getattr(measurement, "feature", None) for measurement in issue.measurement_ids
         }
         issue_features.discard(None)
-        if issue_features and issue_features <= table_replacement_features:
+        if issue_features and issue_features <= table_callout_replacement_features:
             resolved_issue_ids.add(id(issue))
     ctx.drop_issues_where("callout_dropped", lambda issue: id(issue) in resolved_issue_ids)

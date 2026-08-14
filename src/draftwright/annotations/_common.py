@@ -23,13 +23,16 @@ from draftwright._core import (  # noqa: F401 — _anno_box re-exported (#700)
     _text_size,
     place_annotation,
 )
-from draftwright._geometry import _boxes_overlap, _segment_crosses_box  # noqa: F401
+from draftwright._geometry import (  # noqa: F401
+    _boxes_overlap,
+    _segment_clips_box,
+    _segment_crosses_box,
+)
 from draftwright.layout import StripCandidate, plan_strip
 from draftwright.linting.issues import LintIssue
 from draftwright.linting.structural import (
     _ann_box,
     _centerline_extent,
-    _label_centerline_overlap,
 )
 from draftwright.model.compiled import resolve_feature
 
@@ -90,11 +93,12 @@ def _register_hole_table_coverage(
     requirements=(),
     representation_reason=None,
     representation_features=(),
+    representation_requirements=(),
 ):
     """Register the semantic facts visibly carried by a placed hole table.
 
     Automatic escalation and the public table verb share this seam so the table object,
-    registry measurement inventory, per-feature replacement evidence, and physical hole
+    registry measurement inventory, requirement-scoped replacement evidence, and physical hole
     ledger cannot drift apart.
     """
     table.covers_hole_locations = tuple(locations)
@@ -102,6 +106,11 @@ def _register_hole_table_coverage(
     table.covers_hole_representations_by_feature = tuple(
         (feature, "hole_table", representation_reason)
         for feature in representation_features
+        if representation_reason is not None
+    )
+    table.covers_hole_representations_by_requirement = tuple(
+        (feature, parameter, "hole_table", representation_reason)
+        for feature, parameter in representation_requirements
         if representation_reason is not None
     )
     identity = registry.identity_of(name)
@@ -136,6 +145,11 @@ def _annotation_hole_features(registry, name, annotation) -> frozenset:
             features.add(feature)
     for feature, _representation, _reason in getattr(
         annotation, "covers_hole_representations_by_feature", ()
+    ):
+        if getattr(feature, "kind", None) in {"hole", "pattern"}:
+            features.add(feature)
+    for feature, _parameter, _representation, _reason in getattr(
+        annotation, "covers_hole_representations_by_requirement", ()
     ):
         if getattr(feature, "kind", None) in {"hole", "pattern"}:
             features.add(feature)
@@ -176,13 +190,30 @@ def _hole_table_replaceable_annotation(registry, name, annotation) -> bool:
     )
 
 
+def _hole_table_replaceable_location_annotation(registry, name, annotation) -> bool:
+    """Whether *annotation* carries only table-rendered X/Y location facts.
+
+    Location eligibility is intentionally independent of bore-callout eligibility: a
+    fitted, toleranced, threaded, or compound hole keeps its manufacturing callout while
+    the table may still replace a separately dropped ordinate for the same feature.
+    """
+    features = _annotation_hole_features(registry, name, annotation)
+    if not features or any(getattr(feature, "kind", None) != "hole" for feature in features):
+        return False
+    measurements = tuple(registry.measurement_of(name))
+    return bool(measurements) and all(
+        getattr(measurement, "parameter", None) == "location.location"
+        for measurement in measurements
+    )
+
+
 def _hole_table_replaceable_feature(feature, dimensions=()) -> bool:
     """Whether the current table schema can replace *feature*'s compiled callout facts.
 
     Annotation metadata alone is insufficient: an authored tolerance or fit lives on the
     compiler-approved dimension, and an automatic callout may have dropped before any
-    annotation object existed.  Keep this predicate feature/plan based so both public and
-    automatic transactions make the same decision without parsing rendered text.
+    annotation object existed. Keep this predicate feature/plan based so the automatic
+    transaction does not parse rendered text.
     """
     if getattr(feature, "kind", None) != "hole":
         return False
@@ -332,8 +363,7 @@ def _fully_ballooned_features(view, tagged_holes, placed_names, registry, expect
 
     A name that happened to exist before the attempt is not evidence. Nor is a landed
     balloon owned by another semantic feature. Both checks are deliberately made here,
-    beside the declared-QTY cardinality check, so automatic and public tables share one
-    commit predicate.
+    beside the declared-QTY cardinality check, so every automatic commit uses one predicate.
     """
     attempted = set(placed_names)
     names_by_feature: dict[object, set[str]] = {}
@@ -1151,16 +1181,17 @@ def _box_hits(bb, boxes):
     return bb is not None and any(_boxes_overlap(bb, c) for c in boxes)
 
 
-def balloon_hits_annotation_label(dwg, balloon, view) -> bool:
-    """Whether *balloon* would create a lint-significant visible-text collision.
+def balloon_hits_annotation_label(dwg, glyph, segments, view) -> bool:
+    """Whether precise balloon geometry crosses a surviving callout label.
 
-    Balloon compounds are centreline-like furniture, so their leader/ring footprint is
-    compared with every surviving annotation label through the exact structural-lint
-    predicate.  This is a final-inventory guard inside the shared balloon placement pass:
-    retained or transactionally restored callouts remain real obstacles rather than being
-    re-added after the solve (#1144 / ADR 0014).
+    The glyph (ring + text) is compact enough for an AABB test.  The leader is not:
+    ADR 0009 forbids treating a diagonal shaft's empty AABB triangle as occupied, so each
+    real segment is tested against the text box independently.  This guard is enabled only
+    by transactional automatic escalation; ordinary public/additive balloons retain their
+    established placement contract.
     """
     cache = getattr(dwg, "box_cache", None)
+    glyph_box = _geom_box(glyph, cache)
     for name, annotation in dwg.iter_annotations():
         owner = dwg.view_of(name)
         if owner is not None and owner != view:
@@ -1172,7 +1203,17 @@ def balloon_hits_annotation_label(dwg, balloon, view) -> bool:
         # every witness-line bbox as a balloon obstacle would discard most of a dense ring.
         if getattr(annotation, "elbow", None) is None:
             continue
-        if _label_centerline_overlap(annotation, balloon, cache) is not None:
+        try:
+            label_box = getattr(annotation, "label_bbox", None)
+        except Exception:  # noqa: BLE001 — external leader metadata may be unreadable
+            label_box = None
+        if label_box is None:
+            label_box = _geom_box(annotation, cache)
+        if label_box is None:
+            continue
+        if (glyph_box is not None and _boxes_overlap(glyph_box, label_box)) or any(
+            _segment_clips_box(start, end, label_box, pad=0.0) for start, end in segments
+        ):
             return True
     return False
 

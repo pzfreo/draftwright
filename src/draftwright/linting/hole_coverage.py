@@ -492,9 +492,22 @@ def _index_hole_evidence(registry) -> _HoleEvidence:
             annotation, "covers_hole_representations_by_feature", ()
         ):
             feature_representations[feature].add((str(feature_representation), str(reason)))
+        requirement_representations: dict[tuple[object, str], set[tuple[str, str]]] = defaultdict(
+            set
+        )
+        for feature, parameter, feature_representation, reason in getattr(
+            annotation, "covers_hole_representations_by_requirement", ()
+        ):
+            requirement_representations[(feature, parameter)].add(
+                (str(feature_representation), str(reason))
+            )
 
         def record_representation(feature, parameter):
-            if feature in feature_representations:
+            if (feature, parameter) in requirement_representations:
+                representations[(feature, parameter)].update(
+                    requirement_representations[(feature, parameter)]
+                )
+            elif feature in feature_representations:
                 representations[(feature, parameter)].update(feature_representations[feature])
             elif representation is not None and representation_reason is not None:
                 representations[(feature, parameter)].add(

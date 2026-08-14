@@ -63,7 +63,16 @@ def _select_top_lane(lane_options, target, fallback_line):
     return fallback_line, [], 0
 
 
-def render_balloons(dwg, a, view, specs, ctx, *, perimeter=False):
+def render_balloons(
+    dwg,
+    a,
+    view,
+    specs,
+    ctx,
+    *,
+    perimeter=False,
+    avoid_annotation_labels=False,
+):
     """Place a leadered balloon for each ``(tag, j, hole)`` in *specs*,
     fitted into the halo the layout reserved around the view (#111).
 
@@ -221,6 +230,7 @@ def render_balloons(dwg, a, view, specs, ctx, *, perimeter=False):
         prefer_bands=preferred_bands if perimeter else (),
         preference_limit=_band_preference_limit(fs) if perimeter else 0.0,
     )
+    collision_kwargs = {"avoid_annotation_labels": True} if avoid_annotation_labels else {}
     dropped += _place_band(
         dwg,
         view,
@@ -230,6 +240,7 @@ def render_balloons(dwg, a, view, specs, ctx, *, perimeter=False):
         fs,
         r,
         ctx,
+        **collision_kwargs,
     )
     dropped += _place_band(
         dwg,
@@ -240,6 +251,7 @@ def render_balloons(dwg, a, view, specs, ctx, *, perimeter=False):
         fs,
         r,
         ctx,
+        **collision_kwargs,
     )
     top_args = (
         dwg,
@@ -252,9 +264,13 @@ def render_balloons(dwg, a, view, specs, ctx, *, perimeter=False):
         ctx,
     )
     dropped += (
-        _place_band(*top_args)
+        _place_band(*top_args, **collision_kwargs)
         if top_segments is None
-        else _place_band(*top_args, segments=top_segments)
+        else _place_band(
+            *top_args,
+            segments=top_segments,
+            **collision_kwargs,
+        )
     )
     dropped += _place_band(
         dwg,
@@ -265,6 +281,7 @@ def render_balloons(dwg, a, view, specs, ctx, *, perimeter=False):
         fs,
         r,
         ctx,
+        **collision_kwargs,
     )
     # A band too crowded to hold every balloon drops its tail (the strip solver's
     # prefix fallback) — record it instead of letting the balloons vanish silently
@@ -278,7 +295,22 @@ def render_balloons(dwg, a, view, specs, ctx, *, perimeter=False):
         )
 
 
-def _place_band(dwg, view, members, axis, line, lo, hi, gap, fs, r, ctx, *, segments=None) -> int:
+def _place_band(
+    dwg,
+    view,
+    members,
+    axis,
+    line,
+    lo,
+    hi,
+    gap,
+    fs,
+    r,
+    ctx,
+    *,
+    segments=None,
+    avoid_annotation_labels=False,
+) -> int:
     """Spread *members* (``(tag, j, hole, cx, cy)``) along one reserved band
     with the strip solver, then render a leadered balloon for each (#111).
 
@@ -302,15 +334,88 @@ def _place_band(dwg, view, members, axis, line, lo, hi, gap, fs, r, ctx, *, segm
             or _greedy_strip_1d(naturals, gap, lo, hi)
             or _greedy_strip_1d(naturals, gap, lo, hi, prefix=True)
         )
+    placed_coords = list(coords)
+    collision_kwargs = {"avoid_annotation_labels": True} if avoid_annotation_labels else {}
     rejected = 0
-    for (tag, j, hole, cx, cy), c in zip(members, coords):
+    for member_index, ((tag, j, hole, cx, cy), c) in enumerate(zip(members, coords)):
         bx, by = (line, c) if axis == "y" else (c, line)
-        if _render_balloon(dwg, view, tag, j, hole, cx, cy, bx, by, fs, r, ctx) is False:
+        rendered = _render_balloon(
+            dwg,
+            view,
+            tag,
+            j,
+            hole,
+            cx,
+            cy,
+            bx,
+            by,
+            fs,
+            r,
+            ctx,
+            **collision_kwargs,
+        )
+        if rendered is not False:
+            continue
+
+        # The max-cardinality strip solve does not know the final retained callout
+        # labels. If its natural coordinate creates a real glyph/segment crossing,
+        # search the same sanctioned strip for the nearest collision-free coordinate
+        # before dropping the row key. Other solved balloon coordinates stay reserved,
+        # so this retry cannot trade one collision for a balloon overlap.
+        ranges = segments if segments is not None else [(lo, hi)]
+        alternatives = {
+            round(start + step * 0.5, 6)
+            for start, end in ranges
+            for step in range(max(0, int(math.floor((end - start) / 0.5))) + 1)
+        }
+        occupied = [
+            coordinate for index, coordinate in enumerate(placed_coords) if index != member_index
+        ]
+        for alternative in sorted(alternatives, key=lambda value: (abs(value - c), value)):
+            if any(abs(alternative - coordinate) < gap - 1e-6 for coordinate in occupied):
+                continue
+            bx, by = (line, alternative) if axis == "y" else (alternative, line)
+            if (
+                _render_balloon(
+                    dwg,
+                    view,
+                    tag,
+                    j,
+                    hole,
+                    cx,
+                    cy,
+                    bx,
+                    by,
+                    fs,
+                    r,
+                    ctx,
+                    avoid_annotation_labels=True,
+                )
+                is not False
+            ):
+                placed_coords[member_index] = alternative
+                break
+        else:
             rejected += 1
     return len(members) - len(coords) + rejected
 
 
-def _render_balloon(dwg, view, tag, j, hole, cx, cy, bx, by, fs, r, ctx):
+def _render_balloon(
+    dwg,
+    view,
+    tag,
+    j,
+    hole,
+    cx,
+    cy,
+    bx,
+    by,
+    fs,
+    r,
+    ctx,
+    *,
+    avoid_annotation_labels=False,
+):
     """Build and add one balloon glyph + leader at solved centre ``(bx, by)``
     for hole ``(cx, cy)`` (#111)."""
     loc = Location((bx, by, 0))
@@ -324,7 +429,9 @@ def _render_balloon(dwg, view, tag, j, hole, cx, cy, bx, by, fs, r, ctx):
         align=(Align.CENTER, Align.CENTER),
         mode=Mode.PRIVATE,
     ).locate(loc)
-    parts = [*ring_faces, *text.faces()]
+    glyph_parts = [*ring_faces, *text.faces()]
+    parts = list(glyph_parts)
+    segments = ()
     # Leader from the hole rim to the balloon's near edge — the glyph is the
     # label, so label="".  Skipped when the balloon could not clear the hole
     # (degenerate fallback), where a leader would be a stub through the ring.
@@ -335,12 +442,23 @@ def _render_balloon(dwg, view, tag, j, hole, cx, cy, bx, by, fs, r, ctx):
         ux, uy = dx / dist, dy / dist
         tip = (cx + ux * hole_r, cy + uy * hole_r, 0)
         elbow = (bx - ux * r, by - uy * r, 0)
-        parts.append(Leader(tip, elbow, "", dwg.draft))
+        leader = Leader(tip, elbow, "", dwg.draft)
+        parts.append(leader)
+        segments = tuple(getattr(leader, "segments", ()))
     balloon = Compound(children=parts)
+    # Structural lint must inspect the real leader shaft, not the compound AABB's
+    # empty diagonal triangle (ADR 0009).  Placement has already checked the compact
+    # glyph separately above.
+    balloon.segments = segments
     # Furniture that legitimately sits on the view geometry — exempt from the
     # annotation-overlap / centreline lint, as the section arrows do.
     balloon.is_centerline = True
-    if balloon_hits_annotation_label(dwg, balloon, view):
+    if avoid_annotation_labels and balloon_hits_annotation_label(
+        dwg,
+        Compound(children=glyph_parts),
+        segments,
+        view,
+    ):
         return False
     ctx.place(
         balloon,

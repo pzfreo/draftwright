@@ -4,21 +4,18 @@
 
 ### Fixed
 
-- **Hole-table replacement is transactional per semantic feature** (#1144). Automatic
-  escalation and the opt-in public `add_hole_table(..., replace_callouts=True)` surface now
-  suppress original callouts only after the table fits and every required feature balloon lands.
-  A failed table restores the exact annotations and registry identities; a partial balloon set
-  restores the unresolved feature callouts, re-solves the table, and re-runs the shared balloon
-  placement against the final callout inventory before committing. Balloons that would cross a
-  retained or restored callout label fail closed instead of creating a misleading clean lint.
-  Callouts carrying compound, thread, profile, pattern, tolerance, or fit facts the table cannot
-  state remain active, and unresolved dropped callouts stay diagnostic. Hole outcome records
-  identify per feature whether a committed table or a restored feature annotation supplied the
-  placed requirement, together with the fallback reason; mixed table/feature evidence deliberately
-  claims no single winner. Exceptions also restore those semantic markers, and automatic
-  escalation fails closed rather than overwrite an existing annotation that owns a reserved table
-  or balloon name. Transactional public replacement is plan-view-only until the balloon halo is
-  view-generic; additive tables remain available in all orthographic views.
+- **Automatic hole-table escalation is transactional per semantic requirement** (#1144). The
+  engine suppresses a replaceable callout or location dimension only after the table fits and its
+  required feature balloon lands. A failed table restores the exact annotations, ordering,
+  registry identities, coverage, and issues; a partial balloon set restores unresolved fallbacks
+  and re-solves the final table/balloon inventory. Precise ring, glyph, and leader-segment tests
+  keep retry placement clear of retained callout labels without changing the existing additive
+  `add_hole_table()`/`add_balloons()` behavior. Compound, thread, profile, pattern, tolerance, and
+  fit facts the table cannot state remain active, while independently replaceable X/Y locations
+  may still move to the table. Hole outcomes identify the winning representation per requirement;
+  mixed table/feature evidence deliberately claims no single winner. Exceptions restore those
+  semantic markers, and automatic escalation fails closed rather than overwrite an existing
+  annotation that owns a reserved table or balloon name.
 
 ### Changed
 

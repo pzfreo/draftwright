@@ -49,16 +49,7 @@ from draftwright._core import (
 )
 from draftwright.annotations._common import (
     PlacementContext,
-    _annotation_hole_features,
-    _discard_attempt_annotations,
-    _fully_ballooned_features,
-    _hole_table_replaceable_annotation,
-    _hole_table_replaceable_feature,
     _register_hole_table_coverage,
-    _restore_annotation_transaction,
-    _restore_stashed_annotations,
-    _snapshot_annotation_transaction,
-    _stash_annotations,
     carve_free_position,
     strip_obstacles,
 )
@@ -2618,15 +2609,7 @@ class Drawing:
         """Single-balloon convenience over :meth:`add_balloons` (#111)."""
         self.add_balloons(view, [(tag, j, hole)])
 
-    def add_hole_table(
-        self,
-        view="plan",
-        *,
-        prefer="tr",
-        name=None,
-        balloons=True,
-        replace_callouts=False,
-    ):
+    def add_hole_table(self, view="plan", *, prefer="tr", name=None, balloons=True):
         """Add a hole table for *view*'s holes, placed in a free corner (#93).
 
         One row per hole spec-group — ``TAG | ⌀ | DEPTH | QTY`` with tags
@@ -2634,300 +2617,66 @@ class Drawing:
         default) a circled tag is added at each hole keyed to its row. The table
         carries the same semantic measurement and structured requirement provenance as
         automatic table escalation, so physical hole outcomes count only the facts the
-        table visibly states.
-
-        With ``replace_callouts=True``, feature-backed bore callouts are stashed while the
-        table and required balloons use the sanctioned placement solvers. A failed table
-        restores every callout. After a partial balloon result, unresolved fallbacks are
-        restored and the table is solved again against their real footprints; if that fit
-        fails, the whole attempted table/balloon representation is discarded. Compound,
-        threaded, profiled, patterned, toleranced, and fitted callouts remain because this
-        table schema cannot replace all of their visible facts. This is the transactional
-        replacement surface — callers must not remove leaders themselves first. Replacement
-        requires ``balloons=True`` and distinct, unused table/balloon names. The default
-        remains additive for compatibility. Transactional replacement is currently limited
-        to the plan view because the shared balloon halo is a plan-layout contract; additive
-        tables remain available for every orthographic view. Returns the committed table, or
-        ``None`` when *view* has no holes or the final representation will not fit.
+        table visibly states. Returns the table, or ``None`` when *view* has no holes or it
+        will not fit.
         """
         groups = self._hole_spec_groups(view)
         if not groups:
             return None
-        if replace_callouts and not balloons:
-            raise ValueError("replace_callouts=True requires balloons=True")
-        if replace_callouts and view != "plan":
-            raise ValueError(
-                "replace_callouts=True currently requires view='plan'; front/side balloon "
-                "halos are not yet part of the shared layout contract"
-            )
-
-        ctx = PlacementContext(
-            registry=self._registry,
-            coverage=self._coverage,
-            items=self.items,
-            part_model=self._part_model,
-        )
-        group_features = {owner for _tag, owner, _holes, _count in groups}
-        expected_counts = {owner: count for _tag, owner, _holes, count in groups}
-        tagged_holes = [
-            (tag, j, hole, owner)
-            for tag, owner, holes, _count in groups
-            for j, hole in enumerate(holes)
-        ]
+        rows = [("TAG", "⌀", "DEPTH", "QTY")]
+        diams = []
+        for tag, _owner, holes, count in groups:
+            h = holes[0]
+            depth = "THRU" if h.through else (_fmt(h.depth) if h.depth else "")
+            rows.append((tag, f"ø{_fmt(h.diameter)}", depth, str(count)))
+            # Legacy physical-diameter lint counts one structured entry per bore.
+            # Repeat the value exactly as many times as the visible QTY asserts, just as
+            # automatic escalation does, while the semantic ledger below retains the
+            # feature-scoped grouping identity.
+            diams.extend([h.diameter] * count)
         table_name = name or f"hole_table_{view}"
-        attempted_names = {
-            f"balloon_{view}_{tag}_{member_index}"
-            for tag, member_index, _hole, _owner in tagged_holes
-        }
-        if balloons and table_name in attempted_names:
-            raise ValueError(
-                "the hole-table name must differ from every generated balloon name; "
-                f"{table_name!r} is reserved by this attempt"
+        table = self.add_table(rows, prefer=prefer, name=table_name)
+        if table is None:
+            return None
+        # The table documents these diameters — let lint see that (#93).
+        table.covers_diameters = tuple(diams)
+        from draftwright.model.compiled import DimensionId
+
+        # Calling the public verb is an explicit edit: the table itself authors every
+        # measurement it visibly prints, even when the original dimension set omitted a
+        # generated callout. Construct the same stable identities the compiler uses so
+        # holes and patterns join the physical outcome ledger through one seam.
+        measurements = tuple(
+            DimensionId(owner, parameter)
+            for _tag, owner, holes, _count in groups
+            for parameter in (
+                ("bore.diameter",)
+                if holes[0].through or holes[0].depth is None
+                else ("bore.diameter", "bore.depth")
             )
-        stashed = {}
-        transaction_snap = None
-        if replace_callouts:
-            from build123d_drafting import Leader
-
-            reserved_names = {table_name} | attempted_names
-            collisions = sorted(reserved_names & set(self._registry.names()))
-            if collisions:
-                raise ValueError(
-                    "replace_callouts=True requires unused table/balloon names; "
-                    f"already present: {', '.join(collisions)}"
-                )
-            callout_names = []
-            callout_features = set()
-            for annotation_name in self._registry.names():
-                if self._registry.view_of(annotation_name) != view:
-                    continue
-                if not isinstance(self._registry.named(annotation_name), Leader):
-                    continue
-                features = {
-                    getattr(measurement, "feature", None)
-                    for measurement in self._registry.measurement_of(annotation_name)
-                    if getattr(measurement, "parameter", None) == "bore.diameter"
-                    and getattr(measurement, "feature", None) in group_features
-                }
-                if features:
-                    callout_names.append(annotation_name)
-                    callout_features.update(features)
-            if callout_features != group_features:
-                raise ValueError(
-                    "replace_callouts=True requires an existing bore callout for every "
-                    f"{view!r}-view table feature"
-                )
-            from draftwright.model.compiled import compile_dimensions, resolve_feature
-
-            compiled = compile_dimensions(self._part_model)
-            compiled_dimensions = {
-                resolve_feature(group.ref): tuple(group.dims)
-                for group in compiled.of_kind("hole", "pattern")
-            }
-            replaceable_features = {
-                feature
-                for feature in group_features
-                if _hole_table_replaceable_feature(feature, compiled_dimensions.get(feature, ()))
-            }
-            replaceable_names = [
-                annotation_name
-                for annotation_name in callout_names
-                if _hole_table_replaceable_annotation(
-                    self._registry,
-                    annotation_name,
-                    self._registry.named(annotation_name),
-                )
-                and _annotation_hole_features(
-                    self._registry,
-                    annotation_name,
-                    self._registry.named(annotation_name),
-                )
-                <= replaceable_features
-                and all(
-                    len(holes) == count
-                    for _tag, owner, holes, count in groups
-                    if owner
-                    in _annotation_hole_features(
-                        self._registry,
-                        annotation_name,
-                        self._registry.named(annotation_name),
-                    )
-                )
-            ]
-            transaction_snap = _snapshot_annotation_transaction(self, self._coverage)
-            try:
-                stashed = _stash_annotations(self, replaceable_names)
-            except BaseException:
-                _restore_annotation_transaction(self, self._coverage, transaction_snap, stashed)
-                raise
-
-        try:
-            rows = [("TAG", "⌀", "DEPTH", "QTY")]
-            for tag, _owner, holes, count in groups:
-                h = holes[0]
-                depth = "THRU" if h.through else (_fmt(h.depth) if h.depth else "")
-                rows.append((tag, f"ø{_fmt(h.diameter)}", depth, str(count)))
-            table = self.add_table(rows, prefer=prefer, name=table_name)
-            if table is None:
-                if replace_callouts:
-                    assert transaction_snap is not None
-                    _restore_annotation_transaction(
-                        self,
-                        self._coverage,
-                        transaction_snap,
-                        stashed,
-                        reason="table_not_placed",
-                    )
-                    self._record_build_issue(
-                        "warning",
-                        "table_dropped",
-                        f"table {table_name!r} did not fit the sheet",
-                    )
-                return None
-
-            if balloons:
-                balloon_issue_base = self._registry.issues
-
-                def place_attempt_balloons():
-                    self._registry.restore_issues(balloon_issue_base)
-                    _discard_attempt_annotations(self, attempted_names)
-                    if self._analysis is None:
-                        landed = set()
-                    else:
-                        render_balloons(
-                            self,
-                            self._analysis,
-                            view,
-                            [
-                                (tag, member_index, hole)
-                                for tag, member_index, hole, _owner in tagged_holes
-                            ],
-                            ctx,
-                        )
-                        landed = {
-                            name
-                            for name in attempted_names
-                            if self._registry.named(name) is not None
-                        }
-                    return landed, _fully_ballooned_features(
-                        view,
-                        tagged_holes,
-                        landed,
-                        self._registry,
-                        expected_counts,
-                    )
-
-                placed_names, successful_features = place_attempt_balloons()
-            else:
-                placed_names = set()
-                successful_features = set(group_features)
-
-            replacement_features = {
-                feature for record in stashed.values() for feature in record.features
-            }
-            restored_features = set()
-            unresolved_replacements = replacement_features - successful_features
-            while unresolved_replacements:
-                restored_features |= unresolved_replacements
-                # Refit through the same free-box solve after restoring the unresolved
-                # leaders. The original box may occupy their temporarily freed footprint.
-                _discard_attempt_annotations(self, {table_name})
-                _restore_stashed_annotations(
-                    self,
-                    ctx,
-                    stashed,
-                    features=unresolved_replacements,
-                    reason="required_balloon_not_placed",
-                )
-                table = self.add_table(rows, prefer=prefer, name=table_name)
-                if table is None:
-                    assert transaction_snap is not None
-                    had_balloon_drop = any(
-                        issue.code == "balloon_dropped"
-                        for issue in self._registry.issues[len(balloon_issue_base) :]
-                    )
-                    _restore_annotation_transaction(
-                        self,
-                        self._coverage,
-                        transaction_snap,
-                        stashed,
-                        reason="required_balloon_not_placed",
-                    )
-                    if had_balloon_drop:
-                        self._record_build_issue(
-                            "warning",
-                            "balloon_dropped",
-                            "one or more required hole-table balloons could not be placed",
-                        )
-                    self._record_build_issue(
-                        "warning",
-                        "table_dropped",
-                        "hole table could not fit with its fallback callouts",
-                    )
-                    return None
-                placed_names, successful_features = place_attempt_balloons()
-                unresolved_replacements = (
-                    replacement_features - restored_features - successful_features
-                )
-
-            incomplete_names = {
-                f"balloon_{view}_{tag}_{member_index}"
-                for tag, member_index, _hole, owner in tagged_holes
-                if owner not in successful_features
-            } & placed_names
-            _discard_attempt_annotations(self, incomplete_names)
-
-            successful_groups = [group for group in groups if group[1] in successful_features]
-            # Legacy physical-diameter lint counts one structured entry per bore. Repeat the
-            # value exactly as many times as the visibly keyed QTY asserts.
-            table.covers_diameters = tuple(
-                holes[0].diameter
-                for _tag, _owner, holes, count in successful_groups
-                for _member in range(count)
+        )
+        requirements = tuple(
+            (owner, "bore.through", 1) for _tag, owner, holes, _count in groups if holes[0].through
+        ) + tuple(
+            (owner, "grouping.count", count) for _tag, owner, _holes, count in groups if count > 1
+        )
+        _register_hole_table_coverage(
+            table,
+            self._registry,
+            table_name,
+            measurements=measurements,
+            requirements=requirements,
+        )
+        if balloons:
+            self.add_balloons(
+                view,
+                [
+                    (tag, j, h)
+                    for tag, _owner, holes, _count in groups
+                    for j, h in enumerate(holes)
+                ],
             )
-            from draftwright.model.compiled import DimensionId
-
-            # Calling the public verb is an explicit edit: the table itself authors every
-            # measurement it visibly prints, even when the original dimension set omitted a
-            # generated callout. Construct the same stable identities the compiler uses so
-            # holes and patterns join the physical outcome ledger through one seam.
-            measurements = tuple(
-                DimensionId(owner, parameter)
-                for _tag, owner, holes, _count in successful_groups
-                for parameter in (
-                    ("bore.diameter",)
-                    if holes[0].through or holes[0].depth is None
-                    else ("bore.diameter", "bore.depth")
-                )
-            )
-            requirements = tuple(
-                (owner, "bore.through", 1)
-                for _tag, owner, holes, _count in successful_groups
-                if holes[0].through
-            ) + tuple(
-                (owner, "grouping.count", count)
-                for _tag, owner, _holes, count in successful_groups
-                if count > 1
-            )
-            _register_hole_table_coverage(
-                table,
-                self._registry,
-                table_name,
-                measurements=measurements,
-                requirements=requirements,
-                representation_reason=("required_balloons_placed" if replace_callouts else None),
-                representation_features=(
-                    (replacement_features - restored_features) & successful_features
-                    if replace_callouts
-                    else ()
-                ),
-            )
-            return table
-        except BaseException:
-            if replace_callouts:
-                assert transaction_snap is not None
-                _restore_annotation_transaction(self, self._coverage, transaction_snap, stashed)
-            raise
+        return table
 
     def pin(self, name):
         """Pin a named annotation so the engine never moves it (#89).
