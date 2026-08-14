@@ -49,7 +49,11 @@ from draftwright._core import (
 )
 from draftwright.annotations._common import (
     PlacementContext,
+    _discard_incomplete_feature_balloons,
+    _fully_ballooned_features,
     _register_hole_table_coverage,
+    _restore_stashed_annotations,
+    _stash_annotations,
     carve_free_position,
     strip_obstacles,
 )
@@ -2609,7 +2613,15 @@ class Drawing:
         """Single-balloon convenience over :meth:`add_balloons` (#111)."""
         self.add_balloons(view, [(tag, j, hole)])
 
-    def add_hole_table(self, view="plan", *, prefer="tr", name=None, balloons=True):
+    def add_hole_table(
+        self,
+        view="plan",
+        *,
+        prefer="tr",
+        name=None,
+        balloons=True,
+        replace_callouts=False,
+    ):
         """Add a hole table for *view*'s holes, placed in a free corner (#93).
 
         One row per hole spec-group — ``TAG | ⌀ | DEPTH | QTY`` with tags
@@ -2617,29 +2629,101 @@ class Drawing:
         default) a circled tag is added at each hole keyed to its row. The table
         carries the same semantic measurement and structured requirement provenance as
         automatic table escalation, so physical hole outcomes count only the facts the
-        table visibly states. Returns the table, or ``None`` when *view* has no holes or it
-        will not fit.
+        table visibly states.
+
+        With ``replace_callouts=True``, feature-backed bore callouts are stashed while the
+        table and required balloons use the sanctioned placement solvers. A failed table
+        restores every callout; a partial balloon result restores callouts for the
+        unresolved feature subset. This is the transactional replacement surface — callers
+        must not remove leaders themselves first. Replacement requires ``balloons=True`` so
+        every committed row remains visibly keyed to its physical hole. The default remains
+        additive for compatibility. Returns the table, or ``None`` when *view* has no holes
+        or it will not fit.
         """
         groups = self._hole_spec_groups(view)
         if not groups:
             return None
+        if replace_callouts and not balloons:
+            raise ValueError("replace_callouts=True requires balloons=True")
+
+        ctx = PlacementContext(
+            registry=self._registry,
+            coverage=self._coverage,
+            items=self.items,
+            part_model=self._part_model,
+        )
+        group_features = {owner for _tag, owner, _holes, _count in groups}
+        stashed = {}
+        if replace_callouts:
+            callout_names = []
+            callout_features = set()
+            for annotation_name in self._registry.names():
+                if self._registry.view_of(annotation_name) != view:
+                    continue
+                features = {
+                    getattr(measurement, "feature", None)
+                    for measurement in self._registry.measurement_of(annotation_name)
+                    if getattr(measurement, "parameter", None) == "bore.diameter"
+                    and getattr(measurement, "feature", None) in group_features
+                }
+                if features:
+                    callout_names.append(annotation_name)
+                    callout_features.update(features)
+            if callout_features != group_features:
+                raise ValueError(
+                    "replace_callouts=True requires an existing bore callout for every "
+                    f"{view!r}-view table feature"
+                )
+            stashed = _stash_annotations(self, callout_names)
+
         rows = [("TAG", "⌀", "DEPTH", "QTY")]
-        diams = []
         for tag, _owner, holes, count in groups:
             h = holes[0]
             depth = "THRU" if h.through else (_fmt(h.depth) if h.depth else "")
             rows.append((tag, f"ø{_fmt(h.diameter)}", depth, str(count)))
-            # Legacy physical-diameter lint counts one structured entry per bore.
-            # Repeat the value exactly as many times as the visible QTY asserts, just as
-            # automatic escalation does, while the semantic ledger below retains the
-            # feature-scoped grouping identity.
-            diams.extend([h.diameter] * count)
         table_name = name or f"hole_table_{view}"
         table = self.add_table(rows, prefer=prefer, name=table_name)
         if table is None:
+            if stashed:
+                _restore_stashed_annotations(self, ctx, stashed, reason="table_not_placed")
             return None
-        # The table documents these diameters — let lint see that (#93).
-        table.covers_diameters = tuple(diams)
+
+        tagged_holes = [
+            (tag, j, hole, owner)
+            for tag, owner, holes, _count in groups
+            for j, hole in enumerate(holes)
+        ]
+        if balloons:
+            self.add_balloons(
+                view,
+                [(tag, member_index, hole) for tag, member_index, hole, _owner in tagged_holes],
+            )
+            successful_features = _fully_ballooned_features(
+                view, tagged_holes, self._registry.names()
+            )
+            _discard_incomplete_feature_balloons(self, view, tagged_holes, successful_features)
+        else:
+            successful_features = set(group_features)
+
+        if replace_callouts:
+            unresolved_features = group_features - successful_features
+            if unresolved_features:
+                _restore_stashed_annotations(
+                    self,
+                    ctx,
+                    stashed,
+                    features=unresolved_features,
+                    reason="required_balloon_not_placed",
+                )
+
+        successful_groups = [group for group in groups if group[1] in successful_features]
+        # Legacy physical-diameter lint counts one structured entry per bore. Repeat the
+        # value exactly as many times as the visibly keyed QTY asserts.
+        table.covers_diameters = tuple(
+            holes[0].diameter
+            for _tag, _owner, holes, count in successful_groups
+            for _member in range(count)
+        )
         from draftwright.model.compiled import DimensionId
 
         # Calling the public verb is an explicit edit: the table itself authors every
@@ -2648,7 +2732,7 @@ class Drawing:
         # holes and patterns join the physical outcome ledger through one seam.
         measurements = tuple(
             DimensionId(owner, parameter)
-            for _tag, owner, holes, _count in groups
+            for _tag, owner, holes, _count in successful_groups
             for parameter in (
                 ("bore.diameter",)
                 if holes[0].through or holes[0].depth is None
@@ -2656,9 +2740,13 @@ class Drawing:
             )
         )
         requirements = tuple(
-            (owner, "bore.through", 1) for _tag, owner, holes, _count in groups if holes[0].through
+            (owner, "bore.through", 1)
+            for _tag, owner, holes, _count in successful_groups
+            if holes[0].through
         ) + tuple(
-            (owner, "grouping.count", count) for _tag, owner, _holes, count in groups if count > 1
+            (owner, "grouping.count", count)
+            for _tag, owner, _holes, count in successful_groups
+            if count > 1
         )
         _register_hole_table_coverage(
             table,
@@ -2666,16 +2754,8 @@ class Drawing:
             table_name,
             measurements=measurements,
             requirements=requirements,
+            representation_reason=("required_balloons_placed" if replace_callouts else None),
         )
-        if balloons:
-            self.add_balloons(
-                view,
-                [
-                    (tag, j, h)
-                    for tag, _owner, holes, _count in groups
-                    for j, h in enumerate(holes)
-                ],
-            )
         return table
 
     def pin(self, name):

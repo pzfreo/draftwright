@@ -725,7 +725,6 @@ def test_every_direct_placement_records_identity_or_says_why_not():
         ("from_model.py", "_diameter_column_left"): "direct-placing rotational group (#754)",
         # -- identity arrives by another route --------------------------------------
         ("from_model.py", "_reroute_crossing_diameters"): "reapplies the saved identity",
-        ("orchestrator.py", "_maybe_tabulate_holes"): "reapplies the saved identity",
         ("sections.py", "_resolve_details"): "reapplies the saved identity",
         # -- not a measurement (ADR 0011) -------------------------------------------
         ("from_model.py", "_drop._retry"): "GD&T relaxed-side retry places a control frame",

@@ -84,6 +84,7 @@ def _register_hole_table_coverage(
     measurements=(),
     locations=(),
     requirements=(),
+    representation_reason=None,
 ):
     """Register the semantic facts visibly carried by a placed hole table.
 
@@ -92,10 +93,122 @@ def _register_hole_table_coverage(
     """
     table.covers_hole_locations = tuple(locations)
     table.covers_hole_requirements_by_feature = tuple(requirements)
+    if representation_reason is not None:
+        table.hole_representation = "hole_table"
+        table.hole_representation_reason = representation_reason
     identity = registry.identity_of(name)
     identity["measurement"] = tuple(measurements)
     registry.reapply(name, identity)
     return table
+
+
+def _annotation_hole_features(registry, name, annotation) -> frozenset:
+    """Semantic hole/pattern owners carried by one placed annotation.
+
+    Registry ownership is intentionally singular and may be empty for a visible mark shared
+    by several features. Measurement and structured-coverage provenance are therefore the
+    authoritative union used by replacement transactions.
+    """
+    features = set()
+    owner = registry.feature_of(name)
+    if getattr(owner, "kind", None) in {"hole", "pattern"}:
+        features.add(owner)
+    for measurement in registry.measurement_of(name):
+        feature = getattr(measurement, "feature", None)
+        if getattr(feature, "kind", None) in {"hole", "pattern"}:
+            features.add(feature)
+    for fact in getattr(annotation, "covers_hole_locations", ()):
+        feature = fact[0] if len(fact) == 3 else getattr(fact[0], "feature", None)
+        if getattr(feature, "kind", None) in {"hole", "pattern"}:
+            features.add(feature)
+    for feature, _requirement, _count in getattr(
+        annotation, "covers_hole_requirements_by_feature", ()
+    ):
+        if getattr(feature, "kind", None) in {"hole", "pattern"}:
+            features.add(feature)
+    for feature, _point, _view in getattr(annotation, "covers_hole_centers", ()):
+        if getattr(feature, "kind", None) in {"hole", "pattern"}:
+            features.add(feature)
+    return frozenset(features)
+
+
+@dataclass(frozen=True)
+class _StashedAnnotation:
+    """One reversible annotation removal with its complete registry identity."""
+
+    annotation: Any
+    identity: dict
+    features: frozenset
+
+
+def _stash_annotations(dwg, names) -> dict[str, _StashedAnnotation]:
+    """Remove *names* while retaining enough state for an exact semantic rollback."""
+    stashed = {}
+    for name in names:
+        annotation = dwg.registry.named(name)
+        if annotation is None:
+            continue
+        identity = dwg.registry.identity_of(name)
+        features = _annotation_hole_features(dwg.registry, name, annotation)
+        stashed[name] = _StashedAnnotation(dwg.remove(name), identity, features)
+    return stashed
+
+
+def _restore_stashed_annotations(dwg, ctx, stashed, *, features=None, reason=None) -> set[str]:
+    """Restore stashed annotations intersecting *features* through the placement seam.
+
+    ``features=None`` restores the complete transaction. Shared annotations are restored as
+    a unit when any unresolved semantic owner needs them; duplicating a fact is safer than
+    discarding another owner's only visible evidence.
+    """
+    selected = None if features is None else set(features)
+    restored = set()
+    for name, record in stashed.items():
+        if selected is not None and record.features and record.features.isdisjoint(selected):
+            continue
+        if reason is not None:
+            record.annotation.hole_representation = "feature_annotation"
+            record.annotation.hole_representation_reason = reason
+        ctx.place(
+            record.annotation,
+            name,
+            view=record.identity.get("view"),
+            feature=record.identity.get("feature"),
+            measurement=record.identity.get("measurement", ()),
+        )
+        dwg.registry.reapply(name, record.identity)
+        restored.add(name)
+    return restored
+
+
+def _fully_ballooned_features(view, tagged_holes, placed_names) -> set:
+    """Features for which every required ``(tag, member-index)`` balloon landed."""
+    names_by_feature: dict[object, list[str]] = {}
+    for tag, member_index, _hole, feature in tagged_holes:
+        names_by_feature.setdefault(feature, []).append(f"balloon_{view}_{tag}_{member_index}")
+    return {
+        feature
+        for feature, required_names in names_by_feature.items()
+        if all(name in placed_names for name in required_names)
+    }
+
+
+def _discard_incomplete_feature_balloons(dwg, view, tagged_holes, successful_features) -> set[str]:
+    """Remove landed balloons whose feature did not complete its required set.
+
+    A partial group has not established a usable table-to-geometry mapping. Keeping its
+    surviving balloons would both imply a committed replacement and obstruct the restored
+    feature callout. Complete groups remain untouched.
+    """
+    removed = set()
+    for tag, member_index, _hole, feature in tagged_holes:
+        if feature in successful_features:
+            continue
+        name = f"balloon_{view}_{tag}_{member_index}"
+        if dwg.registry.named(name) is not None:
+            dwg.remove(name)
+            removed.add(name)
+    return removed
 
 
 @dataclass(frozen=True)

@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Hole-table replacement is transactional per semantic feature** (#1144). Automatic
+  escalation and the opt-in public `add_hole_table(..., replace_callouts=True)` surface now
+  suppress original callouts only after the table fits and every required feature balloon lands.
+  A failed table restores the exact annotations and registry identities; a partial balloon set
+  restores the unresolved feature callouts and cannot claim their requirements. Hole outcome
+  records identify whether a committed table or a restored feature annotation supplied the
+  placed requirement, together with the fallback reason.
+
 ### Changed
 
 - **Pairwise lint detail no longer multiplies the legibility score penalty** (#1147). Raw

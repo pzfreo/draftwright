@@ -588,16 +588,25 @@ def _record_callout_drop(ctx, dwg, view, diam, reason, feat=None, callout=None):
     for profile in getattr(callout, "covers_profiles", ()):
         for _ in range(count):
             ctx.coverage.drop_profile(profile)
+    measurements = tuple(getattr(callout, "measurements", ()))
     ctx.record_issue(
         "warning",
         "callout_dropped",
         f"hole callout ø{_fmt(diam)} dropped from the {view} view ({reason})",
-        measurement=getattr(callout, "measurements", ()),
+        measurement=measurements,
     )
     # First-class escalation object alongside the lint code (ADR 0009 Amdt 1, #351 PR-2).
     # The resolver (`_maybe_tabulate_holes`) triggers on these; the lint code stays for
     # coverage. 1:1 with the code emit, so the object trigger is byte-identical.
-    ctx.escalations.append(Escalation(kind="callout", view=view, feature=feat, reason=reason))
+    ctx.escalations.append(
+        Escalation(
+            kind="callout",
+            view=view,
+            feature=feat,
+            reason=reason,
+            targets=measurements,
+        )
+    )
 
 
 class _OffHole(NamedTuple):

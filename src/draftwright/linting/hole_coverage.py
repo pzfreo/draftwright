@@ -23,7 +23,12 @@ _DIRECTION_PROJECTION_REL_TOL = 1e-6
 
 @dataclass(frozen=True)
 class HoleRequirementOutcome:
-    """The observable engine outcome of one recognised hole requirement."""
+    """The observable engine outcome of one recognised hole requirement.
+
+    ``representation`` and ``representation_reason`` identify a transactional table win or
+    feature-annotation rollback. They remain ``None`` for ordinary/additive evidence and when
+    more than one marked representation contributes, so critique never guesses a winner.
+    """
 
     source_kind: HoleSourceKind
     source_at: tuple[float, float, float]
@@ -31,6 +36,8 @@ class HoleRequirementOutcome:
     parameter_id: str
     state: HoleRequirementState
     requirement_count: int = 1
+    representation: str | None = None
+    representation_reason: str | None = None
 
 
 def _rounded(value) -> float:
@@ -457,6 +464,7 @@ class _HoleEvidence:
     requirement_counts: dict[tuple[object, str], set[int]]
     locations: dict[tuple[object, str], set[tuple[float, float, float]]]
     centers: dict[object, set[tuple[tuple[float, float, float], str]]]
+    representations: dict[tuple[object, str], set[tuple[str, str]]]
 
 
 def _normalised_location(feature, point) -> tuple[float, float, float]:
@@ -472,8 +480,18 @@ def _index_hole_evidence(registry) -> _HoleEvidence:
     requirement_counts: dict[tuple[object, str], set[int]] = defaultdict(set)
     locations: dict[tuple[object, str], set[tuple[float, float, float]]] = defaultdict(set)
     centers: dict[object, set[tuple[tuple[float, float, float], str]]] = defaultdict(set)
+    representations: dict[tuple[object, str], set[tuple[str, str]]] = defaultdict(set)
     for name in registry.names():
         annotation = registry.named(name)
+        representation = getattr(annotation, "hole_representation", None)
+        representation_reason = getattr(annotation, "hole_representation_reason", None)
+
+        def record_representation(feature, parameter):
+            if representation is not None and representation_reason is not None:
+                representations[(feature, parameter)].add(
+                    (str(representation), str(representation_reason))
+                )
+
         measurements = tuple(registry.measurement_of(name))
         diameter_features = set()
         for measurement in measurements:
@@ -482,18 +500,22 @@ def _index_hole_evidence(registry) -> _HoleEvidence:
             if feature is None or parameter is None:
                 continue
             placed.add((feature, parameter))
+            record_representation(feature, parameter)
             if parameter == "bore.diameter":
                 diameter_features.add(feature)
         for feature, requirement, count in getattr(
             annotation, "covers_hole_requirements_by_feature", ()
         ):
             requirement_counts[(feature, requirement)].add(int(count))
+            record_representation(feature, requirement)
         for feature in diameter_features:
             for requirement in getattr(annotation, "covers_hole_requirements", ()):
                 requirement_counts[(feature, requirement)].add(1)
+                record_representation(feature, requirement)
             requirement_counts[(feature, "grouping.count")].add(
                 int(getattr(annotation, "covers_count", 1) or 1)
             )
+            record_representation(feature, "grouping.count")
         for fact in getattr(annotation, "covers_hole_locations", ()):
             if len(fact) == 3:
                 feature, parameter, point = fact
@@ -503,6 +525,7 @@ def _index_hole_evidence(registry) -> _HoleEvidence:
                 parameter = getattr(measurement, "parameter", None)
             if getattr(feature, "kind", None) in {"hole", "pattern"} and parameter is not None:
                 locations[(feature, parameter)].add(_normalised_location(feature, point))
+                record_representation(feature, parameter)
         for feature, point, view in getattr(annotation, "covers_hole_centers", ()):
             if getattr(feature, "kind", None) in {"hole", "pattern"}:
                 centers[feature].add((_normalised_location(feature, point), view))
@@ -526,7 +549,22 @@ def _index_hole_evidence(registry) -> _HoleEvidence:
         requirement_counts,
         locations,
         centers,
+        representations,
     )
+
+
+def _placed_representation(evidence, features, parameter, state):
+    """The transactional representation that supplied a placed requirement, if any."""
+    if state != "placed":
+        return (None, None)
+    markers = {
+        marker
+        for feature in features
+        for marker in evidence.representations.get((feature, parameter), ())
+    }
+    if len(markers) != 1:
+        return (None, None)
+    return next(iter(markers))
 
 
 def _structured_locations_placed(evidence, features, parameter: str, turned_axis_centers) -> bool:
@@ -866,23 +904,29 @@ def hole_requirement_outcomes(
                 )
             )
             continue
-        outcomes.extend(
-            HoleRequirementOutcome(
-                kind,
-                at,
-                member_count,
+        for parameter in parameters:
+            state = _state(
+                matched,
                 parameter,
-                _state(
-                    matched,
-                    parameter,
-                    member_count=member_count,
-                    evidence_index=evidence_index,
-                    suppressed=suppressed,
-                    turned_axis_centers=turned_axis_centers,
-                ),
+                member_count=member_count,
+                evidence_index=evidence_index,
+                suppressed=suppressed,
+                turned_axis_centers=turned_axis_centers,
             )
-            for parameter in parameters
-        )
+            representation, representation_reason = _placed_representation(
+                evidence_index, matched, parameter, state
+            )
+            outcomes.append(
+                HoleRequirementOutcome(
+                    kind,
+                    at,
+                    member_count,
+                    parameter,
+                    state,
+                    representation=representation,
+                    representation_reason=representation_reason,
+                )
+            )
     # The current HoleRecord waist has one countersink slot.  A second seat on the
     # opposite face is still a recognised physical requirement, but cannot be joined to
     # IR/compiler provenance without guessing which face the single slot represents.
