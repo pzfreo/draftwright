@@ -435,7 +435,6 @@ class _HoleEvidence:
     requirement_counts: dict[tuple[object, str], set[int]]
     locations: dict[tuple[object, str], set[tuple[float, float, float]]]
     centers: dict[object, set[tuple[tuple[float, float, float], str]]]
-    centerline_features: set[object]
 
 
 def _normalised_location(feature, point) -> tuple[float, float, float]:
@@ -451,7 +450,6 @@ def _index_hole_evidence(registry) -> _HoleEvidence:
     requirement_counts: dict[tuple[object, str], set[int]] = defaultdict(set)
     locations: dict[tuple[object, str], set[tuple[float, float, float]]] = defaultdict(set)
     centers: dict[object, set[tuple[tuple[float, float, float], str]]] = defaultdict(set)
-    centerline_features = set()
     for name in registry.names():
         annotation = registry.named(name)
         measurements = tuple(registry.measurement_of(name))
@@ -482,10 +480,6 @@ def _index_hole_evidence(registry) -> _HoleEvidence:
         for feature, point, view in getattr(annotation, "covers_hole_centers", ()):
             if getattr(feature, "kind", None) in {"hole", "pattern"}:
                 centers[feature].add((_normalised_location(feature, point), view))
-        if getattr(annotation, "is_centerline", False):
-            feature = registry.feature_of(name)
-            if feature is not None:
-                centerline_features.add(feature)
     dropped = {
         (feature, parameter)
         for issue in registry.issues
@@ -501,7 +495,6 @@ def _index_hole_evidence(registry) -> _HoleEvidence:
         requirement_counts,
         locations,
         centers,
-        centerline_features,
     )
 
 
@@ -526,8 +519,6 @@ def _structured_locations_placed(evidence, features, parameter: str, turned_axis
 
 
 def _synthetic_placed(evidence, features, parameter: str, member_count: int) -> bool:
-    if ".centerline." in parameter:
-        return any(feature in evidence.centerline_features for feature in features)
     if parameter == "bore.through":
         return any((feature, parameter) in evidence.requirement_counts for feature in features)
     if parameter != "grouping.count":
