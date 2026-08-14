@@ -96,6 +96,92 @@ def _solve_strip_1d(naturals, min_gap, lo, hi):
     return _solve_strip_1d_pava(naturals, [min_gap] * (len(naturals) - 1), lo, hi)
 
 
+def _solve_guarded_strip_1d(naturals, min_gap, allowed_segments):
+    """Place an ordered strip when each member has its own allowed intervals.
+
+    Returns one coordinate per member, or ``None`` when the complete set cannot
+    fit.  The solve is joint: moving an earlier member may make room for a later
+    one.  Candidate coordinates are derived from interval boundaries, natural
+    positions, and the exact separation constraint; there is no sampling grid.
+
+    The finite candidate set is complete for this interval-constrained L1
+    problem: a feasible placement can be translated until a coordinate reaches
+    an interval boundary, its natural position, or another coordinate's
+    ``min_gap`` boundary.  Adding every such source shifted by up to ``n`` gaps
+    therefore contains a feasible representative whenever one exists.
+    """
+    if not naturals:
+        return []
+    if len(naturals) != len(allowed_segments):
+        raise ValueError("naturals and allowed_segments must have equal length")
+    if any(not segments for segments in allowed_segments):
+        return None
+
+    count = len(naturals)
+    sources = set()
+    for natural, segments in zip(naturals, allowed_segments, strict=True):
+        sources.add(float(natural))
+        for lo, hi in segments:
+            if hi < lo:
+                raise ValueError("allowed segment has descending bounds")
+            sources.update((float(lo), float(hi), min(max(float(natural), lo), hi)))
+    coordinates = sorted(
+        {source + offset * min_gap for source in sources for offset in range(-count, count + 1)}
+    )
+
+    allowed = [
+        [any(lo <= value <= hi for lo, hi in segments) for value in coordinates]
+        for segments in allowed_segments
+    ]
+    previous = []
+    left = 0
+    for index, value in enumerate(coordinates):
+        while left < index and coordinates[left] <= value - min_gap + _LAYOUT_EPSILON:
+            left += 1
+        previous.append(left - 1)
+
+    # DP over ordered members and ordered coordinates.  Each state carries the
+    # minimum L1 displacement for a complete prefix; ``None`` means infeasible.
+    infinity = float("inf")
+    costs = [[infinity] * len(coordinates) for _ in range(count)]
+    parents: list[list[int | None]] = [[None] * len(coordinates) for _ in range(count)]
+    for coordinate_index, value in enumerate(coordinates):
+        if allowed[0][coordinate_index]:
+            costs[0][coordinate_index] = abs(value - naturals[0])
+    for member_index in range(1, count):
+        best_cost = infinity
+        best_index = None
+        scan = 0
+        for coordinate_index, value in enumerate(coordinates):
+            limit = previous[coordinate_index]
+            while scan <= limit:
+                candidate = costs[member_index - 1][scan]
+                if candidate < best_cost - _LAYOUT_EPSILON:
+                    best_cost = candidate
+                    best_index = scan
+                scan += 1
+            if allowed[member_index][coordinate_index] and best_index is not None:
+                costs[member_index][coordinate_index] = best_cost + abs(
+                    value - naturals[member_index]
+                )
+                parents[member_index][coordinate_index] = best_index
+
+    final_index = min(
+        range(len(coordinates)),
+        key=lambda index: (costs[-1][index], coordinates[index]),
+    )
+    if math.isinf(costs[-1][final_index]):
+        return None
+    result = [0.0] * count
+    for member_index in range(count - 1, -1, -1):
+        result[member_index] = coordinates[final_index]
+        parent = parents[member_index][final_index]
+        if member_index:
+            assert parent is not None
+            final_index = parent
+    return result
+
+
 _ANCHOR_WEIGHT = 1.0e6
 """Weight that pins an anchored candidate at its natural position in the weighted
 median (:func:`_solve_strip_1d_pava`). Any value that dwarfs the sum of a strip's

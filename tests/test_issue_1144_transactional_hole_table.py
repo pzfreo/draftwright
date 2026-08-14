@@ -194,6 +194,75 @@ def test_requirement_scoped_representation_is_a_semantic_owner_seam():
     ) == frozenset({feature})
 
 
+def test_table_commit_requires_exact_balloon_cardinality_and_owner():
+    from draftwright.annotations._common import _fully_ballooned_features
+    from draftwright.registry import AnnotationRegistry
+
+    feature = type("Feature", (), {"kind": "hole"})()
+    wrong_owner = type("Feature", (), {"kind": "hole"})()
+    tagged = [
+        ("A", 0, object(), feature),
+        ("A", 1, object(), feature),
+    ]
+    registry = AnnotationRegistry()
+    first, second = object(), object()
+    registry.add(first, "balloon_plan_A_0", "plan", feature=feature)
+
+    # A declared QTY=2 row is not committed from one landed member.
+    assert not _fully_ballooned_features(
+        "plan",
+        tagged,
+        {"balloon_plan_A_0"},
+        registry,
+        {feature: 2},
+    )
+
+    # The right attempt-local name is still not evidence when another feature
+    # owns that physical balloon position.
+    registry.add(second, "balloon_plan_A_1", "plan", feature=wrong_owner)
+    assert not _fully_ballooned_features(
+        "plan",
+        tagged,
+        {"balloon_plan_A_0", "balloon_plan_A_1"},
+        registry,
+        {feature: 2},
+    )
+
+    registry.add(second, "balloon_plan_A_1", "plan", feature=feature)
+    assert _fully_ballooned_features(
+        "plan",
+        tagged,
+        {"balloon_plan_A_0", "balloon_plan_A_1"},
+        registry,
+        {feature: 2},
+    ) == {feature}
+
+
+def test_guarded_balloon_obstacles_use_compact_labels_and_note_boxes():
+    from draftwright.annotations._common import balloon_annotation_label_boxes
+
+    class BoxedNote:
+        def bounding_box(self):
+            return SimpleNamespace(
+                min=SimpleNamespace(X=3.0, Y=4.0),
+                max=SimpleNamespace(X=8.0, Y=9.0),
+            )
+
+    label = SimpleNamespace(label_bbox=(1.0, 1.0, 2.0, 2.0))
+    note = BoxedNote()
+    other_view = SimpleNamespace(label_bbox=(20.0, 20.0, 21.0, 21.0))
+    drawing = SimpleNamespace(
+        box_cache={},
+        iter_annotations=lambda: iter((("label", label), ("note", note), ("other", other_view))),
+        view_of=lambda name: "side" if name == "other" else "plan",
+    )
+
+    assert balloon_annotation_label_boxes(drawing, "plan") == (
+        (1.0, 1.0, 2.0, 2.0),
+        (3.0, 4.0, 8.0, 9.0),
+    )
+
+
 def test_segmented_centerline_diagnostic_ignores_only_the_empty_aabb_triangle():
     from draftwright.linting.structural import _label_centerline_overlap
 
@@ -205,6 +274,178 @@ def test_segmented_centerline_diagnostic_ignores_only_the_empty_aabb_triangle():
 
     assert _label_centerline_overlap(label, clear_elbow) is None
     assert _label_centerline_overlap(label, crossing) is not None
+
+    # A balloon's ring/text glyph is a real occupied component even when its
+    # leader shaft stays clear.  The precise component box keeps that collision
+    # visible without restoring the compound's empty diagonal AABB triangle.
+    balloon_glyph = SimpleNamespace(
+        centerline_segments=(((-1.0, -1.0), (3.0, -1.0)),),
+        centerline_boxes=((0.5, 0.5, 1.5, 1.5),),
+    )
+    assert _label_centerline_overlap(label, balloon_glyph) is not None
+    assert (
+        _label_centerline_overlap(
+            SimpleNamespace(label="", label_bbox=None),
+            balloon_glyph,
+        )
+        is None
+    )
+
+
+def test_guarded_assignment_can_reassign_a_balloon_to_a_spare_band():
+    from draftwright.annotations.balloons import (
+        _guarded_assignment,
+        _GuardedSegments,
+    )
+
+    members = [
+        ("A", 0, object(), 0.0, 0.0),
+        ("B", 0, object(), 0.0, 0.0),
+        ("C", 0, object(), 0.0, 10.0),
+    ]
+    # Capacity-only min-cost flow chooses A+B on the left and C on the right;
+    # A and B share the same sole left coordinate, so the guarded global solve
+    # must move B to the remote right band and keep C at left=10.
+    choices = [
+        {"left": 0.0},
+        {"left": 0.0, "right": 100.0},
+        {"left": 0.0, "right": 0.0},
+    ]
+    bands = {
+        "left": ("y", 0.0, 0.0, 10.0),
+        "right": ("y", 20.0, 0.0, 10.0),
+    }
+    guarded = _GuardedSegments(
+        {
+            (0, "left"): ((5.0, 5.0),),
+            (1, "left"): ((5.0, 5.0),),
+            (1, "right"): ((5.0, 5.0),),
+            (2, "left"): ((10.0, 10.0),),
+            (2, "right"): ((10.0, 10.0),),
+        },
+        5.0,
+    )
+
+    assignments, solutions, dropped = _guarded_assignment(
+        members,
+        choices,
+        bands,
+        {"left": 2, "right": 1},
+        guarded,
+    )
+
+    assert dropped == 0
+    assert assignments == {"left": [0, 2], "right": [1]}
+    assert solutions == {"left": {0: 5.0, 2: 10.0}, "right": {1: 5.0}}
+
+
+def test_real_shaft_crossing_carves_the_guarded_band_without_aabb_sampling():
+    from draftwright.annotations.balloons import (
+        _balloon_shaft_segments,
+        _guarded_free_segments,
+    )
+
+    assert _balloon_shaft_segments(0.0, 0.0, 1.0, 0.0, 1.0, 1.0) == ()
+
+    member = ("A", 0, SimpleNamespace(diameter=2.0), 0.0, 0.0)
+    free = _guarded_free_segments(
+        member,
+        "y",
+        10.0,
+        ((0.0, 10.0),),
+        1.0,
+        1.0,
+        ((4.0, 4.0, 6.0, 6.0),),
+    )
+
+    assert any(lo <= 0.0 <= hi for lo, hi in free)
+    assert not any(lo <= 10.0 <= hi for lo, hi in free)
+
+
+def test_guarded_private_band_places_joint_solution_and_fails_closed(monkeypatch):
+    import draftwright.annotations.balloons as balloons_module
+
+    members = [
+        ("A", 0, SimpleNamespace(diameter=2.0), 0.0, 0.0),
+        ("B", 0, SimpleNamespace(diameter=2.0), 0.0, 5.0),
+    ]
+    rendered = []
+    monkeypatch.setattr(
+        balloons_module,
+        "balloon_annotation_label_boxes",
+        lambda *_args: (),
+    )
+    monkeypatch.setattr(
+        balloons_module,
+        "_render_balloon",
+        lambda *args: rendered.append(args),
+    )
+
+    dropped = balloons_module._place_band(
+        SimpleNamespace(scale=1.0),
+        "plan",
+        members,
+        "y",
+        20.0,
+        0.0,
+        10.0,
+        5.0,
+        3.0,
+        1.0,
+        object(),
+        avoid_annotation_labels=True,
+    )
+
+    assert dropped == 0
+    assert len(rendered) == 2
+
+    monkeypatch.setattr(
+        balloons_module,
+        "_guarded_free_segments",
+        lambda *_args: (),
+    )
+    assert (
+        balloons_module._place_band(
+            SimpleNamespace(scale=1.0),
+            "plan",
+            members,
+            "y",
+            20.0,
+            0.0,
+            10.0,
+            5.0,
+            3.0,
+            1.0,
+            object(),
+            avoid_annotation_labels=True,
+        )
+        == 2
+    )
+
+
+def test_automatic_actual_label_guard_restores_features_with_no_safe_balloon(monkeypatch):
+    import draftwright.annotations.balloons as balloons_module
+
+    # A real retained-label box occupying every reserved band makes every
+    # attempted ring/shaft infeasible. The automatic transaction must retain
+    # the feature-backed leaders instead of silently accepting table coverage.
+    monkeypatch.setattr(
+        balloons_module,
+        "balloon_annotation_label_boxes",
+        lambda *_args: ((-1000.0, -1000.0, 1000.0, 1000.0),),
+    )
+
+    drawing = build_drawing(_dense_scattered_plate())
+
+    assert not [name for name in drawing.annotations() if name.startswith("balloon_plan_")]
+    assert len(_plan_bore_callouts(drawing)) == 17
+    assert "balloon_dropped" in {issue.code for issue in drawing.registry.issues}
+    assert ("feature_annotation", "required_balloon_not_placed") in {
+        (outcome.representation, outcome.representation_reason)
+        for outcome in _outcomes(drawing)
+        if outcome.state == "placed"
+    }
+    assert "hole_requirement_missing" not in {issue.code for issue in drawing.lint()}
 
 
 def test_public_hole_table_remains_additive_and_keeps_every_balloon():
@@ -275,6 +516,11 @@ def test_automatic_initial_table_failure_restores_every_fallback(monkeypatch):
     codes = [issue.code for issue in drawing.lint()]
     assert codes.count("table_dropped") == 1
     assert "hole_requirement_missing" not in codes
+    assert ("feature_annotation", "table_not_placed") in {
+        (outcome.representation, outcome.representation_reason)
+        for outcome in _outcomes(drawing)
+        if outcome.state == "placed"
+    }
 
 
 def test_automatic_partial_balloon_result_restores_only_the_unresolved_feature(monkeypatch):
@@ -297,6 +543,19 @@ def test_automatic_partial_balloon_result_restores_only_the_unresolved_feature(m
     ) == len(table.covers_diameters)
     assert "balloon_dropped" in {issue.code for issue in drawing.lint()}
     assert {outcome.state for outcome in _outcomes(drawing)} <= {"placed", "dropped"}
+    assert {
+        (outcome.representation, outcome.representation_reason)
+        for outcome in _outcomes(drawing)
+        if outcome.source_at[:2] == tuple(unresolved.frame.origin[:2])
+        and outcome.parameter_id in {"bore.diameter", "bore.through"}
+    } == {("feature_annotation", "required_balloon_not_placed")}
+    unresolved_label = _plan_bore_callouts(drawing)[unresolved][1].label
+    assert not [
+        issue
+        for issue in drawing.lint()
+        if issue.code == "label_centerline_overlap"
+        and f"label '{unresolved_label}'" in issue.message
+    ]
 
 
 def test_automatic_partial_result_rolls_back_when_fallback_aware_refit_fails(monkeypatch):

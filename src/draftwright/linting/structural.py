@@ -90,14 +90,18 @@ def _ann_box(item, cache):
 def _centerline_extent(cl_item, box_cache=None):
     """Return (min_x, min_y, max_x, max_y) for a centreline.
 
-    Prefers the zero-width ``.segments`` (the true centreline) so a thin-faced
-    centreline still reads as a zero-width vertical/horizontal line; falls back
-    to the rendered ``.bounding_box()`` (which is line_width wide).
+    Prefers precise component metadata (``centerline_segments`` plus optional
+    ``centerline_boxes``), then the conventional zero-width ``.segments``, so a
+    thin-faced centreline still reads as a line while a compound balloon retains
+    its compact ring/text glyph. Falls back to rendered ``.bounding_box()``.
     """
-    segs = getattr(cl_item, "segments", None)
-    if segs:
-        xs = [p[0] for s in segs for p in s]
-        ys = [p[1] for s in segs for p in s]
+    segs = getattr(cl_item, "centerline_segments", getattr(cl_item, "segments", None))
+    component_boxes = getattr(cl_item, "centerline_boxes", ())
+    if segs or component_boxes:
+        xs = [p[0] for s in (segs or ()) for p in s]
+        ys = [p[1] for s in (segs or ()) for p in s]
+        xs.extend(value for box in component_boxes for value in (box[0], box[2]))
+        ys.extend(value for box in component_boxes for value in (box[1], box[3]))
         return (min(xs), min(ys), max(xs), max(ys))
     box = _ann_box(cl_item, box_cache if box_cache is not None else {})
     if box is None:
@@ -788,9 +792,15 @@ def _label_centerline_overlap(dim_item, cl_item, box_cache=None, warned=None):
     # triangle.  ADR 0009 makes its real segments authoritative: the AABB remains
     # useful for overlap magnitude/reporting, but cannot create a warning unless at
     # least one rendered shaft actually reaches the label box.
-    segments = getattr(cl_item, "segments", None)
-    if segments and not any(
-        _segment_clips_box(start, end, label_bbox, pad=0.0) for start, end in segments
+    segments = getattr(
+        cl_item,
+        "centerline_segments",
+        getattr(cl_item, "segments", None),
+    )
+    component_boxes = getattr(cl_item, "centerline_boxes", ())
+    if (segments or component_boxes) and not (
+        any(_segment_clips_box(start, end, label_bbox, pad=0.0) for start, end in (segments or ()))
+        or any(_boxes_overlap(box, label_bbox) for box in component_boxes)
     ):
         return None
 

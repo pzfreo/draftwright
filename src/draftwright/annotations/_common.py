@@ -1181,27 +1181,21 @@ def _box_hits(bb, boxes):
     return bb is not None and any(_boxes_overlap(bb, c) for c in boxes)
 
 
-def balloon_hits_annotation_label(dwg, glyph, segments, view) -> bool:
-    """Whether precise balloon geometry crosses a surviving callout label.
+def balloon_annotation_label_boxes(dwg, view):
+    """Return the surviving annotation label boxes in *view*.
 
-    The glyph (ring + text) is compact enough for an AABB test.  The leader is not:
-    ADR 0009 forbids treating a diagonal shaft's empty AABB triangle as occupied, so each
-    real segment is tested against the text box independently.  This guard is enabled only
-    by transactional automatic escalation; ordinary public/additive balloons retain their
-    established placement contract.
+    Public label metadata keeps dimensions compact (witness lines are not
+    obstacles); objects without it, such as notes/tables/section arrows, fall
+    back to their rendered box. Collecting once keeps guarded balloon solving
+    free of temporary OCC glyph construction and shared-box-cache churn.
     """
     cache = getattr(dwg, "box_cache", None)
-    glyph_box = _geom_box(glyph, cache)
+    boxes = []
     for name, annotation in dwg.iter_annotations():
         owner = dwg.view_of(name)
         if owner is not None and owner != view:
             continue
         if getattr(annotation, "is_centerline", False):
-            continue
-        # The transaction changes only feature-backed callout presence. Other
-        # dimension/furniture conflicts belong to their owning placement passes; treating
-        # every witness-line bbox as a balloon obstacle would discard most of a dense ring.
-        if getattr(annotation, "elbow", None) is None:
             continue
         try:
             label_box = getattr(annotation, "label_bbox", None)
@@ -1211,11 +1205,17 @@ def balloon_hits_annotation_label(dwg, glyph, segments, view) -> bool:
             label_box = _geom_box(annotation, cache)
         if label_box is None:
             continue
-        if (glyph_box is not None and _boxes_overlap(glyph_box, label_box)) or any(
-            _segment_clips_box(start, end, label_box, pad=0.0) for start, end in segments
-        ):
-            return True
-    return False
+        boxes.append(label_box)
+    return tuple(boxes)
+
+
+def balloon_geometry_hits_annotation_labels(glyph_box, segments, label_boxes) -> bool:
+    """Whether a compact glyph or any real shaft crosses a retained label."""
+    return any(
+        _boxes_overlap(glyph_box, label_box)
+        or any(_segment_clips_box(start, end, label_box, pad=0.0) for start, end in segments)
+        for label_box in label_boxes
+    )
 
 
 def box_within_page_and_clear(bb, page_box, obstacles) -> bool:

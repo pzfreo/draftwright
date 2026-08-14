@@ -22,7 +22,8 @@ from draftwright._core import (
     _balloon_radius,
 )
 from draftwright.annotations._common import (
-    balloon_hits_annotation_label,
+    balloon_annotation_label_boxes,
+    balloon_geometry_hits_annotation_labels,
     carve_free_segments,
     strip_obstacles,
 )
@@ -30,6 +31,7 @@ from draftwright.fonts import PLEX_MONO
 from draftwright.layout import (
     _assign_balloon_bands,
     _greedy_strip_1d,
+    _solve_guarded_strip_1d,
     _solve_segmented_strip_1d,
     _solve_strip_1d,
     _strip_capacity,
@@ -223,6 +225,30 @@ def render_balloons(
         for name, (_axis, _line, lo, hi) in band_defs.items()
     }
     preferred_bands = tuple(name for name, capacity in capacities.items() if capacity > 0)
+    if avoid_annotation_labels:
+        dropped = _place_guarded_inventory(
+            dwg,
+            view,
+            members,
+            choices_by_member,
+            band_defs,
+            capacities,
+            gap,
+            fs,
+            r,
+            ctx,
+            top_segments=top_segments,
+            prefer_bands=preferred_bands if perimeter else (),
+            preference_limit=_band_preference_limit(fs) if perimeter else 0.0,
+        )
+        if dropped:
+            ctx.record_issue(
+                "warning",
+                "balloon_dropped",
+                f"{dropped} balloon(s) could not fit their reserved band and were dropped",
+            )
+        return
+
     bands, dropped = _assign_balloon_bands(
         members,
         choices_by_member,
@@ -230,7 +256,6 @@ def render_balloons(
         prefer_bands=preferred_bands if perimeter else (),
         preference_limit=_band_preference_limit(fs) if perimeter else 0.0,
     )
-    collision_kwargs = {"avoid_annotation_labels": True} if avoid_annotation_labels else {}
     dropped += _place_band(
         dwg,
         view,
@@ -240,7 +265,6 @@ def render_balloons(
         fs,
         r,
         ctx,
-        **collision_kwargs,
     )
     dropped += _place_band(
         dwg,
@@ -251,7 +275,6 @@ def render_balloons(
         fs,
         r,
         ctx,
-        **collision_kwargs,
     )
     top_args = (
         dwg,
@@ -264,12 +287,11 @@ def render_balloons(
         ctx,
     )
     dropped += (
-        _place_band(*top_args, **collision_kwargs)
+        _place_band(*top_args)
         if top_segments is None
         else _place_band(
             *top_args,
             segments=top_segments,
-            **collision_kwargs,
         )
     )
     dropped += _place_band(
@@ -281,7 +303,6 @@ def render_balloons(
         fs,
         r,
         ctx,
-        **collision_kwargs,
     )
     # A band too crowded to hold every balloon drops its tail (the strip solver's
     # prefix fallback) — record it instead of letting the balloons vanish silently
@@ -293,6 +314,343 @@ def render_balloons(
             "balloon_dropped",
             f"{dropped} balloon(s) could not fit their reserved band and were dropped",
         )
+
+
+def _balloon_shaft_segments(cx, cy, bx, by, hole_r, balloon_r):
+    """Analytic 2D shaft geometry shared by guarded solve and rendering."""
+    dx, dy = bx - cx, by - cy
+    distance = math.hypot(dx, dy)
+    if distance <= hole_r + balloon_r:
+        return ()
+    ux, uy = dx / distance, dy / distance
+    return (
+        (
+            (cx + ux * hole_r, cy + uy * hole_r),
+            (bx - ux * balloon_r, by - uy * balloon_r),
+        ),
+    )
+
+
+def _balloon_glyph_box(bx, by, radius):
+    return (bx - radius, by - radius, bx + radius, by + radius)
+
+
+def _guarded_free_segments(member, axis, line, ranges, radius, scale, label_boxes):
+    """Continuous free coordinates for one member on one balloon band.
+
+    Segment/box intersection can change only when the centre-to-centre ray passes
+    a label-box corner; glyph intersection changes at the box edges expanded by
+    the ring radius.  Partitioning at those geometry events and testing the real
+    shortened shaft yields exact free intervals without a sampling grid.
+    """
+    _tag, _member_index, hole, cx, cy = member
+    hole_r = hole.diameter * scale / 2
+
+    def hits(coordinate):
+        bx, by = (line, coordinate) if axis == "y" else (coordinate, line)
+        return balloon_geometry_hits_annotation_labels(
+            _balloon_glyph_box(bx, by, radius),
+            _balloon_shaft_segments(cx, cy, bx, by, hole_r, radius),
+            label_boxes,
+        )
+
+    result = []
+    for range_lo, range_hi in ranges:
+        critical = {float(range_lo), float(range_hi)}
+        for x0, y0, x1, y1 in label_boxes:
+            rim_points: list[tuple[float, float]] = []
+            for qx in (x0, x1):
+                remainder = hole_r * hole_r - (qx - cx) ** 2
+                if remainder >= 0:
+                    delta = math.sqrt(remainder)
+                    rim_points.extend(
+                        (qx, qy) for qy in (cy - delta, cy + delta) if y0 <= qy <= y1
+                    )
+            for qy in (y0, y1):
+                remainder = hole_r * hole_r - (qy - cy) ** 2
+                if remainder >= 0:
+                    delta = math.sqrt(remainder)
+                    rim_points.extend(
+                        (qx, qy) for qx in (cx - delta, cx + delta) if x0 <= qx <= x1
+                    )
+            if axis == "y":
+                if x0 - radius < line < x1 + radius:
+                    critical.update((y0 - radius, y1 + radius))
+                if not math.isclose(line, cx):
+                    for qx in (x0, x1):
+                        if not math.isclose(qx, cx):
+                            for qy in (y0, y1):
+                                critical.add(cy + (qy - cy) * (line - cx) / (qx - cx))
+                    for qx, qy in rim_points:
+                        if not math.isclose(qx, cx):
+                            critical.add(cy + (qy - cy) * (line - cx) / (qx - cx))
+            else:
+                if y0 - radius < line < y1 + radius:
+                    critical.update((x0 - radius, x1 + radius))
+                if not math.isclose(line, cy):
+                    for qy in (y0, y1):
+                        if not math.isclose(qy, cy):
+                            for qx in (x0, x1):
+                                critical.add(cx + (qx - cx) * (line - cy) / (qy - cy))
+                    for qx, qy in rim_points:
+                        if not math.isclose(qy, cy):
+                            critical.add(cx + (qx - cx) * (line - cy) / (qy - cy))
+        points = sorted({min(max(value, range_lo), range_hi) for value in critical})
+        for point in points:
+            if not hits(point):
+                result.append((point, point))
+        for lo, hi in zip(points, points[1:]):
+            if hi <= lo:
+                continue
+            midpoint = (lo + hi) / 2
+            if hits(midpoint):
+                continue
+            free_lo = lo if not hits(lo) else math.nextafter(lo, hi)
+            free_hi = hi if not hits(hi) else math.nextafter(hi, lo)
+            if free_lo <= free_hi:
+                result.append((free_lo, free_hi))
+
+    merged: list[tuple[float, float]] = []
+    for lo, hi in sorted(result):
+        if merged and lo <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], hi))
+        else:
+            merged.append((lo, hi))
+    validated = []
+    for lo, hi in merged:
+        clearance = max(1e-6, max(abs(lo), abs(hi)) * 1e-12)
+        if hits(lo):
+            lo += clearance
+        if hits(hi):
+            hi -= clearance
+        if lo <= hi:
+            validated.append((lo, hi))
+    return tuple(validated)
+
+
+def _solve_guarded_band(member_indices, members, band_name, band_defs, free_segments):
+    """Return ``{member_index: coordinate}`` for one complete guarded band."""
+    axis = band_defs[band_name][0]
+    natural_index = 4 if axis == "y" else 3
+    ordered = sorted(member_indices, key=lambda index: members[index][natural_index])
+    coordinates = _solve_guarded_strip_1d(
+        [members[index][natural_index] for index in ordered],
+        free_segments.min_gap,
+        [free_segments.by_member_band[index, band_name] for index in ordered],
+    )
+    if coordinates is None:
+        return None
+    return dict(zip(ordered, coordinates, strict=True))
+
+
+class _GuardedSegments:
+    """Small internal carrier for one guarded inventory solve."""
+
+    def __init__(self, by_member_band, min_gap):
+        self.by_member_band = by_member_band
+        self.min_gap = min_gap
+
+
+def _guarded_assignment(
+    members,
+    choices_by_member,
+    band_defs,
+    capacities,
+    free_segments,
+    *,
+    prefer_bands=(),
+    preference_limit=0.0,
+):
+    """Globally assign members to bands while all band coordinates remain feasible.
+
+    The ordinary min-cost flow gives a cardinality upper bound using each band's
+    geometric capacity.  If that assignment is jointly feasible under the
+    retained-label intervals it is preserved exactly.  Otherwise a deterministic
+    branch-and-bound search finds the same highest attainable cardinality across
+    all bands; label feasibility therefore participates in band assignment rather
+    than causing a greedy post-solve drop.
+    """
+    filtered_choices = [
+        {
+            band: distance
+            for band, distance in choices.items()
+            if free_segments.by_member_band.get((index, band))
+        }
+        for index, choices in enumerate(choices_by_member)
+    ]
+    effective_capacities = {}
+    for band, capacity in capacities.items():
+        union = sorted(
+            segment
+            for index in range(len(members))
+            for segment in free_segments.by_member_band.get((index, band), ())
+        )
+        merged_union: list[tuple[float, float]] = []
+        for lo, hi in union:
+            if merged_union and lo <= merged_union[-1][1]:
+                merged_union[-1] = (
+                    merged_union[-1][0],
+                    max(merged_union[-1][1], hi),
+                )
+            else:
+                merged_union.append((lo, hi))
+        effective_capacities[band] = min(
+            capacity,
+            sum(_strip_capacity(lo, hi, free_segments.min_gap) for lo, hi in merged_union),
+        )
+    seed, _flow_dropped = _assign_balloon_bands(
+        members,
+        filtered_choices,
+        effective_capacities,
+        prefer_bands=prefer_bands,
+        preference_limit=preference_limit,
+    )
+    member_index = {id(member): index for index, member in enumerate(members)}
+    seed_indices = {
+        band: [member_index[id(member)] for member in assigned]
+        for band, assigned in seed.items()
+        if band in band_defs
+    }
+    seed_solutions = {
+        band: _solve_guarded_band(indices, members, band, band_defs, free_segments)
+        for band, indices in seed_indices.items()
+    }
+    target = sum(len(indices) for indices in seed_indices.values())
+    if all(solution is not None for solution in seed_solutions.values()):
+        return seed_indices, seed_solutions, len(members) - target
+
+    available = [index for index, choices in enumerate(filtered_choices) if choices]
+    unavailable = len(members) - len(available)
+    ordered = sorted(
+        available,
+        key=lambda index: (
+            len(filtered_choices[index]),
+            min(filtered_choices[index].values()),
+            index,
+        ),
+    )
+    band_names = tuple(band_defs)
+    groups: dict[str, list[int]] = {band: [] for band in band_names}
+    solve_cache: dict[tuple[str, tuple[int, ...]], dict[int, float] | None] = {}
+
+    def solve_band(band):
+        key = (band, tuple(sorted(groups[band])))
+        if key not in solve_cache:
+            solve_cache[key] = _solve_guarded_band(
+                groups[band], members, band, band_defs, free_segments
+            )
+        return solve_cache[key]
+
+    for required in range(target, -1, -1):
+        answer = None
+
+        def visit(position, placed):
+            nonlocal answer
+            if answer is not None:
+                return
+            if placed + len(ordered) - position < required:
+                return
+            if position == len(ordered):
+                if placed == required:
+                    answer = (
+                        {band: list(indices) for band, indices in groups.items()},
+                        {band: solve_band(band) for band in band_names},
+                    )
+                return
+            index = ordered[position]
+            choices = sorted(
+                filtered_choices[index],
+                key=lambda band: (
+                    filtered_choices[index][band]
+                    - (preference_limit if band in prefer_bands and not groups[band] else 0.0),
+                    filtered_choices[index][band],
+                    band,
+                ),
+            )
+            for band in choices:
+                if len(groups[band]) >= effective_capacities[band]:
+                    continue
+                groups[band].append(index)
+                if solve_band(band) is not None:
+                    visit(position + 1, placed + 1)
+                groups[band].pop()
+                if answer is not None:
+                    return
+            if placed + len(ordered) - position - 1 >= required:
+                visit(position + 1, placed)
+
+        visit(0, 0)
+        if answer is not None:
+            assignments, solutions = answer
+            return assignments, solutions, unavailable + len(available) - required
+    return {band: [] for band in band_names}, {band: {} for band in band_names}, len(members)
+
+
+def _place_guarded_inventory(
+    dwg,
+    view,
+    members,
+    choices_by_member,
+    band_defs,
+    capacities,
+    gap,
+    fs,
+    radius,
+    ctx,
+    *,
+    top_segments,
+    prefer_bands,
+    preference_limit,
+):
+    """Solve and render the final collision-safe automatic balloon inventory."""
+    label_boxes = balloon_annotation_label_boxes(dwg, view)
+    by_member_band = {}
+    for index, member in enumerate(members):
+        for band, (axis, line, lo, hi) in band_defs.items():
+            if capacities[band] <= 0:
+                continue
+            ranges = top_segments if band == "top" and top_segments is not None else ((lo, hi),)
+            by_member_band[index, band] = _guarded_free_segments(
+                member,
+                axis,
+                line,
+                ranges,
+                radius,
+                dwg.scale,
+                label_boxes,
+            )
+    guarded = _GuardedSegments(by_member_band, gap)
+    assignments, solutions, dropped = _guarded_assignment(
+        members,
+        choices_by_member,
+        band_defs,
+        capacities,
+        guarded,
+        prefer_bands=prefer_bands,
+        preference_limit=preference_limit,
+    )
+    for band, indices in assignments.items():
+        axis, line, _lo, _hi = band_defs[band]
+        solution = solutions[band]
+        for index in sorted(indices, key=lambda item: solution[item]):
+            tag, member_index, hole, cx, cy = members[index]
+            coordinate = solution[index]
+            bx, by = (line, coordinate) if axis == "y" else (coordinate, line)
+            _render_balloon(
+                dwg,
+                view,
+                tag,
+                member_index,
+                hole,
+                cx,
+                cy,
+                bx,
+                by,
+                fs,
+                radius,
+                ctx,
+            )
+    return dropped
 
 
 def _place_band(
@@ -326,6 +684,28 @@ def _place_band(
     k = 4 if axis == "y" else 3  # index of cy / cx in the member tuple
     members.sort(key=lambda m: m[k])
     naturals = [m[k] for m in members]
+    if avoid_annotation_labels:
+        ranges = segments if segments is not None else ((lo, hi),)
+        label_boxes = balloon_annotation_label_boxes(dwg, view)
+        allowed = [
+            _guarded_free_segments(
+                member,
+                axis,
+                line,
+                ranges,
+                r,
+                dwg.scale,
+                label_boxes,
+            )
+            for member in members
+        ]
+        coords = _solve_guarded_strip_1d(naturals, gap, allowed)
+        if coords is None:
+            return len(members)
+        for (tag, j, hole, cx, cy), coordinate in zip(members, coords, strict=True):
+            bx, by = (line, coordinate) if axis == "y" else (coordinate, line)
+            _render_balloon(dwg, view, tag, j, hole, cx, cy, bx, by, fs, r, ctx)
+        return 0
     if segments is not None:
         coords = _solve_segmented_strip_1d(naturals, gap, segments, prefix=True) or []
     else:
@@ -334,12 +714,9 @@ def _place_band(
             or _greedy_strip_1d(naturals, gap, lo, hi)
             or _greedy_strip_1d(naturals, gap, lo, hi, prefix=True)
         )
-    placed_coords = list(coords)
-    collision_kwargs = {"avoid_annotation_labels": True} if avoid_annotation_labels else {}
-    rejected = 0
-    for member_index, ((tag, j, hole, cx, cy), c) in enumerate(zip(members, coords)):
+    for (tag, j, hole, cx, cy), c in zip(members, coords):
         bx, by = (line, c) if axis == "y" else (c, line)
-        rendered = _render_balloon(
+        _render_balloon(
             dwg,
             view,
             tag,
@@ -352,52 +729,8 @@ def _place_band(
             fs,
             r,
             ctx,
-            **collision_kwargs,
         )
-        if rendered is not False:
-            continue
-
-        # The max-cardinality strip solve does not know the final retained callout
-        # labels. If its natural coordinate creates a real glyph/segment crossing,
-        # search the same sanctioned strip for the nearest collision-free coordinate
-        # before dropping the row key. Other solved balloon coordinates stay reserved,
-        # so this retry cannot trade one collision for a balloon overlap.
-        ranges = segments if segments is not None else [(lo, hi)]
-        alternatives = {
-            round(start + step * 0.5, 6)
-            for start, end in ranges
-            for step in range(max(0, int(math.floor((end - start) / 0.5))) + 1)
-        }
-        occupied = [
-            coordinate for index, coordinate in enumerate(placed_coords) if index != member_index
-        ]
-        for alternative in sorted(alternatives, key=lambda value: (abs(value - c), value)):
-            if any(abs(alternative - coordinate) < gap - 1e-6 for coordinate in occupied):
-                continue
-            bx, by = (line, alternative) if axis == "y" else (alternative, line)
-            if (
-                _render_balloon(
-                    dwg,
-                    view,
-                    tag,
-                    j,
-                    hole,
-                    cx,
-                    cy,
-                    bx,
-                    by,
-                    fs,
-                    r,
-                    ctx,
-                    avoid_annotation_labels=True,
-                )
-                is not False
-            ):
-                placed_coords[member_index] = alternative
-                break
-        else:
-            rejected += 1
-    return len(members) - len(coords) + rejected
+    return len(members) - len(coords)
 
 
 def _render_balloon(
@@ -413,8 +746,6 @@ def _render_balloon(
     fs,
     r,
     ctx,
-    *,
-    avoid_annotation_labels=False,
 ):
     """Build and add one balloon glyph + leader at solved centre ``(bx, by)``
     for hole ``(cx, cy)`` (#111)."""
@@ -431,7 +762,14 @@ def _render_balloon(
     ).locate(loc)
     glyph_parts = [*ring_faces, *text.faces()]
     parts = list(glyph_parts)
-    segments = ()
+    shaft_segments = _balloon_shaft_segments(
+        cx,
+        cy,
+        bx,
+        by,
+        hole.diameter * dwg.scale / 2,
+        r,
+    )
     # Leader from the hole rim to the balloon's near edge — the glyph is the
     # label, so label="".  Skipped when the balloon could not clear the hole
     # (degenerate fallback), where a leader would be a stub through the ring.
@@ -444,22 +782,16 @@ def _render_balloon(
         elbow = (bx - ux * r, by - uy * r, 0)
         leader = Leader(tip, elbow, "", dwg.draft)
         parts.append(leader)
-        segments = tuple(getattr(leader, "segments", ()))
     balloon = Compound(children=parts)
-    # Structural lint must inspect the real leader shaft, not the compound AABB's
-    # empty diagonal triangle (ADR 0009).  Placement has already checked the compact
-    # glyph separately above.
-    balloon.segments = segments
+    # Structural lint treats the shaft and compact glyph as two precise pieces:
+    # the shaft avoids the compound AABB's empty diagonal triangle (ADR 0009),
+    # while the glyph remains visible to critique instead of disappearing behind
+    # the centreline exemption.
+    balloon.centerline_segments = shaft_segments
+    balloon.centerline_boxes = (_balloon_glyph_box(bx, by, r),)
     # Furniture that legitimately sits on the view geometry — exempt from the
     # annotation-overlap / centreline lint, as the section arrows do.
     balloon.is_centerline = True
-    if avoid_annotation_labels and balloon_hits_annotation_label(
-        dwg,
-        Compound(children=glyph_parts),
-        segments,
-        view,
-    ):
-        return False
     ctx.place(
         balloon,
         f"balloon_{view}_{tag}_{j}",

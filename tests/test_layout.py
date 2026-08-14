@@ -11,6 +11,7 @@ from draftwright.layout import (
     _ANCHOR_WEIGHT,
     _assign_balloon_bands,
     _greedy_strip_1d,
+    _solve_guarded_strip_1d,
     _solve_segmented_strip_1d,
     _solve_strip_1d,
     _solve_strip_1d_pava,
@@ -119,6 +120,29 @@ class TestSolveStrip1d:
 
     def test_empty_returns_empty(self):
         assert _solve_strip_1d([], min_gap=5, lo=0, hi=10) == []
+
+    def test_guarded_solve_reassigns_earlier_coordinate_jointly(self):
+        # A greedy retry holds B's original 5 mm coordinate, drops A, then moves
+        # B to 10.  The joint solve sees the complete inventory and places both.
+        assert _solve_guarded_strip_1d(
+            [0.0, 5.0],
+            5.0,
+            [[(5.0, 5.0)], [(0.0, 0.0), (10.0, 10.0)]],
+        ) == [5.0, 10.0]
+
+    def test_guarded_solve_uses_geometry_endpoints_not_a_sampling_grid(self):
+        assert _solve_guarded_strip_1d(
+            [0.0, 5.0],
+            5.0,
+            [[(0.3, 0.3)], [(5.3, 5.3)]],
+        ) == [0.3, 5.3]
+
+    def test_guarded_solve_rejects_invalid_or_empty_constraints(self):
+        with pytest.raises(ValueError, match="equal length"):
+            _solve_guarded_strip_1d([0.0], 5.0, [])
+        assert _solve_guarded_strip_1d([0.0], 5.0, [[]]) is None
+        with pytest.raises(ValueError, match="descending"):
+            _solve_guarded_strip_1d([0.0], 5.0, [[(2.0, 1.0)]])
 
     def test_deterministic_across_runs(self):
         args = ([1.0, 1.0, 1.0, 1.0], 3.0, 0.0, 100.0)
