@@ -817,13 +817,43 @@ def test_public_add_balloons_separates_long_sibling_text_components():
     )
 
 
-def test_automatic_table_fails_closed_against_a_retained_public_balloon():
+@pytest.mark.parametrize(
+    "component_metadata",
+    ["valid", "empty", "malformed", "nonfinite", "descending", "absent", "unmeasurable"],
+)
+def test_automatic_table_fails_closed_against_a_retained_public_balloon(
+    component_metadata, monkeypatch
+):
     drawing = build_drawing(_dense_perimeter_plate(), page="A3", auto_dims=False)
     tag = "RETAINED_PUBLIC_BALLOON_WITH_A_VERY_LONG_TAG"
     retained_name = f"balloon_plan_{tag}_0"
     drawing.add_balloons("plan", [(tag, 0, drawing.recognition().holes[0])])
     retained = drawing.get_annotation(retained_name)
     assert retained is not None
+    assert retained.is_balloon
+    if component_metadata in {"empty", "unmeasurable"}:
+        retained.centerline_boxes = ()
+        retained.centerline_segments = ()
+    elif component_metadata == "malformed":
+        retained.centerline_boxes = (("not", "a", "box"),)
+    elif component_metadata == "nonfinite":
+        retained.centerline_boxes = ((float("nan"), 0.0, 1.0, 1.0),)
+    elif component_metadata == "descending":
+        retained.centerline_boxes = ((1.0, 1.0, 0.0, 0.0),)
+    elif component_metadata == "absent":
+        del retained.centerline_boxes
+        del retained.centerline_segments
+    if component_metadata == "unmeasurable":
+        import draftwright.annotations.balloons as balloons_module
+
+        original_geom_box = balloons_module._geom_box
+        monkeypatch.setattr(
+            balloons_module,
+            "_geom_box",
+            lambda annotation, cache: (
+                None if annotation is retained else original_geom_box(annotation, cache)
+            ),
+        )
 
     with drawing.deferred():
         for feature in drawing.model().features:

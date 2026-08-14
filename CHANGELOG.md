@@ -10,7 +10,8 @@
   rolls the shared table back as a unit and restores the exact annotations, ordering, registry
   identities, coverage, and issues. Precise ring, glyph, and leader-segment tests keep placement
   clear of retained callout labels, leader shafts, and existing public-balloon components without
-  changing the existing additive `add_hole_table()`/`add_balloons()` behavior. Compound, thread,
+  changing the existing additive `add_hole_table()`/`add_balloons()` behavior; malformed component
+  metadata falls back conservatively or fails the optional replacement closed. Compound, thread,
   profile, pattern, tolerance, and fit facts the table cannot state remain active, while
   independently replaceable X/Y locations may still move to the table. Guarded interval solving
   has a deterministic work/state budget; an adversarially fragmented band fails the replacement

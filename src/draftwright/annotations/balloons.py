@@ -23,6 +23,7 @@ from draftwright._core import (
 )
 from draftwright._geometry import _segments_cross_or_overlap
 from draftwright.annotations._common import (
+    _geom_box,
     balloon_annotation_label_boxes,
     balloon_geometry_hits_annotation_labels,
     carve_free_segments,
@@ -630,42 +631,82 @@ def _retained_annotation_geometry(dwg, view):
     Public balloons are centerline ``Compound`` objects rather than top-level
     ``Leader`` instances. Their explicit component metadata is the only honest
     collision geometry: the compound AABB would recreate ADR 0009's forbidden
-    empty diagonal triangle. Feature leaders additionally expose real segments.
+    empty diagonal triangle. If that metadata has been removed or corrupted by
+    a caller, use the conservative rendered box instead; if even that cannot be
+    measured, report unsafe so the optional table transaction fails closed.
+    Feature leaders additionally expose real segments.
     """
     boxes: list[tuple[float, float, float, float]] = []
     segments: list[tuple[tuple[float, float], tuple[float, float]]] = []
+    safe = True
+    cache = getattr(dwg, "box_cache", None)
 
-    def append_segments(raw_segments):
-        for segment in raw_segments:
+    def normalised_boxes(raw_boxes):
+        normalised = []
+        try:
+            entries = tuple(raw_boxes)
+        except Exception:  # noqa: BLE001 — optional external metadata
+            return None
+        for box in entries:
+            try:
+                x0, y0, x1, y1 = box
+                values = tuple(float(value) for value in (x0, y0, x1, y1))
+            except (TypeError, ValueError):
+                return None
+            if (
+                not all(math.isfinite(value) for value in values)
+                or values[0] >= values[2]
+                or values[1] >= values[3]
+            ):
+                return None
+            normalised.append(values)
+        return tuple(normalised)
+
+    def normalised_segments(raw_segments):
+        normalised = []
+        try:
+            entries = tuple(raw_segments)
+        except Exception:  # noqa: BLE001 — optional external metadata
+            return None
+        for segment in entries:
             try:
                 (x0, y0), (x1, y1) = segment
-                segments.append(((float(x0), float(y0)), (float(x1), float(y1))))
+                values = tuple(float(value) for value in (x0, y0, x1, y1))
             except (TypeError, ValueError):
-                continue
+                return None
+            if not all(math.isfinite(value) for value in values) or values[:2] == values[2:]:
+                return None
+            normalised.append(((values[0], values[1]), (values[2], values[3])))
+        return tuple(normalised)
 
     for name, annotation in dwg.iter_annotations():
         owner = dwg.view_of(name)
         if owner is not None and owner != view:
             continue
-        try:
-            raw_boxes = getattr(annotation, "centerline_boxes", ()) or ()
-            raw_segments = getattr(annotation, "centerline_segments", ()) or ()
-        except Exception:  # noqa: BLE001 — external optional metadata may be unreadable
-            # External annotations may expose malformed optional metadata. It
-            # cannot become placement evidence; their ordinary rendered/label
-            # box remains available through the existing obstacle collectors.
-            raw_boxes = raw_segments = ()
-        for box in raw_boxes:
+        if getattr(annotation, "is_balloon", False):
             try:
-                x0, y0, x1, y1 = box
-                boxes.append((float(x0), float(y0), float(x1), float(y1)))
-            except (TypeError, ValueError):
-                continue
-        append_segments(raw_segments)
-        if not isinstance(annotation, Leader):
-            continue
-        append_segments(getattr(annotation, "segments", ()) or ())
-    return tuple(dict.fromkeys(boxes)), tuple(dict.fromkeys(segments))
+                component_boxes = normalised_boxes(annotation.centerline_boxes)
+                component_segments = normalised_segments(annotation.centerline_segments)
+            except Exception:  # noqa: BLE001 — optional external metadata
+                component_boxes = component_segments = None
+            # Every rendered balloon has at least its ring box. Empty boxes,
+            # absent attributes, or any malformed entry make the complete
+            # component inventory untrustworthy; do not use a partial subset.
+            if component_boxes and component_segments is not None:
+                boxes.extend(component_boxes)
+                segments.extend(component_segments)
+            else:
+                rendered_box = _geom_box(annotation, cache)
+                if rendered_box is None:
+                    safe = False
+                else:
+                    x0, y0, x1, y1 = rendered_box
+                    boxes.append((float(x0), float(y0), float(x1), float(y1)))
+        if isinstance(annotation, Leader):
+            leader_segments = normalised_segments(getattr(annotation, "segments", ()) or ())
+            if leader_segments is not None:
+                segments.extend(leader_segments)
+    return tuple(dict.fromkeys(boxes)), tuple(dict.fromkeys(segments)), safe
 
 
 def _place_guarded_inventory(
@@ -690,9 +731,11 @@ def _place_guarded_inventory(
 ):
     """Solve and render one text-aware, cross-band-safe balloon inventory."""
     label_boxes = balloon_annotation_label_boxes(dwg, view) if avoid_existing_labels else ()
-    retained_component_boxes, retained_segments = (
-        _retained_annotation_geometry(dwg, view) if avoid_existing_labels else ((), ())
+    retained_component_boxes, retained_segments, retained_geometry_safe = (
+        _retained_annotation_geometry(dwg, view) if avoid_existing_labels else ((), (), True)
     )
+    if not retained_geometry_safe:
+        return len(members)
     retained_boxes = (*label_boxes, *retained_component_boxes)
     text_boxes = {
         tag: components[1] if len(components) > 1 else None
@@ -901,6 +944,7 @@ def _render_balloon(
     # the centreline exemption.
     balloon.centerline_segments = shaft_segments
     balloon.centerline_boxes = (_balloon_glyph_box(bx, by, r), *text_boxes)
+    balloon.is_balloon = True
     # Furniture that legitimately sits on the view geometry — exempt from the
     # annotation-overlap / centreline lint, as the section arrows do.
     balloon.is_centerline = True
