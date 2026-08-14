@@ -701,6 +701,23 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
 
 
 def _maybe_tabulate_holes(dwg, a: Analysis, *, ctx, plan=None):
+    """Run hole-table escalation as one exception-atomic annotation transaction.
+
+    Ordinary fit/balloon failures are handled by the implementation's selective
+    fallback policy. An exception is different: none of the attempted table state,
+    including semantic markers applied to restored leader objects, may survive it.
+    """
+    if not any(escalation.kind in {"callout", "location"} for escalation in ctx.escalations):
+        return
+    snapshot = _snapshot_annotation_transaction(dwg, ctx.coverage)
+    try:
+        return _maybe_tabulate_holes_impl(dwg, a, ctx=ctx, plan=plan)
+    except BaseException:
+        _restore_annotation_transaction(dwg, ctx.coverage, snapshot, {})
+        raise
+
+
+def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
     """Escalate to a per-instance hole table + balloons when the plan view is too
     dense to dimension every hole individually (#93); a dropped ISO pattern
     callout gets one grouped balloon of its own (#351 PR-3, ADR 0009 Amdt 1
@@ -800,6 +817,35 @@ def _maybe_tabulate_holes(dwg, a: Analysis, *, ctx, plan=None):
     table_replacement_features: set = set()
     replaced = {}
     table_transaction_snap = None
+
+    # Automatic/finalize escalation uses deterministic internal names. A sanctioned
+    # public edit may already own one of them; replacing that object would destroy user
+    # state and a pre-existing name is not evidence from this placement attempt. Fail
+    # closed before stashing anything. A later naming-policy change can allocate a fresh
+    # namespace here without weakening the attempt-local ownership contract.
+    reserved_attempt_names = {f"balloon_plan_{tag}_0" for tag in scattered_tags} | {
+        f"balloon_plan_{feature.count}×{tag}_0"
+        for tag, feature in zip(pattern_tags, pattern_feats, strict=True)
+    }
+    if tabulate_scattered:
+        reserved_attempt_names.add("hole_table_plan")
+    colliding_names = reserved_attempt_names.intersection(dwg.registry.names())
+    if colliding_names:
+        names = ", ".join(sorted(colliding_names))
+        if tabulate_scattered:
+            ctx.record_issue(
+                "warning",
+                "table_dropped",
+                f"hole table reserved annotation name(s) already exist: {names}",
+            )
+        else:
+            ctx.record_issue(
+                "warning",
+                "balloon_dropped",
+                f"hole balloon reserved annotation name(s) already exist: {names}",
+            )
+        return
+
     if tabulate_scattered:
         compiled = plan if plan is not None else compile_dimensions(_model)
         approved_hole_dimensions = {

@@ -216,6 +216,7 @@ class _AnnotationTransactionSnapshot:
     issues: tuple
     items: tuple
     coverage: Any
+    representations: tuple[tuple[Any, Any, Any], ...]
 
 
 def _snapshot_annotation_transaction(dwg, coverage) -> _AnnotationTransactionSnapshot:
@@ -225,12 +226,34 @@ def _snapshot_annotation_transaction(dwg, coverage) -> _AnnotationTransactionSna
         issues=dwg.registry.issues,
         items=tuple(dwg.items),
         coverage=coverage.snapshot(),
+        representations=tuple(
+            (
+                annotation,
+                getattr(annotation, "hole_representation", _MISSING_REPRESENTATION),
+                getattr(
+                    annotation,
+                    "hole_representation_reason",
+                    _MISSING_REPRESENTATION,
+                ),
+            )
+            for _name, annotation in dwg.iter_annotations()
+        ),
     )
 
 
 def _restore_annotation_transaction(dwg, coverage, snapshot, stashed, *, reason=None) -> None:
     """Restore *snapshot* exactly, optionally marking visible fallback semantics."""
     _reset_stashed_representation(stashed)
+    for annotation, representation, representation_reason in snapshot.representations:
+        for attribute, value in (
+            ("hole_representation", representation),
+            ("hole_representation_reason", representation_reason),
+        ):
+            if value is _MISSING_REPRESENTATION:
+                if hasattr(annotation, attribute):
+                    delattr(annotation, attribute)
+            else:
+                setattr(annotation, attribute, value)
     dwg.registry.restore(snapshot.registry)
     dwg.registry.restore_issues(snapshot.issues)
     dwg.items[:] = snapshot.items

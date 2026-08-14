@@ -14,9 +14,11 @@
   Callouts carrying compound, thread, profile, pattern, tolerance, or fit facts the table cannot
   state remain active, and unresolved dropped callouts stay diagnostic. Hole outcome records
   identify per feature whether a committed table or a restored feature annotation supplied the
-  placed requirement, together with the fallback reason. Transactional public replacement is
-  plan-view-only until the balloon halo is view-generic; additive tables remain available in all
-  orthographic views.
+  placed requirement, together with the fallback reason; mixed table/feature evidence deliberately
+  claims no single winner. Exceptions also restore those semantic markers, and automatic
+  escalation fails closed rather than overwrite an existing annotation that owns a reserved table
+  or balloon name. Transactional public replacement is plan-view-only until the balloon halo is
+  view-generic; additive tables remain available in all orthographic views.
 
 ### Changed
 

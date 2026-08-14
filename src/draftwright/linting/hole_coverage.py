@@ -465,6 +465,7 @@ class _HoleEvidence:
     locations: dict[tuple[object, str], set[tuple[float, float, float]]]
     centers: dict[object, set[tuple[tuple[float, float, float], str]]]
     representations: dict[tuple[object, str], set[tuple[str, str]]]
+    unmarked_representations: set[tuple[object, str]]
 
 
 def _normalised_location(feature, point) -> tuple[float, float, float]:
@@ -481,6 +482,7 @@ def _index_hole_evidence(registry) -> _HoleEvidence:
     locations: dict[tuple[object, str], set[tuple[float, float, float]]] = defaultdict(set)
     centers: dict[object, set[tuple[tuple[float, float, float], str]]] = defaultdict(set)
     representations: dict[tuple[object, str], set[tuple[str, str]]] = defaultdict(set)
+    unmarked_representations: set[tuple[object, str]] = set()
     for name in registry.names():
         annotation = registry.named(name)
         representation = getattr(annotation, "hole_representation", None)
@@ -498,6 +500,12 @@ def _index_hole_evidence(registry) -> _HoleEvidence:
                 representations[(feature, parameter)].add(
                     (str(representation), str(representation_reason))
                 )
+            else:
+                # An ordinary feature annotation is still contributing semantic
+                # evidence. Keep that absence explicit: if another owner in the same
+                # recognised physical source was replaced by a table, the outcome is a
+                # mixed representation and no scalar transaction winner is truthful.
+                unmarked_representations.add((feature, parameter))
 
         measurements = tuple(registry.measurement_of(name))
         diameter_features = set()
@@ -557,12 +565,15 @@ def _index_hole_evidence(registry) -> _HoleEvidence:
         locations,
         centers,
         representations,
+        unmarked_representations,
     )
 
 
 def _placed_representation(evidence, features, parameter, state):
     """The transactional representation that supplied a placed requirement, if any."""
     if state != "placed":
+        return (None, None)
+    if any((feature, parameter) in evidence.unmarked_representations for feature in features):
         return (None, None)
     markers = {
         marker

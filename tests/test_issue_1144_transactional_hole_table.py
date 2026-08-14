@@ -897,6 +897,46 @@ def test_mixed_public_table_marks_only_the_plain_replacement_winner():
     } == {(None, None)}
 
 
+def test_one_recognised_group_with_mixed_declared_owners_has_no_scalar_winner():
+    part = _multi_hole_plate()
+    detected = build_drawing(part, auto_dims=False).model()
+    grouped = next(
+        feature for feature in detected.features if feature.kind == "hole" and feature.count == 2
+    )
+    split = tuple(
+        replace(grouped, frame=replace(grouped.frame, origin=point), count=1, members=(point,))
+        for point in grouped.members
+    )
+    fitted, plain = split
+    declared = replace(
+        detected,
+        features=[
+            *split,
+            *(feature for feature in detected.features if feature is not grouped),
+        ],
+        decorations={(fitted, "diameter"): fit_class("H7", fitted.diameter)},
+    )
+    drawing = build_drawing(part, page="A4", model=declared)
+    original = _plan_bore_callouts(drawing)
+
+    table = drawing.add_hole_table("plan", replace_callouts=True)
+
+    assert table is not None
+    assert drawing.get_annotation(original[fitted][0]) is original[fitted][1]
+    assert original[plain][0] not in drawing.annotations()
+    grouped_outcomes = [
+        outcome
+        for outcome in _outcomes(drawing)
+        if outcome.member_count == 2
+        and outcome.parameter_id in {"bore.diameter", "bore.through", "grouping.count"}
+    ]
+    assert grouped_outcomes
+    assert {outcome.state for outcome in grouped_outcomes} == {"placed"}
+    assert {
+        (outcome.representation, outcome.representation_reason) for outcome in grouped_outcomes
+    } == {(None, None)}
+
+
 def test_public_replacement_retains_a_declared_thread_callout():
     part = Box(60, 40, 10) - Cylinder(4, 20)
     detected = build_drawing(part, auto_dims=False).model()
@@ -1015,3 +1055,56 @@ def test_automatic_table_never_removes_a_recognised_double_d_callout():
     assert feature not in {
         owner for owner, _representation, _reason in table.covers_hole_representations_by_feature
     }
+
+
+@pytest.mark.parametrize("reserved_name", ["hole_table_plan", "balloon_plan_A_0"])
+def test_automatic_escalation_preserves_preexisting_reserved_names(reserved_name):
+    drawing = build_drawing(_dense_scattered_plate(), auto_dims=False)
+    drawing.note("USER KEEP", (15, 15), view="plan", name=reserved_name)
+    user_annotation = drawing.get_annotation(reserved_name)
+
+    with drawing.deferred():
+        for feature in drawing.model().features:
+            if feature.kind != "hole":
+                continue
+            drawing.callout(feature)
+            drawing.locate(feature)
+
+    assert drawing.get_annotation(reserved_name) is user_annotation
+    if reserved_name != "hole_table_plan":
+        assert "hole_table_plan" not in drawing.annotations()
+    assert any(issue.code == "table_dropped" for issue in drawing.registry.issues)
+
+
+def test_finalize_exception_restores_automatic_transaction_markers(monkeypatch):
+    import draftwright.annotations.orchestrator as orchestrator
+
+    part = _dense_scattered_plate()
+    with monkeypatch.context() as disabled:
+        disabled.setattr(orchestrator, "_maybe_tabulate_holes", lambda *_args, **_kwargs: None)
+        drawing = build_drawing(part)
+    before = _transaction_state(drawing)
+    original_callouts = _plan_bore_callouts(drawing)
+    _drop_one_diameter_balloon(monkeypatch, 2.0)
+    original_reapply = drawing.registry.reapply
+
+    def fail_after_coverage(name, identity):
+        original_reapply(name, identity)
+        if name == "hole_table_plan":
+            raise RuntimeError("forced automatic coverage failure")
+
+    monkeypatch.setattr(drawing.registry, "reapply", fail_after_coverage)
+
+    with pytest.raises(RuntimeError, match="forced automatic coverage failure"):
+        with drawing.deferred():
+            for feature in drawing.model().features:
+                if feature.kind != "hole":
+                    continue
+                drawing.callout(feature)
+                drawing.locate(feature)
+
+    assert _transaction_state(drawing) == before
+    assert all(
+        drawing.get_annotation(name) is annotation
+        for name, annotation in original_callouts.values()
+    )
