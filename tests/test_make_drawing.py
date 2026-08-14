@@ -4599,6 +4599,10 @@ class TestHolePatternAnnotations:
         (dropped,) = [i for i in dwg.lint() if i.code == "hole_pattern_dim_dropped"]
         assert len(dropped.measurement_ids) == 1
         assert dropped.measurement_ids[0].parameter == "pitch.length"
+        summary = dwg.lint_summary()
+        assert summary["by_code"] == {"hole_pattern_dim_dropped": 1}
+        assert summary["geometry_issues"] == 1
+        assert summary["quality"]["completeness"]["dropped"] == 1
 
     @pytest.mark.timeout(60)
     def test_count_mismatch_surfaces_in_lint(self):
