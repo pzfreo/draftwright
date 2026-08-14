@@ -43,6 +43,23 @@ def _with_hole_location_coverage(annotation, coverage):
     return annotation
 
 
+def _hole_location_coverage_fact(location):
+    """The directional physical fact rendered by one compiled hole location member.
+
+    ``location.id`` remains ADR 0016's feature-level addressable ``DimensionId``. The
+    requirement parameter is deliberately separate: critique can distinguish X from Y
+    without resolving #883's open public naming decision or minting a general identity.
+    """
+    feature = resolve_feature(location.ref)
+    if feature is None and location.id is not None:
+        feature = location.id.feature
+    assert feature is not None and location.span is not None
+    parameter = location.id.parameter if location.id is not None else location.parameter_id
+    if parameter in {"location.location", "location_pattern.location"} and location.discriminator:
+        parameter = f"{parameter}.{location.discriminator}"
+    return (feature, parameter, tuple(location.span[1]))
+
+
 def _with_hole_center_coverage(annotation, feature, member, view):
     """Attach the physical member identified by hole/pattern centre furniture."""
     annotation.covers_hole_centers = ((feature, tuple(member), view),)
@@ -1244,7 +1261,15 @@ class PlacementContext:
         return self._hole_feature_index.get(tuple(round(c, 3) for c in location))
 
     def record_issue(
-        self, severity, code, message, *, measurement=None, source=None, outcome_stage=None
+        self,
+        severity,
+        code,
+        message,
+        *,
+        measurement=None,
+        hole_requirements=(),
+        source=None,
+        outcome_stage=None,
     ) -> None:
         """Record a build-time lint issue on the run's registry (#639). Replaces the passes'
         old `dwg._record_build_issue`."""
@@ -1265,6 +1290,7 @@ class PlacementContext:
                 code=code,
                 message=message,
                 measurement_ids=ids,
+                hole_requirement_ids=tuple(hole_requirements),
                 source_ids=source_ids,
                 outcome_stage=outcome_stage,
             )

@@ -40,6 +40,7 @@ from draftwright.annotations._common import (
     Escalation,
     _box_hits,
     _geom_box,
+    _hole_location_coverage_fact,
     _same_location_ordinate,
     _segment_crosses_box,
     _with_hole_center_coverage,
@@ -333,7 +334,7 @@ def add_feature_location(
     def _extend_location_coverage(name: str, loc) -> None:
         annotation = ctx.registry.named(name)
         existing = getattr(annotation, "covers_hole_locations", ())
-        annotation.covers_hole_locations = (*existing, (loc.id, tuple(loc.span[1])))
+        annotation.covers_hole_locations = (*existing, _hole_location_coverage_fact(loc))
 
     for loc in mine:
         rx, ry = _span(loc)[1][0], _span(loc)[1][1]
@@ -362,7 +363,7 @@ def add_feature_location(
                 PY(ry),
                 _fmt(rx - dx),
                 loc.id,
-                ((loc.id, tuple(_span(loc)[1])),),
+                (_hole_location_coverage_fact(loc),),
             )
             seen_x[rx] = name
             names.append(name)
@@ -381,7 +382,7 @@ def add_feature_location(
                 SZ(a.bb.max.Z),
                 _fmt(ry - dy),
                 loc.id,
-                ((loc.id, tuple(_span(loc)[1])),),
+                (_hole_location_coverage_fact(loc),),
             )
             seen_y[ry] = name
             names.append(name)
@@ -793,7 +794,7 @@ def _locate_across(dwg, ctx, a: Analysis, off):
         name = f"dim_loc_side_y{round(yo * 100)}"
         loc_by_name.setdefault(name, []).append(h.location)
         mids_by_name.setdefault(name, []).append(entry.id)
-        coverage_by_name.setdefault(name, []).append((entry.id, tuple(entry.span[1])))
+        coverage_by_name.setdefault(name, []).append(_hole_location_coverage_fact(entry))
         order_y[name] = yo
         if yo not in seen_y:
             seen_y.add(yo)
@@ -856,7 +857,7 @@ def _locate_along_planar(dwg, ctx, a: Analysis, off):
         name = f"dim_loc_front_x{round(xo * 100)}"
         x_loc_by_name.setdefault(name, []).append(h.location)
         x_mids_by_name.setdefault(name, []).append(entry.id)
-        x_coverage_by_name.setdefault(name, []).append((entry.id, tuple(entry.span[1])))
+        x_coverage_by_name.setdefault(name, []).append(_hole_location_coverage_fact(entry))
         order_x[name] = xo
         if xo not in seen_x:
             seen_x.add(xo)
@@ -913,7 +914,7 @@ def _locate_along_z(dwg, ctx, a: Analysis, off):
             z_locs.setdefault(round(entry.value, 2), []).append(h.location)
             z_mids.setdefault(round(entry.value, 2), []).append(entry.id)
             z_coverage.setdefault(round(entry.value, 2), []).append(
-                (entry.id, tuple(entry.span[1]))
+                _hole_location_coverage_fact(entry)
             )
     seen_z = set()
     for h in off:

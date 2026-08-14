@@ -913,6 +913,9 @@ def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[
             isinstance(feature, HoleFeature | PatternFeature | SlotPatternFeature)
             and feature.frame.axis == "z"
         )
+        directional_slot_pattern = (
+            isinstance(feature, SlotPatternFeature) and feature.frame.axis == "z"
+        )
         if pd.suppressed:
             # Before the span assert, deliberately: a suppressed entry records WHY a position
             # is absent and needs no geometry. When the model has no `datum_xy` there is no
@@ -921,7 +924,7 @@ def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[
             # the caller it was meant to help (#996).
             parameter_ids = (
                 tuple(f"{pd.param.parameter_id}.{axis}" for axis in ("x", "y"))
-                if directional_location
+                if directional_slot_pattern
                 else (pd.param.parameter_id,)
             )
             omissions.extend(
@@ -934,14 +937,21 @@ def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[
         if directional_location:
             assert feature is not None
             # One authored `location` intent, two independently observable page dimensions.
-            # Keeping distinct ids is what lets completeness detect deletion of X while Y
-            # remains placed; a shared set member would make that false negative structural.
+            # Hole/pattern X/Y facts remain rendering members of the ONE feature-level
+            # addressable DimensionId (ADR 0016 / #883); critique carries their directional
+            # physical evidence separately. Slot patterns retain their existing directional
+            # identity contract.
             for measured_axis in ("x", "y"):
                 index = "xyz".index(measured_axis)
                 value = abs(span[1][index] - span[0][index])
+                parameter_id = (
+                    f"{pd.param.parameter_id}.{measured_axis}"
+                    if directional_slot_pattern
+                    else pd.param.parameter_id
+                )
                 approved.append(
                     ApprovedDimension(
-                        id=_dim_id(feature, f"{pd.param.parameter_id}.{measured_axis}"),
+                        id=_dim_id(feature, parameter_id),
                         value_text=_fmt(value),
                         value=value,
                         # `render_locations` groups both axes from this full datum→ref

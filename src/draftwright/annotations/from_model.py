@@ -68,6 +68,7 @@ from draftwright.annotations._common import (
     _anno_box,
     _box_hits,
     _geom_box,
+    _hole_location_coverage_fact,
     _same_location_ordinate,
     _with_hole_center_coverage,
     _with_hole_location_coverage,
@@ -575,6 +576,7 @@ def _location_candidate(
     pinned=False,
     footprint=None,
     location_coverage=(),
+    hole_requirements=(),
 ):
     """A :class:`CorridorCandidate` for a datum-referenced hole/pattern location dim.
     Location dims outrank a coincident slot-position line in dedup (#345) and form the
@@ -595,6 +597,7 @@ def _location_candidate(
             "location_ref_dropped",
             f"{nm} not placed (no room above the {edge})",
             measurement=measurement,
+            hole_requirements=hole_requirements,
         )
         ctx.escalations.append(Escalation("location", view, nm, "strip_full"))
 
@@ -676,7 +679,7 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                 resolve_feature(loc.ref),
                 loc.id,
                 loc.discriminator,
-                tuple(loc.span[1]),
+                _hole_location_coverage_fact(loc),
             )
         )
     if not refs:
@@ -710,7 +713,7 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                 if r[4] in (None, "x") and r[3] is not None and r[3] not in u[4]:
                     u[4].append(r[3])
                 if r[4] in (None, "x") and r[3] is not None:
-                    fact = (r[3], r[5])
+                    fact = r[5]
                     if fact not in u[5]:
                         u[5].append(fact)
                 break
@@ -722,7 +725,7 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                     r[2],
                     r[2] in pinned_set,
                     [r[3]] if r[3] is not None and r[4] in (None, "x") else [],
-                    [(r[3], r[5])] if r[3] is not None and r[4] in (None, "x") else [],
+                    [r[5]] if r[3] is not None and r[4] in (None, "x") else [],
                 ]
             )
     _x_drawable = {r[0] for r in x_refs if abs(r[0] - datum_x) * a.SCALE >= 1.0}
@@ -735,6 +738,9 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
             f"{_n_x_close} X location dim(s) too closely spaced to dimension legibly "
             "(use a detail view)",
             measurement=tuple(mid for ref in dropped_x for mid in ref[4]),
+            hole_requirements=tuple(
+                (feature, parameter) for ref in dropped_x for feature, parameter, _point in ref[5]
+            ),
         )
         ctx.escalations.append(Escalation("location", "plan", None, "illegible"))
     _kept_x_set = set(_kept_x)
@@ -763,6 +769,8 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
         # only option; recording all of them is both true and exactly what the tuple-valued
         # channel exists for (ADR 0016 / #886). Discarding it made the audit blind on an
         # ordinary dedup path.
+        # One ADR 0016 feature-level location identity per collapsed owner; the structured
+        # location facts below carry that this particular visible member is X (#883).
         _xmid = tuple(mids)
         register_corridor(
             ctx,
@@ -789,6 +797,9 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                 feature=_xfeat,
                 measurement=_xmid,
                 location_coverage=location_facts,
+                hole_requirements=tuple(
+                    (feature, parameter) for feature, parameter, _point in location_facts
+                ),
                 pinned=pin_ref,
                 footprint=lambda pos, _rx=rx, _ry=ry: dim_footprint(
                     (PX(datum_x), PY(_ry), 0),
@@ -813,7 +824,7 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                 if r[4] in (None, "y") and r[3] is not None and r[3] not in u[4]:
                     u[4].append(r[3])  # accumulate, as in the X loop (#1002 r4)
                 if r[4] in (None, "y") and r[3] is not None:
-                    fact = (r[3], r[5])
+                    fact = r[5]
                     if fact not in u[5]:
                         u[5].append(fact)
                 break
@@ -825,7 +836,7 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                     r[2],
                     r[2] in pinned_set,
                     [r[3]] if r[3] is not None and r[4] in (None, "y") else [],
-                    [(r[3], r[5])] if r[3] is not None and r[4] in (None, "y") else [],
+                    [r[5]] if r[3] is not None and r[4] in (None, "y") else [],
                 ]
             )
     _y_drawable = {r[1] for r in y_refs if abs(r[1] - datum_y) * a.SCALE >= 1.0}
@@ -838,6 +849,9 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
             f"{_n_y_close} Y location dim(s) too closely spaced to dimension legibly "
             "(use a detail view)",
             measurement=tuple(mid for ref in dropped_y for mid in ref[4]),
+            hole_requirements=tuple(
+                (feature, parameter) for ref in dropped_y for feature, parameter, _point in ref[5]
+            ),
         )
         ctx.escalations.append(Escalation("location", "side", None, "illegible"))
     _kept_y_set = set(_kept_y)
@@ -856,7 +870,8 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
         # Shared-Y location dim → unowned (see the X loop; review #406).
         _shared_y = any(_same_location_ordinate(o[1], ry) and o[2] != feat for o in refs)
         _yfeat = None if _shared_y else feat
-        _ymid = tuple(mids)  # every collapsed feature's Y — see the X loop (#1002 r4)
+        # Every collapsed feature-level location; the structured facts carry Y (see X above).
+        _ymid = tuple(mids)
         register_corridor(
             ctx,
             ("side", "above"),
@@ -882,6 +897,9 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                 feature=_yfeat,
                 measurement=_ymid,
                 location_coverage=location_facts,
+                hole_requirements=tuple(
+                    (feature, parameter) for feature, parameter, _point in location_facts
+                ),
                 pinned=pin_ref,
                 footprint=lambda pos, _ry=ry: dim_footprint(
                     (SX(datum_y), SZ(a.bb.max.Z), 0),

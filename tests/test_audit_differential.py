@@ -471,7 +471,7 @@ def test_a_real_build_records_which_measurement_its_location_dims_draw():
     assert identified["m_locx0"] == [
         {
             "feature": identified["m_locx0"][0]["feature"],
-            "parameter_id": "location.location.x",
+            "parameter_id": "location.location",
         }
     ]
     assert identified["m_locx0"][0]["feature"].startswith("hole@"), "located hole"
@@ -589,8 +589,8 @@ def test_a_location_dim_two_features_share_records_both_measurements():
     Two distinct holes at the same X collapse to ONE `m_locx0`. That dim is deliberately
     feature-*unowned* so `drop(feature)` cannot strip a sibling's dimension (ADR 0010) — but
     the first cut let the measurement follow the feature and recorded nothing, conflating an
-    ownership rule with an identity one. A shared dim measures BOTH holes' X, and the
-    tuple-valued channel exists to say so (ADR 0016 / #886).
+    ownership rule with an identity one. A shared dim carries BOTH holes' feature-level
+    location identities; directional X evidence is separate while #883 remains open.
 
     Asserted end to end because no source scan can see it: the renderer passes a variable, so
     `measurement=_xmid` satisfies the syntax ratchet whether or not it holds anything.
@@ -605,8 +605,8 @@ def test_a_location_dim_two_features_share_records_both_measurements():
 
     assert dwg.registry.feature_of("m_locx0") is None, "shared dim stays unowned (ADR 0010)"
     keys = dwg.measurement_keys("m_locx0")
-    assert len(keys) == 2, "it measures BOTH holes' X location, not neither"
-    assert {k["parameter_id"] for k in keys} == {"location.location.x"}
+    assert len(keys) == 2, "it measures BOTH holes' feature location, not neither"
+    assert {k["parameter_id"] for k in keys} == {"location.location"}
     assert len({k["feature"] for k in keys}) == 2, "two distinct holes, not one repeated"
 
 

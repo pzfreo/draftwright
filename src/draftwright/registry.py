@@ -59,8 +59,10 @@ class AnnotationRegistry:
         self._anno_feature: dict = {}
         # name -> the `DimensionId`s this annotation draws, as a TUPLE (#1002). One axis
         # finer than _anno_feature, and the distinction is the point: a hole has a
-        # diameter, a depth and two locations, so knowing the FEATURE still does not say
-        # WHICH of its measurements an annotation is. Same `(feature, parameter)` key the
+        # diameter, a depth and a feature-level location, so knowing the FEATURE still does
+        # not say WHICH of its measurements an annotation is. Directional physical X/Y
+        # location evidence stays on the rendered annotation without resolving #883's open
+        # addressability decision. Same `(feature, parameter)` key the
         # compiler mints for the compiled plan and `Drawing.suppressions()` reports, so an
         # annotation and a suppression become comparable without matching on names.
         #

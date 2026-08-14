@@ -97,10 +97,8 @@ def test_nearby_distinct_locations_retain_both_semantic_identities():
     locations = compile_dimensions(model).locations
     assert len(locations) == 4  # X + Y for each distinct feature
     assert {entry.id.feature for entry in locations} == set(model.features)
-    assert {entry.id.parameter for entry in locations} == {
-        "location.location.x",
-        "location.location.y",
-    }
+    assert {entry.id.parameter for entry in locations} == {"location.location"}
+    assert {entry.discriminator for entry in locations} == {"x", "y"}
 
 
 def test_an_edge_anchored_pocket_records_why_it_has_no_location():

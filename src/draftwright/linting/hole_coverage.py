@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from dataclasses import dataclass
+from math import hypot
 from typing import Literal
 
 from draftwright._geometry import _is_principal_axis
@@ -17,6 +18,7 @@ from draftwright.recognition import HoleSpec, RecognitionResult, countersink_mat
 
 HoleRequirementState = Literal["placed", "suppressed", "dropped", "missing", "unverifiable"]
 HoleSourceKind = Literal["hole", "hole_pattern"]
+_DIRECTION_PROJECTION_REL_TOL = 1e-6
 
 
 @dataclass(frozen=True)
@@ -192,7 +194,12 @@ def _planar_direction(value, axis: str):
     if value is None:
         return None
     vector = [float(component) for component in value]
+    original_norm = hypot(*vector)
     vector["xyz".index(axis)] = 0.0
+    # A nominally axial declaration has no meaningful opening-plane direction.  Do not
+    # amplify floating-point residue into a unit axis that can certify an unrelated pattern.
+    if original_norm == 0.0 or hypot(*vector) <= original_norm * _DIRECTION_PROJECTION_REL_TOL:
+        return None
     return _unoriented_direction(vector)
 
 
@@ -432,15 +439,14 @@ def _evidence_parameter(parameter: str) -> str:
         # measurement identities.  Join both placed drops and authored omissions back to
         # those compiler-owned ids instead of inventing a second suppression vocabulary.
         return parameter.replace(".centerline.", ".")
+    if parameter.startswith(("location.location.", "location_pattern.location.")):
+        # X/Y are independent physical critique requirements, while ADR 0016 / #883 keeps
+        # their authored addressability as one feature-level location unit.
+        return parameter.rsplit(".", 1)[0]
     return parameter
 
 
 def _location_members(feature, parameter: str):
-    if parameter.startswith("location_pattern."):
-        point = list(_point(feature.frame.origin))
-        if getattr(feature, "member", feature).through:
-            point["xyz".index(feature.frame.axis)] = 0.0
-        return ((point[0], point[1], point[2]),)
     return _members(feature)
 
 
@@ -488,9 +494,13 @@ def _index_hole_evidence(registry) -> _HoleEvidence:
             requirement_counts[(feature, "grouping.count")].add(
                 int(getattr(annotation, "covers_count", 1) or 1)
             )
-        for measurement, point in getattr(annotation, "covers_hole_locations", ()):
-            feature = getattr(measurement, "feature", None)
-            parameter = getattr(measurement, "parameter", None)
+        for fact in getattr(annotation, "covers_hole_locations", ()):
+            if len(fact) == 3:
+                feature, parameter, point = fact
+            else:  # compatibility with legacy/external structured facts
+                measurement, point = fact
+                feature = getattr(measurement, "feature", None)
+                parameter = getattr(measurement, "parameter", None)
             if getattr(feature, "kind", None) in {"hole", "pattern"} and parameter is not None:
                 locations[(feature, parameter)].add(_normalised_location(feature, point))
         for feature, point, view in getattr(annotation, "covers_hole_centers", ()):
@@ -505,6 +515,11 @@ def _index_hole_evidence(registry) -> _HoleEvidence:
         )
         if feature is not None and parameter is not None
     }
+    dropped.update(
+        (feature, parameter)
+        for issue in registry.issues
+        for feature, parameter in getattr(issue, "hole_requirement_ids", ())
+    )
     return _HoleEvidence(
         placed,
         dropped,
@@ -515,6 +530,19 @@ def _index_hole_evidence(registry) -> _HoleEvidence:
 
 
 def _structured_locations_placed(evidence, features, parameter: str, turned_axis_centers) -> bool:
+    if parameter.startswith("location_pattern.location."):
+        for feature in features:
+            if getattr(feature, "pattern", None) == "bolt_circle":
+                valid = {_normalised_location(feature, feature.frame.origin)}
+            else:
+                # Linear/grid absolute location is compiled from one member nearest the
+                # datum. Any member is a truthful anchor because pitch/lattice facts locate
+                # the rest; requiring every member would mistake one pattern-location
+                # dimension for N independently addressable locations (#883).
+                valid = {_normalised_location(feature, point) for point in _members(feature)}
+            if not valid.intersection(evidence.locations.get((feature, parameter), ())):
+                return False
+        return bool(features)
     expected = {
         (feature, point) for feature in features for point in _location_members(feature, parameter)
     }
@@ -548,7 +576,9 @@ def _synthetic_placed(evidence, features, parameter: str, member_count: int) -> 
 
 def _state(features, parameter, *, member_count, evidence_index, suppressed, turned_axis_centers):
     evidence_parameter = _evidence_parameter(parameter)
-    if parameter.startswith(("location.location.", "location_off_axis.")):
+    if parameter.startswith(
+        ("location.location.", "location_pattern.location.", "location_off_axis.")
+    ):
         if _structured_locations_placed(evidence_index, features, parameter, turned_axis_centers):
             return "placed"
     elif parameter in {"bore.through", "grouping.count"}:
@@ -564,7 +594,12 @@ def _state(features, parameter, *, member_count, evidence_index, suppressed, tur
             return "placed"
     if all((feature, evidence_parameter) in suppressed for feature in features):
         return "suppressed"
-    if any((feature, evidence_parameter) in evidence_index.dropped for feature in features):
+    drop_parameter = (
+        parameter
+        if parameter.startswith(("location.location.", "location_pattern.location."))
+        else evidence_parameter
+    )
+    if any((feature, drop_parameter) in evidence_index.dropped for feature in features):
         return "dropped"
     return "missing"
 

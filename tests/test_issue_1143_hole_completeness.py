@@ -229,21 +229,29 @@ def test_pattern_and_central_bore_have_a_complete_recognition_owned_ledger():
     }
 
 
-def test_shared_location_marks_retain_the_pattern_and_central_bore_axis_identities():
+def test_shared_location_marks_retain_addressable_and_physical_axis_identities():
     drawing = build_drawing(_pattern_and_central_bore())
 
     x_keys = drawing.measurement_keys("m_locx0")
     y_keys = drawing.measurement_keys("m_locy0")
     assert {key["parameter_id"] for key in x_keys} == {
-        "location.location.x",
-        "location_pattern.location.x",
+        "location.location",
+        "location_pattern.location",
     }
     assert {key["parameter_id"] for key in y_keys} == {
-        "location.location.y",
-        "location_pattern.location.y",
+        "location.location",
+        "location_pattern.location",
     }
     assert len({key["feature"] for key in x_keys}) == 2
     assert len({key["feature"] for key in y_keys}) == 2
+    assert {
+        parameter
+        for _feature, parameter, _point in drawing.get_annotation("m_locx0").covers_hole_locations
+    } == {"location.location.x", "location_pattern.location.x"}
+    assert {
+        parameter
+        for _feature, parameter, _point in drawing.get_annotation("m_locy0").covers_hole_locations
+    } == {"location.location.y", "location_pattern.location.y"}
 
 
 def test_blind_depth_and_linear_pitch_have_exact_placed_outcomes():
@@ -1048,13 +1056,18 @@ def test_linear_pattern_correspondence_treats_opposite_directions_as_the_same_ax
     assert all(item.state == "placed" for item in _outcomes(drawing))
 
 
-def test_linear_direction_parallel_to_hole_axis_fails_closed():
+@pytest.mark.parametrize(
+    "direction",
+    [(0.0, 0.0, 1.0), (1e-12, 0.0, 1.0)],
+    ids=("exact", "numerical-residue"),
+)
+def test_linear_direction_parallel_to_hole_axis_fails_closed(direction):
     part = _linear_pattern()
     detected = build_drawing(part, page="A3").model()
     declared = replace(
         detected,
         features=[
-            replace(feature, direction=(0.0, 0.0, 1.0))
+            replace(feature, direction=direction)
             if getattr(feature, "pattern", None) == "linear"
             else feature
             for feature in detected.features
@@ -1968,10 +1981,17 @@ def test_nearby_distinct_member_locations_are_dropped_not_semantically_merged():
     assert x_marks == ["m_locx0"]
     mark = drawing.get_annotation(x_marks[0])
     assert mark.label == "25"
-    assert {round(point[0], 1) for _measurement, point in mark.covers_hole_locations} == {5.0}
+    assert {round(point[0], 1) for _feature, _parameter, point in mark.covers_hole_locations} == {
+        5.0
+    }
     outcomes = {item.parameter_id: item.state for item in _outcomes(drawing)}
     assert outcomes["location.location.x"] == "dropped"
     assert outcomes["location.location.y"] == "placed"
+    drop = next(issue for issue in drawing.registry.issues if issue.code == "location_ref_dropped")
+    assert {parameter for _feature, parameter in drop.hole_requirement_ids} == {
+        "location.location.x"
+    }
+    assert {measurement.parameter for measurement in drop.measurement_ids} == {"location.location"}
 
 
 def test_live_locate_restores_member_level_location_provenance():
@@ -1979,8 +1999,10 @@ def test_live_locate_restores_member_level_location_provenance():
     feature = next(feature for feature in drawing.model().features if feature.kind == "hole")
     for name in tuple(drawing.annotations_of(feature)):
         if any(
-            key["parameter_id"].startswith("location.location.")
-            for key in drawing.measurement_keys(name)
+            parameter.startswith("location.location.")
+            for _owner, parameter, _point in getattr(
+                drawing.get_annotation(name), "covers_hole_locations", ()
+            )
         ):
             drawing.remove(name)
     assert {item.parameter_id for item in _outcomes(drawing) if item.state == "missing"} == {
@@ -2046,7 +2068,9 @@ def test_successful_hole_table_escalation_carries_every_replaced_requirement():
     drawing = build_drawing(_dense_scattered_plate())
 
     assert "hole_table_plan" in drawing.annotations()
-    assert len(drawing.measurement_keys("hole_table_plan")) == 60
+    keys = drawing.measurement_keys("hole_table_plan")
+    assert len(keys) == 40
+    assert len({(key["feature"], key["parameter_id"]) for key in keys}) == len(keys)
     outcomes = _outcomes(drawing)
     assert len(outcomes) == 80
     assert all(item.state == "placed" for item in outcomes)
@@ -2274,6 +2298,11 @@ def test_authored_omissions_are_suppressed_on_the_declared_path():
         "location.location.y",
     }
     assert _completeness(drawing)["suppressed"] == 4
+    assert {
+        item["parameter_id"]
+        for item in drawing.suppressions()
+        if item["parameter_id"].startswith("location.")
+    } == {"location.location"}
     summary = drawing.lint_summary()
     assert summary["by_code"] == {
         "feature_not_dimensioned": 1,

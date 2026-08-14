@@ -34,7 +34,11 @@ from draftwright._core import (
     layout_frame,
 )
 from draftwright.analysis import _sizing_bores
-from draftwright.annotations._common import PlacementContext, _register_hole_table_coverage
+from draftwright.annotations._common import (
+    PlacementContext,
+    _hole_location_coverage_fact,
+    _register_hole_table_coverage,
+)
 from draftwright.annotations.balloons import render_balloons
 from draftwright.annotations.from_model import (
     ladder_plan_for,
@@ -861,18 +865,25 @@ def _maybe_tabulate_holes(dwg, a: Analysis, *, ctx, plan=None):
             )
             table_features = tuple(dict.fromkeys(h.feature for h in holes))
             table_measurements = tuple(
-                dim.id
-                for group in compiled.of_kind("hole")
-                if resolve_feature(group.ref) in table_features
-                for dim in group.dims
-                if dim.id is not None and dim.parameter_id in {"bore.diameter", "bore.depth"}
-            ) + tuple(
-                location.id
-                for location in compiled.locations
-                if location.id is not None and resolve_feature(location.ref) in table_features
+                dict.fromkeys(
+                    [
+                        dim.id
+                        for group in compiled.of_kind("hole")
+                        if resolve_feature(group.ref) in table_features
+                        for dim in group.dims
+                        if dim.id is not None
+                        and dim.parameter_id in {"bore.diameter", "bore.depth"}
+                    ]
+                    + [
+                        location.id
+                        for location in compiled.locations
+                        if location.id is not None
+                        and resolve_feature(location.ref) in table_features
+                    ]
+                )
             )
             table_locations = tuple(
-                (location.id, tuple(location.span[1]))
+                _hole_location_coverage_fact(location)
                 for location in compiled.locations
                 if location.id is not None
                 and location.span is not None

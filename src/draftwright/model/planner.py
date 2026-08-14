@@ -158,8 +158,8 @@ class AddressableDimension:
     That no longer means a location is unaddressable. each feature's own `LOCATION_STEM` gives
     locatable kind a role, which is what `sheet.dimension(bore, "location")` names and what
     an authored set omits (#925) — one unit per feature. The finer question **#883** asks
-    (is a grouped hole's location one unit or one per member?) is about NAMING, and omission
-    is well-formed either way, so
+    (one unit or one per member; how X/Y components are named; who owns a shared mark) is
+    about NAMING, and omission is well-formed either way, so
     it no longer blocks the `"location"` role."""
 
     id: ParameterId
@@ -443,10 +443,11 @@ def location_datum(feature) -> str | None:
 #: The role every authored entry uses to name a location, whatever the per-kind role above.
 #:
 #: One coarse unit per feature, deliberately: #883 asks whether a patterned hole's location
-#: is one addressable thing or one per member, and that is a question about NAMING. Omission
-#: does not need the answer — "this feature's position is not in the set" is well-formed at
-#: either granularity, and a finer id (`location.member.3`) refines this one later without
-#: contradicting it. So the completeness contract does not wait on #883.
+#: is one addressable thing or one per member and how its X/Y components are named. Those are
+#: questions about NAMING. Omission does not need the answer — "this feature's position is not
+#: in the set" is well-formed at either granularity, and a finer id
+#: (`location.member.3`, for example) refines this one later without contradicting it. So the
+#: completeness contract does not wait on #883.
 LOCATION_ROLE = "location"
 
 
