@@ -40,6 +40,7 @@ from draftwright.layout import (
 )
 
 _BALLOON_RING_STROKE = 0.35
+_GUARDED_TOP_LANE_MAX_OBSTACLE_PROBES = 50_000
 _GUARDED_CARVE_MAX_LABEL_PROBES = 5_000_000
 
 
@@ -66,6 +67,17 @@ def _select_top_lane(lane_options, target, fallback_line):
     if lane_options:
         return lane_options[0]
     return fallback_line, [], 0
+
+
+def _guarded_top_lane_probe_bound(obstacle_count):
+    """Conservative work bound for perimeter lane candidates.
+
+    At most one candidate is derived from each obstacle plus the initial lane;
+    each candidate filters the complete obstacle inventory before carving. The
+    optional automatic replacement must reject an oversized inventory before
+    entering that quadratic scan.
+    """
+    return obstacle_count * (obstacle_count + 1)
 
 
 def render_balloons(
@@ -172,6 +184,17 @@ def render_balloons(
         # carve their horizontal free spans, and take the nearest lane that can
         # carry a balanced share of the ring.  This is measured render geometry;
         # ordered placement across the resulting segments remains in layout.py.
+        if (
+            avoid_annotation_labels
+            and _guarded_top_lane_probe_bound(len(obstacles))
+            > _GUARDED_TOP_LANE_MAX_OBSTACLE_PROBES
+        ):
+            ctx.record_issue(
+                "warning",
+                "balloon_dropped",
+                f"{len(specs)} balloon(s) exceeded the guarded perimeter work budget",
+            )
+            return
         top_lo, top_hi = band_defs["top"][2:]
         other_band_names = ["left", "right"]
         if has_bottom:
@@ -638,10 +661,9 @@ def _guarded_inventory_geometry_is_clear(
     Shaft-vs-retained-label geometry is already part of each member's continuous
     interval carve and is rechecked here. A balloon shaft deliberately terminates
     at its own ring, but must not cross its own rendered tag text. Across balloons,
-    neither glyphs nor shafts may cross another glyph. The established band
-    assignment deliberately permits new shafts from different bands to pass one
-    another, but optional replacement must fail closed when any new glyph/shaft
-    crosses a retained feature leader.
+    neither glyphs nor shafts may cross another glyph or shaft. Optional
+    replacement fails closed when the canonical selected inventory is not
+    crossing-free; it does not start a second placement search.
     """
     for boxes, segments in geometry:
         if any(
@@ -675,6 +697,12 @@ def _guarded_inventory_geometry_is_clear(
                 other_boxes,
                 other_segments,
                 boxes,
+            ):
+                return False
+            if any(
+                _segments_cross_or_overlap(start, end, other_start, other_end)
+                for start, end in segments
+                for other_start, other_end in other_segments
             ):
                 return False
     return True
@@ -744,9 +772,9 @@ def _retained_annotation_geometry(dwg, view):
                 component_segments = normalised_segments(annotation.centerline_segments)
                 expected_box_count, expected_segment_count = annotation.balloon_component_counts
                 component_inventory_complete = (
-                    isinstance(expected_box_count, int)
+                    type(expected_box_count) is int
                     and expected_box_count > 0
-                    and isinstance(expected_segment_count, int)
+                    and type(expected_segment_count) is int
                     and expected_segment_count >= 0
                     and component_boxes is not None
                     and len(component_boxes) == expected_box_count

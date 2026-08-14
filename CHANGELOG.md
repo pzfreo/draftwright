@@ -11,11 +11,13 @@
   identities, coverage, and issues. Precise ring, glyph, and leader-segment tests keep placement
   clear of retained callout labels, leader shafts, and existing public-balloon components without
   changing the existing additive `add_hole_table()`/`add_balloons()` behavior; malformed component
-  metadata falls back conservatively or fails the optional replacement closed. Compound, thread,
+  metadata—including ambiguous Boolean cardinalities—falls back conservatively or fails the
+  optional replacement closed. New balloon shafts must also remain mutually crossing-free.
+  Compound, thread,
   profile, pattern, tolerance, and fit facts the table cannot state remain active, while
   independently replaceable X/Y locations may still move to the table. Guarded interval solving
-  has deterministic pre-carve and work/state budgets; an adversarially fragmented label inventory
-  or band fails the replacement closed before excessive work or allocation. Required row-key
+  has deterministic pre-lane, pre-carve, and work/state budgets; an adversarially fragmented label
+  inventory or band fails the replacement closed before excessive work or allocation. Required row-key
   balloons take priority over optional non-certifying pattern markers, so an independently complete
   table cannot be displaced by an auxiliary marker.
   Hole outcomes identify the winning representation per requirement;

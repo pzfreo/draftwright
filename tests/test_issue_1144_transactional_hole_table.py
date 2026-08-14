@@ -15,6 +15,25 @@ from draftwright.fits import fit_class
 from draftwright.linting.hole_coverage import hole_requirement_outcomes
 from draftwright.model.compiled import compile_dimensions
 
+_CROSSING_FREE_PERIMETER_POSITIONS = (
+    (-42.7, -27.4),
+    (-15.1, -31.9),
+    (11.0, -28.7),
+    (44.8, -27.9),
+    (-46.0, 32.2),
+    (-16.8, 32.4),
+    (16.8, 29.3),
+    (45.3, 31.5),
+    (-56.5, -17.6),
+    (-51.6, -7.9),
+    (-51.6, 7.5),
+    (-51.2, 16.7),
+    (50.7, -15.6),
+    (56.4, -6.4),
+    (50.8, 3.6),
+    (55.1, 16.3),
+)
+
 
 def _multi_hole_plate():
     """Two semantic groups: one Ø16 bore and a two-member Ø10 group."""
@@ -52,12 +71,9 @@ def _dense_scattered_plate():
 
 def _dense_plate_with_close_x_ordinates():
     """Dense inventory with two separately placed X ordinates only 0.4 mm apart."""
-    positions = (
-        [(x, -30.0) for x in (-45.0, 0.4, 15.0, 45.0)]
-        + [(x, 30.0) for x in (-45.0, 0.0, 15.0, 45.0)]
-        + [(-54.0, y) for y in (-18.0, -6.0, 6.0, 18.0)]
-        + [(54.0, y) for y in (-18.0, -6.0, 6.0, 18.0)]
-    )
+    positions = list(_CROSSING_FREE_PERIMETER_POSITIONS)
+    positions[1] = (0.4, positions[1][1])
+    positions[5] = (0.0, positions[5][1])
     part = Box(120, 80, 12)
     for index, (x, y) in enumerate(positions):
         part -= Pos(x, y, 0) * Cylinder(1.0 + index * 0.15, 20)
@@ -65,7 +81,15 @@ def _dense_plate_with_close_x_ordinates():
 
 
 def _dense_perimeter_plate():
-    """Sixteen scattered bores whose short outward balloons are collision-free."""
+    """Sixteen irregular perimeter bores with a crossing-free A3 table inventory."""
+    part = Box(120, 80, 12)
+    for index, (x, y) in enumerate(_CROSSING_FREE_PERIMETER_POSITIONS):
+        part -= Pos(x, y, 0) * Cylinder(1.0 + index * 0.15, 20)
+    return part
+
+
+def _crossing_perimeter_plate():
+    """Regular rows whose A3 table inventory contains two crossing shafts."""
     positions = (
         [(x, -30.0) for x in (-45.0, -15.0, 15.0, 45.0)]
         + [(x, 30.0) for x in (-45.0, -15.0, 15.0, 45.0)]
@@ -109,31 +133,9 @@ def _dense_plate_with_double_d():
 
 
 def _dense_plate_with_one_group():
-    """Twenty bores, including one physical two-member machining-spec group."""
-    positions = [
-        (-39, -19),
-        (-27, -14),
-        (-14, -21),
-        (1, -16),
-        (17, -22),
-        (35, -17),
-        (-36, -4),
-        (-21, 2),
-        (-7, -6),
-        (9, 1),
-        (24, -5),
-        (39, 4),
-        (-34, 14),
-        (-18, 21),
-        (-2, 12),
-        (13, 20),
-        (29, 13),
-        (38, 23),
-        (-28, 26),
-        (4, 27),
-    ]
-    part = Box(100, 70, 12)
-    for index, (x, y) in enumerate(positions):
+    """Sixteen bores, including one physical two-member machining-spec group."""
+    part = Box(120, 80, 12)
+    for index, (x, y) in enumerate(_CROSSING_FREE_PERIMETER_POSITIONS):
         radius = 2.0 if index < 2 else 1.0 + index * 0.17
         part -= Pos(x, y, 0) * Cylinder(radius, 20)
     return part
@@ -659,6 +661,27 @@ def test_guarded_carve_budget_rolls_the_automatic_table_transaction_back(monkeyp
     assert not [issue for issue in drawing.lint() if issue.code == "hole_requirement_missing"]
 
 
+def test_guarded_top_lane_budget_fires_before_quadratic_obstacle_scan(monkeypatch):
+    import draftwright.annotations.balloons as balloons_module
+
+    monkeypatch.setattr(balloons_module, "_GUARDED_TOP_LANE_MAX_OBSTACLE_PROBES", 1)
+
+    def forbidden_carve(*_args, **_kwargs):
+        pytest.fail("perimeter lane carving ran before its deterministic work budget")
+
+    monkeypatch.setattr(balloons_module, "carve_free_segments", forbidden_carve)
+
+    drawing = build_drawing(_dense_scattered_plate(), page="A3")
+
+    assert "hole_table_plan" not in drawing.annotations()
+    assert not [name for name in drawing.annotations() if name.startswith("balloon_plan_")]
+    assert len([name for name in drawing.annotations() if name.startswith("hc_plan")]) == 17
+    codes = [issue.code for issue in drawing.registry.issues]
+    assert "table_dropped" in codes
+    assert "balloon_dropped" in codes
+    assert not [issue for issue in drawing.lint() if issue.code == "hole_requirement_missing"]
+
+
 def test_real_shaft_crossing_carves_the_guarded_band_without_aabb_sampling():
     from draftwright.annotations.balloons import (
         _balloon_shaft_segments,
@@ -726,6 +749,8 @@ def test_final_guarded_inventory_validation_covers_cross_band_and_page_geometry(
     overlapping_second = (((19.0, 15.0, 29.0, 25.0),), ())
     shaft_crossing_second = (((24.0, 12.0, 28.0, 18.0),), ())
     shaft_crossing_first = ((((10.0, 10.0, 20.0, 20.0),), (((0.0, 15.0), (30.0, 15.0)),)),)
+    crossing_shaft_first = ((((9.5, 9.5, 10.5, 10.5),), (((0.0, 0.0), (9.0, 9.0)),)),)
+    crossing_shaft_second = (((9.5, -0.5, 10.5, 0.5),), (((0.0, 10.0), (9.0, 1.0)),))
     self_text_crossing = (
         (
             (10.0, 10.0, 20.0, 20.0),
@@ -739,6 +764,9 @@ def test_final_guarded_inventory_validation_covers_cross_band_and_page_geometry(
     assert not _guarded_inventory_geometry_is_clear((*first, overlapping_second), page)
     assert not _guarded_inventory_geometry_is_clear(
         (*shaft_crossing_first, shaft_crossing_second), page
+    )
+    assert not _guarded_inventory_geometry_is_clear(
+        (*crossing_shaft_first, crossing_shaft_second), page
     )
     assert not _guarded_inventory_geometry_is_clear((self_text_crossing,), page)
     assert not _guarded_inventory_geometry_is_clear((*first, off_page), page)
@@ -793,6 +821,19 @@ def test_automatic_transaction_fails_closed_when_final_inventory_gate_rejects(mo
         if outcome.state == "placed"
     }
     assert "view_annotation_overlap" not in {issue.code for issue in drawing.lint()}
+
+
+def test_automatic_transaction_rejects_a_real_required_shaft_crossing():
+    part = _crossing_perimeter_plate()
+    drawing = build_drawing(part, page="A3")
+
+    assert "hole_table_plan" not in drawing.annotations()
+    assert not [name for name in drawing.annotations() if name.startswith("balloon_plan_")]
+    assert {"table_dropped", "balloon_dropped"} <= {
+        issue.code for issue in drawing.registry.issues
+    }
+    assert [name for name in drawing.annotations() if name.startswith("hc_plan")]
+    assert "hole_requirement_missing" not in {issue.code for issue in drawing.lint()}
 
 
 def test_automatic_actual_label_guard_restores_features_with_no_safe_balloon(monkeypatch):
@@ -888,6 +929,7 @@ def test_public_add_balloons_separates_long_sibling_text_components():
         "partial_segments",
         "absent_counts",
         "wrong_counts",
+        "boolean_counts",
         "malformed",
         "nonfinite",
         "descending",
@@ -921,6 +963,10 @@ def test_automatic_table_fails_closed_against_a_retained_public_balloon(
         del retained.balloon_component_counts
     elif component_metadata == "wrong_counts":
         retained.balloon_component_counts = (1, 0)
+    elif component_metadata == "boolean_counts":
+        retained.centerline_boxes = retained.centerline_boxes[:1]
+        retained.centerline_segments = ()
+        retained.balloon_component_counts = (True, False)
     elif component_metadata == "malformed":
         retained.centerline_boxes = (("not", "a", "box"),)
     elif component_metadata == "nonfinite":
@@ -1050,6 +1096,40 @@ def test_automatic_initial_table_failure_restores_every_fallback(monkeypatch):
         for outcome in _outcomes(drawing)
         if outcome.state == "placed"
     }
+
+
+def test_real_constrained_a4_failure_keeps_valid_fallback_coverage():
+    from draftwright.model.ir import RequestedDimension
+
+    part = _dense_perimeter_plate()
+    detected = build_drawing(part, auto_dims=False).model()
+    holes = [feature for feature in detected.features if feature.kind == "hole"]
+    # Keep the A4 assertion about the transaction rather than asking an already
+    # crowded sheet to render 32 location ordinates. Authored omission remains
+    # explicit suppression in the #1143 physical ledger.
+    model = replace(
+        detected,
+        authored_dimensions=tuple(
+            RequestedDimension(feature, "bore.diameter") for feature in holes
+        ),
+    )
+
+    drawing = build_drawing(part, model=model, page="A4")
+
+    assert "hole_table_plan" not in drawing.annotations()
+    assert not [name for name in drawing.annotations() if name.startswith("balloon_plan_")]
+    fallback_names = [name for name in drawing.annotations() if name.startswith("hc_plan")]
+    assert len(fallback_names) == 2
+    assert all(drawing.measurement_keys(name) for name in fallback_names)
+    assert {"table_dropped", "balloon_dropped"} <= {
+        issue.code for issue in drawing.registry.issues
+    }
+    placed = [outcome for outcome in _outcomes(drawing) if outcome.state == "placed"]
+    assert len(placed) == 4  # diameter + THRU for both leaders that had fitted
+    assert {(outcome.representation, outcome.representation_reason) for outcome in placed} == {
+        ("feature_annotation", "required_balloon_not_placed")
+    }
+    assert "hole_requirement_missing" not in {issue.code for issue in drawing.lint()}
 
 
 def test_automatic_partial_balloon_result_rolls_back_the_shared_table(monkeypatch):
@@ -1219,21 +1299,29 @@ def test_optional_pattern_marker_cannot_displace_required_table_rows(monkeypatch
     assert captured_analysis
 
     features = list(drawing.model().features)
-    origin = (-50.0, -18.0, 6.0)
-    member = HoleFeature(
-        frame=Frame(origin=origin, axis="z"),
-        diameter=5.0,
-        depth=None,
-        through=True,
-    )
-    pattern = PatternFeature(
-        frame=Frame(origin=origin, axis="z"),
-        pattern="bolt_circle",
-        count=6,
-        member=member,
-        members=tuple((origin[0] + index, origin[1], origin[2]) for index in range(6)),
-    )
-    model = replace(drawing.model(), features=[*features, pattern])
+    patterns = []
+    for optional_index in range(8):
+        origin = (
+            -50.0 + (optional_index % 5) * 0.01,
+            -18.0 + (optional_index % 7) * 0.01,
+            6.0,
+        )
+        member = HoleFeature(
+            frame=Frame(origin=origin, axis="z"),
+            diameter=5.0,
+            depth=None,
+            through=True,
+        )
+        patterns.append(
+            PatternFeature(
+                frame=Frame(origin=origin, axis="z"),
+                pattern="bolt_circle",
+                count=6,
+                member=member,
+                members=tuple((origin[0] + index, origin[1], origin[2]) for index in range(6)),
+            )
+        )
+    model = replace(drawing.model(), features=[*features, *patterns])
     ctx = PlacementContext(
         registry=drawing.registry,
         coverage=drawing.coverage,
@@ -1241,7 +1329,7 @@ def test_optional_pattern_marker_cannot_displace_required_table_rows(monkeypatch
         part_model=model,
         escalations=(
             Escalation("location", "plan", features[0], "illegible"),
-            Escalation("callout", "plan", pattern, "strip_full"),
+            *(Escalation("callout", "plan", pattern, "strip_full") for pattern in patterns),
         ),
     )
 
@@ -1251,7 +1339,9 @@ def test_optional_pattern_marker_cannot_displace_required_table_rows(monkeypatch
     assert {name for name in drawing.annotations() if name.startswith("balloon_plan_")} == {
         f"balloon_plan_{tag}_0" for tag in "ABCDEFGHIJKLMNOP"
     }
-    assert "balloon_plan_6×Q_0" not in drawing.annotations()
+    assert not {f"balloon_plan_6×{tag}_0" for tag in "QRSTUVWX"}.intersection(
+        drawing.annotations()
+    )
     assert "table_dropped" not in {issue.code for issue in drawing.registry.issues}
     assert "balloon_dropped" in {issue.code for issue in drawing.registry.issues}
     assert "hole_requirement_missing" not in {issue.code for issue in drawing.lint()}
@@ -1333,7 +1423,10 @@ def test_fitted_callout_can_remain_while_table_resolves_its_location_drop(monkey
         if issue.code == "location_ref_dropped"
         and _features_from_issue(issue) & placed_callout_features
     )
-    feature = next(iter(_features_from_issue(location_issue) & placed_callout_features))
+    feature = min(
+        _features_from_issue(location_issue) & placed_callout_features,
+        key=lambda candidate: candidate.diameter,
+    )
     dropped_parameters = {
         parameter for owner, parameter in location_issue.hole_requirement_ids if owner is feature
     }
@@ -1490,23 +1583,29 @@ def test_automatic_compound_inventory_fails_closed_on_cross_balloon_geometry():
     ]
 
 
-def test_automatic_table_keeps_profiled_callout():
+def test_automatic_transaction_keeps_profiled_callout_when_table_is_unsafe():
     drawing = build_drawing(_dense_plate_with_double_d())
     feature = next(
         feature for feature in drawing.model().features if feature.profile == "double_d"
     )
     callout_name, callout = _plan_bore_callouts(drawing)[feature]
 
-    assert "hole_table_plan" in drawing.annotations()
+    assert "hole_table_plan" not in drawing.annotations()
+    assert not [name for name in drawing.annotations() if name.startswith("balloon_plan_")]
     assert drawing.get_annotation(callout_name) is callout
     assert "DOUBLE-D 3.6 A/F" in callout.label
-    table = drawing.get_annotation("hole_table_plan")
-    assert feature not in {
-        owner
-        for owner, _parameter, _representation, _reason in getattr(
-            table, "covers_hole_representations_by_requirement", ()
-        )
+    assert {item["parameter_id"] for item in drawing.measurement_keys(callout_name)} == {
+        "bore.diameter",
+        "profile_across_flats.length",
     }
+    assert {"table_dropped", "balloon_dropped"} <= {
+        issue.code for issue in drawing.registry.issues
+    }
+    assert not [
+        issue
+        for issue in drawing.lint()
+        if issue.code in {"feature_not_dimensioned", "hole_requirement_missing"}
+    ]
 
 
 @pytest.mark.parametrize("reserved_name", ["hole_table_plan", "balloon_plan_A_0"])
@@ -1619,18 +1718,24 @@ def test_one_physical_group_with_mixed_table_and_fit_evidence_has_no_scalar_winn
 
 
 def test_retained_fit_leader_crossing_rolls_the_automatic_table_back():
+    from draftwright.model.ir import RequestedDimension
+
     part = _dense_plate_with_close_x_ordinates()
     detected = build_drawing(part, page="A3", auto_dims=False).model()
     fitted = next(
         feature
         for feature in detected.features
         if feature.kind == "hole"
-        and feature.frame.origin == (-54.0, -18.0, 6.0)
-        and feature.diameter == pytest.approx(4.4)
+        and feature.frame.origin == (-42.7, -27.4, 6.0)
+        and feature.diameter == pytest.approx(2.0)
     )
+    holes = [feature for feature in detected.features if feature.kind == "hole"]
     declared = replace(
         detected,
         decorations={(fitted, "diameter"): fit_class("H7", fitted.diameter)},
+        authored_dimensions=tuple(
+            RequestedDimension(feature, "bore.diameter") for feature in holes
+        ),
     )
 
     drawing = build_drawing(part, model=declared, page="A3")
