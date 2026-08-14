@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import runpy
 from pathlib import Path
 from types import SimpleNamespace
@@ -447,7 +448,6 @@ def test_fallback_reuses_geometry_classification_and_recognition(monkeypatch):
 
 
 def test_cli_rejects_nondefault_policy_without_scale_for_direct_and_script_modes():
-    from click import unstyle
     from typer.testing import CliRunner
 
     from draftwright.cli import app
@@ -457,7 +457,7 @@ def test_cli_rejects_nondefault_policy_without_scale_for_direct_and_script_modes
             app, ["part.step", "--scale-policy", "strict", *extra], color=True
         )
         assert result.exit_code == 2
-        output = unstyle(result.output)
+        output = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
         assert "--scale-policy requires an explicit" in output
         assert "--scale" in output
 
