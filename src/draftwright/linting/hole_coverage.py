@@ -576,10 +576,12 @@ def hole_requirement_outcomes(
             f"got {type(recognition).__name__}"
         )
 
-    pattern_members = {hole for pattern in recognition.hole_patterns for hole in pattern.holes}
+    pattern_member_ids = {
+        id(hole) for pattern in recognition.hole_patterns for hole in pattern.holes
+    }
     loose_groups: dict[tuple, list] = defaultdict(list)
     for hole in recognition.holes:
-        if hole not in pattern_members:
+        if id(hole) not in pattern_member_ids:
             # HoleSpec's signed axis is part of machining identity. Keep opposite-face
             # blind bores in separate source groups even when every printed size matches.
             loose_groups[(_recognised_spec(hole), _signed_axis(hole.axis))].append(hole)

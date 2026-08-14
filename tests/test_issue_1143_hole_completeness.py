@@ -6,7 +6,7 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
-from build123d import Align, Box, Cone, Cylinder, Pos, Rot
+from build123d import Align, Box, Compound, Cone, Cylinder, Pos, Rot
 
 from draftwright import Sheet, build_drawing
 from draftwright.linting.hole_coverage import hole_requirement_outcomes
@@ -732,6 +732,13 @@ def test_unrelated_structured_location_metadata_is_ignored():
     annotation = SimpleNamespace(covers_hole_locations=((measurement, (1.0, 2.0, 3.0)),))
     registry = AnnotationRegistry()
     registry.add(annotation, "pad_location", "plan", feature=unrelated)
+    registry.add(
+        object(),
+        "incomplete_measurement",
+        "plan",
+        feature=unrelated,
+        measurement=SimpleNamespace(parameter="bore.diameter"),
+    )
 
     outcomes = hole_requirement_outcomes(
         baseline.recognition(),
@@ -741,6 +748,24 @@ def test_unrelated_structured_location_metadata_is_ignored():
 
     assert outcomes
     assert {item.state for item in outcomes} == {"missing"}
+
+
+def test_absent_recognition_has_no_physical_hole_denominator():
+    assert hole_requirement_outcomes(None, (), AnnotationRegistry()) == []
+
+
+def test_missing_through_pattern_declaration_remains_unverifiable():
+    drawing = build_drawing(_linear_pattern(), auto_dims=False)
+
+    outcomes = hole_requirement_outcomes(
+        drawing.recognition(),
+        (),
+        AnnotationRegistry(),
+    )
+
+    assert [(item.source_kind, item.state, item.requirement_count) for item in outcomes] == [
+        ("hole_pattern", "unverifiable", 6)
+    ]
 
 
 def test_turned_axis_evidence_is_computed_once_per_axis(monkeypatch):
@@ -2179,6 +2204,27 @@ def test_deleting_a_declaration_cannot_shrink_the_recognition_denominator():
         "hole_requirement_unverifiable": 1,
     }
     assert summary["geometry_issues"] == 3
+
+
+def test_equal_but_distinct_hole_is_not_consumed_as_a_pattern_member():
+    patterned = Box(40, 20, 5, align=_XYZ_MIN)
+    for x in (-10, 0, 10):
+        patterned -= Pos(x, 0, 0) * Cylinder(2, 5, align=_XYZ_MIN)
+    duplicate = Pos(-10, 0, 0) * Box(8, 8, 5, align=_XYZ_MIN)
+    duplicate -= Pos(-10, 0, 0) * Cylinder(2, 5, align=_XYZ_MIN)
+    drawing = build_drawing(
+        Compound(children=[patterned, duplicate]),
+        auto_dims=False,
+    )
+
+    assert len(drawing.recognition().holes) == 4
+    assert len(drawing.recognition().hole_patterns) == 1
+    assert sorted(
+        (item.source_kind, item.requirement_count)
+        for item in _outcomes(drawing)
+        if item.state == "unverifiable"
+    ) == [("hole", 4), ("hole_pattern", 6)]
+    assert _completeness(drawing)["requirements"] == 10
 
 
 def test_hole_outcomes_ignore_rendered_names_and_labels_when_semantic_ids_survive():
