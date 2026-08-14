@@ -1,9 +1,9 @@
 """Regression coverage for hole-family semantic outcomes (#1143)."""
 
 import itertools
-import time
 from collections import Counter
 from dataclasses import replace
+from types import SimpleNamespace
 
 import pytest
 from build123d import Align, Box, Cone, Cylinder, Pos, Rot
@@ -16,6 +16,7 @@ from draftwright.model.declare import hole as declare_hole
 from draftwright.model.declare import pattern as declare_pattern
 from draftwright.model.ir import Frame, StepFeature
 from draftwright.recognition import HoleRecord, LinearArray
+from draftwright.registry import AnnotationRegistry
 
 _XYZ_MIN = (Align.CENTER, Align.CENTER, Align.MIN)
 
@@ -504,10 +505,21 @@ def test_grouped_and_per_member_exact_owners_are_an_ambiguous_cover():
     assert _completeness(drawing)["audited_score"] == 0.0
 
 
-def test_dense_separate_blind_tool_correspondence_scales_linearly():
-    baseline = build_drawing(_blind_hole(), auto_dims=False)
+def test_dense_separate_blind_tool_correspondence_scales_linearly(monkeypatch):
+    import draftwright.linting.hole_coverage as hole_coverage_module
 
-    def elapsed_for(count):
+    baseline = build_drawing(_blind_hole(), auto_dims=False)
+    member_calls = 0
+    original_members = hole_coverage_module._members
+
+    def counted_members(feature):
+        nonlocal member_calls
+        member_calls += 1
+        return original_members(feature)
+
+    monkeypatch.setattr(hole_coverage_module, "_members", counted_members)
+
+    def outcomes_for(count):
         physical = tuple(
             HoleRecord(
                 axis=(0.0, 0.0, 1.0),
@@ -542,23 +554,15 @@ def test_dense_separate_blind_tool_correspondence_scales_linearly():
             count=2,
             members=((0.0, 0.0, 4.0), (1.0, 0.0, 4.0)),
         )
-        samples = []
-        outcomes = []
-        for _ in range(3):
-            started = time.perf_counter()
-            outcomes = hole_requirement_outcomes(
-                recognition, (grouped, *singletons), baseline.registry
-            )
-            samples.append(time.perf_counter() - started)
-        return min(samples), outcomes
+        return hole_requirement_outcomes(recognition, (grouped, *singletons), baseline.registry)
 
-    small_elapsed, small = elapsed_for(1_000)
-    large_elapsed, large = elapsed_for(2_000)
+    small = outcomes_for(1_000)
+    member_calls = 0
+    large = outcomes_for(2_000)
 
     assert len(small) == len(large) == 5
     assert not [item for item in (*small, *large) if item.state == "unverifiable"]
-    assert large_elapsed < 2.0
-    assert large_elapsed < small_elapsed * 3.0
+    assert member_calls < 20_000
 
 
 def test_overlapping_owner_chain_fails_closed_without_quadratic_rescans(monkeypatch):
@@ -603,16 +607,13 @@ def test_overlapping_owner_chain_fails_closed_without_quadratic_rescans(monkeypa
             )
             for index in range(count - 1)
         ) + (replace(template, frame=replace(template.frame, origin=(0.0, 0.0, 0.0))),)
-        started = time.perf_counter()
-        outcomes = hole_requirement_outcomes(recognition, owners, baseline.registry)
-        return time.perf_counter() - started, outcomes
+        return hole_requirement_outcomes(recognition, owners, baseline.registry)
 
-    _small_elapsed, small = elapsed_for(1_000)
+    small = elapsed_for(1_000)
     item_visits = 0
-    large_elapsed, large = elapsed_for(2_000)
+    large = elapsed_for(2_000)
 
     assert small[0].state == large[0].state == "unverifiable"
-    assert large_elapsed < 2.0
     assert item_visits < 20_000
 
 
@@ -654,18 +655,121 @@ def test_many_distinct_hole_specs_do_not_cross_scan_the_ir_inventory(monkeypatch
             )
             for index in range(count)
         )
-        started = time.perf_counter()
-        outcomes = hole_requirement_outcomes(recognition, owners, baseline.registry)
-        return time.perf_counter() - started, outcomes
+        return hole_requirement_outcomes(recognition, owners, baseline.registry)
 
-    _small_elapsed, small = elapsed_for(1_000)
+    small = elapsed_for(1_000)
     feature_spec_calls = 0
-    large_elapsed, large = elapsed_for(2_000)
+    large = elapsed_for(2_000)
 
     assert len(small) == 4_000
     assert len(large) == 8_000
-    assert large_elapsed < 2.0
     assert feature_spec_calls < 20_000
+
+
+def test_populated_measurement_inventory_is_indexed_once():
+    baseline = build_drawing(_blind_hole(), auto_dims=False)
+    count = 200
+    feature_reads = 0
+
+    class CountingMeasurement:
+        parameter = "bore.diameter"
+
+        def __init__(self, feature):
+            self._feature = feature
+
+        @property
+        def feature(self):
+            nonlocal feature_reads
+            feature_reads += 1
+            return self._feature
+
+    physical = tuple(
+        HoleRecord(
+            axis=(0.0, 0.0, 1.0),
+            location=(float(index * 5), 0.0, 0.0),
+            diameter=float(index + 1),
+            depth=10.0,
+            bottom="through",
+        )
+        for index in range(count)
+    )
+    features = tuple(
+        declare_hole(
+            diameter=float(index + 1),
+            at=(float(index * 5), 0.0, 0.0),
+            axis="z",
+            through=True,
+        )
+        for index in range(count)
+    )
+    recognition = replace(
+        baseline.recognition(),
+        holes=physical,
+        hole_patterns=(),
+        countersinks=(),
+    )
+    registry = AnnotationRegistry()
+    for index, feature in enumerate(features):
+        registry.add(
+            object(),
+            f"diameter_{index}",
+            "plan",
+            feature=feature,
+            measurement=CountingMeasurement(feature),
+        )
+
+    outcomes = hole_requirement_outcomes(recognition, features, registry)
+
+    assert len(outcomes) == count * 4
+    assert len([item for item in outcomes if item.state == "placed"]) == count
+    assert feature_reads == count
+
+
+def test_unrelated_structured_location_metadata_is_ignored():
+    baseline = build_drawing(_blind_hole(), auto_dims=False)
+    unrelated = type("UnrelatedFeature", (), {"kind": "pad"})()
+    measurement = SimpleNamespace(feature=unrelated, parameter="location.location.x")
+    annotation = SimpleNamespace(covers_hole_locations=((measurement, (1.0, 2.0, 3.0)),))
+    registry = AnnotationRegistry()
+    registry.add(annotation, "pad_location", "plan", feature=unrelated)
+
+    outcomes = hole_requirement_outcomes(
+        baseline.recognition(),
+        baseline.model().features,
+        registry,
+    )
+
+    assert outcomes
+    assert {item.state for item in outcomes} == {"missing"}
+
+
+def test_turned_axis_evidence_is_computed_once_per_axis(monkeypatch):
+    import draftwright.linting.hole_coverage as hole_coverage_module
+
+    drawing = build_drawing(_stepped_x_shaft_with_coaxial_and_offset_bores(), page="A3")
+    calls = 0
+    original = hole_coverage_module._recognised_turned_axis_center
+
+    def counted_axis_center(recognition, axis):
+        nonlocal calls
+        calls += 1
+        return original(recognition, axis)
+
+    monkeypatch.setattr(
+        hole_coverage_module,
+        "_recognised_turned_axis_center",
+        counted_axis_center,
+    )
+
+    outcomes = hole_requirement_outcomes(
+        drawing.recognition(),
+        drawing.model().features,
+        drawing.registry,
+        compile_dimensions(drawing.model()).diagnostics,
+    )
+
+    assert outcomes
+    assert calls == 3
 
 
 def test_many_blind_patterns_use_indexed_tool_centre_correspondence(monkeypatch):
@@ -731,8 +835,20 @@ def test_many_blind_patterns_use_indexed_tool_centre_correspondence(monkeypatch)
     assert pattern_key_calls < count * 10
 
 
-def test_overlapping_declared_covers_fail_closed_in_bounded_time():
+def test_overlapping_declared_covers_fail_closed_with_bounded_work(monkeypatch):
+    import draftwright.linting.hole_coverage as hole_coverage_module
+
     baseline = build_drawing(_blind_hole(), auto_dims=False)
+    item_visits = 0
+
+    class CountingCounter(Counter):
+        def items(self):
+            nonlocal item_visits
+            for item in super().items():
+                item_visits += 1
+                yield item
+
+    monkeypatch.setattr(hole_coverage_module, "Counter", CountingCounter)
     count = 15
     physical = tuple(
         HoleRecord(
@@ -765,14 +881,12 @@ def test_overlapping_declared_covers_fail_closed_in_bounded_time():
         for right in range(left + 1, count)
     )
 
-    started = time.perf_counter()
     outcomes = hole_requirement_outcomes(recognition, features, baseline.registry)
-    elapsed = time.perf_counter() - started
 
     assert len(outcomes) == 1
     assert outcomes[0].state == "unverifiable"
     assert outcomes[0].requirement_count == 5
-    assert elapsed < 2.0
+    assert item_visits < 10_000
 
 
 def test_grid_pattern_accounts_for_both_independent_pitch_measurements():
@@ -1198,6 +1312,203 @@ def test_partial_tool_centre_owner_makes_complete_pattern_fallback_ambiguous():
     assert len(unverifiable) == 1
     assert unverifiable[0].requirement_count == 6
     assert _completeness(drawing)["audited_score"] == 0.5
+
+
+def test_pattern_exact_owner_cannot_be_reused_as_a_loose_hole_tool_centre():
+    baseline = build_drawing(_blind_hole(), auto_dims=False)
+    loose = HoleRecord(
+        axis=(0.0, 0.0, 1.0),
+        location=(0.0, 0.0, 0.0),
+        diameter=8.0,
+        depth=8.0,
+        bottom="flat",
+    )
+    pattern_holes = tuple(
+        HoleRecord(
+            axis=(0.0, 0.0, 1.0),
+            location=(offset, 0.0, 4.0),
+            diameter=8.0,
+            depth=8.0,
+            bottom="flat",
+        )
+        for offset in (-1.0, 0.0, 1.0)
+    )
+    recognition = replace(
+        baseline.recognition(),
+        holes=(loose, *pattern_holes),
+        hole_patterns=(LinearArray(pattern_holes, 1.0, (1.0, 0.0, 0.0)),),
+        countersinks=(),
+    )
+    shared_owner = declare_hole(
+        diameter=8,
+        at=(0.0, 0.0, 4.0),
+        axis="z",
+        through=False,
+        depth=8,
+    )
+
+    outcomes = hole_requirement_outcomes(recognition, (shared_owner,), baseline.registry)
+
+    assert sorted((item.source_kind, item.state, item.requirement_count) for item in outcomes) == [
+        ("hole", "unverifiable", 4),
+        ("hole_pattern", "unverifiable", 6),
+    ]
+
+
+def test_loose_exact_owner_cannot_be_reused_as_a_pattern_tool_centre():
+    baseline = build_drawing(_blind_hole(), auto_dims=False)
+    loose = HoleRecord(
+        axis=(0.0, 0.0, 1.0),
+        location=(0.0, 0.0, 4.0),
+        diameter=8.0,
+        depth=8.0,
+        bottom="flat",
+    )
+    pattern_holes = tuple(
+        HoleRecord(
+            axis=(0.0, 0.0, 1.0),
+            location=(offset, 0.0, 0.0),
+            diameter=8.0,
+            depth=8.0,
+            bottom="flat",
+        )
+        for offset in (-1.0, 0.0, 1.0)
+    )
+    recognition = replace(
+        baseline.recognition(),
+        holes=(loose, *pattern_holes),
+        hole_patterns=(LinearArray(pattern_holes, 1.0, (1.0, 0.0, 0.0)),),
+        countersinks=(),
+    )
+    member = declare_hole(
+        diameter=8,
+        at=(0.0, 0.0, 4.0),
+        axis="z",
+        through=False,
+        depth=8,
+    )
+    shared_owner = declare_pattern(
+        member,
+        kind="linear",
+        count=3,
+        at=member.frame.origin,
+        pitch=1.0,
+        direction=(1.0, 0.0, 0.0),
+    )
+
+    outcomes = hole_requirement_outcomes(recognition, (shared_owner,), baseline.registry)
+
+    assert sorted((item.source_kind, item.state, item.requirement_count) for item in outcomes) == [
+        ("hole", "unverifiable", 4),
+        ("hole_pattern", "unverifiable", 6),
+    ]
+
+
+def test_one_exact_pattern_owner_cannot_cover_two_physical_sources():
+    baseline = build_drawing(_blind_hole(), auto_dims=False)
+    loose = HoleRecord(
+        axis=(0.0, 0.0, -1.0),
+        location=(0.0, 0.0, 0.0),
+        diameter=8.0,
+        depth=8.0,
+        bottom="flat",
+    )
+    pattern_holes = tuple(
+        HoleRecord(
+            axis=(0.0, 0.0, 1.0),
+            location=(offset, 0.0, 0.0),
+            diameter=8.0,
+            depth=8.0,
+            bottom="flat",
+        )
+        for offset in (0.0, 10.0, 20.0)
+    )
+    recognition = replace(
+        baseline.recognition(),
+        holes=(*pattern_holes, loose),
+        hole_patterns=(LinearArray(pattern_holes, 10.0, (1.0, 0.0, 0.0)),),
+        countersinks=(),
+    )
+    member = declare_hole(
+        diameter=8,
+        at=(10.0, 0.0, 0.0),
+        axis="z",
+        through=False,
+        depth=8,
+    )
+    shared_owner = declare_pattern(
+        member,
+        kind="linear",
+        count=3,
+        at=member.frame.origin,
+        pitch=10.0,
+        direction=(1.0, 0.0, 0.0),
+    )
+
+    outcomes = hole_requirement_outcomes(recognition, (shared_owner,), baseline.registry)
+
+    assert sorted((item.source_kind, item.state, item.requirement_count) for item in outcomes) == [
+        ("hole", "unverifiable", 4),
+        ("hole_pattern", "unverifiable", 6),
+    ]
+
+
+def test_distinct_exact_and_projected_owners_remain_valid():
+    baseline = build_drawing(_blind_hole(), auto_dims=False)
+    loose = HoleRecord(
+        axis=(0.0, 0.0, 1.0),
+        location=(50.0, 0.0, 0.0),
+        diameter=8.0,
+        depth=8.0,
+        bottom="flat",
+    )
+    pattern_holes = tuple(
+        HoleRecord(
+            axis=(0.0, 0.0, 1.0),
+            location=(offset, 0.0, 0.0),
+            diameter=8.0,
+            depth=8.0,
+            bottom="flat",
+        )
+        for offset in (-1.0, 0.0, 1.0)
+    )
+    recognition = replace(
+        baseline.recognition(),
+        holes=(loose, *pattern_holes),
+        hole_patterns=(LinearArray(pattern_holes, 1.0, (1.0, 0.0, 0.0)),),
+        countersinks=(),
+    )
+    pattern_member = declare_hole(
+        diameter=8,
+        at=(0.0, 0.0, 0.0),
+        axis="z",
+        through=False,
+        depth=8,
+    )
+    exact_pattern = declare_pattern(
+        pattern_member,
+        kind="linear",
+        count=3,
+        at=pattern_member.frame.origin,
+        pitch=1.0,
+        direction=(1.0, 0.0, 0.0),
+    )
+    projected_hole = declare_hole(
+        diameter=8,
+        at=(50.0, 0.0, 4.0),
+        axis="z",
+        through=False,
+        depth=8,
+    )
+
+    outcomes = hole_requirement_outcomes(
+        recognition,
+        (exact_pattern, projected_hole),
+        baseline.registry,
+    )
+
+    assert len(outcomes) == 10
+    assert not [item for item in outcomes if item.state == "unverifiable"]
 
 
 def test_off_axis_pattern_keeps_absolute_location_requirements_fail_closed():
@@ -1902,6 +2213,33 @@ def test_duplicate_truthful_count_facts_do_not_erase_coverage():
 
     outcomes = {item.parameter_id: item.state for item in _outcomes(drawing)}
     assert outcomes["grouping.count"] == "placed"
+
+
+def test_one_singleton_cannot_claim_an_entire_multi_owner_group():
+    plate = Box(80, 50, 20, align=_XYZ_MIN)
+    tools = [Pos(x, 7, 12) * Cylinder(4, 8, align=_XYZ_MIN) for x in (-15, 15)]
+    part = plate
+    for tool in tools:
+        part -= tool
+    sheet = Sheet(part).auto_dimensions()
+    for tool in tools:
+        sheet.hole(tool).depth(8)
+    sheet.envelope()
+    drawing = sheet.build()
+    features = [feature for feature in drawing.model().features if feature.kind == "hole"]
+    callouts = [
+        name
+        for feature in features
+        for name in drawing.annotations_of(feature)
+        if name.startswith("hc_")
+    ]
+    assert len(features) == len(callouts) == 2
+
+    drawing.get_annotation(callouts[0]).covers_count = 2
+    drawing.remove(callouts[1])
+
+    outcomes = {item.parameter_id: item.state for item in _outcomes(drawing)}
+    assert outcomes["grouping.count"] == "missing"
 
 
 def test_through_fact_is_independent_of_diameter_provenance():

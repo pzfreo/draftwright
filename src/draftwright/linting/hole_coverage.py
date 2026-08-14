@@ -326,10 +326,10 @@ def _recognised_turned_axis_center(recognition, axis):
     return winners[0] if len(winners) == 1 else None
 
 
-def _member_coaxial_with_turned_profile(feature, member, recognition) -> bool:
+def _member_coaxial_with_turned_profile(feature, member, turned_axis_centers) -> bool:
     axis = feature.frame.axis
     perpendicular = tuple(i for i, letter in enumerate("xyz") if letter != axis)
-    center = _recognised_turned_axis_center(recognition, axis)
+    center = turned_axis_centers.get(axis)
     if center is None:
         return False
     return all(
@@ -337,15 +337,15 @@ def _member_coaxial_with_turned_profile(feature, member, recognition) -> bool:
     )
 
 
-def _coaxial_with_turned_profile(feature, recognition) -> bool:
+def _coaxial_with_turned_profile(feature, turned_axis_centers) -> bool:
     return all(
-        _member_coaxial_with_turned_profile(feature, member, recognition)
+        _member_coaxial_with_turned_profile(feature, member, turned_axis_centers)
         for member in _members(feature)
     )
 
 
 def _parameter_ids(
-    feature, *, member_count: int | None = None, recognition
+    feature, *, member_count: int | None = None, turned_axis_centers
 ) -> tuple[str, ...] | None:
     try:
         parameters = tuple(feature.parameters())
@@ -369,7 +369,7 @@ def _parameter_ids(
         stem = getattr(feature, "LOCATION_OFF_AXIS_STEM", None)
         if stem is None:
             return None
-        if _coaxial_with_turned_profile(feature, recognition):
+        if _coaxial_with_turned_profile(feature, turned_axis_centers):
             # The axis line constrains both otherwise-independent in-plane positions. Keep
             # two outcomes so a declaration mismatch cannot shrink the recognition-owned
             # denominator merely because the visible evidence is one centreline.
@@ -390,13 +390,6 @@ def _parameter_ids(
         in_plane = "y" if feature.frame.axis == "x" else "x"
         ids.extend((f"{stem}.location.{in_plane}", f"{stem}.location.z"))
     return tuple(ids)
-
-
-def _matches(measurement, feature, parameter: str) -> bool:
-    return (
-        getattr(measurement, "feature", None) == feature
-        and getattr(measurement, "parameter", None) == parameter
-    )
 
 
 def _evidence_parameter(parameter: str) -> str:
@@ -420,106 +413,136 @@ def _location_members(feature, parameter: str):
     return _members(feature)
 
 
-def _structured_locations_placed(registry, features, parameter: str, recognition) -> bool:
+@dataclass
+class _HoleEvidence:
+    placed: set[tuple[object, str]]
+    dropped: set[tuple[object, str]]
+    requirement_counts: dict[tuple[object, str], set[int]]
+    locations: dict[tuple[object, str], set[tuple[float, float, float]]]
+    centers: dict[object, set[tuple[tuple[float, float, float], str]]]
+    centerline_features: set[object]
+
+
+def _normalised_location(feature, point) -> tuple[float, float, float]:
+    normalized = list(_point(point))
+    hole = getattr(feature, "member", feature)
+    if hole.through:
+        normalized["xyz".index(feature.frame.axis)] = 0.0
+    return (normalized[0], normalized[1], normalized[2])
+
+
+def _index_hole_evidence(registry) -> _HoleEvidence:
+    placed = set()
+    requirement_counts: dict[tuple[object, str], set[int]] = defaultdict(set)
+    locations: dict[tuple[object, str], set[tuple[float, float, float]]] = defaultdict(set)
+    centers: dict[object, set[tuple[tuple[float, float, float], str]]] = defaultdict(set)
+    centerline_features = set()
+    for name in registry.names():
+        annotation = registry.named(name)
+        measurements = tuple(registry.measurement_of(name))
+        diameter_features = set()
+        for measurement in measurements:
+            feature = getattr(measurement, "feature", None)
+            parameter = getattr(measurement, "parameter", None)
+            if feature is None or parameter is None:
+                continue
+            placed.add((feature, parameter))
+            if parameter == "bore.diameter":
+                diameter_features.add(feature)
+        for feature, requirement, count in getattr(
+            annotation, "covers_hole_requirements_by_feature", ()
+        ):
+            requirement_counts[(feature, requirement)].add(int(count))
+        for feature in diameter_features:
+            for requirement in getattr(annotation, "covers_hole_requirements", ()):
+                requirement_counts[(feature, requirement)].add(1)
+            requirement_counts[(feature, "grouping.count")].add(
+                int(getattr(annotation, "covers_count", 1) or 1)
+            )
+        for measurement, point in getattr(annotation, "covers_hole_locations", ()):
+            feature = getattr(measurement, "feature", None)
+            parameter = getattr(measurement, "parameter", None)
+            if getattr(feature, "kind", None) in {"hole", "pattern"} and parameter is not None:
+                locations[(feature, parameter)].add(_normalised_location(feature, point))
+        for feature, point, view in getattr(annotation, "covers_hole_centers", ()):
+            if getattr(feature, "kind", None) in {"hole", "pattern"}:
+                centers[feature].add((_normalised_location(feature, point), view))
+        if getattr(annotation, "is_centerline", False):
+            feature = registry.feature_of(name)
+            if feature is not None:
+                centerline_features.add(feature)
+    dropped = {
+        (feature, parameter)
+        for issue in registry.issues
+        for measurement in getattr(issue, "measurement_ids", ())
+        for feature, parameter in (
+            (getattr(measurement, "feature", None), getattr(measurement, "parameter", None)),
+        )
+        if feature is not None and parameter is not None
+    }
+    return _HoleEvidence(
+        placed,
+        dropped,
+        requirement_counts,
+        locations,
+        centers,
+        centerline_features,
+    )
+
+
+def _structured_locations_placed(evidence, features, parameter: str, turned_axis_centers) -> bool:
     expected = {
         (feature, point) for feature in features for point in _location_members(feature, parameter)
     }
-    covered = set()
-    for name in registry.names():
-        for measurement, point in getattr(registry.named(name), "covers_hole_locations", ()):
-            feature = getattr(measurement, "feature", None)
-            if feature not in features or getattr(measurement, "parameter", None) != parameter:
-                continue
-            assert feature is not None
-            normalized = list(_point(point))
-            hole = getattr(feature, "member", feature)
-            if hole.through:
-                normalized["xyz".index(feature.frame.axis)] = 0.0
-            covered.add((feature, (normalized[0], normalized[1], normalized[2])))
-        for feature, point, view in getattr(registry.named(name), "covers_hole_centers", ()):
-            if feature not in features or getattr(feature, "kind", None) != "hole":
-                continue
+    covered = {
+        (feature, point)
+        for feature in features
+        for point in evidence.locations.get((feature, parameter), ())
+    }
+    for feature in features:
+        if getattr(feature, "kind", None) != "hole":
+            continue
+        for point, view in evidence.centers.get(feature, ()):
             if view != {"x": "side", "y": "front", "z": "plan"}[feature.frame.axis]:
                 continue
-            normalized = list(_point(point))
-            hole = getattr(feature, "member", feature)
-            if hole.through:
-                normalized["xyz".index(feature.frame.axis)] = 0.0
-            normalized_point = (normalized[0], normalized[1], normalized[2])
-            if _member_coaxial_with_turned_profile(feature, normalized_point, recognition):
-                covered.add((feature, normalized_point))
+            if _member_coaxial_with_turned_profile(feature, point, turned_axis_centers):
+                covered.add((feature, point))
     return bool(expected) and expected <= covered
 
 
-def _synthetic_placed(registry, features, parameter: str, member_count: int) -> bool:
+def _synthetic_placed(evidence, features, parameter: str, member_count: int) -> bool:
     if ".centerline." in parameter:
-        return any(
-            getattr(registry.named(name), "is_centerline", False)
-            for feature in features
-            for name in registry.names_for_feature(feature)
-        )
-    counts_by_feature: dict[object, set[int]] = defaultdict(set)
-    for name in registry.names():
-        for feature, requirement, count in getattr(
-            registry.named(name), "covers_hole_requirements_by_feature", ()
-        ):
-            if feature not in features or requirement != parameter:
-                continue
-            if parameter == "bore.through":
-                return True
-            if parameter == "grouping.count":
-                counts_by_feature[feature].add(int(count))
-    for feature in features:
-        for name in registry.names_for_feature(feature):
-            annotation = registry.named(name)
-            if not any(
-                _matches(measurement, feature, "bore.diameter")
-                for measurement in registry.measurement_of(name)
-            ):
-                continue
-            covered = getattr(annotation, "covers_hole_requirements", ())
-            if parameter == "bore.through" and parameter in covered:
-                return True
-            if parameter == "grouping.count":
-                counts_by_feature[feature].add(int(getattr(annotation, "covers_count", 1) or 1))
-    # Cardinality is a definition, not minimum coverage: 3× cannot truthfully certify a
-    # physical two-hole group, and duplicate count-bearing annotations must fail closed.
+        return any(feature in evidence.centerline_features for feature in features)
+    if parameter == "bore.through":
+        return any((feature, parameter) in evidence.requirement_counts for feature in features)
     if parameter != "grouping.count":
         return False
-    # One exact group claim is sufficient.  A declared model may instead retain one
-    # independently called-out feature per physical member, so accept an exact partition
-    # across distinct feature owners.  Duplicate annotations of the same feature add no
-    # cardinality; conflicting claims remain alternatives rather than being summed.
-    possible = {0}
-    for claims in counts_by_feature.values():
-        possible |= {subtotal + claim for subtotal in possible for claim in claims}
-    return member_count in possible
+    expected = {feature: len(_members(feature)) for feature in features}
+    return sum(expected.values()) == member_count and all(
+        count in evidence.requirement_counts.get((feature, parameter), ())
+        for feature, count in expected.items()
+    )
 
 
-def _state(
-    features, parameter, *, member_count, placed, suppressed, dropped, registry, recognition
-):
-    evidence = _evidence_parameter(parameter)
+def _state(features, parameter, *, member_count, evidence_index, suppressed, turned_axis_centers):
+    evidence_parameter = _evidence_parameter(parameter)
     if parameter.startswith(("location.location.", "location_off_axis.")):
-        if _structured_locations_placed(registry, features, parameter, recognition):
+        if _structured_locations_placed(evidence_index, features, parameter, turned_axis_centers):
             return "placed"
     elif parameter in {"bore.through", "grouping.count"}:
-        if _synthetic_placed(registry, features, parameter, member_count):
+        if _synthetic_placed(evidence_index, features, parameter, member_count):
             return "placed"
     else:
         per_feature = [
-            any(_matches(measurement, feature, evidence) for measurement in placed)
-            for feature in features
+            (feature, evidence_parameter) in evidence_index.placed for feature in features
         ]
         # A common machining specification needs one truthful statement; a location
         # requirement needs every separately declared physical member tied to the mark.
         if all(per_feature) if "location" in parameter else any(per_feature):
             return "placed"
-    if all((feature, evidence) in suppressed for feature in features):
+    if all((feature, evidence_parameter) in suppressed for feature in features):
         return "suppressed"
-    if any(
-        _matches(measurement, feature, evidence) for feature in features for measurement in dropped
-    ):
+    if any((feature, evidence_parameter) in evidence_index.dropped for feature in features):
         return "dropped"
     return "missing"
 
@@ -617,6 +640,27 @@ def hole_requirement_outcomes(
     hole_features_by_spec: dict[tuple, list] = defaultdict(list)
     for feature in hole_features:
         hole_features_by_spec[_feature_spec(feature)].append(feature)
+
+    # Map declared owners back to every physical source whose exact opening members they
+    # touch. One owner may cover several members of one source, but touching two distinct
+    # recognition-owned sources is ambiguous even when only one source would otherwise
+    # propose it as an exact match.
+    owner_source_indices: dict[int, set[int]] = defaultdict(set)
+    for index, (kind, _source, key, _member_count) in enumerate(sources):
+        if kind == "hole":
+            spec, members = key
+        else:
+            _pattern_kind_name, spec, members = key[:3]
+        for member in members:
+            for feature in owners_by_exact_member.get((spec, member), ()):
+                owner_source_indices[id(feature)].add(index)
+    ambiguous_owner_ids = {
+        feature_id
+        for feature_id, source_indices in owner_source_indices.items()
+        if len(source_indices) > 1
+    }
+    exact_overlap_feature_ids = set(owner_source_indices)
+
     # Establish exact correspondences first, then solve the residual projected fallback.
     # Object-backed blind declarations may retain a cutter centre while recognition owns
     # its opening. Projection is safe only when, after exact owners are consumed, one
@@ -637,8 +681,10 @@ def hole_requirement_outcomes(
             )
             overlapping = owner_ids_at(source_spec, source_members)
             candidates = partitions[0] if len(partitions) == 1 else ()
-            if candidates and overlapping != {id(feature) for feature in candidates}:
-                candidates = ()
+            if candidates:
+                candidate_ids = {id(feature) for feature in candidates}
+                if overlapping != candidate_ids or candidate_ids & ambiguous_owner_ids:
+                    candidates = ()
             evidence = evidence or bool(overlapping)
         else:
             direct = tuple(ir_by_key.get((kind, key), ()))
@@ -649,7 +695,13 @@ def hole_requirement_outcomes(
             # member incidence rather than rescanning every declared pattern per source.
             overlapping = owner_ids_at(spec, members)
             evidence = bool(overlapping)
-            candidates = direct if len(direct) == 1 and overlapping == {id(direct[0])} else ()
+            candidates = (
+                direct
+                if len(direct) == 1
+                and overlapping == {id(direct[0])}
+                and id(direct[0]) not in ambiguous_owner_ids
+                else ()
+            )
         exact_proposals.append(candidates)
         exact_evidence.append(evidence)
 
@@ -659,21 +711,9 @@ def hole_requirement_outcomes(
         for proposal in exact_proposals
     ]
     used_feature_ids = {id(feature) for matches in matches_by_source for feature in matches}
-    # Reserve every declared owner that overlaps an exact physical source before the
-    # axial-coordinate fallback.  Index the source inventory once by machining spec: a
-    # dense N-member group with N singleton declarations must remain linear rather than
-    # rebuilding the N-member source set for every candidate.
-    exact_source_members_by_spec: dict[tuple, set[tuple[float, float, float]]] = defaultdict(set)
-    for kind, _source, key, _member_count in sources:
-        if kind == "hole":
-            exact_source_members_by_spec[key[0]].update(key[1])
-    exact_overlap_feature_ids = set()
-    for feature in hole_features:
-        source_members = exact_source_members_by_spec.get(_feature_spec(feature))
-        if source_members is not None and any(
-            member in source_members for member in _members(feature)
-        ):
-            exact_overlap_feature_ids.add(id(feature))
+    # Exact owners are reserved from the axial-coordinate fallback. This spans loose holes
+    # and patterns: one declaration cannot be an exact/partial claim on one source and
+    # simultaneously certify another source at its projected cutter centre.
 
     residual_proposals: dict[int, tuple] = {}
     for index, (kind, source, key, _member_count) in enumerate(sources):
@@ -715,9 +755,10 @@ def hole_requirement_outcomes(
                 feature
                 for feature in ir_by_key.get((kind, projected_key), ())
                 if id(feature) not in used_feature_ids
+                and id(feature) not in exact_overlap_feature_ids
             )
             _pattern_kind_name, spec, members = projected_key[:3]
-            overlapping = owner_ids_at(spec, members) - used_feature_ids
+            overlapping = owner_ids_at(spec, members)
             candidates = direct if len(direct) == 1 and overlapping == {id(direct[0])} else ()
         if candidates:
             residual_proposals[index] = candidates
@@ -729,26 +770,25 @@ def hole_requirement_outcomes(
         if all(residual_claims[id(feature)] == 1 for feature in proposal):
             matches_by_source[index] = proposal
 
-    placed = {
-        measurement for name in registry.names() for measurement in registry.measurement_of(name)
+    evidence_index = _index_hole_evidence(registry)
+    turned_axis_centers = {
+        axis: _recognised_turned_axis_center(recognition, axis) for axis in "xyz"
     }
     suppressed = {
         (omission.feature, omission.parameter_id)
         for omission in omissions
         if omission.feature is not None and omission.authored
     }
-    dropped = {
-        measurement
-        for issue in registry.issues
-        for measurement in getattr(issue, "measurement_ids", ())
-    }
-
     outcomes = []
     for index, (kind, source, _key, member_count) in enumerate(sources):
         matched = matches_by_source[index]
         representative = matched[0] if matched else None
         parameters = (
-            _parameter_ids(representative, member_count=member_count, recognition=recognition)
+            _parameter_ids(
+                representative,
+                member_count=member_count,
+                turned_axis_centers=turned_axis_centers,
+            )
             if representative is not None
             else None
         )
@@ -775,11 +815,9 @@ def hole_requirement_outcomes(
                     matched,
                     parameter,
                     member_count=member_count,
-                    placed=placed,
+                    evidence_index=evidence_index,
                     suppressed=suppressed,
-                    dropped=dropped,
-                    registry=registry,
-                    recognition=recognition,
+                    turned_axis_centers=turned_axis_centers,
                 ),
             )
             for parameter in parameters
