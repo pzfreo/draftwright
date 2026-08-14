@@ -232,8 +232,9 @@ def add_feature_location(
     :meth:`callout` — the auto-pass's shared corridor batch does not exist on a
     detect-only build). X dims tier above the plan view, Y dims above the side
     view; each is tagged with *feature* so :meth:`drop` / :meth:`annotations_of`
-    find it. Returns the placed names (0–2 — one per in-plane axis with a real
-    offset; empty for a concentric/on-datum bore that has nothing to dimension).
+    find it. Returns one placed name per distinct requested in-plane ordinate
+    with a real offset (empty for a concentric/on-datum bore that has nothing to
+    dimension).
 
     ``axes`` selects the in-plane axes to emit (default both); ``"x"`` = the plan-X
     position, ``"y"`` = the side-Y position. ``pin=True`` records each placed dim as a
