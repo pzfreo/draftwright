@@ -391,6 +391,11 @@ def test_priority_ranked_solver_drop_cannot_pass_strict_scale_policy():
     (blocker,) = caught.value.decision["blockers"]
     assert blocker["code"] == "callout_dropped"
     assert "diameter(s)" in blocker["message"]
+    # The shared strip solve ranks bore candidates by diameter. The largest bore lands while
+    # the next-lower required bore drops; equalising priorities reverses this boundary and must
+    # fail this canary, while strict policy still rejects the surviving completeness loss.
+    assert "120.0" not in blocker["message"]
+    assert "104.0" in blocker["message"]
 
 
 @pytest.mark.timeout(120)
