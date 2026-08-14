@@ -1378,8 +1378,9 @@ def test_automatic_escalation_preserves_preexisting_reserved_names(reserved_name
 
 def test_finalize_exception_restores_automatic_transaction_markers(monkeypatch):
     import draftwright.annotations.orchestrator as orchestrator
+    from draftwright.annotations._common import PlacementContext
 
-    part = _dense_perimeter_plate()
+    part = _dense_scattered_plate()
     with monkeypatch.context() as disabled:
         disabled.setattr(orchestrator, "_maybe_tabulate_holes", lambda *_args, **_kwargs: None)
         drawing = build_drawing(part)
@@ -1392,16 +1393,24 @@ def test_finalize_exception_restores_automatic_transaction_markers(monkeypatch):
         value for value in original_callouts.values() if value[0] != marked_name
     )
     assert before["markers"][unmarked_name] == (False, None, False, None)
-    original_reapply = drawing.registry.reapply
+    _drop_one_diameter_balloon(monkeypatch, 2.0)
+    original_record_issue = PlacementContext.record_issue
 
-    def fail_after_coverage(name, identity):
-        original_reapply(name, identity)
-        if name == "hole_table_plan":
-            raise RuntimeError("forced automatic coverage failure")
+    def fail_after_inner_rollback(self, severity, code, message, **kwargs):
+        original_record_issue(self, severity, code, message, **kwargs)
+        if code == "table_dropped" and message == (
+            "hole table lacked complete feature-owned balloon evidence"
+        ):
+            annotation = drawing.get_annotation(unmarked_name)
+            assert (
+                annotation.hole_representation,
+                annotation.hole_representation_reason,
+            ) == ("feature_annotation", "required_balloon_not_placed")
+            raise RuntimeError("forced failure after marked inner rollback")
 
-    monkeypatch.setattr(drawing.registry, "reapply", fail_after_coverage)
+    monkeypatch.setattr(PlacementContext, "record_issue", fail_after_inner_rollback)
 
-    with pytest.raises(RuntimeError, match="forced automatic coverage failure"):
+    with pytest.raises(RuntimeError, match="forced failure after marked inner rollback"):
         with drawing.deferred():
             for feature in drawing.model().features:
                 if feature.kind == "hole":
