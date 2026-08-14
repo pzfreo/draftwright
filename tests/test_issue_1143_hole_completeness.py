@@ -519,10 +519,10 @@ def test_dense_separate_blind_tool_correspondence_scales_linearly(monkeypatch):
     member_calls = 0
     original_members = hole_coverage_module._members
 
-    def counted_members(feature):
+    def counted_members(feature, **kwargs):
         nonlocal member_calls
         member_calls += 1
-        return original_members(feature)
+        return original_members(feature, **kwargs)
 
     monkeypatch.setattr(hole_coverage_module, "_members", counted_members)
 
@@ -902,9 +902,9 @@ def test_default_linear_direction_uses_bounded_member_traversal(monkeypatch):
                 visits += 1
                 yield value
 
-    def counted_members(source):
+    def counted_members(source, *, rounded=True):
         nonlocal calls
-        values = source_members(source)
+        values = source_members(source, rounded=rounded)
         if source is pattern:
             calls += 1
             return CountedMembers(values)
@@ -916,7 +916,7 @@ def test_default_linear_direction_uses_bounded_member_traversal(monkeypatch):
 
     assert key[7] == (1.0, 0.0, 0.0)
     assert calls == 1
-    assert visits <= 2 * pattern.count + 1
+    assert visits <= 3 * pattern.count + 1
 
 
 def test_overlapping_declared_covers_fail_closed_with_bounded_work(monkeypatch):
@@ -1085,7 +1085,19 @@ def test_declared_pattern_defaults_correspond_to_recognition(part, feature):
     assert _completeness(drawing)["audited_score"] == 1.0
 
 
-def test_default_linear_direction_matches_recogniser_accepted_step_noise():
+@pytest.mark.parametrize(
+    "locations",
+    [
+        ((0.05, -10.0, 0.0), (0.0, 0.0, 0.0), (0.06, 10.0, 0.0)),
+        (
+            (-0.05880618424478159, -0.008341391659219623, 0.0),
+            (-0.15796786944429583, 0.6957155478309954, 0.0),
+            (-0.0877131413831945, 1.4064930195402183, 0.0),
+        ),
+    ],
+    ids=("near-axis", "oblique-rounding-boundary"),
+)
+def test_default_linear_direction_matches_recogniser_accepted_step_noise(locations):
     holes = tuple(
         HoleRecord(
             axis=(0.0, 0.0, 1.0),
@@ -1094,7 +1106,7 @@ def test_default_linear_direction_matches_recogniser_accepted_step_noise():
             depth=10.0,
             bottom="through",
         )
-        for location in ((0.05, -10.0, 0.0), (0.0, 0.0, 0.0), (0.06, 10.0, 0.0))
+        for location in locations
     )
     patterns = recognise_hole_patterns(holes)
     assert len(patterns) == 1 and isinstance(patterns[0], LinearArray)

@@ -91,7 +91,7 @@ def _feature_spec(feature) -> tuple:
     )
 
 
-def _members(source) -> tuple[tuple[float, float, float], ...]:
+def _members(source, *, rounded: bool = True) -> tuple[tuple[float, float, float], ...]:
     recognised = getattr(source, "holes", None)
     if recognised is not None:
         points = tuple(hole.location for hole in recognised)
@@ -109,7 +109,7 @@ def _members(source) -> tuple[tuple[float, float, float], ...]:
     index = "xyz".index(axis)
     sites = []
     for point in points:
-        site = list(_point(point))
+        site = [float(component) for component in point]
         # A through hole's opening coordinate along its own axis is not retained
         # consistently at the public IR waist (object declarations may use a tool centre;
         # recognition uses one opening face), and is not a location dimension. Blind-hole
@@ -117,7 +117,7 @@ def _members(source) -> tuple[tuple[float, float, float], ...]:
         # axis, diameter and depth while being two distinct machining requirements.
         if through:
             site[index] = 0.0
-        sites.append((site[0], site[1], site[2]))
+        sites.append(_point(site) if rounded else (site[0], site[1], site[2]))
     return tuple(sorted(sites))
 
 
@@ -213,7 +213,8 @@ def _default_linear_direction(members):
 
 
 def _pattern_key(pattern) -> tuple:
-    members = _members(pattern)
+    raw_members = _members(pattern, rounded=False)
+    members = tuple(sorted(_point(point) for point in raw_members))
     recognised = getattr(pattern, "holes", None)
     if recognised is not None:
         kind = _pattern_kind(pattern)
@@ -241,7 +242,7 @@ def _pattern_key(pattern) -> tuple:
         angle = getattr(pattern, "angle", None)
         spec = _feature_spec(pattern)
     if kind == "linear" and direction is None:
-        direction = _default_linear_direction(members)
+        direction = _default_linear_direction(raw_members)
     if kind == "grid" and angle is None:
         angle = 0.0
     if (
