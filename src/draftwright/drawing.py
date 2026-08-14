@@ -128,6 +128,7 @@ _GEOMETRY_AWARE_CODES = frozenset(
         "dim_inside_part",
         "callout_dropped",
         "location_ref_dropped",
+        "off_axis_location_dropped",
         "hole_pattern_dim_dropped",
         "step_dim_dropped",
         "plate_thickness_dropped",

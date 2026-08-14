@@ -969,6 +969,28 @@ def test_cross_hole_locations_retain_both_off_axis_measurement_identities():
     }
     assert placed_location_ids == {"location_off_axis.y", "location_off_axis.z"}
 
+    z_mark = next(
+        name
+        for name in drawing.annotations()
+        if any(
+            key["parameter_id"] == "location_off_axis.z" for key in drawing.measurement_keys(name)
+        )
+    )
+    measurement_ids = tuple(drawing.registry.measurement_of(z_mark))
+    drawing.remove(z_mark)
+    drawing.registry.record_issue(
+        LintIssue(
+            severity="info",
+            code="off_axis_location_dropped",
+            message="synthetic off-axis placement failure",
+            measurement_ids=measurement_ids,
+        )
+    )
+    summary = drawing.lint_summary()
+    assert summary["by_code"] == {"off_axis_location_dropped": 1}
+    assert summary["geometry_issues"] == 1
+    assert summary["quality"]["completeness"]["dropped"] == 1
+
 
 def test_grouped_off_axis_locations_require_every_physical_member_mark():
     drawing = build_drawing(_two_scattered_off_axis_holes(), page="A3")
