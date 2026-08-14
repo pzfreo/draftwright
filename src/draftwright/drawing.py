@@ -1504,8 +1504,9 @@ class Drawing:
         edits: in deferred mode they still flow through the shared corridor solve, but
         survive/dedup as high-priority candidates and pin themselves once placed (#511).
         Each dim is tagged with *feature* so :meth:`drop` / :meth:`annotations_of` find it.
-        Returns one placed name per distinct requested in-plane ordinate with a
-        real offset.
+        In live mode, returns one placed name per distinct requested in-plane
+        ordinate with a real offset. In deferred mode, records the intent and
+        returns ``[]``; the names are created when the context finalizes.
 
         Raises ``ValueError`` if *feature* is not a Z-axis hole/pattern (side-drilled
         bores are placed by the auto-pass). A feature with no datum-referenced ref (a
