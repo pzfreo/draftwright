@@ -588,12 +588,29 @@ def hole_requirement_outcomes(
             unmatched_countersinks.append(countersink)
 
     ir_by_key: dict[tuple[str, tuple], list] = defaultdict(list)
+    owners_by_exact_member: dict[tuple, list] = defaultdict(list)
     for feature in features:
         feature_kind = getattr(feature, "kind", None)
         if feature_kind == "hole":
-            ir_by_key[(feature_kind, (_feature_spec(feature), _members(feature)))].append(feature)
+            spec = _feature_spec(feature)
+            members = _members(feature)
+            ir_by_key[(feature_kind, (spec, members))].append(feature)
+            for member in members:
+                owners_by_exact_member[(spec, member)].append(feature)
         elif feature_kind == "pattern":
-            ir_by_key[("hole_pattern", _pattern_key(feature))].append(feature)
+            pattern_key = _pattern_key(feature)
+            ir_by_key[("hole_pattern", pattern_key)].append(feature)
+            _pattern_kind_name, spec, members = pattern_key[:3]
+            for member in members:
+                owners_by_exact_member[(spec, member)].append(feature)
+
+    def owner_ids_at(spec, members):
+        return {
+            id(feature)
+            for member in members
+            for feature in owners_by_exact_member.get((spec, member), ())
+        }
+
     hole_features = tuple(
         feature for feature in features if getattr(feature, "kind", None) == "hole"
     )
@@ -618,11 +635,21 @@ def hole_requirement_outcomes(
                 source_members,
                 spec_features,
             )
+            overlapping = owner_ids_at(source_spec, source_members)
             candidates = partitions[0] if len(partitions) == 1 else ()
+            if candidates and overlapping != {id(feature) for feature in candidates}:
+                candidates = ()
+            evidence = evidence or bool(overlapping)
         else:
             direct = tuple(ir_by_key.get((kind, key), ()))
-            candidates = direct if len(direct) == 1 else ()
-            evidence = bool(direct)
+            _pattern_kind_name, spec, members = key[:3]
+            # A shortened or otherwise partial declared pattern has a different full key,
+            # but its exact opening members are still contradictory ownership evidence.
+            # Index those sites once so dense inventories remain proportional to their
+            # member incidence rather than rescanning every declared pattern per source.
+            overlapping = owner_ids_at(spec, members)
+            evidence = bool(overlapping)
+            candidates = direct if len(direct) == 1 and overlapping == {id(direct[0])} else ()
         exact_proposals.append(candidates)
         exact_evidence.append(evidence)
 
@@ -678,15 +705,20 @@ def hole_requirement_outcomes(
             )
             partitions, _evidence = partition_result
             candidates = partitions[0] if len(partitions) == 1 else ()
+            if candidates and owner_ids_at(source_spec, expected_centres) != {
+                id(feature) for feature in candidates
+            }:
+                candidates = ()
         else:
             projected_key = _tool_center_pattern_key(source)
-            candidates = tuple(
+            direct = tuple(
                 feature
                 for feature in ir_by_key.get((kind, projected_key), ())
                 if id(feature) not in used_feature_ids
             )
-            if len(candidates) != 1:
-                candidates = ()
+            _pattern_kind_name, spec, members = projected_key[:3]
+            overlapping = owner_ids_at(spec, members) - used_feature_ids
+            candidates = direct if len(direct) == 1 and overlapping == {id(direct[0])} else ()
         if candidates:
             residual_proposals[index] = candidates
 

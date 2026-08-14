@@ -1046,6 +1046,160 @@ def test_ambiguous_exact_pattern_owners_cannot_escape_through_tool_centre_fallba
     assert _completeness(drawing)["audited_score"] == 0.5
 
 
+def test_partial_exact_pattern_owner_blocks_complete_tool_centre_fallback():
+    part = _opposed_blind_patterns()
+    detected = build_drawing(part, page="A3").model()
+    lower, upper = sorted(
+        (feature for feature in detected.features if feature.kind == "pattern"),
+        key=lambda feature: feature.frame.origin[2],
+    )
+    shift = lower.member.depth / 2
+
+    def shifted(point):
+        return (point[0], point[1], point[2] + shift)
+
+    partial_lower = replace(lower, count=2, members=lower.members[:2])
+    tool_centred_lower = replace(
+        lower,
+        frame=replace(lower.frame, origin=shifted(lower.frame.origin)),
+        member=replace(
+            lower.member,
+            frame=replace(lower.member.frame, origin=shifted(lower.member.frame.origin)),
+        ),
+        members=tuple(shifted(point) for point in lower.members),
+    )
+    retained = [
+        feature for feature in detected.features if feature.kind not in {"hole", "pattern"}
+    ]
+    declared = replace(
+        detected,
+        features=[partial_lower, tool_centred_lower, upper, *retained],
+    )
+
+    drawing = build_drawing(part, model=declared, page="A3")
+    outcomes = _outcomes(drawing)
+    assert len([item for item in outcomes if item.state == "placed"]) == 6
+    unverifiable = [item for item in outcomes if item.state == "unverifiable"]
+    assert len(unverifiable) == 1
+    assert unverifiable[0].requirement_count == 6
+    assert _completeness(drawing)["audited_score"] == 0.5
+
+
+def test_partial_owner_makes_a_complete_exact_pattern_ambiguous():
+    part = _opposed_blind_patterns()
+    detected = build_drawing(part, page="A3").model()
+    lower, upper = sorted(
+        (feature for feature in detected.features if feature.kind == "pattern"),
+        key=lambda feature: feature.frame.origin[2],
+    )
+    partial_lower = replace(lower, count=2, members=lower.members[:2])
+    retained = [
+        feature for feature in detected.features if feature.kind not in {"hole", "pattern"}
+    ]
+    declared = replace(
+        detected,
+        features=[lower, partial_lower, upper, *retained],
+    )
+
+    drawing = build_drawing(part, model=declared, page="A3")
+    outcomes = _outcomes(drawing)
+    assert len([item for item in outcomes if item.state == "placed"]) == 6
+    unverifiable = [item for item in outcomes if item.state == "unverifiable"]
+    assert len(unverifiable) == 1
+    assert unverifiable[0].requirement_count == 6
+    assert _completeness(drawing)["audited_score"] == 0.5
+
+
+def test_exact_singleton_holes_block_pattern_tool_centre_fallback():
+    part = _opposed_blind_patterns()
+    detected = build_drawing(part, page="A3").model()
+    lower, upper = sorted(
+        (feature for feature in detected.features if feature.kind == "pattern"),
+        key=lambda feature: feature.frame.origin[2],
+    )
+    shift = lower.member.depth / 2
+
+    def shifted(point):
+        return (point[0], point[1], point[2] + shift)
+
+    exact_singletons = [
+        replace(
+            lower.member,
+            frame=replace(lower.member.frame, origin=point),
+            count=1,
+            members=(point,),
+        )
+        for point in lower.members
+    ]
+    tool_centred_lower = replace(
+        lower,
+        frame=replace(lower.frame, origin=shifted(lower.frame.origin)),
+        member=replace(
+            lower.member,
+            frame=replace(lower.member.frame, origin=shifted(lower.member.frame.origin)),
+        ),
+        members=tuple(shifted(point) for point in lower.members),
+    )
+    retained = [
+        feature for feature in detected.features if feature.kind not in {"hole", "pattern"}
+    ]
+    declared = replace(
+        detected,
+        features=[*exact_singletons, tool_centred_lower, upper, *retained],
+    )
+
+    drawing = build_drawing(part, model=declared, page="A3")
+    outcomes = _outcomes(drawing)
+    assert len([item for item in outcomes if item.state == "placed"]) == 6
+    unverifiable = [item for item in outcomes if item.state == "unverifiable"]
+    assert len(unverifiable) == 1
+    assert unverifiable[0].requirement_count == 6
+    assert _completeness(drawing)["audited_score"] == 0.5
+
+
+def test_partial_tool_centre_owner_makes_complete_pattern_fallback_ambiguous():
+    part = _opposed_blind_patterns()
+    detected = build_drawing(part, page="A3").model()
+    lower, upper = sorted(
+        (feature for feature in detected.features if feature.kind == "pattern"),
+        key=lambda feature: feature.frame.origin[2],
+    )
+    shift = lower.member.depth / 2
+
+    def shifted(point):
+        return (point[0], point[1], point[2] + shift)
+
+    tool_centred_lower = replace(
+        lower,
+        frame=replace(lower.frame, origin=shifted(lower.frame.origin)),
+        member=replace(
+            lower.member,
+            frame=replace(lower.member.frame, origin=shifted(lower.member.frame.origin)),
+        ),
+        members=tuple(shifted(point) for point in lower.members),
+    )
+    partial_tool_centred = replace(
+        tool_centred_lower,
+        count=2,
+        members=tool_centred_lower.members[:2],
+    )
+    retained = [
+        feature for feature in detected.features if feature.kind not in {"hole", "pattern"}
+    ]
+    declared = replace(
+        detected,
+        features=[tool_centred_lower, partial_tool_centred, upper, *retained],
+    )
+
+    drawing = build_drawing(part, model=declared, page="A3")
+    outcomes = _outcomes(drawing)
+    assert len([item for item in outcomes if item.state == "placed"]) == 6
+    unverifiable = [item for item in outcomes if item.state == "unverifiable"]
+    assert len(unverifiable) == 1
+    assert unverifiable[0].requirement_count == 6
+    assert _completeness(drawing)["audited_score"] == 0.5
+
+
 def test_off_axis_pattern_keeps_absolute_location_requirements_fail_closed():
     drawing = build_drawing(_off_axis_linear_pattern(), page="A3")
     outcomes = {item.parameter_id: item.state for item in _outcomes(drawing)}
