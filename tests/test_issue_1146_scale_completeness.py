@@ -13,6 +13,7 @@ from draftwright import (
     ScaleCompletenessWarning,
     ScaleIncompatibilityError,
     Sheet,
+    SoftDeprecationWarning,
     build_drawing,
 )
 from draftwright.builder import _is_required_scale_drop
@@ -69,11 +70,16 @@ def test_default_fallback_returns_largest_complete_standard_scale_and_reports_de
         "status": "fallback",
         "blockers": drawing.scale_decision["blockers"],
         "attempted_scales": (1.0, 0.5),
+        "attempts": drawing.scale_decision["attempts"],
     }
     (blocker,) = drawing.scale_decision["blockers"]
     assert blocker["code"] == "location_ref_dropped"
     assert blocker["measurements"][0]["parameter"] == "location.location"
     assert blocker["hole_requirements"][0]["parameter"] == "location.location.x"
+    assert [(item["scale"], item["status"]) for item in drawing.scale_decision["attempts"]] == [
+        (1.0, "incomplete"),
+        (0.5, "complete"),
+    ]
 
 
 @pytest.mark.timeout(120)
@@ -91,6 +97,7 @@ def test_strict_policy_fails_with_machine_readable_required_outcomes():
     assert decision["status"] == "rejected"
     assert decision["requested_scale"] == decision["effective_scale"] == 1.0
     assert decision["attempted_scales"] == (1.0,)
+    assert decision["attempts"][0]["status"] == "incomplete"
     assert {item["code"] for item in decision["blockers"]} == {"location_ref_dropped"}
 
 
@@ -122,6 +129,7 @@ def test_complete_requested_and_automatic_scales_report_honest_resolutions():
         "status": "honored",
         "blockers": (),
         "attempted_scales": (1.0,),
+        "attempts": ({"scale": 1.0, "status": "complete", "blockers": ()},),
     }
     assert automatic.scale_decision == {
         "policy": "automatic",
@@ -130,6 +138,7 @@ def test_complete_requested_and_automatic_scales_report_honest_resolutions():
         "status": "automatic",
         "blockers": (),
         "attempted_scales": (),
+        "attempts": (),
     }
 
 
@@ -185,7 +194,12 @@ def test_fallback_reports_exhaustion_at_the_hard_rendering_floor(monkeypatch):
     def fake_build(*args, scale, **kwargs):
         if scale == 0.2:
             raise ValueError("drawing geometry degenerates below the renderable floor")
-        return SimpleNamespace(scale=scale, lint=lambda: [drop])
+        candidate_drop = (
+            LintIssue(severity="warning", code="gdt_dropped", message="datum frame did not fit")
+            if scale == 0.5
+            else drop
+        )
+        return SimpleNamespace(scale=scale, lint=lambda: [candidate_drop], _analysis=None)
 
     monkeypatch.setattr(builder, "_SCALES", (1.0, 0.5, 0.2, 0.1))
     monkeypatch.setattr(builder, "_build_drawing_once", fake_build)
@@ -196,12 +210,18 @@ def test_fallback_reports_exhaustion_at_the_hard_rendering_floor(monkeypatch):
     assert caught.value.decision == {
         "policy": "fallback",
         "requested_scale": 1.0,
-        "effective_scale": 1.0,
+        "effective_scale": 0.5,
         "status": "no_complete_scale",
         "blockers": caught.value.decision["blockers"],
         "attempted_scales": (1.0, 0.5, 0.2),
+        "attempts": caught.value.decision["attempts"],
     }
-    assert caught.value.decision["blockers"][0]["code"] == "location_ref_dropped"
+    assert caught.value.decision["blockers"][0]["code"] == "gdt_dropped"
+    assert [(item["scale"], item["status"]) for item in caught.value.decision["attempts"]] == [
+        (1.0, "incomplete"),
+        (0.5, "incomplete"),
+        (0.2, "render_floor"),
+    ]
     assert "no complete standard fallback" not in str(caught.value)
 
 
@@ -217,7 +237,7 @@ def test_fallback_does_not_hide_an_unrelated_build_error(monkeypatch):
     def fake_build(*args, scale, **kwargs):
         if scale < 1.0:
             raise ValueError("invalid declared model")
-        return SimpleNamespace(scale=scale, lint=lambda: [drop])
+        return SimpleNamespace(scale=scale, lint=lambda: [drop], _analysis=None)
 
     monkeypatch.setattr(builder, "_SCALES", (1.0, 0.5))
     monkeypatch.setattr(builder, "_build_drawing_once", fake_build)
@@ -226,11 +246,125 @@ def test_fallback_does_not_hide_an_unrelated_build_error(monkeypatch):
         builder.build_drawing(Box(10, 10, 10), scale=1.0)
 
 
+def test_monotone_step_separation_failure_does_not_rebuild_smaller_scales(monkeypatch):
+    import draftwright.builder as builder
+
+    calls = []
+    drop = LintIssue(
+        severity="warning",
+        code="step_dim_dropped",
+        message="5 step height(s) too closely spaced to dimension at this scale",
+    )
+
+    def fake_build(*args, scale, **kwargs):
+        calls.append(scale)
+        return SimpleNamespace(scale=scale, lint=lambda: [drop], _analysis=None)
+
+    monkeypatch.setattr(builder, "_SCALES", (1.0, 0.5, 0.2, 0.1))
+    monkeypatch.setattr(builder, "_build_drawing_once", fake_build)
+
+    with pytest.raises(ScaleIncompatibilityError) as caught:
+        builder.build_drawing(Box(10, 10, 10), scale=1.0)
+
+    assert calls == [1.0]
+    assert caught.value.decision["status"] == "no_complete_scale"
+    assert caught.value.decision["attempted_scales"] == (1.0,)
+
+
 def test_scale_warning_category_remains_a_dependency_free_user_warning():
     namespace = runpy.run_path(
         str(Path(__file__).parents[1] / "src" / "draftwright" / "_warnings.py")
     )
     assert issubclass(namespace["ScaleCompletenessWarning"], UserWarning)
+
+
+@pytest.mark.timeout(120)
+def test_sheet_authored_table_footprint_participates_in_fallback_and_strict_policy():
+    rows = [("NOTES",), *((f"{index}. " + "X" * 30,) for index in range(4))]
+
+    fallback_sheet = Sheet(Box(100, 100, 8), page="A4", scale=1.0).table(
+        rows, name="required_notes"
+    )
+    with pytest.warns(SoftDeprecationWarning):
+        fallback_sheet.auto_dimensions()
+    with pytest.warns(ScaleCompletenessWarning, match="fallback scale 0.5"):
+        drawing = fallback_sheet.build()
+
+    assert drawing.scale == 0.5
+    assert "required_notes" in drawing.annotations()
+    assert drawing.scale_decision["blockers"][0]["code"] == "table_dropped"
+    assert drawing.scale_decision["blockers"][0]["source_ids"] == ("sheet.table:required_notes",)
+
+    strict_sheet = Sheet(Box(100, 100, 8), page="A4", scale=1.0, scale_policy="strict").table(
+        rows, name="required_notes"
+    )
+    with pytest.warns(SoftDeprecationWarning):
+        strict_sheet.auto_dimensions()
+    with pytest.raises(ScaleIncompatibilityError) as caught:
+        strict_sheet.build()
+    assert caught.value.decision["blockers"][0]["code"] == "table_dropped"
+
+
+@pytest.mark.timeout(120)
+def test_priority_ranked_solver_drop_cannot_pass_strict_scale_policy():
+    part = Cylinder(70, 6)
+    for index, radius in enumerate((60, 52, 44, 36, 28, 20, 12)):
+        part -= Pos(0, 0, 3 - index * 0.7) * Cylinder(radius, 6)
+
+    with pytest.raises(ScaleIncompatibilityError) as caught:
+        build_drawing(part, page="A4", scale=1.0, scale_policy="strict")
+
+    (blocker,) = caught.value.decision["blockers"]
+    assert blocker["code"] == "callout_dropped"
+    assert "diameter(s)" in blocker["message"]
+
+
+@pytest.mark.timeout(120)
+def test_fallback_reuses_geometry_classification_and_recognition(monkeypatch):
+    import draftwright.analysis as analysis
+
+    calls = {"classify": 0, "recognise": 0}
+    original_classify = analysis._classify_geometry
+    original_recognise = analysis.build_recognition_result
+
+    def counted_classify(*args, **kwargs):
+        calls["classify"] += 1
+        return original_classify(*args, **kwargs)
+
+    def counted_recognise(*args, **kwargs):
+        calls["recognise"] += 1
+        return original_recognise(*args, **kwargs)
+
+    monkeypatch.setattr(analysis, "_classify_geometry", counted_classify)
+    monkeypatch.setattr(analysis, "build_recognition_result", counted_recognise)
+    with pytest.warns(ScaleCompletenessWarning, match="fallback scale 0.5"):
+        drawing = build_drawing(_scale_sensitive_plate(), page="A4", scale=1.0, repair=False)
+
+    assert drawing.scale == 0.5
+    assert calls == {"classify": 1, "recognise": 1}
+
+
+def test_cli_rejects_nondefault_policy_without_scale_for_direct_and_script_modes():
+    from typer.testing import CliRunner
+
+    from draftwright.cli import app
+
+    for extra in ([], ["--script"]):
+        result = CliRunner().invoke(app, ["part.step", "--scale-policy", "strict", *extra])
+        assert result.exit_code == 2
+        assert "--scale-policy requires an explicit" in result.output
+        assert "--scale" in result.output
+
+
+def test_script_emitter_rejects_nondefault_policy_without_scale(tmp_path):
+    from draftwright.sheet_emit import generate_sheet_script
+
+    with pytest.raises(ValueError, match="only when an explicit scale"):
+        generate_sheet_script(
+            Box(10, 10, 10),
+            out=str(tmp_path / "invalid_policy"),
+            scale_policy="strict",
+        )
 
 
 def test_sheet_forwards_the_authored_scale_policy(monkeypatch):

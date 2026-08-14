@@ -415,6 +415,7 @@ class Drawing:
             "status": "automatic",
             "blockers": (),
             "attempted_scales": (),
+            "attempts": (),
         }
         self.part = part
         self._cyl_cache = cyls
@@ -2532,7 +2533,9 @@ class Drawing:
         self._add(n, name, view=view)
         return name
 
-    def add_table(self, rows, *, prefer="tr", name="table", block_cols=None):
+    def add_table(
+        self, rows, *, prefer="tr", name="table", block_cols=None, _source_id: str | None = None
+    ):
         """Add a generic data table in the preferred available sheet region (#93/#1145).
 
         *rows* is a list of equal-length string tuples (``rows[0]`` is the
@@ -2633,11 +2636,16 @@ class Drawing:
                 )
             if detail is None:
                 detail = "solver returned no placement trace"
-            self._record_build_issue(
-                "warning",
-                "table_dropped",
-                f"table {name!r} did not fit the sheet; measured page-space footprint "
-                f"{measured}; {detail}",
+            self._registry.record_issue(
+                LintIssue(
+                    severity="warning",
+                    code="table_dropped",
+                    message=(
+                        f"table {name!r} did not fit the sheet; measured page-space footprint "
+                        f"{measured}; {detail}"
+                    ),
+                    source_ids=(_source_id,) if _source_id is not None else (),
+                )
             )
             return None
         return self._add(table.locate(Location((pos[0], pos[1], 0))), name)

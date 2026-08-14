@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import os
 import warnings
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 from functools import partial
 from pathlib import Path
@@ -42,7 +42,7 @@ from draftwright._core import (
     _tb_width,
 )
 from draftwright._warnings import ScaleCompletenessWarning
-from draftwright.analysis import _analyse
+from draftwright.analysis import Analysis, _analyse
 from draftwright.annotations._common import SolveTrace
 from draftwright.annotations.gears import render_gear_tables
 from draftwright.annotations.orchestrator import (
@@ -796,6 +796,8 @@ def _build_drawing_once(
     frame: bool = False,
     projection: str | None = None,
     zones: bool = False,
+    _analysis_base=None,
+    _analysis_sink: Callable[[Analysis], None] | None = None,
 ) -> Drawing:
     """Build a customisable 4-view :class:`Drawing` without exporting it.
 
@@ -895,6 +897,7 @@ def _build_drawing_once(
         frame=frame,
         projection=projection,
         zones=zones,
+        _reuse=_analysis_base,
     )
 
     # Pass 1: place + annotate from the estimated layout, then measure the real
@@ -938,6 +941,8 @@ def _build_drawing_once(
         dwg.repair()
     if tracer is not None:  # one JSON per build; Drawing.finalize() re-writes it (#736)
         tracer.write()
+    if _analysis_sink is not None:
+        _analysis_sink(a)
     return dwg
 
 
@@ -1029,6 +1034,7 @@ def _scale_decision(
     status: str,
     blockers=(),
     attempted=(),
+    attempts=(),
 ) -> dict:
     return {
         "policy": policy,
@@ -1037,7 +1043,29 @@ def _scale_decision(
         "status": status,
         "blockers": tuple(blockers),
         "attempted_scales": tuple(attempted),
+        "attempts": tuple(attempts),
     }
+
+
+def _scale_attempt(scale: float, status: str, blockers=(), *, error: str | None = None) -> dict:
+    """One plain-data trial in an explicit-scale decision."""
+    attempt = {"scale": scale, "status": status, "blockers": tuple(blockers)}
+    if error is not None:
+        attempt["error"] = error
+    return attempt
+
+
+def _blocks_all_smaller_scales(blockers) -> bool:
+    """True when a blocker is mathematically monotone under scale reduction.
+
+    A step separation already below the fixed paper-space legibility threshold only shrinks
+    further at every smaller scale. Rebuilding the whole ISO ladder cannot remove it; stopping
+    here is both exact and keeps an impossible fallback bounded (#1146).
+    """
+    return any(
+        item["code"] == "step_dim_dropped" and "too closely spaced" in item["message"]
+        for item in blockers
+    )
 
 
 def build_drawing(
@@ -1067,6 +1095,7 @@ def build_drawing(
     projection: str | None = None,
     zones: bool = False,
     scale_policy: Literal["strict", "fallback", "permissive"] = "fallback",
+    _post_build: Callable[[Drawing], Drawing] | None = None,
 ) -> Drawing:
     """Build a drawing, protecting required annotations under an explicit scale.
 
@@ -1110,10 +1139,27 @@ def build_drawing(
         projection=projection,
         zones=zones,
     )
+    analysis_base = None
+
+    def _build(candidate_scale: float | None) -> Drawing:
+        nonlocal analysis_base
+
+        def retain_analysis(value: Analysis) -> None:
+            nonlocal analysis_base
+            if analysis_base is None:
+                analysis_base = value
+
+        built = one_pass(
+            scale=candidate_scale,
+            _analysis_base=analysis_base,
+            _analysis_sink=retain_analysis,
+        )
+        return _post_build(built) if _post_build is not None else built
+
     if scale is None:
         if scale_policy != "fallback":
             raise ValueError("scale_policy applies only when an explicit scale is supplied")
-        drawing = one_pass(scale=None)
+        drawing = _build(None)
         drawing.scale_decision = _scale_decision(
             policy="automatic",
             requested=None,
@@ -1124,9 +1170,6 @@ def build_drawing(
 
     requested_scale = float(scale)
 
-    def _build(candidate_scale: float) -> Drawing:
-        return one_pass(scale=candidate_scale)
-
     drawing = _build(requested_scale)
     blockers = _scale_blockers(drawing)
     if not blockers:
@@ -1136,6 +1179,7 @@ def build_drawing(
             effective=drawing.scale,
             status="honored",
             attempted=(requested_scale,),
+            attempts=(_scale_attempt(requested_scale, "complete"),),
         )
         return drawing
 
@@ -1147,6 +1191,7 @@ def build_drawing(
             status="degraded",
             blockers=blockers,
             attempted=(requested_scale,),
+            attempts=(_scale_attempt(requested_scale, "incomplete", blockers),),
         )
         codes = ", ".join(sorted({item["code"] for item in blockers}))
         warnings.warn(
@@ -1166,10 +1211,26 @@ def build_drawing(
                 status="rejected",
                 blockers=blockers,
                 attempted=(requested_scale,),
+                attempts=(_scale_attempt(requested_scale, "incomplete", blockers),),
             )
         )
 
     attempted = [requested_scale]
+    attempts = [_scale_attempt(requested_scale, "incomplete", blockers)]
+    last_effective_scale = drawing.scale
+    last_blockers = blockers
+    if _blocks_all_smaller_scales(blockers):
+        raise ScaleIncompatibilityError(
+            _scale_decision(
+                policy=scale_policy,
+                requested=requested_scale,
+                effective=drawing.scale,
+                status="no_complete_scale",
+                blockers=blockers,
+                attempted=attempted,
+                attempts=attempts,
+            )
+        )
     # ``_SCALES`` is descending and contains the preferred ISO 5455 reductions. The
     # requested non-standard scale is evaluated first above; fallback candidates must be
     # standard and no greater than it.
@@ -1181,11 +1242,16 @@ def build_drawing(
             # Once a smaller scale hits the hard rendering floor, every following candidate
             # is smaller still. Do not hide any unrelated build error.
             if "drawing geometry degenerates" in str(exc):
+                attempts.append(_scale_attempt(candidate, "render_floor", error=str(exc)))
                 break
             raise
         candidate_blockers = _scale_blockers(fallback)
         if candidate_blockers:
+            attempts.append(_scale_attempt(candidate, "incomplete", candidate_blockers))
+            last_effective_scale = fallback.scale
+            last_blockers = candidate_blockers
             continue
+        attempts.append(_scale_attempt(candidate, "complete"))
         fallback.scale_decision = _scale_decision(
             policy=scale_policy,
             requested=requested_scale,
@@ -1193,6 +1259,7 @@ def build_drawing(
             status="fallback",
             blockers=blockers,
             attempted=attempted,
+            attempts=attempts,
         )
         warnings.warn(
             f"requested scale {requested_scale:g} dropped required annotation outcomes; "
@@ -1206,10 +1273,11 @@ def build_drawing(
         _scale_decision(
             policy=scale_policy,
             requested=requested_scale,
-            effective=drawing.scale,
+            effective=last_effective_scale,
             status="no_complete_scale",
-            blockers=blockers,
+            blockers=last_blockers,
             attempted=attempted,
+            attempts=attempts,
         )
     )
 

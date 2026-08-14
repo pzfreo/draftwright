@@ -1858,35 +1858,41 @@ class Sheet:
         # order-independent: declaring the augment before the source must read the same
         # as declaring it after.
         self._check_dimension_source()
-        dwg = build_drawing(
+
+        def place_declared_tables(dwg):
+            """Place authored sheet furniture before explicit-scale completeness is decided."""
+            used = set(dwg.annotations())
+            for table in self._tables:
+                name = table["name"]
+                if name in used:
+                    base, k = name, 1
+                    while f"{base}_{k}" in used:
+                        k += 1
+                    name = f"{base}_{k}"
+                    warnings.warn(
+                        f"table name {table['name']!r} is already taken — placed as {name!r}",
+                        stacklevel=3,
+                    )
+                placed = dwg.add_table(
+                    table["rows"],
+                    prefer=table["prefer"],
+                    name=name,
+                    block_cols=table["block_cols"],
+                    _source_id=f"sheet.table:{name}",
+                )
+                if placed is not None:
+                    used.add(name)
+            return dwg
+
+        return build_drawing(
             self._part,
             model=self._features,
             decorations=self._decorations(),
             requested=self._requested_dimensions(),
             authored=self._authored_set(),
+            _post_build=place_declared_tables,
             **self._opts,
         )
-        # Add each declared table, uniquifying its name against everything already on the sheet
-        # (feature annotations + earlier tables) so a table NEVER silently overwrites another
-        # object via dwg.add (#493 review). A collision with an explicit name is warned; a table
-        # that doesn't fit still records `table_dropped` lint inside add_table.
-        used = set(dwg.annotations())  # the public read; the _named alias is gone (#720)
-        for t in self._tables:
-            name = t["name"]
-            if name in used:
-                base, k = name, 1
-                while f"{base}_{k}" in used:
-                    k += 1
-                name = f"{base}_{k}"
-                warnings.warn(
-                    f"table name {t['name']!r} is already taken — placed as {name!r}", stacklevel=2
-                )
-            placed = dwg.add_table(
-                t["rows"], prefer=t["prefer"], name=name, block_cols=t["block_cols"]
-            )
-            if placed is not None:  # a dropped table (didn't fit) frees its name (#493 review)
-                used.add(name)
-        return dwg
 
     def export(self, stem=None, *, formats=("pdf",), dpi=150):
         """Build the drawing and write the requested *formats* — a format name or an

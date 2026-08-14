@@ -179,6 +179,10 @@ def main(
     if script and style != "sheet":
         # validate before the ~5 s engine import so a typo fails fast
         raise typer.BadParameter("--style must be 'sheet'", param_hint="--style")
+    if scale is None and scale_policy is not ScalePolicy.fallback:
+        raise typer.BadParameter(
+            "--scale-policy requires an explicit --scale", param_hint="--scale-policy"
+        )
 
     # Import the engine lazily, only on the build path: it pulls in build123d/OCP
     # (~5 s of CAD-kernel import). Keeping it out of module scope means shell

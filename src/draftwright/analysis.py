@@ -15,6 +15,7 @@ import math
 import warnings
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+from typing import cast
 
 from build123d import Compound, Shape
 from build123d_drafting.helpers import draft_preset
@@ -443,6 +444,7 @@ def _validate_explicit_scale(
     layout_section,
     layout_table_sizes,
     margin=_MARGIN,
+    warn_advisory: bool = True,
 ) -> None:
     """Enforce the two scale floors when the caller pinned an explicit *scale* (#489, #590 split
     of :func:`_analyse`). An explicit scale is the user's call — honour it, subject to:
@@ -465,6 +467,8 @@ def _validate_explicit_scale(
             f"below {_MIN_RENDER_MM:g} mm (OCCT arc construction fails). "
             f"Use scale ≥ {safe:.3g} or omit the scale for automatic selection."
         )
+    if not warn_advisory:
+        return
     auto_scale, _, _, _ = choose_scale(
         x_size,
         y_size,
@@ -512,6 +516,7 @@ def _analyse(
     frame: bool = False,
     projection: str | None = None,
     zones: bool = False,
+    _reuse: Analysis | None = None,
 ) -> Analysis:
     """Load STEP or use a build123d Shape, analyse geometry, compute layout.
 
@@ -523,48 +528,68 @@ def _analyse(
     # placement both reserve room for the border. Computed up front so the choose_scale inside
     # step-count convergence sees it too.
     margin = _content_margin(frame)
-    if isinstance(step_file, Shape):
-        part = step_file
-        src = "build123d object"
+    if _reuse is not None:
+        # Explicit-scale fallback changes only page-space layout. Reuse the immutable geometry,
+        # STEP/PMI census, classification, and recognition waist from the requested trial rather
+        # than importing and recognising the same part up to fifteen more times (#1146).
+        part = _reuse.part
+        src = str(_reuse.step_file)
+        pmi_defaulted = _reuse.pmi_defaulted
+        pmi_mode = _reuse.pmi_mode
+        pmi_report = _reuse.pmi_report
+        pmi_records = list(getattr(pmi_report, "records", ())) if pmi_mode != "off" else []
+        bb = _reuse.bb
+        x_size, y_size, z_size = _reuse.x_size, _reuse.y_size, _reuse.z_size
+        cx, cy, cz = _reuse.cx, _reuse.cy, _reuse.cz
+        bbox_max = _reuse.bbox_max
+        z_cyls, cross_cyls = (list(items) for items in _reuse.cyls)
+        z_diams, cross_diams = _reuse.z_diams, _reuse.cross_diams
+        od_diam = _reuse.od_diam
+        od_axis = _reuse.od_axis
+        is_rotational = _reuse.is_rotational
     else:
-        part = _import_step(step_file)
-        src = str(step_file)
-    part = _solids_body(part, src)
+        if isinstance(step_file, Shape):
+            part = step_file
+            src = "build123d object"
+        else:
+            part = _import_step(step_file)
+            src = str(step_file)
+        part = _solids_body(part, src)
 
-    pmi_defaulted = pmi is None
-    pmi_mode = "off" if pmi_defaulted else pmi
+        pmi_defaulted = pmi is None
+        pmi_mode = "off" if pmi_defaulted else pmi
 
-    # Semantic PMI census (AP242 only; separate read-only pass). Even off mode inventories a
-    # STEP source so it can say authored PMI was ignored; it deliberately does not feed those
-    # records into the IR. In-memory Shapes have no AP242 document to inspect.
-    pmi_report = None
-    pmi_records: list = []
-    if not isinstance(step_file, Shape):
-        from draftwright.pmi import PmiExtractionReport, extract_pmi_report
+        # Semantic PMI census (AP242 only; separate read-only pass). Even off mode inventories a
+        # STEP source so it can say authored PMI was ignored; it deliberately does not feed those
+        # records into the IR. In-memory Shapes have no AP242 document to inspect.
+        pmi_report = None
+        pmi_records = []
+        if not isinstance(step_file, Shape):
+            from draftwright.pmi import PmiExtractionReport, extract_pmi_report
 
-        try:
-            pmi_report = extract_pmi_report(step_file)
-            if pmi_mode != "off":
-                pmi_records = list(pmi_report.records)
-        except Exception as exc:
-            _log.warning("PMI extraction failed: %s", exc)
-            pmi_report = PmiExtractionReport(error=f"{type(exc).__name__}: {exc}")
+            try:
+                pmi_report = extract_pmi_report(step_file)
+                if pmi_mode != "off":
+                    pmi_records = list(pmi_report.records)
+            except Exception as exc:
+                _log.warning("PMI extraction failed: %s", exc)
+                pmi_report = PmiExtractionReport(error=f"{type(exc).__name__}: {exc}")
 
-    bb = part.bounding_box()
-    x_size = bb.max.X - bb.min.X
-    y_size = bb.max.Y - bb.min.Y
-    z_size = bb.max.Z - bb.min.Z
-    cx = (bb.min.X + bb.max.X) / 2
-    cy = (bb.min.Y + bb.max.Y) / 2
-    cz = (bb.min.Z + bb.max.Z) / 2
-    bbox_max = max(x_size, y_size, z_size)
+        bb = part.bounding_box()
+        x_size = bb.max.X - bb.min.X
+        y_size = bb.max.Y - bb.min.Y
+        z_size = bb.max.Z - bb.min.Z
+        cx = (bb.min.X + bb.max.X) / 2
+        cy = (bb.min.Y + bb.max.Y) / 2
+        cz = (bb.min.Z + bb.max.Z) / 2
+        bbox_max = max(x_size, y_size, z_size)
 
-    _log.info("Loaded %s  bbox: %.2f × %.2f × %.2f mm", src, x_size, y_size, z_size)
+        _log.info("Loaded %s  bbox: %.2f × %.2f × %.2f mm", src, x_size, y_size, z_size)
 
-    _gc = _classify_geometry(part, x_size, y_size, z_size, cx, cy, cz)
-    z_cyls, cross_cyls = _gc.z_cyls, _gc.cross_cyls
-    z_diams, cross_diams = _gc.z_diams, _gc.cross_diams
-    od_diam, od_axis, is_rotational = _gc.od_diam, _gc.od_axis, _gc.is_rotational
+        _gc = _classify_geometry(part, x_size, y_size, z_size, cx, cy, cz)
+        z_cyls, cross_cyls = _gc.z_cyls, _gc.cross_cyls
+        z_diams, cross_diams = _gc.z_diams, _gc.cross_diams
+        od_diam, od_axis, is_rotational = _gc.od_diam, _gc.od_axis, _gc.is_rotational
 
     # Step Z-levels feed both the step-height ladder and the page-sizing step
     # count. For a vertical (Z-axis) turned part, take them from the unified
@@ -581,7 +606,11 @@ def _analyse(
     recognition: RecognitionResult | None
     _turned: TurnedProfile | None
     step_zs: list[float]
-    if layout_model is not None:
+    if _reuse is not None:
+        recognition = _reuse.recognition if layout_model is None else None
+        _turned = _reuse.prof
+        step_zs = list(_reuse.step_zs)
+    elif layout_model is not None:
         # Sizing must source `prof` and `step_zs` from the DECLARATION here. Taking them from
         # a recognition that has been gated away would silently change page/scale selection,
         # and leaving `prof=None` would silently disable axial critique for a declared turned
@@ -649,6 +678,8 @@ def _analyse(
     sizing_model = (
         layout_model
         if layout_model is not None
+        else cast(PartModel, _reuse.model)
+        if _reuse is not None and _reuse.model is not None
         else build_part_model(
             part,
             holes=holes,
@@ -737,6 +768,7 @@ def _analyse(
         layout_section,
         layout_table_sizes,
         margin=margin,
+        warn_advisory=_reuse is None,
     )
     DIM_PAD = _DIM_PAD
     # margin was computed up front (_content_margin(frame)) so scale selection already saw it.

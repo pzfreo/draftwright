@@ -1326,6 +1326,8 @@ def emit_sheet_script(
     comment a feature line out and re-run — which shifts every later index and silently
     retargets the declarations onto their neighbours. #931 and #932 removed positional
     addressing from the artefact, so the declarations can now be written honestly."""
+    if scale is None and scale_policy != "fallback":
+        raise ValueError("scale_policy applies only when an explicit scale is supplied")
     # The script declares this model — `model` plus an envelope when the overall height would
     # otherwise be unnameable under the mirrored (authored) set. BEFORE the import scan, since
     # a synthesised envelope needs `EnvelopeFeature` imported like a detected one.
