@@ -575,7 +575,7 @@ def _guarded_assignment(
 
 
 def _guarded_inventory_geometry_is_clear(
-    geometry, page_box, retained_label_boxes=(), retained_leader_segments=()
+    geometry, page_box, retained_boxes=(), retained_segments=()
 ):
     """Final bounded validation of rendered balloon geometry and page bounds.
 
@@ -601,14 +601,14 @@ def _guarded_inventory_geometry_is_clear(
         # clear even for a single, unusually long pattern tag.
         if balloon_geometry_hits_annotation_labels((), segments, boxes[1:]):
             return False
-        if balloon_geometry_hits_annotation_labels(boxes, segments, retained_label_boxes):
+        if balloon_geometry_hits_annotation_labels(boxes, segments, retained_boxes):
             return False
-        if balloon_geometry_hits_annotation_labels((), retained_leader_segments, boxes):
+        if balloon_geometry_hits_annotation_labels((), retained_segments, boxes):
             return False
         if any(
             _segments_cross_or_overlap(start, end, retained_start, retained_end)
             for start, end in segments
-            for retained_start, retained_end in retained_leader_segments
+            for retained_start, retained_end in retained_segments
         ):
             return False
     for index, (boxes, segments) in enumerate(geometry):
@@ -624,17 +624,48 @@ def _guarded_inventory_geometry_is_clear(
     return True
 
 
-def _retained_leader_segments(dwg, view):
-    """Real segments of feature leaders that survive an automatic table attempt."""
+def _retained_annotation_geometry(dwg, view):
+    """Precise boxes/segments that survive an automatic table attempt.
+
+    Public balloons are centerline ``Compound`` objects rather than top-level
+    ``Leader`` instances. Their explicit component metadata is the only honest
+    collision geometry: the compound AABB would recreate ADR 0009's forbidden
+    empty diagonal triangle. Feature leaders additionally expose real segments.
+    """
+    boxes: list[tuple[float, float, float, float]] = []
     segments: list[tuple[tuple[float, float], tuple[float, float]]] = []
+
+    def append_segments(raw_segments):
+        for segment in raw_segments:
+            try:
+                (x0, y0), (x1, y1) = segment
+                segments.append(((float(x0), float(y0)), (float(x1), float(y1))))
+            except (TypeError, ValueError):
+                continue
+
     for name, annotation in dwg.iter_annotations():
         owner = dwg.view_of(name)
         if owner is not None and owner != view:
             continue
+        try:
+            raw_boxes = getattr(annotation, "centerline_boxes", ()) or ()
+            raw_segments = getattr(annotation, "centerline_segments", ()) or ()
+        except Exception:  # noqa: BLE001 — external optional metadata may be unreadable
+            # External annotations may expose malformed optional metadata. It
+            # cannot become placement evidence; their ordinary rendered/label
+            # box remains available through the existing obstacle collectors.
+            raw_boxes = raw_segments = ()
+        for box in raw_boxes:
+            try:
+                x0, y0, x1, y1 = box
+                boxes.append((float(x0), float(y0), float(x1), float(y1)))
+            except (TypeError, ValueError):
+                continue
+        append_segments(raw_segments)
         if not isinstance(annotation, Leader):
             continue
-        segments.extend(getattr(annotation, "segments", ()) or ())
-    return tuple(segments)
+        append_segments(getattr(annotation, "segments", ()) or ())
+    return tuple(dict.fromkeys(boxes)), tuple(dict.fromkeys(segments))
 
 
 def _place_guarded_inventory(
@@ -659,7 +690,10 @@ def _place_guarded_inventory(
 ):
     """Solve and render one text-aware, cross-band-safe balloon inventory."""
     label_boxes = balloon_annotation_label_boxes(dwg, view) if avoid_existing_labels else ()
-    retained_segments = _retained_leader_segments(dwg, view) if avoid_existing_labels else ()
+    retained_component_boxes, retained_segments = (
+        _retained_annotation_geometry(dwg, view) if avoid_existing_labels else ((), ())
+    )
+    retained_boxes = (*label_boxes, *retained_component_boxes)
     text_boxes = {
         tag: components[1] if len(components) > 1 else None
         for tag, components in local_glyph_boxes.items()
@@ -677,7 +711,7 @@ def _place_guarded_inventory(
                 ranges,
                 radius,
                 dwg.scale,
-                label_boxes,
+                retained_boxes,
                 text_boxes[member[0]],
             )
     guarded = _GuardedSegments(by_member_band, gap, band_gaps)
@@ -714,8 +748,8 @@ def _place_guarded_inventory(
     if not _guarded_inventory_geometry_is_clear(
         geometry,
         page_box,
-        retained_label_boxes=label_boxes,
-        retained_leader_segments=retained_segments,
+        retained_boxes=retained_boxes,
+        retained_segments=retained_segments,
     ):
         return len(members)
     for band, indices in assignments.items():
@@ -756,7 +790,6 @@ def _place_band(
     ctx,
     *,
     segments=None,
-    avoid_annotation_labels=False,
 ) -> int:
     """Spread *members* (``(tag, j, hole, cx, cy)``) along one reserved band
     with the strip solver, then render a leadered balloon for each (#111).
@@ -773,35 +806,6 @@ def _place_band(
     k = 4 if axis == "y" else 3  # index of cy / cx in the member tuple
     members.sort(key=lambda m: m[k])
     naturals = [m[k] for m in members]
-    if avoid_annotation_labels:
-        ranges = segments if segments is not None else ((lo, hi),)
-        label_boxes = balloon_annotation_label_boxes(dwg, view)
-        allowed = [
-            _guarded_free_segments(
-                member,
-                axis,
-                line,
-                ranges,
-                r,
-                dwg.scale,
-                label_boxes,
-                _balloon_text_box(member[0], fs),
-            )
-            for member in members
-        ]
-        guarded_gap = _balloon_component_gap(
-            (_balloon_local_glyph_boxes(member[0], fs, r) for member in members),
-            axis,
-            r,
-            gap,
-        )
-        coords = _solve_guarded_strip_1d(naturals, guarded_gap, allowed)
-        if coords is None:
-            return len(members)
-        for (tag, j, hole, cx, cy), coordinate in zip(members, coords, strict=True):
-            bx, by = (line, coordinate) if axis == "y" else (coordinate, line)
-            _render_balloon(dwg, view, tag, j, hole, cx, cy, bx, by, fs, r, ctx)
-        return 0
     if segments is not None:
         coords = _solve_segmented_strip_1d(naturals, gap, segments, prefix=True) or []
     else:
