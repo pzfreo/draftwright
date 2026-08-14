@@ -21,6 +21,7 @@ from draftwright._core import (
     _balloon_halo,
     _balloon_radius,
 )
+from draftwright._geometry import _segments_cross_or_overlap
 from draftwright.annotations._common import (
     balloon_annotation_label_boxes,
     balloon_geometry_hits_annotation_labels,
@@ -573,14 +574,18 @@ def _guarded_assignment(
     )
 
 
-def _guarded_inventory_geometry_is_clear(geometry, page_box):
+def _guarded_inventory_geometry_is_clear(
+    geometry, page_box, retained_label_boxes=(), retained_leader_segments=()
+):
     """Final bounded validation of rendered balloon geometry and page bounds.
 
     Shaft-vs-retained-label geometry is already part of each member's continuous
-    interval carve. A balloon shaft deliberately terminates at its own ring, but
-    must not cross its own rendered tag text. Across balloons, neither glyphs nor
-    shafts may cross another glyph. The established band assignment deliberately
-    permits shafts from different bands to pass one another.
+    interval carve and is rechecked here. A balloon shaft deliberately terminates
+    at its own ring, but must not cross its own rendered tag text. Across balloons,
+    neither glyphs nor shafts may cross another glyph. The established band
+    assignment deliberately permits new shafts from different bands to pass one
+    another, but optional replacement must fail closed when any new glyph/shaft
+    crosses a retained feature leader.
     """
     for boxes, segments in geometry:
         if any(
@@ -596,6 +601,16 @@ def _guarded_inventory_geometry_is_clear(geometry, page_box):
         # clear even for a single, unusually long pattern tag.
         if balloon_geometry_hits_annotation_labels((), segments, boxes[1:]):
             return False
+        if balloon_geometry_hits_annotation_labels(boxes, segments, retained_label_boxes):
+            return False
+        if balloon_geometry_hits_annotation_labels((), retained_leader_segments, boxes):
+            return False
+        if any(
+            _segments_cross_or_overlap(start, end, retained_start, retained_end)
+            for start, end in segments
+            for retained_start, retained_end in retained_leader_segments
+        ):
+            return False
     for index, (boxes, segments) in enumerate(geometry):
         for other_boxes, other_segments in geometry[index + 1 :]:
             if balloon_geometry_hits_annotation_labels(
@@ -607,6 +622,19 @@ def _guarded_inventory_geometry_is_clear(geometry, page_box):
             ):
                 return False
     return True
+
+
+def _retained_leader_segments(dwg, view):
+    """Real segments of feature leaders that survive an automatic table attempt."""
+    segments: list[tuple[tuple[float, float], tuple[float, float]]] = []
+    for name, annotation in dwg.iter_annotations():
+        owner = dwg.view_of(name)
+        if owner is not None and owner != view:
+            continue
+        if not isinstance(annotation, Leader):
+            continue
+        segments.extend(getattr(annotation, "segments", ()) or ())
+    return tuple(segments)
 
 
 def _place_guarded_inventory(
@@ -631,6 +659,7 @@ def _place_guarded_inventory(
 ):
     """Solve and render one text-aware, cross-band-safe balloon inventory."""
     label_boxes = balloon_annotation_label_boxes(dwg, view) if avoid_existing_labels else ()
+    retained_segments = _retained_leader_segments(dwg, view) if avoid_existing_labels else ()
     text_boxes = {
         tag: components[1] if len(components) > 1 else None
         for tag, components in local_glyph_boxes.items()
@@ -682,7 +711,12 @@ def _place_guarded_inventory(
                 radius,
             )
             geometry.append((boxes, segments))
-    if not _guarded_inventory_geometry_is_clear(geometry, page_box):
+    if not _guarded_inventory_geometry_is_clear(
+        geometry,
+        page_box,
+        retained_label_boxes=label_boxes,
+        retained_leader_segments=retained_segments,
+    ):
         return len(members)
     for band, indices in assignments.items():
         axis, line, _lo, _hi = band_defs[band]

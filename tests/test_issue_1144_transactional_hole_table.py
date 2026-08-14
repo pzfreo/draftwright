@@ -781,6 +781,32 @@ def test_final_guarded_inventory_validation_covers_cross_band_and_page_geometry(
     )
     assert not _guarded_inventory_geometry_is_clear((self_text_crossing,), page)
     assert not _guarded_inventory_geometry_is_clear((*first, off_page), page)
+    assert not _guarded_inventory_geometry_is_clear(
+        first,
+        page,
+        retained_label_boxes=((15.0, 15.0, 25.0, 25.0),),
+    )
+    assert not _guarded_inventory_geometry_is_clear(
+        first,
+        page,
+        retained_leader_segments=(((0.0, 15.0), (30.0, 15.0)),),
+    )
+    shaft_only = ((((40.0, 40.0, 50.0, 50.0),), (((0.0, 15.0), (30.0, 15.0)),)),)
+    assert not _guarded_inventory_geometry_is_clear(
+        shaft_only,
+        page,
+        retained_leader_segments=(((15.0, 0.0), (15.0, 30.0)),),
+    )
+
+
+def test_retained_leader_segment_intersection_ignores_only_a_shared_endpoint():
+    from draftwright._geometry import _segments_cross_or_overlap
+
+    assert _segments_cross_or_overlap((0.0, 0.0), (2.0, 2.0), (0.0, 2.0), (2.0, 0.0))
+    assert _segments_cross_or_overlap((0.0, 0.0), (3.0, 0.0), (1.0, 0.0), (4.0, 0.0))
+    assert _segments_cross_or_overlap((0.0, 0.0), (3.0, 0.0), (1.0, -1.0), (1.0, 0.0))
+    assert not _segments_cross_or_overlap((0.0, 0.0), (1.0, 0.0), (1.0, 0.0), (2.0, 1.0))
+    assert not _segments_cross_or_overlap((0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0))
 
 
 def test_automatic_transaction_fails_closed_when_final_inventory_gate_rejects(monkeypatch):
@@ -789,7 +815,7 @@ def test_automatic_transaction_fails_closed_when_final_inventory_gate_rejects(mo
     monkeypatch.setattr(
         balloons_module,
         "_guarded_inventory_geometry_is_clear",
-        lambda *_args: False,
+        lambda *_args, **_kwargs: False,
     )
 
     drawing = build_drawing(_dense_scattered_plate())
@@ -1180,7 +1206,7 @@ def test_fitted_callout_can_remain_while_table_resolves_its_location_drop(monkey
     part = _dense_plate_with_close_x_ordinates()
     with monkeypatch.context() as disabled:
         disabled.setattr(orchestrator, "_maybe_tabulate_holes", lambda *_args, **_kwargs: None)
-        baseline = build_drawing(part, page="A3")
+        baseline = build_drawing(part, page="A2")
     placed_callout_features = set(_plan_bore_callouts(baseline))
     location_issue = next(
         issue
@@ -1198,7 +1224,7 @@ def test_fitted_callout_can_remain_while_table_resolves_its_location_drop(monkey
         decorations={(feature, "diameter"): fit_class("H7", feature.diameter)},
     )
 
-    drawing = build_drawing(part, page="A3", model=declared)
+    drawing = build_drawing(part, page="A2", model=declared)
 
     table = drawing.get_annotation("hole_table_plan")
     assert table is not None
@@ -1458,3 +1484,29 @@ def test_one_physical_group_with_mixed_table_and_fit_evidence_has_no_scalar_winn
     assert {
         (outcome.representation, outcome.representation_reason) for outcome in grouped_outcomes
     } == {(None, None)}
+
+
+def test_retained_fit_leader_crossing_rolls_the_automatic_table_back():
+    part = _dense_plate_with_close_x_ordinates()
+    detected = build_drawing(part, page="A3", auto_dims=False).model()
+    fitted = next(
+        feature
+        for feature in detected.features
+        if feature.kind == "hole"
+        and feature.frame.origin == (-54.0, -18.0, 6.0)
+        and feature.diameter == pytest.approx(4.4)
+    )
+    declared = replace(
+        detected,
+        decorations={(fitted, "diameter"): fit_class("H7", fitted.diameter)},
+    )
+
+    drawing = build_drawing(part, model=declared, page="A3")
+
+    assert "hole_table_plan" not in drawing.annotations()
+    assert not [name for name in drawing.annotations() if name.startswith("balloon_plan_")]
+    assert fitted in _plan_bore_callouts(drawing)
+    assert {"table_dropped", "balloon_dropped"} <= {
+        issue.code for issue in drawing.registry.issues
+    }
+    assert "hole_requirement_missing" not in {issue.code for issue in drawing.lint()}
