@@ -447,15 +447,19 @@ def test_fallback_reuses_geometry_classification_and_recognition(monkeypatch):
 
 
 def test_cli_rejects_nondefault_policy_without_scale_for_direct_and_script_modes():
+    from click import unstyle
     from typer.testing import CliRunner
 
     from draftwright.cli import app
 
     for extra in ([], ["--script"]):
-        result = CliRunner().invoke(app, ["part.step", "--scale-policy", "strict", *extra])
+        result = CliRunner().invoke(
+            app, ["part.step", "--scale-policy", "strict", *extra], color=True
+        )
         assert result.exit_code == 2
-        assert "--scale-policy requires an explicit" in result.output
-        assert "--scale" in result.output
+        output = unstyle(result.output)
+        assert "--scale-policy requires an explicit" in output
+        assert "--scale" in output
 
 
 def test_script_emitter_rejects_nondefault_policy_without_scale(tmp_path, monkeypatch):
