@@ -574,14 +574,15 @@ def _guarded_assignment(
 
 
 def _guarded_inventory_geometry_is_clear(geometry, page_box):
-    """Final bounded validation of cross-band glyphs and page bounds.
+    """Final bounded validation of rendered balloon geometry and page bounds.
 
     Shaft-vs-retained-label geometry is already part of each member's continuous
-    interval carve. The established band assignment deliberately permits shafts
-    from different bands to pass one another; this final gate prevents the newly
-    relevant variable-width ring/text glyphs from colliding across those bands.
+    interval carve. A balloon shaft deliberately terminates at its own ring, but
+    must not cross its own rendered tag text. Across balloons, neither glyphs nor
+    shafts may cross another glyph. The established band assignment deliberately
+    permits shafts from different bands to pass one another.
     """
-    for boxes, _segments in geometry:
+    for boxes, segments in geometry:
         if any(
             box[0] < page_box[0]
             or box[1] < page_box[1]
@@ -589,6 +590,11 @@ def _guarded_inventory_geometry_is_clear(geometry, page_box):
             or box[3] > page_box[3]
             for box in boxes
         ):
+            return False
+        # ``boxes[0]`` is the ring that the shaft intentionally touches. Any
+        # remaining boxes are the actual rendered text extents and must remain
+        # clear even for a single, unusually long pattern tag.
+        if balloon_geometry_hits_annotation_labels((), segments, boxes[1:]):
             return False
     for index, (boxes, segments) in enumerate(geometry):
         for other_boxes, other_segments in geometry[index + 1 :]:

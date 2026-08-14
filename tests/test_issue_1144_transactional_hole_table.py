@@ -213,20 +213,94 @@ def _features_from_issue(issue):
     }
 
 
-def test_requirement_scoped_representation_is_a_semantic_owner_seam():
+def test_annotation_hole_features_unions_every_semantic_owner_channel():
     from draftwright.annotations._common import _annotation_hole_features
     from draftwright.registry import AnnotationRegistry
 
-    feature = type("Feature", (), {"kind": "hole"})()
+    def feature(kind="hole"):
+        return type("Feature", (), {"kind": kind})()
+
+    owner = feature()
+    measurement_owner = feature()
+    direct_location_owner = feature()
+    identified_location_owner = feature()
+    requirement_owner = feature()
+    representation_owner = feature()
+    scoped_representation_owner = feature()
+    center_owner = feature()
+    ignored_owner = feature("boss")
     annotation = SimpleNamespace(
+        covers_hole_locations=(
+            (direct_location_owner, (1.0, 2.0, 3.0), "plan"),
+            (SimpleNamespace(feature=identified_location_owner), (1.0, 2.0, 3.0)),
+            (ignored_owner, (1.0, 2.0, 3.0), "plan"),
+        ),
+        covers_hole_requirements_by_feature=(
+            (requirement_owner, "bore.through", 1),
+            (ignored_owner, "bore.through", 1),
+        ),
+        covers_hole_representations_by_feature=(
+            (representation_owner, "hole_table", "placed"),
+            (ignored_owner, "hole_table", "placed"),
+        ),
         covers_hole_representations_by_requirement=(
-            (feature, "location.location.x", "hole_table", "required_balloons_placed"),
-        )
+            (
+                scoped_representation_owner,
+                "location.location.x",
+                "hole_table",
+                "required_balloons_placed",
+            ),
+            (ignored_owner, "location.location.x", "hole_table", "placed"),
+        ),
+        covers_hole_centers=(
+            (center_owner, (0.0, 0.0, 0.0), "plan"),
+            (ignored_owner, (0.0, 0.0, 0.0), "plan"),
+        ),
+    )
+    registry = AnnotationRegistry()
+    registry.add(
+        annotation,
+        "semantic_union",
+        "plan",
+        feature=owner,
+        measurement=SimpleNamespace(feature=measurement_owner),
     )
 
-    assert _annotation_hole_features(
-        AnnotationRegistry(), "unregistered", annotation
-    ) == frozenset({feature})
+    assert _annotation_hole_features(registry, "semantic_union", annotation) == frozenset(
+        {
+            owner,
+            measurement_owner,
+            direct_location_owner,
+            identified_location_owner,
+            requirement_owner,
+            representation_owner,
+            scoped_representation_owner,
+            center_owner,
+        }
+    )
+
+
+def test_hole_table_eligibility_fails_closed_without_a_plain_hole_owner():
+    from draftwright.annotations._common import (
+        _hole_table_replaceable_annotation,
+        _hole_table_replaceable_feature,
+        _hole_table_replaceable_location_annotation,
+    )
+    from draftwright.registry import AnnotationRegistry
+
+    registry = AnnotationRegistry()
+    annotation = SimpleNamespace()
+    pattern = type("Feature", (), {"kind": "pattern"})()
+
+    assert not _hole_table_replaceable_annotation(registry, "missing", annotation)
+    assert not _hole_table_replaceable_location_annotation(registry, "missing", annotation)
+    assert not _hole_table_replaceable_feature(pattern)
+
+    registry.add(annotation, "pattern_annotation", "plan", feature=pattern)
+    assert not _hole_table_replaceable_annotation(registry, "pattern_annotation", annotation)
+    assert not _hole_table_replaceable_location_annotation(
+        registry, "pattern_annotation", annotation
+    )
 
 
 def test_table_commit_requires_exact_balloon_cardinality_and_owner():
@@ -283,17 +357,44 @@ def test_guarded_balloon_obstacles_use_compact_labels_and_note_boxes():
                 max=SimpleNamespace(X=8.0, Y=9.0),
             )
 
+    class UnreadableLabel(BoxedNote):
+        @property
+        def label_bbox(self):
+            raise RuntimeError("external label metadata unavailable")
+
+    class Unmeasurable:
+        label_bbox = None
+
+        def bounding_box(self):
+            raise RuntimeError("external annotation does not measure")
+
     label = SimpleNamespace(label_bbox=(1.0, 1.0, 2.0, 2.0))
     note = BoxedNote()
+    unreadable = UnreadableLabel()
+    unmeasurable = Unmeasurable()
+    centerline = SimpleNamespace(
+        is_centerline=True,
+        label_bbox=(30.0, 30.0, 31.0, 31.0),
+    )
     other_view = SimpleNamespace(label_bbox=(20.0, 20.0, 21.0, 21.0))
     drawing = SimpleNamespace(
         box_cache={},
-        iter_annotations=lambda: iter((("label", label), ("note", note), ("other", other_view))),
+        iter_annotations=lambda: iter(
+            (
+                ("label", label),
+                ("note", note),
+                ("unreadable", unreadable),
+                ("unmeasurable", unmeasurable),
+                ("centerline", centerline),
+                ("other", other_view),
+            )
+        ),
         view_of=lambda name: "side" if name == "other" else "plan",
     )
 
     assert balloon_annotation_label_boxes(drawing, "plan") == (
         (1.0, 1.0, 2.0, 2.0),
+        (3.0, 4.0, 8.0, 9.0),
         (3.0, 4.0, 8.0, 9.0),
     )
 
@@ -644,6 +745,13 @@ def test_final_guarded_inventory_validation_covers_cross_band_and_page_geometry(
     overlapping_second = (((19.0, 15.0, 29.0, 25.0),), ())
     shaft_crossing_second = (((24.0, 12.0, 28.0, 18.0),), ())
     shaft_crossing_first = ((((10.0, 10.0, 20.0, 20.0),), (((0.0, 15.0), (30.0, 15.0)),)),)
+    self_text_crossing = (
+        (
+            (10.0, 10.0, 20.0, 20.0),
+            (20.5, 13.0, 30.0, 17.0),
+        ),
+        (((15.0, 15.0), (25.0, 15.0)),),
+    )
     off_page = (((95.0, 95.0, 105.0, 105.0),), ())
 
     assert _guarded_inventory_geometry_is_clear((*first, clear_second), page)
@@ -651,6 +759,7 @@ def test_final_guarded_inventory_validation_covers_cross_band_and_page_geometry(
     assert not _guarded_inventory_geometry_is_clear(
         (*shaft_crossing_first, shaft_crossing_second), page
     )
+    assert not _guarded_inventory_geometry_is_clear((self_text_crossing,), page)
     assert not _guarded_inventory_geometry_is_clear((*first, off_page), page)
 
 
@@ -798,6 +907,40 @@ def test_automatic_initial_table_failure_restores_every_fallback(monkeypatch):
         for outcome in _outcomes(drawing)
         if outcome.state == "placed"
     }
+
+
+def test_stash_ignores_absent_names_and_restore_is_idempotent():
+    from draftwright.annotations._common import (
+        PlacementContext,
+        _restore_stashed_annotations,
+        _stash_annotations,
+    )
+
+    drawing = build_drawing(_multi_hole_plate(), page="A4")
+    name = next(iter(_plan_bore_callouts(drawing).values()))[0]
+    annotation = drawing.get_annotation(name)
+    identity = drawing.registry.identity_of(name)
+    stashed = _stash_annotations(drawing, ("not_present", name))
+    ctx = PlacementContext(
+        registry=drawing.registry,
+        coverage=drawing.coverage,
+        items=drawing.items,
+        part_model=drawing.model(),
+    )
+
+    assert set(stashed) == {name}
+    assert drawing.get_annotation(name) is None
+    assert _restore_stashed_annotations(drawing, ctx, stashed) == {name}
+    assert drawing.get_annotation(name) is annotation
+    assert drawing.registry.identity_of(name) == identity
+
+    # Retrying rollback must recognise the exact already-restored object rather
+    # than duplicating it or perturbing its semantic identity.
+    items = tuple(drawing.items)
+    assert _restore_stashed_annotations(drawing, ctx, stashed) == {name}
+    assert tuple(drawing.items) == items
+    assert drawing.get_annotation(name) is annotation
+    assert drawing.registry.identity_of(name) == identity
 
 
 def test_automatic_partial_balloon_result_restores_only_the_unresolved_feature(monkeypatch):
@@ -955,6 +1098,68 @@ def test_grouped_pattern_marker_cannot_certify_an_undefined_hole_tag():
         "bolt_circle.diameter",
         "grouping.count",
     }
+
+
+def test_long_grouped_pattern_marker_fails_closed_when_its_shaft_crosses_its_text():
+    from draftwright.analysis import _analyse
+    from draftwright.annotations._common import Escalation, PlacementContext
+    from draftwright.annotations.orchestrator import _maybe_tabulate_holes
+    from draftwright.linting.issues import LintIssue
+
+    part = _bolt_circle_plate()
+    detected = build_drawing(part, page="A4")
+    pattern = next(feature for feature in detected.model().features if feature.kind == "pattern")
+    long_pattern = replace(pattern, count=1000)
+    model = replace(
+        detected.model(),
+        features=[
+            long_pattern if feature is pattern else feature
+            for feature in detected.model().features
+        ],
+    )
+    drawing = build_drawing(part, model=model, page="A4")
+    analysis = _analyse(
+        part,
+        title="",
+        number="",
+        tolerance="ISO 2768-m",
+        drawn_by="",
+        out="",
+        page="A4",
+        model=model,
+    )
+    callout_name = next(name for name in drawing.annotations() if name.startswith("hc_plan"))
+    measurements = drawing.registry.measurement_of(callout_name)
+    drawing.remove(callout_name)
+    issue = LintIssue(
+        severity="warning",
+        code="callout_dropped",
+        message="synthetic long grouped pattern callout drop",
+        measurement_ids=measurements,
+        hole_requirement_ids=((long_pattern, "grouping.count"),),
+    )
+    drawing.registry.record_issue(issue)
+    ctx = PlacementContext(
+        registry=drawing.registry,
+        coverage=drawing.coverage,
+        items=drawing.items,
+        part_model=model,
+        escalations=(
+            Escalation(
+                kind="callout",
+                view="plan",
+                feature=long_pattern,
+                reason="strip_full",
+                targets=measurements,
+            ),
+        ),
+    )
+
+    _maybe_tabulate_holes(drawing, analysis, ctx=ctx)
+
+    assert "balloon_plan_1000×A_0" not in drawing.annotations()
+    assert issue in drawing.registry.issues
+    assert "balloon_dropped" in {record.code for record in drawing.registry.issues}
 
 
 def test_automatic_partial_result_rolls_back_when_fallback_aware_refit_fails(monkeypatch):
@@ -1199,8 +1404,11 @@ def test_finalize_exception_restores_automatic_transaction_markers(monkeypatch):
     with monkeypatch.context() as disabled:
         disabled.setattr(orchestrator, "_maybe_tabulate_holes", lambda *_args, **_kwargs: None)
         drawing = build_drawing(part)
-    before = _transaction_state(drawing)
     original_callouts = _plan_bore_callouts(drawing)
+    marked_name, marked_annotation = next(iter(original_callouts.values()))
+    marked_annotation.hole_representation = "preexisting_representation"
+    marked_annotation.hole_representation_reason = "preexisting_reason"
+    before = _transaction_state(drawing)
     _drop_one_diameter_balloon(monkeypatch, 2.0)
     original_reapply = drawing.registry.reapply
 
@@ -1223,6 +1431,11 @@ def test_finalize_exception_restores_automatic_transaction_markers(monkeypatch):
         drawing.get_annotation(name) is annotation
         for name, annotation in original_callouts.values()
     )
+    assert drawing.get_annotation(marked_name) is marked_annotation
+    assert (
+        marked_annotation.hole_representation,
+        marked_annotation.hole_representation_reason,
+    ) == ("preexisting_representation", "preexisting_reason")
 
 
 def test_one_physical_group_with_mixed_table_and_fit_evidence_has_no_scalar_winner():
