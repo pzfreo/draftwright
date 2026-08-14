@@ -141,6 +141,8 @@ class TestSolveStrip1d:
         with pytest.raises(ValueError, match="equal length"):
             _solve_guarded_strip_1d([0.0], 5.0, [])
         assert _solve_guarded_strip_1d([0.0], 5.0, [[]]) is None
+        with pytest.raises(ValueError, match="positive"):
+            _solve_guarded_strip_1d([0.0], 0.0, [[(0.0, 1.0)]])
         with pytest.raises(ValueError, match="descending"):
             _solve_guarded_strip_1d([0.0], 5.0, [[(2.0, 1.0)]])
 

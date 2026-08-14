@@ -461,14 +461,16 @@ def _guarded_assignment(
     prefer_bands=(),
     preference_limit=0.0,
 ):
-    """Globally assign members to bands while all band coordinates remain feasible.
+    """Run the canonical band flow, then validate its complete guarded inventory.
 
-    The ordinary min-cost flow gives a cardinality upper bound using each band's
-    geometric capacity.  If that assignment is jointly feasible under the
-    retained-label intervals it is preserved exactly.  Otherwise a deterministic
-    branch-and-bound search finds the same highest attainable cardinality across
-    all bands; label feasibility therefore participates in band assignment rather
-    than causing a greedy post-solve drop.
+    ADR 0014 owns band selection in :func:`layout._assign_balloon_bands`: that
+    bounded flow maximises cardinality and then minimises leader length.  The
+    member-specific intervals here are render-layer geometry, so they may only
+    validate the flow result.  If its complete selected inventory is infeasible,
+    fail the attempt closed; the automatic table transaction restores the original
+    feature annotations.  Do not search a second assignment space here: doing so
+    would duplicate the shared solver, lose its cost objective, and risk unbounded
+    work on dense tables.
     """
     filtered_choices = [
         {
@@ -518,72 +520,11 @@ def _guarded_assignment(
     target = sum(len(indices) for indices in seed_indices.values())
     if all(solution is not None for solution in seed_solutions.values()):
         return seed_indices, seed_solutions, len(members) - target
-
-    available = [index for index, choices in enumerate(filtered_choices) if choices]
-    unavailable = len(members) - len(available)
-    ordered = sorted(
-        available,
-        key=lambda index: (
-            len(filtered_choices[index]),
-            min(filtered_choices[index].values()),
-            index,
-        ),
+    return (
+        {band: [] for band in band_defs},
+        {band: {} for band in band_defs},
+        len(members),
     )
-    band_names = tuple(band_defs)
-    groups: dict[str, list[int]] = {band: [] for band in band_names}
-    solve_cache: dict[tuple[str, tuple[int, ...]], dict[int, float] | None] = {}
-
-    def solve_band(band):
-        key = (band, tuple(sorted(groups[band])))
-        if key not in solve_cache:
-            solve_cache[key] = _solve_guarded_band(
-                groups[band], members, band, band_defs, free_segments
-            )
-        return solve_cache[key]
-
-    for required in range(target, -1, -1):
-        answer = None
-
-        def visit(position, placed):
-            nonlocal answer
-            if answer is not None:
-                return
-            if placed + len(ordered) - position < required:
-                return
-            if position == len(ordered):
-                if placed == required:
-                    answer = (
-                        {band: list(indices) for band, indices in groups.items()},
-                        {band: solve_band(band) for band in band_names},
-                    )
-                return
-            index = ordered[position]
-            choices = sorted(
-                filtered_choices[index],
-                key=lambda band: (
-                    filtered_choices[index][band]
-                    - (preference_limit if band in prefer_bands and not groups[band] else 0.0),
-                    filtered_choices[index][band],
-                    band,
-                ),
-            )
-            for band in choices:
-                if len(groups[band]) >= effective_capacities[band]:
-                    continue
-                groups[band].append(index)
-                if solve_band(band) is not None:
-                    visit(position + 1, placed + 1)
-                groups[band].pop()
-                if answer is not None:
-                    return
-            if placed + len(ordered) - position - 1 >= required:
-                visit(position + 1, placed)
-
-        visit(0, 0)
-        if answer is not None:
-            assignments, solutions = answer
-            return assignments, solutions, unavailable + len(available) - required
-    return {band: [] for band in band_names}, {band: {} for band in band_names}, len(members)
 
 
 def _place_guarded_inventory(
@@ -760,6 +701,13 @@ def _render_balloon(
         align=(Align.CENTER, Align.CENTER),
         mode=Mode.PRIVATE,
     ).locate(loc)
+    text_bounds = text.bounding_box()
+    text_box = (
+        float(text_bounds.min.X),
+        float(text_bounds.min.Y),
+        float(text_bounds.max.X),
+        float(text_bounds.max.Y),
+    )
     glyph_parts = [*ring_faces, *text.faces()]
     parts = list(glyph_parts)
     shaft_segments = _balloon_shaft_segments(
@@ -788,7 +736,7 @@ def _render_balloon(
     # while the glyph remains visible to critique instead of disappearing behind
     # the centreline exemption.
     balloon.centerline_segments = shaft_segments
-    balloon.centerline_boxes = (_balloon_glyph_box(bx, by, r),)
+    balloon.centerline_boxes = (_balloon_glyph_box(bx, by, r), text_box)
     # Furniture that legitimately sits on the view geometry — exempt from the
     # annotation-overlap / centreline lint, as the section arrows do.
     balloon.is_centerline = True

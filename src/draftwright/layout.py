@@ -114,6 +114,8 @@ def _solve_guarded_strip_1d(naturals, min_gap, allowed_segments):
         return []
     if len(naturals) != len(allowed_segments):
         raise ValueError("naturals and allowed_segments must have equal length")
+    if min_gap <= 0:
+        raise ValueError("min_gap must be positive")
     if any(not segments for segments in allowed_segments):
         return None
 

@@ -1082,6 +1082,18 @@ def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
             } & placed_names
             placed_names -= _discard_attempt_annotations(dwg, incomplete_names)
 
+            unkeyed_features = set(table_features) - table_success_features
+            if unkeyed_features and not any(
+                issue.code == "balloon_dropped"
+                for issue in dwg.registry.issues[len(balloon_issue_base) :]
+            ):
+                ctx.record_issue(
+                    "warning",
+                    "balloon_dropped",
+                    f"{len(unkeyed_features)} hole-table row(s) lack required "
+                    "feature-owned balloons",
+                )
+
     if table_placed and table is not None:
         ordered_table_success_features = tuple(
             feature for feature in table_features if feature in table_success_features

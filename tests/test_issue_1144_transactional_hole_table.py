@@ -292,7 +292,27 @@ def test_segmented_centerline_diagnostic_ignores_only_the_empty_aabb_triangle():
     )
 
 
-def test_guarded_assignment_can_reassign_a_balloon_to_a_spare_band():
+def test_long_public_balloon_text_remains_visible_to_structural_lint():
+    from draftwright.linting.structural import _label_centerline_overlap
+
+    drawing = build_drawing(_multi_hole_plate(), page="A4", auto_dims=False)
+    hole = drawing.recognition().holes[0]
+    drawing.add_balloons("plan", [("LONG_BALLOON_TAG", 0, hole)])
+    balloon = drawing.get_annotation("balloon_plan_LONG_BALLOON_TAG_0")
+    ring_box, text_box = balloon.centerline_boxes
+
+    assert text_box[0] < ring_box[0]
+    overlap_box = (
+        text_box[0] + 0.1,
+        (text_box[1] + text_box[3]) / 2 - 0.6,
+        ring_box[0] - 0.1,
+        (text_box[1] + text_box[3]) / 2 + 0.6,
+    )
+    label = SimpleNamespace(label="OTHER", label_bbox=overlap_box)
+    assert _label_centerline_overlap(label, balloon) is not None
+
+
+def test_guarded_assignment_preserves_the_canonical_flow_cost_objective():
     from draftwright.annotations.balloons import (
         _guarded_assignment,
         _GuardedSegments,
@@ -301,42 +321,84 @@ def test_guarded_assignment_can_reassign_a_balloon_to_a_spare_band():
     members = [
         ("A", 0, object(), 0.0, 0.0),
         ("B", 0, object(), 0.0, 0.0),
-        ("C", 0, object(), 0.0, 10.0),
+        ("C", 0, object(), 0.0, 0.0),
     ]
-    # Capacity-only min-cost flow chooses A+B on the left and C on the right;
-    # A and B share the same sole left coordinate, so the guarded global solve
-    # must move B to the remote right band and keep C at left=10.
     choices = [
-        {"left": 0.0},
-        {"left": 0.0, "right": 100.0},
-        {"left": 0.0, "right": 0.0},
+        {"left": 2.0, "right": 13.0},
+        {"left": 16.0, "right": 1.0},
+        {"left": 8.0},
     ]
     bands = {
         "left": ("y", 0.0, 0.0, 10.0),
-        "right": ("y", 20.0, 0.0, 10.0),
+        "right": ("y", 1.0, 0.0, 10.0),
     }
     guarded = _GuardedSegments(
         {
-            (0, "left"): ((5.0, 5.0),),
+            (0, "left"): ((2.0, 2.0),),
+            (0, "right"): ((2.0, 2.0),),
             (1, "left"): ((5.0, 5.0),),
-            (1, "right"): ((5.0, 5.0),),
-            (2, "left"): ((10.0, 10.0),),
-            (2, "right"): ((10.0, 10.0),),
+            (1, "right"): ((2.0, 2.0),),
+            (2, "left"): ((0.0, 0.0),),
         },
-        5.0,
+        1.0,
     )
 
     assignments, solutions, dropped = _guarded_assignment(
         members,
         choices,
         bands,
-        {"left": 2, "right": 1},
+        {"left": 1, "right": 1},
         guarded,
     )
 
-    assert dropped == 0
-    assert assignments == {"left": [0, 2], "right": [1]}
-    assert solutions == {"left": {0: 5.0, 2: 10.0}, "right": {1: 5.0}}
+    assert dropped == 1
+    assert assignments == {"left": [0], "right": [1]}
+    assert solutions == {"left": {0: 2.0}, "right": {1: 2.0}}
+
+
+def test_guarded_assignment_is_bounded_and_fails_an_infeasible_flow_closed(monkeypatch):
+    import draftwright.annotations.balloons as balloons_module
+
+    band_names = ("left", "right", "top", "bottom")
+    member_count = 28
+    members = [
+        (str(index), 0, object(), float(index), float(index)) for index in range(member_count)
+    ]
+    bands = {
+        band: ("y", float(index), 0.0, float(member_count))
+        for index, band in enumerate(band_names)
+    }
+    choices = [{band: 0.0 for band in band_names} for _member in members]
+    guarded = balloons_module._GuardedSegments(
+        {
+            (index, band): ((float(member_count - index),) * 2,)
+            for index in range(member_count)
+            for band in band_names
+        },
+        1.0,
+    )
+    calls = 0
+    original = balloons_module._solve_guarded_band
+
+    def counted(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(balloons_module, "_solve_guarded_band", counted)
+
+    assignments, solutions, dropped = balloons_module._guarded_assignment(
+        members,
+        choices,
+        bands,
+        {band: member_count for band in band_names},
+        guarded,
+    )
+
+    assert calls == len(band_names)
+    assert assignments == {band: [] for band in band_names}
+    assert solutions == {band: {} for band in band_names}
+    assert dropped == member_count
 
 
 def test_real_shaft_crossing_carves_the_guarded_band_without_aabb_sampling():
@@ -556,6 +618,30 @@ def test_automatic_partial_balloon_result_restores_only_the_unresolved_feature(m
         if issue.code == "label_centerline_overlap"
         and f"label '{unresolved_label}'" in issue.message
     ]
+
+
+def test_scattered_table_reports_a_balloon_landed_on_the_wrong_semantic_owner():
+    detected = build_drawing(_dense_scattered_plate(), auto_dims=False).model()
+    victim = next(feature for feature in detected.features if feature.kind == "hole")
+    # The sanctioned position bridge resolves the last feature at a coincident
+    # centre.  A distinct appended declaration therefore owns both rendered
+    # balloons even though the original feature still has its own visible row.
+    wrong_owner = replace(victim, diameter=victim.diameter + 0.123)
+    declared = replace(detected, features=[*detected.features, wrong_owner])
+
+    drawing = build_drawing(_dense_scattered_plate(), model=declared)
+
+    assert "hole_table_plan" in drawing.annotations()
+    assert victim in _plan_bore_callouts(drawing)
+    failures = [issue for issue in drawing.registry.issues if issue.code == "balloon_dropped"]
+    assert len(failures) == 1
+    assert "feature-owned balloons" in failures[0].message
+    assert {
+        outcome.representation
+        for outcome in _outcomes(drawing)
+        if outcome.source_at[:2] == tuple(victim.frame.origin[:2])
+        and outcome.parameter_id == "bore.diameter"
+    } != {"hole_table"}
 
 
 def test_automatic_partial_result_rolls_back_when_fallback_aware_refit_fails(monkeypatch):
