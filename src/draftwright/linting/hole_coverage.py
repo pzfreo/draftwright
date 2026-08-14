@@ -130,8 +130,8 @@ def _tool_center_members(source, members, depth) -> tuple[tuple[float, float, fl
     )
 
 
-def _hole_partitions(spec, members, features) -> tuple[tuple, ...]:
-    """Return the one forced exact feature cover of physical members, if it exists.
+def _hole_partitions(spec, members, features) -> tuple[tuple[tuple, ...], bool]:
+    """Return the forced exact cover and whether any exact owner evidence exists.
 
     A loose recognition group may correspond to one grouped ``HoleFeature`` or to one
     object-backed declared feature per member. Every physical member must have exactly one
@@ -156,7 +156,7 @@ def _hole_partitions(spec, members, features) -> tuple[tuple, ...]:
         if coverage and fits(coverage, target):
             eligible.append((feature, coverage))
     if len({id(feature) for feature, _coverage in eligible}) != len(eligible):
-        return ()
+        return (), bool(eligible)
     owners: dict[tuple[float, float, float], int] = defaultdict(int)
     combined: Counter[tuple[float, float, float]] = Counter()
     for _feature, coverage in eligible:
@@ -164,8 +164,8 @@ def _hole_partitions(spec, members, features) -> tuple[tuple, ...]:
         for member in coverage:
             owners[member] += 1
     if combined != target or any(owners[member] != 1 for member in target):
-        return ()
-    return (tuple(feature for feature, _coverage in eligible),)
+        return (), bool(eligible)
+    return (tuple(feature for feature, _coverage in eligible),), bool(eligible)
 
 
 def _unoriented_direction(value):
@@ -600,9 +600,6 @@ def hole_requirement_outcomes(
     hole_features_by_spec: dict[tuple, list] = defaultdict(list)
     for feature in hole_features:
         hole_features_by_spec[_feature_spec(feature)].append(feature)
-    pattern_features = tuple(
-        feature for feature in features if getattr(feature, "kind", None) == "pattern"
-    )
     # Establish exact correspondences first, then solve the residual projected fallback.
     # Object-backed blind declarations may retain a cutter centre while recognition owns
     # its opening. Projection is safe only when, after exact owners are consumed, one
@@ -611,19 +608,23 @@ def hole_requirement_outcomes(
     # valid tool-centred declaration on the opposed face, while two projected-only owners
     # remain unverifiable.
     exact_proposals: list[tuple] = []
+    exact_evidence: list[bool] = []
     for kind, _source, key, _member_count in sources:
         if kind == "hole":
             source_spec, source_members = key
-            partitions = _hole_partitions(
+            spec_features = hole_features_by_spec.get(source_spec, ())
+            partitions, evidence = _hole_partitions(
                 source_spec,
                 source_members,
-                hole_features_by_spec.get(source_spec, ()),
+                spec_features,
             )
             candidates = partitions[0] if len(partitions) == 1 else ()
         else:
             direct = tuple(ir_by_key.get((kind, key), ()))
             candidates = direct if len(direct) == 1 else ()
+            evidence = bool(direct)
         exact_proposals.append(candidates)
+        exact_evidence.append(evidence)
 
     exact_claims = Counter(id(feature) for proposal in exact_proposals for feature in proposal)
     matches_by_source = [
@@ -651,6 +652,11 @@ def hole_requirement_outcomes(
     for index, (kind, source, key, _member_count) in enumerate(sources):
         if matches_by_source[index]:
             continue
+        # A partial, duplicate, or multiply-claimed exact owner is contradictory
+        # evidence, not permission to retry the same physical source at its cutter
+        # centre.  Fail closed before the object-backed fallback.
+        if exact_evidence[index]:
+            continue
         if kind == "hole":
             source_spec, source_members = key
             candidate_features = tuple(
@@ -665,18 +671,19 @@ def hole_requirement_outcomes(
                 if depth is not None and not source_spec[3]
                 else ()
             )
-            partitions = (
+            partition_result = (
                 _hole_partitions(source_spec, expected_centres, candidate_features)
                 if expected_centres
-                else ()
+                else ((), False)
             )
+            partitions, _evidence = partition_result
             candidates = partitions[0] if len(partitions) == 1 else ()
         else:
             projected_key = _tool_center_pattern_key(source)
             candidates = tuple(
                 feature
-                for feature in pattern_features
-                if id(feature) not in used_feature_ids and _pattern_key(feature) == projected_key
+                for feature in ir_by_key.get((kind, projected_key), ())
+                if id(feature) not in used_feature_ids
             )
             if len(candidates) != 1:
                 candidates = ()

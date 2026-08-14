@@ -2647,7 +2647,9 @@ class Drawing:
             DimensionId(owner, parameter)
             for _tag, owner, holes, _count in groups
             for parameter in (
-                ("bore.diameter",) if holes[0].through else ("bore.diameter", "bore.depth")
+                ("bore.diameter",)
+                if holes[0].through or holes[0].depth is None
+                else ("bore.diameter", "bore.depth")
             )
         )
         requirements = tuple(

@@ -15,7 +15,7 @@ from draftwright.model.compiled import compile_dimensions
 from draftwright.model.declare import hole as declare_hole
 from draftwright.model.declare import pattern as declare_pattern
 from draftwright.model.ir import Frame, StepFeature
-from draftwright.recognition import HoleRecord
+from draftwright.recognition import HoleRecord, LinearArray
 
 _XYZ_MIN = (Align.CENTER, Align.CENTER, Align.MIN)
 
@@ -358,6 +358,37 @@ def test_same_face_tool_centre_cannot_certify_omitted_opposed_blind_bore():
     assert _completeness(drawing)["audited_score"] == 0.5
 
 
+def test_ambiguous_exact_bore_owners_cannot_escape_through_tool_centre_fallback():
+    part = _opposed_blind_holes()
+    detected = build_drawing(part, page="A3").model()
+    lower, upper = sorted(
+        (feature for feature in detected.features if feature.kind == "hole"),
+        key=lambda feature: feature.frame.origin[2],
+    )
+    x, y, z = lower.frame.origin
+    cutter_centre = (x, y, z + lower.depth / 2)
+    tool_centred_lower = replace(
+        lower,
+        frame=replace(lower.frame, origin=cutter_centre),
+        members=(cutter_centre,),
+    )
+    retained = [
+        feature for feature in detected.features if feature.kind not in {"hole", "pattern"}
+    ]
+    declared = replace(
+        detected,
+        features=[lower, replace(lower), tool_centred_lower, upper, *retained],
+    )
+
+    drawing = build_drawing(part, model=declared, page="A3")
+    outcomes = _outcomes(drawing)
+    assert len([item for item in outcomes if item.state == "placed"]) == 4
+    unverifiable = [item for item in outcomes if item.state == "unverifiable"]
+    assert len(unverifiable) == 1
+    assert unverifiable[0].requirement_count == 4
+    assert _completeness(drawing)["audited_score"] == 0.5
+
+
 def test_extra_exact_owner_cannot_be_reused_for_omitted_opposed_blind_bore():
     part = _partial_lower_group_with_opposed_blind_hole()
     detected = build_drawing(part, page="A3").model()
@@ -511,11 +542,15 @@ def test_dense_separate_blind_tool_correspondence_scales_linearly():
             count=2,
             members=((0.0, 0.0, 4.0), (1.0, 0.0, 4.0)),
         )
-        started = time.perf_counter()
-        outcomes = hole_requirement_outcomes(
-            recognition, (grouped, *singletons), baseline.registry
-        )
-        return time.perf_counter() - started, outcomes
+        samples = []
+        outcomes = []
+        for _ in range(3):
+            started = time.perf_counter()
+            outcomes = hole_requirement_outcomes(
+                recognition, (grouped, *singletons), baseline.registry
+            )
+            samples.append(time.perf_counter() - started)
+        return min(samples), outcomes
 
     small_elapsed, small = elapsed_for(1_000)
     large_elapsed, large = elapsed_for(2_000)
@@ -631,6 +666,69 @@ def test_many_distinct_hole_specs_do_not_cross_scan_the_ir_inventory(monkeypatch
     assert len(large) == 8_000
     assert large_elapsed < 2.0
     assert feature_spec_calls < 20_000
+
+
+def test_many_blind_patterns_use_indexed_tool_centre_correspondence(monkeypatch):
+    import draftwright.linting.hole_coverage as hole_coverage_module
+
+    baseline = build_drawing(_blind_hole(), auto_dims=False)
+    pattern_key_calls = 0
+    original_pattern_key = hole_coverage_module._pattern_key
+
+    def counted_pattern_key(pattern):
+        nonlocal pattern_key_calls
+        pattern_key_calls += 1
+        return original_pattern_key(pattern)
+
+    monkeypatch.setattr(hole_coverage_module, "_pattern_key", counted_pattern_key)
+    count = 1_000
+    physical_patterns = []
+    declared_patterns = []
+    all_holes = []
+    for index in range(count):
+        diameter = float(index + 1)
+        center_x = float(index * 5 + 1)
+        holes = tuple(
+            HoleRecord(
+                axis=(0.0, 0.0, 1.0),
+                location=(center_x + offset, 0.0, 0.0),
+                diameter=diameter,
+                depth=8.0,
+                bottom="flat",
+            )
+            for offset in (-1.0, 0.0, 1.0)
+        )
+        all_holes.extend(holes)
+        physical_patterns.append(LinearArray(holes=holes, pitch=1.0, direction=(1.0, 0.0, 0.0)))
+        member = declare_hole(
+            diameter=diameter,
+            at=(center_x, 0.0, 4.0),
+            axis="z",
+            through=False,
+            depth=8.0,
+        )
+        declared_patterns.append(
+            declare_pattern(
+                member,
+                kind="linear",
+                count=3,
+                at=member.frame.origin,
+                pitch=1.0,
+                direction=(1.0, 0.0, 0.0),
+            )
+        )
+    recognition = replace(
+        baseline.recognition(),
+        holes=tuple(all_holes),
+        hole_patterns=tuple(physical_patterns),
+        countersinks=(),
+    )
+
+    outcomes = hole_requirement_outcomes(recognition, tuple(declared_patterns), baseline.registry)
+
+    assert len(outcomes) == count * 6
+    assert not [item for item in outcomes if item.state == "unverifiable"]
+    assert pattern_key_calls < count * 10
 
 
 def test_overlapping_declared_covers_fail_closed_in_bounded_time():
@@ -900,6 +998,44 @@ def test_same_face_pattern_tool_centres_cannot_certify_omitted_opposed_pattern()
         feature for feature in detected.features if feature.kind not in {"hole", "pattern"}
     ]
     declared = replace(detected, features=[lower, duplicate_lower, *retained])
+
+    drawing = build_drawing(part, model=declared, page="A3")
+    outcomes = _outcomes(drawing)
+    assert len([item for item in outcomes if item.state == "placed"]) == 6
+    unverifiable = [item for item in outcomes if item.state == "unverifiable"]
+    assert len(unverifiable) == 1
+    assert unverifiable[0].requirement_count == 6
+    assert _completeness(drawing)["audited_score"] == 0.5
+
+
+def test_ambiguous_exact_pattern_owners_cannot_escape_through_tool_centre_fallback():
+    part = _opposed_blind_patterns()
+    detected = build_drawing(part, page="A3").model()
+    lower, upper = sorted(
+        (feature for feature in detected.features if feature.kind == "pattern"),
+        key=lambda feature: feature.frame.origin[2],
+    )
+    shift = lower.member.depth / 2
+
+    def shifted(point):
+        return (point[0], point[1], point[2] + shift)
+
+    tool_centred_lower = replace(
+        lower,
+        frame=replace(lower.frame, origin=shifted(lower.frame.origin)),
+        member=replace(
+            lower.member,
+            frame=replace(lower.member.frame, origin=shifted(lower.member.frame.origin)),
+        ),
+        members=tuple(shifted(point) for point in lower.members),
+    )
+    retained = [
+        feature for feature in detected.features if feature.kind not in {"hole", "pattern"}
+    ]
+    declared = replace(
+        detected,
+        features=[lower, replace(lower), tool_centred_lower, upper, *retained],
+    )
 
     drawing = build_drawing(part, model=declared, page="A3")
     outcomes = _outcomes(drawing)
@@ -1372,6 +1508,36 @@ def test_public_hole_table_explicitly_places_printed_authored_omissions():
     after = {item.parameter_id: item.state for item in _outcomes(drawing)}
     assert after["bore.diameter"] == after["bore.depth"] == "placed"
     assert after["location.location.x"] == after["location.location.y"] == "suppressed"
+
+
+def test_public_hole_table_does_not_claim_a_blank_blind_depth(monkeypatch):
+    from draftwright.drawing import Drawing
+
+    captured_rows = []
+    original = Drawing.add_table
+
+    def capture_rows(self, rows, **kwargs):
+        captured_rows.append(tuple(tuple(cell for cell in row) for row in rows))
+        return original(self, rows, **kwargs)
+
+    monkeypatch.setattr(Drawing, "add_table", capture_rows)
+    part = _blind_hole()
+    detected = build_drawing(part, auto_dims=False).model()
+    feature = next(feature for feature in detected.features if feature.kind == "hole")
+    drawing = build_drawing(
+        part,
+        model=_declared_model(part, replace(feature, depth=None)),
+        auto_dims=False,
+        page="A3",
+    )
+
+    table = drawing.add_hole_table("plan", balloons=False)
+
+    assert table is not None
+    assert captured_rows[-1][1][2] == ""
+    assert {key["parameter_id"] for key in drawing.measurement_keys("hole_table_plan")} == {
+        "bore.diameter"
+    }
 
 
 def test_blind_hole_table_prints_every_depth_it_claims(monkeypatch):
