@@ -68,7 +68,8 @@ def test_placement_seeds_the_memo(built):
 
 def test_lint_does_not_re_measure_what_placement_measured(built):
     """The consequence that makes the shared memo worth having."""
-    seeded = {k for k in built.box_cache}
+    live_annotations = {id(item) for item in built.items}
+    seeded = {key for key in built.box_cache if key in live_annotations}
     assert seeded, "nothing was seeded, so this test cannot prove anything"
 
     boxed_during_lint: list[int] = []

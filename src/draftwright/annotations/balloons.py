@@ -21,7 +21,11 @@ from draftwright._core import (
     _balloon_halo,
     _balloon_radius,
 )
-from draftwright.annotations._common import carve_free_segments, strip_obstacles
+from draftwright.annotations._common import (
+    balloon_hits_annotation_label,
+    carve_free_segments,
+    strip_obstacles,
+)
 from draftwright.fonts import PLEX_MONO
 from draftwright.layout import (
     _assign_balloon_bands,
@@ -298,10 +302,12 @@ def _place_band(dwg, view, members, axis, line, lo, hi, gap, fs, r, ctx, *, segm
             or _greedy_strip_1d(naturals, gap, lo, hi)
             or _greedy_strip_1d(naturals, gap, lo, hi, prefix=True)
         )
+    rejected = 0
     for (tag, j, hole, cx, cy), c in zip(members, coords):
         bx, by = (line, c) if axis == "y" else (c, line)
-        _render_balloon(dwg, view, tag, j, hole, cx, cy, bx, by, fs, r, ctx)
-    return len(members) - len(coords)
+        if _render_balloon(dwg, view, tag, j, hole, cx, cy, bx, by, fs, r, ctx) is False:
+            rejected += 1
+    return len(members) - len(coords) + rejected
 
 
 def _render_balloon(dwg, view, tag, j, hole, cx, cy, bx, by, fs, r, ctx):
@@ -334,9 +340,12 @@ def _render_balloon(dwg, view, tag, j, hole, cx, cy, bx, by, fs, r, ctx):
     # Furniture that legitimately sits on the view geometry — exempt from the
     # annotation-overlap / centreline lint, as the section arrows do.
     balloon.is_centerline = True
+    if balloon_hits_annotation_label(dwg, balloon, view):
+        return False
     ctx.place(
         balloon,
         f"balloon_{view}_{tag}_{j}",
         view=view,
         feature=ctx.feature_of_hole_at(hole.location),
     )
+    return True

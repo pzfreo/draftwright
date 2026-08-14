@@ -26,7 +26,11 @@ from draftwright._core import (  # noqa: F401 — _anno_box re-exported (#700)
 from draftwright._geometry import _boxes_overlap, _segment_crosses_box  # noqa: F401
 from draftwright.layout import StripCandidate, plan_strip
 from draftwright.linting.issues import LintIssue
-from draftwright.linting.structural import _ann_box, _centerline_extent
+from draftwright.linting.structural import (
+    _ann_box,
+    _centerline_extent,
+    _label_centerline_overlap,
+)
 from draftwright.model.compiled import resolve_feature
 
 _log = logging.getLogger(__name__)
@@ -202,6 +206,39 @@ class _StashedAnnotation:
 
 
 _MISSING_REPRESENTATION = object()
+
+
+@dataclass(frozen=True)
+class _AnnotationTransactionSnapshot:
+    """Complete mutable drawing state needed by an annotation rollback."""
+
+    registry: dict
+    issues: tuple
+    items: tuple
+    coverage: Any
+
+
+def _snapshot_annotation_transaction(dwg, coverage) -> _AnnotationTransactionSnapshot:
+    """Capture identity/order, issues, render order, and semantic coverage."""
+    return _AnnotationTransactionSnapshot(
+        registry=dwg.registry.snapshot(),
+        issues=dwg.registry.issues,
+        items=tuple(dwg.items),
+        coverage=coverage.snapshot(),
+    )
+
+
+def _restore_annotation_transaction(dwg, coverage, snapshot, stashed, *, reason=None) -> None:
+    """Restore *snapshot* exactly, optionally marking visible fallback semantics."""
+    _reset_stashed_representation(stashed)
+    dwg.registry.restore(snapshot.registry)
+    dwg.registry.restore_issues(snapshot.issues)
+    dwg.items[:] = snapshot.items
+    coverage.restore(snapshot.coverage)
+    if reason is not None:
+        for record in stashed.values():
+            record.annotation.hole_representation = "feature_annotation"
+            record.annotation.hole_representation_reason = reason
 
 
 def _stash_annotations(dwg, names) -> dict[str, _StashedAnnotation]:
@@ -1089,6 +1126,32 @@ def _box_hits(bb, boxes):
     does not count as an overlap, so a candidate never overprints — at worst it
     is dropped a hair early."""
     return bb is not None and any(_boxes_overlap(bb, c) for c in boxes)
+
+
+def balloon_hits_annotation_label(dwg, balloon, view) -> bool:
+    """Whether *balloon* would create a lint-significant visible-text collision.
+
+    Balloon compounds are centreline-like furniture, so their leader/ring footprint is
+    compared with every surviving annotation label through the exact structural-lint
+    predicate.  This is a final-inventory guard inside the shared balloon placement pass:
+    retained or transactionally restored callouts remain real obstacles rather than being
+    re-added after the solve (#1144 / ADR 0014).
+    """
+    cache = getattr(dwg, "box_cache", None)
+    for name, annotation in dwg.iter_annotations():
+        owner = dwg.view_of(name)
+        if owner is not None and owner != view:
+            continue
+        if getattr(annotation, "is_centerline", False):
+            continue
+        # The transaction changes only feature-backed callout presence. Other
+        # dimension/furniture conflicts belong to their owning placement passes; treating
+        # every witness-line bbox as a balloon obstacle would discard most of a dense ring.
+        if getattr(annotation, "elbow", None) is None:
+            continue
+        if _label_centerline_overlap(annotation, balloon, cache) is not None:
+            return True
+    return False
 
 
 def box_within_page_and_clear(bb, page_box, obstacles) -> bool:

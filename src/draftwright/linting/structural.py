@@ -739,37 +739,9 @@ def _lint_centerline_dim_overlap(
     arithmetic runs unguarded so a bug fails loudly instead of silently
     disabling the check.
     """
-    if box_cache is None:
-        box_cache = {}
-    try:
-        cl_min_x, cl_min_y, cl_max_x, cl_max_y = _centerline_extent(cl_item, box_cache)
-    except Exception as exc:  # noqa: BLE001 — duck-typed centreline may not measure
-        _log.debug("lint: centreline did not measure (%s); overlap check skips it", exc)
-        return
-
-    label_bbox = _label_bbox(dim_item, warned)
-    if label_bbox is None:
-        label_bbox = _ann_box(dim_item, box_cache)
-    if label_bbox is None:
-        return
-    lmin_x, lmin_y, lmax_x, lmax_y = label_bbox
-
-    cl_w = cl_max_x - cl_min_x
-    cl_h = cl_max_y - cl_min_y
-
-    if cl_w < 0.1:
-        cl_x = (cl_min_x + cl_max_x) / 2.0
-        ox = min(cl_x - lmin_x, lmax_x - cl_x) if lmin_x < cl_x < lmax_x else 0.0
-    else:
-        ox = max(0.0, min(lmax_x, cl_max_x) - max(lmin_x, cl_min_x))
-
-    if cl_h < 0.1:
-        cl_y = (cl_min_y + cl_max_y) / 2.0
-        oy = min(cl_y - lmin_y, lmax_y - cl_y) if lmin_y < cl_y < lmax_y else 0.0
-    else:
-        oy = max(0.0, min(lmax_y, cl_max_y) - max(lmin_y, cl_min_y))
-
-    if ox > 0.5 and oy > 0.5:
+    overlap = _label_centerline_overlap(dim_item, cl_item, box_cache, warned)
+    if overlap is not None:
+        ox, oy, location = overlap
         dim_label = getattr(dim_item, "label", "?")
         issue = LintIssue(
             severity="warning",
@@ -780,10 +752,7 @@ def _lint_centerline_dim_overlap(
             ),
             # Pair detail stays in the raw issue: this is the compared centre mark's
             # extent centre, so equal-looking findings can still be traced spatially.
-            location=(
-                (cl_min_x + cl_max_x) / 2.0,
-                (cl_min_y + cl_max_y) / 2.0,
-            ),
+            location=location,
             code="label_centerline_overlap",
         )
         issues.append(issue)
@@ -791,6 +760,50 @@ def _lint_centerline_dim_overlap(
             # The side ledger sees which half of the pair owns the readability defect;
             # neither the annotation nor its run-local identity enters public diagnostics.
             aggregation.record_pair(issue, subject_token)
+
+
+def _label_centerline_overlap(dim_item, cl_item, box_cache=None, warned=None):
+    """Return the lint-significant label/centreline overlap, or ``None``.
+
+    Balloon placement uses the same predicate before committing a leadered glyph. Keeping
+    the tolerance and thin-line handling here prevents placement and critique from making
+    contradictory decisions about the final annotation inventory (#1144).
+    """
+    if box_cache is None:
+        box_cache = {}
+    try:
+        cl_min_x, cl_min_y, cl_max_x, cl_max_y = _centerline_extent(cl_item, box_cache)
+    except Exception as exc:  # noqa: BLE001 — duck-typed centreline may not measure
+        _log.debug("lint: centreline did not measure (%s); overlap check skips it", exc)
+        return None
+
+    label_bbox = _label_bbox(dim_item, warned)
+    if label_bbox is None:
+        label_bbox = _ann_box(dim_item, box_cache)
+    if label_bbox is None:
+        return None
+    lmin_x, lmin_y, lmax_x, lmax_y = label_bbox
+
+    cl_w = cl_max_x - cl_min_x
+    cl_h = cl_max_y - cl_min_y
+    if cl_w < 0.1:
+        cl_x = (cl_min_x + cl_max_x) / 2.0
+        ox = min(cl_x - lmin_x, lmax_x - cl_x) if lmin_x < cl_x < lmax_x else 0.0
+    else:
+        ox = max(0.0, min(lmax_x, cl_max_x) - max(lmin_x, cl_min_x))
+    if cl_h < 0.1:
+        cl_y = (cl_min_y + cl_max_y) / 2.0
+        oy = min(cl_y - lmin_y, lmax_y - cl_y) if lmin_y < cl_y < lmax_y else 0.0
+    else:
+        oy = max(0.0, min(lmax_y, cl_max_y) - max(lmin_y, cl_min_y))
+
+    if ox <= 0.5 or oy <= 0.5:
+        return None
+    return (
+        ox,
+        oy,
+        ((cl_min_x + cl_max_x) / 2.0, (cl_min_y + cl_max_y) / 2.0),
+    )
 
 
 def _lint_dim(item, part_bbox, issues, drawing_scale: float = 1.0, box_cache=None) -> None:

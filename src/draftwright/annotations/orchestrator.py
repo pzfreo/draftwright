@@ -43,7 +43,9 @@ from draftwright.annotations._common import (
     _hole_table_replaceable_annotation,
     _hole_table_replaceable_feature,
     _register_hole_table_coverage,
+    _restore_annotation_transaction,
     _restore_stashed_annotations,
+    _snapshot_annotation_transaction,
     _stash_annotations,
 )
 from draftwright.annotations.balloons import render_balloons
@@ -797,6 +799,7 @@ def _maybe_tabulate_holes(dwg, a: Analysis, *, ctx, plan=None):
     replaceable_table_features: set = set()
     table_replacement_features: set = set()
     replaced = {}
+    table_transaction_snap = None
     if tabulate_scattered:
         compiled = plan if plan is not None else compile_dimensions(_model)
         approved_hole_dimensions = {
@@ -855,6 +858,7 @@ def _maybe_tabulate_holes(dwg, a: Analysis, *, ctx, plan=None):
         # Structured coverage state (registered at placement time, #351 PR-4c), not
         # an annotation-name-prefix grep — the last stringly-typed inference this
         # resolver relied on (ADR 0009 Amdt 1).
+        table_transaction_snap = _snapshot_annotation_transaction(dwg, ctx.coverage)
         replaced = _stash_annotations(
             dwg,
             [
@@ -880,7 +884,14 @@ def _maybe_tabulate_holes(dwg, a: Analysis, *, ctx, plan=None):
             # Even wrapped it will not fit — restore the callouts/dims and keep the
             # drop lint, so the sheet is never left with neither. The pattern
             # balloons below are unaffected — nothing of theirs was removed.
-            _restore_stashed_annotations(dwg, ctx, replaced, reason="table_not_placed")
+            assert table_transaction_snap is not None
+            _restore_annotation_transaction(
+                dwg,
+                ctx.coverage,
+                table_transaction_snap,
+                replaced,
+                reason="table_not_placed",
+            )
             ctx.record_issue("warning", "table_dropped", "hole table did not fit the sheet")
         else:
             table_features = tuple(dict.fromkeys(h.feature for h in holes))
@@ -889,6 +900,21 @@ def _maybe_tabulate_holes(dwg, a: Analysis, *, ctx, plan=None):
 
     balloon_specs = scattered_specs + pattern_specs
     placed_names: set = set()
+    balloon_issue_base = dwg.registry.issues
+
+    def _place_balloon_attempt(specs, *, perimeter):
+        nonlocal placed_names
+        attempted = {f"balloon_plan_{tag}_{member_index}" for tag, member_index, _ in specs}
+        dwg.registry.restore_issues(balloon_issue_base)
+        _discard_attempt_annotations(dwg, attempted)
+        previous_objects = {name: dwg.registry.named(name) for name in attempted}
+        render_balloons(dwg, a, "plan", specs, ctx, perimeter=perimeter)
+        placed_names = {
+            name
+            for name, previous in previous_objects.items()
+            if dwg.registry.named(name) is not None and dwg.registry.named(name) is not previous
+        }
+
     if balloon_specs:
         # One call: the strip solver must see every band member together, or two
         # independent render_balloons calls could stack a pattern balloon on a
@@ -898,16 +924,7 @@ def _maybe_tabulate_holes(dwg, a: Analysis, *, ctx, plan=None):
         # balloon request: spread its tags around the usable perimeter so a
         # deep occupied strip cannot collapse the ring onto two near sides
         # (#901). Pattern-only and public-verb balloons keep nearest-band cost.
-        attempted_names = {
-            f"balloon_plan_{tag}_{member_index}" for tag, member_index, _hole in balloon_specs
-        }
-        previous_objects = {name: dwg.registry.named(name) for name in attempted_names}
-        render_balloons(dwg, a, "plan", balloon_specs, ctx, perimeter=table_placed)
-        placed_names = {
-            name
-            for name, previous in previous_objects.items()
-            if dwg.registry.named(name) is not None and dwg.registry.named(name) is not previous
-        }
+        _place_balloon_attempt(balloon_specs, perimeter=table_placed)
 
     # Commit table replacement per semantic feature only after every balloon that maps
     # its visible row(s) back to physical holes has landed. A partially placed ring leaves
@@ -931,14 +948,14 @@ def _maybe_tabulate_holes(dwg, a: Analysis, *, ctx, plan=None):
         replacement_features = {
             feature for record in replaced.values() for feature in record.features
         }
+        restored_features: set = set()
         unresolved_replacements = replacement_features - table_success_features
-        scattered_attempt_names = {
-            f"balloon_plan_{tag}_0" for tag in scattered_tags
-        } & placed_names
-        if unresolved_replacements:
+        while unresolved_replacements:
+            restored_features |= unresolved_replacements
             # The first fit legitimately used the fallbacks' freed footprints. Restore
             # the unresolved subset, then solve the table again against those real
-            # obstacles; blindly reusing the first box could create a collision.
+            # obstacles. Then solve the complete balloon inventory again: retaining
+            # balloons from the first, fallback-free solve could cross a restored label.
             _discard_attempt_annotations(dwg, {"hole_table_plan"})
             _restore_stashed_annotations(
                 dwg,
@@ -954,13 +971,47 @@ def _maybe_tabulate_holes(dwg, a: Analysis, *, ctx, plan=None):
                 block_cols=len(header),
             )
             if table is None:
-                _discard_attempt_annotations(dwg, scattered_attempt_names)
-                placed_names -= scattered_attempt_names
-                _restore_stashed_annotations(
-                    dwg, ctx, replaced, reason="required_balloon_not_placed"
+                assert table_transaction_snap is not None
+                had_balloon_drop = any(
+                    issue.code == "balloon_dropped"
+                    for issue in dwg.registry.issues[len(balloon_issue_base) :]
                 )
+                _restore_annotation_transaction(
+                    dwg,
+                    ctx.coverage,
+                    table_transaction_snap,
+                    replaced,
+                    reason="required_balloon_not_placed",
+                )
+                ctx.record_issue(
+                    "warning",
+                    "table_dropped",
+                    "hole table could not fit with its fallback callouts",
+                )
+                if had_balloon_drop:
+                    ctx.record_issue(
+                        "warning",
+                        "balloon_dropped",
+                        "one or more required hole-table balloons could not be placed",
+                    )
                 table_placed = False
                 table_success_features = set()
+                if pattern_specs:
+                    balloon_issue_base = dwg.registry.issues
+                    _place_balloon_attempt(pattern_specs, perimeter=False)
+                break
+
+            _place_balloon_attempt(balloon_specs, perimeter=True)
+            table_success_features = _fully_ballooned_features(
+                "plan",
+                table_tagged_holes,
+                placed_names,
+                dwg.registry,
+                expected_counts,
+            )
+            unresolved_replacements = (
+                replacement_features - restored_features - table_success_features
+            )
 
         if table_placed and table is not None:
             incomplete_names = {
@@ -1038,8 +1089,14 @@ def _maybe_tabulate_holes(dwg, a: Analysis, *, ctx, plan=None):
             )
             if feature in replaceable_table_features
         }
-        table_replacement_features = table_success_features & (
-            replacement_features | escalated_replacement_features | dropped_replacement_features
+        table_replacement_features = (
+            table_success_features
+            & (
+                replacement_features
+                | escalated_replacement_features
+                | dropped_replacement_features
+            )
+            - restored_features
         )
         _register_hole_table_coverage(
             table,

@@ -55,8 +55,9 @@ from draftwright.annotations._common import (
     _hole_table_replaceable_annotation,
     _hole_table_replaceable_feature,
     _register_hole_table_coverage,
-    _reset_stashed_representation,
+    _restore_annotation_transaction,
     _restore_stashed_annotations,
+    _snapshot_annotation_transaction,
     _stash_annotations,
     carve_free_position,
     strip_obstacles,
@@ -2644,14 +2645,21 @@ class Drawing:
         table schema cannot replace all of their visible facts. This is the transactional
         replacement surface — callers must not remove leaders themselves first. Replacement
         requires ``balloons=True`` and distinct, unused table/balloon names. The default
-        remains additive for compatibility. Returns the committed table, or ``None`` when
-        *view* has no holes or the final representation will not fit.
+        remains additive for compatibility. Transactional replacement is currently limited
+        to the plan view because the shared balloon halo is a plan-layout contract; additive
+        tables remain available for every orthographic view. Returns the committed table, or
+        ``None`` when *view* has no holes or the final representation will not fit.
         """
         groups = self._hole_spec_groups(view)
         if not groups:
             return None
         if replace_callouts and not balloons:
             raise ValueError("replace_callouts=True requires balloons=True")
+        if replace_callouts and view != "plan":
+            raise ValueError(
+                "replace_callouts=True currently requires view='plan'; front/side balloon "
+                "halos are not yet part of the shared layout contract"
+            )
 
         ctx = PlacementContext(
             registry=self._registry,
@@ -2677,7 +2685,7 @@ class Drawing:
                 f"{table_name!r} is reserved by this attempt"
             )
         stashed = {}
-        reg_snap = issues_snap = items_snap = coverage_snap = None
+        transaction_snap = None
         if replace_callouts:
             from build123d_drafting import Leader
 
@@ -2746,55 +2754,70 @@ class Drawing:
                     )
                 )
             ]
-            reg_snap = self._registry.snapshot()
-            issues_snap = self._registry.issues
-            items_snap = list(self.items)
-            coverage_snap = self._coverage.snapshot()
+            transaction_snap = _snapshot_annotation_transaction(self, self._coverage)
             try:
                 stashed = _stash_annotations(self, replaceable_names)
             except BaseException:
-                self._registry.restore(reg_snap)
-                self._registry.restore_issues(issues_snap)
-                self.items[:] = items_snap
-                self._coverage.restore(coverage_snap)
+                _restore_annotation_transaction(self, self._coverage, transaction_snap, stashed)
                 raise
 
-        rows = [("TAG", "⌀", "DEPTH", "QTY")]
-        for tag, _owner, holes, count in groups:
-            h = holes[0]
-            depth = "THRU" if h.through else (_fmt(h.depth) if h.depth else "")
-            rows.append((tag, f"ø{_fmt(h.diameter)}", depth, str(count)))
         try:
+            rows = [("TAG", "⌀", "DEPTH", "QTY")]
+            for tag, _owner, holes, count in groups:
+                h = holes[0]
+                depth = "THRU" if h.through else (_fmt(h.depth) if h.depth else "")
+                rows.append((tag, f"ø{_fmt(h.diameter)}", depth, str(count)))
             table = self.add_table(rows, prefer=prefer, name=table_name)
             if table is None:
-                if stashed:
-                    _restore_stashed_annotations(self, ctx, stashed, reason="table_not_placed")
+                if replace_callouts:
+                    assert transaction_snap is not None
+                    _restore_annotation_transaction(
+                        self,
+                        self._coverage,
+                        transaction_snap,
+                        stashed,
+                        reason="table_not_placed",
+                    )
+                    self._record_build_issue(
+                        "warning",
+                        "table_dropped",
+                        f"table {table_name!r} did not fit the sheet",
+                    )
                 return None
 
             if balloons:
-                if self._analysis is None:
-                    placed_names = set()
-                else:
-                    render_balloons(
-                        self,
-                        self._analysis,
+                balloon_issue_base = self._registry.issues
+
+                def place_attempt_balloons():
+                    self._registry.restore_issues(balloon_issue_base)
+                    _discard_attempt_annotations(self, attempted_names)
+                    if self._analysis is None:
+                        landed = set()
+                    else:
+                        render_balloons(
+                            self,
+                            self._analysis,
+                            view,
+                            [
+                                (tag, member_index, hole)
+                                for tag, member_index, hole, _owner in tagged_holes
+                            ],
+                            ctx,
+                        )
+                        landed = {
+                            name
+                            for name in attempted_names
+                            if self._registry.named(name) is not None
+                        }
+                    return landed, _fully_ballooned_features(
                         view,
-                        [
-                            (tag, member_index, hole)
-                            for tag, member_index, hole, _owner in tagged_holes
-                        ],
-                        ctx,
+                        tagged_holes,
+                        landed,
+                        self._registry,
+                        expected_counts,
                     )
-                    placed_names = {
-                        name for name in attempted_names if self._registry.named(name) is not None
-                    }
-                successful_features = _fully_ballooned_features(
-                    view,
-                    tagged_holes,
-                    placed_names,
-                    self._registry,
-                    expected_counts,
-                )
+
+                placed_names, successful_features = place_attempt_balloons()
             else:
                 placed_names = set()
                 successful_features = set(group_features)
@@ -2802,8 +2825,10 @@ class Drawing:
             replacement_features = {
                 feature for record in stashed.values() for feature in record.features
             }
+            restored_features = set()
             unresolved_replacements = replacement_features - successful_features
-            if unresolved_replacements:
+            while unresolved_replacements:
+                restored_features |= unresolved_replacements
                 # Refit through the same free-box solve after restoring the unresolved
                 # leaders. The original box may occupy their temporarily freed footprint.
                 _discard_attempt_annotations(self, {table_name})
@@ -2816,11 +2841,34 @@ class Drawing:
                 )
                 table = self.add_table(rows, prefer=prefer, name=table_name)
                 if table is None:
-                    _discard_attempt_annotations(self, placed_names)
-                    _restore_stashed_annotations(
-                        self, ctx, stashed, reason="required_balloon_not_placed"
+                    assert transaction_snap is not None
+                    had_balloon_drop = any(
+                        issue.code == "balloon_dropped"
+                        for issue in self._registry.issues[len(balloon_issue_base) :]
+                    )
+                    _restore_annotation_transaction(
+                        self,
+                        self._coverage,
+                        transaction_snap,
+                        stashed,
+                        reason="required_balloon_not_placed",
+                    )
+                    if had_balloon_drop:
+                        self._record_build_issue(
+                            "warning",
+                            "balloon_dropped",
+                            "one or more required hole-table balloons could not be placed",
+                        )
+                    self._record_build_issue(
+                        "warning",
+                        "table_dropped",
+                        "hole table could not fit with its fallback callouts",
                     )
                     return None
+                placed_names, successful_features = place_attempt_balloons()
+                unresolved_replacements = (
+                    replacement_features - restored_features - successful_features
+                )
 
             incomplete_names = {
                 f"balloon_{view}_{tag}_{member_index}"
@@ -2869,23 +2917,16 @@ class Drawing:
                 requirements=requirements,
                 representation_reason=("required_balloons_placed" if replace_callouts else None),
                 representation_features=(
-                    replacement_features & successful_features if replace_callouts else ()
+                    (replacement_features - restored_features) & successful_features
+                    if replace_callouts
+                    else ()
                 ),
             )
             return table
         except BaseException:
             if replace_callouts:
-                assert (
-                    reg_snap is not None
-                    and issues_snap is not None
-                    and items_snap is not None
-                    and coverage_snap is not None
-                )
-                _reset_stashed_representation(stashed)
-                self._registry.restore(reg_snap)
-                self._registry.restore_issues(issues_snap)
-                self.items[:] = items_snap
-                self._coverage.restore(coverage_snap)
+                assert transaction_snap is not None
+                _restore_annotation_transaction(self, self._coverage, transaction_snap, stashed)
             raise
 
     def pin(self, name):

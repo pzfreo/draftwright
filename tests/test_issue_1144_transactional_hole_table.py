@@ -7,7 +7,7 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
-from build123d import Align, Box, Cylinder, Pos
+from build123d import Align, Box, Cylinder, Pos, Rot
 
 from draftwright import build_drawing
 from draftwright.fits import fit_class
@@ -126,6 +126,20 @@ def _plan_bore_callouts(drawing):
     return callouts
 
 
+def _callout_label_overlap_issues(drawing):
+    labels = {
+        annotation.label
+        for _feature, (_name, annotation) in _plan_bore_callouts(drawing).items()
+        if annotation.label
+    }
+    return [
+        issue
+        for issue in drawing.lint()
+        if issue.code == "label_centerline_overlap"
+        and any(f"label '{label}'" in issue.message for label in labels)
+    ]
+
+
 def _drop_one_diameter_balloon(monkeypatch, diameter):
     """Force one otherwise feasible balloon assignment to become partial."""
     import draftwright.annotations.balloons as balloons_module
@@ -221,6 +235,8 @@ def test_constrained_a4_table_failure_restores_exact_callouts_and_identity(monke
     import draftwright.drawing as drawing_module
 
     drawing = build_drawing(_multi_hole_plate(), page="A4")
+    before_order = tuple(id(item) for item in drawing.items)
+    before_names = tuple(drawing.annotations())
     original = _plan_bore_callouts(drawing)
     identities = {
         name: drawing.registry.identity_of(name) for name, _annotation in original.values()
@@ -236,6 +252,8 @@ def test_constrained_a4_table_failure_restores_exact_callouts_and_identity(monke
         assert drawing.get_annotation(name) is annotation
         assert drawing.registry.identity_of(name) == identities[name]
     assert drawing.registry.is_pinned(pinned_name)
+    assert tuple(id(item) for item in drawing.items) == before_order
+    assert tuple(drawing.annotations()) == before_names
     codes = [issue.code for issue in drawing.lint()]
     assert codes.count("table_dropped") == 1
     assert "hole_requirement_missing" not in codes
@@ -291,6 +309,34 @@ def test_partial_public_balloon_commit_restores_only_the_unresolved_group(monkey
         ("hole_table", "required_balloons_placed"),
         ("feature_annotation", "required_balloon_not_placed"),
     }
+
+
+def test_public_replacement_rejects_non_plan_views_before_mutation():
+    part = Box(12, 40, 30) - Pos(0, 8, 6) * Rot(0, 90, 0) * Cylinder(3, 12)
+    drawing = build_drawing(part, page="A4")
+    before = _transaction_state(drawing)
+
+    with pytest.raises(ValueError, match="currently requires view='plan'"):
+        drawing.add_hole_table("side", replace_callouts=True)
+
+    assert _transaction_state(drawing) == before
+
+
+def test_public_replacement_rolls_back_when_row_formatting_raises(monkeypatch):
+    import draftwright.drawing as drawing_module
+
+    drawing = build_drawing(_multi_hole_plate(), page="A4")
+    before = _transaction_state(drawing)
+
+    def fail_format(_value):
+        raise RuntimeError("forced row formatting failure")
+
+    monkeypatch.setattr(drawing_module, "_fmt", fail_format)
+
+    with pytest.raises(RuntimeError, match="forced row formatting failure"):
+        drawing.add_hole_table("plan", replace_callouts=True)
+
+    assert _transaction_state(drawing) == before
 
 
 def test_partial_public_commit_refits_clear_of_the_restored_fallback(monkeypatch):
@@ -363,17 +409,31 @@ def test_automatic_partial_balloon_result_never_claims_the_unkeyed_feature(monke
 
     table = drawing.get_annotation("hole_table_plan")
     assert table is not None
-    assert len(table.covers_diameters) == 19
+    assert 0 < len(table.covers_diameters) < 20
     table_features = {
         measurement.feature for measurement in drawing.registry.measurement_of("hole_table_plan")
     }
-    assert len(table_features) == 19
+    assert len(table_features) == len(table.covers_diameters)
     assert {feature.diameter for feature in table_features} == set(table.covers_diameters)
     assert 2.0 not in table.covers_diameters
-    assert len([name for name in drawing.annotations() if name.startswith("balloon_plan_")]) == 19
+    assert len(
+        [name for name in drawing.annotations() if name.startswith("balloon_plan_")]
+    ) == len(table.covers_diameters)
     assert "balloon_dropped" in {issue.code for issue in drawing.lint()}
     outcomes = _outcomes(drawing)
-    assert all(outcome.state == "placed" for outcome in outcomes)
+    assert {outcome.state for outcome in outcomes} <= {"placed", "dropped"}
+    assert all(
+        any(
+            issue.code == "callout_dropped"
+            and any(
+                tuple(measurement.feature.frame.origin[:2]) == tuple(outcome.source_at[:2])
+                for measurement in issue.measurement_ids
+            )
+            for issue in drawing.registry.issues
+        )
+        for outcome in outcomes
+        if outcome.state == "dropped" and outcome.parameter_id == "bore.diameter"
+    )
     diameter_representations = {
         (outcome.representation, outcome.representation_reason)
         for outcome in outcomes
@@ -382,7 +442,39 @@ def test_automatic_partial_balloon_result_never_claims_the_unkeyed_feature(monke
     assert diameter_representations == {
         ("hole_table", "required_balloons_placed"),
         ("feature_annotation", "required_balloon_not_placed"),
+        (None, None),
     }
+    assert not _callout_label_overlap_issues(drawing)
+
+
+def test_automatic_initial_table_failure_restores_every_fallback(monkeypatch):
+    import draftwright.annotations.orchestrator as orchestrator
+    import draftwright.drawing as drawing_module
+
+    part = _dense_scattered_plate()
+    with monkeypatch.context() as disabled:
+        disabled.setattr(orchestrator, "_maybe_tabulate_holes", lambda *_args, **_kwargs: None)
+        baseline = build_drawing(part)
+    baseline_callout_measurements = {
+        tuple(baseline.registry.measurement_of(name))
+        for name in baseline.annotations()
+        if name.startswith("hc_plan")
+    }
+    monkeypatch.setattr(drawing_module, "fit_box", lambda *_args, **_kwargs: None)
+
+    drawing = build_drawing(part)
+
+    assert "hole_table_plan" not in drawing.annotations()
+    assert tuple(drawing.annotations()) == tuple(baseline.annotations())
+    assert drawing.coverage.snapshot() == baseline.coverage.snapshot()
+    assert {
+        tuple(drawing.registry.measurement_of(name))
+        for name in drawing.annotations()
+        if name.startswith("hc_plan")
+    } == baseline_callout_measurements
+    codes = [issue.code for issue in drawing.lint()]
+    assert codes.count("table_dropped") == 1
+    assert "hole_requirement_missing" not in codes
 
 
 def test_automatic_partial_result_rolls_back_when_the_fallback_aware_refit_fails(
@@ -492,7 +584,7 @@ def test_declared_qty_without_member_positions_cannot_commit_one_balloon_as_two(
     }
     assert table.covers_diameters == (16.0,)
     after_codes = {issue.code for issue in drawing.lint()}
-    assert after_codes == before_codes
+    assert after_codes == before_codes | {"balloon_dropped"}
     assert "hole_requirement_missing" not in after_codes
 
 
@@ -781,6 +873,30 @@ def test_public_replacement_retains_a_compound_callout_the_table_cannot_cover():
     }
 
 
+def test_mixed_public_table_marks_only_the_plain_replacement_winner():
+    part = Box(80, 40, 20)
+    part -= Pos(-20, 0, 0) * Cylinder(4, 30)
+    part -= Pos(-20, 0, 2) * Cylinder(7, 20)
+    part -= Pos(20, 0, 0) * Cylinder(5, 30)
+    drawing = build_drawing(part, page="A4")
+    features = [feature for feature in drawing.model().features if feature.kind == "hole"]
+    compound = next(feature for feature in features if feature.cbore is not None)
+    plain = next(feature for feature in features if feature.cbore is None)
+
+    table = drawing.add_hole_table("plan", replace_callouts=True)
+
+    assert table is not None
+    assert {
+        (outcome.representation, outcome.representation_reason)
+        for outcome in _source_outcomes(drawing, plain)
+        if outcome.parameter_id in {"bore.diameter", "bore.through"}
+    } == {("hole_table", "required_balloons_placed")}
+    assert {
+        (outcome.representation, outcome.representation_reason)
+        for outcome in _source_outcomes(drawing, compound)
+    } == {(None, None)}
+
+
 def test_public_replacement_retains_a_declared_thread_callout():
     part = Box(60, 40, 10) - Cylinder(4, 20)
     detected = build_drawing(part, auto_dims=False).model()
@@ -849,6 +965,7 @@ def test_automatic_table_never_removes_a_recognised_compound_callout():
     callouts = _plan_bore_callouts(drawing)
 
     assert "hole_table_plan" in drawing.annotations()
+    table = drawing.get_annotation("hole_table_plan")
     assert feature in callouts
     callout_name, callout = callouts[feature]
     assert drawing.get_annotation(callout_name) is callout
@@ -865,9 +982,20 @@ def test_automatic_table_never_removes_a_recognised_compound_callout():
         (outcome.representation, outcome.representation_reason)
         for outcome in _source_outcomes(drawing, feature)
     } == {(None, None)}
+    represented_features = {
+        owner for owner, _representation, _reason in table.covers_hole_representations_by_feature
+    }
+    plain = next(candidate for candidate in represented_features if candidate.cbore is None)
+    assert plain is not feature
+    assert {
+        (outcome.representation, outcome.representation_reason)
+        for outcome in _source_outcomes(drawing, plain)
+        if outcome.parameter_id == "bore.diameter"
+    } == {("hole_table", "required_balloons_placed")}
     assert not {"feature_not_dimensioned", "hole_requirement_missing"} & {
         issue.code for issue in drawing.lint()
     }
+    assert not _callout_label_overlap_issues(drawing)
 
 
 def test_automatic_table_never_removes_a_recognised_double_d_callout():
