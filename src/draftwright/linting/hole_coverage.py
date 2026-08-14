@@ -195,19 +195,19 @@ def _pattern_kind(pattern) -> str:
     return "linear"
 
 
-def _default_linear_direction(pattern):
-    """The declared linear default, derived from its already-materialised members."""
-    members = _members(pattern)
+def _default_linear_direction(members):
+    """The declared linear default, derived from sorted materialised members."""
     if len(members) < 2:
         return None
-    start, end = max(
-        ((a, b) for index, a in enumerate(members) for b in members[index + 1 :]),
-        key=lambda pair: sum((pair[1][i] - pair[0][i]) ** 2 for i in range(3)),
-    )
+    # Linear-pattern members are collinear. `_members` sorts them lexicographically,
+    # therefore its endpoints define the unoriented array axis without an all-pairs
+    # farthest-point search (#1143).
+    start, end = members[0], members[-1]
     return tuple(end[i] - start[i] for i in range(3))
 
 
 def _pattern_key(pattern) -> tuple:
+    members = _members(pattern)
     recognised = getattr(pattern, "holes", None)
     if recognised is not None:
         kind = _pattern_kind(pattern)
@@ -235,7 +235,7 @@ def _pattern_key(pattern) -> tuple:
         angle = getattr(pattern, "angle", None)
         spec = _feature_spec(pattern)
     if kind == "linear" and direction is None:
-        direction = _default_linear_direction(pattern)
+        direction = _default_linear_direction(members)
     if kind == "grid" and angle is None:
         angle = 0.0
     if (
@@ -266,7 +266,7 @@ def _pattern_key(pattern) -> tuple:
     return (
         kind,
         spec,
-        _members(pattern),
+        members,
         center,
         None if bcd is None else _rounded(bcd),
         None if pitch is None else _rounded(pitch),

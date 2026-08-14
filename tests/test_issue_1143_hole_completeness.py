@@ -861,6 +861,58 @@ def test_many_blind_patterns_use_indexed_tool_centre_correspondence(monkeypatch)
     assert pattern_key_calls < count * 10
 
 
+def test_default_linear_direction_uses_bounded_member_traversal(monkeypatch):
+    import draftwright.linting.hole_coverage as hole_coverage_module
+
+    drawing = build_drawing(_linear_pattern(), auto_dims=False)
+    pattern = next(feature for feature in drawing.model().features if feature.kind == "pattern")
+    pattern = replace(
+        pattern,
+        count=4_000,
+        direction=None,
+        members=tuple((float(index), 0.0, 0.0) for index in range(4_000)),
+    )
+    source_members = hole_coverage_module._members
+    visits = 0
+    calls = 0
+
+    class CountedMembers:
+        def __init__(self, values):
+            self.values = values
+
+        def __len__(self):
+            return len(self.values)
+
+        def __getitem__(self, index):
+            nonlocal visits
+            if isinstance(index, slice):
+                return CountedMembers(self.values[index])
+            visits += 1
+            return self.values[index]
+
+        def __iter__(self):
+            nonlocal visits
+            for value in self.values:
+                visits += 1
+                yield value
+
+    def counted_members(source):
+        nonlocal calls
+        values = source_members(source)
+        if source is pattern:
+            calls += 1
+            return CountedMembers(values)
+        return values
+
+    monkeypatch.setattr(hole_coverage_module, "_members", counted_members)
+
+    key = hole_coverage_module._pattern_key(pattern)
+
+    assert key[7] == (1.0, 0.0, 0.0)
+    assert calls == 1
+    assert visits == 2
+
+
 def test_overlapping_declared_covers_fail_closed_with_bounded_work(monkeypatch):
     import draftwright.linting.hole_coverage as hole_coverage_module
 
