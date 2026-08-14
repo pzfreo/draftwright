@@ -959,40 +959,6 @@ def test_automatic_initial_table_failure_restores_every_fallback(monkeypatch):
     }
 
 
-def test_stash_ignores_absent_names_and_restore_is_idempotent():
-    from draftwright.annotations._common import (
-        PlacementContext,
-        _restore_stashed_annotations,
-        _stash_annotations,
-    )
-
-    drawing = build_drawing(_multi_hole_plate(), page="A4")
-    name = next(iter(_plan_bore_callouts(drawing).values()))[0]
-    annotation = drawing.get_annotation(name)
-    identity = drawing.registry.identity_of(name)
-    stashed = _stash_annotations(drawing, ("not_present", name))
-    ctx = PlacementContext(
-        registry=drawing.registry,
-        coverage=drawing.coverage,
-        items=drawing.items,
-        part_model=drawing.model(),
-    )
-
-    assert set(stashed) == {name}
-    assert drawing.get_annotation(name) is None
-    assert _restore_stashed_annotations(drawing, ctx, stashed) == {name}
-    assert drawing.get_annotation(name) is annotation
-    assert drawing.registry.identity_of(name) == identity
-
-    # Retrying rollback must recognise the exact already-restored object rather
-    # than duplicating it or perturbing its semantic identity.
-    items = tuple(drawing.items)
-    assert _restore_stashed_annotations(drawing, ctx, stashed) == {name}
-    assert tuple(drawing.items) == items
-    assert drawing.get_annotation(name) is annotation
-    assert drawing.registry.identity_of(name) == identity
-
-
 def test_automatic_partial_balloon_result_rolls_back_the_shared_table(monkeypatch):
     _drop_one_diameter_balloon(monkeypatch, 2.0)
 

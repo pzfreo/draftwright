@@ -328,36 +328,6 @@ def _reset_stashed_representation(stashed) -> None:
                 setattr(record.annotation, attribute, value)
 
 
-def _restore_stashed_annotations(dwg, ctx, stashed, *, features=None, reason=None) -> set[str]:
-    """Restore stashed annotations intersecting *features* through the placement seam.
-
-    ``features=None`` restores the complete transaction. Shared annotations are restored as
-    a unit when any unresolved semantic owner needs them; duplicating a fact is safer than
-    discarding another owner's only visible evidence.
-    """
-    selected = None if features is None else set(features)
-    restored = set()
-    for name, record in stashed.items():
-        if selected is not None and record.features and record.features.isdisjoint(selected):
-            continue
-        if reason is not None:
-            record.annotation.hole_representation = "feature_annotation"
-            record.annotation.hole_representation_reason = reason
-        if dwg.registry.named(name) is record.annotation:
-            restored.add(name)
-            continue
-        ctx.place(
-            record.annotation,
-            name,
-            view=record.identity.get("view"),
-            feature=record.identity.get("feature"),
-            measurement=record.identity.get("measurement", ()),
-        )
-        dwg.registry.reapply(name, record.identity)
-        restored.add(name)
-    return restored
-
-
 def _fully_ballooned_features(view, tagged_holes, placed_names, registry, expected_counts) -> set:
     """Features whose exact-cardinality balloons landed in this render attempt.
 

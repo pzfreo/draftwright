@@ -245,9 +245,10 @@ def test_every_remove_and_restore_site_goes_through_the_identity_pair():
         + ", ".join(offenders)
     )
 
-    # #1144: a replacement transaction must span table/balloon placement before it knows
-    # which feature subset to restore. Keep the two shared halves load-bearing so moving the
-    # old hand-rolled bug into a helper cannot satisfy the site ratchet by exemption alone.
+    # #1144: a replacement transaction spans table/balloon placement before it knows
+    # whether the shared result can commit. Keep its one stash/snapshot seam load-bearing so
+    # moving the old hand-rolled identity bug into a helper cannot satisfy this ratchet by
+    # exemption alone.
     common_tree = ast.parse((root / "_common.py").read_text(encoding="utf-8"))
     functions = {
         fn.name: fn
@@ -263,4 +264,4 @@ def test_every_remove_and_restore_site_goes_through_the_identity_pair():
         }
 
     assert {"identity_of", "remove"} <= calls("_stash_annotations")
-    assert {"place", "reapply"} <= calls("_restore_stashed_annotations")
+    assert {"restore", "restore_issues"} <= calls("_restore_annotation_transaction")
