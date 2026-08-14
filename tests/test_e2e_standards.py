@@ -145,78 +145,59 @@ def test_ctc_ap242_meets_standards(tmp_path, n):
 
 @pytest.mark.slow
 @pytest.mark.timeout(600)
-def test_ctc02_top_balloon_ring_hugs_dimensions():
-    """#125: the plan-view TOP balloon ring sits just beyond the real dimension
-    stack, not over the phantom corridor the deleted X-location dims leave in the
-    above-strip cursor. Pre-fix the top ring floated ~150 mm above the highest
-    dimension; it should now clear it by only a small standoff."""
+def test_ctc02_infeasible_hole_table_restores_feature_callouts():
+    """#1144: a real dense model fails its all-row balloon transaction honestly."""
     dwg = build_drawing(str(FIXTURES / "nist_ctc_02_asme1_ap203.stp"))
-    pb = dwg.view_bounds("plan")
-    pt = pb[3]
-    pl, pr = pb[0], pb[2]
+    annotations = dwg.annotations()
+    issue_codes = {issue.code for issue in dwg.registry.issues}
 
-    # Highest plan-view dimension spanning the plan width above it — the real
-    # obstruction the top ring must clear.
-    dim_top = pt
-    for name, obj in dwg.iter_annotations():
-        if not name.startswith("dim_") or dwg.view_of(name) != "plan":
-            continue
-        bb = obj.bounding_box()
-        if bb.max.X > pl and bb.min.X < pr and bb.max.Y > pt:
-            dim_top = max(dim_top, bb.max.Y)
-
-    # No plan balloon should float far above the dimension stack. Balloons are
-    # leadered compounds (no label_bbox); the highest point of any of them is a
-    # glyph at the end of its leader. Pre-#125 the top ring sat ~150 mm above the
-    # highest dim; the fix keeps the whole ring within a small standoff of it.
-    balloon_tops = [
-        obj.bounding_box().max.Y
-        for name, obj in dwg.iter_annotations()
-        if name.startswith("balloon_plan")
-    ]
-    assert balloon_tops, "expected balloons on CTC-02"
-    assert max(balloon_tops) > pt + 20, "expected a balloon ring above the plan view"
-    gap = max(balloon_tops) - dim_top
-    assert gap < _MAX_BALLOON_RING_EXTENT_MM, (
-        f"a plan balloon floats {gap:.0f} mm above the dimension stack — the pre-#125 "
-        f"stale-cursor phantom corridor was ~150 mm; expected a small standoff"
-    )
+    assert "hole_table_plan" not in annotations
+    assert not [name for name in annotations if name.startswith("balloon_plan")]
+    assert [name for name in annotations if name.startswith("hc_plan")]
+    assert {"table_dropped", "balloon_dropped"} <= issue_codes
 
 
 @pytest.mark.slow
 @pytest.mark.timeout(600)
-def test_ctc04_top_balloon_ring_stays_near_plan():
-    """#901: the other real escalating fixture must use the nearby carved lane,
-    not regress to the old hundreds-of-millimetres top-band depth."""
+def test_ctc04_infeasible_hole_table_restores_complete_fallback():
+    """#1144: real fallback remains complete when every row cannot be keyed."""
     dwg = build_drawing(str(FIXTURES / "nist_ctc_04_asme1_ap203.stp"))
-    plan_top = dwg.view_bounds("plan")[3]
-    balloon_top = max(
-        obj.bounding_box().max.Y
-        for name, obj in dwg.iter_annotations()
-        if name.startswith("balloon_plan")
-    )
+    annotations = dwg.annotations()
+    issue_codes = {issue.code for issue in dwg.registry.issues}
 
-    assert balloon_top > plan_top + _MIN_BALLOON_RING_EXTENT_MM, (
-        "expected a balloon ring above the plan view"
-    )
-    assert balloon_top - plan_top < _MAX_BALLOON_RING_EXTENT_MM, (
-        "top balloon ring is remote from the plan view"
-    )
+    assert "hole_table_plan" not in annotations
+    assert not [name for name in annotations if name.startswith("balloon_plan")]
+    assert [name for name in annotations if name.startswith("hc_plan")]
+    assert {"table_dropped", "balloon_dropped"} <= issue_codes
+    assert "hole_requirement_missing" not in {issue.code for issue in dwg.lint()}
 
 
 def _dense_scattered_plate():
-    """20 unpatterned Z-holes of distinct diameters — dense enough that even the
-    auto-grown sheet (#121) can't fit their callouts, so the plan view escalates to a
-    hole table + balloon ring (#93). The naturally-occurring escalation trigger in the
-    fast-buildable range (CTC-02 is the STEP-fixture equivalent)."""
-    import itertools
+    """16 irregular distinct-spec bores with a crossing-free table inventory."""
 
     from build123d import Box, Cylinder, Pos
 
-    cols = [-40 + i * 20 for i in range(5)]  # 5 columns × 4 rows = 20 holes
-    part = Box(90, 60, 12)
-    for i, (c, y) in enumerate(itertools.product(range(5), [-18, -6, 6, 18])):
-        part -= Pos(cols[c], y, 0) * Cylinder(1.0 + i * 0.2, 20)  # distinct radii → unpatterned
+    positions = (
+        (-42.7, -27.4),
+        (-15.1, -31.9),
+        (11.0, -28.7),
+        (44.8, -27.9),
+        (-46.0, 32.2),
+        (-16.8, 32.4),
+        (16.8, 29.3),
+        (45.3, 31.5),
+        (-56.5, -17.6),
+        (-51.6, -7.9),
+        (-51.6, 7.5),
+        (-51.2, 16.7),
+        (50.7, -15.6),
+        (56.4, -6.4),
+        (50.8, 3.6),
+        (55.1, 16.3),
+    )
+    part = Box(120, 80, 12)
+    for index, (x, y) in enumerate(positions):
+        part -= Pos(x, y, 0) * Cylinder(1.0 + index * 0.15, 20)
     return part
 
 
@@ -243,6 +224,14 @@ def test_dense_scattered_reconstruction_rebuilds_the_hole_table():
 
     auto = build_drawing(part)
     assert "hole_table_plan" in auto.annotations(), "fixture must escalate in the auto-pass"
+    plan_top = auto.view_bounds("plan")[3]
+    balloon_top = max(
+        obj.bounding_box().max.Y
+        for name, obj in auto.iter_annotations()
+        if name.startswith("balloon_plan")
+    )
+    assert balloon_top > plan_top + _MIN_BALLOON_RING_EXTENT_MM
+    assert balloon_top - plan_top < _MAX_BALLOON_RING_EXTENT_MM
     auto_codes = {i.code for i in auto.lint() if i.severity in ("warning", "error")}
     # #440/#639: the escalating build must not leak its consumed escalations into a later
     # `with dwg.deferred(): …` edit (which would re-fire leg D and relocate the table). Since
