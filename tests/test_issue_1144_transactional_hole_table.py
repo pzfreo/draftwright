@@ -974,6 +974,9 @@ def test_automatic_table_fails_closed_against_a_retained_public_balloon(
             (False, False, True, True),
             (False, False, True, True),
         )
+        # Keep the separately valid shaft harmless so rollback depends on the
+        # Boolean box payload selecting conservative rendered geometry.
+        retained.centerline_segments = (((10_000.0, 10_000.0), (10_001.0, 10_001.0)),)
     elif component_metadata == "boolean_segment_coordinates":
         retained.centerline_segments = (((False, False), (True, True)),)
     elif component_metadata == "malformed":
@@ -996,6 +999,19 @@ def test_automatic_table_fails_closed_against_a_retained_public_balloon(
     elif component_metadata == "absent":
         del retained.centerline_boxes
         del retained.centerline_segments
+    if component_metadata in {"boolean_box_coordinates", "boolean_segment_coordinates"}:
+        from draftwright.annotations.balloons import (
+            _geom_box,
+            _retained_annotation_geometry,
+        )
+
+        rendered_box = _geom_box(retained, drawing.box_cache)
+        assert rendered_box is not None
+        retained_boxes, _retained_segments, retained_safe = _retained_annotation_geometry(
+            drawing, "plan"
+        )
+        assert retained_safe
+        assert tuple(float(value) for value in rendered_box) in retained_boxes
     if component_metadata == "unmeasurable":
         import draftwright.annotations.balloons as balloons_module
 
