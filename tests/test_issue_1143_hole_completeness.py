@@ -14,8 +14,9 @@ from draftwright.linting.issues import LintIssue
 from draftwright.model.compiled import compile_dimensions
 from draftwright.model.declare import hole as declare_hole
 from draftwright.model.declare import pattern as declare_pattern
+from draftwright.model.detect import build_part_model
 from draftwright.model.ir import Frame, StepFeature
-from draftwright.recognition import HoleRecord, LinearArray
+from draftwright.recognition import BoltCircle, HoleRecord, LinearArray, build_recognition_result
 from draftwright.registry import AnnotationRegistry
 
 _XYZ_MIN = (Align.CENTER, Align.CENTER, Align.MIN)
@@ -2225,6 +2226,134 @@ def test_equal_but_distinct_hole_is_not_consumed_as_a_pattern_member():
         if item.state == "unverifiable"
     ) == [("hole", 4), ("hole_pattern", 6)]
     assert _completeness(drawing)["requirements"] == 10
+
+
+def test_declared_structural_profile_cannot_certify_a_circular_hole():
+    part = _single_hole()
+    detected = build_drawing(part, auto_dims=False).model()
+    circular = next(feature for feature in detected.features if feature.kind == "hole")
+    profiled = replace(
+        circular,
+        profile="double_d",
+        across_flats=3.0,
+        profile_direction=(1.0, 0.0, 0.0),
+    )
+    declared = replace(
+        detected,
+        features=[profiled if feature is circular else feature for feature in detected.features],
+    )
+    drawing = build_drawing(part, model=declared)
+
+    outcomes = _outcomes(drawing)
+    assert [(item.parameter_id, item.state, item.requirement_count) for item in outcomes] == [
+        ("?", "unverifiable", 4)
+    ]
+    completeness = _completeness(drawing)
+    assert completeness["requirements"] == completeness["unverifiable"] == 4
+    assert completeness["audited_score"] == 0.0
+
+
+def test_shifted_declared_bolt_circle_center_cannot_certify_physical_location():
+    part = _pattern_and_central_bore()
+    detected = build_drawing(part, auto_dims=False).model()
+    pattern = next(feature for feature in detected.features if feature.kind == "pattern")
+    z = pattern.frame.origin[2]
+    shifted = replace(pattern, frame=replace(pattern.frame, origin=(5.0, 5.0, z)))
+    declared = replace(
+        detected,
+        features=[shifted if feature is pattern else feature for feature in detected.features],
+    )
+    drawing = build_drawing(part, model=declared)
+
+    outcomes = _outcomes(drawing)
+    assert len([item for item in outcomes if item.state == "placed"]) == 4
+    assert [
+        (item.source_kind, item.parameter_id, item.state, item.requirement_count)
+        for item in outcomes
+        if item.state == "unverifiable"
+    ] == [("hole_pattern", "?", "unverifiable", 6)]
+    completeness = _completeness(drawing)
+    assert completeness["requirements"] == 10
+    assert completeness["placed"] == 4
+    assert completeness["unverifiable"] == 6
+    assert completeness["audited_score"] == 0.4
+
+
+def test_blind_bolt_circle_tool_center_projects_members_and_center_together():
+    part = Box(40, 40, 12, align=_XYZ_MIN)
+    holes = tuple(
+        HoleRecord(
+            axis=(0.0, 0.0, 1.0),
+            location=point,
+            diameter=4.0,
+            depth=8.0,
+            bottom="flat",
+        )
+        for point in ((10.0, 0.0, 0.0), (0.0, 10.0, 0.0), (-10.0, 0.0, 0.0), (0.0, -10.0, 0.0))
+    )
+    physical_pattern = BoltCircle(holes, (0.0, 0.0, 0.0), 20.0)
+    member = declare_hole(
+        diameter=4.0,
+        at=(0.0, 0.0, 4.0),
+        axis="z",
+        through=False,
+        depth=8.0,
+    )
+    declared_pattern = declare_pattern(
+        member,
+        kind="bolt_circle",
+        count=4,
+        bcd=20.0,
+        at=(0.0, 0.0, 4.0),
+    )
+    base_model = build_drawing(part, auto_dims=False).model()
+    drawing = build_drawing(part, model=replace(base_model, features=[declared_pattern]))
+    recognition = replace(
+        build_recognition_result(part),
+        holes=holes,
+        hole_patterns=(physical_pattern,),
+        countersinks=(),
+    )
+
+    outcomes = hole_requirement_outcomes(
+        recognition,
+        drawing.model().features,
+        drawing.registry,
+        compile_dimensions(drawing.model()).diagnostics,
+    )
+
+    assert len(outcomes) == 6
+    assert not [item for item in outcomes if item.state == "unverifiable"]
+
+
+def test_oblique_recognised_hole_cannot_be_certified_by_lossy_principal_axis_ir():
+    part = Box(40, 30, 10, align=_XYZ_MIN)
+    oblique = HoleRecord(
+        axis=(0.6, 0.0, 0.8),
+        location=(12.0, 7.0, 10.0),
+        diameter=4.0,
+        depth=12.5,
+        bottom="through",
+    )
+    model = build_part_model(part, holes=(oblique,), patterns=())
+    drawing = build_drawing(part, model=model)
+    recognition = replace(
+        build_recognition_result(part),
+        holes=(oblique,),
+        hole_patterns=(),
+        countersinks=(),
+    )
+
+    outcomes = hole_requirement_outcomes(
+        recognition,
+        drawing.model().features,
+        drawing.registry,
+        compile_dimensions(drawing.model()).diagnostics,
+    )
+
+    assert [(item.parameter_id, item.state, item.requirement_count) for item in outcomes] == [
+        ("?", "unverifiable", 4)
+    ]
 
 
 def test_hole_outcomes_ignore_rendered_names_and_labels_when_semantic_ids_survive():

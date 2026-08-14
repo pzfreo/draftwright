@@ -109,6 +109,18 @@ def _axis_letter_of(axis) -> str:
     return max(zip("xyz", axis, strict=True), key=lambda t: abs(t[1]))[0]
 
 
+def _is_principal_axis(axis) -> bool:
+    """Whether *axis* is exactly along X, Y or Z after analytic-noise snapping.
+
+    ``Frame.axis`` can name only these directions. Exactness is evaluated after the same
+    ``1e-6`` component snap used for analytic STEP noise. A cosine-tolerance test would
+    admit a small but real second component (and millimetres of flattening over a long
+    part); requiring exactly one non-zero component expresses the representable contract.
+    """
+    snapped = [0.0 if abs(float(component)) < 1e-6 else float(component) for component in axis]
+    return sum(component != 0.0 for component in snapped) == 1
+
+
 def _axis_direction_components(axis: str, direction=None):
     """Validate a direction and return ``(raw, norm, dominant_index)``."""
     if axis not in "xyz" or len(axis) != 1:

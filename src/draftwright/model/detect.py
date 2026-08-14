@@ -18,7 +18,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Any
 
-from draftwright._geometry import _axis_letter, _xyz
+from draftwright._geometry import _axis_letter, _is_principal_axis, _xyz
 from draftwright.model.declare import control_frame, datum
 from draftwright.model.ir import (
     AUTHORED_DIMENSION_KINDS,
@@ -133,19 +133,6 @@ def _convert_double_d_bore(bore: DoubleDBore, ctx: ConvContext) -> HoleFeature:
         across_flats=bore.across_flats,
         profile_direction=bore.flat_direction,
     )
-
-
-def _is_principal_axis(axis) -> bool:
-    """Whether *axis* is exactly along X, Y or Z — the only planes `Frame.axis` can name.
-
-    Exact after the same snap `HoleSpec.from_hole` applies (components below 1e-6 to zero), so
-    analytic STEP noise is absorbed and nothing else is. An earlier cut compared
-    `1 - |component| <= 1e-6`, which is a COSINE tolerance: it reads as 1e-6 and actually
-    admits ~0.081°, an off-axis component near 1.4e-3 — about 1.4 mm of flattening over a
-    metre (#983 review). Asking for exactly one non-zero component says what is meant.
-    """
-    snapped = [0.0 if abs(c) < 1e-6 else c for c in axis]
-    return sum(1 for c in snapped if c != 0.0) == 1
 
 
 def _pattern_feature(pat, members) -> PatternFeature:

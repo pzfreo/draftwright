@@ -11,6 +11,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from typing import Literal
 
+from draftwright._geometry import _is_principal_axis
 from draftwright.linting.issues import LintIssue
 from draftwright.recognition import HoleSpec, RecognitionResult, countersink_matches_hole
 
@@ -70,6 +71,8 @@ def _recognised_spec(hole) -> tuple:
         _recess_key(spec.cbore),
         _recess_key(spec.spotface),
         None if spec.csink is None else tuple(_rounded(value) for value in spec.csink),
+        None,  # circular recognition cannot certify a declared structural bore profile
+        _is_principal_axis(spec.axis),
     )
 
 
@@ -83,6 +86,8 @@ def _feature_spec(feature) -> tuple:
         _recess_key(hole.cbore),
         _recess_key(hole.spotface),
         None if hole.csink is None else tuple(_rounded(value) for value in hole.csink),
+        getattr(hole, "profile", None),
+        True,  # every Frame axis is representable by construction
     )
 
 
@@ -251,10 +256,18 @@ def _pattern_key(pattern) -> tuple:
         )
         rows, cols, row_pitch, col_pitch, angle = min(direct, transposed)
         grid = (row_pitch, col_pitch)
+    center = None
+    if kind == "bolt_circle":
+        raw_center = getattr(pattern, "center", None) if recognised is not None else None
+        center_point = list(_point(pattern.frame.origin if raw_center is None else raw_center))
+        if spec[3]:
+            center_point["xyz".index(spec[0])] = 0.0
+        center = (center_point[0], center_point[1], center_point[2])
     return (
         kind,
         spec,
         _members(pattern),
+        center,
         None if bcd is None else _rounded(bcd),
         None if pitch is None else _rounded(pitch),
         None if grid is None else tuple(_rounded(value) for value in grid),
@@ -272,6 +285,8 @@ def _tool_center_pattern_key(pattern) -> tuple:
     if depth is None or key[1][3]:
         return tuple(key)
     key[2] = _tool_center_members(pattern, key[2], depth)
+    if key[3] is not None:
+        key[3] = _tool_center_members(pattern, (key[3],), depth)[0]
     return tuple(key)
 
 
