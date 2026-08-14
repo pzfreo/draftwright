@@ -435,8 +435,13 @@ def test_cli_rejects_nondefault_policy_without_scale_for_direct_and_script_modes
         assert "--scale" in result.output
 
 
-def test_script_emitter_rejects_nondefault_policy_without_scale(tmp_path):
+def test_script_emitter_rejects_nondefault_policy_without_scale(tmp_path, monkeypatch):
     from draftwright.sheet_emit import generate_sheet_script
+
+    def detection_must_not_run(*_args, **_kwargs):
+        raise AssertionError("invalid script options must fail before model detection")
+
+    monkeypatch.setattr("draftwright.sheet_emit.detect_part_model", detection_must_not_run)
 
     with pytest.raises(ValueError, match="only when an explicit scale"):
         generate_sheet_script(
