@@ -232,8 +232,6 @@ class _StashedAnnotation:
     annotation: Any
     identity: dict
     features: frozenset
-    representation: Any
-    representation_reason: Any
 
 
 _MISSING_REPRESENTATION = object()
@@ -274,7 +272,6 @@ def _snapshot_annotation_transaction(dwg, coverage) -> _AnnotationTransactionSna
 
 def _restore_annotation_transaction(dwg, coverage, snapshot, stashed, *, reason=None) -> None:
     """Restore *snapshot* exactly, optionally marking visible fallback semantics."""
-    _reset_stashed_representation(stashed)
     for annotation, representation, representation_reason in snapshot.representations:
         for attribute, value in (
             ("hole_representation", representation),
@@ -308,24 +305,8 @@ def _stash_annotations(dwg, names) -> dict[str, _StashedAnnotation]:
             dwg.remove(name),
             identity,
             features,
-            getattr(annotation, "hole_representation", _MISSING_REPRESENTATION),
-            getattr(annotation, "hole_representation_reason", _MISSING_REPRESENTATION),
         )
     return stashed
-
-
-def _reset_stashed_representation(stashed) -> None:
-    """Restore annotation-object markers after an exceptional transaction rollback."""
-    for record in stashed.values():
-        for attribute, value in (
-            ("hole_representation", record.representation),
-            ("hole_representation_reason", record.representation_reason),
-        ):
-            if value is _MISSING_REPRESENTATION:
-                if hasattr(record.annotation, attribute):
-                    delattr(record.annotation, attribute)
-            else:
-                setattr(record.annotation, attribute, value)
 
 
 def _fully_ballooned_features(view, tagged_holes, placed_names, registry, expected_counts) -> set:

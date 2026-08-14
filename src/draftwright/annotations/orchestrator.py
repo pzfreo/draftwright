@@ -703,9 +703,9 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
 def _maybe_tabulate_holes(dwg, a: Analysis, *, ctx, plan=None):
     """Run hole-table escalation as one exception-atomic annotation transaction.
 
-    Ordinary fit/balloon failures are handled by the implementation's selective
-    fallback policy. An exception is different: none of the attempted table state,
-    including semantic markers applied to restored leader objects, may survive it.
+    Ordinary fit/balloon failures roll the shared table transaction back as a unit.
+    An exception additionally restores the outer snapshot before re-raising, so none
+    of the attempted table state or temporary semantic markers may survive it.
     """
     if not any(escalation.kind in {"callout", "location"} for escalation in ctx.escalations):
         return
