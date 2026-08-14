@@ -595,8 +595,10 @@ def hole_requirement_outcomes(
     for hole in recognition.holes:
         if id(hole) not in pattern_member_ids:
             # HoleSpec's signed axis is part of machining identity. Keep opposite-face
-            # blind bores in separate source groups even when every printed size matches.
-            loose_groups[(_recognised_spec(hole), _signed_axis(hole.axis))].append(hole)
+            # and distinct oblique bores in separate source groups even when every printed
+            # size matches. Use recognition's 6 dp identity rather than critique's 3 dp
+            # geometry normalization.
+            loose_groups[(_recognised_spec(hole), HoleSpec.from_hole(hole).axis)].append(hole)
 
     sources: list[tuple[HoleSourceKind, object, tuple, int]] = []
     for (spec, _direction), holes in loose_groups.items():

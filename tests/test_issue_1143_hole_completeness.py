@@ -2446,6 +2446,42 @@ def test_oblique_recognised_hole_cannot_be_certified_by_lossy_principal_axis_ir(
     ]
 
 
+def test_distinct_oblique_drilling_axes_remain_distinct_physical_sources():
+    part = Box(40, 30, 10, align=_XYZ_MIN)
+    holes = (
+        HoleRecord(
+            axis=(0.6, 0.0, 0.8),
+            location=(10.0, 7.0, 10.0),
+            diameter=4.0,
+            depth=12.5,
+            bottom="through",
+        ),
+        HoleRecord(
+            axis=(0.6004, 0.0, 0.7997),
+            location=(20.0, 7.0, 10.0),
+            diameter=4.0,
+            depth=12.5,
+            bottom="through",
+        ),
+    )
+    recognition = replace(
+        build_recognition_result(part),
+        holes=holes,
+        hole_patterns=(),
+        countersinks=(),
+    )
+
+    outcomes = hole_requirement_outcomes(recognition, (), AnnotationRegistry())
+
+    assert [
+        (item.parameter_id, item.state, item.member_count, item.requirement_count)
+        for item in outcomes
+    ] == [
+        ("?", "unverifiable", 1, 4),
+        ("?", "unverifiable", 1, 4),
+    ]
+
+
 def test_hole_outcomes_ignore_rendered_names_and_labels_when_semantic_ids_survive():
     drawing = build_drawing(_single_hole())
     name = next(name for name in drawing.annotations() if name.startswith("hc_"))
