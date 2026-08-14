@@ -1489,6 +1489,13 @@ def test_authored_omissions_are_suppressed_on_the_declared_path():
         "location.location.y",
     }
     assert _completeness(drawing)["suppressed"] == 4
+    summary = drawing.lint_summary()
+    assert summary["by_code"] == {
+        "feature_not_dimensioned": 1,
+        "feature_not_located": 1,
+        "hole_requirement_suppressed": 4,
+    }
+    assert summary["geometry_issues"] == 6
 
 
 def test_planner_omission_without_a_datum_is_missing_not_authored_suppression():
@@ -1534,6 +1541,13 @@ def test_deleting_a_declaration_cannot_shrink_the_recognition_denominator():
     assert {
         item.requirement_count for item in _outcomes(drawing) if item.state == "unverifiable"
     } == {4}
+    summary = drawing.lint_summary()
+    assert summary["by_code"] == {
+        "feature_not_dimensioned": 1,
+        "feature_no_centermark": 1,
+        "hole_requirement_unverifiable": 1,
+    }
+    assert summary["geometry_issues"] == 3
 
 
 def test_hole_outcomes_ignore_rendered_names_and_labels_when_semantic_ids_survive():
