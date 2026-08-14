@@ -2621,7 +2621,11 @@ class Drawing:
             h = holes[0]
             depth = "THRU" if h.through else (_fmt(h.depth) if h.depth else "")
             rows.append((tag, f"ø{_fmt(h.diameter)}", depth, str(count)))
-            diams.append(h.diameter)
+            # Legacy physical-diameter lint counts one structured entry per bore.
+            # Repeat the value exactly as many times as the visible QTY asserts, just as
+            # automatic escalation does, while the semantic ledger below retains the
+            # feature-scoped grouping identity.
+            diams.extend([h.diameter] * count)
         table_name = name or f"hole_table_{view}"
         table = self.add_table(rows, prefer=prefer, name=table_name)
         if table is None:

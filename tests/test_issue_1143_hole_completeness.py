@@ -1321,11 +1321,13 @@ def test_public_pattern_hole_table_covers_only_the_facts_it_prints():
         (pattern, "bore.through", 1),
         (pattern, "grouping.count", 3),
     )
+    assert table.covers_diameters == (6.0, 6.0, 6.0)
     outcomes = {item.parameter_id: item.state for item in _outcomes(drawing)}
     assert outcomes["bore.diameter"] == "placed"
     assert outcomes["bore.through"] == "placed"
     assert outcomes["grouping.count"] == "placed"
     assert outcomes["pitch.length"] == "missing"
+    assert "feature_count_mismatch" not in {issue.code for issue in drawing.lint()}
 
 
 def test_public_hole_table_explicitly_places_printed_authored_omissions():
