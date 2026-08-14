@@ -1484,6 +1484,12 @@ def test_planner_omission_without_a_datum_is_missing_not_authored_suppression():
     issues = [issue for issue in drawing.lint() if issue.code.startswith("hole_requirement_")]
     assert {issue.code for issue in issues} == {"hole_requirement_missing"}
     assert all("deliberately omitted" not in issue.message for issue in issues)
+    summary = drawing.lint_summary()
+    assert summary["by_code"] == {
+        "feature_not_located": 1,
+        "hole_requirement_missing": 2,
+    }
+    assert summary["geometry_issues"] == 3
 
 
 def test_deleting_a_declaration_cannot_shrink_the_recognition_denominator():
