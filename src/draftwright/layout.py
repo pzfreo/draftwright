@@ -132,25 +132,44 @@ def _solve_guarded_strip_1d(naturals, min_gap, allowed_segments):
         return None
 
     count = len(naturals)
-    sources = set()
-    for natural, segments in zip(naturals, allowed_segments, strict=True):
-        sources.add(float(natural))
+    total_segments = sum(len(segments) for segments in allowed_segments)
+    for segments in allowed_segments:
         for lo, hi in segments:
             if hi < lo:
                 raise ValueError("allowed segment has descending bounds")
-            sources.update((float(lo), float(hi), min(max(float(natural), lo), hi)))
-    total_segments = sum(len(segments) for segments in allowed_segments)
     coordinate_budget = min(
         _GUARDED_STRIP_MAX_STATES // count,
         _GUARDED_STRIP_MAX_INTERVAL_PROBES // total_segments,
     )
     if coordinate_budget <= 0:
         return None
+
     coordinate_set: set[float] = set()
-    for source in sources:
+    sources: set[float] = set()
+
+    def add_source(source) -> bool:
+        source = float(source)
+        if source in sources:
+            return True
+        sources.add(source)
         for offset in range(-count, count + 1):
             coordinate_set.add(source + offset * min_gap)
             if len(coordinate_set) > coordinate_budget:
+                return False
+        return True
+
+    for natural, segments in zip(naturals, allowed_segments, strict=True):
+        natural = float(natural)
+        if not add_source(natural):
+            return None
+        for lo, hi in segments:
+            lo = float(lo)
+            hi = float(hi)
+            if (
+                not add_source(lo)
+                or not add_source(hi)
+                or not add_source(min(max(natural, lo), hi))
+            ):
                 return None
     coordinates = sorted(coordinate_set)
 
