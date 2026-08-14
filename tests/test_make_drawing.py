@@ -10735,13 +10735,14 @@ class TestHoleTable:
         assert right_members == []
 
     def test_table_and_balloons_keep_lint_clean(self):
-        # covers_diameters lets coverage lint count the tabulated holes, and the
-        # balloons are furniture (is_centerline) so they do not trip overlap lint.
+        # One covers_diameters entry per physical bore lets coverage lint verify the
+        # table's visible QTY, and the balloons are furniture (is_centerline) so they do
+        # not trip overlap lint.
         dwg = build_drawing(_multi_hole_plate())
         before = {i.code for i in dwg.lint()}
         dwg.add_hole_table("plan")
         assert {i.code for i in dwg.lint()} == before
-        assert dwg.get_annotation("hole_table_plan").covers_diameters == (16.0, 10.0)
+        assert dwg.get_annotation("hole_table_plan").covers_diameters == (16.0, 10.0, 10.0)
 
     def test_table_does_not_overlap_views_or_title_block(self):
         dwg = build_drawing(_multi_hole_plate())
