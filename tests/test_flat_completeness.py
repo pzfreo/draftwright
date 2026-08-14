@@ -342,3 +342,21 @@ def test_measurement_provenance_keeps_lint_issue_positional_compatibility():
     issue = LintIssue("warning", "message", None, "code", "suggestion")
     assert issue.suggestion == "suggestion"
     assert issue.measurement_ids == ()
+
+
+def test_hole_evidence_keeps_full_lint_issue_positional_compatibility():
+    issue = LintIssue(
+        "warning",
+        "message",
+        None,
+        "code",
+        "suggestion",
+        ("measurement",),
+        ("source:1",),
+        "placement",
+    )
+
+    assert issue.measurement_ids == ("measurement",)
+    assert issue.source_ids == ("source:1",)
+    assert issue.outcome_stage == "placement"
+    assert issue.hole_requirement_ids == ()

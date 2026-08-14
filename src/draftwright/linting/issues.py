@@ -25,11 +25,6 @@ class LintIssue:
     # that do not hold semantic provenance. Kept internal/plain-tuple so adding it does not
     # turn LintIssue into a general requirement ledger (#1018 Gate 1).
     measurement_ids: tuple = ()
-    # Recognition-owned physical requirements implicated in a build-time outcome. These are
-    # critique evidence, NOT addressable `DimensionId`s: one authored feature-level hole
-    # location has two independently observable X/Y requirements while #883 keeps their
-    # public addressability deliberately open.
-    hole_requirement_ids: tuple = ()
     # External source-record identities implicated in this issue. Kept as plain strings and
     # populated narrowly by source reconciliation such as AP242 PMI (#623); this does not
     # introduce a second feature/measurement identity system.
@@ -39,6 +34,12 @@ class LintIssue:
     # (validation) and a valid candidate that did not fit (placement). Quality components must
     # not infer that distinction from the shared code or its message (#1127).
     outcome_stage: Literal["placement", "validation"] | None = None
+    # Recognition-owned physical requirements implicated in a build-time outcome. Appended
+    # after the established fields to preserve the positional constructor contract. These are
+    # critique evidence, NOT addressable `DimensionId`s: one authored feature-level hole
+    # location has two independently observable X/Y requirements while #883 keeps their
+    # public addressability deliberately open.
+    hole_requirement_ids: tuple = ()
 
 
 class _IssueAggregation:
