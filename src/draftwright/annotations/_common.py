@@ -1302,6 +1302,14 @@ class PlacementContext:
     def drop_issues(self, *codes) -> None:
         self.registry.drop_issues(codes)
 
+    def drop_issues_where(self, code, predicate) -> None:
+        """Resolve only *code* findings accepted by *predicate*.
+
+        Fallbacks can cover one semantic subset of a shared layout pass. Keeping this
+        selection in the issue owner prevents a renderer from rebuilding the issue list.
+        """
+        self.registry.drop_issues_where((code,), predicate)
+
 
 def register_corridor(ctx, key, strip, view, axis, tier, cand):
     """Queue a :class:`CorridorCandidate` under a shared corridor *key* so one

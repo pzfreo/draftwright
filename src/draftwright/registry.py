@@ -329,3 +329,15 @@ class AnnotationRegistry:
         fallback restores annotations the layout had tentatively dropped."""
         drop = set(codes)
         self._build_issues = [i for i in self._build_issues if i.code not in drop]
+
+    def drop_issues_where(self, codes, predicate) -> None:
+        """Drop matching-code issues only when *predicate(issue)* confirms resolution.
+
+        A fallback may resolve only part of a shared placement pass. The ordinary
+        :meth:`drop_issues` remains the all-by-code operation; this variant preserves
+        unrelated semantic failures recorded under the same stable code.
+        """
+        drop = set(codes)
+        self._build_issues = [
+            issue for issue in self._build_issues if issue.code not in drop or not predicate(issue)
+        ]

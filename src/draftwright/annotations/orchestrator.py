@@ -913,13 +913,26 @@ def _maybe_tabulate_holes(dwg, a: Analysis, *, ctx, plan=None):
             )
             scattered_specs = [(tag, 0, h) for tag, h in zip(scattered_tags, holes, strict=True)]
             table_placed = True
-            # The table's X/Y columns document every scattered hole's location, so the
-            # location refs ARE resolved here. `callout_dropped`, however, is cleared
+            # The table's X/Y columns document every scattered hole's location, so only
+            # drop findings whose complete semantic requirement set belongs to those
+            # table features are resolved here. A pattern or other non-table requirement
+            # may share the same layout pass and must keep its observed drop provenance.
+            # `callout_dropped`, however, is cleared
             # below — only after the balloons are placed and per feature — because a
             # pattern balloon sharing this resolver's combined band can still drop
             # (review follow-up: this used to clear callout_dropped wholesale here,
             # masking a dropped pattern balloon).
-            ctx.drop_issues("location_ref_dropped")
+            table_feature_set = set(table_features)
+            ctx.drop_issues_where(
+                "location_ref_dropped",
+                lambda issue: (
+                    bool(issue.hole_requirement_ids)
+                    and all(
+                        requirement[0] in table_feature_set
+                        for requirement in issue.hole_requirement_ids
+                    )
+                ),
+            )
 
     balloon_specs = scattered_specs + pattern_specs
     placed_names: set = set()

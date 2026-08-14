@@ -146,6 +146,17 @@ def _dense_scattered_blind_plate():
     return part
 
 
+def _dense_scattered_plate_with_bolt_circle(near_scattered):
+    part = Box(180, 120, 10, align=_XYZ_MIN)
+    scattered = list(itertools.product((-75, -55, -35, -15, 55), (-40, -20, 0, 20)))[:15]
+    scattered.append(near_scattered)
+    for i, (x, y) in enumerate(scattered):
+        part -= Pos(x, y, 0) * Cylinder(1.0 + i * 0.1, 10, align=_XYZ_MIN)
+    for x, y in ((35, 10), (20, 25), (5, 10), (20, -5)):
+        part -= Pos(x, y, 0) * Cylinder(3, 10, align=_XYZ_MIN)
+    return part
+
+
 def _two_face_countersunk_hole():
     return (
         Box(50, 50, 12)
@@ -2076,6 +2087,56 @@ def test_successful_hole_table_escalation_carries_every_replaced_requirement():
     assert all(item.state == "placed" for item in outcomes)
     assert not [issue for issue in drawing.lint() if issue.code.startswith("hole_requirement_")]
     assert _completeness(drawing)["audited_score"] == 1.0
+
+
+def test_scattered_hole_table_preserves_placed_pattern_location_evidence():
+    drawing = build_drawing(_dense_scattered_plate_with_bolt_circle((20.4, 10.4)), page="A3")
+    pattern = next(feature for feature in drawing.model().features if feature.kind == "pattern")
+
+    assert "hole_table_plan" in drawing.annotations()
+    pattern_location_facts = [
+        (name, parameter)
+        for name in drawing.annotations()
+        for feature, parameter, _point in getattr(
+            drawing.get_annotation(name), "covers_hole_locations", ()
+        )
+        if feature == pattern
+    ]
+    assert {parameter for _name, parameter in pattern_location_facts} == {
+        "location_pattern.location.x",
+        "location_pattern.location.y",
+    }
+    assert {
+        item.parameter_id: item.state
+        for item in _outcomes(drawing)
+        if item.source_kind == "hole_pattern" and "location" in item.parameter_id
+    } == {
+        "location_pattern.location.x": "placed",
+        "location_pattern.location.y": "placed",
+    }
+
+
+def test_scattered_hole_table_preserves_unresolved_pattern_location_drops():
+    drawing = build_drawing(_dense_scattered_plate_with_bolt_circle((19.6, 9.6)), page="A3")
+
+    assert "hole_table_plan" in drawing.annotations()
+    assert {
+        item.parameter_id: item.state
+        for item in _outcomes(drawing)
+        if item.source_kind == "hole_pattern" and "location" in item.parameter_id
+    } == {
+        "location_pattern.location.x": "dropped",
+        "location_pattern.location.y": "dropped",
+    }
+    unresolved = [
+        issue for issue in drawing.registry.issues if issue.code == "location_ref_dropped"
+    ]
+    assert {
+        parameter
+        for issue in unresolved
+        for feature, parameter in issue.hole_requirement_ids
+        if feature.kind == "pattern"
+    } == {"location_pattern.location.x", "location_pattern.location.y"}
 
 
 def test_public_hole_table_replaces_callout_with_semantic_bore_coverage():

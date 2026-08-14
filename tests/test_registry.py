@@ -88,8 +88,9 @@ def test_build_issues_accumulate_in_order():
 
 
 class _Issue:
-    def __init__(self, code):
+    def __init__(self, code, resolved=False):
         self.code = code
+        self.resolved = resolved
 
 
 def test_drop_issues_by_code_and_reset():
@@ -103,6 +104,19 @@ def test_drop_issues_by_code_and_reset():
     r.record_issue(_Issue("x"))
     r.reset_issues()
     assert r.issues == ()
+
+
+def test_drop_issues_where_preserves_unresolved_findings_with_the_same_code():
+    r = AnnotationRegistry()
+    for issue in (_Issue("location", True), _Issue("location"), _Issue("other", True)):
+        r.record_issue(issue)
+
+    r.drop_issues_where(("location",), lambda issue: issue.resolved)
+
+    assert [(issue.code, issue.resolved) for issue in r.issues] == [
+        ("location", False),
+        ("other", True),
+    ]
 
 
 def test_snapshot_restore_round_trips_view_and_pin_metadata():

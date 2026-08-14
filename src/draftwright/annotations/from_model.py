@@ -585,7 +585,11 @@ def _location_candidate(
     it; only a physically full strip drops (``location_ref_dropped`` → hole-table escalate)."""
 
     def _placed(nm):
-        if getattr(feature, "kind", None) in ("hole", "pattern"):
+        # Only loose HoleFeatures have rows in the automatic scattered-hole table.
+        # Pattern locations remain documented by their own dimensions/furniture; marking
+        # them replaceable lets an unrelated successful table silently delete their
+        # provenance (#1143 adversarial review).
+        if getattr(feature, "kind", None) == "hole":
             ctx.coverage.cover_scattered_hole_doc(nm)
         if pinned:
             dwg.pin(nm)
