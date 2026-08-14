@@ -2102,7 +2102,7 @@ def test_successful_hole_table_escalation_carries_every_replaced_requirement():
 
 
 def test_scattered_hole_table_preserves_placed_pattern_location_evidence():
-    drawing = build_drawing(_dense_scattered_plate_with_bolt_circle((20.4, 10.4)), page="A3")
+    drawing = build_drawing(_dense_scattered_plate_with_bolt_circle((20.4, 10.4)), page="A2")
     pattern = next(feature for feature in drawing.model().features if feature.kind == "pattern")
 
     assert "hole_table_plan" in drawing.annotations()
@@ -2129,7 +2129,7 @@ def test_scattered_hole_table_preserves_placed_pattern_location_evidence():
 
 
 def test_scattered_hole_table_preserves_unresolved_pattern_location_drops():
-    drawing = build_drawing(_dense_scattered_plate_with_bolt_circle((19.6, 9.6)), page="A3")
+    drawing = build_drawing(_dense_scattered_plate_with_bolt_circle((19.6, 9.6)), page="A2")
 
     assert "hole_table_plan" in drawing.annotations()
     assert {

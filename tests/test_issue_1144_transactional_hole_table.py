@@ -774,14 +774,18 @@ def test_automatic_transaction_fails_closed_when_final_inventory_gate_rejects(mo
 
     drawing = build_drawing(_dense_scattered_plate())
 
+    assert "hole_table_plan" not in drawing.annotations()
     assert not [name for name in drawing.annotations() if name.startswith("balloon_plan_")]
     assert len(_plan_bore_callouts(drawing)) == 17
-    assert "balloon_dropped" in {issue.code for issue in drawing.registry.issues}
+    assert {"balloon_dropped", "table_dropped"} <= {
+        issue.code for issue in drawing.registry.issues
+    }
     assert ("feature_annotation", "required_balloon_not_placed") in {
         (outcome.representation, outcome.representation_reason)
         for outcome in _outcomes(drawing)
         if outcome.state == "placed"
     }
+    assert "view_annotation_overlap" not in {issue.code for issue in drawing.lint()}
 
 
 def test_automatic_actual_label_guard_restores_features_with_no_safe_balloon(monkeypatch):
@@ -943,39 +947,24 @@ def test_stash_ignores_absent_names_and_restore_is_idempotent():
     assert drawing.registry.identity_of(name) == identity
 
 
-def test_automatic_partial_balloon_result_restores_only_the_unresolved_feature(monkeypatch):
+def test_automatic_partial_balloon_result_rolls_back_the_shared_table(monkeypatch):
     _drop_one_diameter_balloon(monkeypatch, 2.0)
 
     drawing = build_drawing(_dense_scattered_plate())
 
-    table = drawing.get_annotation("hole_table_plan")
-    assert table is not None
-    assert 0 < len(table.covers_diameters) < 20
-    assert 2.0 not in table.covers_diameters
-    unresolved = next(
-        feature
-        for feature in drawing.model().features
-        if feature.kind == "hole" and feature.diameter == pytest.approx(2.0)
-    )
-    assert unresolved in _plan_bore_callouts(drawing)
-    assert len(
-        [name for name in drawing.annotations() if name.startswith("balloon_plan_")]
-    ) == len(table.covers_diameters)
-    assert "balloon_dropped" in {issue.code for issue in drawing.lint()}
+    assert "hole_table_plan" not in drawing.annotations()
+    assert not [name for name in drawing.annotations() if name.startswith("balloon_plan_")]
+    assert len(_plan_bore_callouts(drawing)) == 17
+    codes = {issue.code for issue in drawing.lint()}
+    assert {"balloon_dropped", "table_dropped"} <= codes
+    assert "view_annotation_overlap" not in codes
+    assert "hole_requirement_missing" not in codes
     assert {outcome.state for outcome in _outcomes(drawing)} <= {"placed", "dropped"}
-    assert {
+    assert ("feature_annotation", "required_balloon_not_placed") in {
         (outcome.representation, outcome.representation_reason)
         for outcome in _outcomes(drawing)
-        if outcome.source_at[:2] == tuple(unresolved.frame.origin[:2])
-        and outcome.parameter_id in {"bore.diameter", "bore.through"}
-    } == {("feature_annotation", "required_balloon_not_placed")}
-    unresolved_label = _plan_bore_callouts(drawing)[unresolved][1].label
-    assert not [
-        issue
-        for issue in drawing.lint()
-        if issue.code == "label_centerline_overlap"
-        and f"label '{unresolved_label}'" in issue.message
-    ]
+        if outcome.state == "placed"
+    }
 
 
 def test_scattered_table_reports_a_balloon_landed_on_the_wrong_semantic_owner():
@@ -993,11 +982,14 @@ def test_scattered_table_reports_a_balloon_landed_on_the_wrong_semantic_owner():
 
     drawing = build_drawing(part, model=declared, page="A3")
 
-    assert "hole_table_plan" in drawing.annotations()
+    assert "hole_table_plan" not in drawing.annotations()
     assert victim in _plan_bore_callouts(drawing)
     failures = [issue for issue in drawing.registry.issues if issue.code == "balloon_dropped"]
     assert len(failures) == 1
-    assert "feature-owned balloons" in failures[0].message
+    assert any(
+        issue.code == "table_dropped" and "feature-owned balloon" in issue.message
+        for issue in drawing.registry.issues
+    )
     assert {
         outcome.representation
         for outcome in _outcomes(drawing)
@@ -1162,34 +1154,6 @@ def test_long_grouped_pattern_marker_fails_closed_when_its_shaft_crosses_its_tex
     assert "balloon_dropped" in {record.code for record in drawing.registry.issues}
 
 
-def test_automatic_partial_result_rolls_back_when_fallback_aware_refit_fails(monkeypatch):
-    import draftwright.drawing as drawing_module
-
-    original_fit_box = drawing_module.fit_box
-    first_success_seen = False
-
-    def fail_after_first_success(size, region, obstacles, prefer):
-        nonlocal first_success_seen
-        result = original_fit_box(size, region, obstacles, prefer)
-        if result is None:
-            return None
-        if first_success_seen:
-            return None
-        first_success_seen = True
-        return result
-
-    monkeypatch.setattr(drawing_module, "fit_box", fail_after_first_success)
-    _drop_one_diameter_balloon(monkeypatch, 2.0)
-
-    drawing = build_drawing(_dense_scattered_plate())
-
-    assert first_success_seen
-    assert "hole_table_plan" not in drawing.annotations()
-    assert not [name for name in drawing.annotations() if name.startswith("balloon_plan_")]
-    assert {"balloon_dropped", "table_dropped"} <= {issue.code for issue in drawing.lint()}
-    assert "hole_requirement_missing" not in {issue.code for issue in drawing.lint()}
-
-
 def test_fitted_callout_can_remain_while_table_resolves_its_location_drop(monkeypatch):
     import draftwright.annotations.orchestrator as orchestrator
 
@@ -1266,7 +1230,8 @@ def test_automatic_table_cannot_resolve_a_dropped_decorated_callout(monkeypatch,
 
     drawing = build_drawing(part, model=declared)
 
-    assert "hole_table_plan" in drawing.annotations()
+    assert "hole_table_plan" not in drawing.annotations()
+    assert any(issue.code == "table_dropped" for issue in drawing.registry.issues)
     assert any(
         issue.code == "callout_dropped" and feature in _features_from_issue(issue)
         for issue in drawing.registry.issues
@@ -1302,7 +1267,8 @@ def test_automatic_table_cannot_resolve_a_dropped_thread_callout(monkeypatch):
 
     drawing = build_drawing(part, model=declared)
 
-    assert "hole_table_plan" in drawing.annotations()
+    assert "hole_table_plan" not in drawing.annotations()
+    assert any(issue.code == "table_dropped" for issue in drawing.registry.issues)
     assert any(
         issue.code == "callout_dropped" and threaded in _features_from_issue(issue)
         for issue in drawing.registry.issues
@@ -1323,7 +1289,7 @@ def test_automatic_compound_inventory_fails_closed_on_cross_balloon_geometry():
         if feature.kind == "hole" and feature.cbore is not None
     )
 
-    assert "hole_table_plan" in drawing.annotations()
+    assert "hole_table_plan" not in drawing.annotations()
     assert feature in _plan_bore_callouts(drawing)
     assert not [name for name in drawing.annotations() if name.startswith("balloon_plan_")]
     assert [issue for issue in drawing.registry.issues if issue.code == "balloon_dropped"]
@@ -1338,12 +1304,11 @@ def test_automatic_compound_inventory_fails_closed_on_cross_balloon_geometry():
     assert {
         (outcome.representation, outcome.representation_reason) for outcome in compound_outcomes
     } == {(None, None)}
-    assert any(
-        outcome.representation == "feature_annotation"
-        and outcome.representation_reason == "required_balloon_not_placed"
+    assert ("feature_annotation", "required_balloon_not_placed") in {
+        (outcome.representation, outcome.representation_reason)
         for outcome in _outcomes(drawing)
-        if outcome.source_at[:2] != tuple(feature.frame.origin[:2])
-    )
+        if outcome.state == "placed"
+    }
     visible_labels = {
         annotation.label
         for _owner, (_name, annotation) in _plan_bore_callouts(drawing).items()
@@ -1400,7 +1365,7 @@ def test_automatic_escalation_preserves_preexisting_reserved_names(reserved_name
 def test_finalize_exception_restores_automatic_transaction_markers(monkeypatch):
     import draftwright.annotations.orchestrator as orchestrator
 
-    part = _dense_scattered_plate()
+    part = _dense_perimeter_plate()
     with monkeypatch.context() as disabled:
         disabled.setattr(orchestrator, "_maybe_tabulate_holes", lambda *_args, **_kwargs: None)
         drawing = build_drawing(part)
@@ -1409,7 +1374,6 @@ def test_finalize_exception_restores_automatic_transaction_markers(monkeypatch):
     marked_annotation.hole_representation = "preexisting_representation"
     marked_annotation.hole_representation_reason = "preexisting_reason"
     before = _transaction_state(drawing)
-    _drop_one_diameter_balloon(monkeypatch, 2.0)
     original_reapply = drawing.registry.reapply
 
     def fail_after_coverage(name, identity):

@@ -5,11 +5,11 @@
 ### Fixed
 
 - **Automatic hole-table escalation is transactional per semantic requirement** (#1144). The
-  engine suppresses a replaceable callout or location dimension only after the table fits and its
-  required feature balloon lands. A failed table restores the exact annotations, ordering,
-  registry identities, coverage, and issues; a partial balloon set restores unresolved fallbacks
-  and re-solves the final table/balloon inventory. Precise ring, glyph, and leader-segment tests
-  keep retry placement clear of retained callout labels without changing the existing additive
+  engine suppresses replaceable callouts and location dimensions only after the table fits and
+  every visible row has its required feature-owned balloon. A failed or partial balloon attempt
+  rolls the shared table back as a unit and restores the exact annotations, ordering, registry
+  identities, coverage, and issues. Precise ring, glyph, and leader-segment tests keep placement
+  clear of retained callout labels without changing the existing additive
   `add_hole_table()`/`add_balloons()` behavior. Compound, thread, profile, pattern, tolerance, and
   fit facts the table cannot state remain active, while independently replaceable X/Y locations
   may still move to the table. Hole outcomes identify the winning representation per requirement;
