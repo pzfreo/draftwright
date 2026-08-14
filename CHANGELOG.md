@@ -44,6 +44,14 @@
 
 ### Added
 
+- **Explicit drawing scales now protect required annotation completeness** (#1146).
+  `build_drawing(...)`, `make_drawing(...)`, `Sheet(...)`, and the CLI accept
+  `scale_policy="fallback"|"strict"|"permissive"`. The safe default retries preferred ISO
+  5455 reductions and returns the largest complete scale; strict mode raises with structured
+  requirement blockers, while permissive mode is an explicit warned opt-in to the historical
+  best-effort result. Every returned `Drawing.scale_decision` reports the requested and
+  effective scales, status, attempted scales, and any semantic placement blockers.
+
 - **Hole and hole-pattern requirements now participate in semantic completeness accounting**
   (#1143). `lint_summary()["quality"]["completeness"]` reconciles recognition-owned bore,
   depth/through, grouping, pattern, and location requirements to placed, suppressed, dropped,

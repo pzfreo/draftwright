@@ -44,6 +44,7 @@ Choose formats, scale, and page; or emit an editable drawing script:
 ```
 draftwright my_part.step --format pdf,dxf     # also: svg, all
 draftwright my_part.step --scale 2 --page A3  # override the auto scale / page
+draftwright my_part.step --scale 1 --page A4 --scale-policy strict
 draftwright my_part.step --script             # write an editable declarative Sheet script
 ```
 
@@ -196,13 +197,18 @@ installed automatically as a dependency.
 ### Scale and page control
 
 ```python
-from draftwright import choose_scale
+from draftwright import build_drawing, choose_scale
 
 # Auto-select the best ISO/ASME standard scale for an A3 sheet
 scale, page_w, page_h, n_steps = choose_scale(80, 60, 20, page="A3")
 
-# Override
-make_drawing(part, out="drawing", scale=2.0, page="A2")
+# Override. Required annotations are protected by the default fallback policy.
+dwg = build_drawing(part, scale=1.0, page="A4")
+print(dwg.scale_decision)  # requested/effective scale, attempts, blockers
+
+# Refuse an incompatible request, or explicitly retain historical best-effort output.
+build_drawing(part, scale=1.0, page="A4", scale_policy="strict")
+build_drawing(part, scale=1.0, page="A4", scale_policy="permissive")
 ```
 
 ### Edit, critique, and self-repair

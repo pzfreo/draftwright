@@ -397,7 +397,7 @@ def test_authored_pattern_omission_suppresses_both_location_directions():
 
 
 def test_a_real_placement_failure_retains_the_dropped_measurement():
-    dwg = build_drawing(_off_centre_slot(), page="A4", scale=1.5)
+    dwg = build_drawing(_off_centre_slot(), page="A4", scale=1.5, scale_policy="permissive")
     (drop,) = [issue for issue in dwg.lint() if issue.code == "slot_dim_dropped"]
     legibility = dwg.lint_summary()["quality"]["legibility"]
     assert legibility["by_code"]["slot_dim_dropped"] == 1
@@ -416,7 +416,7 @@ def test_a_real_placement_failure_retains_the_dropped_measurement():
 
 
 def test_pattern_placement_failures_retain_each_failed_measurement():
-    dwg = build_drawing(_slot_grid(), page="A4", scale=1.0)
+    dwg = build_drawing(_slot_grid(), page="A4", scale=1.0, scale_policy="permissive")
     outcomes = _outcomes(dwg)
     dropped = {outcome.parameter_id for outcome in outcomes if outcome.state == "dropped"}
     assert dropped == {

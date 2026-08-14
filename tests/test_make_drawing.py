@@ -1468,7 +1468,9 @@ class TestScaleMinimum:
         # floor. The user asked for it (#489): honour it with a legibility warning, don't raise.
         part = Box(680, 860, 80)
         with pytest.warns(UserWarning, match="legibility floor"):
-            result = make_drawing(part, out=str(tmp_path / "out"), scale=0.1)
+            result = make_drawing(
+                part, out=str(tmp_path / "out"), scale=0.1, scale_policy="permissive"
+            )
         assert result is not None
 
     def test_warning_suggests_safe_scale(self, tmp_path):
@@ -1476,7 +1478,7 @@ class TestScaleMinimum:
 
         part = Box(680, 860, 80)
         with pytest.warns(UserWarning) as record:
-            make_drawing(part, out=str(tmp_path / "out"), scale=0.1)
+            make_drawing(part, out=str(tmp_path / "out"), scale=0.1, scale_policy="permissive")
         msg = str(record[0].message)
         assert "scale" in msg.lower()
         # Names the minimum legible scale (≥ 10/80 = 0.125).
@@ -1526,7 +1528,9 @@ class TestScaleMinimum:
         from draftwright import Sheet
 
         with pytest.warns(UserWarning, match="legibility floor"):
-            sheet = Sheet(Box(680, 860, 80), scale="1:10").auto_dimensions()
+            sheet = Sheet(
+                Box(680, 860, 80), scale="1:10", scale_policy="permissive"
+            ).auto_dimensions()
             sheet.export(str(tmp_path / "s"))
         assert (tmp_path / "s.pdf").exists()  # #702: Sheet.export defaults to PDF
 
@@ -2857,7 +2861,7 @@ class TestComposeThenPackRepack:
         # bisects for a fitting scale ONLY when the scale is not pinned. A user-pinned
         # scale must be honoured (overflow accepted, as asked) — not silently reduced —
         # and the backstop must never crash on the degenerate no-positive-scale case.
-        dwg = build_drawing(Box(4200, 1600, 5400), scale=1)
+        dwg = build_drawing(Box(4200, 1600, 5400), scale=1, scale_policy="permissive")
         assert dwg.scale == 1.0  # pin honoured, not silently rescaled
 
     @pytest.mark.timeout(120)
@@ -9499,7 +9503,11 @@ class TestTurnedDiameters:
         # 1:1, but lifting the middle 5.5 onto a far tier makes it read like an
         # overall dimension. Keep only the 12 mm block on the side view and redraw
         # the three shoulder-to-shoulder links in a genuine enlarged side detail.
-        dwg = build_drawing(self._issue_892_y_chain(axis_z=axis_z, rotation=rotation), scale=1.0)
+        dwg = build_drawing(
+            self._issue_892_y_chain(axis_z=axis_z, rotation=rotation),
+            scale=1.0,
+            scale_policy="permissive",
+        )
 
         main = {n: o for n, o in dwg.iter_annotations() if n.startswith("m_steplen")}
         assert {o.label for o in main.values()} == {"12"}
@@ -9528,7 +9536,7 @@ class TestTurnedDiameters:
         from draftwright import Sheet
 
         part = self._issue_892_y_chain(axis_z=9.0)
-        sheet = Sheet(part, scale=1.0, page="A2").auto_dimensions()
+        sheet = Sheet(part, scale=1.0, page="A2", scale_policy="permissive").auto_dimensions()
         sheet.step(diameter=45, length=3, at=(0, -1.5, 9), axis="y").tolerance(0.2)
         sheet.step(diameter=34, length=5.5, at=(0, -5.75, 9), axis="y").tolerance(0.0, 0.3)
         sheet.step(diameter=28, length=3.5, at=(0, -10.25, 9), axis="y")
@@ -9551,7 +9559,7 @@ class TestTurnedDiameters:
         part = Cylinder(12, 3, align=(Align.CENTER, Align.CENTER, b))
         part += Pos(0, 0, 3) * Cylinder(10, 5, align=(Align.CENTER, Align.CENTER, b))
         part += Pos(0, 0, 8) * Cylinder(8, 4, align=(Align.CENTER, Align.CENTER, b))
-        dwg = build_drawing(part.rotate(Axis.X, 90), scale=1.0)
+        dwg = build_drawing(part.rotate(Axis.X, 90), scale=1.0, scale_policy="permissive")
 
         assert "detail_a" in dwg.views
         detail = {
@@ -9564,7 +9572,12 @@ class TestTurnedDiameters:
         # for the enlarged profile. Do not leave half a detail or reinstate the
         # ambiguous stagger; retain the overall block and let coverage lint expose
         # that the interior shoulders are not located.
-        dwg = build_drawing(self._issue_892_y_chain(), scale=1.0, page="140x100")
+        dwg = build_drawing(
+            self._issue_892_y_chain(),
+            scale=1.0,
+            page="140x100",
+            scale_policy="permissive",
+        )
         assert "detail_a" not in dwg.views
         main = [o for n, o in dwg.iter_annotations() if n.startswith("m_steplen")]
         assert [o.label for o in main] == ["12"]
@@ -10076,7 +10089,12 @@ class TestTurnedLengths:
             seg = Pos(0, 0, z + 1.0) * Cylinder((12 - 0.6 * i) / 2, 2.0)
             part = seg if part is None else part + seg
             z += 2.0
-        dwg = build_drawing(Rotation(0, 90, 0) * part, page="90x70", scale=4.0)
+        dwg = build_drawing(
+            Rotation(0, 90, 0) * part,
+            page="90x70",
+            scale=4.0,
+            scale_policy="permissive",
+        )
         assert not any(
             n.startswith("m_steplen") for n in dwg.annotations()
         )  # skipped, not off-page

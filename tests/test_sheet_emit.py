@@ -1589,6 +1589,8 @@ class TestCli:
                 "ISO 2768-f",
                 "--scale",
                 "2",
+                "--scale-policy",
+                "permissive",
                 "--page",
                 "A3",
                 "--out",
@@ -1602,6 +1604,7 @@ class TestCli:
         assert "drawn_by='Paul'" in ctor
         assert "tolerance='ISO 2768-f'" in ctor
         assert "scale=2.0" in ctor
+        assert "scale_policy='permissive'" in ctor
         assert "page='A3'" in ctor
 
     def test_sheet_style_omits_default_flags(self, tmp_path):

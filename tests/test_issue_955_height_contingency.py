@@ -186,7 +186,13 @@ def test_an_authored_overall_height_does_not_claim_the_shoulders_are_located():
 
 @pytest.mark.timeout(120)
 def test_an_unplaceable_fallback_is_a_drop_not_a_stale_suppression():
-    drawing = build_drawing(_crowded_grooved_shaft(), page="90x70", scale=4.0, repair=False)
+    drawing = build_drawing(
+        _crowded_grooved_shaft(),
+        page="90x70",
+        scale=4.0,
+        scale_policy="permissive",
+        repair=False,
+    )
     codes = drawing.lint_summary()["by_code"]
 
     assert "dim_height" not in drawing.annotations()

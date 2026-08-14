@@ -368,6 +368,8 @@ class Drawing:
 
     Attributes:
         scale: drawing scale factor (e.g. ``2.0`` for 2:1).
+        scale_decision: JSON-friendly resolution of an automatic or explicit scale request,
+            including the requested/effective scales and any required placement blockers.
         page_w, page_h: sheet size in mm.
         tb_w: title-block width in mm.
         draft: the shared ``Draft`` preset used by the automatic annotations.
@@ -404,6 +406,16 @@ class Drawing:
         assembly=None,
     ):
         self.scale = scale
+        # Public, JSON-friendly record of how the requested drawing scale was resolved
+        # (#1146). The build wrapper replaces this automatic default for explicit policies.
+        self.scale_decision = {
+            "policy": "automatic",
+            "requested_scale": None,
+            "effective_scale": scale,
+            "status": "automatic",
+            "blockers": (),
+            "attempted_scales": (),
+        }
         self.part = part
         self._cyl_cache = cyls
         # None → the coverage lint auto-detects a multi-solid part as an

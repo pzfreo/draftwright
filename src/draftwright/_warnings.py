@@ -37,3 +37,11 @@ class SoftDeprecationWarning(UserWarning):
     in notebooks, several test runners, and library-internal call paths, whereas this shows
     unconditionally.
     """
+
+
+class ScaleCompletenessWarning(UserWarning):
+    """An explicit scale was changed or honored with required placement loss (#1146).
+
+    Callers can filter this policy decision independently of unrelated user warnings while
+    still inspecting the complete machine-readable record on ``Drawing.scale_decision``.
+    """

@@ -1289,6 +1289,7 @@ def emit_sheet_script(
     drawn_by: str = "",
     tolerance: str = "ISO 2768-m",
     scale=None,
+    scale_policy="fallback",
     page=None,
     material: str = "",
     date: str = "",
@@ -1369,6 +1370,8 @@ def emit_sheet_script(
         ctor.append(f"tolerance={tolerance!r}")
     if scale is not None:
         ctor.append(f"scale={scale!r}")
+    if scale_policy != "fallback":
+        ctor.append(f"scale_policy={scale_policy!r}")
     if page is not None:
         ctor.append(f"page={page!r}")
     if material:
@@ -1620,6 +1623,7 @@ def generate_sheet_script(
     tolerance: str = "ISO 2768-m",
     drawn_by: str = "",
     scale=None,
+    scale_policy="fallback",
     page=None,
     material: str = "",
     date: str = "",
@@ -1672,6 +1676,7 @@ def generate_sheet_script(
         drawn_by=drawn_by,
         tolerance=tolerance,
         scale=scale,
+        scale_policy=scale_policy,
         page=page,
         material=material,
         date=date,

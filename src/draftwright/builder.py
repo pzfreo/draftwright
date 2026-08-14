@@ -11,8 +11,10 @@ stage modules -- never make_drawing -- so the graph stays a DAG.
 from __future__ import annotations
 
 import os
+import warnings
 from collections.abc import Sequence
 from dataclasses import replace
+from functools import partial
 from pathlib import Path
 from typing import Literal, cast
 
@@ -39,6 +41,7 @@ from draftwright._core import (
     _Projector,
     _tb_width,
 )
+from draftwright._warnings import ScaleCompletenessWarning
 from draftwright.analysis import _analyse
 from draftwright.annotations._common import SolveTrace
 from draftwright.annotations.gears import render_gear_tables
@@ -54,7 +57,7 @@ from draftwright.compose import (
     _layout_geometry,
     _view_geom,
 )
-from draftwright.drawing import Drawing
+from draftwright.drawing import Drawing, feature_key
 from draftwright.fonts import PLEX_MONO
 from draftwright.model import (
     Datum,
@@ -767,7 +770,7 @@ def _resolve_trace(trace, out) -> SolveTrace | None:
     return SolveTrace(path)
 
 
-def build_drawing(
+def _build_drawing_once(
     step_file: str | Path | Shape,
     out: str | None = None,
     title: str | None = None,
@@ -938,6 +941,293 @@ def build_drawing(
     return dwg
 
 
+class ScaleIncompatibilityError(ValueError):
+    """An explicit scale could not preserve required annotation outcomes.
+
+    ``decision`` is the same JSON-friendly record exposed on a successfully returned
+    :class:`Drawing` as :attr:`Drawing.scale_decision`.
+    """
+
+    def __init__(self, decision: dict):
+        self.decision = decision
+        codes = ", ".join(sorted({item["code"] for item in decision["blockers"]}))
+        attempted = decision.get("attempted_scales", ())
+        suffix = f"; tried {list(attempted)}" if attempted else ""
+        super().__init__(
+            f"requested scale {decision['requested_scale']:g} cannot preserve required "
+            f"annotations ({codes or 'no complete standard fallback'}){suffix}"
+        )
+
+
+def _scale_requirement(mid) -> dict:
+    """Plain-data identity for one compiler measurement in a scale decision."""
+    return {
+        "feature": feature_key(getattr(mid, "feature", None)),
+        "parameter": str(getattr(mid, "parameter", "")),
+    }
+
+
+def _hole_scale_requirement(requirement) -> dict:
+    """Plain-data identity for one recognition-owned hole requirement."""
+    feature, parameter = requirement
+    return {"feature": feature_key(feature), "parameter": str(parameter)}
+
+
+def _is_required_scale_drop(issue) -> bool:
+    """Whether *issue* is an unresolved required placement outcome.
+
+    Transactional table/balloon attempts may fail while restoring the original complete
+    representation; their unowned diagnostics are not evidence that a manufacturing
+    requirement was lost.  Semantic measurement/source provenance, an explicit placement
+    stage, and all other established ``*_dropped`` codes fail closed.
+    """
+    stage = getattr(issue, "outcome_stage", None)
+    if stage == "validation":
+        return False
+    if stage == "placement" or issue.code == "placement_unsatisfiable":
+        return True
+    if not issue.code.endswith("_dropped"):
+        return False
+    if issue.code in {"table_dropped", "balloon_dropped"}:
+        return bool(
+            getattr(issue, "measurement_ids", ())
+            or getattr(issue, "hole_requirement_ids", ())
+            or getattr(issue, "source_ids", ())
+        )
+    return True
+
+
+def _scale_blockers(drawing: Drawing) -> tuple[dict, ...]:
+    """Required placement failures on a finished drawing, as stable plain data."""
+    blockers = []
+    for issue in drawing.lint():
+        if not _is_required_scale_drop(issue):
+            continue
+        blockers.append(
+            {
+                "severity": issue.severity,
+                "code": issue.code,
+                "message": issue.message,
+                "measurements": tuple(
+                    _scale_requirement(mid) for mid in getattr(issue, "measurement_ids", ())
+                ),
+                "hole_requirements": tuple(
+                    _hole_scale_requirement(req)
+                    for req in getattr(issue, "hole_requirement_ids", ())
+                ),
+                "source_ids": tuple(getattr(issue, "source_ids", ())),
+            }
+        )
+    return tuple(blockers)
+
+
+def _scale_decision(
+    *,
+    policy: str,
+    requested: float | None,
+    effective: float,
+    status: str,
+    blockers=(),
+    attempted=(),
+) -> dict:
+    return {
+        "policy": policy,
+        "requested_scale": requested,
+        "effective_scale": effective,
+        "status": status,
+        "blockers": tuple(blockers),
+        "attempted_scales": tuple(attempted),
+    }
+
+
+def build_drawing(
+    step_file: str | Path | Shape,
+    out: str | None = None,
+    title: str | None = None,
+    number: str = "DWG-001",
+    tolerance: str = "ISO 2768-m",
+    drawn_by: str = "",
+    scale: float | None = None,
+    page: str | tuple | None = None,
+    auto_dims: bool = True,
+    detail_view: bool = True,
+    pmi: Literal["off", "report", "annotate"] | None = None,
+    repair: bool = True,
+    assembly: bool | None = None,
+    model: Sequence[Feature] | PartModel | None = None,
+    decorations: dict | None = None,
+    requested: tuple | None = None,
+    authored: tuple | None = None,
+    trace: str | Path | bool | None = None,
+    material: str = "",
+    date: str = "",
+    revision: str = "A",
+    company: str = "",
+    frame: bool = False,
+    projection: str | None = None,
+    zones: bool = False,
+    scale_policy: Literal["strict", "fallback", "permissive"] = "fallback",
+) -> Drawing:
+    """Build a drawing, protecting required annotations under an explicit scale.
+
+    ``scale_policy`` applies only when ``scale`` is supplied. ``"fallback"`` (the safe
+    default) retries smaller preferred ISO 5455 scales and returns the largest one with no
+    required placement drop. ``"strict"`` raises :class:`ScaleIncompatibilityError` instead.
+    ``"permissive"`` explicitly opts into the historical best-effort result and warns when
+    it is degraded. Every returned drawing exposes the JSON-friendly decision through
+    :attr:`Drawing.scale_decision`; :attr:`Drawing.scale` is the effective scale.
+
+    Other arguments and return semantics are unchanged from the one-pass builder.
+    """
+    if scale_policy not in {"strict", "fallback", "permissive"}:
+        raise ValueError(
+            f"scale_policy must be 'strict', 'fallback', or 'permissive', got {scale_policy!r}"
+        )
+    one_pass = partial(
+        _build_drawing_once,
+        step_file,
+        out=out,
+        title=title,
+        number=number,
+        tolerance=tolerance,
+        drawn_by=drawn_by,
+        page=page,
+        auto_dims=auto_dims,
+        detail_view=detail_view,
+        pmi=pmi,
+        repair=repair,
+        assembly=assembly,
+        model=model,
+        decorations=decorations,
+        requested=requested,
+        authored=authored,
+        trace=trace,
+        material=material,
+        date=date,
+        revision=revision,
+        company=company,
+        frame=frame,
+        projection=projection,
+        zones=zones,
+    )
+    if scale is None:
+        if scale_policy != "fallback":
+            raise ValueError("scale_policy applies only when an explicit scale is supplied")
+        drawing = one_pass(scale=None)
+        drawing.scale_decision = _scale_decision(
+            policy="automatic",
+            requested=None,
+            effective=drawing.scale,
+            status="automatic",
+        )
+        return drawing
+
+    requested_scale = float(scale)
+
+    def _build(candidate_scale: float) -> Drawing:
+        return one_pass(scale=candidate_scale)
+
+    drawing = _build(requested_scale)
+    blockers = _scale_blockers(drawing)
+    if not blockers:
+        drawing.scale_decision = _scale_decision(
+            policy=scale_policy,
+            requested=requested_scale,
+            effective=drawing.scale,
+            status="honored",
+            attempted=(requested_scale,),
+        )
+        return drawing
+
+    if scale_policy == "permissive":
+        drawing.scale_decision = _scale_decision(
+            policy=scale_policy,
+            requested=requested_scale,
+            effective=drawing.scale,
+            status="degraded",
+            blockers=blockers,
+            attempted=(requested_scale,),
+        )
+        codes = ", ".join(sorted({item["code"] for item in blockers}))
+        warnings.warn(
+            f"requested scale {requested_scale:g} dropped required annotation outcomes "
+            f"({codes}); returning the incomplete drawing because scale_policy='permissive'",
+            ScaleCompletenessWarning,
+            stacklevel=2,
+        )
+        return drawing
+
+    if scale_policy == "strict":
+        raise ScaleIncompatibilityError(
+            _scale_decision(
+                policy=scale_policy,
+                requested=requested_scale,
+                effective=drawing.scale,
+                status="rejected",
+                blockers=blockers,
+                attempted=(requested_scale,),
+            )
+        )
+
+    attempted = [requested_scale]
+    # ``_SCALES`` is descending and contains the preferred ISO 5455 reductions. The
+    # requested non-standard scale is evaluated first above; fallback candidates must be
+    # standard and no greater than it.
+    for candidate in (item for item in _SCALES if item < requested_scale):
+        attempted.append(candidate)
+        try:
+            fallback = _build(candidate)
+        except ValueError as exc:
+            # Once a smaller scale hits the hard rendering floor, every following candidate
+            # is smaller still. Do not hide any unrelated build error.
+            if "drawing geometry degenerates" in str(exc):
+                break
+            raise
+        candidate_blockers = _scale_blockers(fallback)
+        if candidate_blockers:
+            continue
+        fallback.scale_decision = _scale_decision(
+            policy=scale_policy,
+            requested=requested_scale,
+            effective=fallback.scale,
+            status="fallback",
+            blockers=blockers,
+            attempted=attempted,
+        )
+        warnings.warn(
+            f"requested scale {requested_scale:g} dropped required annotation outcomes; "
+            f"using complete fallback scale {fallback.scale:g}",
+            ScaleCompletenessWarning,
+            stacklevel=2,
+        )
+        return fallback
+
+    raise ScaleIncompatibilityError(
+        _scale_decision(
+            policy=scale_policy,
+            requested=requested_scale,
+            effective=drawing.scale,
+            status="no_complete_scale",
+            blockers=blockers,
+            attempted=attempted,
+        )
+    )
+
+
+# Preserve the established detailed public reference (model/trace/PMI/editing semantics) while
+# adding the new policy argument. The one-pass helper owns that long contract because it is the
+# pipeline implementation; mkdocstrings and ``help(build_drawing)`` see the augmented text here.
+build_drawing.__doc__ = (_build_drawing_once.__doc__ or "").replace(
+    "    Args:\n",
+    "    Args:\n"
+    "        scale_policy: required-annotation policy for an explicit scale. ``'fallback'`` "
+    "retries smaller preferred ISO 5455 scales; ``'strict'`` raises "
+    ":class:`ScaleIncompatibilityError`; ``'permissive'`` explicitly returns a warned "
+    "degraded result. Returned drawings expose ``scale_decision``.\n",
+    1,
+)
+
+
 # ---------------------------------------------------------------------------
 # Direct export (SVG + DXF)
 # ---------------------------------------------------------------------------
@@ -963,6 +1253,7 @@ def make_drawing(
     frame: bool = False,
     projection: str | None = None,
     zones: bool = False,
+    scale_policy: Literal["strict", "fallback", "permissive"] = "fallback",
 ) -> tuple[str, str]:
     """Generate a 4-view technical drawing from a STEP file or build123d object.
 
@@ -977,6 +1268,9 @@ def make_drawing(
         drawn_by: Designer name for the title block.
         scale: Drawing-scale override (e.g. ``5`` for 5:1, ``0.5`` for 1:2).
             Default: chosen automatically by :func:`choose_scale`.
+        scale_policy: required-annotation policy for an explicit ``scale``. ``"fallback"``
+            retries smaller preferred scales, ``"strict"`` raises when the request loses a
+            required outcome, and ``"permissive"`` explicitly returns the degraded result.
         page: Page-size override — an ISO name (``"A3"``), ``"WIDTHxHEIGHT"``
             in mm, or a ``(width, height)`` tuple. Default: chosen
             automatically by :func:`choose_scale`.
@@ -1020,6 +1314,7 @@ def make_drawing(
         frame=frame,
         projection=projection,
         zones=zones,
+        scale_policy=scale_policy,
     ).export(formats=("svg", "dxf"))
     assert isinstance(_paths, dict)  # formats=... always returns the {format: path} dict
     return _paths["svg"], _paths["dxf"]

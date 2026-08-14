@@ -714,6 +714,7 @@ class Sheet:
         drawn_by=None,
         tolerance=None,
         scale=None,
+        scale_policy="fallback",
         page=None,
         out=None,
         material=None,
@@ -772,7 +773,12 @@ class Sheet:
         # a literal Y, ``feature`` a declared-feature index, ``auto`` the part-centre Y.
         self._section: tuple | None = None
         self._opts = dict(
-            title=title, number=number, scale=_parse_scale(scale), page=page, out=out
+            title=title,
+            number=number,
+            scale=_parse_scale(scale),
+            scale_policy=scale_policy,
+            page=page,
+            out=out,
         )
         # drawn_by / tolerance (title block, #474) forward to build_drawing only when set, so an
         # unset value keeps build_drawing's own defaults ("" / "ISO 2768-m") rather than None.

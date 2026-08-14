@@ -268,7 +268,7 @@ def test_a_planner_omission_is_not_authored_suppression():
 
 
 def test_forced_placement_failure_is_dropped_not_missing():
-    dwg = build_drawing(_flatted_shaft(), page="A4", scale=3.0)
+    dwg = build_drawing(_flatted_shaft(), page="A4", scale=3.0, scale_policy="permissive")
     issues = dwg.lint()
     drop = next(issue for issue in issues if issue.code == "flat_dropped")
     assert len(drop.measurement_ids) == 2, (

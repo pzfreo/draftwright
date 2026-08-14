@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 # on every TAB press (#313). Each name maps to the submodule that provides it.
 _LAZY = {
     "build_drawing": "draftwright.builder",
+    "ScaleIncompatibilityError": "draftwright.builder",
     "make_drawing": "draftwright.builder",
     "Drawing": "draftwright.drawing",
     "FeatureInfo": "draftwright.drawing",
@@ -40,6 +41,7 @@ _LAZY = {
     # dependency-free `_warnings` leaf for that second reason: defined in `_core` it cost ~6 s
     # to reach, and the pytest filterwarnings entry naming it paid that on every invocation.
     "SoftDeprecationWarning": "draftwright._warnings",
+    "ScaleCompletenessWarning": "draftwright._warnings",
 }
 
 
@@ -76,8 +78,8 @@ _sys.modules[__name__].__class__ = _DraftwrightModule
 
 
 if TYPE_CHECKING:  # static analysers / IDEs — no runtime import, no kernel cost
-    from draftwright._warnings import SoftDeprecationWarning
-    from draftwright.builder import build_drawing, make_drawing
+    from draftwright._warnings import ScaleCompletenessWarning, SoftDeprecationWarning
+    from draftwright.builder import ScaleIncompatibilityError, build_drawing, make_drawing
     from draftwright.compose import choose_scale
     from draftwright.drawing import Drawing, FeatureInfo
     from draftwright.linting import lint_feature_coverage
@@ -106,6 +108,8 @@ __all__ = [
     "PmiRecord",
     "PmiSourceEntity",
     "Sheet",
+    "ScaleIncompatibilityError",
+    "ScaleCompletenessWarning",
     "build_drawing",
     "choose_scale",
     "extract_pmi",
