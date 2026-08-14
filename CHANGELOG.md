@@ -9,9 +9,10 @@
   suppress original callouts only after the table fits and every required feature balloon lands.
   A failed table restores the exact annotations and registry identities; a partial balloon set
   restores the unresolved feature callouts and re-solves the table around them before committing.
-  Callouts carrying compound, thread, profile, or pattern facts the table cannot state remain
-  active. Hole outcome records identify whether a committed table or a restored feature
-  annotation supplied the placed requirement, together with the fallback reason.
+  Callouts carrying compound, thread, profile, pattern, tolerance, or fit facts the table cannot
+  state remain active, and unresolved dropped callouts stay diagnostic. Hole outcome records
+  identify per feature whether a committed table or a restored feature annotation supplied the
+  placed requirement, together with the fallback reason.
 
 ### Changed
 

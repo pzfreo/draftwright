@@ -85,17 +85,21 @@ def _register_hole_table_coverage(
     locations=(),
     requirements=(),
     representation_reason=None,
+    representation_features=(),
 ):
     """Register the semantic facts visibly carried by a placed hole table.
 
     Automatic escalation and the public table verb share this seam so the table object,
-    registry measurement inventory, and physical hole ledger cannot drift apart.
+    registry measurement inventory, per-feature replacement evidence, and physical hole
+    ledger cannot drift apart.
     """
     table.covers_hole_locations = tuple(locations)
     table.covers_hole_requirements_by_feature = tuple(requirements)
-    if representation_reason is not None:
-        table.hole_representation = "hole_table"
-        table.hole_representation_reason = representation_reason
+    table.covers_hole_representations_by_feature = tuple(
+        (feature, "hole_table", representation_reason)
+        for feature in representation_features
+        if representation_reason is not None
+    )
     identity = registry.identity_of(name)
     identity["measurement"] = tuple(measurements)
     registry.reapply(name, identity)
@@ -123,6 +127,11 @@ def _annotation_hole_features(registry, name, annotation) -> frozenset:
             features.add(feature)
     for feature, _requirement, _count in getattr(
         annotation, "covers_hole_requirements_by_feature", ()
+    ):
+        if getattr(feature, "kind", None) in {"hole", "pattern"}:
+            features.add(feature)
+    for feature, _representation, _reason in getattr(
+        annotation, "covers_hole_representations_by_feature", ()
     ):
         if getattr(feature, "kind", None) in {"hole", "pattern"}:
             features.add(feature)
@@ -161,6 +170,24 @@ def _hole_table_replaceable_annotation(registry, name, annotation) -> bool:
         getattr(measurement, "parameter", None) in table_parameters
         for measurement in registry.measurement_of(name)
     )
+
+
+def _hole_table_replaceable_feature(feature, dimensions=()) -> bool:
+    """Whether the current table schema can replace *feature*'s compiled callout facts.
+
+    Annotation metadata alone is insufficient: an authored tolerance or fit lives on the
+    compiler-approved dimension, and an automatic callout may have dropped before any
+    annotation object existed.  Keep this predicate feature/plan based so both public and
+    automatic transactions make the same decision without parsing rendered text.
+    """
+    if getattr(feature, "kind", None) != "hole":
+        return False
+    if any(
+        getattr(feature, attribute, None) is not None
+        for attribute in ("cbore", "spotface", "csink", "thread", "profile")
+    ):
+        return False
+    return all(getattr(dimension, "tolerance", None) is None for dimension in dimensions)
 
 
 @dataclass(frozen=True)

@@ -53,6 +53,7 @@ from draftwright.annotations._common import (
     _discard_attempt_annotations,
     _fully_ballooned_features,
     _hole_table_replaceable_annotation,
+    _hole_table_replaceable_feature,
     _register_hole_table_coverage,
     _reset_stashed_representation,
     _restore_stashed_annotations,
@@ -2639,12 +2640,12 @@ class Drawing:
         restores every callout. After a partial balloon result, unresolved fallbacks are
         restored and the table is solved again against their real footprints; if that fit
         fails, the whole attempted table/balloon representation is discarded. Compound,
-        threaded, profiled, and pattern callouts remain because this table schema cannot
-        replace all of their visible facts. This is the transactional replacement surface —
-        callers must not remove leaders themselves first. Replacement requires
-        ``balloons=True`` and unused table/balloon names. The default remains additive for
-        compatibility. Returns the committed table, or ``None`` when *view* has no holes or
-        the final representation will not fit.
+        threaded, profiled, patterned, toleranced, and fitted callouts remain because this
+        table schema cannot replace all of their visible facts. This is the transactional
+        replacement surface — callers must not remove leaders themselves first. Replacement
+        requires ``balloons=True`` and distinct, unused table/balloon names. The default
+        remains additive for compatibility. Returns the committed table, or ``None`` when
+        *view* has no holes or the final representation will not fit.
         """
         groups = self._hole_spec_groups(view)
         if not groups:
@@ -2666,15 +2667,21 @@ class Drawing:
             for j, hole in enumerate(holes)
         ]
         table_name = name or f"hole_table_{view}"
+        attempted_names = {
+            f"balloon_{view}_{tag}_{member_index}"
+            for tag, member_index, _hole, _owner in tagged_holes
+        }
+        if balloons and table_name in attempted_names:
+            raise ValueError(
+                "the hole-table name must differ from every generated balloon name; "
+                f"{table_name!r} is reserved by this attempt"
+            )
         stashed = {}
         reg_snap = issues_snap = items_snap = coverage_snap = None
         if replace_callouts:
             from build123d_drafting import Leader
 
-            reserved_names = {table_name} | {
-                f"balloon_{view}_{tag}_{member_index}"
-                for tag, member_index, _hole, _owner in tagged_holes
-            }
+            reserved_names = {table_name} | attempted_names
             collisions = sorted(reserved_names & set(self._registry.names()))
             if collisions:
                 raise ValueError(
@@ -2702,6 +2709,18 @@ class Drawing:
                     "replace_callouts=True requires an existing bore callout for every "
                     f"{view!r}-view table feature"
                 )
+            from draftwright.model.compiled import compile_dimensions, resolve_feature
+
+            compiled = compile_dimensions(self._part_model)
+            compiled_dimensions = {
+                resolve_feature(group.ref): tuple(group.dims)
+                for group in compiled.of_kind("hole", "pattern")
+            }
+            replaceable_features = {
+                feature
+                for feature in group_features
+                if _hole_table_replaceable_feature(feature, compiled_dimensions.get(feature, ()))
+            }
             replaceable_names = [
                 annotation_name
                 for annotation_name in callout_names
@@ -2710,6 +2729,12 @@ class Drawing:
                     annotation_name,
                     self._registry.named(annotation_name),
                 )
+                and _annotation_hole_features(
+                    self._registry,
+                    annotation_name,
+                    self._registry.named(annotation_name),
+                )
+                <= replaceable_features
                 and all(
                     len(holes) == count
                     for _tag, owner, holes, count in groups
@@ -2747,10 +2772,6 @@ class Drawing:
                 return None
 
             if balloons:
-                attempted_names = {
-                    f"balloon_{view}_{tag}_{member_index}"
-                    for tag, member_index, _hole, _owner in tagged_holes
-                }
                 if self._analysis is None:
                     placed_names = set()
                 else:
@@ -2847,6 +2868,9 @@ class Drawing:
                 measurements=measurements,
                 requirements=requirements,
                 representation_reason=("required_balloons_placed" if replace_callouts else None),
+                representation_features=(
+                    replacement_features & successful_features if replace_callouts else ()
+                ),
             )
             return table
         except BaseException:

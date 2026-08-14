@@ -485,9 +485,16 @@ def _index_hole_evidence(registry) -> _HoleEvidence:
         annotation = registry.named(name)
         representation = getattr(annotation, "hole_representation", None)
         representation_reason = getattr(annotation, "hole_representation_reason", None)
+        feature_representations: dict[object, set[tuple[str, str]]] = defaultdict(set)
+        for feature, feature_representation, reason in getattr(
+            annotation, "covers_hole_representations_by_feature", ()
+        ):
+            feature_representations[feature].add((str(feature_representation), str(reason)))
 
         def record_representation(feature, parameter):
-            if representation is not None and representation_reason is not None:
+            if feature in feature_representations:
+                representations[(feature, parameter)].update(feature_representations[feature])
+            elif representation is not None and representation_reason is not None:
                 representations[(feature, parameter)].add(
                     (str(representation), str(representation_reason))
                 )
