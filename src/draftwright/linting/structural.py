@@ -801,16 +801,22 @@ def _label_centerline_overlap(dim_item, cl_item, box_cache=None, warned=None):
 
     aggregate_location = ((cl_min_x + cl_max_x) / 2.0, (cl_min_y + cl_max_y) / 2.0)
 
-    def overlap(extent):
+    def overlap(extent, *, segment=False):
         min_x, min_y, max_x, max_y = extent
         width = max_x - min_x
         height = max_y - min_y
-        if width < 0.1:
+        # A segment is a zero-width stroke, not a filled version of its clipped
+        # AABB.  Measure penetration on the stroke's minor axis and travelled
+        # distance on its major axis.  This keeps a deep near-vertical crossing
+        # significant without reviving the empty diagonal-triangle false positive.
+        line_x = segment and width < height
+        line_y = segment and height < width
+        if line_x or (not segment and width < 0.1):
             centre_x = (min_x + max_x) / 2.0
             ox = min(centre_x - lmin_x, lmax_x - centre_x) if lmin_x < centre_x < lmax_x else 0.0
         else:
             ox = max(0.0, min(lmax_x, max_x) - max(lmin_x, min_x))
-        if height < 0.1:
+        if line_y or (not segment and height < 0.1):
             centre_y = (min_y + max_y) / 2.0
             oy = min(centre_y - lmin_y, lmax_y - centre_y) if lmin_y < centre_y < lmax_y else 0.0
         else:
@@ -820,13 +826,16 @@ def _label_centerline_overlap(dim_item, cl_item, box_cache=None, warned=None):
         return ox, oy, aggregate_location
 
     if segments or component_boxes:
-        hit_extents = [
+        segment_extents = [
             extent
             for start, end in (segments or ())
             if (extent := _segment_clip_extent(start, end, label_bbox)) is not None
         ]
-        hit_extents.extend(box for box in component_boxes if _boxes_overlap(box, label_bbox))
-        significant = [result for extent in hit_extents if (result := overlap(extent))]
+        box_extents = [box for box in component_boxes if _boxes_overlap(box, label_bbox)]
+        significant = [
+            result for extent in segment_extents if (result := overlap(extent, segment=True))
+        ]
+        significant.extend(result for extent in box_extents if (result := overlap(extent)))
         return (
             max(significant, key=lambda result: (result[0] * result[1], result))
             if significant

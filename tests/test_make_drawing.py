@@ -11101,7 +11101,11 @@ class TestPatternGroupBalloon:
         assert len(new_balloons) == 1
         assert new_balloons[0].split("_")[2] == "6×A"
         assert dwg.registry.feature_of(new_balloons[0]) == feat
-        assert "callout_dropped" not in {i.code for i in dwg.lint()}  # resolved, not just hidden
+        # ADR 0009 retains one grouped visual marker, but ``6×A`` has no
+        # defining table/legend and therefore cannot certify the dropped
+        # diameter/depth/pattern requirements.
+        assert issue in dwg.registry.issues
+        assert dwg.measurement_keys(new_balloons[0]) == []
 
         # A pattern-only escalation has no scattered-hole table. It must still use
         # the automatic retained-label guard before a landed name may clear the

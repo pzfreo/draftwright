@@ -131,18 +131,28 @@ def _countersunk_pattern():
 
 
 def _dense_scattered_plate():
-    part = Box(90, 60, 12)
-    columns = [-40 + i * 20 for i in range(5)]
-    for i, (column, y) in enumerate(itertools.product(range(5), (-18, -6, 6, 18))):
-        part -= Pos(columns[column], y, 0) * Cylinder(1.0 + i * 0.2, 20)
+    positions = (
+        [(x, -30.0) for x in (-45.0, -15.0, 15.0, 45.0)]
+        + [(x, 30.0) for x in (-45.0, -15.0, 15.0, 45.0)]
+        + [(-54.0, y) for y in (-18.0, -6.0, 6.0, 18.0)]
+        + [(54.0, y) for y in (-18.0, -6.0, 6.0, 18.0)]
+    )
+    part = Box(120, 80, 12)
+    for i, (x, y) in enumerate(positions):
+        part -= Pos(x, y, 0) * Cylinder(1.0 + i * 0.15, 20)
     return part
 
 
 def _dense_scattered_blind_plate():
-    part = Box(90, 60, 12, align=_XYZ_MIN)
-    columns = [-40 + i * 20 for i in range(5)]
-    for i, (column, y) in enumerate(itertools.product(range(5), (-18, -6, 6, 18))):
-        part -= Pos(columns[column], y, 6) * Cylinder(1.0 + i * 0.2, 6, align=_XYZ_MIN)
+    positions = (
+        [(x, -30.0) for x in (-45.0, -15.0, 15.0, 45.0)]
+        + [(x, 30.0) for x in (-45.0, -15.0, 15.0, 45.0)]
+        + [(-54.0, y) for y in (-18.0, -6.0, 6.0, 18.0)]
+        + [(54.0, y) for y in (-18.0, -6.0, 6.0, 18.0)]
+    )
+    part = Box(120, 80, 12, align=_XYZ_MIN)
+    for i, (x, y) in enumerate(positions):
+        part -= Pos(x, y, 6) * Cylinder(1.0 + i * 0.15, 6, align=_XYZ_MIN)
     return part
 
 
@@ -2076,14 +2086,16 @@ def test_grouped_loose_holes_require_every_member_location_mark():
 
 
 def test_successful_hole_table_escalation_carries_every_replaced_requirement():
-    drawing = build_drawing(_dense_scattered_plate())
+    drawing = build_drawing(_dense_scattered_plate(), page="A3")
 
     assert "hole_table_plan" in drawing.annotations()
+    hole_count = len([feature for feature in drawing.model().features if feature.kind == "hole"])
+    assert hole_count == 16
     keys = drawing.measurement_keys("hole_table_plan")
-    assert len(keys) == 40
+    assert len(keys) == hole_count * 2
     assert len({(key["feature"], key["parameter_id"]) for key in keys}) == len(keys)
     outcomes = _outcomes(drawing)
-    assert len(outcomes) == 80
+    assert len(outcomes) == hole_count * 4
     assert all(item.state == "placed" for item in outcomes)
     assert not [issue for issue in drawing.lint() if issue.code.startswith("hole_requirement_")]
     assert _completeness(drawing)["audited_score"] == 1.0
@@ -2268,7 +2280,7 @@ def test_blind_hole_table_prints_every_depth_it_claims(monkeypatch):
         if row[offset]
     } == {"6"}
     outcomes = _outcomes(drawing)
-    assert len(outcomes) == 80
+    assert len(outcomes) == 16 * 4
     assert all(item.state == "placed" for item in outcomes)
 
 
@@ -2307,7 +2319,7 @@ def test_failed_hole_table_escalation_restores_semantic_fallback_evidence(monkey
     import draftwright.drawing as drawing_module
 
     monkeypatch.setattr(drawing_module, "fit_box", lambda *_args, **_kwargs: None)
-    drawing = build_drawing(_dense_scattered_plate())
+    drawing = build_drawing(_dense_scattered_plate(), page="A3")
 
     assert "hole_table_plan" not in drawing.annotations()
     assert "table_dropped" in {issue.code for issue in drawing.lint()}

@@ -789,8 +789,9 @@ def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
     tags = _tag_sequence(n_scattered + len(pattern_feats))
     scattered_tags, pattern_tags = tags[:n_scattered], tags[n_scattered:]
     # One balloon per pattern, tagged with its member count so the ring reads
-    # "6×A" rather than one glyph per member (#348) — no table row needed, the
-    # count + diameter travel with the balloon itself.
+    # "6×A" rather than one glyph per member (#348).  Without a table/legend the
+    # marker does not state the pattern's diameter, depth or arrangement; it is
+    # deliberately non-certifying and cannot clear the original callout drop.
     pattern_specs = [
         (
             f"{feat.count}×{tag}",
@@ -925,6 +926,7 @@ def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
         )
 
         # Widen the chart into more column-blocks until it fits the page.
+        table_issue_base = dwg.registry.issues
         for ncols in (1, 2, 3, 4):
             table = dwg.add_table(
                 _wrap_rows(header, data, ncols), name="hole_table_plan", block_cols=len(header)
@@ -932,7 +934,10 @@ def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
             if table is not None:
                 table_ncols = ncols
                 break
-        ctx.drop_issues("table_dropped")
+        # ``add_table`` records one diagnostic for every rejected wrapping attempt.
+        # Restore the exact pre-attempt issue inventory instead of clearing every
+        # table_dropped finding: an unrelated failed public table remains actionable.
+        dwg.registry.restore_issues(table_issue_base)
         if table is None:
             # Even wrapped it will not fit — restore the callouts/dims and keep the
             # drop lint, so the sheet is never left with neither. The pattern
@@ -1262,23 +1267,13 @@ def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
             ),
         )
 
-    # Clear `callout_dropped` only when EVERY dropped plan-view callout is now
-    # documented — one unified check across both remedies (the scattered table and the
-    # pattern balloons), so neither hides the other. A plan-view callout escalation is
-    # resolved iff:
-    #   - it is a pattern whose balloon actually LANDED on the sheet (a crowded band
-    #     can drop the tail — _place_band's strip-solver prefix fallback — leaving the
-    #     pattern undocumented), or
-    #   - it is a scattered hole whose row is fully keyed by landed balloons.
+    # Clear `callout_dropped` only when the complete dropped callout is now documented
+    # by a successfully keyed scattered-hole table row.  A grouped pattern marker such
+    # as ``6×A`` has no defining table row and therefore remains deliberately
+    # non-certifying: it may provide the ADR-0009 visual grouping cue, but the original
+    # callout drop and its physical-requirement outcomes must remain actionable.
     # A drop this resolver does not cover — a table that didn't fit, a balloon that
     # didn't land, or any callout dropped in a non-plan view — leaves the lint standing.
-    resolved_feats = {
-        feat
-        for (full_tag, _, _), feat in zip(pattern_specs, pattern_feats, strict=True)
-        if (name := f"balloon_plan_{full_tag}_0") in placed_names
-        and dwg.registry.feature_of(name) == feat
-    }
-
     callout_escalations = [e for e in escalations if e.kind == "callout"]
     available_issues = [issue for issue in ctx.registry.issues if issue.code == "callout_dropped"]
     resolved_issue_ids = set()
@@ -1295,8 +1290,6 @@ def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
         if escalation.view != "plan":
             continue
         if isinstance(escalation.feature, PatternFeature):
-            if escalation.feature in resolved_feats:
-                resolved_issue_ids.add(id(issue))
             continue
         issue_features = {
             getattr(measurement, "feature", None) for measurement in issue.measurement_ids

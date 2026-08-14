@@ -590,9 +590,15 @@ def _guarded_inventory_geometry_is_clear(geometry, page_box):
             for box in boxes
         ):
             return False
-    for index, (boxes, _segments) in enumerate(geometry):
-        for other_boxes, _other_segments in geometry[index + 1 :]:
-            if balloon_geometry_hits_annotation_labels(boxes, (), other_boxes):
+    for index, (boxes, segments) in enumerate(geometry):
+        for other_boxes, other_segments in geometry[index + 1 :]:
+            if balloon_geometry_hits_annotation_labels(
+                boxes, segments, other_boxes
+            ) or balloon_geometry_hits_annotation_labels(
+                other_boxes,
+                other_segments,
+                boxes,
+            ):
                 return False
     return True
 

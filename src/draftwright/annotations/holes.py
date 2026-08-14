@@ -589,11 +589,19 @@ def _record_callout_drop(ctx, dwg, view, diam, reason, feat=None, callout=None):
         for _ in range(count):
             ctx.coverage.drop_profile(profile)
     measurements = tuple(getattr(callout, "measurements", ()))
+    hole_requirements = (
+        tuple(
+            (feat, requirement) for requirement in getattr(callout, "covers_hole_requirements", ())
+        )
+        if feat is not None
+        else ()
+    )
     ctx.record_issue(
         "warning",
         "callout_dropped",
         f"hole callout ø{_fmt(diam)} dropped from the {view} view ({reason})",
         measurement=measurements,
+        hole_requirements=hole_requirements,
     )
     # First-class escalation object alongside the lint code (ADR 0009 Amdt 1, #351 PR-2).
     # The resolver (`_maybe_tabulate_holes`) triggers on these; the lint code stays for
