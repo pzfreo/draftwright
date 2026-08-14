@@ -997,6 +997,7 @@ class Analysis:
     layout_n_steps: int
     layout_section: bool
     layout_table_sizes: tuple[tuple[float, float], ...]
+    layout_required_tables: tuple[tuple[tuple[float, float], str], ...]
     sv_right: float
     iso_right_limit: float
     SCALE: float

@@ -445,6 +445,7 @@ def _fits(
     pack_iso_2d: bool = False,
     section: bool = False,
     table_sizes=(),
+    required_tables=(),
     margin: float = _MARGIN,
 ) -> bool:
     """True if the composed 4-view footprint fits the page at this scale.
@@ -466,6 +467,7 @@ def _fits(
         n_steps,
         section=section,
         table_sizes=table_sizes,
+        required_tables=required_tables,
         warn_no_iso=False,
         margin=margin,
     )
@@ -484,6 +486,7 @@ def _bisect_fit_scale(
     pack_iso_2d,
     section=False,
     table_sizes=(),
+    required_tables=(),
     margin=_MARGIN,
 ):
     """Largest scale at which the 4-view layout fits ``(pw, ph)``, found by bisection —
@@ -508,6 +511,7 @@ def _bisect_fit_scale(
             pack_iso_2d=pack_iso_2d,
             section=section,
             table_sizes=table_sizes,
+            required_tables=required_tables,
             margin=margin,
         ):
             lo = mid
@@ -526,6 +530,7 @@ def choose_scale(
     strips: StripDepths | None = None,
     section: bool = False,
     table_sizes=(),
+    required_tables=(),
     margin: float = _MARGIN,
 ) -> tuple:
     """Return (SCALE, PAGE_W, PAGE_H, TB_W) for a 4-view layout.
@@ -564,6 +569,7 @@ def choose_scale(
             pack_iso_2d=True,
             section=section,
             table_sizes=table_sizes,
+            required_tables=required_tables,
             margin=margin,
         ):
             _log.warning(
@@ -591,6 +597,7 @@ def choose_scale(
             pack_iso_2d=pack_iso_2d,
             section=section,
             table_sizes=table_sizes,
+            required_tables=required_tables,
             margin=margin,
         ):
             return cand
@@ -612,8 +619,9 @@ def choose_scale(
             strips,
             pack_iso_2d,
             section,
-            table_sizes,
-            margin,
+            table_sizes=table_sizes,
+            required_tables=required_tables,
+            margin=margin,
         )
         if s is not None:
             _log.warning(
@@ -785,6 +793,7 @@ def _layout_geometry(
     blocks=None,
     section: bool = False,
     table_sizes=(),
+    required_tables=(),
     warn_no_iso=True,
     margin: float = _MARGIN,
 ):
@@ -934,6 +943,21 @@ def _layout_geometry(
             left=DIM_PAD,
         )
         obstacles.append(section_block.footprint(SECTION_X, SECTION_Y))
+    # Authored Sheet tables are required fixed-size furniture, not alternative fallback shapes.
+    # Place their estimated footprints before allocating the iso so page selection can grow the
+    # sheet while preserving the requested scale (#1146). Each placement becomes an obstacle for
+    # the next table and for the iso, matching the runtime's declaration order.
+    required_tables_fit = True
+    required_table_boxes = []
+    for size, prefer in required_tables:
+        position = fit_box(size, drawable, obstacles, prefer, clearance=2.0)
+        if position is None:
+            required_tables_fit = False
+            break
+        x0, y0 = position
+        box = (x0, y0, x0 + size[0], y0 + size[1])
+        required_table_boxes.append(box)
+        obstacles.append(box)
     iso_left, iso_bottom, iso_right, iso_top = _largest_empty_rect(
         drawable, obstacles, warn=warn_no_iso
     )
@@ -986,12 +1010,14 @@ def _layout_geometry(
         table_obstacles.append(section_block.footprint(SECTION_X, SECTION_Y))
     if iso_valid:
         table_obstacles.append((iso_left, iso_bottom, iso_right, iso_top))
+    table_obstacles.extend(required_table_boxes)
     table_fits = not table_sizes or any(
         fit_box(size, drawable, table_obstacles, "tr") is not None for size in table_sizes
     )
     fits = (
         iso_fits
         and table_fits
+        and required_tables_fit
         and cy0 >= margin - _tol
         and cy1 <= page_h - margin + _tol
         and cx0 >= margin - _tol
@@ -1000,6 +1026,7 @@ def _layout_geometry(
     auto_fits = (
         auto_row_fits
         and table_fits
+        and required_tables_fit
         and cy0 >= margin - _tol
         and cy1 <= page_h - margin + _tol
         and cx0 >= margin - _tol

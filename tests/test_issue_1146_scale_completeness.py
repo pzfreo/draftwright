@@ -199,7 +199,9 @@ def test_fallback_reports_exhaustion_at_the_hard_rendering_floor(monkeypatch):
             if scale == 0.5
             else drop
         )
-        return SimpleNamespace(scale=scale, lint=lambda: [candidate_drop], _analysis=None)
+        return SimpleNamespace(
+            scale=scale, lint=lambda: [candidate_drop], recognition=lambda: None, _analysis=None
+        )
 
     monkeypatch.setattr(builder, "_SCALES", (1.0, 0.5, 0.2, 0.1))
     monkeypatch.setattr(builder, "_build_drawing_once", fake_build)
@@ -237,7 +239,9 @@ def test_fallback_does_not_hide_an_unrelated_build_error(monkeypatch):
     def fake_build(*args, scale, **kwargs):
         if scale < 1.0:
             raise ValueError("invalid declared model")
-        return SimpleNamespace(scale=scale, lint=lambda: [drop], _analysis=None)
+        return SimpleNamespace(
+            scale=scale, lint=lambda: [drop], recognition=lambda: None, _analysis=None
+        )
 
     monkeypatch.setattr(builder, "_SCALES", (1.0, 0.5))
     monkeypatch.setattr(builder, "_build_drawing_once", fake_build)
@@ -258,7 +262,9 @@ def test_monotone_step_separation_failure_does_not_rebuild_smaller_scales(monkey
 
     def fake_build(*args, scale, **kwargs):
         calls.append(scale)
-        return SimpleNamespace(scale=scale, lint=lambda: [drop], _analysis=None)
+        return SimpleNamespace(
+            scale=scale, lint=lambda: [drop], recognition=lambda: None, _analysis=None
+        )
 
     monkeypatch.setattr(builder, "_SCALES", (1.0, 0.5, 0.2, 0.1))
     monkeypatch.setattr(builder, "_build_drawing_once", fake_build)
@@ -280,7 +286,7 @@ def test_scale_warning_category_remains_a_dependency_free_user_warning():
 
 @pytest.mark.timeout(120)
 def test_sheet_authored_table_footprint_participates_in_fallback_and_strict_policy():
-    rows = [("NOTES",), *((f"{index}. " + "X" * 30,) for index in range(4))]
+    rows = [("NOTES",), *((f"{index}. " + "X" * 70,) for index in range(4))]
 
     fallback_sheet = Sheet(Box(100, 100, 8), page="A4", scale=1.0).table(
         rows, name="required_notes"
@@ -293,7 +299,7 @@ def test_sheet_authored_table_footprint_participates_in_fallback_and_strict_poli
     assert drawing.scale == 0.5
     assert "required_notes" in drawing.annotations()
     assert drawing.scale_decision["blockers"][0]["code"] == "table_dropped"
-    assert drawing.scale_decision["blockers"][0]["source_ids"] == ("sheet.table:required_notes",)
+    assert drawing.scale_decision["blockers"][0]["source_ids"] == ("sheet.table:0:required_notes",)
 
     strict_sheet = Sheet(Box(100, 100, 8), page="A4", scale=1.0, scale_policy="strict").table(
         rows, name="required_notes"
@@ -303,6 +309,74 @@ def test_sheet_authored_table_footprint_participates_in_fallback_and_strict_poli
     with pytest.raises(ScaleIncompatibilityError) as caught:
         strict_sheet.build()
     assert caught.value.decision["blockers"][0]["code"] == "table_dropped"
+
+
+@pytest.mark.timeout(120)
+def test_authored_table_footprint_can_select_a_larger_standard_page():
+    drawing = (
+        Sheet(Box(40, 30, 10), scale=1.0)
+        .authored_dimensions()
+        .table([("NOTES",), ("X" * 160,)], name="required_notes")
+        .build()
+    )
+
+    assert drawing.scale == 1.0
+    assert (drawing.page_w, drawing.page_h) == (420.0, 297.0)
+    assert drawing.scale_decision["status"] == "honored"
+    assert "required_notes" in drawing.annotations()
+
+
+@pytest.mark.timeout(120)
+def test_sheet_table_sources_are_stable_and_unique_when_display_names_are_reused():
+    oversized = [("X" * 300,)]
+
+    both_drop = (
+        Sheet(Box(100, 100, 8), page="A4", scale=1.0, scale_policy="strict")
+        .authored_dimensions()
+        .table(oversized, name="same")
+        .table(oversized, name="same")
+    )
+    with pytest.raises(ScaleIncompatibilityError) as caught:
+        both_drop.build()
+    assert [item["source_ids"] for item in caught.value.decision["blockers"]] == [
+        ("sheet.table:0:same",),
+        ("sheet.table:1:same",),
+    ]
+
+    drop_then_place = (
+        Sheet(Box(100, 100, 8), page="A4", scale=1.0, scale_policy="permissive")
+        .authored_dimensions()
+        .table(oversized, name="same")
+        .table([("OK",), ("visible",)], name="same")
+    )
+    with pytest.warns(ScaleCompletenessWarning, match="returning the incomplete drawing"):
+        drawing = drop_then_place.build()
+    assert "same" in drawing.annotations()
+    assert [item["source_ids"] for item in drawing.scale_decision["blockers"]] == [
+        ("sheet.table:0:same",)
+    ]
+
+
+@pytest.mark.timeout(120)
+def test_sheet_fallback_reuses_lazy_physical_recognition(monkeypatch):
+    import draftwright.drawing as drawing_module
+
+    sheet = Sheet.from_part(_scale_sensitive_plate(), page="A4", scale=1.0)
+    calls = []
+    original = drawing_module.build_recognition_result
+
+    def counted(part):
+        result = original(part)
+        calls.append(result)
+        return result
+
+    monkeypatch.setattr(drawing_module, "build_recognition_result", counted)
+    with pytest.warns(ScaleCompletenessWarning, match="fallback scale 0.5"):
+        drawing = sheet.build()
+
+    assert drawing.scale_decision["attempted_scales"] == (1.0, 0.5)
+    assert len(calls) == 1
+    assert drawing.recognition() is calls[0]
 
 
 @pytest.mark.timeout(120)
@@ -364,6 +438,13 @@ def test_script_emitter_rejects_nondefault_policy_without_scale(tmp_path):
             Box(10, 10, 10),
             out=str(tmp_path / "invalid_policy"),
             scale_policy="strict",
+        )
+    with pytest.raises(ValueError, match="scale_policy must be"):
+        generate_sheet_script(
+            Box(10, 10, 10),
+            out=str(tmp_path / "invalid_vocabulary"),
+            scale=1.0,
+            scale_policy="banana",
         )
 
 

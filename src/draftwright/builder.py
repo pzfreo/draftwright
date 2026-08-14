@@ -299,6 +299,7 @@ def _assemble(
     authored=None,
     trace=None,
     shape=None,
+    critique_recognition=None,
 ) -> Drawing:
     """Project the 4 views for analysis *a*, run the automatic annotation
     passes, and fit the iso.  This is pass 1 of :func:`build_drawing`; with a
@@ -425,7 +426,7 @@ def _assemble(
     # ADR 0005 §2 (#639): the ONE build-context attachment — analysis + finished model
     # in a single typed BuildState; the compat properties on Drawing read through it.
     dwg._build.analysis = a
-    dwg._build.recognition = a.recognition
+    dwg._build.recognition = a.recognition if a.recognition is not None else critique_recognition
     dwg._build.part_model = pm
     # Persist the caller's detail-view setting: on the auto_dims=False path the flag
     # reaches no pass here, but the finalize drain gates the prismatic detail
@@ -557,6 +558,7 @@ def _repack(
     requested=None,
     authored=None,
     trace=None,
+    critique_recognition=None,
 ):
     """Measure the laid-out drawing's *real* per-view annotation footprints and,
     when a view collides across views, pack the blocks disjoint — escalating the
@@ -589,6 +591,7 @@ def _repack(
             blocks=blocks,
             section=a.layout_section,
             table_sizes=a.layout_table_sizes,
+            required_tables=a.layout_required_tables,
             warn_no_iso=False,
             margin=a.margin,
         )
@@ -697,6 +700,7 @@ def _repack(
         requested=requested,
         authored=authored,
         trace=trace,
+        critique_recognition=critique_recognition,
     )
     return a2, dwg2
 
@@ -714,6 +718,7 @@ def _repack_to_fixed_point(
     requested=None,
     authored=None,
     trace=None,
+    critique_recognition=None,
 ):
     """Iterate measure→repack→assemble until stable or bounded (#302)."""
     cur_a, cur_dwg = a, dwg
@@ -731,6 +736,7 @@ def _repack_to_fixed_point(
             requested=requested,
             authored=authored,
             trace=trace,
+            critique_recognition=critique_recognition,
         )
         if repacked is None:
             if _needs_repack(cur_dwg, cur_a):
@@ -798,6 +804,8 @@ def _build_drawing_once(
     zones: bool = False,
     _analysis_base=None,
     _analysis_sink: Callable[[Analysis], None] | None = None,
+    _critique_recognition=None,
+    _required_tables=(),
 ) -> Drawing:
     """Build a customisable 4-view :class:`Drawing` without exporting it.
 
@@ -898,6 +906,7 @@ def _build_drawing_once(
         projection=projection,
         zones=zones,
         _reuse=_analysis_base,
+        _required_tables=_required_tables,
     )
 
     # Pass 1: place + annotate from the estimated layout, then measure the real
@@ -915,6 +924,7 @@ def _build_drawing_once(
         requested=requested,
         authored=authored,
         trace=tracer,
+        critique_recognition=_critique_recognition,
     )
     if auto_dims:
         repacked = _repack_to_fixed_point(
@@ -930,6 +940,7 @@ def _build_drawing_once(
             requested=requested,
             authored=authored,
             trace=tracer,
+            critique_recognition=_critique_recognition,
         )
         if repacked is not None:
             a, dwg = repacked
@@ -1096,6 +1107,7 @@ def build_drawing(
     zones: bool = False,
     scale_policy: Literal["strict", "fallback", "permissive"] = "fallback",
     _post_build: Callable[[Drawing], Drawing] | None = None,
+    _required_tables=(),
 ) -> Drawing:
     """Build a drawing, protecting required annotations under an explicit scale.
 
@@ -1138,8 +1150,10 @@ def build_drawing(
         frame=frame,
         projection=projection,
         zones=zones,
+        _required_tables=_required_tables,
     )
     analysis_base = None
+    critique_recognition = None
 
     def _build(candidate_scale: float | None) -> Drawing:
         nonlocal analysis_base
@@ -1153,8 +1167,16 @@ def build_drawing(
             scale=candidate_scale,
             _analysis_base=analysis_base,
             _analysis_sink=retain_analysis,
+            _critique_recognition=critique_recognition,
         )
         return _post_build(built) if _post_build is not None else built
+
+    def scale_blockers_for(built: Drawing) -> tuple[dict, ...]:
+        nonlocal critique_recognition
+        found = _scale_blockers(built)
+        if critique_recognition is None:
+            critique_recognition = built.recognition()
+        return found
 
     if scale is None:
         if scale_policy != "fallback":
@@ -1171,7 +1193,7 @@ def build_drawing(
     requested_scale = float(scale)
 
     drawing = _build(requested_scale)
-    blockers = _scale_blockers(drawing)
+    blockers = scale_blockers_for(drawing)
     if not blockers:
         drawing.scale_decision = _scale_decision(
             policy=scale_policy,
@@ -1245,7 +1267,7 @@ def build_drawing(
                 attempts.append(_scale_attempt(candidate, "render_floor", error=str(exc)))
                 break
             raise
-        candidate_blockers = _scale_blockers(fallback)
+        candidate_blockers = scale_blockers_for(fallback)
         if candidate_blockers:
             attempts.append(_scale_attempt(candidate, "incomplete", candidate_blockers))
             last_effective_scale = fallback.scale

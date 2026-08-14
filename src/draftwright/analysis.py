@@ -443,6 +443,7 @@ def _validate_explicit_scale(
     strips_i,
     layout_section,
     layout_table_sizes,
+    layout_required_tables=(),
     margin=_MARGIN,
     warn_advisory: bool = True,
 ) -> None:
@@ -479,6 +480,7 @@ def _validate_explicit_scale(
         strips=strips_i,
         section=layout_section,
         table_sizes=layout_table_sizes,
+        required_tables=layout_required_tables,
         margin=margin,
     )
     # Warn only when omitting the scale would truly give a legible fit (auto scale itself is
@@ -517,6 +519,7 @@ def _analyse(
     projection: str | None = None,
     zones: bool = False,
     _reuse: Analysis | None = None,
+    _required_tables=(),
 ) -> Analysis:
     """Load STEP or use a build123d Shape, analyse geometry, compute layout.
 
@@ -719,6 +722,7 @@ def _analyse(
     layout_table_sizes = _est_hole_table_sizes(
         sizing_model, bb, font_size=_FONT_SIZE, pad_around_text=_pad_around_text
     )
+    layout_required_tables = tuple(_required_tables)
 
     # Choose scale/page, iterating so the reserved step corridor matches the
     # number of steps the legibility gate will actually place (#1) — not the raw
@@ -747,6 +751,7 @@ def _analyse(
             strips=strips_i,
             section=layout_section,
             table_sizes=layout_table_sizes,
+            required_tables=layout_required_tables,
             margin=margin,
         )
 
@@ -767,6 +772,7 @@ def _analyse(
         strips_i,
         layout_section,
         layout_table_sizes,
+        layout_required_tables,
         margin=margin,
         warn_advisory=_reuse is None,
     )
@@ -797,6 +803,7 @@ def _analyse(
         n_steps,
         section=layout_section,
         table_sizes=layout_table_sizes,
+        required_tables=layout_required_tables,
         margin=margin,
     )
     fv_hw = _g.fv_hw
@@ -874,6 +881,7 @@ def _analyse(
         layout_n_steps=n_steps,
         layout_section=layout_section,
         layout_table_sizes=layout_table_sizes,
+        layout_required_tables=layout_required_tables,
         sv_right=sv_right,
         iso_right_limit=iso_right_limit,
         SCALE=SCALE,

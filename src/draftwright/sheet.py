@@ -59,6 +59,7 @@ from typing import TYPE_CHECKING
 from draftwright._geometry import _solids_body
 from draftwright._warnings import SoftDeprecationWarning
 from draftwright.builder import _coerce_model, build_drawing, detect_part_model
+from draftwright.compose import _est_table_size
 from draftwright.fits import fit_class
 from draftwright.model import DimensionParameterId, Feature
 from draftwright.model import boss as _boss
@@ -1858,11 +1859,22 @@ class Sheet:
         # order-independent: declaring the augment before the source must read the same
         # as declaring it after.
         self._check_dimension_source()
+        required_tables = tuple(
+            (size, table["prefer"])
+            for table in self._tables
+            if (
+                size := _est_table_size(
+                    table["rows"],
+                    block_cols=table["block_cols"],
+                )
+            )
+            is not None
+        )
 
         def place_declared_tables(dwg):
             """Place authored sheet furniture before explicit-scale completeness is decided."""
             used = set(dwg.annotations())
-            for table in self._tables:
+            for table_index, table in enumerate(self._tables):
                 name = table["name"]
                 if name in used:
                     base, k = name, 1
@@ -1878,7 +1890,7 @@ class Sheet:
                     prefer=table["prefer"],
                     name=name,
                     block_cols=table["block_cols"],
-                    _source_id=f"sheet.table:{name}",
+                    _source_id=f"sheet.table:{table_index}:{table['name']}",
                 )
                 if placed is not None:
                     used.add(name)
@@ -1891,6 +1903,7 @@ class Sheet:
             requested=self._requested_dimensions(),
             authored=self._authored_set(),
             _post_build=place_declared_tables,
+            _required_tables=required_tables,
             **self._opts,
         )
 

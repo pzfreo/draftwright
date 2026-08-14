@@ -1326,6 +1326,8 @@ def emit_sheet_script(
     comment a feature line out and re-run — which shifts every later index and silently
     retargets the declarations onto their neighbours. #931 and #932 removed positional
     addressing from the artefact, so the declarations can now be written honestly."""
+    if scale_policy not in {"strict", "fallback", "permissive"}:
+        raise ValueError("scale_policy must be 'strict', 'fallback', or 'permissive'")
     if scale is None and scale_policy != "fallback":
         raise ValueError("scale_policy applies only when an explicit scale is supplied")
     # The script declares this model — `model` plus an envelope when the overall height would
