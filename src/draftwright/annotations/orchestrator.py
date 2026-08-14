@@ -36,9 +36,10 @@ from draftwright._core import (
 from draftwright.analysis import _sizing_bores
 from draftwright.annotations._common import (
     PlacementContext,
-    _discard_incomplete_feature_balloons,
+    _discard_attempt_annotations,
     _fully_ballooned_features,
     _hole_location_coverage_fact,
+    _hole_table_replaceable_annotation,
     _register_hole_table_coverage,
     _restore_stashed_annotations,
     _stash_annotations,
@@ -788,6 +789,7 @@ def _maybe_tabulate_holes(dwg, a: Analysis, *, ctx, plan=None):
     scattered_specs: list = []
     table_placed = False
     table = None
+    table_ncols = None
     table_features: tuple = ()
     replaced = {}
     if tabulate_scattered:
@@ -838,8 +840,9 @@ def _maybe_tabulate_holes(dwg, a: Analysis, *, ctx, plan=None):
             dwg,
             [
                 n
-                for n, _annotation in list(dwg.iter_annotations())
+                for n, annotation in list(dwg.iter_annotations())
                 if ctx.coverage.is_scattered_hole_doc(n)
+                and _hole_table_replaceable_annotation(dwg.registry, n, annotation)
             ],
         )
 
@@ -849,6 +852,7 @@ def _maybe_tabulate_holes(dwg, a: Analysis, *, ctx, plan=None):
                 _wrap_rows(header, data, ncols), name="hole_table_plan", block_cols=len(header)
             )
             if table is not None:
+                table_ncols = ncols
                 break
         ctx.drop_issues("table_dropped")
         if table is None:
@@ -873,8 +877,16 @@ def _maybe_tabulate_holes(dwg, a: Analysis, *, ctx, plan=None):
         # balloon request: spread its tags around the usable perimeter so a
         # deep occupied strip cannot collapse the ring onto two near sides
         # (#901). Pattern-only and public-verb balloons keep nearest-band cost.
+        attempted_names = {
+            f"balloon_plan_{tag}_{member_index}" for tag, member_index, _hole in balloon_specs
+        }
+        previous_objects = {name: dwg.registry.named(name) for name in attempted_names}
         render_balloons(dwg, a, "plan", balloon_specs, ctx, perimeter=table_placed)
-        placed_names = {n for n, _ in dwg.iter_annotations()}
+        placed_names = {
+            name
+            for name, previous in previous_objects.items()
+            if dwg.registry.named(name) is not None and dwg.registry.named(name) is not previous
+        }
 
     # Commit table replacement per semantic feature only after every balloon that maps
     # its visible row(s) back to physical holes has landed. A partially placed ring leaves
@@ -882,36 +894,65 @@ def _maybe_tabulate_holes(dwg, a: Analysis, *, ctx, plan=None):
     # get their original annotations back as the transactional fallback (#1144).
     table_success_features: set = set()
     if table_placed and table is not None:
+        table_tagged_holes = [
+            (tag, 0, hole, hole.feature) for tag, hole in zip(scattered_tags, holes, strict=True)
+        ]
+        expected_counts = {
+            feature: int(feature.count or len(feature.members) or 1) for feature in table_features
+        }
         table_success_features = _fully_ballooned_features(
             "plan",
-            [
-                (tag, 0, hole, hole.feature)
-                for tag, hole in zip(scattered_tags, holes, strict=True)
-            ],
+            table_tagged_holes,
             placed_names,
+            dwg.registry,
+            expected_counts,
         )
-        removed_partial_balloons = _discard_incomplete_feature_balloons(
-            dwg,
-            "plan",
-            [
-                (tag, 0, hole, hole.feature)
-                for tag, hole in zip(scattered_tags, holes, strict=True)
-            ],
-            table_success_features,
-        )
-        placed_names -= removed_partial_balloons
-        ordered_table_success_features = tuple(
-            feature for feature in table_features if feature in table_success_features
-        )
-        unresolved_table_features = set(table_features) - table_success_features
-        if unresolved_table_features:
+        replacement_features = {
+            feature for record in replaced.values() for feature in record.features
+        }
+        unresolved_replacements = replacement_features - table_success_features
+        scattered_attempt_names = {
+            f"balloon_plan_{tag}_0" for tag in scattered_tags
+        } & placed_names
+        if unresolved_replacements:
+            # The first fit legitimately used the fallbacks' freed footprints. Restore
+            # the unresolved subset, then solve the table again against those real
+            # obstacles; blindly reusing the first box could create a collision.
+            _discard_attempt_annotations(dwg, {"hole_table_plan"})
             _restore_stashed_annotations(
                 dwg,
                 ctx,
                 replaced,
-                features=unresolved_table_features,
+                features=unresolved_replacements,
                 reason="required_balloon_not_placed",
             )
+            assert table_ncols is not None
+            table = dwg.add_table(
+                _wrap_rows(header, data, table_ncols),
+                name="hole_table_plan",
+                block_cols=len(header),
+            )
+            if table is None:
+                _discard_attempt_annotations(dwg, scattered_attempt_names)
+                placed_names -= scattered_attempt_names
+                _restore_stashed_annotations(
+                    dwg, ctx, replaced, reason="required_balloon_not_placed"
+                )
+                table_placed = False
+                table_success_features = set()
+
+        if table_placed and table is not None:
+            incomplete_names = {
+                f"balloon_plan_{tag}_0"
+                for tag, hole in zip(scattered_tags, holes, strict=True)
+                if hole.feature not in table_success_features
+            } & placed_names
+            placed_names -= _discard_attempt_annotations(dwg, incomplete_names)
+
+    if table_placed and table is not None:
+        ordered_table_success_features = tuple(
+            feature for feature in table_features if feature in table_success_features
+        )
 
         # One entry per successfully keyed hole (with repeats) so the legacy count check
         # and the semantic ledger agree about the exact committed subset.

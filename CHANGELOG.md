@@ -8,9 +8,10 @@
   escalation and the opt-in public `add_hole_table(..., replace_callouts=True)` surface now
   suppress original callouts only after the table fits and every required feature balloon lands.
   A failed table restores the exact annotations and registry identities; a partial balloon set
-  restores the unresolved feature callouts and cannot claim their requirements. Hole outcome
-  records identify whether a committed table or a restored feature annotation supplied the
-  placed requirement, together with the fallback reason.
+  restores the unresolved feature callouts and re-solves the table around them before committing.
+  Callouts carrying compound, thread, profile, or pattern facts the table cannot state remain
+  active. Hole outcome records identify whether a committed table or a restored feature
+  annotation supplied the placed requirement, together with the fallback reason.
 
 ### Changed
 

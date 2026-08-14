@@ -132,6 +132,37 @@ def _annotation_hole_features(registry, name, annotation) -> frozenset:
     return frozenset(features)
 
 
+def _hole_table_replaceable_annotation(registry, name, annotation) -> bool:
+    """Whether a table can replace *all* semantic facts carried by an annotation.
+
+    The current hole-table schema states only a plain circular bore's diameter/depth,
+    through state, quantity, and (on the automatic table) X/Y positions. A compound
+    callout is indivisible: counterbores, spotfaces, countersinks, profiles, threads, and
+    pattern geometry must keep their leader even when a useful table row is also added.
+    """
+    features = _annotation_hole_features(registry, name, annotation)
+    if not features:
+        return False
+    for feature in features:
+        if getattr(feature, "kind", None) != "hole":
+            return False
+        if any(
+            getattr(feature, attribute, None) is not None
+            for attribute in ("cbore", "spotface", "csink", "thread", "profile")
+        ):
+            return False
+    table_parameters = {
+        "bore.diameter",
+        "bore.depth",
+        "location.location",
+        "location_pattern.location",
+    }
+    return all(
+        getattr(measurement, "parameter", None) in table_parameters
+        for measurement in registry.measurement_of(name)
+    )
+
+
 @dataclass(frozen=True)
 class _StashedAnnotation:
     """One reversible annotation removal with its complete registry identity."""
@@ -139,6 +170,11 @@ class _StashedAnnotation:
     annotation: Any
     identity: dict
     features: frozenset
+    representation: Any
+    representation_reason: Any
+
+
+_MISSING_REPRESENTATION = object()
 
 
 def _stash_annotations(dwg, names) -> dict[str, _StashedAnnotation]:
@@ -150,8 +186,28 @@ def _stash_annotations(dwg, names) -> dict[str, _StashedAnnotation]:
             continue
         identity = dwg.registry.identity_of(name)
         features = _annotation_hole_features(dwg.registry, name, annotation)
-        stashed[name] = _StashedAnnotation(dwg.remove(name), identity, features)
+        stashed[name] = _StashedAnnotation(
+            dwg.remove(name),
+            identity,
+            features,
+            getattr(annotation, "hole_representation", _MISSING_REPRESENTATION),
+            getattr(annotation, "hole_representation_reason", _MISSING_REPRESENTATION),
+        )
     return stashed
+
+
+def _reset_stashed_representation(stashed) -> None:
+    """Restore annotation-object markers after an exceptional transaction rollback."""
+    for record in stashed.values():
+        for attribute, value in (
+            ("hole_representation", record.representation),
+            ("hole_representation_reason", record.representation_reason),
+        ):
+            if value is _MISSING_REPRESENTATION:
+                if hasattr(record.annotation, attribute):
+                    delattr(record.annotation, attribute)
+            else:
+                setattr(record.annotation, attribute, value)
 
 
 def _restore_stashed_annotations(dwg, ctx, stashed, *, features=None, reason=None) -> set[str]:
@@ -169,6 +225,9 @@ def _restore_stashed_annotations(dwg, ctx, stashed, *, features=None, reason=Non
         if reason is not None:
             record.annotation.hole_representation = "feature_annotation"
             record.annotation.hole_representation_reason = reason
+        if dwg.registry.named(name) is record.annotation:
+            restored.add(name)
+            continue
         ctx.place(
             record.annotation,
             name,
@@ -181,30 +240,32 @@ def _restore_stashed_annotations(dwg, ctx, stashed, *, features=None, reason=Non
     return restored
 
 
-def _fully_ballooned_features(view, tagged_holes, placed_names) -> set:
-    """Features for which every required ``(tag, member-index)`` balloon landed."""
-    names_by_feature: dict[object, list[str]] = {}
+def _fully_ballooned_features(view, tagged_holes, placed_names, registry, expected_counts) -> set:
+    """Features whose exact-cardinality balloons landed in this render attempt.
+
+    A name that happened to exist before the attempt is not evidence. Nor is a landed
+    balloon owned by another semantic feature. Both checks are deliberately made here,
+    beside the declared-QTY cardinality check, so automatic and public tables share one
+    commit predicate.
+    """
+    attempted = set(placed_names)
+    names_by_feature: dict[object, set[str]] = {}
     for tag, member_index, _hole, feature in tagged_holes:
-        names_by_feature.setdefault(feature, []).append(f"balloon_{view}_{tag}_{member_index}")
+        names_by_feature.setdefault(feature, set()).add(f"balloon_{view}_{tag}_{member_index}")
     return {
         feature
         for feature, required_names in names_by_feature.items()
-        if all(name in placed_names for name in required_names)
+        if len(required_names) == expected_counts.get(feature, 0)
+        and all(
+            name in attempted and registry.feature_of(name) == feature for name in required_names
+        )
     }
 
 
-def _discard_incomplete_feature_balloons(dwg, view, tagged_holes, successful_features) -> set[str]:
-    """Remove landed balloons whose feature did not complete its required set.
-
-    A partial group has not established a usable table-to-geometry mapping. Keeping its
-    surviving balloons would both imply a committed replacement and obstruct the restored
-    feature callout. Complete groups remain untouched.
-    """
+def _discard_attempt_annotations(dwg, names) -> set[str]:
+    """Remove annotations created by an uncommitted placement attempt."""
     removed = set()
-    for tag, member_index, _hole, feature in tagged_holes:
-        if feature in successful_features:
-            continue
-        name = f"balloon_{view}_{tag}_{member_index}"
+    for name in names:
         if dwg.registry.named(name) is not None:
             dwg.remove(name)
             removed.add(name)

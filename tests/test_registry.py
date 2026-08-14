@@ -216,8 +216,8 @@ def test_every_remove_and_restore_site_goes_through_the_identity_pair():
     # function name -> why it may remove without restoring identity
     EXEMPT = {
         "_clear_section_reservation": "deletes the reserved section marks outright; no restore",
-        "_discard_incomplete_feature_balloons": (
-            "permanently deletes balloons for a table group that did not commit"
+        "_discard_attempt_annotations": (
+            "permanently deletes table/balloon geometry from an uncommitted attempt"
         ),
         "_stash_annotations": (
             "captures the identity half of the shared stash/restore transaction; paired below"
