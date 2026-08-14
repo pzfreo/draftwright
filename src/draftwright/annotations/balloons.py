@@ -335,7 +335,36 @@ def _balloon_glyph_box(bx, by, radius):
     return (bx - radius, by - radius, bx + radius, by + radius)
 
 
-def _guarded_free_segments(member, axis, line, ranges, radius, scale, label_boxes):
+def _balloon_text_box(tag, font_size):
+    """Rendered text extent relative to a balloon centre, or ``None`` if empty."""
+    text = Text(
+        txt=tag,
+        font_size=font_size,
+        font_path=PLEX_MONO,
+        align=(Align.CENTER, Align.CENTER),
+        mode=Mode.PRIVATE,
+    )
+    if not text.faces():
+        return None
+    bounds = text.bounding_box()
+    return (
+        float(bounds.min.X),
+        float(bounds.min.Y),
+        float(bounds.max.X),
+        float(bounds.max.Y),
+    )
+
+
+def _guarded_free_segments(
+    member,
+    axis,
+    line,
+    ranges,
+    radius,
+    scale,
+    label_boxes,
+    text_box=None,
+):
     """Continuous free coordinates for one member on one balloon band.
 
     Segment/box intersection can change only when the centre-to-centre ray passes
@@ -345,11 +374,14 @@ def _guarded_free_segments(member, axis, line, ranges, radius, scale, label_boxe
     """
     _tag, _member_index, hole, cx, cy = member
     hole_r = hole.diameter * scale / 2
+    local_glyph_boxes = ((-radius, -radius, radius, radius),) + (
+        (text_box,) if text_box is not None else ()
+    )
 
     def hits(coordinate):
         bx, by = (line, coordinate) if axis == "y" else (coordinate, line)
         return balloon_geometry_hits_annotation_labels(
-            _balloon_glyph_box(bx, by, radius),
+            tuple((bx + x0, by + y0, bx + x1, by + y1) for x0, y0, x1, y1 in local_glyph_boxes),
             _balloon_shaft_segments(cx, cy, bx, by, hole_r, radius),
             label_boxes,
         )
@@ -374,8 +406,9 @@ def _guarded_free_segments(member, axis, line, ranges, radius, scale, label_boxe
                         (qx, qy) for qx in (cx - delta, cx + delta) if x0 <= qx <= x1
                     )
             if axis == "y":
-                if x0 - radius < line < x1 + radius:
-                    critical.update((y0 - radius, y1 + radius))
+                for gx0, gy0, gx1, gy1 in local_glyph_boxes:
+                    if x0 - gx1 < line < x1 - gx0:
+                        critical.update((y0 - gy1, y1 - gy0))
                 if not math.isclose(line, cx):
                     for qx in (x0, x1):
                         if not math.isclose(qx, cx):
@@ -385,8 +418,9 @@ def _guarded_free_segments(member, axis, line, ranges, radius, scale, label_boxe
                         if not math.isclose(qx, cx):
                             critical.add(cy + (qy - cy) * (line - cx) / (qx - cx))
             else:
-                if y0 - radius < line < y1 + radius:
-                    critical.update((x0 - radius, x1 + radius))
+                for gx0, gy0, gx1, gy1 in local_glyph_boxes:
+                    if y0 - gy1 < line < y1 - gy0:
+                        critical.update((x0 - gx1, x1 - gx0))
                 if not math.isclose(line, cy):
                     for qy in (y0, y1):
                         if not math.isclose(qy, cy):
@@ -545,6 +579,9 @@ def _place_guarded_inventory(
 ):
     """Solve and render the final collision-safe automatic balloon inventory."""
     label_boxes = balloon_annotation_label_boxes(dwg, view)
+    text_boxes = {
+        tag: _balloon_text_box(tag, fs) for tag, _member_index, _hole, _cx, _cy in members
+    }
     by_member_band = {}
     for index, member in enumerate(members):
         for band, (axis, line, lo, hi) in band_defs.items():
@@ -559,6 +596,7 @@ def _place_guarded_inventory(
                 radius,
                 dwg.scale,
                 label_boxes,
+                text_boxes[member[0]],
             )
     guarded = _GuardedSegments(by_member_band, gap)
     assignments, solutions, dropped = _guarded_assignment(
@@ -637,6 +675,7 @@ def _place_band(
                 r,
                 dwg.scale,
                 label_boxes,
+                _balloon_text_box(member[0], fs),
             )
             for member in members
         ]
@@ -701,14 +740,19 @@ def _render_balloon(
         align=(Align.CENTER, Align.CENTER),
         mode=Mode.PRIVATE,
     ).locate(loc)
-    text_bounds = text.bounding_box()
-    text_box = (
-        float(text_bounds.min.X),
-        float(text_bounds.min.Y),
-        float(text_bounds.max.X),
-        float(text_bounds.max.Y),
-    )
-    glyph_parts = [*ring_faces, *text.faces()]
+    text_faces = text.faces()
+    text_boxes: tuple[tuple[float, float, float, float], ...] = ()
+    if text_faces:
+        text_bounds = text.bounding_box()
+        text_boxes = (
+            (
+                float(text_bounds.min.X),
+                float(text_bounds.min.Y),
+                float(text_bounds.max.X),
+                float(text_bounds.max.Y),
+            ),
+        )
+    glyph_parts = [*ring_faces, *text_faces]
     parts = list(glyph_parts)
     shaft_segments = _balloon_shaft_segments(
         cx,
@@ -736,7 +780,7 @@ def _render_balloon(
     # while the glyph remains visible to critique instead of disappearing behind
     # the centreline exemption.
     balloon.centerline_segments = shaft_segments
-    balloon.centerline_boxes = (_balloon_glyph_box(bx, by, r), text_box)
+    balloon.centerline_boxes = (_balloon_glyph_box(bx, by, r), *text_boxes)
     # Furniture that legitimately sits on the view geometry — exempt from the
     # annotation-overlap / centreline lint, as the section arrows do.
     balloon.is_centerline = True

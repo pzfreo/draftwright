@@ -312,6 +312,19 @@ def test_long_public_balloon_text_remains_visible_to_structural_lint():
     assert _label_centerline_overlap(label, balloon) is not None
 
 
+def test_empty_public_balloon_tag_does_not_create_a_page_origin_lint_box():
+    from draftwright.linting.structural import _label_centerline_overlap
+
+    drawing = build_drawing(_multi_hole_plate(), page="A4", auto_dims=False)
+    hole = drawing.recognition().holes[0]
+    drawing.add_balloons("plan", [("", 0, hole)])
+    balloon = drawing.get_annotation("balloon_plan__0")
+
+    assert len(balloon.centerline_boxes) == 1
+    origin_label = SimpleNamespace(label="ORIGIN", label_bbox=(-1.0, -1.0, 1.0, 1.0))
+    assert _label_centerline_overlap(origin_label, balloon) is None
+
+
 def test_guarded_assignment_preserves_the_canonical_flow_cost_objective():
     from draftwright.annotations.balloons import (
         _guarded_assignment,
@@ -422,6 +435,41 @@ def test_real_shaft_crossing_carves_the_guarded_band_without_aabb_sampling():
 
     assert any(lo <= 0.0 <= hi for lo, hi in free)
     assert not any(lo <= 10.0 <= hi for lo, hi in free)
+
+
+def test_guarded_band_rejects_a_retained_label_in_long_balloon_text():
+    from draftwright.annotations.balloons import (
+        _balloon_text_box,
+        _guarded_free_segments,
+    )
+
+    tag = "LONG_BALLOON_TAG"
+    font_size = 3.0
+    text_box = _balloon_text_box(tag, font_size)
+    assert text_box is not None
+    radius = 4.5
+    line = 20.0
+    label_box = (
+        line + radius + 0.2,
+        text_box[1] + 0.2,
+        line + text_box[2] - 0.2,
+        text_box[3] - 0.2,
+    )
+    member = (tag, 0, SimpleNamespace(diameter=2.0), 0.0, 0.0)
+
+    assert (
+        _guarded_free_segments(
+            member,
+            "y",
+            line,
+            ((0.0, 0.0),),
+            radius,
+            1.0,
+            (label_box,),
+            text_box,
+        )
+        == ()
+    )
 
 
 def test_guarded_private_band_places_joint_solution_and_fails_closed(monkeypatch):

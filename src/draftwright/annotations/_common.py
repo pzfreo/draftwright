@@ -1209,10 +1209,10 @@ def balloon_annotation_label_boxes(dwg, view):
     return tuple(boxes)
 
 
-def balloon_geometry_hits_annotation_labels(glyph_box, segments, label_boxes) -> bool:
-    """Whether a compact glyph or any real shaft crosses a retained label."""
+def balloon_geometry_hits_annotation_labels(glyph_boxes, segments, label_boxes) -> bool:
+    """Whether any rendered glyph component or real shaft crosses a retained label."""
     return any(
-        _boxes_overlap(glyph_box, label_box)
+        any(_boxes_overlap(glyph_box, label_box) for glyph_box in glyph_boxes)
         or any(_segment_clips_box(start, end, label_box, pad=0.0) for start, end in segments)
         for label_box in label_boxes
     )
