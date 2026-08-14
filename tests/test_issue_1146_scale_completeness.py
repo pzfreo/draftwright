@@ -458,8 +458,12 @@ def test_cli_rejects_nondefault_policy_without_scale_for_direct_and_script_modes
         )
         assert result.exit_code == 2
         output = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
-        assert "--scale-policy requires an explicit" in output
-        assert "--scale" in output
+        message = " ".join(
+            line.strip(" │") for line in output.splitlines() if line.startswith("│")
+        )
+        assert message == (
+            "Invalid value for --scale-policy: --scale-policy requires an explicit --scale"
+        )
 
 
 def test_script_emitter_rejects_nondefault_policy_without_scale(tmp_path, monkeypatch):
