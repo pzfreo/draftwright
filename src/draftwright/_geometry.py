@@ -281,11 +281,14 @@ def _segment_crosses_box(p1, p2, box) -> bool:
     return any(_seg_seg(p1, p2, corners[i], corners[(i + 1) % 4]) for i in range(4))
 
 
-def _segment_clips_box(p, q, box, pad=0.0) -> bool:
-    """Liang–Barsky: does segment *p*→*q* intersect the *pad*-inflated AABB
-    *box*? Inclusive at the boundary (a touch is a hit) — the tolerant form the
-    lint checks use; :func:`_segment_crosses_box` is the strict placement-side
-    sibling (#700)."""
+def _segment_clip_extent(p, q, box, pad=0.0):
+    """AABB of the part of *p*→*q* inside the *pad*-inflated *box*.
+
+    Return ``None`` when the segment is disjoint.  The Liang–Barsky clip is
+    inclusive at the boundary: lint uses the returned extent both as its
+    tolerant hit gate and to measure only the rendered part that actually
+    reaches a label (#1144).
+    """
     minx, miny, maxx, maxy = box[0] - pad, box[1] - pad, box[2] + pad, box[3] + pad
     x0, y0 = p
     dx, dy = q[0] - x0, q[1] - y0
@@ -293,15 +296,32 @@ def _segment_clips_box(p, q, box, pad=0.0) -> bool:
     for pp, qq in ((-dx, x0 - minx), (dx, maxx - x0), (-dy, y0 - miny), (dy, maxy - y0)):
         if abs(pp) < 1e-12:
             if qq < 0:
-                return False
+                return None
         else:
             r = qq / pp
             if pp < 0:
                 if r > t1:
-                    return False
+                    return None
                 t0 = max(t0, r)
             else:
                 if r < t0:
-                    return False
+                    return None
                 t1 = min(t1, r)
-    return t0 <= t1
+    if t0 > t1:
+        return None
+    first = (x0 + t0 * dx, y0 + t0 * dy)
+    second = (x0 + t1 * dx, y0 + t1 * dy)
+    return (
+        min(first[0], second[0]),
+        min(first[1], second[1]),
+        max(first[0], second[0]),
+        max(first[1], second[1]),
+    )
+
+
+def _segment_clips_box(p, q, box, pad=0.0) -> bool:
+    """Liang–Barsky: does segment *p*→*q* intersect the *pad*-inflated AABB
+    *box*? Inclusive at the boundary (a touch is a hit) — the tolerant form the
+    lint checks use; :func:`_segment_crosses_box` is the strict placement-side
+    sibling (#700)."""
+    return _segment_clip_extent(p, q, box, pad=pad) is not None

@@ -214,33 +214,60 @@ def render_balloons(
         members.append((tag, j, hole, cx, cy))
         choices_by_member.append(choices)
 
+    local_glyph_boxes = {
+        tag: _balloon_local_glyph_boxes(tag, fs, r)
+        for tag, _member_index, _hole, _cx, _cy in members
+    }
+    band_gaps = {
+        name: _balloon_component_gap(
+            (
+                local_glyph_boxes[members[index][0]]
+                for index, choices in enumerate(choices_by_member)
+                if name in choices
+            ),
+            axis,
+            r,
+            gap,
+        )
+        for name, (axis, _line, _lo, _hi) in band_defs.items()
+    }
     capacities = {
         name: (
-            sum(_strip_capacity(seg_lo, seg_hi, gap) for seg_lo, seg_hi in top_segments)
+            sum(
+                _strip_capacity(seg_lo, seg_hi, band_gaps[name]) for seg_lo, seg_hi in top_segments
+            )
             if name == "top" and top_segments is not None
-            else _strip_capacity(lo, hi, gap)
+            else _strip_capacity(lo, hi, band_gaps[name])
             if name != "bottom" or has_bottom
             else 0
         )
         for name, (_axis, _line, lo, hi) in band_defs.items()
     }
     preferred_bands = tuple(name for name, capacity in capacities.items() if capacity > 0)
-    if avoid_annotation_labels:
-        dropped = _place_guarded_inventory(
-            dwg,
-            view,
+    if not avoid_annotation_labels:
+        bands, dropped = _assign_balloon_bands(
             members,
             choices_by_member,
-            band_defs,
             capacities,
-            gap,
-            fs,
-            r,
-            ctx,
-            top_segments=top_segments,
             prefer_bands=preferred_bands if perimeter else (),
             preference_limit=_band_preference_limit(fs) if perimeter else 0.0,
         )
+        for name in ("left", "right", "top", "bottom"):
+            args = (
+                dwg,
+                view,
+                bands[name],
+                *band_defs[name],
+                band_gaps[name],
+                fs,
+                r,
+                ctx,
+            )
+            dropped += (
+                _place_band(*args, segments=top_segments)
+                if name == "top" and top_segments is not None
+                else _place_band(*args)
+            )
         if dropped:
             ctx.record_issue(
                 "warning",
@@ -249,60 +276,24 @@ def render_balloons(
             )
         return
 
-    bands, dropped = _assign_balloon_bands(
+    dropped = _place_guarded_inventory(
+        dwg,
+        view,
         members,
         choices_by_member,
+        band_defs,
         capacities,
+        gap,
+        fs,
+        r,
+        ctx,
+        top_segments=top_segments,
         prefer_bands=preferred_bands if perimeter else (),
         preference_limit=_band_preference_limit(fs) if perimeter else 0.0,
-    )
-    dropped += _place_band(
-        dwg,
-        view,
-        bands["left"],
-        *band_defs["left"],
-        gap,
-        fs,
-        r,
-        ctx,
-    )
-    dropped += _place_band(
-        dwg,
-        view,
-        bands["right"],
-        *band_defs["right"],
-        gap,
-        fs,
-        r,
-        ctx,
-    )
-    top_args = (
-        dwg,
-        view,
-        bands["top"],
-        *band_defs["top"],
-        gap,
-        fs,
-        r,
-        ctx,
-    )
-    dropped += (
-        _place_band(*top_args)
-        if top_segments is None
-        else _place_band(
-            *top_args,
-            segments=top_segments,
-        )
-    )
-    dropped += _place_band(
-        dwg,
-        view,
-        bands["bottom"],
-        *band_defs["bottom"],
-        gap,
-        fs,
-        r,
-        ctx,
+        page_box=(margin, margin, pw - margin, ph - margin),
+        avoid_existing_labels=avoid_annotation_labels,
+        local_glyph_boxes=local_glyph_boxes,
+        band_gaps=band_gaps,
     )
     # A band too crowded to hold every balloon drops its tail (the strip solver's
     # prefix fallback) — record it instead of letting the balloons vanish silently
@@ -353,6 +344,23 @@ def _balloon_text_box(tag, font_size):
         float(bounds.max.X),
         float(bounds.max.Y),
     )
+
+
+def _balloon_local_glyph_boxes(tag, font_size, radius):
+    """Ring and optional text boxes relative to the balloon centre."""
+    text_box = _balloon_text_box(tag, font_size)
+    return ((-radius, -radius, radius, radius),) + ((text_box,) if text_box is not None else ())
+
+
+def _balloon_component_gap(glyph_boxes, axis, radius, base_gap):
+    """Conservative centre gap that separates every rendered tag in a band."""
+    boxes = [box for components in glyph_boxes for box in components]
+    if not boxes:
+        return base_gap
+    lo_index, hi_index = (1, 3) if axis == "y" else (0, 2)
+    component_span = max(box[hi_index] for box in boxes) - min(box[lo_index] for box in boxes)
+    padding = max(0.0, base_gap - 2 * radius)
+    return max(base_gap, component_span + padding)
 
 
 def _guarded_free_segments(
@@ -469,7 +477,7 @@ def _solve_guarded_band(member_indices, members, band_name, band_defs, free_segm
     ordered = sorted(member_indices, key=lambda index: members[index][natural_index])
     coordinates = _solve_guarded_strip_1d(
         [members[index][natural_index] for index in ordered],
-        free_segments.min_gap,
+        free_segments.gap_for(band_name),
         [free_segments.by_member_band[index, band_name] for index in ordered],
     )
     if coordinates is None:
@@ -480,9 +488,13 @@ def _solve_guarded_band(member_indices, members, band_name, band_defs, free_segm
 class _GuardedSegments:
     """Small internal carrier for one guarded inventory solve."""
 
-    def __init__(self, by_member_band, min_gap):
+    def __init__(self, by_member_band, min_gap, min_gap_by_band=None):
         self.by_member_band = by_member_band
         self.min_gap = min_gap
+        self.min_gap_by_band = min_gap_by_band or {}
+
+    def gap_for(self, band):
+        return self.min_gap_by_band.get(band, self.min_gap)
 
 
 def _guarded_assignment(
@@ -532,7 +544,7 @@ def _guarded_assignment(
                 merged_union.append((lo, hi))
         effective_capacities[band] = min(
             capacity,
-            sum(_strip_capacity(lo, hi, free_segments.min_gap) for lo, hi in merged_union),
+            sum(_strip_capacity(lo, hi, free_segments.gap_for(band)) for lo, hi in merged_union),
         )
     seed, _flow_dropped = _assign_balloon_bands(
         members,
@@ -561,6 +573,30 @@ def _guarded_assignment(
     )
 
 
+def _guarded_inventory_geometry_is_clear(geometry, page_box):
+    """Final bounded validation of cross-band glyphs and page bounds.
+
+    Shaft-vs-retained-label geometry is already part of each member's continuous
+    interval carve. The established band assignment deliberately permits shafts
+    from different bands to pass one another; this final gate prevents the newly
+    relevant variable-width ring/text glyphs from colliding across those bands.
+    """
+    for boxes, _segments in geometry:
+        if any(
+            box[0] < page_box[0]
+            or box[1] < page_box[1]
+            or box[2] > page_box[2]
+            or box[3] > page_box[3]
+            for box in boxes
+        ):
+            return False
+    for index, (boxes, _segments) in enumerate(geometry):
+        for other_boxes, _other_segments in geometry[index + 1 :]:
+            if balloon_geometry_hits_annotation_labels(boxes, (), other_boxes):
+                return False
+    return True
+
+
 def _place_guarded_inventory(
     dwg,
     view,
@@ -576,11 +612,16 @@ def _place_guarded_inventory(
     top_segments,
     prefer_bands,
     preference_limit,
+    page_box,
+    avoid_existing_labels,
+    local_glyph_boxes,
+    band_gaps,
 ):
-    """Solve and render the final collision-safe automatic balloon inventory."""
-    label_boxes = balloon_annotation_label_boxes(dwg, view)
+    """Solve and render one text-aware, cross-band-safe balloon inventory."""
+    label_boxes = balloon_annotation_label_boxes(dwg, view) if avoid_existing_labels else ()
     text_boxes = {
-        tag: _balloon_text_box(tag, fs) for tag, _member_index, _hole, _cx, _cy in members
+        tag: components[1] if len(components) > 1 else None
+        for tag, components in local_glyph_boxes.items()
     }
     by_member_band = {}
     for index, member in enumerate(members):
@@ -598,7 +639,7 @@ def _place_guarded_inventory(
                 label_boxes,
                 text_boxes[member[0]],
             )
-    guarded = _GuardedSegments(by_member_band, gap)
+    guarded = _GuardedSegments(by_member_band, gap, band_gaps)
     assignments, solutions, dropped = _guarded_assignment(
         members,
         choices_by_member,
@@ -608,6 +649,29 @@ def _place_guarded_inventory(
         prefer_bands=prefer_bands,
         preference_limit=preference_limit,
     )
+    geometry = []
+    for band, indices in assignments.items():
+        axis, line, _lo, _hi = band_defs[band]
+        solution = solutions[band]
+        for index in indices:
+            _tag, _member_index, hole, cx, cy = members[index]
+            coordinate = solution[index]
+            bx, by = (line, coordinate) if axis == "y" else (coordinate, line)
+            boxes = tuple(
+                (bx + x0, by + y0, bx + x1, by + y1)
+                for x0, y0, x1, y1 in local_glyph_boxes[members[index][0]]
+            )
+            segments = _balloon_shaft_segments(
+                cx,
+                cy,
+                bx,
+                by,
+                hole.diameter * dwg.scale / 2,
+                radius,
+            )
+            geometry.append((boxes, segments))
+    if not _guarded_inventory_geometry_is_clear(geometry, page_box):
+        return len(members)
     for band, indices in assignments.items():
         axis, line, _lo, _hi = band_defs[band]
         solution = solutions[band]
@@ -679,7 +743,13 @@ def _place_band(
             )
             for member in members
         ]
-        coords = _solve_guarded_strip_1d(naturals, gap, allowed)
+        guarded_gap = _balloon_component_gap(
+            (_balloon_local_glyph_boxes(member[0], fs, r) for member in members),
+            axis,
+            r,
+            gap,
+        )
+        coords = _solve_guarded_strip_1d(naturals, guarded_gap, allowed)
         if coords is None:
             return len(members)
         for (tag, j, hole, cx, cy), coordinate in zip(members, coords, strict=True):

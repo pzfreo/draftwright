@@ -11043,7 +11043,7 @@ class TestPatternGroupBalloon:
             members=members,
         )
 
-    def test_dropped_pattern_gets_one_grouped_balloon(self):
+    def test_dropped_pattern_gets_one_grouped_balloon(self, monkeypatch):
         from dataclasses import replace
 
         from draftwright.annotations._common import Escalation, PlacementContext
@@ -11102,6 +11102,27 @@ class TestPatternGroupBalloon:
         assert new_balloons[0].split("_")[2] == "6×A"
         assert dwg.registry.feature_of(new_balloons[0]) == feat
         assert "callout_dropped" not in {i.code for i in dwg.lint()}  # resolved, not just hidden
+
+        # A pattern-only escalation has no scattered-hole table. It must still use
+        # the automatic retained-label guard before a landed name may clear the
+        # original callout drop (#1144).
+        import draftwright.annotations.balloons as balloons
+
+        dwg.remove(new_balloons[0])
+        guarded_issue = LintIssue(
+            severity="warning", code="callout_dropped", message="guarded pattern drop"
+        )
+        dwg.registry.record_issue(guarded_issue)
+        monkeypatch.setattr(
+            balloons,
+            "balloon_annotation_label_boxes",
+            lambda *_args: ((-1000.0, -1000.0, 1000.0, 1000.0),),
+        )
+        _maybe_tabulate_holes(dwg, analysis, ctx=ctx)
+
+        assert not [name for name in dwg.annotations() if name.startswith("balloon_plan_6×A")]
+        assert guarded_issue in dwg.registry.issues
+        assert "balloon_dropped" in {finding.code for finding in dwg.registry.issues}
 
     def test_multiple_dropped_patterns_get_distinct_non_overlapping_balloons(self):
         from draftwright.annotations._common import Escalation, PlacementContext

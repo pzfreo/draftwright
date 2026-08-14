@@ -16,7 +16,7 @@ import re
 from build123d import GeomType
 
 from draftwright._core import _shape_box2d
-from draftwright._geometry import _boxes_overlap, _segment_clips_box
+from draftwright._geometry import _boxes_overlap, _segment_clip_extent, _segment_clips_box
 from draftwright.linting.issues import LintIssue, _IssueAggregation
 
 _log = logging.getLogger(__name__)
@@ -789,41 +789,51 @@ def _label_centerline_overlap(dim_item, cl_item, box_cache=None, warned=None):
     lmin_x, lmin_y, lmax_x, lmax_y = label_bbox
 
     # A diagonal or elbowed centreline's aggregate AABB contains a large empty
-    # triangle.  ADR 0009 makes its real segments authoritative: the AABB remains
-    # useful for overlap magnitude/reporting, but cannot create a warning unless at
-    # least one rendered shaft actually reaches the label box.
+    # triangle. ADR 0009 makes its real components authoritative for BOTH the hit
+    # gate and the reported magnitude: a remote shaft must not inflate a 0.1 mm
+    # ring-edge touch into a legibility warning.
     segments = getattr(
         cl_item,
         "centerline_segments",
         getattr(cl_item, "segments", None),
     )
     component_boxes = getattr(cl_item, "centerline_boxes", ())
-    if (segments or component_boxes) and not (
-        any(_segment_clips_box(start, end, label_bbox, pad=0.0) for start, end in (segments or ()))
-        or any(_boxes_overlap(box, label_bbox) for box in component_boxes)
-    ):
-        return None
 
-    cl_w = cl_max_x - cl_min_x
-    cl_h = cl_max_y - cl_min_y
-    if cl_w < 0.1:
-        cl_x = (cl_min_x + cl_max_x) / 2.0
-        ox = min(cl_x - lmin_x, lmax_x - cl_x) if lmin_x < cl_x < lmax_x else 0.0
-    else:
-        ox = max(0.0, min(lmax_x, cl_max_x) - max(lmin_x, cl_min_x))
-    if cl_h < 0.1:
-        cl_y = (cl_min_y + cl_max_y) / 2.0
-        oy = min(cl_y - lmin_y, lmax_y - cl_y) if lmin_y < cl_y < lmax_y else 0.0
-    else:
-        oy = max(0.0, min(lmax_y, cl_max_y) - max(lmin_y, cl_min_y))
+    aggregate_location = ((cl_min_x + cl_max_x) / 2.0, (cl_min_y + cl_max_y) / 2.0)
 
-    if ox <= 0.5 or oy <= 0.5:
-        return None
-    return (
-        ox,
-        oy,
-        ((cl_min_x + cl_max_x) / 2.0, (cl_min_y + cl_max_y) / 2.0),
-    )
+    def overlap(extent):
+        min_x, min_y, max_x, max_y = extent
+        width = max_x - min_x
+        height = max_y - min_y
+        if width < 0.1:
+            centre_x = (min_x + max_x) / 2.0
+            ox = min(centre_x - lmin_x, lmax_x - centre_x) if lmin_x < centre_x < lmax_x else 0.0
+        else:
+            ox = max(0.0, min(lmax_x, max_x) - max(lmin_x, min_x))
+        if height < 0.1:
+            centre_y = (min_y + max_y) / 2.0
+            oy = min(centre_y - lmin_y, lmax_y - centre_y) if lmin_y < centre_y < lmax_y else 0.0
+        else:
+            oy = max(0.0, min(lmax_y, max_y) - max(lmin_y, min_y))
+        if ox <= 0.5 or oy <= 0.5:
+            return None
+        return ox, oy, aggregate_location
+
+    if segments or component_boxes:
+        hit_extents = [
+            extent
+            for start, end in (segments or ())
+            if (extent := _segment_clip_extent(start, end, label_bbox)) is not None
+        ]
+        hit_extents.extend(box for box in component_boxes if _boxes_overlap(box, label_bbox))
+        significant = [result for extent in hit_extents if (result := overlap(extent))]
+        return (
+            max(significant, key=lambda result: (result[0] * result[1], result))
+            if significant
+            else None
+        )
+
+    return overlap((cl_min_x, cl_min_y, cl_max_x, cl_max_y))
 
 
 def _lint_dim(item, part_bbox, issues, drawing_scale: float = 1.0, box_cache=None) -> None:

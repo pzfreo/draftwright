@@ -968,7 +968,10 @@ def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
             specs,
             ctx,
             perimeter=perimeter,
-            avoid_annotation_labels=table_placed,
+            # Every automatic escalation balloon is replacement evidence. Pattern-only
+            # attempts have no table, but must still fail closed against retained labels
+            # before their landed name/owner may clear a callout drop.
+            avoid_annotation_labels=True,
         )
         placed_names = {
             name

@@ -292,6 +292,20 @@ def test_segmented_centerline_diagnostic_ignores_only_the_empty_aabb_triangle():
     )
 
 
+def test_centerline_warning_tolerance_uses_the_actual_colliding_component():
+    from draftwright.linting.structural import _label_centerline_overlap
+
+    balloon = SimpleNamespace(
+        centerline_segments=(((-10.0, 0.5), (0.0, 0.5)),),
+        centerline_boxes=((0.0, 0.0, 1.0, 1.0),),
+    )
+    edge_touch = SimpleNamespace(label="EDGE", label_bbox=(0.9, 0.0, 2.0, 1.0))
+    significant = SimpleNamespace(label="HIT", label_bbox=(0.4, 0.0, 2.0, 1.0))
+
+    assert _label_centerline_overlap(edge_touch, balloon) is None
+    assert _label_centerline_overlap(significant, balloon) is not None
+
+
 def test_long_public_balloon_text_remains_visible_to_structural_lint():
     from draftwright.linting.structural import _label_centerline_overlap
 
@@ -533,6 +547,83 @@ def test_guarded_private_band_places_joint_solution_and_fails_closed(monkeypatch
     )
 
 
+def test_guarded_private_band_separates_sibling_long_tag_text(monkeypatch):
+    import draftwright.annotations.balloons as balloons_module
+    from draftwright._geometry import _boxes_overlap
+
+    tags = ("LONG_BALLOON_TAG_0", "LONG_BALLOON_TAG_1")
+    members = [
+        (tag, 0, SimpleNamespace(diameter=2.0), natural, 0.0)
+        for tag, natural in zip(tags, (0.0, 13.0), strict=True)
+    ]
+    placed = []
+    monkeypatch.setattr(balloons_module, "balloon_annotation_label_boxes", lambda *_args: ())
+    monkeypatch.setattr(
+        balloons_module,
+        "_render_balloon",
+        lambda _dwg, _view, tag, _j, _hole, _cx, _cy, bx, by, *_rest: placed.append((tag, bx, by)),
+    )
+
+    dropped = balloons_module._place_band(
+        SimpleNamespace(scale=1.0),
+        "plan",
+        members,
+        "x",
+        20.0,
+        -50.0,
+        50.0,
+        13.0,
+        3.0,
+        4.5,
+        object(),
+        avoid_annotation_labels=True,
+    )
+
+    assert dropped == 0
+    assert len(placed) == 2
+    boxes = []
+    for tag, bx, by in placed:
+        text_box = balloons_module._balloon_text_box(tag, 3.0)
+        assert text_box is not None
+        boxes.append(tuple(value + offset for value, offset in zip(text_box, (bx, by, bx, by))))
+    assert not _boxes_overlap(*boxes)
+
+
+def test_final_guarded_inventory_validation_covers_cross_band_and_page_geometry():
+    from draftwright.annotations.balloons import _guarded_inventory_geometry_is_clear
+
+    page = (0.0, 0.0, 100.0, 100.0)
+    first = ((((10.0, 10.0, 20.0, 20.0),), ()),)
+    clear_second = (((30.0, 30.0, 40.0, 40.0),), ())
+    overlapping_second = (((19.0, 15.0, 29.0, 25.0),), ())
+    off_page = (((95.0, 95.0, 105.0, 105.0),), ())
+
+    assert _guarded_inventory_geometry_is_clear((*first, clear_second), page)
+    assert not _guarded_inventory_geometry_is_clear((*first, overlapping_second), page)
+    assert not _guarded_inventory_geometry_is_clear((*first, off_page), page)
+
+
+def test_automatic_transaction_fails_closed_when_final_inventory_gate_rejects(monkeypatch):
+    import draftwright.annotations.balloons as balloons_module
+
+    monkeypatch.setattr(
+        balloons_module,
+        "_guarded_inventory_geometry_is_clear",
+        lambda *_args: False,
+    )
+
+    drawing = build_drawing(_dense_scattered_plate())
+
+    assert not [name for name in drawing.annotations() if name.startswith("balloon_plan_")]
+    assert len(_plan_bore_callouts(drawing)) == 17
+    assert "balloon_dropped" in {issue.code for issue in drawing.registry.issues}
+    assert ("feature_annotation", "required_balloon_not_placed") in {
+        (outcome.representation, outcome.representation_reason)
+        for outcome in _outcomes(drawing)
+        if outcome.state == "placed"
+    }
+
+
 def test_automatic_actual_label_guard_restores_features_with_no_safe_balloon(monkeypatch):
     import draftwright.annotations.balloons as balloons_module
 
@@ -590,6 +681,31 @@ def test_public_add_balloons_retains_its_existing_cardinality_contract():
         f"balloon_plan_T{index}_0" for index in range(3)
     }
     assert not [issue for issue in drawing.registry.issues if issue.code == "balloon_dropped"]
+
+
+def test_public_add_balloons_separates_long_sibling_text_components():
+    from draftwright._geometry import _boxes_overlap
+
+    drawing = build_drawing(_multi_hole_plate(), page="A4", auto_dims=False)
+    holes = drawing.recognition().holes
+    drawing.add_balloons(
+        "plan",
+        [(f"LONG_BALLOON_TAG_{index}", 0, holes[index % len(holes)]) for index in range(4)],
+    )
+    balloons = [
+        drawing.get_annotation(name)
+        for name in drawing.annotations()
+        if name.startswith("balloon_plan_LONG_BALLOON_TAG_")
+    ]
+
+    assert len(balloons) == 4
+    assert not any(
+        _boxes_overlap(first_box, second_box)
+        for index, first in enumerate(balloons)
+        for second in balloons[index + 1 :]
+        for first_box in first.centerline_boxes
+        for second_box in second.centerline_boxes
+    )
 
 
 def test_public_hole_table_does_not_expose_an_uncomposable_replacement_option():
