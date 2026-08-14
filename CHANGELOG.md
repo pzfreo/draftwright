@@ -14,8 +14,10 @@
   metadata falls back conservatively or fails the optional replacement closed. Compound, thread,
   profile, pattern, tolerance, and fit facts the table cannot state remain active, while
   independently replaceable X/Y locations may still move to the table. Guarded interval solving
-  has a deterministic work/state budget; an adversarially fragmented band fails the replacement
-  closed before excessive allocation.
+  has deterministic pre-carve and work/state budgets; an adversarially fragmented label inventory
+  or band fails the replacement closed before excessive work or allocation. Required row-key
+  balloons take priority over optional non-certifying pattern markers, so an independently complete
+  table cannot be displaced by an auxiliary marker.
   Hole outcomes identify the winning representation per requirement;
   mixed table/feature evidence deliberately claims no single winner. Exceptions restore those
   semantic markers, and automatic escalation fails closed rather than overwrite an existing

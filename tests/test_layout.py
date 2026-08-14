@@ -66,6 +66,26 @@ class TestAssignBalloonBands:
         assert bands["top"] == []
         assert dropped == 0
 
+    def test_required_members_win_before_optional_leader_cost(self):
+        members = ["required-row", "optional-marker"]
+        choices = [{"left": 100.0}, {"left": 1.0}]
+
+        ordinary, ordinary_dropped = _assign_balloon_bands(members, choices, {"left": 1})
+        prioritised, prioritised_dropped = _assign_balloon_bands(
+            members,
+            choices,
+            {"left": 1},
+            required_count=1,
+        )
+
+        assert ordinary["left"] == ["optional-marker"]
+        assert prioritised["left"] == ["required-row"]
+        assert ordinary_dropped == prioritised_dropped == 1
+
+    def test_required_count_must_address_the_member_prefix(self):
+        with pytest.raises(ValueError, match="required_count"):
+            _assign_balloon_bands(["row"], [{"left": 1.0}], {"left": 1}, required_count=2)
+
 
 class TestSolveSegmentedStrip1d:
     def test_empty_members_need_no_segments(self):

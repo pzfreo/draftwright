@@ -40,6 +40,7 @@ from draftwright.layout import (
 )
 
 _BALLOON_RING_STROKE = 0.35
+_GUARDED_CARVE_MAX_LABEL_PROBES = 5_000_000
 
 
 def _top_lane_target(member_count, other_capacities, usable_band_count):
@@ -76,6 +77,7 @@ def render_balloons(
     *,
     perimeter=False,
     avoid_annotation_labels=False,
+    required_count=0,
 ):
     """Place a leadered balloon for each ``(tag, j, hole)`` in *specs*,
     fitted into the halo the layout reserved around the view (#111).
@@ -92,6 +94,11 @@ def render_balloons(
     usable band receives a balloon when the member count permits; this is the
     dense-hole table escalation's deliberate ring treatment (#901).  Ordinary
     and manually requested balloons retain nearest-band assignment.
+
+    The first *required_count* specs are row keys for a transactional automatic
+    table.  They win equal-cardinality contention over any following optional,
+    non-certifying pattern markers; the shared flow still chooses all bands and
+    positions, and callers that leave the default retain the ordinary policy.
 
     The drawing is duck-typed as *dwg* and touched only through its public
     surface; build state rides *a* and *ctx* (ADR 0005 §2 / #639, #699).
@@ -173,7 +180,8 @@ def render_balloons(
             _strip_capacity(*band_defs[name][2:], gap) for name in other_band_names
         ]
         usable_band_count = len(other_band_names) + 1  # plus top
-        top_target = _top_lane_target(len(specs), other_capacities, usable_band_count)
+        layout_member_count = required_count or len(specs)
+        top_target = _top_lane_target(layout_member_count, other_capacities, usable_band_count)
         first_line = pt + centre_offset
         last_line = ph - margin - r
         candidates = {first_line}
@@ -247,13 +255,23 @@ def render_balloons(
     }
     preferred_bands = tuple(name for name, capacity in capacities.items() if capacity > 0)
     if not avoid_annotation_labels:
-        bands, dropped = _assign_balloon_bands(
-            members,
-            choices_by_member,
-            capacities,
-            prefer_bands=preferred_bands if perimeter else (),
-            preference_limit=_band_preference_limit(fs) if perimeter else 0.0,
-        )
+        if required_count:
+            bands, dropped = _assign_balloon_bands(
+                members,
+                choices_by_member,
+                capacities,
+                prefer_bands=preferred_bands if perimeter else (),
+                preference_limit=_band_preference_limit(fs) if perimeter else 0.0,
+                required_count=required_count,
+            )
+        else:
+            bands, dropped = _assign_balloon_bands(
+                members,
+                choices_by_member,
+                capacities,
+                prefer_bands=preferred_bands if perimeter else (),
+                preference_limit=_band_preference_limit(fs) if perimeter else 0.0,
+            )
         for name in ("left", "right", "top", "bottom"):
             args = (
                 dwg,
@@ -296,6 +314,7 @@ def render_balloons(
         avoid_existing_labels=avoid_annotation_labels,
         local_glyph_boxes=local_glyph_boxes,
         band_gaps=band_gaps,
+        required_count=required_count,
     )
     # A band too crowded to hold every balloon drops its tail (the strip solver's
     # prefix fallback) — record it instead of letting the balloons vanish silently
@@ -472,6 +491,24 @@ def _guarded_free_segments(
     return tuple(validated)
 
 
+def _guarded_carve_probe_bound(member_count, range_count, label_count, glyph_box_count):
+    """Conservative box-probe bound before continuous interval carving.
+
+    Each retained box contributes at most four corner rays, eight rim
+    intersections, and two glyph events per glyph component. Each resulting
+    interval can probe its midpoint, both ends, and the final merged ends, so
+    fewer than six probes are needed per critical coordinate. Every probe scans
+    the retained boxes. Keeping this arithmetic outside
+    :func:`_guarded_free_segments` makes the transaction fail closed before the
+    otherwise-quadratic critical-point expansion starts.
+    """
+    if member_count <= 0 or range_count <= 0 or label_count <= 0:
+        return 0
+    criticals_per_label = 12 + 2 * max(1, glyph_box_count)
+    probes_per_range = 6 * (2 + label_count * criticals_per_label)
+    return member_count * range_count * probes_per_range * label_count
+
+
 def _solve_guarded_band(member_indices, members, band_name, band_defs, free_segments):
     """Return ``{member_index: coordinate}`` for one complete guarded band."""
     axis = band_defs[band_name][0]
@@ -508,66 +545,84 @@ def _guarded_assignment(
     *,
     prefer_bands=(),
     preference_limit=0.0,
+    required_count=0,
 ):
-    """Run the canonical band flow, then validate its complete guarded inventory.
+    """Run the canonical band flow, then validate its guarded inventory.
 
     ADR 0014 owns band selection in :func:`layout._assign_balloon_bands`: that
-    bounded flow maximises cardinality and then minimises leader length.  The
-    member-specific intervals here are render-layer geometry, so they may only
-    validate the flow result.  If its complete selected inventory is infeasible,
-    fail the attempt closed; the automatic table transaction restores the original
-    feature annotations.  Do not search a second assignment space here: doing so
-    would duplicate the shared solver, lose its cost objective, and risk unbounded
-    work on dense tables.
+    bounded flow maximises cardinality, preserves the required prefix, and then
+    minimises leader length. The member-specific intervals here are render-layer
+    geometry, so they may only validate the flow result. If optional members make
+    the complete selected inventory infeasible, validate the required prefix once
+    through the same canonical flow and keep that solution. This is the bounded
+    second phase of one lexicographic solve—not an alternate search or placement
+    engine—and prevents a non-certifying pattern marker from rolling back an
+    independently complete table (#1144). If the required inventory itself is
+    infeasible, the automatic transaction restores the feature annotations.
     """
-    filtered_choices = [
-        {
-            band: distance
-            for band, distance in choices.items()
-            if free_segments.by_member_band.get((index, band))
+
+    def solve_prefix(limit, required):
+        selected_members = members[:limit]
+        filtered_choices = [
+            {
+                band: distance
+                for band, distance in choices_by_member[index].items()
+                if free_segments.by_member_band.get((index, band))
+            }
+            for index in range(limit)
+        ]
+        effective_capacities = {}
+        for band, capacity in capacities.items():
+            union = sorted(
+                segment
+                for index in range(limit)
+                for segment in free_segments.by_member_band.get((index, band), ())
+            )
+            merged_union: list[tuple[float, float]] = []
+            for lo, hi in union:
+                if merged_union and lo <= merged_union[-1][1]:
+                    merged_union[-1] = (
+                        merged_union[-1][0],
+                        max(merged_union[-1][1], hi),
+                    )
+                else:
+                    merged_union.append((lo, hi))
+            effective_capacities[band] = min(
+                capacity,
+                sum(
+                    _strip_capacity(lo, hi, free_segments.gap_for(band)) for lo, hi in merged_union
+                ),
+            )
+        seed, _flow_dropped = _assign_balloon_bands(
+            selected_members,
+            filtered_choices,
+            effective_capacities,
+            prefer_bands=prefer_bands,
+            preference_limit=preference_limit,
+            required_count=required,
+        )
+        member_index = {id(member): index for index, member in enumerate(selected_members)}
+        seed_indices = {
+            band: [member_index[id(member)] for member in assigned]
+            for band, assigned in seed.items()
+            if band in band_defs
         }
-        for index, choices in enumerate(choices_by_member)
-    ]
-    effective_capacities = {}
-    for band, capacity in capacities.items():
-        union = sorted(
-            segment
-            for index in range(len(members))
-            for segment in free_segments.by_member_band.get((index, band), ())
-        )
-        merged_union: list[tuple[float, float]] = []
-        for lo, hi in union:
-            if merged_union and lo <= merged_union[-1][1]:
-                merged_union[-1] = (
-                    merged_union[-1][0],
-                    max(merged_union[-1][1], hi),
-                )
-            else:
-                merged_union.append((lo, hi))
-        effective_capacities[band] = min(
-            capacity,
-            sum(_strip_capacity(lo, hi, free_segments.gap_for(band)) for lo, hi in merged_union),
-        )
-    seed, _flow_dropped = _assign_balloon_bands(
-        members,
-        filtered_choices,
-        effective_capacities,
-        prefer_bands=prefer_bands,
-        preference_limit=preference_limit,
-    )
-    member_index = {id(member): index for index, member in enumerate(members)}
-    seed_indices = {
-        band: [member_index[id(member)] for member in assigned]
-        for band, assigned in seed.items()
-        if band in band_defs
-    }
-    seed_solutions = {
-        band: _solve_guarded_band(indices, members, band, band_defs, free_segments)
-        for band, indices in seed_indices.items()
-    }
-    target = sum(len(indices) for indices in seed_indices.values())
-    if all(solution is not None for solution in seed_solutions.values()):
-        return seed_indices, seed_solutions, len(members) - target
+        seed_solutions = {
+            band: _solve_guarded_band(indices, members, band, band_defs, free_segments)
+            for band, indices in seed_indices.items()
+        }
+        target = sum(len(indices) for indices in seed_indices.values())
+        if all(solution is not None for solution in seed_solutions.values()):
+            return seed_indices, seed_solutions, len(members) - target
+        return None
+
+    complete = solve_prefix(len(members), required_count)
+    if complete is not None:
+        return complete
+    if required_count:
+        required = solve_prefix(required_count, required_count)
+        if required is not None:
+            return required
     return (
         {band: [] for band in band_defs},
         {band: {} for band in band_defs},
@@ -687,12 +742,26 @@ def _retained_annotation_geometry(dwg, view):
             try:
                 component_boxes = normalised_boxes(annotation.centerline_boxes)
                 component_segments = normalised_segments(annotation.centerline_segments)
+                expected_box_count, expected_segment_count = annotation.balloon_component_counts
+                component_inventory_complete = (
+                    isinstance(expected_box_count, int)
+                    and expected_box_count > 0
+                    and isinstance(expected_segment_count, int)
+                    and expected_segment_count >= 0
+                    and component_boxes is not None
+                    and len(component_boxes) == expected_box_count
+                    and component_segments is not None
+                    and len(component_segments) == expected_segment_count
+                )
             except Exception:  # noqa: BLE001 — optional external metadata
                 component_boxes = component_segments = None
+                component_inventory_complete = False
             # Every rendered balloon has at least its ring box. Empty boxes,
-            # absent attributes, or any malformed entry make the complete
-            # component inventory untrustworthy; do not use a partial subset.
-            if component_boxes and component_segments is not None:
+            # absent attributes, a cardinality mismatch, or any malformed entry
+            # make the complete inventory untrustworthy; do not use a partial
+            # subset that could silently omit a shaft or long-tag text box.
+            if component_inventory_complete:
+                assert component_boxes is not None and component_segments is not None
                 boxes.extend(component_boxes)
                 segments.extend(component_segments)
             else:
@@ -728,6 +797,7 @@ def _place_guarded_inventory(
     avoid_existing_labels,
     local_glyph_boxes,
     band_gaps,
+    required_count=0,
 ):
     """Solve and render one text-aware, cross-band-safe balloon inventory."""
     label_boxes = balloon_annotation_label_boxes(dwg, view) if avoid_existing_labels else ()
@@ -737,6 +807,17 @@ def _place_guarded_inventory(
     if not retained_geometry_safe:
         return len(members)
     retained_boxes = (*label_boxes, *retained_component_boxes)
+    range_count = sum(
+        len(top_segments) if band == "top" and top_segments is not None else 1
+        for band, capacity in capacities.items()
+        if capacity > 0
+    )
+    glyph_box_count = max((len(boxes) for boxes in local_glyph_boxes.values()), default=1)
+    if (
+        _guarded_carve_probe_bound(len(members), range_count, len(retained_boxes), glyph_box_count)
+        > _GUARDED_CARVE_MAX_LABEL_PROBES
+    ):
+        return len(members)
     text_boxes = {
         tag: components[1] if len(components) > 1 else None
         for tag, components in local_glyph_boxes.items()
@@ -766,35 +847,87 @@ def _place_guarded_inventory(
         guarded,
         prefer_bands=prefer_bands,
         preference_limit=preference_limit,
+        required_count=required_count,
     )
-    geometry = []
-    for band, indices in assignments.items():
-        axis, line, _lo, _hi = band_defs[band]
-        solution = solutions[band]
-        for index in indices:
-            _tag, _member_index, hole, cx, cy = members[index]
-            coordinate = solution[index]
-            bx, by = (line, coordinate) if axis == "y" else (coordinate, line)
-            boxes = tuple(
-                (bx + x0, by + y0, bx + x1, by + y1)
-                for x0, y0, x1, y1 in local_glyph_boxes[members[index][0]]
-            )
-            segments = _balloon_shaft_segments(
-                cx,
-                cy,
-                bx,
-                by,
-                hole.diameter * dwg.scale / 2,
+
+    def rendered_geometry(current_assignments, current_solutions):
+        geometry = []
+        for band, indices in current_assignments.items():
+            axis, line, _lo, _hi = band_defs[band]
+            solution = current_solutions[band]
+            for index in indices:
+                _tag, _member_index, hole, cx, cy = members[index]
+                coordinate = solution[index]
+                bx, by = (line, coordinate) if axis == "y" else (coordinate, line)
+                boxes = tuple(
+                    (bx + x0, by + y0, bx + x1, by + y1)
+                    for x0, y0, x1, y1 in local_glyph_boxes[members[index][0]]
+                )
+                segments = _balloon_shaft_segments(
+                    cx,
+                    cy,
+                    bx,
+                    by,
+                    hole.diameter * dwg.scale / 2,
+                    radius,
+                )
+                geometry.append((boxes, segments))
+        return geometry
+
+    def geometry_is_clear(current_assignments, current_solutions):
+        return _guarded_inventory_geometry_is_clear(
+            rendered_geometry(current_assignments, current_solutions),
+            page_box,
+            retained_boxes=retained_boxes,
+            retained_segments=retained_segments,
+        )
+
+    required_placed = sum(
+        index < required_count for indices in assignments.values() for index in indices
+    )
+    if not geometry_is_clear(assignments, solutions) or required_placed < required_count:
+        if not 0 < required_count < len(members):
+            return len(members)
+        required_band_gaps = {
+            name: _balloon_component_gap(
+                (
+                    local_glyph_boxes[members[index][0]]
+                    for index in range(required_count)
+                    if name in choices_by_member[index]
+                ),
+                axis,
                 radius,
+                gap,
             )
-            geometry.append((boxes, segments))
-    if not _guarded_inventory_geometry_is_clear(
-        geometry,
-        page_box,
-        retained_boxes=retained_boxes,
-        retained_segments=retained_segments,
-    ):
-        return len(members)
+            for name, (axis, _line, _lo, _hi) in band_defs.items()
+        }
+        required_capacities = {
+            name: (
+                0
+                if capacities.get(name, 0) <= 0
+                else sum(
+                    _strip_capacity(seg_lo, seg_hi, required_band_gaps[name])
+                    for seg_lo, seg_hi in top_segments
+                )
+                if name == "top" and top_segments is not None
+                else _strip_capacity(lo, hi, required_band_gaps[name])
+            )
+            for name, (_axis, _line, lo, hi) in band_defs.items()
+        }
+        required_guarded = _GuardedSegments(by_member_band, gap, required_band_gaps)
+        assignments, solutions, dropped = _guarded_assignment(
+            members[:required_count],
+            choices_by_member[:required_count],
+            band_defs,
+            required_capacities,
+            required_guarded,
+            prefer_bands=prefer_bands,
+            preference_limit=preference_limit,
+            required_count=required_count,
+        )
+        dropped += len(members) - required_count
+        if not geometry_is_clear(assignments, solutions):
+            return len(members)
     for band, indices in assignments.items():
         axis, line, _lo, _hi = band_defs[band]
         solution = solutions[band]
@@ -944,6 +1077,10 @@ def _render_balloon(
     # the centreline exemption.
     balloon.centerline_segments = shaft_segments
     balloon.centerline_boxes = (_balloon_glyph_box(bx, by, r), *text_boxes)
+    balloon.balloon_component_counts = (
+        len(balloon.centerline_boxes),
+        len(balloon.centerline_segments),
+    )
     balloon.is_balloon = True
     # Furniture that legitimately sits on the view geometry — exempt from the
     # annotation-overlap / centreline lint, as the section arrows do.

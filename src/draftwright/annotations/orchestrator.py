@@ -956,7 +956,7 @@ def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
     placed_names: set = set()
     balloon_issue_base = dwg.registry.issues
 
-    def _place_balloon_attempt(specs, *, perimeter):
+    def _place_balloon_attempt(specs, *, perimeter, required_count=0):
         nonlocal placed_names
         attempted = {f"balloon_plan_{tag}_{member_index}" for tag, member_index, _ in specs}
         dwg.registry.restore_issues(balloon_issue_base)
@@ -973,6 +973,7 @@ def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
             # attempts have no table, but must still fail closed against retained labels
             # before their landed name/owner may clear a callout drop.
             avoid_annotation_labels=True,
+            required_count=required_count,
         )
         placed_names = {
             name
@@ -989,7 +990,11 @@ def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
         # balloon request: spread its tags around the usable perimeter so a
         # deep occupied strip cannot collapse the ring onto two near sides
         # (#901). Pattern-only and public-verb balloons keep nearest-band cost.
-        _place_balloon_attempt(balloon_specs, perimeter=table_placed)
+        _place_balloon_attempt(
+            balloon_specs,
+            perimeter=table_placed,
+            required_count=len(scattered_specs),
+        )
 
     # Commit the shared table replacement only after every balloon that maps its
     # visible rows back to physical holes has landed (#1144).

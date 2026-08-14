@@ -403,14 +403,22 @@ def _assign_balloon_bands(
     *,
     prefer_bands=(),
     preference_limit=0.0,
+    required_count=0,
 ):
     """Globally assign balloons to side bands (#516/#901).
 
-    The primary objective is maximum cardinality. Within that maximum flow, the
-    first member assigned to a band named by *prefer_bands* receives a bounded
-    *preference_limit* distance credit before leader length is minimised. This is
-    a preference, not a lexicographic override: a remote band stays unused.
+    The primary objective is maximum cardinality, followed by maximum placement
+    of the first *required_count* members. Within those lexicographic objectives,
+    the first member assigned to a band named by *prefer_bands* receives a
+    bounded *preference_limit* distance credit before leader length is minimised.
+    This is a preference, not a lexicographic override: a remote band stays
+    unused. Required-member priority lets a shared automatic table inventory
+    include optional non-certifying pattern markers without allowing one to
+    displace a row-key balloon (#1144).
     """
+
+    if not 0 <= required_count <= len(members):
+        raise ValueError("required_count must be between zero and len(members)")
 
     band_order = ("left", "right", "top", "bottom")
     bands = [b for b in band_order if capacities.get(b, 0) > 0]
@@ -431,6 +439,19 @@ def _assign_balloon_bands(
         graph[to].append(rev)
         return fwd
 
+    preference_bonus = int(round(max(0.0, preference_limit) * _FLOW_COST_SCALE))
+    base_costs = [
+        int(round(max(0.0, distance) * _FLOW_COST_SCALE)) + band_order.index(band)
+        for choices in choices_by_member
+        for band, distance in choices.items()
+        if band in bands
+    ]
+    max_flow = min(len(members), sum(capacities.get(b, 0) for b in bands))
+    # One optional-member penalty dominates the complete possible spread of
+    # leader/preference cost across an equal-cardinality flow. It does not alter
+    # the primary max-flow objective; it only decides which members survive.
+    optional_penalty = max_flow * (max(base_costs, default=0) + preference_bonus + 1) + 1
+
     used_edges: dict[tuple[int, str], _FlowEdge] = {}
     for i, choices in enumerate(choices_by_member):
         add_edge(source, member0 + i, 1, 0)
@@ -440,13 +461,14 @@ def _assign_balloon_bands(
             # Costs are integerised for deterministic shortest paths; the tiny band
             # ordinal keeps exact ties stable without changing real distance order.
             cost = int(round(max(0.0, choices[band]) * _FLOW_COST_SCALE)) + band_order.index(band)
+            if i >= required_count:
+                cost += optional_penalty
             used_edges[(i, band)] = add_edge(member0 + i, band0 + j, 1, cost)
 
     # Give the first balloon in each preferred band a bounded distance credit.
     # Unlike the old lexicographically dominant activation bonus (#901 review),
     # this cannot justify a leader more than `preference_limit` longer merely to
     # occupy another side. SPFA supports the negative residual edges.
-    preference_bonus = int(round(max(0.0, preference_limit) * _FLOW_COST_SCALE))
     preferred = set(prefer_bands)
     for j, band in enumerate(bands):
         capacity = capacities[band]
@@ -479,7 +501,6 @@ def _assign_balloon_bands(
                     in_queue[edge.to] = True
         return prev if prev[sink] is not None else None
 
-    max_flow = min(len(members), sum(capacities.get(b, 0) for b in bands))
     flow = 0
     while flow < max_flow and (prev := shortest_path()) is not None:
         v = sink

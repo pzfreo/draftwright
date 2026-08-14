@@ -597,6 +597,68 @@ def test_guarded_solver_budget_rolls_the_automatic_table_transaction_back(monkey
     assert not [issue for issue in drawing.lint() if issue.code == "hole_requirement_missing"]
 
 
+def test_guarded_carve_budget_fires_before_quadratic_label_expansion(monkeypatch):
+    import draftwright.annotations.balloons as balloons_module
+
+    retained_boxes = tuple(
+        (float(index), 200.0, float(index) + 0.25, 201.0) for index in range(300)
+    )
+    monkeypatch.setattr(
+        balloons_module,
+        "balloon_annotation_label_boxes",
+        lambda *_args: retained_boxes,
+    )
+    monkeypatch.setattr(
+        balloons_module,
+        "_retained_annotation_geometry",
+        lambda *_args: ((), (), True),
+    )
+
+    def forbidden_carve(*_args, **_kwargs):
+        pytest.fail("critical-point carving ran before its deterministic work budget")
+
+    monkeypatch.setattr(balloons_module, "_guarded_free_segments", forbidden_carve)
+    member = ("A", 0, SimpleNamespace(diameter=2.0), 0.0, 0.0)
+
+    dropped = balloons_module._place_guarded_inventory(
+        SimpleNamespace(scale=1.0),
+        "plan",
+        [member],
+        [{"left": 1.0}],
+        {"left": ("y", 10.0, 0.0, 100.0)},
+        {"left": 1},
+        5.0,
+        3.0,
+        4.5,
+        object(),
+        top_segments=None,
+        prefer_bands=(),
+        preference_limit=0.0,
+        page_box=(0.0, 0.0, 100.0, 100.0),
+        avoid_existing_labels=True,
+        local_glyph_boxes={"A": ((-4.5, -4.5, 4.5, 4.5),)},
+        band_gaps={"left": 10.0},
+    )
+
+    assert dropped == 1
+
+
+def test_guarded_carve_budget_rolls_the_automatic_table_transaction_back(monkeypatch):
+    import draftwright.annotations.balloons as balloons_module
+
+    monkeypatch.setattr(balloons_module, "_GUARDED_CARVE_MAX_LABEL_PROBES", 1)
+
+    drawing = build_drawing(_dense_scattered_plate(), page="A3")
+
+    assert "hole_table_plan" not in drawing.annotations()
+    assert not [name for name in drawing.annotations() if name.startswith("balloon_plan_")]
+    assert len([name for name in drawing.annotations() if name.startswith("hc_plan")]) == 17
+    codes = [issue.code for issue in drawing.registry.issues]
+    assert "table_dropped" in codes
+    assert "balloon_dropped" in codes
+    assert not [issue for issue in drawing.lint() if issue.code == "hole_requirement_missing"]
+
+
 def test_real_shaft_crossing_carves_the_guarded_band_without_aabb_sampling():
     from draftwright.annotations.balloons import (
         _balloon_shaft_segments,
@@ -819,7 +881,20 @@ def test_public_add_balloons_separates_long_sibling_text_components():
 
 @pytest.mark.parametrize(
     "component_metadata",
-    ["valid", "empty", "malformed", "nonfinite", "descending", "absent", "unmeasurable"],
+    [
+        "valid",
+        "empty",
+        "partial_boxes",
+        "partial_segments",
+        "absent_counts",
+        "wrong_counts",
+        "malformed",
+        "nonfinite",
+        "descending",
+        "getter_error",
+        "absent",
+        "unmeasurable",
+    ],
 )
 def test_automatic_table_fails_closed_against_a_retained_public_balloon(
     component_metadata, monkeypatch
@@ -831,15 +906,38 @@ def test_automatic_table_fails_closed_against_a_retained_public_balloon(
     retained = drawing.get_annotation(retained_name)
     assert retained is not None
     assert retained.is_balloon
+    assert retained.balloon_component_counts == (
+        len(retained.centerline_boxes),
+        len(retained.centerline_segments),
+    )
     if component_metadata in {"empty", "unmeasurable"}:
         retained.centerline_boxes = ()
         retained.centerline_segments = ()
+    elif component_metadata == "partial_boxes":
+        retained.centerline_boxes = retained.centerline_boxes[:1]
+    elif component_metadata == "partial_segments":
+        retained.centerline_segments = ()
+    elif component_metadata == "absent_counts":
+        del retained.balloon_component_counts
+    elif component_metadata == "wrong_counts":
+        retained.balloon_component_counts = (1, 0)
     elif component_metadata == "malformed":
         retained.centerline_boxes = (("not", "a", "box"),)
     elif component_metadata == "nonfinite":
         retained.centerline_boxes = ((float("nan"), 0.0, 1.0, 1.0),)
     elif component_metadata == "descending":
         retained.centerline_boxes = ((1.0, 1.0, 0.0, 0.0),)
+    elif component_metadata == "getter_error":
+
+        def unreadable_components(_annotation):
+            raise RuntimeError("external component metadata unavailable")
+
+        monkeypatch.setattr(
+            type(retained),
+            "centerline_boxes",
+            property(unreadable_components),
+            raising=False,
+        )
     elif component_metadata == "absent":
         del retained.centerline_boxes
         del retained.centerline_segments
@@ -870,6 +968,47 @@ def test_automatic_table_fails_closed_against_a_retained_public_balloon(
         issue.code for issue in drawing.registry.issues
     }
     assert "hole_requirement_missing" not in {issue.code for issue in drawing.lint()}
+
+
+@pytest.mark.parametrize(("retained_view", "table_commits"), [(None, False), ("side", True)])
+def test_retained_public_balloon_component_geometry_respects_view_scope(
+    retained_view, table_commits
+):
+    drawing = build_drawing(_dense_perimeter_plate(), page="A3", auto_dims=False)
+    tag = "DRAWING_OR_OTHER_VIEW_BALLOON_WITH_A_VERY_LONG_TAG"
+    retained_name = f"balloon_plan_{tag}_0"
+    drawing.add_balloons("plan", [(tag, 0, drawing.recognition().holes[0])])
+    retained = drawing.get_annotation(retained_name)
+    identity = drawing.registry.identity_of(retained_name)
+    drawing.registry.reapply(retained_name, {**identity, "view": retained_view})
+    assert drawing.view_of(retained_name) == retained_view
+
+    with drawing.deferred():
+        for feature in drawing.model().features:
+            if feature.kind == "hole":
+                drawing.callout(feature)
+                drawing.locate(feature)
+
+    assert drawing.get_annotation(retained_name) is retained
+    assert ("hole_table_plan" in drawing.annotations()) is table_commits
+    if table_commits:
+        assert (
+            len(
+                [
+                    name
+                    for name in drawing.annotations()
+                    if name.startswith("balloon_plan_") and name != retained_name
+                ]
+            )
+            == 16
+        )
+    else:
+        assert {name for name in drawing.annotations() if name.startswith("balloon_plan_")} == {
+            retained_name
+        }
+        assert {"table_dropped", "balloon_dropped"} <= {
+            issue.code for issue in drawing.registry.issues
+        }
 
 
 def test_public_hole_table_does_not_expose_an_uncomposable_replacement_option():
@@ -1056,6 +1195,66 @@ def test_grouped_pattern_marker_cannot_certify_an_undefined_hole_tag():
         "bolt_circle.diameter",
         "grouping.count",
     }
+
+
+def test_optional_pattern_marker_cannot_displace_required_table_rows(monkeypatch):
+    import draftwright.annotations.orchestrator as orchestrator
+    from draftwright.annotations._common import Escalation, PlacementContext
+    from draftwright.model import Frame, HoleFeature, PatternFeature
+
+    part = _dense_perimeter_plate()
+    captured_analysis = []
+
+    def capture_analysis(_drawing, analysis, **_kwargs):
+        captured_analysis.append(analysis)
+
+    with monkeypatch.context() as disabled:
+        disabled.setattr(orchestrator, "_maybe_tabulate_holes", capture_analysis)
+        drawing = build_drawing(part, page="A3", auto_dims=False)
+        with drawing.deferred():
+            for feature in drawing.model().features:
+                if feature.kind == "hole":
+                    drawing.callout(feature)
+                    drawing.locate(feature)
+    assert captured_analysis
+
+    features = list(drawing.model().features)
+    origin = (-50.0, -18.0, 6.0)
+    member = HoleFeature(
+        frame=Frame(origin=origin, axis="z"),
+        diameter=5.0,
+        depth=None,
+        through=True,
+    )
+    pattern = PatternFeature(
+        frame=Frame(origin=origin, axis="z"),
+        pattern="bolt_circle",
+        count=6,
+        member=member,
+        members=tuple((origin[0] + index, origin[1], origin[2]) for index in range(6)),
+    )
+    model = replace(drawing.model(), features=[*features, pattern])
+    ctx = PlacementContext(
+        registry=drawing.registry,
+        coverage=drawing.coverage,
+        items=drawing.items,
+        part_model=model,
+        escalations=(
+            Escalation("location", "plan", features[0], "illegible"),
+            Escalation("callout", "plan", pattern, "strip_full"),
+        ),
+    )
+
+    orchestrator._maybe_tabulate_holes(drawing, captured_analysis[-1], ctx=ctx)
+
+    assert "hole_table_plan" in drawing.annotations()
+    assert {name for name in drawing.annotations() if name.startswith("balloon_plan_")} == {
+        f"balloon_plan_{tag}_0" for tag in "ABCDEFGHIJKLMNOP"
+    }
+    assert "balloon_plan_6×Q_0" not in drawing.annotations()
+    assert "table_dropped" not in {issue.code for issue in drawing.registry.issues}
+    assert "balloon_dropped" in {issue.code for issue in drawing.registry.issues}
+    assert "hole_requirement_missing" not in {issue.code for issue in drawing.lint()}
 
 
 def test_long_grouped_pattern_marker_fails_closed_when_its_shaft_crosses_its_text():
