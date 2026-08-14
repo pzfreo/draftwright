@@ -69,8 +69,8 @@ def test_an_authored_omission_is_distinguished_from_a_rule_suppression():
     assert all(o["reason"] for o in dwg.suppressions()), "every omission carries a reason"
 
 
-def test_coincident_locations_retain_both_semantic_identities_for_the_shared_mark():
-    """Coincident geometry may share one mark, but must not erase either measurement id."""
+def test_nearby_distinct_locations_retain_both_semantic_identities():
+    """Nearby holes remain separately addressable through planning and compilation."""
     from build123d import Box as _Box
 
     from draftwright.model import Datum, Frame, HoleFeature, PartModel
@@ -79,7 +79,7 @@ def test_coincident_locations_retain_both_semantic_identities_for_the_shared_mar
 
     bbox = _Box(80, 50, 20).bounding_box()
     datum = Datum(id="datum_xy", kind="point", at=(bbox.min.X, bbox.min.Y, bbox.min.Z))
-    near, also_near = (10.0, 5.0, 10.0), (10.2, 5.1, 18.0)  # within the 0.5 window in X/Y
+    near, also_near = (10.0, 5.0, 10.0), (10.2, 5.1, 18.0)
     model = PartModel(
         bbox=bbox,
         orientation="prismatic",
@@ -95,7 +95,7 @@ def test_coincident_locations_retain_both_semantic_identities_for_the_shared_mar
     assert not [p for p in planned if p.suppressed]
 
     locations = compile_dimensions(model).locations
-    assert len(locations) == 4  # X + Y for each feature; rendering collapses by coordinate
+    assert len(locations) == 4  # X + Y for each distinct feature
     assert {entry.id.feature for entry in locations} == set(model.features)
     assert {entry.id.parameter for entry in locations} == {
         "location.location.x",
