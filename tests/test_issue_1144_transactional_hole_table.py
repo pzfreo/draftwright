@@ -162,7 +162,9 @@ def _transaction_state(drawing):
         "coverage": drawing.coverage.snapshot(),
         "markers": {
             name: (
+                hasattr(drawing.get_annotation(name), "hole_representation"),
                 getattr(drawing.get_annotation(name), "hole_representation", None),
+                hasattr(drawing.get_annotation(name), "hole_representation_reason"),
                 getattr(drawing.get_annotation(name), "hole_representation_reason", None),
             )
             for name in drawing.annotations()
@@ -1386,6 +1388,10 @@ def test_finalize_exception_restores_automatic_transaction_markers(monkeypatch):
     marked_annotation.hole_representation = "preexisting_representation"
     marked_annotation.hole_representation_reason = "preexisting_reason"
     before = _transaction_state(drawing)
+    unmarked_name, _unmarked_annotation = next(
+        value for value in original_callouts.values() if value[0] != marked_name
+    )
+    assert before["markers"][unmarked_name] == (False, None, False, None)
     original_reapply = drawing.registry.reapply
 
     def fail_after_coverage(name, identity):
