@@ -187,6 +187,15 @@ def _unoriented_direction(value):
     return _point(direction)
 
 
+def _planar_direction(value, axis: str):
+    """A linear-pattern direction in its hole opening plane."""
+    if value is None:
+        return None
+    vector = [float(component) for component in value]
+    vector["xyz".index(axis)] = 0.0
+    return _unoriented_direction(vector)
+
+
 def _pattern_kind(pattern) -> str:
     if hasattr(pattern, "diameter") and hasattr(pattern, "center"):
         return "bolt_circle"
@@ -278,7 +287,7 @@ def _pattern_key(pattern) -> tuple:
         None if bcd is None else _rounded(bcd),
         None if pitch is None else _rounded(pitch),
         None if grid is None else tuple(_rounded(value) for value in grid),
-        _unoriented_direction(direction) if kind == "linear" else None,
+        _planar_direction(direction, spec[0]) if kind == "linear" else None,
         rows,
         cols,
         None if angle is None else _rounded(float(angle) % 180.0),

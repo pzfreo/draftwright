@@ -1048,6 +1048,27 @@ def test_linear_pattern_correspondence_treats_opposite_directions_as_the_same_ax
     assert all(item.state == "placed" for item in _outcomes(drawing))
 
 
+def test_linear_direction_parallel_to_hole_axis_fails_closed():
+    part = _linear_pattern()
+    detected = build_drawing(part, page="A3").model()
+    declared = replace(
+        detected,
+        features=[
+            replace(feature, direction=(0.0, 0.0, 1.0))
+            if getattr(feature, "pattern", None) == "linear"
+            else feature
+            for feature in detected.features
+        ],
+    )
+
+    drawing = build_drawing(part, model=declared, page="A3")
+    unverifiable = [item for item in _outcomes(drawing) if item.state == "unverifiable"]
+
+    assert len(unverifiable) == 1
+    assert unverifiable[0].requirement_count == 6
+    assert _completeness(drawing)["audited_score"] == 0.0
+
+
 @pytest.mark.parametrize(
     ("part", "feature"),
     [
@@ -1094,8 +1115,13 @@ def test_declared_pattern_defaults_correspond_to_recognition(part, feature):
             (-0.15796786944429583, 0.6957155478309954, 0.0),
             (-0.0877131413831945, 1.4064930195402183, 0.0),
         ),
+        (
+            (-0.6430406142205183, -13.137625906288228, -0.014573873013197791),
+            (0.001455836570364258, 0.0048945248095531284, 0.019598012740520532),
+            (0.6827760963850057, 13.137141390628667, 0.027346635076778383),
+        ),
     ],
-    ids=("near-axis", "oblique-rounding-boundary"),
+    ids=("near-axis", "oblique-rounding-boundary", "through-opening-plane-noise"),
 )
 def test_default_linear_direction_matches_recogniser_accepted_step_noise(locations):
     holes = tuple(
