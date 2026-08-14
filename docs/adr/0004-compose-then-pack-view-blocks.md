@@ -307,6 +307,12 @@ The explicit-scale contract is therefore amended as follows:
 4. Trial builds reuse imported, classified, recognised, and critique inventories. This keeps the
    policy search bounded and preserves the ADR's box-math performance rationale; discarded
    trials are not independent full recognition pipelines.
+5. Automatic page selection is deliberately more conservative than an explicitly forced page.
+   Required authored-table footprints are reserved before the flexible, orientation-only iso and
+   the candidate must retain the iso fitness budget. This may select a larger standard page even
+   when a caller-forced smaller page can place every requirement by fitting furniture around the
+   rendered iso. The forced-page build is complete and strict policy therefore honours it; the
+   automatic search is not a “smallest page on which lint happens to be clean” optimiser.
 
 The unconditional `_MIN_RENDER_MM` safety floor and the advisory `_MIN_VIEW_MM` warning retain
 their prior meanings. This amendment narrows only the old “honour explicit scale” statement:

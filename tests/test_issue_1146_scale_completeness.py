@@ -327,6 +327,29 @@ def test_authored_table_footprint_can_select_a_larger_standard_page():
 
 
 @pytest.mark.timeout(120)
+def test_automatic_page_preserves_iso_budget_while_forced_page_honors_complete_layout():
+    """Auto page fitness is stronger than strict completeness on a caller-forced page."""
+    rows = [("H",), *(("X" * 60,) for _ in range(6))]
+
+    def sheet(page=None):
+        result = Sheet(
+            Box(40, 30, 10), page=page, scale=1.0, scale_policy="strict"
+        ).authored_dimensions()
+        for index, prefer in enumerate(("tr", "bl", "br")):
+            result.table(rows, name=f"required_{index}", prefer=prefer)
+        return result
+
+    automatic = sheet().build()
+    forced = sheet("A4").build()
+
+    assert (automatic.page_w, automatic.page_h) == (420.0, 297.0)
+    assert (forced.page_w, forced.page_h) == (297.0, 210.0)
+    assert forced.scale_decision["status"] == "honored"
+    assert {f"required_{index}" for index in range(3)} <= set(forced.annotations())
+    assert not [issue for issue in forced.lint() if issue.severity != "info"]
+
+
+@pytest.mark.timeout(120)
 def test_sheet_table_sources_are_stable_and_unique_when_display_names_are_reused():
     oversized = [("X" * 300,)]
 
