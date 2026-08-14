@@ -930,6 +930,8 @@ def test_public_add_balloons_separates_long_sibling_text_components():
         "absent_counts",
         "wrong_counts",
         "boolean_counts",
+        "boolean_box_coordinates",
+        "boolean_segment_coordinates",
         "malformed",
         "nonfinite",
         "descending",
@@ -967,6 +969,13 @@ def test_automatic_table_fails_closed_against_a_retained_public_balloon(
         retained.centerline_boxes = retained.centerline_boxes[:1]
         retained.centerline_segments = ()
         retained.balloon_component_counts = (True, False)
+    elif component_metadata == "boolean_box_coordinates":
+        retained.centerline_boxes = (
+            (False, False, True, True),
+            (False, False, True, True),
+        )
+    elif component_metadata == "boolean_segment_coordinates":
+        retained.centerline_segments = (((False, False), (True, True)),)
     elif component_metadata == "malformed":
         retained.centerline_boxes = (("not", "a", "box"),)
     elif component_metadata == "nonfinite":

@@ -11,7 +11,7 @@
   identities, coverage, and issues. Precise ring, glyph, and leader-segment tests keep placement
   clear of retained callout labels, leader shafts, and existing public-balloon components without
   changing the existing additive `add_hole_table()`/`add_balloons()` behavior; malformed component
-  metadata—including ambiguous Boolean cardinalities—falls back conservatively or fails the
+  metadata—including Boolean cardinalities or coordinate payloads—falls back conservatively or fails the
   optional replacement closed. New balloon shafts must also remain mutually crossing-free.
   Compound, thread,
   profile, pattern, tolerance, and fit facts the table cannot state remain active, while

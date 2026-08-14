@@ -733,7 +733,10 @@ def _retained_annotation_geometry(dwg, view):
         for box in entries:
             try:
                 x0, y0, x1, y1 = box
-                values = tuple(float(value) for value in (x0, y0, x1, y1))
+                raw_values = (x0, y0, x1, y1)
+                if any(type(value) is bool for value in raw_values):
+                    return None
+                values = tuple(float(value) for value in raw_values)
             except (TypeError, ValueError):
                 return None
             if (
@@ -754,7 +757,10 @@ def _retained_annotation_geometry(dwg, view):
         for segment in entries:
             try:
                 (x0, y0), (x1, y1) = segment
-                values = tuple(float(value) for value in (x0, y0, x1, y1))
+                raw_values = (x0, y0, x1, y1)
+                if any(type(value) is bool for value in raw_values):
+                    return None
+                values = tuple(float(value) for value in raw_values)
             except (TypeError, ValueError):
                 return None
             if not all(math.isfinite(value) for value in values) or values[:2] == values[2:]:
