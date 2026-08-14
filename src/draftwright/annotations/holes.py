@@ -242,7 +242,7 @@ def add_feature_location(
     Raises ``ValueError`` if the drawing has no detected model/analysis, *feature*
     is not in the model, or is not a Z-axis hole/pattern (side-drilled bores are placed
     by the auto-pass). A feature with no datum-referenced ref (a datum-less model, a
-    concentric/on-datum bore, or a ref deduped against a sibling) returns ``[]``.
+    concentric/on-datum bore) returns ``[]``.
     """
     if model is None:
         raise ValueError("locate(): no detected model — build the drawing first")
@@ -268,11 +268,12 @@ def add_feature_location(
         raise ValueError("locate(): axes must be a subset of ('x', 'y')")
 
     # A feature with no datum-referenced ref — a concentric/on-axis bore (located by a
-    # centre mark), an on-datum hole, or one whose ref coincides with another feature's
-    # (deduped by plan_locations) — has nothing to dimension here. An honest empty
+    # centre mark) or an on-datum hole — has nothing to dimension here. An honest empty
     # result (as the docstring promises), not an error, so the verb composes: the emitted
     # #400 Ph2 script calls locate() on every hole and this no-ops the ones the auto-pass
-    # would also skip, matching its dedup rather than crashing.
+    # would also skip. Live placement handles this requested feature alone; automatic and
+    # deferred rendering may coalesce truly coincident ordinates while retaining every
+    # semantic owner.
     #
     # Sourced from the COMPILED plan, not the raw planner list: `locate()` is an edit verb,
     # and an edit verb that drew a position the authored set omitted would put the live path

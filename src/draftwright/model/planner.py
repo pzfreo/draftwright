@@ -150,14 +150,16 @@ class AddressableDimension:
 
     **Scope: the feature parameters that flow through `plan_dimensions`.** A location has
     no entry here — `plan_dimensions` skips every `location`-kind parameter and
-    `plan_locations` returns a flat cross-feature list of bare `PlannedDimension`s, deduped
-    by ref point, that never enters a `DimensionGroup`.
+    `plan_locations` returns a flat cross-feature list of bare `PlannedDimension`s that
+    preserves every feature-owned identity and never enters a `DimensionGroup`. The
+    renderer may collapse truly coincident ordinates into one visible mark, while retaining
+    every semantic owner on that mark.
 
     That no longer means a location is unaddressable. each feature's own `LOCATION_STEM` gives
     locatable kind a role, which is what `sheet.dimension(bore, "location")` names and what
     an authored set omits (#925) — one unit per feature. The finer question **#883** asks
-    (is a grouped hole's location one unit or one per member? does a deduped coincident ref
-    belong to which feature?) is about NAMING, and omission is well-formed either way, so
+    (is a grouped hole's location one unit or one per member?) is about NAMING, and omission
+    is well-formed either way, so
     it no longer blocks the `"location"` role."""
 
     id: ParameterId

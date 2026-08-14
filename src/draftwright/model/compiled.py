@@ -613,9 +613,10 @@ class RenderableDimensionPlan:
         out: list[AddressableIntent] = []
         named: set[int] = set()
         for approved in self.locations:
-            # One intent per FEATURE, not per ref: coincident refs are deduplicated across
-            # features, and `dimension(f, "location")` is a per-feature unit (#883 is the
-            # per-member question, deliberately not answered here).
+            # One intent per FEATURE, not per ref. The compiler preserves coincident
+            # feature-owned identities; rendering may share one visible ordinate while
+            # accumulating every owner. `dimension(f, "location")` remains a per-feature
+            # unit (#883 is the per-member question, deliberately not answered here).
             feature = resolve_feature(approved.ref)
             if feature is None or id(feature) in named:
                 continue
@@ -893,8 +894,10 @@ def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[
 
     A location is a dimension: it prints a number, so an authored set that does not name it
     must not get one. That decision is made in `plan_locations` (which owns the datum and
-    the coincident-ref dedup) and read off `suppressed` here, so this stays the single place
-    a renderer's location content comes from.
+    authored suppression) and read off `suppressed` here. Coincident feature identities
+    remain distinct through this compiler boundary; the renderer may combine their truly
+    coincident marks while retaining all semantic owners. This stays the single place a
+    renderer's location content comes from.
 
     The renderer keeps its own filters — the concentric-bore exclusion, the legibility gate,
     the sub-millimetre offset test. Those only ever REMOVE an approved entry, which is a

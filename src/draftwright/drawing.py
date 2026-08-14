@@ -1508,9 +1508,10 @@ class Drawing:
 
         Raises ``ValueError`` if *feature* is not a Z-axis hole/pattern (side-drilled
         bores are placed by the auto-pass). A feature with no datum-referenced ref (a
-        datum-less model, a concentric/on-datum bore, or a ref deduped against a sibling)
-        returns ``[]``. Placed reasonably, not via the auto-pass's corridor solve
-        (byte-identity is not a goal, #400 Ph2).
+        datum-less model or a concentric/on-datum bore) returns ``[]``. Live placement
+        handles this feature alone; automatic/deferred rendering may coalesce truly
+        coincident ordinates while retaining every semantic owner. Placed reasonably, not
+        via the auto-pass's corridor solve (byte-identity is not a goal, #400 Ph2).
         """
         if self._defer_intents:  # #426: record, don't place — finalize() drains it
             self._intents.append(Intent("locate", feature, {"axes": axes, "pin": pin}))
