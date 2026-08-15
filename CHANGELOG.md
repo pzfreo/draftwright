@@ -4,6 +4,11 @@
 
 ### Added
 
+- A versioned, independently authored STEP-analysis corpus and evaluator now report detection
+  recall/false positives, parameter fidelity, and downstream usefulness as separate evidence
+  layers. Hash-pinned positive, negative, ambiguous, compound, and topology-order-variant fixtures,
+  per-layer diagnostics, and an anti-self-validation mutation prevent recogniser output from
+  defining its own denominator (#1169).
 - Draftwright now validates the released `b123d-recognisers` 0.2.0 capability manifest against
   an exhaustive consumer-owned declaration of IR, DSL, generated-code, drawing, completeness,
   and documentation states. Unknown families, stale implementations, record-schema drift, and

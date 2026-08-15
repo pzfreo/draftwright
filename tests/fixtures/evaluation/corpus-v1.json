@@ -1,0 +1,137 @@
+{
+  "format": "draftwright-step-analysis-corpus",
+  "format_version": 1,
+  "corpus_version": "1.0.0",
+  "metric_version": 1,
+  "scope": ["holes"],
+  "cases": [
+    {
+      "id": "plain-block",
+      "tags": ["negative"],
+      "fixture": "plain-block.step",
+      "sha256": "1a5db509de8c0ce04d46cf39296dcdd04873e74cb0e7501bcd97630ffd8d113c",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored from the construction recipe in README.md; no cylindrical subtraction.",
+      "expected_outcome": "supported",
+      "facts": []
+    },
+    {
+      "id": "blind-hole",
+      "tags": ["positive"],
+      "fixture": "blind-hole.step",
+      "sha256": "15009c0a5384c272f6577abf10712d9704a74e9aca9ce6f7d5417ab152b51837",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored from the construction recipe in README.md and its nominal dimensions.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "holes",
+          "identity": {
+            "axis": {"value": [0.0, 0.0, -1.0], "absolute_tolerance": 1e-9},
+            "location": {"value": [10.0, 5.0, 12.0], "absolute_tolerance": 1e-6}
+          },
+          "parameters": {
+            "bottom": {"value": "flat"},
+            "depth": {"value": 6.0, "absolute_tolerance": 1e-6},
+            "diameter": {"value": 10.0, "absolute_tolerance": 1e-6}
+          },
+          "required_downstream": [
+            "ir_adapter",
+            "dsl_declaration",
+            "generated_code",
+            "drawing_consumer"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ambiguous-open-semicircle",
+      "tags": ["ambiguous", "negative"],
+      "fixture": "ambiguous-open-semicircle.step",
+      "sha256": "57a683a1e01bc4203a043b55a6f6e6d6202be16e2a8afdd6432525fc8f806427",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored from the construction recipe in README.md; the cylinder intersects the stock boundary and is an open semicircular channel, not a hole.",
+      "expected_outcome": "supported",
+      "facts": []
+    },
+    {
+      "id": "compound-two-holes-topology-a",
+      "tags": ["compound", "positive", "topology-order-variant"],
+      "fixture": "topology-a.step",
+      "sha256": "c05a42d2b4a2f5f83285cc605980b0556c3b9f03e29516416ad57b34bd2c5432",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored from the construction recipe in README.md; canonical Open CASCADE entity order.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "holes",
+          "identity": {
+            "axis": {"value": [0.0, 0.0, -1.0], "absolute_tolerance": 1e-9},
+            "location": {"value": [-15.0, 0.0, 12.0], "absolute_tolerance": 1e-6}
+          },
+          "parameters": {
+            "bottom": {"value": "through"},
+            "depth": {"value": 12.0, "absolute_tolerance": 1e-6},
+            "diameter": {"value": 6.0, "absolute_tolerance": 1e-6}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        },
+        {
+          "family": "holes",
+          "identity": {
+            "axis": {"value": [0.0, 0.0, -1.0], "absolute_tolerance": 1e-9},
+            "location": {"value": [15.0, 0.0, 12.0], "absolute_tolerance": 1e-6}
+          },
+          "parameters": {
+            "bottom": {"value": "through"},
+            "depth": {"value": 12.0, "absolute_tolerance": 1e-6},
+            "diameter": {"value": 10.0, "absolute_tolerance": 1e-6}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "compound-two-holes-topology-b",
+      "tags": ["compound", "positive", "topology-order-variant"],
+      "fixture": "topology-b.step",
+      "sha256": "25ae228a19317b5590a07639319c7aa8152e9b8ffd6ce2c045d6e2212504fd8c",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "The topology-a STEP entities were bijectively renumbered and serialized in reverse order without changing geometry or expected facts.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "holes",
+          "identity": {
+            "axis": {"value": [0.0, 0.0, -1.0], "absolute_tolerance": 1e-9},
+            "location": {"value": [-15.0, 0.0, 12.0], "absolute_tolerance": 1e-6}
+          },
+          "parameters": {
+            "bottom": {"value": "through"},
+            "depth": {"value": 12.0, "absolute_tolerance": 1e-6},
+            "diameter": {"value": 6.0, "absolute_tolerance": 1e-6}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        },
+        {
+          "family": "holes",
+          "identity": {
+            "axis": {"value": [0.0, 0.0, -1.0], "absolute_tolerance": 1e-9},
+            "location": {"value": [15.0, 0.0, 12.0], "absolute_tolerance": 1e-6}
+          },
+          "parameters": {
+            "bottom": {"value": "through"},
+            "depth": {"value": 12.0, "absolute_tolerance": 1e-6},
+            "diameter": {"value": 10.0, "absolute_tolerance": 1e-6}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    }
+  ]
+}

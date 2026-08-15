@@ -21,6 +21,7 @@ nav:
       - Drawing results: reference/drawing.md
       - Feature declarations: reference/declarations.md
       - Recogniser capability contract: reference/recogniser-capabilities.md
+      - STEP analysis evaluation: reference/step-analysis-evaluation.md
       - External spur gear requirements: reference/external-spur-gears.md
 
 theme:

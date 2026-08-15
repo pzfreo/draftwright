@@ -25,7 +25,8 @@ top: leaf modules (`layout.py`, `registry.py`, `fonts.py`, `_geometry.py`,
 `model/` IR subpackage, the `annotations/` subpackage) → `builder.py` → the
 user-facing surfaces: the `make_drawing.py` / `annotate.py` compat facades, the
 fluent `Sheet` facade (`sheet.py`), the Sheet-script emitter
-(`sheet_emit.py`), and the `cli.py` entry point. No lower module imports an
+(`sheet_emit.py`), the recognition-evaluation package (`evaluation/`), and the
+`cli.py` entry point. No lower module imports an
 upper one. (All surfaces are front doors onto the one engine,
 `build_drawing` → `_auto_annotate` — there is no second engine.)
 
@@ -41,6 +42,10 @@ lazy in-function imports (`cli`→`builder`/`sheet_emit`, for the #313 build123d
 lazy-load) are *downward*, not cycle-breakers. The one type-only upward reference
 (`_core`→`compose.StripDepths`, under `TYPE_CHECKING`) is an explicit allowlist
 entry. Keep `_LAYERS` and this section in step.
+
+`evaluation/` owns the versioned, independently-authored STEP-analysis benchmark and its
+scoring model. It is a top-layer consumer of the recognition contract; production recognition,
+IR, generation, and drawing code must not depend on benchmark expectations or scores.
 
 - **`make_drawing.py`** — thin compat facade (~20 lines) re-exporting the public
   surface (`Drawing`, `build_drawing`, `make_drawing`, `_cli`,

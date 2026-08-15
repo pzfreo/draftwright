@@ -102,6 +102,9 @@ _LAYERS: dict[str, int] = {
     # Cross-repository CI contract: dynamically resolves declared implementations at every
     # lower layer, so it deliberately sits above the whole engine beside the user surfaces.
     "recogniser_contract": 7,
+    # Versioned, independently-authored recognition benchmark. It may validate through the
+    # cross-repository contract, but the drawing engine must never depend on its evaluator.
+    "evaluation": 7,
     "cli": 7,
     # 8 — the package root: the public API surface, above everything
     "__init__": 8,
