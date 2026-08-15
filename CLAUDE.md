@@ -94,6 +94,11 @@ entry. Keep `_LAYERS` and this section in step.
     were deleted as each migrated here.
   - **`annotations/holes.py`** — hole/pattern callouts, balloons, location dims
     (incl. side-drilled #133), pitch/grid dims, slots (the largest *pass*).
+  - **`annotations/leaders.py`** — the one bounded late inventory for compatible
+    automatic/deferred same-view feature leaders (#1166): sparse ordinary
+    side/plan hole jobs and the five post-drain machined-feature families lower
+    exact ink conflicts, priorities, Policy-B penalties, and numeric costs into
+    `layout.py`, then emit selected annotations with their original provenance.
   - **`annotations/sections.py`** — section A–A + detail views (ISO 128-44 arrows,
     ISO 128-50 hatching).
   - **`annotations/balloons.py`** — the leadered hole-balloon pass (#111/#516;
@@ -343,10 +348,11 @@ Current ADRs:
   crossing-free) → space, the PAVA L1 solve); post-#636 the guarantee holds for
   every auto-pass occupant, with the `carve_free_position` exemptions pinned
   fail-closed. Includes the strip/zone/corridor glossary and the
-  StripCandidate↔CorridorCandidate layering. Amendment 1 (#740) gives each
-  post-drain machined-feature leader pass its own bounded joint candidate
-  assignment (maximum placed, then minimum leader length), retaining the old
-  greedy result as the resource-cap floor; cross-pass unification remains #1166.
+  StripCandidate↔CorridorCandidate layering. Amendment 1 (#740) introduced
+  bounded within-pass machined-leader assignment; Amendment 2 (#1166) collects
+  compatible sparse ordinary side/plan hole and post-drain machined leaders into
+  one canonical late stage (maximum placed, priority, clear-route penalty, then
+  leader length), retaining the old lazy greedy result as the resource-cap floor.
 - **0015** — **Accepted** (supersedes 0008, #697): **the part-drawing compiler
   as built** — detectors + declared features → the one PartModel waist (two
   tiers, ADR 0013) → planner → render-intents → shared infra; with the

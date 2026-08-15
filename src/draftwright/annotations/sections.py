@@ -399,6 +399,21 @@ def _reserve_section_row(dwg, a: Analysis, section, *, ctx) -> None:
     x0, x1 = PX(a.bb.min.X) - 4, PX(a.bb.max.X) + 4
     _add_cutting_plane_arrows(dwg, y_page, x0, x1, ctx=ctx)
     _add_section_letters(dwg, y_page, x0, x1, ctx=ctx)
+    # These are provisional geometry, not committed annotation requirements.
+    # Early strip placement sees them and relocates cheaply when it can, while
+    # the late #1166 feature-leader inventory may retain a required callout and
+    # let the optional section yield under Policy B.  The final section pass
+    # replaces the same names with ordinary, non-provisional annotations.
+    for name in (
+        "section_arrow_left",
+        "section_arrow_right",
+        "section_wing_left",
+        "section_wing_right",
+        "section_a_left",
+        "section_a_right",
+    ):
+        annotation = dwg.get_annotation(name)
+        annotation.is_provisional_layout_reservation = True
 
 
 def _render_detail(

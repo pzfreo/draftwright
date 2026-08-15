@@ -26,6 +26,9 @@ def _scale_sensitive_plate():
     part = Box(100, 100, 8)
     part -= Pos(-30, -20, 0) * Cylinder(2, 8)
     part -= Pos(25, 25, 0) * Cylinder(2.7, 8)
+    # A third independent ordinate keeps this fixture load-bearing after the
+    # cross-pass leader solve recovered the two-hole layout at 1:1 (#1166).
+    part -= Pos(-15, 35, 0) * Cylinder(3.2, 8)
     return part
 
 

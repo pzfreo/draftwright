@@ -1113,8 +1113,8 @@ class TestBuildDrawingPmi:
         }
 
         assert len(authored) == 8
-        assert len(rendered) == 6
-        assert len(dropped) == 2
+        assert len(rendered) == 7
+        assert len(dropped) == 1
         assert rendered.isdisjoint(dropped)
         assert rendered | dropped == {feature.source_id for feature in authored}
         assert not [issue for issue in ctc01_annotated.lint() if issue.code == "pmi_not_rendered"]
@@ -1124,8 +1124,8 @@ class TestBuildDrawingPmi:
             "by_category": {"datum": 11, "dimension": 21, "geometric_tolerance": 6},
             "extracted": 29,
             "lowered": 25,
-            "rendered": 23,
-            "dropped": 2,
+            "rendered": 24,
+            "dropped": 1,
         }
 
     def test_a_deleted_render_dispatch_is_reported_by_source_identity(self, monkeypatch):

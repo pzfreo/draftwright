@@ -13,6 +13,7 @@ from build123d import Align, Axis, Box, Cylinder, Pos
 from build123d_drafting.helpers import Draft, Leader
 
 from draftwright import ScaleCompletenessWarning, Sheet, build_drawing
+from draftwright._geometry import _segments_cross_or_overlap
 from draftwright.annotations._common import _box_hits, annotation_obstacle_boxes
 from draftwright.layout import _assign_leader_candidates
 from draftwright.model import FilletFeature, Frame, GrooveFeature, PartModel, pocket
@@ -327,47 +328,51 @@ def _groove_leader_evidence(drawing):
     return names, lengths, measurements
 
 
-def test_public_render_uses_joint_minimum_length_and_pair_budget_is_legacy_floor(
-    monkeypatch, tmp_path
-):
+def test_public_render_is_crossing_free_and_pair_budget_is_legacy_floor(monkeypatch, tmp_path):
     part, model = _crowded_declared_grooves()
     joint = build_drawing(part, model=model, page="A4")
-    joint_names, joint_lengths, joint_measurements = _groove_leader_evidence(joint)
+    joint_names, _joint_lengths, joint_measurements = _groove_leader_evidence(joint)
     joint_boxes = {name: joint.get_annotation(name).label_bbox for name in joint_names}
 
-    # The three shortest independent choices would be horizontal and their
-    # 2.25-mm-high labels would overlap at these 2-mm stations. The production
-    # conflict lowering must make one leader diagonal while retaining all three.
+    # These 2-mm stations make the legacy first rays cross. The cross-pass lane
+    # alternatives let the exact-ink inventory retain all three facts without a
+    # rendered shaft/arrow conflict.
     assert all(
         not _box_hits(joint_boxes[left], [joint_boxes[right]])
         for left, right in combinations(joint_names, 2)
-    )
-    assert (
-        sum(
-            abs(end[1] - start[1]) > 1e-6
-            for name in joint_names
-            for start, end in joint.get_annotation(name).segments[:1]
-        )
-        == 1
     )
 
     # Force the real public renderer through its deterministic pre-quadratic
     # fallback. This is the pre-#740 first-clear result, not a parallel test
     # implementation of it.
     monkeypatch.setattr(
-        "draftwright.annotations.from_model._LEADER_ASSIGN_MAX_PAIR_PROBES",
+        "draftwright.annotations.leaders._FEATURE_LEADER_MAX_PAIR_PROBES",
         0,
     )
     trace_path = tmp_path / "legacy.json"
     legacy = build_drawing(part, model=model, page="A4", trace=trace_path)
-    legacy_names, legacy_lengths, legacy_measurements = _groove_leader_evidence(legacy)
+    legacy_names, _legacy_lengths, legacy_measurements = _groove_leader_evidence(legacy)
     trace = json.loads(trace_path.read_text(encoding="utf-8"))
     event = next(item for item in trace["pass_events"] if item["label"] == "groove_callouts")
 
-    assert joint_names == legacy_names == ["m_groove_z0", "m_groove_z1", "m_groove_z2"]
-    assert joint_measurements == legacy_measurements
+    assert joint_names == ["m_groove_z0", "m_groove_z1", "m_groove_z2"]
+    assert legacy_names == ["m_groove_z0", "m_groove_z1", "m_groove_z2"]
+    assert joint_measurements == {name: legacy_measurements[name] for name in joint_names}
     assert all(joint.registry.feature_of(name) is not None for name in joint_names)
-    assert sum(joint_lengths.values()) < sum(legacy_lengths.values())
+    assert not any(
+        _segments_cross_or_overlap(a0, a1, b0, b1)
+        for left, right in combinations(joint_names, 2)
+        for a0, a1 in joint.get_annotation(left).segments
+        for b0, b1 in joint.get_annotation(right).segments
+    )
+    # The bounded floor deliberately preserves the pre-#740 placement even
+    # though #1166's stricter real-shaft inventory can now see its crossing.
+    assert any(
+        _segments_cross_or_overlap(a0, a1, b0, b1)
+        for left, right in combinations(legacy_names, 2)
+        for a0, a1 in legacy.get_annotation(left).segments
+        for b0, b1 in legacy.get_annotation(right).segments
+    )
     assert event["assignment"] == "greedy_pair_budget"
     assert event["optimal"] is False
     assert not [issue for issue in joint.lint() if issue.code == "groove_dropped"]
@@ -376,7 +381,7 @@ def test_public_render_uses_joint_minimum_length_and_pair_budget_is_legacy_floor
     # The pass-size bound fires before collect-all OCC construction. Lower the
     # production constant to make that branch load-bearing on the same public
     # fixture without manufacturing hundreds of CAD annotations in CI.
-    monkeypatch.setattr("draftwright.annotations.from_model._LEADER_ASSIGN_MAX_JOBS", 2)
+    monkeypatch.setattr("draftwright.annotations.leaders._LEADER_ASSIGN_MAX_JOBS", 2)
     job_trace_path = tmp_path / "legacy-job-budget.json"
     job_floor = build_drawing(part, model=model, page="A4", trace=job_trace_path)
     job_names, _job_lengths, job_measurements = _groove_leader_evidence(job_floor)
@@ -431,7 +436,7 @@ def test_grouped_job_at_candidate_budget_still_uses_joint_assignment(monkeypatch
         created += 1
         return Leader(*args, **kwargs)
 
-    monkeypatch.setattr("draftwright.annotations.from_model._LEADER_ASSIGN_MAX_CANDIDATES", 2)
+    monkeypatch.setattr("draftwright.annotations.leaders._FEATURE_LEADER_MAX_CANDIDATES", 54)
     monkeypatch.setattr("draftwright.annotations.from_model.Leader", counted_leader)
     trace_path = tmp_path / "candidate-budget-boundary.json"
     drawing = build_drawing(
@@ -444,7 +449,7 @@ def test_grouped_job_at_candidate_budget_still_uses_joint_assignment(monkeypatch
     trace = json.loads(trace_path.read_text(encoding="utf-8"))
     event = next(item for item in trace["pass_events"] if item["label"] == "fillet_callouts")
 
-    assert created == 2
+    assert created == 54
     assert drawing.get_annotation("m_fillet_z0").label == "2× R1"
     assert event["assignment"] == "joint"
     assert event["optimal"] is True
@@ -452,7 +457,7 @@ def test_grouped_job_at_candidate_budget_still_uses_joint_assignment(monkeypatch
 
 def test_candidate_budget_is_global_across_jobs(monkeypatch, tmp_path):
     part, model = _crowded_declared_grooves()
-    monkeypatch.setattr("draftwright.annotations.from_model._LEADER_ASSIGN_MAX_CANDIDATES", 16)
+    monkeypatch.setattr("draftwright.annotations.leaders._FEATURE_LEADER_MAX_CANDIDATES", 16)
     trace_path = tmp_path / "global-candidate-budget.json"
 
     drawing = build_drawing(
@@ -479,7 +484,7 @@ def test_candidate_budget_fallback_restores_consumed_prefix_and_lazy_tail(monkey
         FilletFeature(Frame(origin, "z"), "z", 1.0)
         for origin in ((-1000.0, 0.0, 10.0), (-900.0, 0.0, 10.0), (10.0, 0.0, 10.0))
     ]
-    monkeypatch.setattr("draftwright.annotations.from_model._LEADER_ASSIGN_MAX_CANDIDATES", 2)
+    monkeypatch.setattr("draftwright.annotations.leaders._FEATURE_LEADER_MAX_CANDIDATES", 2)
     trace_path = tmp_path / "candidate-budget-tail.json"
 
     drawing = build_drawing(
@@ -523,9 +528,20 @@ def test_trace_identifies_a_joint_conflict_between_fixed_clear_candidates(tmp_pa
     trace = json.loads(trace_path.read_text(encoding="utf-8"))
     event = next(item for item in trace["pass_events"] if item["label"] == "groove_callouts")
     dropped = [item for item in event["items"] if item["outcome"] == "dropped"]
-    assert len(dropped) == 1
-    assert dropped[0]["viable_candidates"] == 5
-    assert dropped[0]["reason"] == "assignment_conflict"
+    # All six declarations share one physical tip. The bounded lane inventory
+    # finds two non-overlapping ray directions; the remaining four conflict with
+    # one of those exact rendered arrow/shaft footprints.
+    assert len(dropped) == 4
+    assert all(item["viable_candidates"] == 33 for item in dropped)
+    assert all(item["reason"] == "assignment_conflict" for item in dropped)
+    assert all(
+        any(
+            blocker.startswith("m_groove")
+            for rejected in item["rejected"]
+            for blocker in rejected["blockers"]
+        )
+        for item in dropped
+    )
 
 
 def test_bounded_legacy_fallback_preserves_drop_diagnostic(monkeypatch, tmp_path):
@@ -535,7 +551,7 @@ def test_bounded_legacy_fallback_preserves_drop_diagnostic(monkeypatch, tmp_path
         for index in range(6)
     ]
     monkeypatch.setattr(
-        "draftwright.annotations.from_model._LEADER_ASSIGN_MAX_PAIR_PROBES",
+        "draftwright.annotations.leaders._FEATURE_LEADER_MAX_PAIR_PROBES",
         0,
     )
     trace_path = tmp_path / "greedy-drop.json"

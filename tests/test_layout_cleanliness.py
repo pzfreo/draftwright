@@ -83,7 +83,6 @@ _KNOWN_OVERLAPS: dict[str, set[frozenset[str]]] = {
         frozenset({"m_locy0", "m_locy1"}),
     },
     "dshape": {
-        frozenset({"dim_height", "dim_loc_front_z400"}),
         frozenset({"dim_loc_side_y200", "m_env_depth"}),
     },
     "holed_slot": {
@@ -96,7 +95,6 @@ _KNOWN_OVERLAPS: dict[str, set[frozenset[str]]] = {
     },
     "plate_holes": {frozenset({"m_locx0", "m_locx1"}), frozenset({"m_locy0", "m_locy1"})},
     "side_drilled": {
-        frozenset({"hc_side0", "dim_loc_side_z2300"}),
         frozenset({"dim_loc_side_y2000", "m_env_depth"}),
     },
     "slotted": {frozenset({"m_slot0_length", "m_slot0_pos"})},

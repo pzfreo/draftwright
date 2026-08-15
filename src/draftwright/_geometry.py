@@ -327,6 +327,33 @@ def _segment_clips_box(p, q, box, pad=0.0) -> bool:
     return _segment_clip_extent(p, q, box, pad=pad) is not None
 
 
+def _convex_polygons_overlap(left, right) -> bool:
+    """Whether two convex page-plane polygons have positive-area overlap.
+
+    The separating-axis test is strict: touching edges/vertices are clear, the
+    same placement convention as :func:`_boxes_overlap`.
+    """
+
+    if len(left) < 3 or len(right) < 3:
+        return False
+    axes: list[tuple[float, float]] = []
+    for points in (left, right):
+        axes.extend(
+            (-(second[1] - first[1]), second[0] - first[0])
+            for first, second in zip(points, (*points[1:], points[0]), strict=True)
+        )
+    for ax, ay in axes:
+        if abs(ax) + abs(ay) <= 1e-12:
+            continue
+        left_projection = [x * ax + y * ay for x, y in left]
+        right_projection = [x * ax + y * ay for x, y in right]
+        if max(left_projection) <= min(right_projection) or max(right_projection) <= min(
+            left_projection
+        ):
+            return False
+    return True
+
+
 def _convex_polygon_overlaps_box(points, box) -> bool:
     """Whether a convex page-plane polygon has positive-area overlap with an AABB.
 
@@ -341,21 +368,63 @@ def _convex_polygon_overlaps_box(points, box) -> bool:
         (box[2], box[3]),
         (box[0], box[3]),
     )
-    axes = [(1.0, 0.0), (0.0, 1.0)]
-    axes.extend(
-        (-(second[1] - first[1]), second[0] - first[0])
-        for first, second in zip(points, (*points[1:], points[0]), strict=True)
+    return _convex_polygons_overlap(points, corners)
+
+
+def _stroke_polygon(first, second, width: float):
+    """The exact swept rectangle for one rendered straight stroke, or ``None``."""
+
+    dx, dy = float(second[0]) - float(first[0]), float(second[1]) - float(first[1])
+    length = math.hypot(dx, dy)
+    half = max(0.0, float(width)) / 2.0
+    if length <= 1e-12 or half <= 0.0:
+        return None
+    vx, vy = -dy / length * half, dx / length * half
+    return (
+        (float(first[0]) + vx, float(first[1]) + vy),
+        (float(second[0]) + vx, float(second[1]) + vy),
+        (float(second[0]) - vx, float(second[1]) - vy),
+        (float(first[0]) - vx, float(first[1]) - vy),
     )
-    for ax, ay in axes:
-        if abs(ax) + abs(ay) <= 1e-12:
-            continue
-        polygon_projection = [x * ax + y * ay for x, y in points]
-        box_projection = [x * ax + y * ay for x, y in corners]
-        if max(polygon_projection) <= min(box_projection) or max(box_projection) <= min(
-            polygon_projection
-        ):
-            return False
-    return True
+
+
+def _leader_ink_polygons(tip, elbow, *, arrow_length: float, line_width: float):
+    """Convex components of a leader's rendered tip→elbow shaft and arrow."""
+
+    dx, dy = float(elbow[0]) - float(tip[0]), float(elbow[1]) - float(tip[1])
+    length = math.hypot(dx, dy)
+    half_line = max(0.0, float(line_width)) / 2.0
+    head_length = max(0.0, float(arrow_length))
+    if length <= 1e-12:
+        half = max(half_line, head_length / 3.0)
+        if half <= 0.0:
+            return ()
+        return (
+            (
+                (float(tip[0]) - half, float(tip[1]) - half),
+                (float(tip[0]) + half, float(tip[1]) - half),
+                (float(tip[0]) + half, float(tip[1]) + half),
+                (float(tip[0]) - half, float(tip[1]) + half),
+            ),
+        )
+
+    ux, uy = dx / length, dy / length
+    vx, vy = -uy, ux
+    polygons = []
+    shaft = _stroke_polygon(tip, elbow, line_width)
+    if shaft is not None:
+        polygons.append(shaft)
+    if head_length > 0.0:
+        half_head = head_length / 3.0
+        base_x, base_y = tip[0] + ux * head_length, tip[1] + uy * head_length
+        polygons.append(
+            (
+                (float(tip[0]), float(tip[1])),
+                (base_x + vx * half_head, base_y + vy * half_head),
+                (base_x - vx * half_head, base_y - vy * half_head),
+            )
+        )
+    return tuple(polygons)
 
 
 def _leader_ink_crosses_box(
@@ -378,41 +447,15 @@ def _leader_ink_crosses_box(
     Touching boundaries are clear, matching :func:`_boxes_overlap` and the placement-side
     semantics of :func:`_segment_crosses_box`.
     """
-    dx, dy = float(elbow[0]) - float(tip[0]), float(elbow[1]) - float(tip[1])
-    length = math.hypot(dx, dy)
-    half_line = max(0.0, float(line_width)) / 2.0
-    head_length = max(0.0, float(arrow_length))
-
-    if length <= 1e-12:
-        half = max(half_line, head_length / 3.0)
-        point_box = (tip[0] - half, tip[1] - half, tip[0] + half, tip[1] + half)
-        return _boxes_overlap(point_box, box)
-
-    ux, uy = dx / length, dy / length
-    vx, vy = -uy, ux
-
-    if half_line > 0.0:
-        shaft = (
-            (tip[0] + vx * half_line, tip[1] + vy * half_line),
-            (elbow[0] + vx * half_line, elbow[1] + vy * half_line),
-            (elbow[0] - vx * half_line, elbow[1] - vy * half_line),
-            (tip[0] - vx * half_line, tip[1] - vy * half_line),
+    return any(
+        _convex_polygon_overlaps_box(polygon, box)
+        for polygon in _leader_ink_polygons(
+            tip,
+            elbow,
+            arrow_length=arrow_length,
+            line_width=line_width,
         )
-        if _convex_polygon_overlaps_box(shaft, box):
-            return True
-
-    if head_length > 0.0:
-        half_head = head_length / 3.0
-        base_x, base_y = tip[0] + ux * head_length, tip[1] + uy * head_length
-        arrow = (
-            (tip[0], tip[1]),
-            (base_x + vx * half_head, base_y + vy * half_head),
-            (base_x - vx * half_head, base_y - vy * half_head),
-        )
-        if _convex_polygon_overlaps_box(arrow, box):
-            return True
-
-    return False
+    )
 
 
 def _segments_cross_or_overlap(a1, a2, b1, b2) -> bool:

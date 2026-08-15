@@ -360,12 +360,17 @@ def _assign_leader_candidates(
     costs_by_job,
     conflicts=(),
     *,
+    priorities=None,
+    penalties_by_job=None,
     max_states: int = _LEADER_ASSIGN_MAX_STATES,
 ) -> _LeaderAssignment:
     """Assign at most one candidate per leader job (#740).
 
-    The objectives are lexicographic: maximum placed jobs, then minimum total
-    leader length, then the stable input candidate order. ``conflicts`` contains
+    The objectives are lexicographic: maximum placed jobs, maximum summed job
+    priority, minimum fixed-obstacle Policy-B penalty, minimum total leader
+    length, then the stable input candidate order. ``priorities`` and
+    ``penalties_by_job`` default to zero, preserving #740's original objective.
+    ``conflicts`` contains
     ``(job_a, candidate_a, job_b, candidate_b)`` pairs that may not coexist.
     The caller derives those pairs from page geometry; this leaf knows only
     indices and numeric costs.
@@ -388,6 +393,26 @@ def _assign_leader_candidates(
     # symmetric alternatives reach the documented candidate-order tie-break
     # instead of being reordered by a few floating-point ULPs.
     costs = tuple(tuple(int(round(cost * _FLOW_COST_SCALE)) for cost in job) for job in raw_costs)
+    if priorities is None:
+        raw_priorities = (0.0,) * len(costs)
+    else:
+        raw_priorities = tuple(float(priority) for priority in priorities)
+        if len(raw_priorities) != len(costs):
+            raise ValueError("leader priorities must match the number of jobs")
+    if any(not math.isfinite(priority) for priority in raw_priorities):
+        raise ValueError("leader priorities must be finite")
+    job_priorities = tuple(int(round(priority * _FLOW_COST_SCALE)) for priority in raw_priorities)
+    if penalties_by_job is None:
+        penalties = tuple(tuple(0 for _cost in job) for job in costs)
+    else:
+        penalties = tuple(tuple(int(value) for value in job) for job in penalties_by_job)
+        if len(penalties) != len(costs) or any(
+            len(job_penalties) != len(job_costs)
+            for job_penalties, job_costs in zip(penalties, costs, strict=True)
+        ):
+            raise ValueError("leader penalties must match the candidate-cost shape")
+        if any(value < 0 for job in penalties for value in job):
+            raise ValueError("leader penalties must be non-negative")
 
     offsets = []
     candidate_count = 0
@@ -418,8 +443,19 @@ def _assign_leader_candidates(
     # path and avoids entering the combinatorial search at all.
     if not any(adjacency):
         independent = tuple(
-            min(range(len(job)), key=lambda index: (job[index], index)) if job else None
-            for job in costs
+            (
+                min(
+                    range(len(job)),
+                    key=lambda candidate: (
+                        penalties[job_index][candidate],
+                        job[candidate],
+                        candidate,
+                    ),
+                )
+                if job
+                else None
+            )
+            for job_index, job in enumerate(costs)
         )
         return _LeaderAssignment(independent, True, 1)
 
@@ -428,6 +464,8 @@ def _assign_leader_candidates(
     greedy = []
     greedy_selected: set[int] = set()
     greedy_cost = 0
+    greedy_priority = 0
+    greedy_penalty = 0
     for job_index, job in enumerate(costs):
         selected = None
         for candidate_index, cost in enumerate(job):
@@ -436,21 +474,25 @@ def _assign_leader_candidates(
                 selected = candidate_index
                 greedy_selected.add(candidate)
                 greedy_cost += cost
+                greedy_priority += job_priorities[job_index]
+                greedy_penalty += penalties[job_index][candidate_index]
                 break
         greedy.append(selected)
 
-    def score(choices, count, cost):
+    def score(choices, count, priority, penalty, cost):
         # ``None`` sorts after every real candidate, preserving the established
         # input-order tie convention once cardinality and length are equal.
         tie = tuple(
             len(costs[index]) if choice is None else choice for index, choice in enumerate(choices)
         )
-        return (-count, cost, tie)
+        return (-count, -priority, penalty, cost, tie)
 
     best_choices = tuple(greedy)
     best_count = sum(choice is not None for choice in greedy)
+    best_priority = greedy_priority
+    best_penalty = greedy_penalty
     best_cost = greedy_cost
-    best_score = score(best_choices, best_count, best_cost)
+    best_score = score(best_choices, best_count, best_priority, best_penalty, best_cost)
     # The exact search is recursive by job. Keep a hard bound comfortably below
     # Python's recursion limit, including the all-blocked case whose pair count is
     # zero and therefore cannot trip the annotation-side pair budget.
@@ -462,9 +504,17 @@ def _assign_leader_candidates(
     # cardinality requires selecting every remaining non-empty job, so one
     # suffix sum is sufficient (linear storage, not a quadratic suffix table).
     suffix_nonempty = [0] * (len(costs) + 1)
+    suffix_priority = [0] * (len(costs) + 1)
+    suffix_min_penalty = [0] * (len(costs) + 1)
     suffix_min_cost = [0] * (len(costs) + 1)
     for index in range(len(costs) - 1, -1, -1):
         suffix_nonempty[index] = suffix_nonempty[index + 1] + bool(costs[index])
+        suffix_priority[index] = suffix_priority[index + 1] + (
+            job_priorities[index] if costs[index] else 0
+        )
+        suffix_min_penalty[index] = suffix_min_penalty[index + 1] + (
+            min(penalties[index]) if penalties[index] else 0
+        )
         suffix_min_cost[index] = suffix_min_cost[index + 1] + (
             min(costs[index]) if costs[index] else 0
         )
@@ -475,8 +525,15 @@ def _assign_leader_candidates(
 
     selected_candidates: set[int] = set()
 
-    def search(job_index: int, placed: int, total_cost: int) -> None:
-        nonlocal states, exhausted, best_choices, best_count, best_cost, best_score
+    def search(
+        job_index: int,
+        placed: int,
+        total_priority: int,
+        total_penalty: int,
+        total_cost: int,
+    ) -> None:
+        nonlocal states, exhausted, best_choices, best_count, best_priority
+        nonlocal best_penalty, best_cost, best_score
         if states >= max_states:
             exhausted = True
             return
@@ -485,17 +542,33 @@ def _assign_leader_candidates(
         if placed + suffix_nonempty[job_index] < best_count:
             return
         if placed + suffix_nonempty[job_index] == best_count:
-            optimistic_cost = total_cost + suffix_min_cost[job_index]
-            # Keep pruning identical to the exact fixed-point tuple ordering
-            # used by ``score`` below.
-            if optimistic_cost > best_cost:
+            optimistic_priority = total_priority + suffix_priority[job_index]
+            if optimistic_priority < best_priority:
                 return
+            if optimistic_priority == best_priority:
+                optimistic_penalty = total_penalty + suffix_min_penalty[job_index]
+                if optimistic_penalty > best_penalty:
+                    return
+                if optimistic_penalty == best_penalty:
+                    optimistic_cost = total_cost + suffix_min_cost[job_index]
+                    # Keep pruning identical to the exact fixed-point tuple ordering
+                    # used by ``score`` below.
+                    if optimistic_cost > best_cost:
+                        return
         if job_index == len(costs):
             candidate_choices = tuple(choices)
-            candidate_score = score(candidate_choices, placed, total_cost)
+            candidate_score = score(
+                candidate_choices,
+                placed,
+                total_priority,
+                total_penalty,
+                total_cost,
+            )
             if candidate_score < best_score:
                 best_choices = candidate_choices
                 best_count = placed
+                best_priority = total_priority
+                best_penalty = total_penalty
                 best_cost = total_cost
                 best_score = candidate_score
             return
@@ -512,16 +585,22 @@ def _assign_leader_candidates(
                 continue
             choices.append(candidate_index)
             selected_candidates.add(candidate)
-            search(job_index + 1, placed + 1, total_cost + costs[job_index][candidate_index])
+            search(
+                job_index + 1,
+                placed + 1,
+                total_priority + job_priorities[job_index],
+                total_penalty + penalties[job_index][candidate_index],
+                total_cost + costs[job_index][candidate_index],
+            )
             selected_candidates.remove(candidate)
             choices.pop()
             if exhausted:
                 return
         choices.append(None)
-        search(job_index + 1, placed, total_cost)
+        search(job_index + 1, placed, total_priority, total_penalty, total_cost)
         choices.pop()
 
-    search(0, 0, 0)
+    search(0, 0, 0, 0, 0)
     return _LeaderAssignment(best_choices, not exhausted, states)
 
 

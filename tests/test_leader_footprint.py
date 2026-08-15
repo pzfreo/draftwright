@@ -25,7 +25,7 @@ from build123d import Box, Cylinder, Pos
 from build123d_drafting.helpers import Draft, HoleCallout, Leader
 
 from draftwright.analysis import _analyse
-from draftwright.annotations._common import _geom_box, leader_footprint
+from draftwright.annotations._common import _geom_box, leader_callout_geometry, leader_footprint
 from draftwright.builder import _assemble
 
 # The footprint reads its padding off ``Draft``, and ``Drawing.draft`` is public, live state
@@ -85,9 +85,18 @@ def test_analytic_footprint_contains_the_built_leader(side, dx, dy, draft, callo
     leader = _build(tip, elbow, side, draft, callout)
     real = _geom_box(leader)
     analytic = leader_footprint(tip, elbow, draft, text_side=side, callout_box=callout_box)
+    label_box, segments = leader_callout_geometry(
+        tip, elbow, draft, text_side=side, callout_box=callout_box
+    )
 
     assert analytic is not None, "helpers built this leader, so the footprint must describe it"
     assert real is not None
+    assert label_box == pytest.approx(leader.label_bbox)
+    assert tuple(value for segment in segments for point in segment for value in point) == (
+        pytest.approx(
+            tuple(value for segment in leader.segments for point in segment for value in point)
+        )
+    )
 
     # Containment, with a hair of float tolerance: the callout half is measured rather than
     # estimated, so the two boxes coincide exactly on whichever side the callout dominates.

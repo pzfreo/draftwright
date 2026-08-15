@@ -21,6 +21,7 @@ from draftwright._core import (
     _CONCENTRIC_TOL_MM,
     _END_ON,
     _MIN_LOC_SEP_MM,
+    _TABULATE_MIN_HOLES,
     _TB_CLEAR,
     _TB_H,
     _WITNESS_LIFT_MM,
@@ -50,6 +51,7 @@ from draftwright.annotations._common import (
     clear_label_of_centerlines,
     corridor_blockers,
     dim_footprint,
+    leader_callout_geometry,
     leader_footprint,
     place_strip_candidates,
     register_corridor,
@@ -68,6 +70,7 @@ from draftwright.annotations.from_model import (
     callout_from_spec,
     hole_callout_spec,
 )
+from draftwright.annotations.leaders import FeatureLeaderJob, collect_feature_leader
 from draftwright.layout import StripCandidate, plan_strip
 from draftwright.model import plan_dimensions
 from draftwright.model.compiled import FeatureRef, compile_dimensions, resolve_feature
@@ -2431,6 +2434,227 @@ def _place_queue(
     targets = [(s[0], s[1], s[2], s[3], y, s[5]) for s, y in preferred]
     source_by_target = {id(target): s for target, (s, _y) in zip(targets, preferred, strict=True)}
     final_y, final_dropped = _carve_and_place(targets, band_intervals, f"{key_prefix}final_", sctx)
+
+    # Automatic annotation and deferred finalize collect these compatible
+    # side/plan leaders into the same late inventory as the machined-feature
+    # callouts (#1166).  Keep the established queue solve as candidate zero,
+    # then expose bounded alternatives from its baseline/carved solutions and
+    # strip/obstacle boundaries.  The shared solve rechecks every alternative
+    # against the fully drained dimension/witness inventory before committing.
+    # Pattern callout winners have downstream furniture/table semantics: the
+    # chosen callout controls whether pitch/BCD furniture is covered and which
+    # pattern escalation remains available to the later hole-table transaction.
+    # Keep any queue containing a pattern, any profiled-bore callout, and any
+    # dense loose-hole inventory eligible for the later transactional table
+    # replacement in its established immediate whole-queue solve.  Pattern and
+    # dense winners have downstream table/furniture semantics; profiled bores
+    # retain their established cross-view compatibility until #798 owns robust
+    # silhouette-aware routing.  The shared late inventory is therefore for
+    # compatible sparse ordinary-hole callouts only.
+    model_features = getattr(getattr(ctx, "part_model", None), "features", ())
+    scattered_plan_holes = sum(
+        len(feature.members or (feature.frame.origin,))
+        for feature in model_features
+        if isinstance(feature, HoleFeature) and feature.frame.axis == "z"
+    )
+    shared_inventory = (
+        getattr(ctx, "feature_leaders", None) is not None
+        and scattered_plan_holes < _TABULATE_MIN_HOLES
+        and not any(isinstance(item[3], PatternFeature) for item in queue)
+        and not any(
+            isinstance(owner := feat_of_callout.get(id(item[2])), HoleFeature)
+            and owner.profile is not None
+            for item in queue
+        )
+    )
+    if shared_inventory:
+        source_final_y = {
+            id(source_by_target[id(target)]): final_y[id(target)]
+            for target in targets
+            if id(target) in final_y and id(target) not in final_dropped
+        }
+        vb = dwg.view_bounds(view)
+        assert vb is not None
+        i = start_i
+        for s in queue:
+            _locs, dia, callout, feat, natural_y, _rep = s
+            owner = feat_of_callout.get(id(callout))
+            ys: list[float] = []
+            for y in (
+                source_final_y.get(id(s)),
+                base_y.get(id(s)),
+                seg_y.get(id(s)),
+                min(max(natural_y, y_min), y_max),
+                y_min,
+                y_max,
+                *(value for interval in obstacle_intervals for value in interval),
+            ):
+                if y is None:
+                    continue
+                y = min(max(float(y), y_min), y_max)
+                if not any(abs(y - prior) <= 1e-6 for prior in ys):
+                    ys.append(y)
+
+            def _raw_candidates(_s=s, _ys=tuple(ys), _owner=owner):
+                for y in _ys:
+                    tip, elbow = _leader_anchors(
+                        _s,
+                        edge,
+                        side,
+                        y,
+                        to_page,
+                        elbow_dx,
+                        draft,
+                        a.SCALE,
+                    )
+                    yield (tip, elbow, _owner)
+                # The cross-pass inventory owns side choice as well as label
+                # lanes (#1166).  A dimension placed during the corridor drain
+                # can consume the former strip after the hole job was collected;
+                # expose the opposite view boundary so a required callout can
+                # route clear rather than silently accepting a new Policy-B
+                # crossing.  The legacy resource floor below remains unchanged.
+                other_side = "left" if side == "right" else "right"
+                other_edge = vb[0] if other_side == "left" else vb[2]
+                for y in _ys:
+                    tip, elbow = _leader_anchors(
+                        _s,
+                        other_edge,
+                        other_side,
+                        y,
+                        to_page,
+                        elbow_dx,
+                        draft,
+                        a.SCALE,
+                    )
+                    yield (tip, elbow, _owner)
+
+            legacy_y = source_final_y.get(id(s))
+
+            def _fallback_candidates(_s=s, _y=legacy_y, _owner=owner):
+                # A resource cap is a semantic floor, not a second placement
+                # solve. Reproduce the established whole-queue result exactly:
+                # one already-accepted candidate, or no candidate when that
+                # queue had failed the callout closed.
+                if _y is None:
+                    return
+                tip, elbow = _leader_anchors(
+                    _s,
+                    edge,
+                    side,
+                    _y,
+                    to_page,
+                    elbow_dx,
+                    draft,
+                    a.SCALE,
+                )
+                yield (tip, elbow, _owner)
+
+            def _build(tip, elbow, _owner, *, _callout=callout):
+                candidate_side = "right" if elbow[0] >= tip[0] else "left"
+                return _profiled_callout_leader(
+                    tip=(tip[0], tip[1], 0),
+                    elbow=(elbow[0], elbow[1], 0),
+                    label="",
+                    draft=draft,
+                    text_side=candidate_side,
+                    callout=_callout,
+                )
+
+            callout_box = _geom_box(callout, cache)
+
+            def _analytical_geometry(
+                tip,
+                elbow,
+                _owner,
+                *,
+                _callout_box=callout_box,
+            ):
+                candidate_side = "right" if elbow[0] >= tip[0] else "left"
+                return leader_callout_geometry(
+                    tip,
+                    elbow,
+                    draft,
+                    text_side=candidate_side,
+                    callout_box=_callout_box,
+                )
+
+            name = _hc_name(only, view, i, hc_used)
+
+            # Pitch/BCD furniture is a separate non-leader requirement. Keep it
+            # in its established early stage so the corridor solve sees it and
+            # the late shared leader inventory routes around it. Coverage still
+            # waits for the callout winner below: visible furniture alone must
+            # not claim that the bore callout was placed.
+            if place_furniture and feat is not None:
+                _add_furniture(
+                    dwg,
+                    a,
+                    view,
+                    i,
+                    feat,
+                    to_page,
+                    ctx=ctx,
+                    plan=plan,
+                    furnished=furnished,
+                    cover=False,
+                )
+
+            def _on_place(
+                _annotation,
+                *,
+                _name=name,
+                _feat=feat,
+            ):
+                if view == "plan" and _feat is None:
+                    ctx.coverage.cover_scattered_hole_doc(_name)
+                if place_furniture and _feat is not None:
+                    members = _feat.members or (_feat.frame.origin,)
+                    ctx.coverage.cover_pattern(
+                        _name,
+                        [HoleRef.of(member) for member in members],
+                    )
+
+            def _on_drop(*, _dia=dia, _feat=feat, _callout=callout):
+                _record_callout_drop(
+                    ctx,
+                    dwg,
+                    view,
+                    _dia,
+                    "shared leader inventory full",
+                    _feat,
+                    callout=_callout,
+                )
+
+            collect_feature_leader(
+                ctx,
+                FeatureLeaderJob(
+                    name=name,
+                    view=view,
+                    silhouette=vb,
+                    label=str(callout.label),
+                    candidates=_raw_candidates(),
+                    build=_build,
+                    measurement=tuple(callout.measurements),
+                    noun="hole",
+                    drop_code="callout_dropped",
+                    analytical_geometry=(
+                        _analytical_geometry if callout_box is not None else None
+                    ),
+                    fallback_candidates=_fallback_candidates(),
+                    # Candidate zero is the established whole-queue placement.
+                    # The former Policy-B path kept it when avoiding a thin fixed
+                    # obstacle would require a large relocation; resource fallback
+                    # must not silently strengthen that into a semantic drop.
+                    fallback_accept=lambda _candidate, _obstacles, _page: True,
+                    allow_policy_b_fixed=True,
+                    priority=float(dia),
+                    on_place=_on_place,
+                    on_drop=_on_drop,
+                ),
+            )
+            i += 1
+        return i
 
     placed: list = []  # (s, elbow_y, leader) — leader built once, reused at emit
     crossing: list = []  # ditto, kept despite an obstacle crossing (policy B)

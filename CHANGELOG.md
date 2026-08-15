@@ -11,6 +11,17 @@
   reached, placement retains the legacy greedy result or a result no worse than it
   rather than losing additional callouts. Pre-drain diameter clearance ranking and
   its Policy-B fallback remain unchanged.
+- Compatible automatic/deferred sparse ordinary side/plan hole and post-drain
+  machined-feature callouts now share one bounded same-view leader inventory
+  (#1166). Pattern, profiled-bore, and dense table-eligible hole queues retain
+  their specialised established paths because their winners affect downstream
+  furniture/table semantics or await #798 silhouette-aware routing. The solve
+  preserves required/priority-ranked evidence, rejects new-leader crossings,
+  prefers clear routes over the established hole Policy-B fallback, and then
+  minimises real leader length. Candidate, fixed-obstacle-probe, pair, and exact
+  search work is bounded with the legacy lazy result as the floor. Trace output
+  names fixed and competing blockers and records the objective; live
+  single-callout edits remain immediate.
 
 ## v0.4.6 — 2026-08-15
 

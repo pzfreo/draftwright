@@ -55,6 +55,7 @@ from draftwright.annotations._common import (
     strip_obstacles,
 )
 from draftwright.annotations.balloons import render_balloons
+from draftwright.annotations.leaders import drain_feature_leaders
 from draftwright.export import (
     _DraftwrightDXF,
     _export_shape,
@@ -1882,6 +1883,7 @@ class Drawing:
             part_model=self.model(),
             model_declared=self.model_declared,
             trace=self._build.trace,  # the finalize drain traces too (#736)
+            feature_leaders=[],
         )
         # The solve trace joins the transaction (#736 review): the recorder appends during
         # the drain, so a rolled-back finalize must also truncate those records — else the
@@ -2300,6 +2302,11 @@ class Drawing:
         def _s_grooves():
             _s_machined("groove", render_grooves)
 
+        def _s_feature_leaders():
+            if routable:
+                assert a is not None
+                drain_feature_leaders(self, a, ctx)
+
         def _s_pocket_patterns():
             # Pocket-pattern callouts + their pitch furniture (#841 outcome 3), restricted to the
             # recorded feature(s). Keyed "pocket_patterns" so run_stages fires it at that PRE-drain
@@ -2460,6 +2467,7 @@ class Drawing:
                 "flats": _s_flats,
                 "pockets": _s_pockets,
                 "grooves": _s_grooves,
+                "feature_leaders": _s_feature_leaders,
                 "section": _s_section,
                 "details": _s_details,
                 "tabulate": _s_tabulate,

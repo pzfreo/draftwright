@@ -1002,12 +1002,12 @@ def test_side_hole_z_dim_is_kept_not_dropped_under_policy_b():
     assert any(n.startswith("dim_loc_") and "_z" in n for n in names), "Z location dim was dropped"
 
 
-def test_two_cross_hole_heights_join_overall_ladder_without_crossing():
+def test_two_cross_hole_heights_share_their_end_view_ladder_without_crossing():
     """The GRM-01 class: two X bores plus a long side pocket and equal-R end rounds.
 
-    Side-view callout leaders block the natural height corridor. Both heights must route
-    into the front corridor before its one shared solve, otherwise the first height can
-    vanish and a late retry lands outside/crosses the 80 mm overall witness line.
+    The callout leaders are now uncommitted until the late cross-pass solve, so both
+    heights drain through the side-view corridor together. They must remain a complete,
+    ordered pair there while the overall 80 mm fact remains on the front view.
     """
     from dataclasses import replace
 
@@ -1046,11 +1046,14 @@ def test_two_cross_hole_heights_join_overall_ladder_without_crossing():
         page="A4",
     )
 
-    names = ("dim_loc_front_z6600", "dim_loc_front_z7550", "dim_height")
-    assert [drawing.get_annotation(name).label for name in names] == ["66", "75.5", "80"]
-    # Inner-to-outer line order: both feature locations inside the overall dimension.
-    xmax = [drawing.get_annotation(name).bounding_box().max.X for name in names]
-    assert xmax[0] < xmax[1] < xmax[2]
+    location_names = ("dim_loc_side_z6600", "dim_loc_side_z7550")
+    assert [drawing.get_annotation(name).label for name in location_names] == ["66", "75.5"]
+    assert drawing.get_annotation("dim_height").label == "80"
+    # The late shared hole inventory leaves its end-view strip uncommitted while
+    # locations drain. Both heights therefore stay together on that end view and
+    # retain their inner-to-outer order instead of splitting across view ladders.
+    xmax = [drawing.get_annotation(name).bounding_box().max.X for name in location_names]
+    assert xmax[0] < xmax[1]
     assert drawing.lint() == []
 
 

@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, replace
-from itertools import chain, islice
+from itertools import chain, islice, tee
 from typing import Any
 
 from build123d_drafting import DatumFeature, FeatureControlFrame, SurfaceFinish, TextBlock
@@ -82,6 +82,7 @@ from draftwright.annotations._common import (
     strip_free_span,
     strip_obstacles,
 )
+from draftwright.annotations.leaders import FeatureLeaderJob, collect_feature_leader
 from draftwright.layout import (
     _LEADER_ASSIGN_MAX_JOBS,
     StripCandidate,
@@ -1604,6 +1605,38 @@ def _corner_candidates(dwg, view, vb, members, reach, *, provenances=None):
         yield (tip, elbow, owner)
 
 
+def _corner_escape_candidates(dwg, view, vb, members, reach, *, provenances=None):
+    """Corner leaders plus silhouette-outward horizontal/vertical escapes.
+
+    The diagonal remains the stable first choice.  The two axis-aligned rays
+    leave the same corner away from the view centre, so they add boundary/lane
+    alternatives without introducing #798's through-silhouette routing problem.
+    """
+
+    members = list(members)
+    owners = list(provenances if provenances is not None else members)
+    yield from _corner_candidates(dwg, view, vb, members, reach, provenances=owners)
+    x0, y0, x1, y1 = vb
+    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+    for member, owner in zip(members, owners, strict=True):
+        tip = dwg.at(view, *member.frame.origin)
+        directions = (
+            (1.0 if tip[0] >= cx else -1.0, 0.0),
+            (0.0, 1.0 if tip[1] >= cy else -1.0),
+        )
+        for ux, uy in directions:
+            exit_distance = _ray_exit_dist(tip[0], tip[1], ux, uy, vb)
+            yield (
+                tip,
+                (
+                    tip[0] + ux * (exit_distance + reach),
+                    tip[1] + uy * (exit_distance + reach),
+                    0,
+                ),
+                owner,
+            )
+
+
 def _flat_candidates(dwg, view, vb, members, reach, *, provenances):
     """Keep the established centre-out lead first, then try true margin escapes.
 
@@ -1705,6 +1738,83 @@ def _leader_callout_pass(
     # cross-job pairs alone cannot protect its collect-all OCC construction.
     jobs = [(*job[:4], iter(job[4]), job[5]) for job in jobs]
     if not jobs:
+        return 0
+    if joint and getattr(ctx, "feature_leaders", None) is not None:
+        for name, view, vb, label, raw_candidates, measurement in jobs:
+            joint_candidates, fallback_candidates = tee(raw_candidates)
+
+            def _lane_candidates(_raw=joint_candidates):
+                spacing = dwg.draft.font_size + 2 * dwg.draft.pad_around_text
+                for tip, elbow, feature in _raw:
+                    dx, dy = float(elbow[0]) - float(tip[0]), float(elbow[1]) - float(tip[1])
+                    length = math.hypot(dx, dy)
+                    if length <= 1e-12:
+                        yield (tip, elbow, feature)
+                        continue
+                    ux, uy = dx / length, dy / length
+                    px, py = -dy / length, dx / length
+                    for outward, lane in (
+                        (0, 0),
+                        (0, 1),
+                        (0, -1),
+                        (0, 2),
+                        (0, -2),
+                        (1, 0),
+                        (2, 0),
+                        (1, 1),
+                        (1, -1),
+                    ):
+                        yield (
+                            tip,
+                            (
+                                float(elbow[0]) + ux * spacing * outward + px * spacing * lane,
+                                float(elbow[1]) + uy * spacing * outward + py * spacing * lane,
+                                0,
+                            ),
+                            feature,
+                        )
+
+            def _build(tip, elbow, _feature, *, _label=label):
+                return Leader(
+                    tip=(tip[0], tip[1], 0),
+                    elbow=elbow,
+                    label=_label,
+                    draft=dwg.draft,
+                )
+
+            def _fallback_accept(
+                candidate,
+                obstacles,
+                page,
+                *,
+                _vb=vb,
+                _geom_clear=geom_clear,
+            ):
+                return _label_lands_clear(
+                    candidate.annotation,
+                    obstacles,
+                    _vb,
+                    page,
+                    geom_clear=_geom_clear,
+                )
+
+            collect_feature_leader(
+                ctx,
+                FeatureLeaderJob(
+                    name=name,
+                    view=view,
+                    silhouette=vb,
+                    label=label,
+                    candidates=_lane_candidates(),
+                    build=_build,
+                    measurement=tuple(measurement),
+                    noun=noun,
+                    drop_code=drop_code,
+                    fallback_candidates=fallback_candidates,
+                    fallback_accept=_fallback_accept,
+                    fixed_ink=geom_clear,
+                ),
+            )
         return 0
     trace = getattr(ctx, "trace", None)
     ev = trace.pass_event(f"{noun}_callouts") if trace is not None else None
@@ -1980,7 +2090,7 @@ def render_chamfers(dwg, plan, a, *, ctx, only=None) -> int:
                 view,
                 vb,
                 _chamfer_label(pd.value_text, pd.value, ch) + _tol_suffix(pd.tolerance, draft),
-                _corner_candidates(dwg, view, vb, [ch], reach, provenances=[g.ref]),
+                _corner_escape_candidates(dwg, view, vb, [ch], reach, provenances=[g.ref]),
                 (pd.id,),
             )
         )
@@ -2063,7 +2173,7 @@ def render_fillets(dwg, plan, a, *, ctx, only=None) -> int:
                 view,
                 vb,
                 _fillet_label(members[0][1].value_text, len(members)) + _tol_suffix(tol, draft),
-                _corner_candidates(
+                _corner_escape_candidates(
                     dwg,
                     view,
                     vb,

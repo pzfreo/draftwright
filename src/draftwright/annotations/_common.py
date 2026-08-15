@@ -786,6 +786,43 @@ def dim_footprint(p1, p2, side, distance, draft, label):
     return (min(xs) - pad, min(ys) - pad, max(xs) + pad, max(ys) + pad)
 
 
+def leader_callout_geometry(tip, elbow, draft, *, text_side="auto", callout_box=None):
+    """Exact cheap label box and line segments for a callout-bearing ``Leader``.
+
+    This is the position-dependent subset of :func:`leader_footprint` needed by
+    the shared feature-leader solve.  It mirrors the helper's two input edges and
+    the translation of the already-measured callout sketch, without constructing
+    the arrow/shelf OCC faces.  ``None`` matches the helper's forced-side guard.
+    """
+
+    gap = draft.pad_around_text
+    if text_side == "auto":
+        shelf_dir = 1.0 if elbow[0] >= tip[0] else -1.0
+    else:
+        shelf_dir = 1.0 if text_side == "right" else -1.0
+    shelf_end = (elbow[0] + shelf_dir * gap, elbow[1])
+    segments = (
+        ((float(tip[0]), float(tip[1])), (float(elbow[0]), float(elbow[1]))),
+        ((float(elbow[0]), float(elbow[1])), (float(shelf_end[0]), float(shelf_end[1]))),
+    )
+
+    label_box = None
+    if callout_box is not None:
+        cw = callout_box[2] - callout_box[0]
+        ch = callout_box[3] - callout_box[1]
+        if shelf_dir > 0:
+            cx0, cx1 = shelf_end[0], shelf_end[0] + cw
+        else:
+            cx0, cx1 = shelf_end[0] - cw, shelf_end[0]
+        cy0, cy1 = elbow[1] - ch / 2.0, elbow[1] + ch / 2.0
+        label_box = (cx0, cy0, cx1, cy1)
+        if text_side != "auto" and _segment_crosses_box(
+            (tip[0], tip[1]), (elbow[0], elbow[1]), label_box
+        ):
+            return None
+    return label_box, segments
+
+
 def leader_footprint(tip, elbow, draft, *, text_side="auto", callout_box=None):
     """Analytical page-mm AABB ``(x0, y0, x1, y1)`` of the :class:`Leader` that
     ``Leader(tip, elbow, label="", draft, text_side=…, callout=…)`` would build —
@@ -811,12 +848,17 @@ def leader_footprint(tip, elbow, draft, *, text_side="auto", callout_box=None):
     that runs the shaft through the label — so callers omit the candidate exactly
     as the built-geometry probe's except-handler did.
     """
-    gap = draft.pad_around_text
-    if text_side == "auto":
-        shelf_dir = 1.0 if elbow[0] >= tip[0] else -1.0
-    else:
-        shelf_dir = 1.0 if text_side == "right" else -1.0
-    shelf_end_x = elbow[0] + shelf_dir * gap
+    geometry = leader_callout_geometry(
+        tip,
+        elbow,
+        draft,
+        text_side=text_side,
+        callout_box=callout_box,
+    )
+    if geometry is None:
+        return None
+    label_box, segments = geometry
+    shelf_end_x = segments[1][1][0]
 
     # The arrowhead bounds the shaft only while it is the wider of the two; a style with a
     # heavy line and a small arrow inverts that, and a diagonal shaft then pushes its stroke
@@ -829,22 +871,9 @@ def leader_footprint(tip, elbow, draft, *, text_side="auto", callout_box=None):
     xs += [min(elbow[0], shelf_end_x) - half_line, max(elbow[0], shelf_end_x) + half_line]
     ys += [elbow[1] - half_line, elbow[1] + half_line]
 
-    if callout_box is not None:
-        cw = callout_box[2] - callout_box[0]
-        ch = callout_box[3] - callout_box[1]
-        if shelf_dir > 0:
-            cx0, cx1 = shelf_end_x, shelf_end_x + cw
-        else:
-            cx0, cx1 = shelf_end_x - cw, shelf_end_x
-        cy0, cy1 = elbow[1] - ch / 2.0, elbow[1] + ch / 2.0
-        # Leader raises rather than draw a shaft through its own label; a forced side
-        # is the only way to get there, matching helpers' own guard condition.
-        if text_side != "auto" and _segment_crosses_box(
-            (tip[0], tip[1]), (elbow[0], elbow[1]), (cx0, cy0, cx1, cy1)
-        ):
-            return None
-        xs += [cx0, cx1]
-        ys += [cy0, cy1]
+    if label_box is not None:
+        xs += [label_box[0], label_box[2]]
+        ys += [label_box[1], label_box[3]]
 
     return (min(xs), min(ys), max(xs), max(ys))
 
@@ -1495,6 +1524,11 @@ class PlacementContext:
     # drained (#684 review): a mid-drain carve could occupy space a later sibling
     # corridor's force candidate needs; deferral makes "post-drain" literally true.
     post_drain: list = field(default_factory=list)
+    # Compatible automatic/deferred feature-callout jobs collected across the
+    # hole + post-drain machined passes (#1166). ``None`` is intentional: direct
+    # renderer calls and finished-sheet live verbs keep their immediate behavior;
+    # the orchestrator/finalize paths opt in with ``[]`` and drain once.
+    feature_leaders: list | None = None
     # The opt-in solve-trace recorder (#736) — a :class:`SolveTrace` threaded off the
     # drawing's build state by both entry paths, or ``None`` (the default: tracing off,
     # every hook a bare None check). Ctx state, not a module global, so the finalize

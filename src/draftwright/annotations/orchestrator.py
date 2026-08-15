@@ -81,6 +81,7 @@ from draftwright.annotations.holes import (
     render_pocket_patterns,
     render_slot_patterns,
 )
+from draftwright.annotations.leaders import drain_feature_leaders
 from draftwright.annotations.sections import (
     _add_section_view,
     _request_prismatic_detail,
@@ -149,6 +150,10 @@ _PASS_SEQUENCE: tuple[str, ...] = (
     "flats",
     "pockets",
     "grooves",
+    # One compatible same-view feature-leader inventory (#1166): side/plan
+    # hole leaders collected before the corridor drain and the five machined
+    # leader passes collected after it commit together here.
+    "feature_leaders",
     "section",
     "details",
     "title_block",
@@ -309,6 +314,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # The opt-in solve-trace recorder (#736), attached to the drawing's build state
         # by the builder; getattr because dwg is duck-typed in tests. None = off.
         trace=getattr(dwg, "solve_trace", None),
+        feature_leaders=[],
     )
     if ctx.trace is not None:
         ctx.trace.begin_phase("auto")  # one phase per annotate run (repack re-runs this)
@@ -614,6 +620,9 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # Planner-fed (#727): consumes the DimensionGroups so authored tolerances render.
         render_grooves(dwg, _compiled, a, ctx=ctx)
 
+    def _s_feature_leaders():
+        drain_feature_leaders(dwg, a, ctx)
+
     def _s_section():
         # The section view renders after the corridor-drained furniture exists, so
         # its full strip_obstacles room check can see side callouts, envelope dims,
@@ -683,6 +692,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
             "pmi": _s_pmi,
             "drain": _s_drain,
             "grooves": _s_grooves,
+            "feature_leaders": _s_feature_leaders,
             "section": _s_section,
             "details": _s_details,
             "title_block": _s_title_block,
