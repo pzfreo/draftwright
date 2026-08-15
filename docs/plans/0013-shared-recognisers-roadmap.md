@@ -2,9 +2,9 @@
 
 Execution record for [ADR 0013](../adr/0013-uniform-recognition-and-shared-package.md).
 **Phase 1 and the code portion of Draftwright-leading Phase 2 are complete.** The standalone
-Apache package is live at <https://github.com/pzfreo/b123d-recognisers>; `v0.1.0a1` is the
-golden-backed migration release and Draftwright consumes it with its duplicate implementation
-removed. mcp remains a slow follower until it chooses to adopt.
+Apache package is live at <https://github.com/pzfreo/b123d-recognisers>; `v0.1.0` is the
+golden-backed stable migration release and Draftwright consumes it with its duplicate
+implementation removed. mcp remains a slow follower until it chooses to adopt.
 
 ## Phase 1 — uniform, geometry-only, extraction-ready `recognition/` (now)
 
@@ -59,10 +59,10 @@ another tool appearing). Until then, do not spin the repo.
   OCP only). Licensing (the Phase 2 gate, ADR 0013 §7): relicense each migrated file to
   Apache in its header (pzfreo owns copyright). Countersink seeds from mcp's
   already-Apache code, so it needs no relicense.
-- **2b — publish + wire. ✅** `v0.1.0a1` was published from exact commit
-  `4ba34fdcffac117dccc16c818485e779a92e2e29`; the same reviewed wheel and sdist were promoted
-  TestPyPI-first through Trusted Publishing. Draftwright pins `b123d-recognisers==0.1.0a1`
-  from PyPI for the cutover, with both artifact hashes captured in `uv.lock`.
+- **2b — publish + wire. ✅** `v0.1.0a1` first proved the atomic cutover. Stable `v0.1.0`
+  was then published from exact commit `9e622716c14d491729b5191aa6e5d8351c982a51`; the same
+  reviewed wheel and sdist were promoted TestPyPI-first through Trusted Publishing. Draftwright
+  pins `b123d-recognisers==0.1.0` from PyPI, with both artifact hashes captured in `uv.lock`.
 - **2c — migrate draftwright imports. ✅** The internal→package swap is atomic; the
   uniform `detect.py` seam is unchanged.
 - **2d — governance. ✅** Geometry-only shareability is enforced by package contract,

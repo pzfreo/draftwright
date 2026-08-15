@@ -78,7 +78,8 @@ accepted commitment or claim that phase 1 delivered semantic completeness.
 ## Amendment 2 — external orchestration, consumer-owned cache
 
 ADR 0013 Phase 2 moved `RecognitionResult` and `build_recognition_result` unchanged into
-`b123d-recognisers` `v0.1.0a1`. It did not move build lifecycle into the geometry package.
+`b123d-recognisers`; stable release `v0.1.0` now supplies them. It did not move build lifecycle
+into the geometry package.
 `BuildState.recognition_cache` owns a Draftwright `RecognitionCache`; `ensure(part)` calls the
 external orchestration at most once, and the compatibility `BuildState.recognition` property
 delegates to that state during the migration window. Automatic analysis fills it before

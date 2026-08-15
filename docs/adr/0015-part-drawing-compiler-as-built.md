@@ -10,7 +10,7 @@
   the feature's `DimensionGroup`), moving out of the model-routed list. Only its
   axis centrelines and bore-stack layout remain model-routed furniture.
 - **Amendment 3** (2026-08-15): the recognition tier is deployed from external
-  `b123d-recognisers` `v0.1.0a1`. Draftwright owns the one per-build/lazy-critique
+  `b123d-recognisers` `v0.1.0`. Draftwright owns the one per-build/lazy-critique
   `RecognitionCache`, record→IR conversion, and all drafting policy. The former embedded
   implementation is deleted; compatibility re-exports expire in 0.6.0.
 - **Date:** 2026-07-18

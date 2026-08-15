@@ -198,10 +198,10 @@ remains draftwright-owned per this ADR.
 ## Amendment 2 — recognition is deployed from the shared package (2026-08-15)
 
 The gated extraction described above has landed as
-[`pzfreo/b123d-recognisers`](https://github.com/pzfreo/b123d-recognisers). Release
-`v0.1.0a1` is built from commit
-`4ba34fdcffac117dccc16c818485e779a92e2e29`; its reviewed semantic goldens are rooted in
-Draftwright baseline `3fe20b0f71a71deced06b310943dd44cc66e355e`.
+[`pzfreo/b123d-recognisers`](https://github.com/pzfreo/b123d-recognisers). Stable release
+`v0.1.0` is built from commit `9e622716c14d491729b5191aa6e5d8351c982a51`; its reviewed
+semantic goldens are rooted in Draftwright baseline
+`3fe20b0f71a71deced06b310943dd44cc66e355e`.
 
 Draftwright consumes that package directly. The former implementation modules under
 `src/draftwright/recognition/` are deleted; only `recognition/__init__.py` remains as an

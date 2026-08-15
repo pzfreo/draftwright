@@ -1,13 +1,13 @@
 # Changelog
 
-## Unreleased
+## v0.4.6 — 2026-08-15
 
 ### Changed
 
 - **Geometry recognition is supplied by the standalone Apache-2.0
   [`b123d-recognisers`](https://github.com/pzfreo/b123d-recognisers) package.** The cutover
-  pins the published prerelease `v0.1.0a1` (built from commit
-  `4ba34fdcffac117dccc16c818485e779a92e2e29`), removes the
+  pins the published stable release `v0.1.0` (built from commit
+  `9e622716c14d491729b5191aa6e5d8351c982a51`), removes the
   duplicate embedded implementation, and keeps only identity-preserving
   `draftwright.recognition` / `draftwright.score` compatibility re-exports until 0.6.0.
   Draftwright continues to own the one-result build/lint cache, record→IR conversion, drafting

@@ -1,7 +1,7 @@
 # ADR 0013 — A uniform recogniser/feature contract and shared `b123d-recognisers` deployment
 
 - **Status:** Accepted; **Phase 1 and Phase 2 deployed**. The uniform contract and
-  typed record→Feature registry are live, and `b123d-recognisers` `v0.1.0a1` is the
+  typed record→Feature registry are live, and `b123d-recognisers` `v0.1.0` is the
   external implementation consumed by Draftwright (Amendment 4).
 - **Date:** 2026-07-12
 - **Deciders:** Paul Fremantle (pzfreo)
@@ -384,11 +384,12 @@ against a manifest-pinned Draftwright baseline and a reviewed semantic golden co
 implementation migration preserved the complete public recogniser inventory, aggregate result,
 shared substrates, and `feature_census`; no drafting or editing policy moved into the package.
 
-The first deployed artifact is `v0.1.0a1`, built from commit
+The first deployed artifact was `v0.1.0a1`, built from commit
 `4ba34fdcffac117dccc16c818485e779a92e2e29`. Publication promoted the reviewed GitHub release
-wheel and sdist through TestPyPI to PyPI with OIDC Trusted Publishing. Draftwright pins that
-exact index version during the cutover, without a mutable branch or version range; its lockfile
-also records the reviewed wheel and sdist hashes.
+wheel and sdist through TestPyPI to PyPI with OIDC Trusted Publishing. After the cutover passed,
+the same behavior was promoted as stable `v0.1.0` from commit
+`9e622716c14d491729b5191aa6e5d8351c982a51`. Draftwright pins that exact index version, without
+a mutable branch or version range; its lockfile also records the reviewed wheel and sdist hashes.
 
 The implementation boundary is enforced in Draftwright:
 

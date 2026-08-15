@@ -18,14 +18,14 @@ from draftwright.score import feature_census
 
 ROOT = Path(__file__).parents[1]
 RECOGNITION_DIR = ROOT / "src" / "draftwright" / "recognition"
-PINNED_VERSION = "0.1.0a1"
+PINNED_VERSION = "0.1.0"
 RELEASE_HASHES = {
-    "5989187c1ee232778cd81ad4efdbe7d79a46101b40bdf6d0149ba107cc9e8b02",
-    "6e82bcd0d870d731e2de90e0e752716df9d2df4a13132b429755a207ea105d32",
+    "d6f59a9bc2e5bd3144452530cbc1a491e1fd9fbb5182fee9079f6c2f02060989",
+    "936b055a3e8feffe1b825242a6f87ffbc0ba565b6e68e8bae13f94a20bb982e0",
 }
 
 
-def test_dependency_is_pinned_to_the_published_prerelease() -> None:
+def test_dependency_is_pinned_to_the_published_stable_release() -> None:
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
     dependency = next(d for d in project["dependencies"] if d.startswith("b123d-recognisers"))
 
