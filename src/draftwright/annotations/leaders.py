@@ -71,7 +71,6 @@ class FeatureLeaderJob:
         Callable[[Any, tuple[Any, ...], tuple[float, float, float, float]], bool] | None
     ) = None
     allow_policy_b_fixed: bool = False
-    fixed_ink: bool = True
     priority: float = 0.0
     on_place: Callable[[Any], None] | None = None
     on_drop: Callable[[], None] | None = None
@@ -258,15 +257,7 @@ def _fixed_blockers(candidate, job, page, named_obstacles) -> tuple[str, ...]:
             blockers.append("page")
         if _boxes_overlap(label, job.silhouette):
             blockers.append(f"view:{job.view}:silhouette")
-    blockers.extend(
-        name
-        for name, box in named_obstacles
-        if (
-            _ink_hits_box(candidate, box)
-            if job.fixed_ink
-            else candidate.label_box is not None and _boxes_overlap(candidate.label_box, box)
-        )
-    )
+    blockers.extend(name for name, box in named_obstacles if _ink_hits_box(candidate, box))
     return tuple(dict.fromkeys(blockers))
 
 
@@ -347,6 +338,7 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
         obstacle_count,
         viable_count=None,
         policy_b_blockers=(),
+        candidate_inventory=(),
         reason=None,
     ):
         job = jobs[job_index]
@@ -363,6 +355,10 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
                 for raw_index, blockers in blockers_by_raw
                 if blockers
             ],
+            # The bounded inventory is part of the explanation contract, not
+            # just its winner.  Every admitted alternative appears exactly
+            # once with the geometry/objective data that decided its fate.
+            "candidate_inventory": [dict(entry) for entry in candidate_inventory],
         }
         if viable_count is not None:
             item["viable_candidates"] = viable_count
@@ -410,6 +406,43 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
                 measurement=job.measurement,
             )
 
+    def record_policy_b(job_index, blockers) -> None:
+        """Persist an intentionally retained fixed-ink crossing.
+
+        Solve tracing is optional; Policy B is not.  A normal drawing must
+        therefore expose the accepted crossing through structured lint rather
+        than looking clean merely because the trace recorder was disabled.
+        """
+
+        crossed = tuple(
+            blocker
+            for blocker in blockers
+            if blocker not in {"page", "unmeasurable_label"} and not blocker.startswith("view:")
+        )
+        if not crossed:
+            return
+        job = jobs[job_index]
+        ctx.record_issue(
+            "info",
+            "feature_leader_crossing",
+            f"{job.noun} callout {job.label} retained under Policy B across: "
+            + ", ".join(crossed),
+            measurement=job.measurement,
+        )
+
+    def candidate_entry(candidate, status, blockers=(), assignment_blockers=()):
+        entry = {
+            "candidate": candidate.raw_index,
+            "tip": list(candidate.tip),
+            "elbow": list(candidate.elbow),
+            "cost": candidate.cost,
+            "fixed_blockers": list(blockers),
+            "outcome": status,
+        }
+        if assignment_blockers:
+            entry["assignment_blockers"] = list(assignment_blockers)
+        return entry
+
     def set_assignment(
         value,
         *,
@@ -455,6 +488,7 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
             raw_count = max((raw_index + 1 for raw_index, _ in blockers_by_raw), default=0)
             selected = None
             selected_policy_b: tuple[str, ...] = ()
+            inventory = []
             source = prepared[job_index] if prepared is not None else None
             if source is None:
                 source = (
@@ -472,13 +506,18 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
                 )
                 if not accepted:
                     blockers_by_raw.append((candidate.raw_index, blockers))
+                    inventory.append(candidate_entry(candidate, "fixed_rejected", blockers))
                     continue
                 annotation = _materialize(dwg, job, candidate)
                 if annotation is None:
                     blockers_by_raw.append((candidate.raw_index, ("geometry_validation",)))
+                    inventory.append(
+                        candidate_entry(candidate, "geometry_validation", ("geometry_validation",))
+                    )
                     continue
                 selected = candidate
                 selected_policy_b = blockers
+                inventory.append(candidate_entry(candidate, "selected", blockers))
                 break
             if selected is None:
                 drop(job_index)
@@ -489,10 +528,12 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
                     blockers_by_raw,
                     obstacle_count=obstacle_count,
                     viable_count=len(source) if isinstance(source, list) else None,
+                    candidate_inventory=inventory,
                     reason="no_clear_room",
                 )
                 continue
             place(job_index, selected, annotation)
+            record_policy_b(job_index, selected_policy_b)
             fixed[job.view] = (
                 *fixed[job.view],
                 *((job.name, box) for box in annotation_obstacle_boxes(dwg, annotation)),
@@ -505,6 +546,7 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
                 obstacle_count=obstacle_count,
                 viable_count=len(source) if isinstance(source, list) else None,
                 policy_b_blockers=selected_policy_b,
+                candidate_inventory=inventory,
             )
             placed_count += 1
             total_priority += job.priority
@@ -547,15 +589,18 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
     viable_by_job = []
     policy_blockers_by_job = []
     rejected_by_job = []
+    measured_by_job = []
     raw_count_by_job = []
     for job, iterator in zip(jobs, raw_jobs, strict=True):
         viable = []
         policy_blockers = []
         rejected = []
+        measured = []
         raw_count = 0
         for raw_index, raw in enumerate(iterator):
             raw_count = raw_index + 1
             candidate = _measure(raw_index, raw, job, dwg.draft)
+            measured.append(candidate)
             blockers = _fixed_blockers(candidate, job, page, fixed[job.view])
             hard_blocked = any(
                 blocker in {"page", "unmeasurable_label"}
@@ -570,6 +615,7 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
         viable_by_job.append(viable)
         policy_blockers_by_job.append(policy_blockers)
         rejected_by_job.append(rejected)
+        measured_by_job.append(measured)
         raw_count_by_job.append(raw_count)
 
     pair_probes = 0
@@ -602,6 +648,17 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
             [len(blockers) for blockers in job_blockers] for job_blockers in policy_blockers_by_job
         ],
     )
+    if not assignment.optimal:
+        # The layout solver's bounded-search incumbent is seeded from the new
+        # exact-ink candidate order, not from every producer's canonical
+        # pre-#1166 lazy fallback.  Replaying that producer floor is the only
+        # general guarantee that resource pressure cannot reduce semantic
+        # cardinality relative to the established renderer.
+        return greedy(
+            "greedy_state_budget",
+            fixed_probes=fixed_probe_bound,
+            pair_probes=pair_probes,
+        )
     chosen = {
         (job_index, choice)
         for job_index, choice in enumerate(assignment.choices)
@@ -663,6 +720,37 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
         for job_index, choice in enumerate(final_choices)
         if choice is not None
     )
+
+    def joint_inventory(job_index):
+        rejected = dict(rejected_by_job[job_index])
+        viable_index = {
+            candidate.raw_index: index for index, candidate in enumerate(viable_by_job[job_index])
+        }
+        choice = assignment.choices[job_index]
+        selected_raw = viable_by_job[job_index][choice].raw_index if choice is not None else None
+        entries = []
+        for candidate in measured_by_job[job_index]:
+            if candidate.raw_index in rejected:
+                entries.append(
+                    candidate_entry(
+                        candidate,
+                        "fixed_rejected",
+                        rejected[candidate.raw_index],
+                    )
+                )
+                continue
+            index = viable_index[candidate.raw_index]
+            fixed_blockers = policy_blockers_by_job[job_index][index]
+            conflicts_with = selected_conflict_names(job_index, index)
+            if candidate.raw_index == selected_raw:
+                status = "geometry_validation" if job_index in geometry_failures else "selected"
+            elif conflicts_with:
+                status = "conflict_rejected"
+            else:
+                status = "objective_rejected"
+            entries.append(candidate_entry(candidate, status, fixed_blockers, conflicts_with))
+        return entries
+
     set_assignment(
         "joint" if assignment.optimal else "joint_budget_incumbent",
         optimal=assignment.optimal,
@@ -685,6 +773,7 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
                 [*rejected_by_job[job_index], *assignment_blockers[job_index]],
                 obstacle_count=len(fixed[jobs[job_index].view]),
                 viable_count=len(viable_by_job[job_index]),
+                candidate_inventory=joint_inventory(job_index),
                 reason=(
                     "geometry_validation"
                     if job_index in geometry_failures
@@ -698,6 +787,7 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
             continue
         candidate = viable_by_job[job_index][choice]
         place(job_index, candidate, materialized[job_index])
+        record_policy_b(job_index, policy_blockers_by_job[job_index][choice])
         record_item(
             job_index,
             candidate,
@@ -706,6 +796,7 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
             obstacle_count=len(fixed[jobs[job_index].view]),
             viable_count=len(viable_by_job[job_index]),
             policy_b_blockers=policy_blockers_by_job[job_index][choice],
+            candidate_inventory=joint_inventory(job_index),
         )
         placed_count += 1
     return placed_count

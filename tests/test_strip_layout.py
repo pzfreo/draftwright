@@ -1054,7 +1054,13 @@ def test_two_cross_hole_heights_share_their_end_view_ladder_without_crossing():
     # retain their inner-to-outer order instead of splitting across view ladders.
     xmax = [drawing.get_annotation(name).bounding_box().max.X for name in location_names]
     assert xmax[0] < xmax[1]
-    assert drawing.lint() == []
+    # The required hole callout remains under the established Policy-B floor,
+    # but the retained fixed-ink crossing is no longer silently lint-clean.
+    issues = drawing.lint()
+    assert {issue.code for issue in issues} == {"feature_leader_crossing"}
+    (crossing,) = issues
+    assert crossing.severity == "info"
+    assert "m_pocket0_pos_width" in crossing.message
 
 
 # --- unified above-corridor solve (ADR 0009 end state, #345/#346) -----------

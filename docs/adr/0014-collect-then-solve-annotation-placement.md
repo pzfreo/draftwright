@@ -37,12 +37,18 @@ emits each selected annotation once with its original feature ownership and
 `DimensionId`s. The lexicographic objective is maximum placed jobs, maximum
 summed semantic priority, minimum fixed-obstacle Policy-B penalty, minimum real
 leader length, then stable candidate order. Candidate-to-candidate label/shaft
-conflicts are hard. Established hole-strip Policy B remains explicit: a hole
-candidate crossing late fixed furniture stays eligible with a penalty, while
-page, label-over-own-silhouette, and new-leader conflicts remain infeasible.
-Shaft routing through a part silhouette remains #798. This preserves a required
-callout when every relocation is worse, without allowing a shorter crossing to
-beat a clear route.
+conflicts are hard. Every shared candidate tests its exact label, shaft, shelf,
+and arrow ink against the completed fixed annotation inventory, including
+dimension and witness strokes. Established Policy B remains explicit for both
+ordinary-hole and machined-feature leaders: a candidate crossing late fixed
+furniture stays eligible with a penalty, while page, label-over-own-silhouette,
+and new-leader conflicts remain infeasible. If such a candidate wins because
+every clear relocation is worse, the drawing persists a
+`feature_leader_crossing` info finding with semantic measurement provenance; trace is
+additional explanation, not the only record. Shaft routing through a part
+silhouette remains #798. This preserves a required callout when every relocation
+is worse, without allowing a shorter crossing to beat a clear route or silently
+certifying the retained crossing as clean.
 
 Pattern queues and dense table-eligible loose-hole inventories retain their
 specialised immediate whole-queue placement because their winners control later
@@ -59,12 +65,15 @@ and candidate×fixed-obstacle probe caps, before quadratic geometry by a
 candidate-pair cap, and inside the exact solve by the existing state cap. A cap
 replays the original lazy candidate stream in
 canonical pass order, retaining each producer's former greedy/queue floor and
-recording any Policy-B blockers. Early section rows are marked provisional: they can
+recording any Policy-B blockers; a state-cap incumbent is not emitted directly
+because its new exact-ink seed is not necessarily that producer floor. Early
+section rows are marked provisional: they can
 influence cheap hole routing, but an optional not-yet-committed section cannot
 veto a required leader in the final inventory. The mandatory not-yet-rendered
 title-block band remains a hard fixed obstacle. The solve trace records the one
-shared inventory, named fixed and selected-leader blockers, objective tuple,
-selected alternatives, and bounded fallback. A single live post-build
+shared inventory, every bounded candidate and its outcome, named fixed and
+selected-leader blockers, objective tuple, selected alternatives, and bounded
+fallback. A single live post-build
 `Drawing.callout()` remains the documented finished-sheet exemption; a deferred
 batch enters the shared stage.
 

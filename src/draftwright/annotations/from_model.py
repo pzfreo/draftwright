@@ -1812,7 +1812,12 @@ def _leader_callout_pass(
                     drop_code=drop_code,
                     fallback_candidates=fallback_candidates,
                     fallback_accept=_fallback_accept,
-                    fixed_ink=geom_clear,
+                    # Fixed dimensions/witnesses are exact-ink constraints in
+                    # the shared solve.  If every relocation is worse, retain
+                    # the established semantic callout only through explicit
+                    # Policy B: the solver penalises the crossing and the
+                    # emitter records a machine-readable warning (#1166).
+                    allow_policy_b_fixed=True,
                 ),
             )
         return 0

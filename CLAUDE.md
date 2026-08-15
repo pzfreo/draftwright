@@ -95,10 +95,12 @@ entry. Keep `_LAYERS` and this section in step.
   - **`annotations/holes.py`** — hole/pattern callouts, balloons, location dims
     (incl. side-drilled #133), pitch/grid dims, slots (the largest *pass*).
   - **`annotations/leaders.py`** — the one bounded late inventory for compatible
-    automatic/deferred same-view feature leaders (#1166): sparse ordinary
-    side/plan hole jobs and the five post-drain machined-feature families lower
-    exact ink conflicts, priorities, Policy-B penalties, and numeric costs into
-    `layout.py`, then emit selected annotations with their original provenance.
+  automatic/deferred same-view feature leaders (#1166): sparse ordinary
+  side/plan hole jobs and the five post-drain machined-feature families lower
+  exact ink conflicts, priorities, Policy-B penalties, and numeric costs into
+  `layout.py`, then emit selected annotations with their original provenance;
+  any retained fixed-ink Policy-B crossing persists as
+  `feature_leader_crossing`, independently of opt-in tracing.
   - **`annotations/sections.py`** — section A–A + detail views (ISO 128-44 arrows,
     ISO 128-50 hatching).
   - **`annotations/balloons.py`** — the leadered hole-balloon pass (#111/#516;

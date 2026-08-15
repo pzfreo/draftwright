@@ -25,10 +25,13 @@
   their specialised established paths because their winners affect downstream
   furniture/table semantics or await #798 silhouette-aware routing. The solve
   preserves required/priority-ranked evidence, rejects new-leader crossings,
-  prefers clear routes over the established hole Policy-B fallback, and then
-  minimises real leader length. Candidate, fixed-obstacle-probe, pair, and exact
-  search work is bounded with the legacy lazy result as the floor. Trace output
-  names fixed and competing blockers and records the objective; live
+  checks complete leader ink against fixed dimension/witness strokes, prefers
+  clear routes over explicit Policy-B fallbacks, and then minimises real leader
+  length. A retained fixed-ink crossing now emits the machine-readable
+  `feature_leader_crossing` info finding instead of appearing lint-clean. Candidate,
+  fixed-obstacle-probe, pair, and exact-search work is bounded with the producer's
+  legacy lazy result as the floor, including state-cap exhaustion. Trace output
+  records every bounded candidate and names fixed/competing blockers; live
   single-callout edits remain immediate.
 
 ## v0.4.6 — 2026-08-15

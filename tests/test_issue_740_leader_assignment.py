@@ -532,7 +532,10 @@ def test_trace_identifies_a_joint_conflict_between_fixed_clear_candidates(tmp_pa
     # finds two non-overlapping ray directions; the remaining four conflict with
     # one of those exact rendered arrow/shaft footprints.
     assert len(dropped) == 4
-    assert all(item["viable_candidates"] == 33 for item in dropped)
+    # Thirty-three candidates clear the fixed inventory; six additional
+    # fixed-ink crossings remain explicit Policy-B alternatives so semantic
+    # cardinality is still primary and any retained crossing is diagnosed.
+    assert all(item["viable_candidates"] == 39 for item in dropped)
     assert all(item["reason"] == "assignment_conflict" for item in dropped)
     assert all(
         any(
@@ -581,3 +584,40 @@ def test_bounded_legacy_fallback_preserves_drop_diagnostic(monkeypatch, tmp_path
     assert dropped[0]["reason"] == "no_clear_room"
     assert len(issues) == 1
     assert len(issues[0].measurement_ids) == 2
+
+
+def test_state_budget_replays_the_producer_legacy_floor(monkeypatch, tmp_path):
+    shaft = Cylinder(10, 60)
+    grooves = [
+        GrooveFeature(Frame((0.0, 0.0, 0.0), "z"), "z", 2.0, 14.0 + index * 0.1)
+        for index in range(6)
+    ]
+    import draftwright.annotations.leaders as leader_placement
+
+    original = leader_placement._assign_leader_candidates
+
+    def one_state(*args, **kwargs):
+        kwargs["max_states"] = 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(leader_placement, "_assign_leader_candidates", one_state)
+    trace_path = tmp_path / "state-budget-floor.json"
+    with pytest.warns(ScaleCompletenessWarning, match="groove_dropped"):
+        drawing = build_drawing(
+            shaft,
+            model=PartModel(shaft.bounding_box(), "z", grooves),
+            page="A4",
+            scale=1,
+            scale_policy="permissive",
+            trace=trace_path,
+        )
+
+    trace = json.loads(trace_path.read_text(encoding="utf-8"))
+    event = next(item for item in trace["pass_events"] if item["label"] == "groove_callouts")
+    names = [name for name in drawing.annotations() if name.startswith("m_groove")]
+    issues = [issue for issue in drawing.registry.issues if issue.code == "groove_dropped"]
+
+    assert event["assignment"] == "greedy_state_budget"
+    assert event["optimal"] is False
+    assert len(names) == 5
+    assert len(issues) == 1

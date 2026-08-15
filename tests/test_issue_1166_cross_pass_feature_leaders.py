@@ -81,7 +81,7 @@ def test_public_narrow_part_uses_one_cross_pass_inventory(tmp_path):
     part, model = _narrow_cross_pass_part()
     trace_path = tmp_path / "cross-pass.json"
 
-    drawing = build_drawing(part, model=model, page="A4", trace=trace_path)
+    drawing = build_drawing(part, model=model, page="A3", trace=trace_path)
 
     expected = {"hc_side0", "hc_side1", "m_fillet_x0", "m_pocket_yz0"}
     assert set(_feature_leader_names(drawing)) == expected
@@ -110,6 +110,23 @@ def test_public_narrow_part_uses_one_cross_pass_inventory(tmp_path):
             for b0, b1 in right.segments
         )
 
+    # The shared stage must use complete leader ink against already-drained
+    # dimension/witness strokes. Reverting it to label-only acceptance makes
+    # this exact fixture cross dim_loc_side_y550 and m_env_depth while lint
+    # otherwise remains silent.
+    fixed_dimensions = [
+        drawing.get_annotation(name)
+        for name in drawing.annotations()
+        if name.startswith("dim_") or name.startswith("m_env")
+    ]
+    assert not any(
+        _segments_cross_or_overlap(a0, a1, b0, b1)
+        for leader in leaders
+        for dimension in fixed_dimensions
+        for a0, a1 in leader.segments
+        for b0, b1 in dimension.segments
+    )
+
     trace = json.loads(trace_path.read_text(encoding="utf-8"))
     events = [
         event for event in trace["pass_events"] if event["label"] == "feature_leader_inventory"
@@ -124,8 +141,8 @@ def test_public_narrow_part_uses_one_cross_pass_inventory(tmp_path):
     assert event["assignment"] == "joint"
     assert event["optimal"] is True
     assert event["objective"]["placed"] == 4
-    assert event["objective"]["penalty"] == 1
-    assert sum(len(item.get("policy_b_blockers", ())) for item in event["items"]) == 1
+    assert event["objective"]["penalty"] == 0
+    assert sum(len(item.get("policy_b_blockers", ())) for item in event["items"]) == 0
     assert event["objective"]["cost"] == pytest.approx(
         sum(item["cost"] for item in event["items"])
     )
@@ -133,8 +150,8 @@ def test_public_narrow_part_uses_one_cross_pass_inventory(tmp_path):
     assert any(
         blocker.startswith("dim_")
         for item in event["items"]
-        for rejected in item["rejected"]
-        for blocker in rejected["blockers"]
+        for candidate in item["candidate_inventory"]
+        for blocker in candidate["fixed_blockers"]
     )
     # Pairwise alternatives name the semantic owner that won the contested lane.
     assert any(
@@ -143,6 +160,32 @@ def test_public_narrow_part_uses_one_cross_pass_inventory(tmp_path):
         for rejected in item["rejected"]
         for blocker in rejected["blockers"]
     )
+    for item in event["items"]:
+        inventory = item["candidate_inventory"]
+        assert len(inventory) == item["candidates_tried"]
+        assert sorted(candidate["candidate"] for candidate in inventory) == list(
+            range(item["candidates_tried"])
+        )
+        assert sum(candidate["outcome"] == "selected" for candidate in inventory) == 1
+        assert any(
+            candidate["outcome"] in {"objective_rejected", "conflict_rejected"}
+            for candidate in inventory
+        )
+
+
+def test_unavoidable_policy_b_crossing_is_persisted_without_opt_in_trace():
+    part, model = _narrow_cross_pass_part()
+    drawing = build_drawing(part, model=model, page="A4")
+
+    issues = [issue for issue in drawing.lint() if issue.code == "feature_leader_crossing"]
+    assert len(issues) == 1
+    assert "Policy B" in issues[0].message
+    assert "m_pocket0_pos_width" in issues[0].message
+    assert issues[0].severity == "info"
+    assert issues[0].measurement_ids
+    legibility = drawing.lint_summary()["quality"]["legibility"]
+    assert legibility["by_code"] == {"feature_leader_crossing": 1}
+    assert legibility["score"] < 1.0
 
 
 def test_cross_pass_objective_avoids_the_per_pass_greedy_trap():
@@ -218,7 +261,7 @@ def test_cross_pass_candidate_budget_precedes_collect_all_geometry(monkeypatch, 
     monkeypatch.setattr(leaders, "_measure", counted)
     trace_path = tmp_path / "bounded-cross-pass.json"
 
-    drawing = build_drawing(part, model=model, page="A4", trace=trace_path)
+    drawing = build_drawing(part, model=model, page="A3", trace=trace_path)
     event = next(
         item
         for item in json.loads(trace_path.read_text(encoding="utf-8"))["pass_events"]
@@ -234,7 +277,9 @@ def test_cross_pass_candidate_budget_precedes_collect_all_geometry(monkeypatch, 
         "m_fillet_x0",
         "m_pocket_yz0",
     }
-    assert drawing.lint() == []
+    issues = drawing.lint()
+    assert {issue.code for issue in issues} == {"feature_leader_crossing"}
+    assert all("Policy B" in issue.message for issue in issues)
 
 
 def test_fixed_obstacle_probe_budget_precedes_joint_geometry(monkeypatch, tmp_path):
@@ -245,7 +290,7 @@ def test_fixed_obstacle_probe_budget_precedes_joint_geometry(monkeypatch, tmp_pa
     )
     trace_path = tmp_path / "bounded-fixed-probes.json"
 
-    drawing = build_drawing(part, model=model, page="A4", trace=trace_path)
+    drawing = build_drawing(part, model=model, page="A3", trace=trace_path)
     event = next(
         item
         for item in json.loads(trace_path.read_text(encoding="utf-8"))["pass_events"]
@@ -261,7 +306,9 @@ def test_fixed_obstacle_probe_budget_precedes_joint_geometry(monkeypatch, tmp_pa
         "m_fillet_x0",
         "m_pocket_yz0",
     }
-    assert drawing.lint() == []
+    issues = drawing.lint()
+    assert {issue.code for issue in issues} == {"feature_leader_crossing"}
+    assert all("Policy B" in issue.message for issue in issues)
 
 
 def test_candidate_budget_preserves_the_exact_pre_joint_hole_floor(monkeypatch):
