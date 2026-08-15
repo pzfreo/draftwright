@@ -2380,12 +2380,24 @@ def _place_queue(
     # to the elbow), so probing everyone at one far-away Y badly
     # misjudges it.
     cache = getattr(dwg, "box_cache", None)  # measure each callout once (#1138)
-    probe_boxes = [
-        b
-        for s in queue
-        if (b := _probe_box(s, edge, side, to_page, elbow_dx, draft, a.SCALE, cache)) is not None
-    ]
+    probe_boxes = []
+    probe_by_candidate = {}
+    for s in queue:
+        box = _probe_box(s, edge, side, to_page, elbow_dx, draft, a.SCALE, cache)
+        if box is not None:
+            probe_boxes.append(box)
+            probe_by_candidate[id(s)] = box
     occupied = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
+    provisional_section_boxes = [
+        box
+        for name, box in strip_obstacles(
+            dwg,
+            view=view,
+            crossable=CROSSABLE_TYPES,
+            named=True,
+        )
+        if getattr(dwg.get_annotation(name), "is_provisional_layout_reservation", False)
+    ]
     if probe_boxes:
         band_lo = min(b[0] for b in probe_boxes)
         band_hi = max(b[2] for b in probe_boxes)
@@ -2417,7 +2429,14 @@ def _place_queue(
         if cand_y is not None and base_ok:
             d_seg = abs(cand_y - natural)
             d_base = abs(base_y[sid] - natural)
-            y = cand_y if d_seg <= d_base + _RELOCATE_TOLERANCE else base_y[sid]
+            must_clear_future_section = _box_hits(
+                probe_by_candidate.get(sid), provisional_section_boxes
+            )
+            y = (
+                cand_y
+                if must_clear_future_section or d_seg <= d_base + _RELOCATE_TOLERANCE
+                else base_y[sid]
+            )
         elif cand_y is not None:
             y = cand_y  # baseline dropped it outright — the carve saved it
         elif base_ok:

@@ -5676,15 +5676,15 @@ class TestLayoutGeneralisation:
     def test_prismatic_central_hole_callout_not_lifted(self):
         # Scope-lock for #305: the coaxial-bore lift is gated to rotational parts.
         # A *prismatic* part's central hole stays on the plan-view centre row —
-        # lifting it (the over-broad first cut of this fix) regressed the section /
-        # cbore layouts, because only the rotational round view carries the crossing
-        # centre axis. Without the is_rotational gate this callout jumps a
-        # font-height off the axis; assert it does not.
-        from build123d import Box, Cylinder, Pos
+        # lifting it (the over-broad first cut of this fix) regressed prismatic
+        # layouts, because only the rotational round view carries the crossing
+        # centre axis. Use a through-only part so an independent optional section
+        # reservation cannot legitimately move the callout off this row.
+        from build123d import Box, Cylinder
 
         from draftwright import build_drawing
 
-        part = Box(80, 60, 20) - Cylinder(4, 20) - Pos(10, 5, -7) * Cylinder(6, 6)
+        part = Box(80, 60, 20) - Cylinder(4, 20)
         dwg = build_drawing(part)
         assert not dwg._analysis.is_rotational
         plan_mids = [
@@ -9842,17 +9842,22 @@ class TestLeaderCrossesSilhouette:
 
         return Pos(0, 0, z) * Cylinder(r, h, align=(Align.CENTER, Align.CENTER, Align.MIN))
 
-    def test_crossing_groove_leader_is_flagged(self):
-        # A thin-neck groove leader must cross a flange body to reach its label — an
-        # unavoidable cut. Grooves aren't ⌀-rerouted (#798 routes step/boss diameters),
-        # so it surfaces as an info notice.
+    def test_groove_leader_uses_the_clear_single_exit_candidate(self):
+        # The shared #1166 inventory can choose the vertical candidate that exits
+        # the thin neck once, instead of the old diagonal route through a flange.
+        # A single silhouette exit is legitimate and must remain lint-clean.
         part = Rotation(0, 90, 0) * (
             self._cyl(15, 10, 0.0) + self._cyl(3, 2, 10) + self._cyl(15, 10, 12)
         )
         dwg = build_drawing(part, number="X")
         issues = [i for i in dwg.lint() if i.code == "leader_crosses_silhouette"]
-        assert issues, "expected a leader_crosses_silhouette notice"
-        assert all(i.severity == "info" for i in issues)
+        assert issues == []
+        groove = next(
+            annotation
+            for name, annotation in dwg.iter_annotations()
+            if name.startswith("m_groove")
+        )
+        assert groove.segments[0][0][0] == pytest.approx(groove.segments[0][1][0])
 
     def test_nested_boss_diameter_routes_to_the_clear_side(self):
         # #798: the ø6 boss stub whose row-solved leader would cut through the ø30

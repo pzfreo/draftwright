@@ -718,6 +718,11 @@ def test_every_direct_placement_records_identity_or_says_why_not():
         ("sections.py", "_add_section_view"): "section geometry + its caption",
         ("sections.py", "_add_section_letters"): "the 'A' identification letters",
         ("sections.py", "_add_cutting_plane_arrows"): "ISO 128-44 arrows are not dimensions",
+        (
+            "sections.py",
+            "_reserve_section_row",
+        ): "a provisional cutting-plane line is layout furniture",
+        ("sections.py", "_place_cutting_plane"): "final cutting-plane layout furniture",
         ("sections.py", "_render_detail"): "detail-view geometry, caption and circle",
         # -- the direct-placing rotational group (#754) -----------------------------
         ("from_model.py", "render_rotational"): "direct-placing rotational group (#754)",

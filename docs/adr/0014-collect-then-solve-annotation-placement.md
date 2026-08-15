@@ -39,7 +39,11 @@ summed semantic priority, minimum fixed-obstacle Policy-B penalty, minimum real
 leader length, then stable candidate order. Candidate-to-candidate label/shaft
 conflicts are hard. Every shared candidate tests its exact label, shaft, shelf,
 and arrow ink against the completed fixed annotation inventory, including
-dimension and witness strokes. Established Policy B remains explicit for both
+actual-width dimension/witness strokes, their local arrow ink, labels, centre
+furniture. Strip-carving AABB inflation is not collision truth. Fixed rejections
+name stable annotation components (`:segment:n`, `:arrow:n`, `:label`) in the
+bounded trace, and the one rendered survivor is tessellated once to validate
+that its OCC faces remain inside the analytical ink contract. Established Policy B remains explicit for both
 ordinary-hole and machined-feature leaders: a candidate crossing late fixed
 furniture stays eligible with a penalty, while page, label-over-own-silhouette,
 and new-leader conflicts remain infeasible. If such a candidate wins because
@@ -67,12 +71,18 @@ replays the original lazy candidate stream in
 canonical pass order, retaining each producer's former greedy/queue floor and
 recording any Policy-B blockers; a state-cap incumbent is not emitted directly
 because its new exact-ink seed is not necessarily that producer floor. Early
-section rows are marked provisional: they can
-influence cheap hole routing, but an optional not-yet-committed section cannot
-veto a required leader in the final inventory. The mandatory not-yet-rendered
+section rows are marked provisional and excluded from the primary assignment:
+an optional not-yet-committed section cannot veto a required leader. After an
+optimal primary result exists, one separately probe/state-bounded refinement may
+prefer an equally complete, equally important result with no worse committed-ink
+penalty that also clears the provisional exact components. Resource exhaustion
+retains the primary result. The section pass then checks its exact final
+cutting-plane ink against landed leaders, performs at most one bounded outward
+end-symbol repair, and yields if a conflict remains.
+The mandatory not-yet-rendered
 title-block band remains a hard fixed obstacle. The solve trace records the one
-shared inventory, every bounded candidate and its outcome, named fixed and
-selected-leader blockers, objective tuple, selected alternatives, and bounded
+shared inventory, every bounded candidate and its outcome, named committed and
+provisional blockers, refinement status, objective tuple, selected alternatives, and bounded
 fallback. A single live post-build
 `Drawing.callout()` remains the documented finished-sheet exemption; a deferred
 batch enters the shared stage.

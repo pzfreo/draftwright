@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 from build123d import Align, Box, Cylinder, Pos, Rot
-from build123d_drafting.helpers import Draft, Leader
+from build123d_drafting.helpers import Centerline, CenterMark, Draft, Leader
 
 from draftwright import ScaleCompletenessWarning, build_drawing
 from draftwright._geometry import (
@@ -19,8 +19,12 @@ from draftwright._geometry import (
 from draftwright.annotations._common import PlacementContext
 from draftwright.annotations.leaders import (
     FeatureLeaderJob,
+    _annotation_fixed_ink,
     _candidate_conflict,
+    _measure,
     _MeasuredLeaderCandidate,
+    _point_in_convex_component,
+    _rendered_ink_matches,
     collect_feature_leader,
     drain_feature_leaders,
 )
@@ -148,7 +152,13 @@ def test_public_narrow_part_uses_one_cross_pass_inventory(tmp_path):
     )
     assert {item["source_pass"] for item in event["items"]} == {"hole", "fillet", "pocket"}
     assert any(
-        blocker.startswith("dim_")
+        blocker == "dim_loc_side_y550:segment:1"
+        for item in event["items"]
+        for candidate in item["candidate_inventory"]
+        for blocker in candidate["fixed_blockers"]
+    )
+    assert any(
+        blocker == "m_env_depth:segment:3"
         for item in event["items"]
         for candidate in item["candidate_inventory"]
         for blocker in candidate["fixed_blockers"]
@@ -172,6 +182,37 @@ def test_public_narrow_part_uses_one_cross_pass_inventory(tmp_path):
             for candidate in inventory
         )
 
+    # Fixed Dimension arrows are local analytical components, not a corridor-
+    # wide pad. Keep their actual CURVED OCC faces inside the same polygons the
+    # solve and trace use.
+    dimension = drawing.get_annotation("dim_loc_side_y550")
+    components = _annotation_fixed_ink(
+        drawing,
+        "dim_loc_side_y550",
+        dimension,
+    )
+    arrow_polygons = tuple(
+        component.polygons[0] for component in components if ":arrow:" in component.name
+    )
+    rendered_arrows = []
+    for face in dimension.faces():
+        bounds = face.bounding_box()
+        extents = sorted((bounds.size.X, bounds.size.Y))
+        if extents == pytest.approx(
+            sorted((drawing.draft.arrow_length, 2.0 * drawing.draft.arrow_length / 3.0))
+        ):
+            rendered_arrows.append(face)
+    assert len(arrow_polygons) == len(rendered_arrows) == 2
+    for face in rendered_arrows:
+        vertices, _triangles = face.tessellate(0.01)
+        assert all(
+            any(
+                _point_in_convex_component((vertex.X, vertex.Y), polygon)
+                for polygon in arrow_polygons
+            )
+            for vertex in vertices
+        )
+
 
 def test_unavoidable_policy_b_crossing_is_persisted_without_opt_in_trace():
     part, model = _narrow_cross_pass_part()
@@ -179,13 +220,151 @@ def test_unavoidable_policy_b_crossing_is_persisted_without_opt_in_trace():
 
     issues = [issue for issue in drawing.lint() if issue.code == "feature_leader_crossing"]
     assert len(issues) == 1
-    assert "Policy B" in issues[0].message
-    assert "m_pocket0_pos_width" in issues[0].message
-    assert issues[0].severity == "info"
-    assert issues[0].measurement_ids
+    assert all("Policy B" in issue.message for issue in issues)
+    assert any("dim_loc_side_z7550:segment:3" in issue.message for issue in issues)
+    assert all(issue.severity == "info" for issue in issues)
+    assert all(issue.measurement_ids for issue in issues)
     legibility = drawing.lint_summary()["quality"]["legibility"]
     assert legibility["by_code"] == {"feature_leader_crossing": 1}
     assert legibility["score"] < 1.0
+
+
+def test_near_clear_witness_is_not_falsely_classified_by_strip_padding():
+    part = Box(140, 90, 12)
+    for x, y, radius in (
+        (-55, -30, 3),
+        (-40, 25, 4),
+        (-20, -10, 2.5),
+        (-5, 35, 5),
+        (10, -35, 3),
+        (25, 10, 4),
+        (40, -20, 2.5),
+        (55, 30, 5),
+        (60, -38, 3),
+        (-60, 38, 4),
+    ):
+        part -= Pos(x, y, 0) * Cylinder(radius, 12)
+
+    drawing = build_drawing(part)
+    issues = [issue.message for issue in drawing.lint() if issue.code == "feature_leader_crossing"]
+
+    # hc_plan3 passes 1.45 mm from the actual 0.1-mm witness stroke. The
+    # strip carve's historical 1.35-mm arrow padding makes their AABBs overlap,
+    # but rendered ink does not. Reusing strip occupancy as collision truth
+    # falsely reports this exact callout across m_locx5/m_locx9.
+    assert not any("3× ⌀8 THRU" in message for message in issues)
+
+
+def test_unrelated_center_furniture_is_fixed_ink_but_own_mark_is_not():
+    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+    bounds = drawing.view_bounds("front")
+    assert bounds is not None
+    tip = (bounds[2], (bounds[1] + bounds[3]) / 2.0)
+    natural = (tip[0] + 20.0, tip[1], 0.0)
+    clear = (tip[0] + 20.0, tip[1] + 10.0, 0.0)
+    target_owner = object()
+    other_owner = object()
+    ctx = PlacementContext(
+        registry=drawing.registry,
+        coverage=drawing.coverage,
+        items=drawing.items,
+        part_model=drawing.model(),
+        feature_leaders=[],
+    )
+    ctx.place(
+        CenterMark((tip[0] + 10.0, tip[1], 0.0), 4.0, drawing.draft),
+        "unrelated_center_mark",
+        view="front",
+        feature=other_owner,
+    )
+    ctx.place(
+        CenterMark((*tip, 0.0), 4.0, drawing.draft),
+        "own_center_mark",
+        view="front",
+        feature=target_owner,
+    )
+
+    def build(tip, elbow, _feature):
+        return Leader(tip=(*tip, 0), elbow=elbow, label="R1", draft=drawing.draft)
+
+    collect_feature_leader(
+        ctx,
+        FeatureLeaderJob(
+            name="m_fillet0",
+            view="front",
+            silhouette=bounds,
+            label="R1",
+            candidates=((tip, natural, target_owner), (tip, clear, target_owner)),
+            build=build,
+            measurement=(),
+            noun="fillet",
+            drop_code="fillet_dropped",
+            allow_policy_b_fixed=True,
+        ),
+    )
+    analysis = SimpleNamespace(
+        margin=10.0,
+        PAGE_W=drawing.page_w,
+        PAGE_H=drawing.page_h,
+        TB_W=drawing.get_annotation("title_block").bounding_box().size.X,
+    )
+
+    assert drain_feature_leaders(drawing, analysis, ctx) == 1
+    assert drawing.get_annotation("m_fillet0").segments[0][1][1] == pytest.approx(clear[1])
+    assert not any(issue.code == "feature_leader_crossing" for issue in drawing.lint())
+
+
+def test_owned_unrelated_centerline_at_the_tip_is_not_a_global_axis_exemption():
+    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+    bounds = drawing.view_bounds("front")
+    assert bounds is not None
+    tip = (bounds[2], (bounds[1] + bounds[3]) / 2.0)
+    elbow = (tip[0] + 20.0, tip[1], 0.0)
+    ctx = PlacementContext(
+        registry=drawing.registry,
+        coverage=drawing.coverage,
+        items=drawing.items,
+        part_model=drawing.model(),
+        feature_leaders=[],
+    )
+    ctx.place(
+        Centerline((tip[0], tip[1] - 6.0, 0.0), (tip[0], tip[1] + 6.0, 0.0)),
+        "unrelated_centerline",
+        view="front",
+        feature=object(),
+    )
+
+    def build(tip, elbow, _feature):
+        return Leader(tip=(*tip, 0), elbow=elbow, label="R1", draft=drawing.draft)
+
+    collect_feature_leader(
+        ctx,
+        FeatureLeaderJob(
+            name="m_fillet0",
+            view="front",
+            silhouette=bounds,
+            label="R1",
+            candidates=((tip, elbow, object()),),
+            build=build,
+            measurement=(),
+            noun="fillet",
+            drop_code="fillet_dropped",
+            allow_policy_b_fixed=True,
+        ),
+    )
+    analysis = SimpleNamespace(
+        margin=10.0,
+        PAGE_W=drawing.page_w,
+        PAGE_H=drawing.page_h,
+        TB_W=drawing.get_annotation("title_block").bounding_box().size.X,
+    )
+
+    assert drain_feature_leaders(drawing, analysis, ctx) == 1
+    assert any(
+        issue.code == "feature_leader_crossing"
+        and "unrelated_centerline:segment:0" in issue.message
+        for issue in drawing.lint()
+    )
 
 
 def test_cross_pass_objective_avoids_the_per_pass_greedy_trap():
@@ -243,6 +422,36 @@ def test_cross_pass_conflicts_use_rendered_shaft_width_not_zero_width_segments()
     # Strict placement geometry treats exact boundary contact as clear.
     assert not _candidate_conflict(candidate(0.0), candidate(draft.line_width))
     assert not _convex_polygons_overlap((), candidate(0.0).ink_polygons[0])
+
+
+def test_selected_occ_survivor_validates_arrow_shaft_and_shelf_ink():
+    draft = Draft()
+
+    def build(tip, elbow, _feature):
+        return Leader(tip=(*tip, 0), elbow=(*elbow, 0), label="R1", draft=draft)
+
+    job = FeatureLeaderJob(
+        name="m_fillet0",
+        view="front",
+        silhouette=(0.0, 0.0, 10.0, 10.0),
+        label="R1",
+        candidates=(),
+        build=build,
+        measurement=(),
+        noun="fillet",
+        drop_code="fillet_dropped",
+    )
+    candidate = _measure(0, ((0.0, 0.0), (20.0, 5.0), None), job, draft)
+
+    assert _rendered_ink_matches(candidate, candidate.annotation)
+    assert not _rendered_ink_matches(
+        replace(candidate, ink_polygons=(candidate.ink_polygons[0], *candidate.ink_polygons[2:])),
+        candidate.annotation,
+    )
+    assert not _rendered_ink_matches(
+        replace(candidate, ink_polygons=candidate.ink_polygons[:2]),
+        candidate.annotation,
+    )
 
 
 def test_cross_pass_candidate_budget_precedes_collect_all_geometry(monkeypatch, tmp_path):
@@ -316,8 +525,8 @@ def test_candidate_budget_preserves_the_exact_pre_joint_hole_floor(monkeypatch):
 
     with pytest.warns(ScaleCompletenessWarning):
         joint = build_drawing(part, page="A4", scale=1, scale_policy="permissive")
-    assert len([name for name in joint.annotations() if name.startswith("hc_plan")]) == 11
-    assert len([issue for issue in joint.registry.issues if issue.code == "callout_dropped"]) == 1
+    assert len([name for name in joint.annotations() if name.startswith("hc_plan")]) == 12
+    assert not [issue for issue in joint.registry.issues if issue.code == "callout_dropped"]
 
     monkeypatch.setattr(
         "draftwright.annotations.leaders._FEATURE_LEADER_MAX_CANDIDATES",
@@ -334,7 +543,7 @@ def test_candidate_budget_preserves_the_exact_pre_joint_hole_floor(monkeypatch):
     )
 
 
-def test_provisional_section_yields_but_mandatory_title_band_does_not():
+def test_future_section_cannot_veto_a_required_leader_but_title_is_hard():
     drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
     rendered_title_box = drawing.get_annotation("title_block").bounding_box()
     analysis = SimpleNamespace(
@@ -358,7 +567,7 @@ def test_provisional_section_yields_but_mandatory_title_band_does_not():
         "SECTION RESERVATION",
         ((box[0] + box[2]) / 2, (box[1] + box[3]) / 2),
         view="front",
-        name="section_reservation",
+        name="section_a_right",
     )
     reservation = drawing.get_annotation(reservation_name)
     reservation.is_provisional_layout_reservation = True
@@ -383,10 +592,13 @@ def test_provisional_section_yields_but_mandatory_title_band_does_not():
             measurement=(),
             noun="fillet",
             drop_code="fillet_dropped",
+            allow_policy_b_fixed=True,
         ),
     )
     assert drain_feature_leaders(drawing, analysis, ctx) == 1
-    assert "required_leader" in drawing.annotations()
+    required = drawing.get_annotation("required_leader")
+    assert not hasattr(required, "_dw_provisional_feature_leader_policy")
+    assert not any(issue.code == "feature_leader_crossing" for issue in drawing.registry.issues)
 
     title_y = (rendered_title_box.min.Y + rendered_title_box.max.Y) / 2
     title_tip = (rendered_title_box.min.X - 8, title_y)
@@ -423,6 +635,181 @@ def test_provisional_section_yields_but_mandatory_title_band_does_not():
     assert drain_feature_leaders(drawing, analysis, ctx) == 0
     assert "title_blocked_leader" not in drawing.annotations()
     assert any(issue.code == "callout_dropped" for issue in drawing.registry.issues)
+
+
+def test_provisional_section_refines_without_reducing_required_leaders():
+    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+    bounds = drawing.view_bounds("front")
+    assert bounds is not None
+    mid_y = (bounds[1] + bounds[3]) / 2
+    tip = (bounds[2], mid_y)
+    crossing_elbow = (bounds[2] + 15, mid_y)
+    clear_elbow = (bounds[2] + 15, mid_y + 12)
+
+    def build(tip, elbow, _feature):
+        return Leader(tip=(*tip, 0), elbow=(*elbow, 0), label="REQUIRED", draft=drawing.draft)
+
+    crossing = build(tip, crossing_elbow, None)
+    box = crossing.label_bbox
+    reservation_name = drawing.note(
+        "FUTURE SECTION",
+        ((box[0] + box[2]) / 2, (box[1] + box[3]) / 2),
+        view="front",
+        name="section_future_label",
+    )
+    drawing.get_annotation(reservation_name).is_provisional_layout_reservation = True
+    assert _boxes_overlap(crossing.label_bbox, drawing.get_annotation(reservation_name).label_bbox)
+
+    ctx = PlacementContext(
+        registry=drawing.registry,
+        coverage=drawing.coverage,
+        items=drawing.items,
+        part_model=drawing.model(),
+        feature_leaders=[],
+    )
+    collect_feature_leader(
+        ctx,
+        FeatureLeaderJob(
+            name="required_leader",
+            view="front",
+            silhouette=bounds,
+            label="REQUIRED",
+            candidates=((tip, crossing_elbow, None), (tip, clear_elbow, None)),
+            build=build,
+            measurement=(),
+            noun="fillet",
+            drop_code="fillet_dropped",
+            allow_policy_b_fixed=True,
+        ),
+    )
+    title = drawing.get_annotation("title_block").bounding_box()
+    analysis = SimpleNamespace(
+        margin=10.0,
+        PAGE_W=drawing.page_w,
+        PAGE_H=drawing.page_h,
+        TB_W=title.size.X,
+    )
+
+    assert drain_feature_leaders(drawing, analysis, ctx) == 1
+    placed = drawing.get_annotation("required_leader")
+    assert placed.segments[0][1] == clear_elbow
+    assert not _boxes_overlap(
+        placed.label_bbox, drawing.get_annotation(reservation_name).label_bbox
+    )
+    assert not any(issue.code == "feature_leader_crossing" for issue in drawing.registry.issues)
+
+
+def test_non_provisional_section_prefixed_annotation_is_classified_immediately():
+    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+    bounds = drawing.view_bounds("front")
+    assert bounds is not None
+    tip = (bounds[2], (bounds[1] + bounds[3]) / 2)
+    elbow = (bounds[2] + 15, tip[1], 0)
+
+    def build(tip, elbow, _feature):
+        return Leader(tip=(*tip, 0), elbow=elbow, label="REQUIRED", draft=drawing.draft)
+
+    probe = build(tip, elbow, None)
+    box = probe.label_bbox
+    drawing.note(
+        "COMMITTED SECTION NOTE",
+        ((box[0] + box[2]) / 2, (box[1] + box[3]) / 2),
+        view="front",
+        name="section_user_note",
+    )
+    ctx = PlacementContext(
+        registry=drawing.registry,
+        coverage=drawing.coverage,
+        items=drawing.items,
+        part_model=drawing.model(),
+        feature_leaders=[],
+    )
+    collect_feature_leader(
+        ctx,
+        FeatureLeaderJob(
+            name="required_leader",
+            view="front",
+            silhouette=bounds,
+            label="REQUIRED",
+            candidates=((tip, elbow, None),),
+            build=build,
+            measurement=(),
+            noun="fillet",
+            drop_code="fillet_dropped",
+            allow_policy_b_fixed=True,
+        ),
+    )
+    analysis = SimpleNamespace(
+        margin=10.0,
+        PAGE_W=drawing.page_w,
+        PAGE_H=drawing.page_h,
+        TB_W=drawing.get_annotation("title_block").bounding_box().size.X,
+    )
+
+    assert drain_feature_leaders(drawing, analysis, ctx) == 1
+    required = drawing.get_annotation("required_leader")
+    assert not hasattr(required, "_dw_provisional_feature_leader_policy")
+    assert any(
+        issue.code == "feature_leader_crossing" and "section_user_note:label" in issue.message
+        for issue in drawing.registry.issues
+    )
+
+
+def test_final_section_geometry_stays_clear_of_shared_feature_leaders():
+    # Central bore + offset counterbore triggers the real final section pass.
+    # Ignoring its provisional row lets hc_plan1 take the same y=173.5 lane;
+    # the final cutting plane then crosses its shaft and crowds its label.
+    part = Box(90, 60, 20) - Cylinder(4, 20) - Pos(10, 5, -7) * Cylinder(6, 6)
+    drawing = build_drawing(part)
+    section = drawing.get_annotation("section_line")
+    leaders = [
+        drawing.get_annotation(name)
+        for name in drawing.annotations()
+        if name.startswith("hc_plan")
+    ]
+
+    assert leaders
+    assert "section_aa" in drawing.views
+    assert not any(
+        _segments_cross_or_overlap(a0, a1, b0, b1)
+        for leader in leaders
+        for a0, a1 in leader.segments
+        for b0, b1 in section.segments
+    )
+    assert all(
+        not any(
+            min(start[0], end[0]) < leader.label_bbox[2]
+            and max(start[0], end[0]) > leader.label_bbox[0]
+            and min(start[1], end[1]) < leader.label_bbox[3]
+            and max(start[1], end[1]) > leader.label_bbox[1]
+            for start, end in section.segments
+        )
+        for leader in leaders
+    )
+    for side in ("left", "right"):
+        arrow = drawing.get_annotation(f"section_arrow_{side}")
+        polygons = arrow.fixed_ink_polygons
+        assert len(polygons) == 1
+        for face in arrow.faces():
+            vertices, _triangles = face.tessellate(0.01)
+            assert all(
+                _point_in_convex_component((vertex.X, vertex.Y), polygons[0])
+                for vertex in vertices
+            )
+
+
+def test_final_section_rolls_back_when_exact_preflight_rejects(monkeypatch):
+    part = Box(90, 60, 20) - Cylinder(4, 20) - Pos(10, 5, -7) * Cylinder(6, 6)
+    monkeypatch.setattr(
+        "draftwright.annotations.sections.feature_leader_fixed_conflicts",
+        lambda *_args: (("hc_plan0", "section_arrow_right:ink:0"),),
+    )
+
+    drawing = build_drawing(part)
+
+    assert any(name.startswith("hc_plan") for name in drawing.annotations())
+    assert "section_aa" not in drawing.views
+    assert not any(name.startswith("section_") for name in drawing.annotations())
 
 
 def test_live_and_deferred_callout_verbs_preserve_the_same_semantic_evidence():

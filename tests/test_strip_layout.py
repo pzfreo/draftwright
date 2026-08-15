@@ -1060,7 +1060,7 @@ def test_two_cross_hole_heights_share_their_end_view_ladder_without_crossing():
     assert {issue.code for issue in issues} == {"feature_leader_crossing"}
     (crossing,) = issues
     assert crossing.severity == "info"
-    assert "m_pocket0_pos_width" in crossing.message
+    assert "dim_loc_side_z7550:segment:3" in crossing.message
 
 
 # --- unified above-corridor solve (ADR 0009 end state, #345/#346) -----------

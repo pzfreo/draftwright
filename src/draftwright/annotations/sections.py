@@ -10,13 +10,12 @@ from __future__ import annotations
 import math
 
 from build123d import (
-    Arrow,
+    ArrowHead,
     Box,
     Compound,
     Edge,
     GeomType,
     HeadType,
-    Mode,
     Pos,
     Vector,
 )
@@ -44,7 +43,9 @@ from draftwright._core import (
     _legible_steps,
     _log,
 )
+from draftwright._geometry import _leader_ink_polygons, _stroke_polygon
 from draftwright.annotations._common import strip_obstacles
+from draftwright.annotations.leaders import feature_leader_fixed_conflicts
 from draftwright.model import plan_sections
 from draftwright.projection import project_view_geometry
 
@@ -260,14 +261,9 @@ def _add_section_view(dwg, a: Analysis, section, *, ctx):
         _log.warning("Section A–A skipped (boolean cut produced no solid)")
         _clear_section_reservation(dwg)
         return
-    camera = (dwg.look_at[0], dwg.look_at[1] - dwg.dist, dwg.look_at[2])
-    dwg._add_view("section_aa", keep_behind, camera, (0, 0, 1), (pos_x, a.FV_Y))
-    ctx.place(
-        Note("SECTION A–A", (pos_x, a.FV_Y - half_h - 7), dwg.draft),
-        "section_caption",
-    )
-
-    # cutting-plane line + identification letters on the plan view
+    # Resolve the final cutting-plane ink before committing the section view.
+    # Optional section furniture yields if a required landed feature leader
+    # consumed the conservative provisional row.
     PX = a.proj.plan_x
     PY = a.proj.plan_y
 
@@ -282,15 +278,61 @@ def _add_section_view(dwg, a: Analysis, section, *, ctx):
                 ext_x0 = min(ext_x0, cb.min.X)
                 ext_x1 = max(ext_x1, cb.max.X)
     x0, x1 = ext_x0 - 4, ext_x1 + 4
-    ctx.place(Centerline((x0, y_page, 0), (x1, y_page, 0)), "section_line")
-
-    # The row was reserved early (ADR 0009 P5 strand 3) with a conservative
-    # (unwidened) x-extent so the plan-view hole-callout carve could avoid it
-    # before this function runs — replace it with the final, possibly-wider
-    # geometry now that the bolt-circle extent is known.
+    section_names = (
+        "section_line",
+        "section_arrow_left",
+        "section_arrow_right",
+        "section_wing_left",
+        "section_wing_right",
+        "section_a_left",
+        "section_a_right",
+    )
     _clear_section_reservation(dwg)
-    _add_cutting_plane_arrows(dwg, y_page, x0, x1, ctx=ctx)
-    _add_section_letters(dwg, y_page, x0, x1, ctx=ctx)
+
+    _place_cutting_plane(dwg, y_page, x0, x1, ctx=ctx)
+    conflicts = feature_leader_fixed_conflicts(dwg, section_names)
+    if conflicts:
+        # The cut row is semantically fixed, but its end symbols may extend
+        # farther beyond the part.  One bounded repair moves only an affected
+        # end past the exact landed leader footprint, preserving every required
+        # leader and avoiding an open-ended placement search.
+        repaired_x0, repaired_x1 = x0, x1
+        clearance = dwg.draft.arrow_length
+        for leader_name, component_name in conflicts:
+            leader = dwg.get_annotation(leader_name)
+            bounds = leader.bounding_box()
+            if component_name.startswith(
+                ("section_arrow_left", "section_wing_left", "section_a_left")
+            ):
+                repaired_x0 = min(repaired_x0, bounds.min.X - clearance)
+            elif component_name.startswith(
+                ("section_arrow_right", "section_wing_right", "section_a_right")
+            ):
+                repaired_x1 = max(repaired_x1, bounds.max.X + clearance)
+        page_clearance = 2 * dwg.draft.arrow_length
+        repair_is_bounded = (
+            (repaired_x0 != x0 or repaired_x1 != x1)
+            and repaired_x0 >= a.margin + page_clearance
+            and repaired_x1 <= a.PAGE_W - a.margin - page_clearance
+        )
+        if repair_is_bounded:
+            _clear_section_reservation(dwg)
+            _place_cutting_plane(dwg, y_page, repaired_x0, repaired_x1, ctx=ctx)
+            conflicts = feature_leader_fixed_conflicts(dwg, section_names)
+    if conflicts:
+        _log.info(
+            "Section A–A skipped (final cutting-plane ink crosses required feature leaders: %s)",
+            ", ".join(f"{leader}/{component}" for leader, component in conflicts),
+        )
+        _clear_section_reservation(dwg)
+        return
+
+    camera = (dwg.look_at[0], dwg.look_at[1] - dwg.dist, dwg.look_at[2])
+    dwg._add_view("section_aa", keep_behind, camera, (0, 0, 1), (pos_x, a.FV_Y))
+    ctx.place(
+        Note("SECTION A–A", (pos_x, a.FV_Y - half_h - 7), dwg.draft),
+        "section_caption",
+    )
 
     # ISO 128-50: 45° hatching on the cut face, in page coordinates. The section
     # is drawn in its own frame: X is offset to the section's page slot (pos_x),
@@ -311,6 +353,14 @@ def _add_section_view(dwg, a: Analysis, section, *, ctx):
         ctx.place(hatch, "section_hatch")
 
 
+def _place_cutting_plane(dwg, y_page, x0, x1, *, ctx):
+    """Place one complete, unmeasured cutting-plane furniture candidate."""
+
+    ctx.place(Centerline((x0, y_page, 0), (x1, y_page, 0)), "section_line")
+    _add_cutting_plane_arrows(dwg, y_page, x0, x1, ctx=ctx)
+    _add_section_letters(dwg, y_page, x0, x1, ctx=ctx)
+
+
 def _add_cutting_plane_arrows(dwg, y_page, x0, x1, *, ctx):
     """ISO 128-44 cutting-plane end indicators at ``(x0, y_page)``/``(x1, y_page)`` —
     thick wing stubs with solid filled arrowheads pointing in the viewing direction
@@ -321,18 +371,26 @@ def _add_cutting_plane_arrows(dwg, y_page, x0, x1, *, ctx):
     wing_h = 2.5 * arrow_sz  # perpendicular stub length
     for x_end, side in ((x0, "left"), (x1, "right")):
         tip_y = y_page - wing_h
-        shaft = Edge.make_line(Vector(x_end, y_page, 0), Vector(x_end, tip_y, 0))
-        filled = Arrow(
-            arrow_size=arrow_sz,
-            shaft_path=shaft,
-            shaft_width=dwg.draft.line_width,
-            head_at_start=False,
+        arrow = Pos(x_end, tip_y) * ArrowHead(
+            arrow_sz,
             head_type=HeadType.STRAIGHT,
-            mode=Mode.PRIVATE,
+            rotation=-90,
         )
-        ctx.place(Compound(children=list(filled.faces())), f"section_arrow_{side}")
+        arrow.fixed_ink_polygons = _leader_ink_polygons(
+            (x_end, tip_y),
+            (x_end, y_page),
+            arrow_length=arrow_sz,
+            line_width=0.0,
+        )[-1:]
+        ctx.place(arrow, f"section_arrow_{side}")
+        shaft_end_y = tip_y + arrow_sz
+        wing_segment = ((x_end, y_page), (x_end, shaft_end_y))
+        wing = Compound(
+            children=[Edge.make_line(Vector(x_end, y_page, 0), Vector(x_end, shaft_end_y, 0))]
+        )
+        wing.fixed_ink_polygons = (_stroke_polygon(*wing_segment, dwg.draft.line_width),)
         ctx.place(
-            Compound(children=[Edge.make_line(Vector(x_end, y_page, 0), Vector(x_end, tip_y, 0))]),
+            wing,
             f"section_wing_{side}",
         )
 
@@ -355,6 +413,8 @@ def _clear_section_reservation(dwg) -> None:
     replaced it, or if no section ever triggered)."""
     existing = dwg.annotations()
     for name in (
+        "section_line",
+        "section_line_reservation",
         "section_arrow_left",
         "section_arrow_right",
         "section_wing_left",
@@ -368,8 +428,7 @@ def _clear_section_reservation(dwg) -> None:
 
 def _reserve_section_row(dwg, a: Analysis, section, *, ctx) -> None:
     """Reserve the section A–A cutting-plane arrows' row BEFORE the plan-view hole
-    callouts place (ADR 0009 P5 strand 3, burns down the ``bracket`` fixture's
-    ``hc_plan0``/``section_arrow_right`` overlap in ``tests/test_layout_cleanliness.py``).
+    callouts place (ADR 0009 P5 strand 3).
 
     ``_add_section_view`` runs last deliberately (its own room check clears
     everything already placed) — so until now, the plan-view hole-callout carve's
@@ -378,8 +437,10 @@ def _reserve_section_row(dwg, a: Analysis, section, *, ctx) -> None:
     placeholder early (the arrows' actual row, at the un-widened part-bbox extent —
     the bolt-circle widening in ``_add_section_view`` depends on furniture
     ``_annotate_holes`` hasn't placed yet either, so it is not yet knowable) gives
-    the carve a real obstacle to avoid; ``_add_section_view`` replaces it with the
-    final, possibly-wider geometry once that furniture exists.
+    the early carve a real obstacle to avoid. Required late feature leaders are
+    not vetoed by this optional reservation; ``_add_section_view`` replaces it
+    with the final, possibly-wider ink, validates that ink against landed
+    leaders, and yields the section on a conflict.
 
     A no-op when *section* is ``None`` (no section triggers) — nothing is reserved,
     and ``_add_section_view`` is never called either.
@@ -397,14 +458,19 @@ def _reserve_section_row(dwg, a: Analysis, section, *, ctx) -> None:
     PX, PY = a.proj.plan_x, a.proj.plan_y
     y_page = PY(section.cut_y)
     x0, x1 = PX(a.bb.min.X) - 4, PX(a.bb.max.X) + 4
+    ctx.place(
+        Centerline((x0, y_page, 0), (x1, y_page, 0)),
+        "section_line_reservation",
+    )
     _add_cutting_plane_arrows(dwg, y_page, x0, x1, ctx=ctx)
     _add_section_letters(dwg, y_page, x0, x1, ctx=ctx)
-    # These are provisional geometry, not committed annotation requirements.
-    # Early strip placement sees them and relocates cheaply when it can, while
-    # the late #1166 feature-leader inventory may retain a required callout and
-    # let the optional section yield under Policy B.  The final section pass
-    # replaces the same names with ordinary, non-provisional annotations.
+    # These are provisional geometry rather than final annotation objects. The
+    # row is hard future ink for clear alternatives; if a required leader must
+    # retain its producer floor across it under Policy B, the optional section
+    # yields. Otherwise the final pass replaces the same names with ordinary,
+    # non-provisional annotations without re-solving around late leaders.
     for name in (
+        "section_line_reservation",
         "section_arrow_left",
         "section_arrow_right",
         "section_wing_left",

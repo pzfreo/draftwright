@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from itertools import chain, islice, tee
 from typing import Any
 
@@ -87,6 +87,18 @@ class _MeasuredLeaderCandidate:
     label_box: tuple[float, float, float, float] | None
     segments: tuple[tuple[tuple[float, float], tuple[float, float]], ...]
     ink_polygons: tuple[tuple[tuple[float, float], ...], ...]
+
+
+@dataclass(frozen=True)
+class _FixedInkComponent:
+    """One rendered fixed-annotation component with a stable trace identity."""
+
+    name: str
+    polygons: tuple[tuple[tuple[float, float], ...], ...] = ()
+    box: tuple[float, float, float, float] | None = None
+    owner: Any = None
+    kind: str = ""
+    segment: tuple[tuple[float, float], tuple[float, float]] | None = None
 
 
 def collect_feature_leader(ctx, job: FeatureLeaderJob) -> bool:
@@ -233,12 +245,56 @@ def _geometry_matches(candidate: _MeasuredLeaderCandidate, annotation, *, tol=1e
     )
 
 
+def _point_in_convex_component(point, polygon, *, tol=1e-6) -> bool:
+    signs = []
+    for first, second in zip(polygon, (*polygon[1:], polygon[0]), strict=True):
+        cross = (second[0] - first[0]) * (point[1] - first[1]) - (second[1] - first[1]) * (
+            point[0] - first[0]
+        )
+        if abs(cross) > tol:
+            signs.append(cross > 0.0)
+    return not signs or all(sign == signs[0] for sign in signs)
+
+
+def _rendered_ink_matches(candidate: _MeasuredLeaderCandidate, annotation, *, tol=1e-6) -> bool:
+    """Validate the selected OCC survivor against its analytical ink contract.
+
+    Metadata parity alone cannot detect a helper change to arrow flare or stroke
+    width.  Sample every rendered face boundary after the one selected Leader is
+    built and require it to remain inside either the measured label box or the
+    candidate's shaft/shelf/arrow components. Candidate exploration remains pure
+    arithmetic; only the bounded survivor pays this OCC validation cost.
+    """
+
+    def covered(point):
+        label = candidate.label_box
+        if label is not None and (
+            label[0] - tol <= point[0] <= label[2] + tol
+            and label[1] - tol <= point[1] <= label[3] + tol
+        ):
+            return True
+        return any(
+            _point_in_convex_component(point, polygon, tol=tol)
+            for polygon in candidate.ink_polygons
+        )
+
+    try:
+        for edge in annotation.edges():
+            for position in edge.positions((0.0, 0.25, 0.5, 0.75, 1.0)):
+                if not covered((float(position.X), float(position.Y))):
+                    return False
+    except Exception:  # noqa: BLE001 — optional placement must fail closed
+        return False
+    return True
+
+
 def _materialize(dwg, job: FeatureLeaderJob, candidate: _MeasuredLeaderCandidate):
     annotation = candidate.annotation
-    if annotation is not None:
-        return annotation
-    annotation = job.build(candidate.tip, candidate.elbow, candidate.feature)
-    if not _geometry_matches(candidate, annotation):
+    if annotation is None:
+        annotation = job.build(candidate.tip, candidate.elbow, candidate.feature)
+        if not _geometry_matches(candidate, annotation):
+            return None
+    if not _rendered_ink_matches(candidate, annotation):
         return None
     # Seed the Drawing's shared OCC-box memo with the one rendered survivor.
     # Candidate evaluation remains arithmetic; lint can reuse this validation
@@ -247,7 +303,60 @@ def _materialize(dwg, job: FeatureLeaderJob, candidate: _MeasuredLeaderCandidate
     return annotation
 
 
-def _fixed_blockers(candidate, job, page, named_obstacles) -> tuple[str, ...]:
+def _candidate_hits_component(
+    candidate: _MeasuredLeaderCandidate,
+    component: _FixedInkComponent,
+) -> bool:
+    if (
+        component.kind in {"CenterMark", "CenterlineCircle"}
+        and component.owner is not None
+        and component.owner is resolve_feature(candidate.feature)
+    ):
+        # A feature leader intentionally originates inside its own centre
+        # furniture; unrelated centre furniture remains fixed ink (#305).
+        return False
+    if (
+        component.kind == "Centerline"
+        and component.owner is None
+        and component.segment is not None
+    ):
+        first, second = component.segment
+        sx, sy = second[0] - first[0], second[1] - first[1]
+        length_squared = sx * sx + sy * sy
+        if length_squared > 1e-12:
+            tx = candidate.tip[0] - first[0]
+            ty = candidate.tip[1] - first[1]
+            station = (tx * sx + ty * sy) / length_squared
+            nearest = (first[0] + station * sx, first[1] + station * sy)
+            on_segment = (
+                -1e-9 <= station <= 1.0 + 1e-9
+                and math.hypot(candidate.tip[0] - nearest[0], candidate.tip[1] - nearest[1])
+                <= 1e-6
+            )
+            lx = candidate.elbow[0] - candidate.tip[0]
+            ly = candidate.elbow[1] - candidate.tip[1]
+            non_collinear = abs(lx * sy - ly * sx) > 1e-9
+            if on_segment and non_collinear:
+                # A turned-feature leader may truthfully originate on the
+                # global axis centreline.  The local arrow/line junction is an
+                # attachment, not an unrelated crossing; collinear travel is
+                # still blocked, as is centre furniture away from the tip.
+                return False
+    if component.box is not None:
+        return _ink_hits_box(candidate, component.box)
+    if candidate.label_box is not None and any(
+        _convex_polygon_overlaps_box(polygon, candidate.label_box)
+        for polygon in component.polygons
+    ):
+        return True
+    return any(
+        _convex_polygons_overlap(candidate_polygon, fixed_polygon)
+        for candidate_polygon in candidate.ink_polygons
+        for fixed_polygon in component.polygons
+    )
+
+
+def _fixed_blockers(candidate, job, page, fixed_components) -> tuple[str, ...]:
     blockers = []
     label = candidate.label_box
     if label is None:
@@ -257,8 +366,208 @@ def _fixed_blockers(candidate, job, page, named_obstacles) -> tuple[str, ...]:
             blockers.append("page")
         if _boxes_overlap(label, job.silhouette):
             blockers.append(f"view:{job.view}:silhouette")
-    blockers.extend(name for name, box in named_obstacles if _ink_hits_box(candidate, box))
+    blockers.extend(
+        component.name
+        for component in fixed_components
+        if _candidate_hits_component(candidate, component)
+    )
     return tuple(dict.fromkeys(blockers))
+
+
+def _line_intersection(first, second, third, fourth):
+    """Intersection of two infinite page-plane lines, or ``None`` when parallel."""
+
+    ax, ay = first
+    bx, by = second
+    cx, cy = third
+    dx, dy = fourth
+    denominator = (ax - bx) * (cy - dy) - (ay - by) * (cx - dx)
+    if abs(denominator) <= 1e-12:
+        return None
+    determinant_ab = ax * by - ay * bx
+    determinant_cd = cx * dy - cy * dx
+    return (
+        (determinant_ab * (cx - dx) - (ax - bx) * determinant_cd) / denominator,
+        (determinant_ab * (cy - dy) - (ay - by) * determinant_cd) / denominator,
+    )
+
+
+def _dimension_arrow_components(name, annotation, segments, draft):
+    """Analytical arrow ink for a rendered helpers ``Dimension``.
+
+    Helpers expose the two dimension-line pieces first and the witness strokes
+    afterwards.  Their intersections are the arrow tips; the nearest line-piece
+    centre points toward each head's rendered base.  The shared #367 containing
+    triangle covers all supported ``HeadType`` variants without inflating the
+    complete witness corridor.
+    """
+
+    if type(annotation).__name__ != "Dimension" or len(segments) < 4:
+        return ()
+    dimension_lines = segments[:2]
+    witnesses = segments[2:4]
+    components = []
+    for index, witness in enumerate(witnesses):
+        tip = _line_intersection(*dimension_lines[0], *witness)
+        if tip is None:
+            continue
+        centres = tuple(
+            ((first[0] + second[0]) / 2.0, (first[1] + second[1]) / 2.0)
+            for first, second in dimension_lines
+        )
+        centre = min(centres, key=lambda point: math.hypot(point[0] - tip[0], point[1] - tip[1]))
+        dx, dy = centre[0] - tip[0], centre[1] - tip[1]
+        length = math.hypot(dx, dy)
+        if length <= 1e-12:
+            continue
+        elbow = (
+            tip[0] + dx / length * draft.arrow_length,
+            tip[1] + dy / length * draft.arrow_length,
+        )
+        arrow = _leader_ink_polygons(
+            tip,
+            elbow,
+            arrow_length=draft.arrow_length,
+            line_width=0.0,
+        )
+        if arrow:
+            components.append(_FixedInkComponent(f"{name}:arrow:{index}", polygons=(arrow[-1],)))
+    return tuple(components)
+
+
+def _annotation_fixed_ink(dwg, name, annotation):
+    """Exact-width fixed ink components for one already-rendered annotation."""
+
+    segments = _segments(annotation)
+    components = []
+    owner = dwg.registry.feature_of(name)
+    kind = type(annotation).__name__
+    line_width = (
+        0.15 if kind in {"CenterMark", "Centerline", "CenterlineCircle"} else dwg.draft.line_width
+    )
+    for index, polygon in enumerate(getattr(annotation, "fixed_ink_polygons", ()) or ()):
+        try:
+            points = tuple((float(point[0]), float(point[1])) for point in polygon)
+        except (TypeError, ValueError, IndexError):
+            continue
+        if len(points) >= 3:
+            components.append(
+                _FixedInkComponent(
+                    f"{name}:ink:{index}",
+                    polygons=(points,),
+                    owner=owner,
+                    kind=kind,
+                )
+            )
+    if type(annotation).__name__ == "Leader" and segments:
+        components.append(
+            _FixedInkComponent(
+                f"{name}:segment:0",
+                polygons=_leader_ink_polygons(
+                    segments[0][0],
+                    segments[0][1],
+                    arrow_length=dwg.draft.arrow_length,
+                    line_width=dwg.draft.line_width,
+                ),
+                owner=owner,
+                kind=kind,
+            )
+        )
+        segment_start = 1
+    else:
+        segment_start = 0
+    for index, (first, second) in enumerate(segments[segment_start:], start=segment_start):
+        polygon = _stroke_polygon(first, second, line_width)
+        if polygon is not None:
+            components.append(
+                _FixedInkComponent(
+                    f"{name}:segment:{index}",
+                    polygons=(polygon,),
+                    owner=owner,
+                    kind=kind,
+                    segment=(first, second),
+                )
+            )
+    components.extend(
+        replace(component, owner=owner, kind=kind)
+        for component in _dimension_arrow_components(name, annotation, segments, dwg.draft)
+    )
+    label = _label_box(annotation)
+    if label is not None:
+        components.append(_FixedInkComponent(f"{name}:label", box=label, owner=owner, kind=kind))
+    if not components:
+        geometry = _geom_box(annotation, getattr(dwg, "box_cache", None))
+        if geometry is not None:
+            components.append(
+                _FixedInkComponent(f"{name}:geometry", box=geometry, owner=owner, kind=kind)
+            )
+    return tuple(components)
+
+
+def _fixed_annotation_obstacles(dwg, view, *, provisional: bool = False):
+    """Decomposed fixed ink with stable component-level trace identities.
+
+    Strip occupancy deliberately pads witness boxes for lane carving.  That is
+    not collision truth: #1166 needs actual line-width strokes, local arrow ink,
+    rendered labels, and the exact component identity that rejected a leader.
+    Leaders also avoid centre furniture; ``CROSSABLE_TYPES`` is a dimension-only
+    exemption and must not leak into this inventory.
+    """
+
+    for name, annotation in dwg.iter_annotations():
+        owner = dwg.view_of(name)
+        if owner is not None and owner != view:
+            continue
+        if bool(getattr(annotation, "is_provisional_layout_reservation", False)) != provisional:
+            continue
+        yield from _annotation_fixed_ink(dwg, name, annotation)
+
+
+def feature_leader_fixed_conflicts(dwg, fixed_names) -> tuple[tuple[str, str], ...]:
+    """Exact rendered-ink conflicts between landed Leaders and named fixed ink."""
+
+    fixed = tuple(
+        component
+        for name in fixed_names
+        if name in dwg.annotations()
+        for component in _annotation_fixed_ink(dwg, name, dwg.get_annotation(name))
+    )
+    conflicts: list[tuple[str, str]] = []
+    for name, annotation in dwg.iter_annotations():
+        if type(annotation).__name__ != "Leader" or name in fixed_names:
+            continue
+        segments = _segments(annotation)
+        if not segments:
+            continue
+        tip, elbow = segments[0]
+        primary = _leader_ink_polygons(
+            tip,
+            elbow,
+            arrow_length=dwg.draft.arrow_length,
+            line_width=dwg.draft.line_width,
+        )
+        shelves = tuple(
+            polygon
+            for first, second in segments[1:]
+            if (polygon := _stroke_polygon(first, second, dwg.draft.line_width)) is not None
+        )
+        candidate = _MeasuredLeaderCandidate(
+            annotation,
+            tip,
+            elbow,
+            dwg.registry.feature_of(name),
+            0,
+            0.0,
+            _label_box(annotation),
+            segments,
+            (*primary, *shelves),
+        )
+        conflicts.extend(
+            (name, component.name)
+            for component in fixed
+            if _candidate_hits_component(candidate, component)
+        )
+    return tuple(conflicts)
 
 
 def drain_feature_leaders(dwg, analysis, ctx) -> int:
@@ -298,8 +607,8 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
         raw_jobs.append(iter(joint))
         fallback_jobs.append(iter(fallback))
 
-    def fixed_obstacles() -> dict[str, tuple[tuple[str, tuple[float, float, float, float]], ...]]:
-        """Committed obstacles only; optional provisional rows yield to facts."""
+    def fixed_obstacles() -> dict[str, tuple[_FixedInkComponent, ...]]:
+        """Complete committed fixed ink; optional future furniture is excluded."""
 
         title_block = (
             analysis.PAGE_W - analysis.TB_W - _TB_CLEAR,
@@ -308,24 +617,23 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
             _TB_CLEAR + _TB_H,
         )
         title_reservation = (
-            () if "title_block" in dwg.annotations() else (("title_block:reserved", title_block),)
+            ()
+            if "title_block" in dwg.annotations()
+            else (_FixedInkComponent("title_block:reserved", box=title_block),)
         )
         return {
             view: (
                 *title_reservation,
-                *(
-                    (name, box)
-                    for name, box in strip_obstacles(
-                        dwg,
-                        view=view,
-                        crossable=CROSSABLE_TYPES,
-                        named=True,
-                    )
-                    if not getattr(
-                        dwg.get_annotation(name), "is_provisional_layout_reservation", False
-                    )
-                ),
+                *_fixed_annotation_obstacles(dwg, view),
             )
+            for view in dict.fromkeys(job.view for job in jobs)
+        }
+
+    def provisional_obstacles() -> dict[str, tuple[_FixedInkComponent, ...]]:
+        """Optional future ink used only by a bounded secondary preference."""
+
+        return {
+            view: tuple(_fixed_annotation_obstacles(dwg, view, provisional=True))
             for view in dict.fromkeys(job.view for job in jobs)
         }
 
@@ -454,6 +762,8 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
         priority=0.0,
         penalty=0,
         cost=0.0,
+        provisional_refinement="not_attempted",
+        provisional_penalty=0,
     ):
         for event in [shared_event, *noun_events.values()]:
             if event is not None:
@@ -464,17 +774,19 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
                         "states": states,
                         "fixed_probes": fixed_probes,
                         "pair_probes": pair_probes,
+                        "provisional_refinement": provisional_refinement,
                         "inventory_jobs": len(jobs),
                         "objective": {
                             "placed": placed,
                             "priority": priority,
                             "penalty": penalty,
+                            "provisional_penalty": provisional_penalty,
                             "cost": cost,
                         },
                     }
                 )
 
-    def greedy(reason, prepared=None, rejected=None, *, fixed_probes=0, pair_probes=0) -> int:
+    def greedy(reason, *, fixed_probes=0, pair_probes=0) -> int:
         """Deterministic first-clear floor in original stage/job order."""
 
         placed_count = 0
@@ -482,25 +794,34 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
         total_penalty = 0
         total_cost = 0.0
         fixed = fixed_obstacles()
+        legacy_boxes = {
+            view: tuple(
+                strip_obstacles(
+                    dwg,
+                    view=view,
+                    # Producer fallback replays the pre-#1166 acceptance floor;
+                    # exact blockers below still persist any retained crossing.
+                    crossable=CROSSABLE_TYPES,
+                )
+            )
+            for view in dict.fromkeys(job.view for job in jobs)
+        }
         for job_index, job in enumerate(jobs):
             obstacle_count = len(fixed[job.view])
-            blockers_by_raw = list(rejected[job_index]) if rejected is not None else []
-            raw_count = max((raw_index + 1 for raw_index, _ in blockers_by_raw), default=0)
+            blockers_by_raw = []
+            raw_count = 0
             selected = None
             selected_policy_b: tuple[str, ...] = ()
             inventory = []
-            source = prepared[job_index] if prepared is not None else None
-            if source is None:
-                source = (
-                    _measure(raw_index, raw, job, dwg.draft)
-                    for raw_index, raw in enumerate(fallback_jobs[job_index])
-                )
+            source = (
+                _measure(raw_index, raw, job, dwg.draft)
+                for raw_index, raw in enumerate(fallback_jobs[job_index])
+            )
             for candidate in source:
                 raw_count = max(raw_count, candidate.raw_index + 1)
                 blockers = _fixed_blockers(candidate, job, page, fixed[job.view])
-                obstacles = tuple(box for _name, box in fixed[job.view])
                 accepted = (
-                    job.fallback_accept(candidate, obstacles, page)
+                    job.fallback_accept(candidate, legacy_boxes[job.view], page)
                     if job.fallback_accept is not None
                     else not blockers
                 )
@@ -527,7 +848,6 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
                     raw_count,
                     blockers_by_raw,
                     obstacle_count=obstacle_count,
-                    viable_count=len(source) if isinstance(source, list) else None,
                     candidate_inventory=inventory,
                     reason="no_clear_room",
                 )
@@ -536,7 +856,11 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
             record_policy_b(job_index, selected_policy_b)
             fixed[job.view] = (
                 *fixed[job.view],
-                *((job.name, box) for box in annotation_obstacle_boxes(dwg, annotation)),
+                *_annotation_fixed_ink(dwg, job.name, annotation),
+            )
+            legacy_boxes[job.view] = (
+                *legacy_boxes[job.view],
+                *annotation_obstacle_boxes(dwg, annotation),
             )
             record_item(
                 job_index,
@@ -544,7 +868,6 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
                 raw_count,
                 blockers_by_raw,
                 obstacle_count=obstacle_count,
-                viable_count=len(source) if isinstance(source, list) else None,
                 policy_b_blockers=selected_policy_b,
                 candidate_inventory=inventory,
             )
@@ -659,6 +982,71 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
             fixed_probes=fixed_probe_bound,
             pair_probes=pair_probes,
         )
+    assignment_states = assignment.states
+
+    # Optional section furniture must never veto a required feature leader.
+    # Once the primary committed-ink assignment is proven optimal, however, a
+    # second bounded solve may prefer an equally complete/important result that
+    # leaves the provisional section row clear.  Encode the established fixed
+    # penalty as the major component so the refinement cannot trade a real
+    # dimension/witness crossing for future optional furniture.  If either the
+    # probe or exact-search budget is exhausted, retain the primary result.
+    provisional = provisional_obstacles()
+    provisional_probe_bound = sum(
+        len(candidates) * len(provisional[job.view])
+        for job, candidates in zip(jobs, viable_by_job, strict=True)
+    )
+    provisional_refinement = "not_needed"
+    provisional_blockers_by_job: list[list[tuple[str, ...]]] = [
+        [() for _candidate in candidates] for candidates in viable_by_job
+    ]
+    if provisional_probe_bound and (
+        fixed_probe_bound + provisional_probe_bound <= _FEATURE_LEADER_MAX_FIXED_PROBES
+    ):
+        provisional_blockers_by_job = [
+            [
+                tuple(
+                    component.name
+                    for component in provisional[job.view]
+                    if _candidate_hits_component(candidate, component)
+                )
+                for candidate in candidates
+            ]
+            for job, candidates in zip(jobs, viable_by_job, strict=True)
+        ]
+        max_provisional_penalty = 1 + sum(
+            max((len(blockers) for blockers in job_blockers), default=0)
+            for job_blockers in provisional_blockers_by_job
+        )
+        refined = _assign_leader_candidates(
+            [[candidate.cost for candidate in candidates] for candidates in viable_by_job],
+            conflicts,
+            priorities=[job.priority for job in jobs],
+            penalties_by_job=[
+                [
+                    len(fixed_blockers) * max_provisional_penalty + len(provisional_blockers)
+                    for fixed_blockers, provisional_blockers in zip(
+                        fixed_job_blockers,
+                        provisional_job_blockers,
+                        strict=True,
+                    )
+                ]
+                for fixed_job_blockers, provisional_job_blockers in zip(
+                    policy_blockers_by_job,
+                    provisional_blockers_by_job,
+                    strict=True,
+                )
+            ],
+        )
+        if refined.optimal:
+            assignment = refined
+            assignment_states += refined.states
+            provisional_refinement = "selected"
+        else:
+            assignment_states += refined.states
+            provisional_refinement = "state_budget_retained_primary"
+    elif provisional_probe_bound:
+        provisional_refinement = "probe_budget_retained_primary"
     chosen = {
         (job_index, choice)
         for job_index, choice in enumerate(assignment.choices)
@@ -720,6 +1108,11 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
         for job_index, choice in enumerate(final_choices)
         if choice is not None
     )
+    objective_provisional_penalty = sum(
+        len(provisional_blockers_by_job[job_index][choice])
+        for job_index, choice in enumerate(final_choices)
+        if choice is not None
+    )
 
     def joint_inventory(job_index):
         rejected = dict(rejected_by_job[job_index])
@@ -749,18 +1142,29 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
             else:
                 status = "objective_rejected"
             entries.append(candidate_entry(candidate, status, fixed_blockers, conflicts_with))
+            if provisional_blockers_by_job[job_index][index]:
+                entries[-1]["provisional_blockers"] = list(
+                    provisional_blockers_by_job[job_index][index]
+                )
         return entries
 
     set_assignment(
-        "joint" if assignment.optimal else "joint_budget_incumbent",
-        optimal=assignment.optimal,
-        states=assignment.states,
-        fixed_probes=fixed_probe_bound,
+        "joint",
+        optimal=True,
+        states=assignment_states,
+        fixed_probes=fixed_probe_bound
+        + (
+            provisional_probe_bound
+            if provisional_refinement not in {"not_needed", "probe_budget_retained_primary"}
+            else 0
+        ),
         pair_probes=pair_probes,
         placed=sum(choice is not None for choice in final_choices),
         priority=objective_priority,
         penalty=objective_penalty,
+        provisional_penalty=objective_provisional_penalty,
         cost=objective_cost,
+        provisional_refinement=provisional_refinement,
     )
     placed_count = 0
     for job_index, choice in enumerate(final_choices):
@@ -778,8 +1182,6 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
                     "geometry_validation"
                     if job_index in geometry_failures
                     else "assignment_conflict"
-                    if assignment.optimal and viable_by_job[job_index]
-                    else "bounded_search_incumbent"
                     if viable_by_job[job_index]
                     else "no_clear_room"
                 ),

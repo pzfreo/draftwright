@@ -97,8 +97,11 @@ entry. Keep `_LAYERS` and this section in step.
   - **`annotations/leaders.py`** — the one bounded late inventory for compatible
   automatic/deferred same-view feature leaders (#1166): sparse ordinary
   side/plan hole jobs and the five post-drain machined-feature families lower
-  exact ink conflicts, priorities, Policy-B penalties, and numeric costs into
-  `layout.py`, then emit selected annotations with their original provenance;
+  exact committed component ink conflicts (including centre furniture),
+  priorities, Policy-B penalties, and numeric costs into `layout.py`; optional
+  sections enter only a separately bounded no-worse refinement, then validate
+  their final ink against landed leaders, repair one end-symbol extent, and yield on conflict,
+  then validate the selected OCC ink and emit it with its original provenance;
   any retained fixed-ink Policy-B crossing persists as
   `feature_leader_crossing`, independently of opt-in tracing.
   - **`annotations/sections.py`** — section A–A + detail views (ISO 128-44 arrows,

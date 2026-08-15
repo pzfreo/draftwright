@@ -68,17 +68,16 @@ _KNOWN_OVERLAPS: dict[str, set[frozenset[str]]] = {
     #    standard ISO 129-1 running-dimension presentation. Distinguishing shared
     #    witness corridors from a genuine collinear dim-line overprint needs
     #    semantic stroke roles helpers does not expose (possible follow-up).
-    #  - POLICY-B ARROW CROSSINGS (bracket): hc_plan0's wide label straddles the
-    #    thin section arrow on the plan centre row; hc_plan1's DIAGONAL shaft AABB
-    #    clips the same arrow by <1 mm (the placer verifies the diagonal precisely).
     # dshape's dim_height pair, post-#690: the witness-through-label defect is
     # FIXED (reconcile_witness_labels shifts the height label clear of the loc
     # dim's crossing witness). The pair remains observed through their SHARED
     # DATUM WITNESS (both anchor y=81, the common base edge) — the same BENIGN
     # running-dimension corridor as plate_holes/holed_slot above.
     "bracket": {
-        frozenset({"hc_plan0", "section_arrow_right"}),
-        frozenset({"hc_plan1", "section_arrow_right"}),
+        # The structural oracle compares full annotation AABBs here.  The
+        # diagonal shaft and straight section head are polygon-disjoint; the
+        # final exact-ink preflight is the authoritative #1166 check.
+        frozenset({"hc_plan0", "section_arrow_left"}),
         frozenset({"m_locx0", "m_locx1"}),
         frozenset({"m_locy0", "m_locy1"}),
     },

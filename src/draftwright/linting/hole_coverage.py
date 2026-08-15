@@ -15,7 +15,7 @@ from typing import Literal
 from b123d_recognisers import HoleSpec, RecognitionResult, countersink_matches_hole
 
 from draftwright._geometry import _is_principal_axis
-from draftwright.linting.issues import LintIssue
+from draftwright.linting.issues import LintIssue, is_placement_drop
 
 HoleRequirementState = Literal["placed", "suppressed", "dropped", "missing", "unverifiable"]
 HoleSourceKind = Literal["hole", "hole_pattern"]
@@ -561,6 +561,7 @@ def _index_hole_evidence(registry) -> _HoleEvidence:
     dropped = {
         (feature, parameter)
         for issue in registry.issues
+        if is_placement_drop(issue)
         for measurement in getattr(issue, "measurement_ids", ())
         for feature, parameter in (
             (getattr(measurement, "feature", None), getattr(measurement, "parameter", None)),
@@ -570,6 +571,7 @@ def _index_hole_evidence(registry) -> _HoleEvidence:
     dropped.update(
         (feature, parameter)
         for issue in registry.issues
+        if is_placement_drop(issue)
         for feature, parameter in getattr(issue, "hole_requirement_ids", ())
     )
     return _HoleEvidence(

@@ -31,7 +31,7 @@ from collections import Counter
 from draftwright.linting.channel_coverage import channel_requirement_outcomes
 from draftwright.linting.flat_coverage import flat_requirement_outcomes
 from draftwright.linting.hole_coverage import hole_requirement_outcomes
-from draftwright.linting.issues import LintIssue
+from draftwright.linting.issues import LintIssue, is_placement_drop
 from draftwright.linting.polygonal_stock_coverage import polygonal_stock_outcomes
 from draftwright.linting.slot_coverage import slot_requirement_outcomes
 
@@ -64,7 +64,7 @@ _LEGIBILITY_CODES = frozenset(
 # against legibility on the day it is introduced instead of scoring as perfectly legible
 # until somebody notices (#1127 review). The two codes that cannot be read off their suffix
 # (``gdt_dropped``/``pmi_dropped``, which cover validation failures too) carry an explicit
-# ``outcome_stage`` from their producers instead; see ``_is_placement_drop``.
+# ``outcome_stage`` from their producers instead; see ``is_placement_drop``.
 
 # Recognition inventories that represent potentially dimension-bearing physical families.
 _RECOGNISED_REQUIREMENT_FAMILIES = {
@@ -123,22 +123,8 @@ _EXCLUDES = (
 _UNRECOGNISED_GEOMETRY_CODE = "unrecognised_defining_geometry"
 
 
-def _is_placement_drop(issue) -> bool:
-    """Whether this issue reports a valid annotation candidate that did not land.
-
-    ``gdt_dropped`` and ``pmi_dropped`` each cover both malformed input and a candidate that
-    simply did not fit, so their producers attach an explicit ``outcome_stage``; that always
-    decides. Every other drop is read off the code suffix, which fails closed — an
-    unclassified new drop code is counted as a lost annotation rather than ignored.
-    """
-    stage = getattr(issue, "outcome_stage", None)
-    if stage is not None:
-        return bool(stage == "placement")
-    return bool(issue.code.endswith("_dropped"))
-
-
 def _is_legibility_issue(issue) -> bool:
-    return issue.code in _LEGIBILITY_CODES or _is_placement_drop(issue)
+    return issue.code in _LEGIBILITY_CODES or is_placement_drop(issue)
 
 
 _SEVERITY_RANK = {"info": 0, "warning": 1, "error": 2}
@@ -170,7 +156,7 @@ def _issue_component(
     errors = sum(issue.severity == "error" for issue in issues)
     warnings = sum(issue.severity == "warning" for issue in issues)
     infos = sum(issue.severity == "info" for issue in issues)
-    placement_drops = sum(_is_placement_drop(issue) for issue in issues)
+    placement_drops = sum(is_placement_drop(issue) for issue in issues)
     by_code = Counter(issue.code for issue in issues)
     primary = _primary_issues(issues, aggregation)
     primary_errors = sum(issue.severity == "error" for issue in primary)

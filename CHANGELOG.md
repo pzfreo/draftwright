@@ -25,13 +25,19 @@
   their specialised established paths because their winners affect downstream
   furniture/table semantics or await #798 silhouette-aware routing. The solve
   preserves required/priority-ranked evidence, rejects new-leader crossings,
-  checks complete leader ink against fixed dimension/witness strokes, prefers
+  checks complete leader ink against actual-width fixed dimension/witness,
+  arrow, label, and centre-furniture components, prefers
   clear routes over explicit Policy-B fallbacks, and then minimises real leader
-  length. A retained fixed-ink crossing now emits the machine-readable
+  length. Provisional sections cannot veto that primary result: one separately
+  bounded refinement may choose an equally complete leader inventory that clears
+  their exact components, after which the final section performs one bounded
+  end-symbol repair and yields if exact ink still conflicts. The selected OCC survivor is validated against the same analytical
+  ink contract. A retained fixed-ink crossing now emits the machine-readable
   `feature_leader_crossing` info finding instead of appearing lint-clean. Candidate,
   fixed-obstacle-probe, pair, and exact-search work is bounded with the producer's
   legacy lazy result as the floor, including state-cap exhaustion. Trace output
-  records every bounded candidate and names fixed/competing blockers; live
+  records every bounded candidate and names exact committed/provisional components,
+  refinement status, and competing blockers; live
   single-callout edits remain immediate.
 
 ## v0.4.6 — 2026-08-15

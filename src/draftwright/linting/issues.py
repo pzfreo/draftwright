@@ -42,6 +42,15 @@ class LintIssue:
     hole_requirement_ids: tuple = ()
 
 
+def is_placement_drop(issue: LintIssue) -> bool:
+    """Whether *issue* says a valid annotation candidate did not land."""
+
+    stage = issue.outcome_stage
+    if stage is not None:
+        return bool(stage == "placement")
+    return bool(issue.code.endswith("_dropped"))
+
+
 class _IssueAggregation:
     """Summary-scoped side ledger for pairwise score grouping (#1147).
 
