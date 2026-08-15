@@ -5,8 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import b123d_recognisers as external
-import tomllib
 from build123d import Box
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10
+    import tomli as tomllib
 
 import draftwright.recognition as compatibility
 from draftwright.recognition_cache import RecognitionCache

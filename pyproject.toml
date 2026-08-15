@@ -164,6 +164,7 @@ dev = [
     "pytest-timeout>=2",
     "pytest-xdist>=3",
     "ruff>=0.4",
+    "tomli>=2; python_version < '3.11'",
 ]
 
 [tool.codespell]
