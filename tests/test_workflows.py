@@ -94,6 +94,20 @@ def test_slow_gate_distributes_individual_cases_instead_of_serialising_modules()
     ]
 
 
+def test_project_coverage_allows_only_a_small_refactor_fluctuation():
+    """Deleting above-average covered modules must not block a tested extraction."""
+    policy = (ROOT / "codecov.yml").read_text(encoding="utf-8")
+
+    assert policy == (
+        "coverage:\n"
+        "  status:\n"
+        "    project:\n"
+        "      default:\n"
+        "        target: auto\n"
+        "        threshold: 0.5%\n"
+    )
+
+
 def test_testpypi_snapshot_build_and_publish_share_one_job():
     workflow = _workflow("publish.yml")
     snapshot = _job(workflow, "publish-testpypi")
