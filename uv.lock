@@ -706,7 +706,7 @@ wheels = [
 
 [[package]]
 name = "draftwright"
-version = "0.4.6.dev0"
+version = "0.4.7.dev0"
 source = { editable = "." }
 dependencies = [
     { name = "antlr4-python3-runtime" },
