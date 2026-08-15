@@ -4,13 +4,13 @@ from collections import Counter
 from pathlib import Path
 
 import pytest
+from b123d_recognisers import RaisedPad, recognise_rectangular_pads
 from build123d import import_step
 
 from draftwright import Drawing, build_drawing
 from draftwright.drawing import feature_key
 from draftwright.model import PadFeature
 from draftwright.model.compiled import compile_dimensions
-from draftwright.recognition import RaisedPad, recognise_rectangular_pads
 from draftwright.sheet_emit import generate_sheet_script
 
 _ISSUE_909 = Path(__file__).parent / "fixtures" / "issue_909_basic_part_design_017_body.step"

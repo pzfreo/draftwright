@@ -12,9 +12,10 @@ from dataclasses import dataclass
 from math import hypot
 from typing import Literal
 
+from b123d_recognisers import HoleSpec, RecognitionResult, countersink_matches_hole
+
 from draftwright._geometry import _is_principal_axis
 from draftwright.linting.issues import LintIssue
-from draftwright.recognition import HoleSpec, RecognitionResult, countersink_matches_hole
 
 HoleRequirementState = Literal["placed", "suppressed", "dropped", "missing", "unverifiable"]
 HoleSourceKind = Literal["hole", "hole_pattern"]

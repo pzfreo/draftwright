@@ -7,13 +7,13 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from b123d_recognisers import PolygonalBoss, recognise_polygonal_bosses
+from b123d_recognisers.polygonal_bosses import _normal
 from build123d import Box, Compound, Polygon, Pos, RegularPolygon, Rot, extrude, import_step
 
 from draftwright import build_drawing
 from draftwright.model import PolygonalBossFeature, build_part_model
 from draftwright.model.ir import RequestedDimension
-from draftwright.recognition import PolygonalBoss, recognise_polygonal_bosses
-from draftwright.recognition.polygonal_bosses import _normal
 
 CTC01 = Path(__file__).parent / "fixtures" / "nist_ctc_01_asme1_ap203.stp"
 

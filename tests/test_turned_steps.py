@@ -6,9 +6,8 @@ orientation that is not flagged Z-rotational), mirroring _x_stepped_shaft.
 """
 
 import pytest
+from b123d_recognisers import TurnedProfile, TurnedStep, recognise_turned_steps
 from build123d import Box, Cylinder, GeomType, Pos, Rotation
-
-from draftwright.recognition import TurnedProfile, TurnedStep, recognise_turned_steps
 
 
 def _shaft_x(*sections):

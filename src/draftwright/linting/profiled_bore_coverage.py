@@ -11,9 +11,10 @@ from collections import Counter
 from math import hypot, isfinite
 from typing import Literal
 
+from b123d_recognisers import RecognitionResult
+
 from draftwright._geometry import _fmt
 from draftwright.linting.issues import LintIssue
-from draftwright.recognition import RecognitionResult
 
 
 def _axis_letter(value) -> str:

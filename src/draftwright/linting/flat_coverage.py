@@ -11,9 +11,10 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Literal
 
+from b123d_recognisers import RecognitionResult
+
 from draftwright._geometry import _canonical_axis_direction
 from draftwright.linting.issues import LintIssue
-from draftwright.recognition import RecognitionResult
 
 FlatRequirementState = Literal["placed", "suppressed", "dropped", "missing", "unverifiable"]
 

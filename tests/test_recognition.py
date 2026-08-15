@@ -1,8 +1,19 @@
-"""Tests for draftwright.recognition (vendored from build123d_drafting.features) (recognise_holes / recognise_bosses, #87)."""
+"""Tests for b123d_recognisers (vendored from build123d_drafting.features) (recognise_holes / recognise_bosses, #87)."""
 
 import math
 
 import pytest
+from b123d_recognisers import (
+    BossRecord,
+    CounterBore,
+    HoleRecord,
+    HoleSpec,
+    analyse_cylinders,
+    feature_diameters,
+    full_cylinders,
+    recognise_bosses,
+    recognise_holes,
+)
 from build123d import (
     Align,
     Axis,
@@ -20,18 +31,6 @@ from build123d import (
     extrude,
     fillet,
     mirror,
-)
-
-from draftwright.recognition import (
-    BossRecord,
-    CounterBore,
-    HoleRecord,
-    HoleSpec,
-    analyse_cylinders,
-    feature_diameters,
-    full_cylinders,
-    recognise_bosses,
-    recognise_holes,
 )
 
 
@@ -518,7 +517,7 @@ class TestFindHolePatterns:
 
     @pytest.mark.timeout(60)
     def test_six_hole_bolt_circle(self):
-        from draftwright.recognition import BoltCircle, recognise_hole_patterns
+        from b123d_recognisers import BoltCircle, recognise_hole_patterns
 
         (pat,) = recognise_hole_patterns(recognise_holes(self._bc_plate()))
         assert isinstance(pat, BoltCircle)
@@ -529,7 +528,7 @@ class TestFindHolePatterns:
 
     @pytest.mark.timeout(60)
     def test_three_equally_spaced_holes_are_a_bolt_circle(self):
-        from draftwright.recognition import BoltCircle, recognise_hole_patterns
+        from b123d_recognisers import BoltCircle, recognise_hole_patterns
 
         (pat,) = recognise_hole_patterns(recognise_holes(self._bc_plate(n=3, r=25)))
         assert isinstance(pat, BoltCircle)
@@ -537,7 +536,7 @@ class TestFindHolePatterns:
 
     @pytest.mark.timeout(60)
     def test_linear_array(self):
-        from draftwright.recognition import LinearArray, recognise_hole_patterns
+        from b123d_recognisers import LinearArray, recognise_hole_patterns
 
         part = Box(120, 40, 10)
         for i in range(5):
@@ -551,7 +550,7 @@ class TestFindHolePatterns:
     @pytest.mark.timeout(60)
     def test_three_collinear_holes_are_an_array_not_a_circle(self):
         # any three points are concyclic — collinearity must win
-        from draftwright.recognition import LinearArray, recognise_hole_patterns
+        from b123d_recognisers import LinearArray, recognise_hole_patterns
 
         part = (
             Box(100, 40, 10)
@@ -564,7 +563,7 @@ class TestFindHolePatterns:
 
     @pytest.mark.timeout(60)
     def test_scattered_holes_are_no_pattern(self):
-        from draftwright.recognition import recognise_hole_patterns
+        from b123d_recognisers import recognise_hole_patterns
 
         part = (
             Box(100, 100, 10)
@@ -577,7 +576,7 @@ class TestFindHolePatterns:
 
     @pytest.mark.timeout(60)
     def test_uneven_spacing_is_not_a_bolt_circle(self):
-        from draftwright.recognition import recognise_hole_patterns
+        from b123d_recognisers import recognise_hole_patterns
 
         part = Box(100, 100, 10)
         for deg in (0, 60, 100, 240):
@@ -587,7 +586,7 @@ class TestFindHolePatterns:
 
     @pytest.mark.timeout(60)
     def test_mixed_diameters_do_not_pattern(self):
-        from draftwright.recognition import recognise_hole_patterns
+        from b123d_recognisers import recognise_hole_patterns
 
         part = Box(100, 100, 10)
         for i, r in zip(range(4), (3, 3, 4, 3), strict=True):
@@ -599,7 +598,7 @@ class TestFindHolePatterns:
     def test_rectangle_corners_are_not_a_bolt_circle(self):
         # 100×80 rectangle corners are equidistant from the centre but not
         # equally spaced (77.3°/102.7°) — must not read as EQ SP ON BC.
-        from draftwright.recognition import recognise_hole_patterns
+        from b123d_recognisers import recognise_hole_patterns
 
         part = Box(140, 120, 10)
         for sx in (-50, 50):
@@ -611,9 +610,8 @@ class TestFindHolePatterns:
     def test_axis_epsilon_noise_does_not_split_a_pattern(self):
         # Mixed construction history leaves ~1e-16 components on cross-axis
         # hole axes; the spec key snaps them so the pattern still groups.
+        from b123d_recognisers import LinearArray, recognise_hole_patterns
         from build123d import Circle, extrude
-
-        from draftwright.recognition import LinearArray, recognise_hole_patterns
 
         part = Box(20, 90, 30)
         part = part - Pos(0, -30, 0) * Cylinder(4, 20, rotation=(0, 90, 0))
@@ -625,7 +623,7 @@ class TestFindHolePatterns:
 
     @pytest.mark.timeout(60)
     def test_radius_jitter_beyond_tolerance_rejected(self):
-        from draftwright.recognition import recognise_hole_patterns
+        from b123d_recognisers import recognise_hole_patterns
 
         part = Box(100, 100, 10)
         for i, r in zip(range(5), (30, 30, 30, 32, 30), strict=True):
@@ -655,7 +653,7 @@ class TestFindHolePatterns:
         # A single drill spec used on two distinct bolt circles must produce
         # two BoltCircles, not zero (the whole spec group is no longer fitted
         # as one circle). #144
-        from draftwright.recognition import BoltCircle, recognise_hole_patterns
+        from b123d_recognisers import BoltCircle, recognise_hole_patterns
 
         part = Box(160, 80, 12)
         part = self._circle(part, 6, 20, cx=-40)
@@ -669,7 +667,7 @@ class TestFindHolePatterns:
     def test_rectangular_ring_decomposes_into_linear_arrays(self):
         # A rectangular perimeter / ring (interior empty) is reported as its
         # edge rows, not returned as zero patterns. #144
-        from draftwright.recognition import LinearArray, recognise_hole_patterns
+        from b123d_recognisers import LinearArray, recognise_hole_patterns
 
         part = Box(80, 60, 10)
         for x in (-24, 0, 24):
@@ -685,7 +683,7 @@ class TestFindHolePatterns:
 
     @pytest.mark.timeout(120)
     def test_uniform_grid_is_a_rect_grid(self):
-        from draftwright.recognition import RectGrid, recognise_hole_patterns
+        from b123d_recognisers import RectGrid, recognise_hole_patterns
 
         for nx, ny in ((3, 2), (4, 3), (4, 2)):
             part = self._grid_plate(nx, ny, px=20, py=30)
@@ -704,7 +702,7 @@ class TestFindHolePatterns:
         # LinearArray: endpoints are the farthest-apart pair, not a
         # lexicographic sort that a tiny jitter can reorder (mis-measuring the
         # span and pitch).
-        from draftwright.recognition import HoleRecord, LinearArray, recognise_hole_patterns
+        from b123d_recognisers import HoleRecord, LinearArray, recognise_hole_patterns
 
         holes = [
             HoleRecord(
@@ -723,7 +721,7 @@ class TestFindHolePatterns:
 
     @pytest.mark.timeout(120)
     def test_square_grid_pitches_equal(self):
-        from draftwright.recognition import RectGrid, recognise_hole_patterns
+        from b123d_recognisers import RectGrid, recognise_hole_patterns
 
         part = self._grid_plate(3, 3, px=25, py=25)
         (grid,) = recognise_hole_patterns(recognise_holes(part))
@@ -740,7 +738,7 @@ class TestEdgeFaceMap:
         # hashing/comparing equal across the faces meeting at it. A solid box has
         # edges shared by two faces; if Edge hashing ever regressed, each edge
         # would map to a single face and this would fail. (#150)
-        from draftwright.recognition._features import _edge_face_map
+        from b123d_recognisers._features import _edge_face_map
 
         counts = [len(faces) for faces in _edge_face_map(Box(10, 10, 10)).values()]
         assert counts and max(counts) >= 2

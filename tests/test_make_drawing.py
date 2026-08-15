@@ -10,6 +10,12 @@ from pathlib import Path
 
 import pytest
 from _kernel import B123D_GE_011, SKIP_011
+from b123d_recognisers import (
+    Slot,
+    recognise_face_levels,
+    recognise_pockets,
+    recognise_slots,
+)
 from build123d import Align, Axis, Box, Compound, Cylinder, Edge, Pos, Rotation, export_step
 from build123d_drafting import HoleCallout, Leader, ViewCoordinates, view_axes
 
@@ -25,12 +31,6 @@ from draftwright.drawing import analyse_cylinders
 from draftwright.export import _export_shape
 from draftwright.linting import LintIssue
 from draftwright.make_drawing import lint_feature_coverage
-from draftwright.recognition import (
-    Slot,
-    recognise_face_levels,
-    recognise_pockets,
-    recognise_slots,
-)
 
 _skip_011 = pytest.mark.skipif(B123D_GE_011, reason=SKIP_011)
 
@@ -550,9 +550,8 @@ class TestChamferCallout:
     def test_leader_anchors_on_the_bevel_interior_not_an_endpoint(self):
         # #621: the leader anchor must sit ON the chamfer bevel, near the middle of its run — not
         # at the supporting plane's parametric origin, which projects to an endpoint/corner.
+        from b123d_recognisers import recognise_chamfers
         from build123d import Axis, GeomType, Vertex, chamfer
-
-        from draftwright.recognition import recognise_chamfers
 
         part = chamfer(Box(60, 40, 30).edges().filter_by(Axis.Z).sort_by(Axis.X)[-1], 6)
         (ch,) = recognise_chamfers(part)
@@ -577,8 +576,9 @@ class TestChamferCallout:
         # origin was the corner (400, 175); the fix anchors on the bevel centroid (375, 200), the
         # diagonal midpoint. render_chamfers projects the in-plane X, Y, so this is what the
         # rendered leader tip actually uses.
+        from b123d_recognisers import recognise_chamfers
+
         from draftwright.analysis import _import_step
-        from draftwright.recognition import recognise_chamfers
 
         fixture = Path(__file__).parent / "fixtures" / "nist_ctc_01_asme1_ap242.stp"
         part = _import_step(str(fixture))
@@ -707,7 +707,7 @@ class TestFlatCallout:
         return bar
 
     def test_hex_reads_across_flats(self):
-        from draftwright.recognition import recognise_flats
+        from b123d_recognisers import recognise_flats
 
         flats = recognise_flats(self._hex_on_stock(9.3, 10))
         assert len(flats) == 6
@@ -716,9 +716,8 @@ class TestFlatCallout:
 
     def test_odd_polygon_falls_back_to_D_height(self):
         # Three flats 120° apart have no opposing face → each reads flat-to-opposite-OD (R+d).
+        from b123d_recognisers import recognise_flats
         from build123d import Rot
-
-        from draftwright.recognition import recognise_flats
 
         bar = Cylinder(10, 30)
         for k in range(3):
@@ -727,9 +726,8 @@ class TestFlatCallout:
         assert len(flats) == 3 and {round(f.across, 1) for f in flats} == {19.3}
 
     def test_flat_on_x_axis_stock(self):
+        from b123d_recognisers import recognise_flats
         from build123d import Rot
-
-        from draftwright.recognition import recognise_flats
 
         xbar = Rot(0, 90, 0) * Cylinder(8, 30) - Pos(0, 0, 8) * Box(40, 40, 6)
         flats = recognise_flats(xbar)
@@ -738,7 +736,7 @@ class TestFlatCallout:
 
     def test_shallow_tangent_sliver_is_not_a_flat(self):
         # A cut that barely grazes the OD (depth R − d below the min) is not a machined flat.
-        from draftwright.recognition import recognise_flats
+        from b123d_recognisers import recognise_flats
 
         grazed = Cylinder(10, 30) - Pos(10, 0, 0) * Box(0.4, 40, 40)  # depth ≈ 0.2 mm
         assert recognise_flats(grazed) == []
@@ -756,7 +754,7 @@ class TestFlatCallout:
         # A slot/recess offset to one side of the axis has a near wall whose outward normal
         # points *away* from the axis — the sign test alone would pass it. But that wall reaches
         # the OD on one end only (the other abuts the slot floor), so it is not a flat.
-        from draftwright.recognition import recognise_flats
+        from b123d_recognisers import recognise_flats
 
         recessed = Cylinder(30, 40) - Pos(20, 25, 0) * Box(10, 30, 50)
         assert recognise_flats(recessed) == []
@@ -765,7 +763,7 @@ class TestFlatCallout:
         # Two distinct z-shafts, each with one flat facing opposite ways. They share the axis
         # *letter* but not the axis *line*, so neither is the other's opposite: each reads the
         # D height (R + d = 15), not a spurious flat-to-flat (2d = 10).
-        from draftwright.recognition import recognise_flats
+        from b123d_recognisers import recognise_flats
 
         left = Cylinder(10, 30) - Pos(10, 0, 0) * Box(10, 40, 40)
         right = Pos(50, 0, 0) * (Cylinder(10, 30) - Pos(-10, 0, 0) * Box(10, 40, 40))
@@ -784,7 +782,7 @@ class TestGrooveCallout:
         return Cylinder(r, length) - (Cylinder(r, width) - Cylinder(floor_r, width))
 
     def test_single_groove_reads_width_and_diameter(self):
-        from draftwright.recognition import recognise_grooves
+        from b123d_recognisers import recognise_grooves
 
         grooves = recognise_grooves(self._grooved(8, 4, 10))
         assert len(grooves) == 1
@@ -792,7 +790,7 @@ class TestGrooveCallout:
         assert grooves[0].diameter == pytest.approx(16, abs=0.05)
 
     def test_two_grooves_on_one_shaft(self):
-        from draftwright.recognition import recognise_grooves
+        from b123d_recognisers import recognise_grooves
 
         shaft = Cylinder(10, 60)
         shaft -= Pos(0, 0, 15) * (Cylinder(10, 4) - Cylinder(8, 4))
@@ -803,19 +801,19 @@ class TestGrooveCallout:
 
     def test_monotonic_step_is_not_a_groove(self):
         # A plain stepped shaft (OD changes once, not a local minimum) has no groove.
-        from draftwright.recognition import recognise_grooves
+        from b123d_recognisers import recognise_grooves
 
         stepped = Cylinder(10, 20) + Pos(0, 0, 15) * Cylinder(6, 10)
         assert recognise_grooves(stepped) == []
 
     def test_plain_cylinder_has_no_groove(self):
-        from draftwright.recognition import recognise_grooves
+        from b123d_recognisers import recognise_grooves
 
         assert recognise_grooves(Cylinder(10, 40)) == []
 
     def test_slot_on_round_stock_is_not_a_groove(self):
         # A milled slot's walls are rectangular / radial — not the annular walls of a groove.
-        from draftwright.recognition import recognise_grooves
+        from b123d_recognisers import recognise_grooves
 
         assert recognise_grooves(Cylinder(10, 30) - Box(6, 40, 40)) == []
 
@@ -823,9 +821,8 @@ class TestGrooveCallout:
         # An alternating fine-step head (⌀ dips to a local minimum but the band is as wide as
         # its neighbours) is a stepped profile, not a channel — a groove must be NARROWER than
         # both bounding walls (#148c review: else a staircase dip is misread as a groove).
+        from b123d_recognisers import recognise_grooves
         from build123d import Align, Rotation
-
-        from draftwright.recognition import recognise_grooves
 
         b = Align.MIN
         shaft = None
@@ -839,7 +836,7 @@ class TestGrooveCallout:
     def test_grooves_on_two_parallel_shafts_are_not_confused(self):
         # Two distinct z-shafts, each with one groove. Grouped by axis *line* (not letter),
         # so their bands are never interleaved into a phantom third groove.
-        from draftwright.recognition import recognise_grooves
+        from b123d_recognisers import recognise_grooves
 
         a = Cylinder(10, 40) - (Cylinder(10, 4) - Cylinder(8, 4))
         b = Pos(40, 0, 0) * (Cylinder(10, 40) - (Cylinder(10, 4) - Cylinder(6, 4)))
@@ -895,9 +892,8 @@ class TestGrooveCallout:
         # Three coaxial butted but SEPARATE bodies (a disc between two collars) form no single
         # channel — solid_idx in the shaft key keeps them distinct, so no phantom groove
         # (#148c review; mirrors #68).
+        from b123d_recognisers import recognise_grooves
         from build123d import Compound
-
-        from draftwright.recognition import recognise_grooves
 
         stack = Compound(
             [Cylinder(20, 4), Pos(0, 0, 4) * Cylinder(5, 4), Pos(0, 0, 8) * Cylinder(20, 4)]
@@ -909,7 +905,7 @@ class TestGrooveCallout:
         # its step at the WALL ø (local_od's pad engulfs both walls), so the step-exclusion must
         # key on axial position, not floor ø — else the floor ø double-dimensions via a spurious
         # step / boss (#148c 2nd-pass review, the primary use case).
-        from draftwright.recognition import recognise_grooves
+        from b123d_recognisers import recognise_grooves
 
         narrow = Cylinder(10, 40) - Pos(0, 0, 10) * (Cylinder(10, 1.3) - Cylinder(9, 1.3))
         assert len(recognise_grooves(narrow)) == 1
@@ -926,9 +922,8 @@ class TestGrooveCallout:
         # A groove near the shaft end leaves a thin retaining LAND on the end side. That wall is
         # narrow because of end-proximity, not a staircase — the recogniser tests the WIDER wall,
         # so the real groove is still recognised (#148c 2nd-pass review).
+        from b123d_recognisers import recognise_grooves
         from build123d import Align
-
-        from draftwright.recognition import recognise_grooves
 
         b = Align.MIN
         part = Cylinder(10, 30, align=(Align.CENTER, Align.CENTER, b))
@@ -970,7 +965,7 @@ class TestCountersinkCallout:
         return plate
 
     def test_countersink_recognised(self):
-        from draftwright.recognition import recognise_countersinks
+        from b123d_recognisers import recognise_countersinks
 
         cs = recognise_countersinks(self._csk_plate())
         assert len(cs) == 3
@@ -1008,7 +1003,7 @@ class TestCountersinkCallout:
         plate = Box(90, 60, 12)
         plate -= Pos(0, 0, 0) * Cylinder(3, 12)
         plate -= Pos(0, 0, 3) * Cylinder(9, 6)
-        from draftwright.recognition import recognise_countersinks
+        from b123d_recognisers import recognise_countersinks
 
         assert recognise_countersinks(plate) == []
         holes = [f for f in build_drawing(plate, number="X").model().features if f.kind == "hole"]
@@ -1018,9 +1013,8 @@ class TestCountersinkCallout:
         # #558 review (BLOCKER): a 0.5 mm edge-break / deburr at a hole mouth is the same
         # cone shape as a shallow csk — the flare-ratio floor must exclude it, else every
         # chamfered hole mouth gets a spurious csk callout.
+        from b123d_recognisers import recognise_countersinks, recognise_holes
         from build123d import Axis, chamfer
-
-        from draftwright.recognition import recognise_countersinks, recognise_holes
 
         plate = Box(30, 30, 10) - Pos(0, 0, 0) * Cylinder(3, 20)
         edge = plate.edges().filter_by(Axis.Z).group_by(lambda e: e.center().Z)[-1]
@@ -1031,9 +1025,8 @@ class TestCountersinkCallout:
     def test_opposite_face_coaxial_hole_is_not_mis_associated(self):
         # #558 review (BLOCKER): a countersink must attach only to the bore at its mouth,
         # facing the same way — NOT to a coaxial hole drilled from the opposite face.
+        from b123d_recognisers import recognise_countersinks, recognise_holes
         from build123d import Cone
-
-        from draftwright.recognition import recognise_countersinks, recognise_holes
 
         p = Box(40, 40, 30)
         p -= Pos(0, 0, 9) * Cylinder(3, 12)  # top hole, opening at z=15
@@ -1050,9 +1043,8 @@ class TestCountersinkCallout:
         # #558 review round 2 (BLOCKER): a through hole is open at both faces, so
         # recognise_holes may call either end the "opening". The countersink must attach
         # regardless of which — a Z-flip must not drop it to plain THRU.
+        from b123d_recognisers import recognise_countersinks, recognise_holes
         from build123d import Rotation
-
-        from draftwright.recognition import recognise_countersinks, recognise_holes
 
         flipped = Rotation(180, 0, 0) * self._csk_plate()
         holes = [
@@ -8033,9 +8025,8 @@ class TestFindSlots:
     def test_stubby_blind_obround_pocket_is_recognised_not_a_slot(self):
         # #837: the blind counterpart of the stubby through-slot — a floored obround pocket whose
         # straight walls are too short to pair. It must be a Pocket (with depth), not a through Slot.
+        from b123d_recognisers import recognise_pockets
         from build123d import Plane, SlotOverall, extrude
-
-        from draftwright.recognition import recognise_pockets
 
         part = Box(60, 30, 21) - Pos(0, 0, -8.5) * extrude(Plane.XY * SlotOverall(13.5, 8), 19)
         assert recognise_slots(part) == []
@@ -8044,9 +8035,8 @@ class TestFindSlots:
 
     def test_row_of_stubby_blind_obround_pockets_stays_separate(self):
         # #837: five blind obround pockets down one centreline stay five distinct pockets.
+        from b123d_recognisers import recognise_pockets
         from build123d import Plane, SlotOverall, extrude
-
-        from draftwright.recognition import recognise_pockets
 
         part = Box(26, 161, 21)
         for cy in (-54, -27, 0, 27, 54):
@@ -8063,9 +8053,8 @@ class TestFindSlots:
         # are recombined by axis-line proximity, so the five blind pockets are recognised.
         from pathlib import Path
 
+        from b123d_recognisers import recognise_pockets
         from build123d import import_step
-
-        from draftwright.recognition import recognise_pockets
 
         step = Path(__file__).parent / "fixtures" / "tuner_jig_blind_obround_pockets.step"
         part = import_step(str(step))
@@ -8079,9 +8068,8 @@ class TestFindSlots:
         # opening) is not a machinable recess — the end-cap recovery routes on the exact floor
         # count (a pocket has ONE floor + one opening), so a both-ends-capped void is neither a
         # pocket nor a full-thickness-deep phantom.
+        from b123d_recognisers import recognise_pockets
         from build123d import Plane, SlotOverall, extrude
-
-        from draftwright.recognition import recognise_pockets
 
         void = Box(60, 30, 20) - Pos(0, 0, -1.5) * extrude(Plane.XY * SlotOverall(13.5, 8), 3)
         assert recognise_pockets(void) == []

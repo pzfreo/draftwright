@@ -19,22 +19,22 @@ import inspect
 from contextlib import contextmanager
 from types import SimpleNamespace
 
+import b123d_recognisers as recognition
 import pytest
-from build123d import Align, Box, Cylinder, Pos, Rot
-from conftest import counting_calls
-
-import draftwright.recognition as recognition
-from draftwright import Sheet, build_drawing
-from draftwright.compose import _est_right_strip_depth, _n_right_strip_boss_heights
-from draftwright.linting.coverage import lint_prismatic_coverage
-from draftwright.recognition import (
+from b123d_recognisers import (
     RecognitionResult,
     build_recognition_result,
     project_step_shoulders,
     recognise_risers,
     step_level_zs,
 )
-from draftwright.recognition.result import DEFERRED, MIGRATED
+from b123d_recognisers.result import DEFERRED, MIGRATED
+from build123d import Align, Box, Cylinder, Pos, Rot
+from conftest import counting_calls
+
+from draftwright import Sheet, build_drawing
+from draftwright.compose import _est_right_strip_depth, _n_right_strip_boss_heights
+from draftwright.linting.coverage import lint_prismatic_coverage
 
 
 @contextmanager

@@ -298,10 +298,10 @@ def test_feature_detection_runs_once_per_build(monkeypatch):
     """ADR 0008 Amendment 5 / #244 — one feature inventory: _analyse detects, and
     build_part_model consumes those results, so each find_* runs ONCE per build
     (was: holes/patterns/slots 2×, turned steps 3×)."""
+    import b123d_recognisers.result as rmod
     from build123d import Cylinder, Pos, Rotation
 
     import draftwright.model.detect as dmod
-    import draftwright.recognition.result as rmod
     from draftwright import build_drawing
 
     counts: dict[str, int] = {}

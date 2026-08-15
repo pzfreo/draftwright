@@ -1093,7 +1093,7 @@ class FlatFeature:
     axis: str
     across: float
     #: The stock axis line's canonical in-plane position — see
-    #: :class:`~draftwright.recognition.flats.Flat`. Two flats share an A/F definition only if
+    #: :class:`~b123d_recognisers.flats.Flat`. Two flats share an A/F definition only if
     #: they share direction, line and span; the axis letter alone cannot tell a double-D's
     #: two faces from two parallel or slanted regions (#1013/#1036).
     axis_line: tuple[float, float] = (0.0, 0.0)
@@ -1122,6 +1122,24 @@ class FlatFeature:
     @property
     def axis_aligned(self) -> bool:
         return _axis_direction_is_aligned(self.axis, self.axis_direction)
+
+    @property
+    def presentation_axis(self) -> str:
+        """Principal axis used to select the drafting view for this flat.
+
+        Recognition's ``axis`` is semantic identity.  The external recogniser deliberately
+        normalises an exact dominant-component tie Z/Y-first for cross-platform stability.
+        Draftwright historically drew an exact X/Z slant in the X end-on (side) view, where
+        its leader is silhouette-safe.  Keep only that presentation exception here, without
+        changing or re-performing recognition.  Every other record retains its semantic or
+        explicitly declared axis.
+        """
+        if self.axis_aligned or self.axis_direction is None:
+            return self.axis
+        x, y, z = map(abs, self.axis_direction)
+        if x > y and z > y and isclose(x, z, rel_tol=0.0, abs_tol=1e-12):
+            return "x"
+        return self.axis
 
     def parameters(self) -> list[DimParameter]:
         return [DimParameter("length", "flat", self.across)]

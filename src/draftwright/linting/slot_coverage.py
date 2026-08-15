@@ -12,8 +12,9 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Literal
 
+from b123d_recognisers import RecognitionResult
+
 from draftwright.linting.issues import LintIssue
-from draftwright.recognition import RecognitionResult
 
 SlotRequirementState = Literal["placed", "suppressed", "dropped", "missing", "unverifiable"]
 SlotSourceKind = Literal["slot", "slot_pattern"]

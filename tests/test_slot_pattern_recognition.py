@@ -10,16 +10,16 @@ competing per-slot size dims (some of which drop for lack of room — #841 confi
 import dataclasses
 from pathlib import Path
 
-from build123d import Box, Pos
-
-from draftwright.make_drawing import build_drawing
-from draftwright.model.detect import build_part_model
-from draftwright.recognition import (
+from b123d_recognisers import (
     SlotArray,
     SlotGrid,
     recognise_slot_patterns,
     recognise_slots,
 )
+from build123d import Box, Pos
+
+from draftwright.make_drawing import build_drawing
+from draftwright.model.detect import build_part_model
 
 
 def _slot_row(n=4, pitch=30.0):
@@ -74,7 +74,7 @@ def test_non_coplanar_slots_do_not_merge():
     # identical slots whose in-plane centres line up but which lie on DIFFERENT through planes
     # (staggered d_lo/d_hi) must NOT merge into one array — the spec key includes the through
     # extent (mirrors _pocket_spec_key).
-    from draftwright.recognition.slots import Slot
+    from b123d_recognisers.slots import Slot
 
     def sl(cy, d_lo):
         return Slot(

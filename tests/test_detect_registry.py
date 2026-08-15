@@ -17,10 +17,11 @@ from __future__ import annotations
 import inspect
 import typing
 
+import b123d_recognisers as recognition
 import pytest
+from b123d_recognisers._record import Record
 from build123d import Box, Cylinder, Pos
 
-import draftwright.recognition as recognition
 from draftwright.model.detect import (
     _CONVERTERS,
     _DERIVED_CONVERTERS,
@@ -30,7 +31,6 @@ from draftwright.model.detect import (
     convert,
 )
 from draftwright.model.ir import Feature
-from draftwright.recognition._record import Record
 
 
 def _record_types_in(annot) -> set[type]:

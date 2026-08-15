@@ -1,12 +1,17 @@
 # ADR 0007 — draftwright owns feature recognition and linting; helpers becomes the rendering library
 
-- **Status:** Accepted (recognition + linting vendored; `recognition/` and
-  `linting/` are the live homes; the golden harness was retired here).
+- **Status:** Accepted (linting remains owned in `linting/`; recognition was
+  vendored here and is now deployed from `b123d-recognisers` per Amendment 2).
   **Amendment 1** (2026-07-12): the long-term home for *recognition* sharpens — it
   becomes an extraction-ready subpackage (dependency-self-contained; still AGPL as
   draftwright code per §4) destined for the standalone Apache package
   `b123d-recognisers` (ADR 0013). helpers stays render-only; the render-vs-reason
   boundary is unchanged.
+- **Amendment 2** (2026-08-15): ADR 0013 Phase 2 and the extraction epic are
+  deployed. `b123d-recognisers` is the live recognition implementation;
+  `draftwright.recognition` and `draftwright.score` are temporary compatibility
+  re-exports scheduled for removal in 0.6.0. Draftwright still owns linting,
+  recognition caching, record→IR conversion, drafting policy, and critique.
 - **Date:** 2026-06-28
 - **Deciders:** Paul Fremantle (pzfreo)
 
@@ -189,3 +194,31 @@ extraction-ready but stays internal (no new external dependency, no release wall
 **Phase 2** extracts to the package only when a second consumer commits. mcp is a slow
 follower — not coupled until it chooses to adopt. Linting is untouched by ADR 0013 and
 remains draftwright-owned per this ADR.
+
+## Amendment 2 — recognition is deployed from the shared package (2026-08-15)
+
+The gated extraction described above has landed as
+[`pzfreo/b123d-recognisers`](https://github.com/pzfreo/b123d-recognisers). Release
+`v0.1.0a1` is built from commit
+`4ba34fdcffac117dccc16c818485e779a92e2e29`; its reviewed semantic goldens are rooted in
+Draftwright baseline `3fe20b0f71a71deced06b310943dd44cc66e355e`.
+
+Draftwright consumes that package directly. The former implementation modules under
+`src/draftwright/recognition/` are deleted; only `recognition/__init__.py` remains as an
+identity-preserving public re-export, alongside the `draftwright.score.feature_census`
+re-export. Both compatibility surfaces are tracked for removal in 0.6.0. Internal code imports
+`b123d_recognisers` directly, so the facade cannot become a second implementation.
+
+The ownership line is now:
+
+- `b123d-recognisers` owns deterministic geometry recognition, immutable serialisable records,
+  the shared evidence orchestration, and `feature_census`;
+- Draftwright owns `RecognitionCache`, build/lint lifecycle, record→`PartModel` conversion,
+  consumer-specific filtering, drafting view policy, annotations, completeness, and linting;
+- `build123d-drafting-helpers` remains the render substrate.
+
+The sole migration normalization is the package's deterministic Z/Y-first choice for a
+numerically tied dominant axis, needed to remove Linux/Windows kernel drift. Draftwright keeps
+its established lint-clean side-view policy for an exact X/Z slanted flat through
+`FlatFeature.presentation_axis`; this is downstream presentation policy, not duplicate
+recognition or a change to the package record.

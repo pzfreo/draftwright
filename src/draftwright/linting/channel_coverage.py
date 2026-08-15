@@ -5,8 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+from b123d_recognisers import RecognitionResult, has_multi_axis_plates
+
 from draftwright.linting.issues import LintIssue
-from draftwright.recognition import RecognitionResult, has_multi_axis_plates
 
 ChannelRequirementState = Literal["placed", "suppressed", "dropped", "missing", "unverifiable"]
 

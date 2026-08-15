@@ -25,8 +25,9 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
+    from b123d_recognisers import RecognitionResult, TurnedProfile
+
     from draftwright.compose import StripDepths
-    from draftwright.recognition import RecognitionResult, TurnedProfile
 
 from build123d import Align, BoundBox, Compound, Edge, Location, Mode, Shape, Text, Vector
 from build123d_drafting.helpers import (

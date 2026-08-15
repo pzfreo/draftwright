@@ -2,12 +2,29 @@
 
 ## Unreleased
 
+### Changed
+
+- **Geometry recognition is supplied by the standalone Apache-2.0
+  [`b123d-recognisers`](https://github.com/pzfreo/b123d-recognisers) package.** The cutover
+  pins the published prerelease `v0.1.0a1` (built from commit
+  `4ba34fdcffac117dccc16c818485e779a92e2e29`), removes the
+  duplicate embedded implementation, and keeps only identity-preserving
+  `draftwright.recognition` / `draftwright.score` compatibility re-exports until 0.6.0.
+  Draftwright continues to own the one-result build/lint cache, record→IR conversion, drafting
+  policy, placement, and critique. The package migration is manifest-pinned and golden-backed;
+  its sole normalization makes an exact dominant-axis tie deterministic across operating
+  systems without changing feature policy.
+
 ### Fixed
 
 - Hole-callout obstacle checks now account for the rendered leader shaft width and
   tip-local arrowhead flare instead of treating the leader as a zero-width centreline
   (#367). The analytical check remains geometry-only and does not over-reserve the
   arrowhead's clearance along the whole shaft.
+- Exact X/Z slanted flats retain their established lint-clean side-view callout after the
+  recogniser package's cross-platform semantic-axis normalization. The normalized recognition
+  record remains unchanged; `FlatFeature.presentation_axis` carries the downstream drawing-view
+  choice, preventing a leader/silhouette crossing without duplicating recognition.
 
 ## v0.4.5 — 2026-08-15
 

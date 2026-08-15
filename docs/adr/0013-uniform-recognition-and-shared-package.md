@@ -1,7 +1,8 @@
-# ADR 0013 — A uniform recogniser/feature contract (with `b123d-recognisers` as its deferred shared deployment)
+# ADR 0013 — A uniform recogniser/feature contract and shared `b123d-recognisers` deployment
 
-- **Status:** Accepted; **Phase 1 complete** (the core contract is enforced and the
-  typed record→Feature converter registry landed, #752), Phase 2 package extraction deferred.
+- **Status:** Accepted; **Phase 1 and Phase 2 deployed**. The uniform contract and
+  typed record→Feature registry are live, and `b123d-recognisers` `v0.1.0a1` is the
+  external implementation consumed by Draftwright (Amendment 4).
 - **Date:** 2026-07-12
 - **Deciders:** Paul Fremantle (pzfreo)
 
@@ -44,6 +45,12 @@ take per-group members/count the grouping computes; (b) *orchestrated* records
 carried in the registry, so "supported record type has a home" stays fail-closed
 without forcing a 1:1 shape onto genuinely N:1 assembly. 1d (the `callout()` crack)
 remains open.
+
+**Amendment 4 (2026-08-15) — Phase 2 deployed.** The extraction epic's reviewed
+baseline manifest, independent semantic goldens, atomic implementation move, packaging audit,
+and prerelease are complete. Draftwright imports the package directly; its embedded duplicate
+modules are deleted. The package boundary, cache ownership, compatibility window, and one
+cross-platform numerical normalization are recorded in the deployment amendment below.
 
 ## Context
 
@@ -367,3 +374,36 @@ copy onto the shared source.
 - Sibling: `pzfreo/build123d-mcp` `tools/recognizers/` (the "repatriate later"
   package this ADR formalises the target for).
 - Roadmap: [`docs/plans/0013-shared-recognisers-roadmap.md`](../plans/0013-shared-recognisers-roadmap.md).
+
+## Amendment 4 — Phase 2 deployment record (2026-08-15)
+
+The trigger was accepted by extraction epic
+[`b123d-recognisers#1`](https://github.com/pzfreo/b123d-recognisers/issues/1). The package was
+created under Apache-2.0 with provenance and third-party notices, then validated independently
+against a manifest-pinned Draftwright baseline and a reviewed semantic golden corpus. The atomic
+implementation migration preserved the complete public recogniser inventory, aggregate result,
+shared substrates, and `feature_census`; no drafting or editing policy moved into the package.
+
+The first deployed artifact is `v0.1.0a1`, built from commit
+`4ba34fdcffac117dccc16c818485e779a92e2e29`. Publication promoted the reviewed GitHub release
+wheel and sdist through TestPyPI to PyPI with OIDC Trusted Publishing. Draftwright pins that
+exact index version during the cutover, without a mutable branch or version range; its lockfile
+also records the reviewed wheel and sdist hashes.
+
+The implementation boundary is enforced in Draftwright:
+
+- all engine consumers import `b123d_recognisers` directly;
+- `src/draftwright/recognition/` contains only a compatibility `__init__.py`, and
+  `draftwright.score` is likewise a thin identity-preserving re-export;
+- both facades are scheduled for removal in 0.6.0, while private historical submodule paths are
+  intentionally gone;
+- `RecognitionCache` remains Draftwright-owned because cache lifetime belongs to a drawing build
+  and lazy physical critique, not to a geometry library;
+- the package returns frozen serialisable facts; Draftwright alone converts them to IR and owns
+  consumer-specific classification, suppression, view choice, placement, and lint.
+
+Parity is exact except for one reviewed normalization: a dominant-axis tie within `1e-12` is
+resolved Z/Y-first in the package so the same BRep yields the same record on Linux and Windows.
+That is determinism repair, not new feature policy. Draftwright's established presentation of an
+exact X/Z slanted flat remains side-view/lint-clean via `FlatFeature.presentation_axis`, leaving
+the package's normalized semantic axis untouched.

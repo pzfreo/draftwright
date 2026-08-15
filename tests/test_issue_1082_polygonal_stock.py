@@ -6,6 +6,11 @@ import math
 from dataclasses import replace
 
 import pytest
+from b123d_recognisers.polygonal_bosses import (
+    PolygonalStock,
+    recognise_polygonal_stock,
+)
+from b123d_recognisers.result import build_recognition_result
 from build123d import Box, Compound, Cylinder, Polygon, Pos, RegularPolygon, Rot, extrude
 
 from draftwright import build_drawing
@@ -14,11 +19,6 @@ from draftwright.linting import LintIssue
 from draftwright.linting.polygonal_stock_coverage import polygonal_stock_outcomes
 from draftwright.model import build_part_model
 from draftwright.model.ir import RequestedDimension
-from draftwright.recognition.polygonal_bosses import (
-    PolygonalStock,
-    recognise_polygonal_stock,
-)
-from draftwright.recognition.result import build_recognition_result
 
 
 def _hex_stock(*, angle: float = 0):

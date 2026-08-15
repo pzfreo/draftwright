@@ -9,16 +9,17 @@ Licensed under **AGPL-3.0**. Depends on `build123d-drafting-helpers` for annotat
 produces a fully-annotated multi-view technical drawing (orthographic views, dimensions,
 section A–A, ISO hatching, title block) ready for DXF/SVG export.
 
-It sits on top of two Apache 2.0 libraries:
+It sits on top of three Apache 2.0 libraries:
 - `build123d-drafting-helpers` — annotation primitives (`Dimension`, `Leader`, `HoleCallout`, …).
-  The *rendering* library; draftwright owns feature recognition and linting (ADR 0007).
+  The rendering library; Draftwright owns linting and drafting policy (ADR 0007).
+- `b123d-recognisers` — deterministic geometry-only feature recognition (ADR 0013).
 - `build123d` — the underlying CAD kernel
 
 ## Architecture
 
 The dependency graph is a DAG (the #138 / ADR 0005 split is complete). Bottom to
 top: leaf modules (`layout.py`, `registry.py`, `fonts.py`, `_geometry.py`,
-`fits.py`, `intents.py`, the `linting/` and `recognition/` subpackages) →
+`fits.py`, `intents.py`, `recognition_cache.py`, and the `linting/` subpackage) →
 `_core.py` → stage modules (`export.py`,
 `repair.py`, `projection.py`, `compose.py`, `analysis.py`, `drawing.py`, the
 `model/` IR subpackage, the `annotations/` subpackage) → `builder.py` → the
@@ -154,15 +155,16 @@ entry. Keep `_LAYERS` and this section in step.
   `structural.py` (geometry/standards checks), `issues.py` (the `LintIssue` type),
   `gear_coverage.py` (declared gear table/profile reconciliation), and `suggest.py`
   (`_suggest_fix`, #29 snippets). Depends only on `_core`,
-  `recognition/` (typed hole records in `coverage.py`) + build123d_drafting. `_QUOTED_RE` (a lint-message label regex shared with the
+  `b123d_recognisers` (typed hole records in `coverage.py`) + build123d_drafting.
+  `_QUOTED_RE` (a lint-message label regex shared with the
   repair loop) lives in `_core`.
-- **`recognition/repeating_profiles.py`** — geometry-only complete-wire cyclic
-  correspondence for declared-gear critique (#1087). It proves closed, bijective sector
-  mappings and carries only axis/centre/span/count plus a serialisable sector signature;
-  it never infers gear semantics.
+- **`recognition_cache.py`** — Draftwright's ADR 0017 one-result lifecycle owner. It calls
+  external `build_recognition_result(part)` at most once for a build/lazy-critique run; the
+  package owns recognition, while Draftwright owns when the result is computed and reused.
 - **`model/`** — the ADR 0015 IR waist: `ir.py` (the `Feature`/`DimParameter`/
   `Datum`/`PartModel` types — the one inventory), `detect.py` (detectors →
-  `Feature` objects, adapting `recognition/`), `planner.py` (`plan_dimensions` —
+  `Feature` objects, adapting `b123d_recognisers` records), `planner.py`
+  (`plan_dimensions` —
   one rule set → a `DimensionGroup` per feature, + `plan_sections`), and
   `declare.py` (ADR 0011 object→feature constructors: `hole`/`boss`/`step`/… read
   a feature's size off the build123d object — a second, *declared* front-end into
@@ -191,37 +193,14 @@ entry. Keep `_LAYERS` and this section in step.
   `cli.py` (beside the Typer `app`), so `builder` no longer imports `cli` and
   `_LAZY_UPWARD_EXEMPT` is now empty. The graph is a plain DAG —
   `cli → {builder, sheet_emit}`, `sheet_emit → builder`, `builder → ∅`.
-- **`score.py`** — `feature_census` (#148f/#608): a standalone
-  recognition-completeness measurement tool; depends only on `recognition/` +
-  build123d, and nothing in the engine imports it. Ranked 0 in `_LAYERS` (#704),
-  so that leaf status is machine-enforced.
-- **`recognition/`** — feature recognition (ADR 0007: draftwright owns it, not
-  helpers). Every feature recogniser follows the **uniform contract** (ADR 0013 / #568,
-  spelled out in `recognition/__init__.py`): `recognise_<feature>(part, *, <injected
-  inventory>) -> list[<frozen-dataclass record>]` — British `recognise_` verb,
-  keyword-only args (deps injected by the caller, never re-recognised), a deterministic
-  list of records. Where a record first looks too thin (a face level, a turned step) the
-  fix is the record — `recognise_face_levels -> list[FaceLevel]`, `recognise_turned_steps
-  -> list[TurnedStep]` (each step carries its `axis`; `TurnedProfile` survives only as a
-  pipeline aggregate). `_features.py` (vendored from `build123d_drafting.features`; the
-  hole/boss/pattern recognisers — `recognise_holes`/`recognise_bosses`/
-  `recognise_hole_patterns` + the feature/pattern types; plus the cylinder-analysis
-  *substrate* `analyse_cylinders`/`feature_diameters`/`full_cylinders`, which keep their
-  names — a tuple-of-dicts / diameter query, not `list[record]` recognisers),
-  `slots.py` (the milled-slot + pocket recognisers, #135/#148), `turned.py`
-  (`recognise_turned_steps` — turned-shaft shoulders, OD-silhouette filtered),
-  `levels.py` (`recognise_face_levels` prismatic horizontal face levels +
-  `recognise_step_shoulders` → `StepShoulder`, #191/#555), the #148-epic
-  recognisers `chamfers.py`/`fillets.py`/`flats.py`/`grooves.py`/`plates.py`/
-  `pads.py` (bounded rectangular raised islands, #885)/
-  `countersinks.py`, and `_record.py` (the shared frozen-`Record` mixin,
-  `.to_dict()`). Bottom of the DAG: depends only on build123d/OCP. Import
-  via the package surface. **`result.py`** sits one step above the individual
-  recognisers (still inside the package): the ADR 0017 `RecognitionResult`
-  aggregate, its one `build_recognition_result` orchestration — which computes
-  each shared substrate once and *injects* it downstream rather than letting a
-  recogniser rediscover it — and the `MIGRATED`/`DEFERRED` manifest that keeps
-  the aggregate's coverage of the package surface honest.
+- **`score.py` / `recognition/`** — temporary public compatibility re-exports of
+  `b123d_recognisers`, identity-preserving and scheduled for removal in 0.6.0. There are no
+  embedded recogniser modules. Engine code imports the external package directly; private
+  historical `draftwright.recognition.*` paths are intentionally unsupported.
+- **`b123d_recognisers` (external)** — the ADR 0013 geometry-only bottom layer: uniform
+  deterministic `recognise_*` functions, frozen serialisable records, shared substrates,
+  `RecognitionResult` orchestration/manifest, repeating-profile correspondence, and
+  `feature_census`. It imports build123d/OCP and never imports Draftwright.
 - **`fonts.py`** — vendored, path-pinned IBM Plex fonts for deterministic
   cross-platform layout (ADR 0006).
 - **`export.py`** — SVG/DXF/PDF/PNG export + post-processing (page-size fix,
@@ -302,9 +281,10 @@ Current ADRs:
   draftwright vendors IBM Plex (OFL) and pins it by `font_path` (Plex Mono for
   dimensions, Plex Sans Condensed for title blocks); the helper renders via
   `font_path` (needs `>=0.13.0`). Output changed once for every drawing.
-- **0007** — **Accepted** (deprecate-and-vendor): draftwright owns feature
-  recognition (`recognition/`) and linting (`linting/`); `build123d-drafting-helpers`
-  becomes the rendering library. (The 0005 golden harness, `tests/test_golden.py`,
+- **0007** — **Accepted, amended by the deployed extraction**: Draftwright owns linting,
+  recognition lifecycle/cache, IR conversion, and drafting policy; `b123d-recognisers`
+  owns geometry recognition; `build123d-drafting-helpers` is the rendering library.
+  (The 0005 golden harness, `tests/test_golden.py`,
   was **retired** here — byte-exact digests are friction during deliberate output
   evolution; regression coverage rests on the geometry-level + `test_e2e_standards`
   suites. See ADR 0005 §3's retirement note.)
@@ -348,14 +328,14 @@ Current ADRs:
   deferred intents through `_PASS_SEQUENCE`; it does not reconstruct auto candidates or
   perform a global auto-plus-user recompose. `place_dim()` remains the deprecated raw-
   coordinate escape hatch. Full recomposition/parity remains #426/#661/#707.
-- **0013** — **Accepted** (#568; **Phase 1 complete**): the **uniform recogniser
+- **0013** — **Accepted** (#568; **Phases 1–2 deployed**): the **uniform recogniser
   contract** — `recognise_<feature>(part, *, <injected deps>) -> list[<frozen
   record>]` (plus the part-less *derived* shape, e.g.
   `recognise_hole_patterns(holes)`), mechanically enforced by
   `tests/test_recogniser_contract.py`; and the typed record→`Feature` converter
   registry in `model/detect.py` (roadmap 1c / #752), whose completeness+uniqueness
   is fail-closed by `tests/test_detect_registry.py`. The shared `b123d-recognisers`
-  package is the deferred Phase-2 deployment (gated on a second committed consumer).
+  `v0.1.0a1` package is now the implementation; Draftwright's duplicate modules are deleted.
   Roadmap: `docs/plans/0013-shared-recognisers-roadmap.md`.
 - **0014** — **Accepted** (supersedes 0009, #697): **collect-then-solve
   annotation placement as built** — collect every strip occupant as a
@@ -400,13 +380,13 @@ Current ADRs:
   evidence-gated by epic #1018**: **the recognition inventory as a first-class result**.
   Recognition stops being a
   scatter of ad-hoc calls: one orchestration per build produces a frozen
-  `RecognitionResult` (`recognition/result.py`), carried in `BuildState` and reused by
+  external `RecognitionResult`, held by Draftwright's `RecognitionCache` in `BuildState` and reused by
   model construction *and* by critique. Automatic-path lint reads its inventories off
   `Analysis`; declared-path critique obtains the same aggregate lazily through `BuildState`.
   ADR 0017 §5 explicitly permits both (independence from the *plan* is not independence from
   the *recognition*).
   Phase 1 (#1019) landed the **fail-closed manifest** — `MIGRATED` / `DEFERRED` in
-  `recognition/result.py` classify every public `recognise_*` family, and
+  `b123d_recognisers.result` classify every public `recognise_*` family, and
   `tests/test_recognition_manifest.py` fails when a new one appears without that decision,
   so a recogniser cannot be added and then quietly re-scanned from three call sites. A
   deferral is a `Deferral` reason **code** plus the issue that removes it, not a paragraph:

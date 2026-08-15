@@ -383,18 +383,18 @@ def test_sheet_table_sources_are_stable_and_unique_when_display_names_are_reused
 
 @pytest.mark.timeout(120)
 def test_sheet_fallback_reuses_lazy_physical_recognition(monkeypatch):
-    import draftwright.drawing as drawing_module
+    import draftwright.recognition_cache as recognition_cache_module
 
     sheet = Sheet.from_part(_scale_sensitive_plate(), page="A4", scale=1.0)
     calls = []
-    original = drawing_module.build_recognition_result
+    original = recognition_cache_module.build_recognition_result
 
     def counted(part):
         result = original(part)
         calls.append(result)
         return result
 
-    monkeypatch.setattr(drawing_module, "build_recognition_result", counted)
+    monkeypatch.setattr(recognition_cache_module, "build_recognition_result", counted)
     with pytest.warns(ScaleCompletenessWarning, match="fallback scale 0.5"):
         drawing = sheet.build()
 

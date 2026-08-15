@@ -18,40 +18,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Any
 
-from draftwright._geometry import _axis_letter, _is_principal_axis, _xyz
-from draftwright.model.declare import control_frame, datum
-from draftwright.model.ir import (
-    AUTHORED_DIMENSION_KINDS,
-    AuthoredDimension,
-    BossFeature,
-    ChamferFeature,
-    ChannelFeature,
-    ControlFrame,
-    Datum,
-    DatumRef,
-    Feature,
-    FilletFeature,
-    FlatFeature,
-    Frame,
-    GrooveFeature,
-    HoleFeature,
-    LevelSupport,
-    PadFeature,
-    PartModel,
-    PatternFeature,
-    PlateFeature,
-    PmiFeature,
-    PocketFeature,
-    PocketPatternFeature,
-    PolygonalBossFeature,
-    PolygonalStockFeature,
-    RotationalFeature,
-    SlotFeature,
-    SlotPatternFeature,
-    StepFeature,
-    StepLevelFeature,
-)
-from draftwright.recognition import (
+from b123d_recognisers import (
     BoltCircle,
     BossRecord,
     Chamfer,
@@ -103,6 +70,40 @@ from draftwright.recognition import (
     recognise_slot_patterns,
     recognise_slots,
     recognise_turned_steps,
+)
+
+from draftwright._geometry import _axis_letter, _is_principal_axis, _xyz
+from draftwright.model.declare import control_frame, datum
+from draftwright.model.ir import (
+    AUTHORED_DIMENSION_KINDS,
+    AuthoredDimension,
+    BossFeature,
+    ChamferFeature,
+    ChannelFeature,
+    ControlFrame,
+    Datum,
+    DatumRef,
+    Feature,
+    FilletFeature,
+    FlatFeature,
+    Frame,
+    GrooveFeature,
+    HoleFeature,
+    LevelSupport,
+    PadFeature,
+    PartModel,
+    PatternFeature,
+    PlateFeature,
+    PmiFeature,
+    PocketFeature,
+    PocketPatternFeature,
+    PolygonalBossFeature,
+    PolygonalStockFeature,
+    RotationalFeature,
+    SlotFeature,
+    SlotPatternFeature,
+    StepFeature,
+    StepLevelFeature,
 )
 
 

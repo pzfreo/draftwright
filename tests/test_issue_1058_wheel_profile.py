@@ -9,6 +9,26 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from b123d_recognisers import (
+    build_recognition_result,
+    recognise_double_d_bores,
+    recognise_repeating_radial_profiles,
+)
+from b123d_recognisers.profiled_bores import (
+    DoubleDProfile,
+    double_d_bores_from_openings,
+    double_d_profile,
+    principal_boundary_plane,
+)
+from b123d_recognisers.repeating_profiles import (
+    _CurveEvidence,
+    _cyclic_edge_orbits,
+    _distance,
+    _one_closed_cycle,
+    _polar_signature,
+    _rotate,
+    _sample_wire,
+)
 from build123d import (
     Align,
     Box,
@@ -43,26 +63,6 @@ from draftwright.model import (
     plan_dimensions,
 )
 from draftwright.model.callout import hole_callout_spec
-from draftwright.recognition import (
-    build_recognition_result,
-    recognise_double_d_bores,
-    recognise_repeating_radial_profiles,
-)
-from draftwright.recognition.profiled_bores import (
-    DoubleDProfile,
-    double_d_bores_from_openings,
-    double_d_profile,
-    principal_boundary_plane,
-)
-from draftwright.recognition.repeating_profiles import (
-    _CurveEvidence,
-    _cyclic_edge_orbits,
-    _distance,
-    _one_closed_cycle,
-    _polar_signature,
-    _rotate,
-    _sample_wire,
-)
 from draftwright.sheet_emit import _feature_line, _hole_line, emit_sheet_script
 
 _WHEEL = Path(__file__).parent / "fixtures" / "issue_1058_wheel_rh.step"
@@ -287,7 +287,7 @@ def test_production_recogniser_carries_complete_serialisable_profile_evidence(wh
 
 
 def test_equal_profiles_on_distinct_bodies_remain_ambiguous(wheel_part, monkeypatch):
-    import draftwright.recognition.repeating_profiles as repeating_profiles
+    import b123d_recognisers.repeating_profiles as repeating_profiles
 
     (profile,) = recognise_repeating_radial_profiles(wheel_part)
     bodies = (object(), object())
@@ -400,7 +400,7 @@ def test_polar_signature_is_stable_across_the_angle_branch_cut():
 
 
 def test_malformed_faces_and_a_shape_without_owned_solids_fail_closed(monkeypatch):
-    import draftwright.recognition.repeating_profiles as repeating_profiles
+    import b123d_recognisers.repeating_profiles as repeating_profiles
 
     bbox = SimpleNamespace(
         size=_point(1.0, 1.0, 1.0),
@@ -494,7 +494,7 @@ def test_one_unequal_sector_pitch_breaks_correspondence_even_when_closed(wheel_p
 
 
 def test_non_bijective_sector_mapping_is_rejected_before_orbit_claim(wheel_part, monkeypatch):
-    import draftwright.recognition.repeating_profiles as repeating_profiles
+    import b123d_recognisers.repeating_profiles as repeating_profiles
 
     evidence = _sample_outer_wire(_wheel_end_faces(wheel_part)[0])
     assert _one_closed_cycle(evidence, tol=_CORRESPONDENCE_TOL)

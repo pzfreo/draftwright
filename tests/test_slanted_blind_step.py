@@ -10,6 +10,9 @@ from collections import Counter
 from types import SimpleNamespace
 
 import pytest
+from b123d_recognisers import levels as levels_module
+from b123d_recognisers.levels import project_step_shoulders, recognise_risers
+from b123d_recognisers.slots import _Face, _recognise_corner_notches
 from build123d import (
     Align,
     Box,
@@ -23,9 +26,6 @@ from build123d import (
 
 from draftwright import build_drawing
 from draftwright.model.declare import envelope
-from draftwright.recognition import levels as levels_module
-from draftwright.recognition.levels import project_step_shoulders, recognise_risers
-from draftwright.recognition.slots import _Face, _recognise_corner_notches
 
 
 @pytest.fixture(scope="module")

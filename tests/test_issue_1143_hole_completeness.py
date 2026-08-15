@@ -5,6 +5,13 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
+from b123d_recognisers import (
+    BoltCircle,
+    HoleRecord,
+    LinearArray,
+    build_recognition_result,
+    recognise_hole_patterns,
+)
 from build123d import Align, Box, Compound, Cone, Cylinder, Pos, Rot
 
 from draftwright import Sheet, build_drawing
@@ -15,13 +22,6 @@ from draftwright.model.declare import hole as declare_hole
 from draftwright.model.declare import pattern as declare_pattern
 from draftwright.model.detect import build_part_model
 from draftwright.model.ir import Frame, StepFeature
-from draftwright.recognition import (
-    BoltCircle,
-    HoleRecord,
-    LinearArray,
-    build_recognition_result,
-    recognise_hole_patterns,
-)
 from draftwright.registry import AnnotationRegistry
 
 _XYZ_MIN = (Align.CENTER, Align.CENTER, Align.MIN)

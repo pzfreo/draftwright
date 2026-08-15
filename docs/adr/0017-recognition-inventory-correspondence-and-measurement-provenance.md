@@ -1,6 +1,7 @@
 # ADR 0017 — One recognition result per run; correspondence is evidence-gated
 
-- **Status:** Accepted; narrowed after phase 1 (Amendment 1, 2026-08-05)
+- **Status:** Accepted; narrowed after phase 1 (Amendment 1, 2026-08-05), with
+  external-package/cache ownership clarified by Amendment 2 (2026-08-15)
 - **Date:** 2026-08-03
 - **Deciders:** Paul Fremantle (pzfreo)
 
@@ -43,8 +44,9 @@ it as an approved implementation sequence.
 owns every public recognition family and the reusable dependencies between them. Automatic
 model construction and physical critique consume that result or a documented projection of
 it; they do not independently assemble competing recognition universes. The result belongs
-to the existing typed `BuildState`, whose controlled build/lazy-critique path contains its
-only fill sites.**
+to Draftwright's `RecognitionCache`, held by the existing typed `BuildState`; its controlled
+build/lazy-critique path contains the cache's only fill sites. The orchestration and immutable
+result type live in `b123d-recognisers`, while cache lifetime remains a consumer concern.**
 
 This is the accepted decision. It is intentionally narrower than the original proposal.
 
@@ -72,6 +74,17 @@ user-facing completeness defect.
 Amendment 1 is this ADR's first acceptance. It accepts the implemented ownership rules below
 and reclassifies the rest as hypotheses behind evidence gates. It does not erase a previously
 accepted commitment or claim that phase 1 delivered semantic completeness.
+
+## Amendment 2 — external orchestration, consumer-owned cache
+
+ADR 0013 Phase 2 moved `RecognitionResult` and `build_recognition_result` unchanged into
+`b123d-recognisers` `v0.1.0a1`. It did not move build lifecycle into the geometry package.
+`BuildState.recognition_cache` owns a Draftwright `RecognitionCache`; `ensure(part)` calls the
+external orchestration at most once, and the compatibility `BuildState.recognition` property
+delegates to that state during the migration window. Automatic analysis fills it before
+record→IR conversion. A declared render remains recognition-free, while later physical critique
+may fill it lazily once. This preserves every landed guard below without a second recogniser
+implementation or package-level global cache.
 
 ## Accepted Contract
 

@@ -1,15 +1,15 @@
 """#958: recognition evidence must belong to one physical solid."""
 
-from build123d import Box, Compound, Pos
-
-from draftwright import build_drawing
-from draftwright.recognition import (
+from b123d_recognisers import (
     RaisedPad,
     recognise_channels,
     recognise_pockets,
     recognise_rectangular_pads,
     recognise_slots,
 )
+from build123d import Box, Compound, Pos
+
+from draftwright import build_drawing
 
 
 def _detached_pad_compound():

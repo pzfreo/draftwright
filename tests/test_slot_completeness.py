@@ -4,13 +4,13 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
+from b123d_recognisers import recognise_slots
 from build123d import Box, Cylinder, Pos
 
 from draftwright import Drawing, Sheet, build_drawing
 from draftwright.linting.slot_coverage import slot_requirement_outcomes
 from draftwright.model import slot
 from draftwright.model.compiled import compile_dimensions
-from draftwright.recognition import recognise_slots
 
 
 def _off_centre_slot():

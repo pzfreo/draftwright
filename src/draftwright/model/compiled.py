@@ -272,7 +272,14 @@ _FACTS: dict[str, tuple[str, ...]] = {
     # These are STRUCTURE, not measurements: together they say which piece of stock a flat
     # belongs to, so the renderer can tell one double-D's two faces from independent aligned
     # or slanted regions (#1013/#1036). The drawing prints none of them.
-    "flat": ("frame", "axis", "axis_line", "stock_span", "axis_direction"),
+    "flat": (
+        "frame",
+        "axis",
+        "presentation_axis",
+        "axis_line",
+        "stock_span",
+        "axis_direction",
+    ),
     "groove": ("frame", "axis"),
     "plate": ("frame", "axis"),
     # Raw AP242 PMI is the documented non-generated exception: its source-authored label

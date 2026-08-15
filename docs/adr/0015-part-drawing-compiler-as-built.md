@@ -9,6 +9,10 @@
   dimension *labels* are now planner-fed (they read the folded value/tolerance off
   the feature's `DimensionGroup`), moving out of the model-routed list. Only its
   axis centrelines and bore-stack layout remain model-routed furniture.
+- **Amendment 3** (2026-08-15): the recognition tier is deployed from external
+  `b123d-recognisers` `v0.1.0a1`. Draftwright owns the one per-build/lazy-critique
+  `RecognitionCache`, record→IR conversion, and all drafting policy. The former embedded
+  implementation is deleted; compatibility re-exports expire in 0.6.0.
 - **Date:** 2026-07-18
 - **Deciders:** Paul Fremantle (pzfreo)
 
@@ -30,7 +34,7 @@ carve-out). Nothing in that trail is re-litigated here.
 The part-drawing engine is a **compiler**:
 
 ```
-  recognisers (recognition/)          declared features (model/declare.py)
+  recognisers (b123d_recognisers)     declared features (model/declare.py)
         │  geometry-only records            │  ADR 0011: the caller supplies
         │  (ADR 0013 contract)              │  the features it already knows
         ▼                                   ▼
@@ -54,7 +58,8 @@ The part-drawing engine is a **compiler**:
 The load-bearing properties, all live in the code today:
 
 1. **One feature inventory, detected once — regardless of `auto_dims`.**
-   `analysis._analyse` runs the recognisers once and builds the `PartModel` up
+   `analysis._analyse` obtains the external package's aggregate once through the
+   Draftwright-owned `RecognitionCache` and builds the `PartModel` up
    front, so **page/scale sizing reads the same feature model the renderers do**
    (`sizing_model` → `plan_dimensions` feeds the `compose.py` estimators;
    detected and declared parts share one sizing path). `builder._assemble`
@@ -73,12 +78,11 @@ The load-bearing properties, all live in the code today:
 3. **The waist is two tiers.** The lower tier is the geometry-only recognition
    record produced under the uniform `recognise_<feature>` contract (ADR 0013);
    the upper tier is the dimensioning IR `Feature`. They are joined by the
-   `model/detect.py` adapters. The typed per-record **adapter registry** there
-   is decided but pending — that is **ADR 0013 Phase 1, roadmap item 1c**, not
-   this ADR; `detect.py` today remains bespoke per-feature translators. No
-   recognition object crosses the boundary in either state.
+   `model/detect.py` adapters. Its typed per-record **adapter registry** is
+   fail-closed over the external package's public record universe (ADR 0013
+   Phase 1c). No recognition object crosses the boundary.
 4. **Two front doors, one waist.** Detection (`model/detect.py`, from
-   `recognition/`) and declaration (`model/declare.py`, ADR 0011:
+   `b123d_recognisers`) and declaration (`model/declare.py`, ADR 0011:
    `hole`/`boss`/`step`/… constructors that read a feature's size off the
    build123d object, or take explicit values) both emit the **same** IR
    `Feature` types into the same `PartModel`, so no renderer branches on
@@ -167,13 +171,15 @@ semantics; otherwise it is explicit debt to be closed (as #754 since was).
 **One path deliberately keeps reading recognised geometry instead of the IR,
 and that is correct — not a boundary violation.** `linting/coverage.py`
 (`lint_feature_coverage`) answers "is every feature that physically *exists*
-dimensioned?". It runs the recognisers itself (`recognise_holes`,
-`recognise_turned_steps`, `analyse_cylinders`, …) for the ground truth, and
+dimensioned?". It reads the cached external `RecognitionResult` (`holes`,
+`turned_steps`, `cylinders`, …) for the ground truth, and
 reads the **placed drawing** (dimension witness endpoints, callout labels —
 `_dim_vertices`) for what was actually drawn — never a build-time side
 channel, and never the plan. Sourcing coverage from the dimensioning plan
 would be circular: a feature the planner (or a bypassing renderer) omitted
-would never be flagged. Coverage reading recognition is the check *working*.
+would never be flagged. Coverage reading recognition is the check *working*. For a declared
+drawing whose render path correctly performed zero recognition, physical critique may lazily
+fill the same Draftwright-owned cache once; repeated lint does not rerun package orchestration.
 Structurally, `linting/` has **no `draftwright.model` import** — machine-checked
 by the dedicated `test_linting_does_not_import_model` guard in
 `tests/test_import_boundaries.py` (the general layer rule alone would permit
@@ -186,9 +192,9 @@ records cross is the sanctioned `build_part_model` boundary itself.
 - **ADR 0011** — the IR as a *public input* (declare features, `model=`, the
   `Sheet` façade, tolerance/fit/GD&T aspects). 0015 only records that
   declaration is the second front door into the same waist.
-- **ADR 0013** — the uniform recogniser contract and the pending typed
-  adapter registry in `detect.py` (Phase 1 item 1c), plus the deferred shared
-  `b123d-recognisers` package. The intake tier's rules live there.
+- **ADR 0013** — the uniform recogniser contract, typed adapter registry in
+  `detect.py`, and deployed shared `b123d-recognisers` package. The intake tier's rules
+  and compatibility normalization live there.
 - **ADR 0014** — placement (superseding ADR 0009's collect-then-solve strip
   record). The planner emits *intents*; how they are placed is entirely 0014's
   concern (as 0004 owns the outer pack).

@@ -20,7 +20,7 @@ from dataclasses import field as dataclasses_field
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 if TYPE_CHECKING:
-    from draftwright.recognition import RecognitionResult
+    from b123d_recognisers import RecognitionResult
 
 # PEP 702 @deprecated. A `sys.version_info` guard (not try/except) so the type checker,
 # which targets the 3.10 floor, resolves the backport branch instead of `warnings.deprecated`
@@ -30,6 +30,7 @@ if sys.version_info >= (3, 13):
 else:
     from typing_extensions import deprecated
 
+from b123d_recognisers import analyse_cylinders
 from build123d import (
     Color,
     ExportSVG,
@@ -98,7 +99,7 @@ from draftwright.linting.quality import quality_components
 from draftwright.projection import (
     project_view_geometry,
 )
-from draftwright.recognition import analyse_cylinders, build_recognition_result
+from draftwright.recognition_cache import RecognitionCache
 from draftwright.registry import AnnotationRegistry
 from draftwright.repair import repair_drawing
 
@@ -320,7 +321,7 @@ class BuildState:
     """
 
     analysis: Analysis | None = None
-    recognition: RecognitionResult | None = None
+    recognition_cache: RecognitionCache = dataclasses_field(default_factory=RecognitionCache)
     part_model: object | None = None
     view_edge_cache: dict = dataclasses_field(default_factory=dict)
     ann_box_cache: dict = dataclasses_field(default_factory=dict)
@@ -334,6 +335,16 @@ class BuildState:
     #: build, and absence had to be inferred from a finished sheet — which is how a wrong
     #: suppression rule produced four issue reports before anyone found the rule (#997).
     omissions: tuple = ()
+
+    @property
+    def recognition(self) -> RecognitionResult | None:
+        """The immutable result held by Draftwright's consumer-owned lifecycle cache."""
+
+        return self.recognition_cache.result
+
+    @recognition.setter
+    def recognition(self, value: RecognitionResult | None) -> None:
+        self.recognition_cache.result = value
 
     def clear_geometry_caches(self) -> None:
         """The one invalidation seam (finalize rollback): view edges + annotation
@@ -353,9 +364,7 @@ class BuildState:
         On a detected build ``recognition`` is already filled by the builder, so this returns
         it and recognises nothing.
         """
-        if self.recognition is None:
-            self.recognition = build_recognition_result(part)
-        return self.recognition
+        return self.recognition_cache.ensure(part)
 
 
 class Drawing:

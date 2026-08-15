@@ -13,14 +13,14 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from b123d_recognisers import recognise_flats
+from b123d_recognisers.flats import Flat
 from build123d import Align, Box, Cylinder, Pos, import_step
 
 from draftwright import Sheet, build_drawing
 from draftwright.linting import LintIssue
 from draftwright.linting.flat_coverage import flat_requirement_outcomes
 from draftwright.model.declare import flat as declare_flat
-from draftwright.recognition import recognise_flats
-from draftwright.recognition.flats import Flat
 from draftwright.registry import AnnotationRegistry
 
 _ISSUE_914 = Path(__file__).parent / "fixtures" / "if_step_flat_across_cylinder.step"

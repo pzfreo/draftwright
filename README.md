@@ -268,17 +268,20 @@ or declared features converge on a `PartModel` IR, then planner-fed and
 sanctioned model-routed render intents feed shared placement, projection, and
 export. Coverage lint independently compares recognised geometry with the
 placed drawing, so an upstream omission cannot hide from verification. It
-builds on two libraries:
+builds on three libraries:
 
 ```
 draftwright
+    └── b123d-recognisers          — deterministic geometry recognition
     └── build123d-drafting-helpers  — Dimension, Leader, HoleCallout, …
     └── build123d                   — CAD kernel
 ```
 
-It owns feature recognition (`recognition/`) and linting (`linting/`); annotation
-primitives (`Dimension`, `Leader`, etc.) live in `build123d-drafting-helpers` and can
-be used independently. The compiler is largely converged in production — turned
+Geometry recognition lives in the Apache-2.0 `b123d-recognisers` package. Draftwright owns
+the per-build recognition cache, record→IR conversion, drafting policy, and linting
+(`linting/`); annotation primitives (`Dimension`, `Leader`, etc.) live in
+`build123d-drafting-helpers` and can be used independently. The compiler is largely converged
+in production — turned
 dims/lengths, centre marks, envelope, slots, holes (callouts/locations/grouping),
 the section A–A trigger, the prismatic step-ladder + rotational furniture, and PMI/GD&T
 are all on the IR. See

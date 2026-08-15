@@ -28,6 +28,7 @@ from draftwright.model.ir import (
     Datum,
     DimParameter,
     Feature,
+    FlatFeature,
     HoleFeature,
     PadFeature,
     ParameterId,
@@ -280,6 +281,8 @@ def _group_view(feature: Feature) -> str:
     the front view (X → row below, Z → column left). A Y-axis step derives to
     its geometric profile ("side"); no step render pipeline consumes Y today
     (`render_diameters` buckets x/z only)."""
+    if isinstance(feature, FlatFeature):
+        return _END_ON.get(feature.presentation_axis, "plan")
     if feature.kind == "step":
         return _PROFILE.get(feature.frame.axis, "front")
     return _END_ON.get(feature.frame.axis, "plan")

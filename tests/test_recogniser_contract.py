@@ -19,9 +19,7 @@ import json
 from pathlib import Path
 
 import pytest
-from build123d import Align, Axis, Box, Cylinder, Pos, Rot, chamfer, fillet, import_step
-
-from draftwright.recognition import (
+from b123d_recognisers import (
     BoltCircle,
     BossRecord,
     Chamfer,
@@ -69,7 +67,8 @@ from draftwright.recognition import (
     recognise_slots,
     recognise_turned_steps,
 )
-from draftwright.recognition._record import Record
+from b123d_recognisers._record import Record
+from build123d import Align, Axis, Box, Cylinder, Pos, Rot, chamfer, fillet, import_step
 
 # Every record class a recogniser returns. The coverage test asserts the drive-parts
 # below actually emit one of each — so a record type that silently stops being produced

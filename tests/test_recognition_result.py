@@ -4,17 +4,17 @@ from dataclasses import FrozenInstanceError
 from types import SimpleNamespace
 
 import pytest
-from build123d import Align, Axis, Box, Cylinder, Pos, chamfer, fillet
-from conftest import counting_calls
-
-from draftwright import build_drawing
-from draftwright.model import build_part_model
-from draftwright.recognition import (
+from b123d_recognisers import (
     FaceLevel,
     RecognitionResult,
     build_recognition_result,
     recognise_plates,
 )
+from build123d import Align, Axis, Box, Cylinder, Pos, chamfer, fillet
+from conftest import counting_calls
+
+from draftwright import build_drawing
+from draftwright.model import build_part_model
 
 
 def _plate_with_holes():
@@ -41,8 +41,9 @@ def test_built_drawing_exposes_its_recognition_result_without_private_state(monk
     stop. Stable identity rules out a rebuild-per-call; the poisoned orchestration rules out
     a rebuild-then-cache, which stable identity alone would accept.
     """
+    import b123d_recognisers.result as result_module
+
     import draftwright.analysis as analysis_module
-    import draftwright.recognition.result as result_module
 
     drawing = build_drawing(_plate_with_holes())
 
@@ -60,7 +61,7 @@ def test_built_drawing_exposes_its_recognition_result_without_private_state(monk
 
 
 def test_orchestrator_injects_each_shared_dependency_once(monkeypatch):
-    import draftwright.recognition.result as result_module
+    import b123d_recognisers.result as result_module
 
     calls: dict[str, int] = {}
     cylinders = ([{"axis": "z"}], [{"axis": "x"}])

@@ -10,12 +10,12 @@ ADR 0013's rule for a record that looks too thin is that the fix is the record.
 """
 
 import pytest
+from b123d_recognisers import recognise_flats
+from b123d_recognisers.flats import _axis_line, _same_axis_line
 from build123d import Box, Cylinder, Pos, Rot
 
 from draftwright import build_drawing
 from draftwright.model.declare import flat as declare_flat
-from draftwright.recognition import recognise_flats
-from draftwright.recognition.flats import _axis_line, _same_axis_line
 
 
 def _lobe():
@@ -182,9 +182,9 @@ def test_slanted_stock_has_canonical_identity_and_a_placed_definition():
 
     flats = recognise_flats(slant)
     assert flats, "fixture stopped producing a slanted flat — it no longer pins anything"
-    assert flats[0].axis == "x", (
-        "a (0.707, 0, 0.707) axis is classified by its dominant component; if that changed, "
-        "the slanted-identity reasoning in _axis_line needs rechecking"
+    assert flats[0].axis == "z", (
+        "an exact (0.707, 0, 0.707) dominant-axis tie is normalised Z-first by the external "
+        "package; if that changed, the slanted-identity reasoning in _axis_line needs rechecking"
     )
     assert flats[0].axis_direction == pytest.approx((2**-0.5, 0.0, 2**-0.5), abs=1e-6)
     assert flats[0].axis_line == (0.0, 0.0), (
@@ -193,6 +193,11 @@ def test_slanted_stock_has_canonical_identity_and_a_placed_definition():
     assert not flats[0].axis_aligned
 
     dwg = build_drawing(slant)
+    model_flat = next(f for f in dwg.model().features if f.kind == "flat")
+    assert model_flat.axis == "z", "the external recogniser's semantic axis must be preserved"
+    assert model_flat.presentation_axis == "x", (
+        "Draftwright keeps the established lint-clean side view for an exact X/Z slant"
+    )
     callouts = [n for n in dwg.annotations() if n.startswith("m_flat_")]
     assert callouts == ["m_flat_x0"]
     assert len(dwg.measurement_keys(callouts[0])) == 1
@@ -209,6 +214,17 @@ def test_slanted_stock_has_canonical_identity_and_a_placed_definition():
     multi = build_drawing(two_slants)
     assert len([n for n in multi.annotations() if n.startswith("m_flat_")]) == 2
     assert not [i for i in multi.lint() if i.code == "flat_dropped"]
+
+
+def test_flat_presentation_override_is_limited_to_the_x_z_tie():
+    yz_tie = declare_flat(
+        axis="z",
+        across=10,
+        at=(0, 0, 0),
+        axis_direction=(0.0, 2**-0.5, 2**-0.5),
+    )
+
+    assert yz_tie.presentation_axis == "z", "the compatibility policy is not a general tie rule"
 
 
 def test_a_slanted_double_d_is_still_one_physical_definition():

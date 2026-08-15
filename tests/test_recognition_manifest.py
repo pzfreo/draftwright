@@ -6,7 +6,7 @@ still leaves the engine scanning the same solid from four places, which is the s
 was written to end.
 
 So the manifest is fail-closed on the package surface itself: adding a ``recognise_*`` to
-``draftwright.recognition.__all__`` without deciding whether the aggregate owns it fails here.
+``b123d_recognisers.__all__`` without deciding whether the aggregate owns it fails here.
 The decision is forced at the moment the recogniser is written, when the author knows why.
 """
 
@@ -17,16 +17,9 @@ from dataclasses import fields
 from math import cos, radians, sin
 from pathlib import Path
 
-from build123d import Align, Box, Cone, Cylinder, Pos, RegularPolygon, extrude, import_step
-from conftest import counting_calls
-
-import draftwright.model.detect as detect_module
-import draftwright.recognition as recognition
-import draftwright.recognition.result as result_module
-from draftwright import Sheet, build_drawing
-from draftwright.analysis import _analyse
-from draftwright.annotations.orchestrator import build_model
-from draftwright.recognition import (
+import b123d_recognisers as recognition
+import b123d_recognisers.result as result_module
+from b123d_recognisers import (
     RecognitionResult,
     analyse_cylinders,
     build_recognition_result,
@@ -53,7 +46,14 @@ from draftwright.recognition import (
     recognise_turned_steps,
     step_level_records,
 )
-from draftwright.recognition.result import DEFERRED, MIGRATED, Deferral
+from b123d_recognisers.result import DEFERRED, MIGRATED, Deferral
+from build123d import Align, Box, Cone, Cylinder, Pos, RegularPolygon, extrude, import_step
+from conftest import counting_calls
+
+import draftwright.model.detect as detect_module
+from draftwright import Sheet, build_drawing
+from draftwright.analysis import _analyse
+from draftwright.annotations.orchestrator import build_model
 
 
 def _pocketed_plate():
@@ -207,7 +207,7 @@ def test_every_public_recogniser_reaches_the_package_surface():
     # ``walk_packages``, not ``iter_modules``: the latter is non-recursive, so a future
     # sub-package of recognisers would escape the check the manifest's fail-closedness rests
     # on.
-    for info in pkgutil.walk_packages(recognition.__path__, prefix="draftwright.recognition."):
+    for info in pkgutil.walk_packages(recognition.__path__, prefix="b123d_recognisers."):
         module = importlib.import_module(info.name)
         defined |= {
             attr
@@ -218,7 +218,7 @@ def test_every_public_recogniser_reaches_the_package_surface():
     unexported = defined - _public_families()
     assert not unexported, (
         f"recogniser(s) defined but not exported: {sorted(unexported)}. "
-        "Add each to draftwright.recognition.__all__ — the ADR 0017 manifest is checked "
+        "Add each to b123d_recognisers.__all__ — the ADR 0017 manifest is checked "
         "against that surface, so an unexported recogniser escapes classification."
     )
 

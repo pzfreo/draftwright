@@ -1,10 +1,10 @@
 """Regression coverage for #885: sparse recognition must not imply completeness."""
 
+from b123d_recognisers import recognise_rectangular_pads
 from build123d import Align, Box, Cylinder, Plane, Pos, SlotOverall, extrude
 
 from draftwright import build_drawing
 from draftwright.model import PadFeature, pad
-from draftwright.recognition import recognise_rectangular_pads
 from draftwright.sheet_emit import emit_sheet_script
 
 

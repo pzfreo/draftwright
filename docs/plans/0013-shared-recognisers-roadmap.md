@@ -1,9 +1,10 @@
 # 0013 — `b123d-recognisers` roadmap (uniform recognition, extraction-ready)
 
-Execution plan for [ADR 0013](../adr/0013-uniform-recognition-and-shared-package.md). Two phases:
-make `recognition/` uniform and extraction-ready **now** (Phase 1 = #568); extract to
-the standalone Apache package **later**, gated on a second committed consumer (Phase 2).
-mcp is a slow follower — not coupled in either phase until it chooses to adopt.
+Execution record for [ADR 0013](../adr/0013-uniform-recognition-and-shared-package.md).
+**Phase 1 and the code portion of Draftwright-leading Phase 2 are complete.** The standalone
+Apache package is live at <https://github.com/pzfreo/b123d-recognisers>; `v0.1.0a1` is the
+golden-backed migration release and Draftwright consumes it with its duplicate implementation
+removed. mcp remains a slow follower until it chooses to adopt.
 
 ## Phase 1 — uniform, geometry-only, extraction-ready `recognition/` (now)
 
@@ -47,23 +48,26 @@ Migrate the remaining seed-set recognisers (holes, bosses, cylinders, patterns,
 chamfer) onto the contract **incrementally**, one per PR, as issues touch them — not
 as a forced sweep.
 
-## Phase 2 — extract to `b123d-recognisers` (deferred; gated on a 2nd consumer)
+## Phase 2 — extract to `b123d-recognisers` (✅ deployed, 2026-08-15)
 
 Trigger: a second consumer commits to depend (in practice, mcp deciding to follow, or
 another tool appearing). Until then, do not spin the repo.
 
-- **2a — stand up the repo.** New Apache-2.0 `b123d-recognisers`; move the seed-set
+- **2a — stand up the repo. ✅** New Apache-2.0 `b123d-recognisers`; move the seed-set
   recognisers + their geometry records + their tests (the geometric counter-examples —
   gusset/ramp/hex-prism etc. — are geometry truths and belong here). Fast CI (build123d/
   OCP only). Licensing (the Phase 2 gate, ADR 0013 §7): relicense each migrated file to
   Apache in its header (pzfreo owns copyright). Countersink seeds from mcp's
   already-Apache code, so it needs no relicense.
-- **2b — publish + wire.** `0.1.0` to PyPI once. draftwright declares
-  `b123d-recognisers>=0.1`; during co-development both use `[tool.uv.sources]`
-  (editable path or pinned git rev), flipping to the PyPI spec for releases.
-- **2c — migrate draftwright imports** to the package (internal→package swap); the
+- **2b — publish + wire. ✅** `v0.1.0a1` was published from exact commit
+  `4ba34fdcffac117dccc16c818485e779a92e2e29`; the same reviewed wheel and sdist were promoted
+  TestPyPI-first through Trusted Publishing. Draftwright pins `b123d-recognisers==0.1.0a1`
+  from PyPI for the cutover, with both artifact hashes captured in `uv.lock`.
+- **2c — migrate draftwright imports. ✅** The internal→package swap is atomic; the
   uniform `detect.py` seam is unchanged.
-- **2d — governance.** Only seed-set (shareable) recognisers live in the package;
+- **2d — governance. ✅** Geometry-only shareability is enforced by package contract,
+  import-boundary, serialization, public-inventory, and golden tests. Only shareable
+  recognisers live in the package;
   domain-flavoured ones (Plate/Envelope/StepLevel/Turned; mcp's `locate`) stay home
   until a second consumer wants them.
 

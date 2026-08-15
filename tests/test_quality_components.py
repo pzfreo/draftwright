@@ -10,13 +10,14 @@ is still a literal map.
 
 from __future__ import annotations
 
+from b123d_recognisers import RecognitionResult
+
 from draftwright.linting.issues import LintIssue
 from draftwright.linting.quality import (
     _NON_REQUIREMENT_INVENTORIES,
     _RECOGNISED_REQUIREMENT_FAMILIES,
     quality_components,
 )
-from draftwright.recognition import RecognitionResult
 
 
 def _legibility(*issues):

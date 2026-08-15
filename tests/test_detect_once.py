@@ -39,7 +39,7 @@ def fillet_counter():
     Same reasoning as ``cyls_counter`` below and the ADR 0017 manifest guards: a code object
     cannot be re-bound, so the count survives the next migration too.
     """
-    from draftwright.recognition import recognise_fillets
+    from b123d_recognisers import recognise_fillets
 
     with counting_calls({"n": recognise_fillets}) as counts:
         yield counts
@@ -84,7 +84,7 @@ def cyls_counter():
     Yields a live dict, so the count is read AFTER the work — matching the previous
     fixture's ``calls["n"]`` shape.
     """
-    import draftwright.recognition._features as _features
+    import b123d_recognisers._features as _features
 
     with counting_calls({"n": _features.analyse_cylinders}) as counts:
         yield counts

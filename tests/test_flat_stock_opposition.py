@@ -10,9 +10,8 @@ opposite face and both were sized as the sum of two unrelated chord offsets.
 than a missing one — the part gets made to it.
 """
 
+from b123d_recognisers import recognise_flats
 from build123d import Align, Box, Cylinder, Pos
-
-from draftwright.recognition import recognise_flats
 
 _C = (Align.CENTER, Align.CENTER, Align.CENTER)
 

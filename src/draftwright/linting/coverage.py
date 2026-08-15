@@ -24,20 +24,7 @@ from collections.abc import Iterable
 from math import atan2, pi, tau
 from typing import Literal
 
-from build123d import GeomType
-from build123d_drafting.helpers import CenterMark, Dimension, TitleBlock
-
-from draftwright._core import (
-    _END_ON,
-    HoleRef,
-    _annotation_diameter_sources,
-    _axis_letter,
-    _fmt,
-    _xyz,
-)
-from draftwright.linting.issues import LintIssue
-from draftwright.linting.profiled_bore_coverage import profiled_bore_key
-from draftwright.recognition import (
+from b123d_recognisers import (
     RecognitionResult,
     TurnedProfile,
     analyse_cylinders,
@@ -51,11 +38,24 @@ from draftwright.recognition import (
     recognise_rectangular_pads,
     recognise_turned_steps,
 )
-from draftwright.recognition.profiled_bores import (
+from b123d_recognisers.profiled_bores import (
     double_d_bores_from_openings,
     double_d_profile,
     principal_boundary_plane,
 )
+from build123d import GeomType
+from build123d_drafting.helpers import CenterMark, Dimension, TitleBlock
+
+from draftwright._core import (
+    _END_ON,
+    HoleRef,
+    _annotation_diameter_sources,
+    _axis_letter,
+    _fmt,
+    _xyz,
+)
+from draftwright.linting.issues import LintIssue
+from draftwright.linting.profiled_bore_coverage import profiled_bore_key
 
 _UNSET = object()  # sentinel: distinguishes "not supplied" from a valid prof=None
 

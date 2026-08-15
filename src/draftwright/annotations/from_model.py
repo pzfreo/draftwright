@@ -1881,6 +1881,7 @@ def render_flats(dwg, plan, a, *, ctx, only=None) -> int:
         collapse.setdefault(
             (
                 g.facts.axis,
+                g.facts.presentation_axis,
                 g.facts.axis_direction,
                 g.facts.axis_line,
                 g.facts.stock_span,
@@ -1889,7 +1890,7 @@ def render_flats(dwg, plan, a, *, ctx, only=None) -> int:
             [],
         ).append((g, pd))
     jobs = []
-    for gi, ((axis, _direction, _line, _span, _across), members) in enumerate(
+    for gi, ((_axis, presentation_axis, _direction, _line, _span, _across), members) in enumerate(
         sorted(collapse.items())
     ):
         if only is not None:
@@ -1920,7 +1921,7 @@ def render_flats(dwg, plan, a, *, ctx, only=None) -> int:
         )
         jobs.append(
             (
-                f"m_flat_{axis}{gi}",
+                f"m_flat_{presentation_axis}{gi}",
                 view,
                 vb,
                 _flat_label(members[0][1].value_text, _tol_suffix(tol, draft)),

@@ -2,15 +2,15 @@
 
 from dataclasses import replace
 
-from build123d import Box, Compound, Pos
-
-from draftwright.model.detect import build_part_model
-from draftwright.recognition import (
+from b123d_recognisers import (
     recognise_pocket_patterns,
     recognise_pockets,
     recognise_slot_patterns,
     recognise_slots,
 )
+from build123d import Box, Compound, Pos
+
+from draftwright.model.detect import build_part_model
 
 
 def _separate_bodies(feature):
@@ -83,7 +83,7 @@ def test_compound_traversal_order_does_not_change_body_correspondence():
 
 
 def test_ambiguous_body_signature_fails_closed(monkeypatch):
-    from draftwright.recognition import slots as slots_module
+    from b123d_recognisers import slots as slots_module
 
     monkeypatch.setattr(slots_module, "_body_signature", lambda _solid: (1.0,))
     slots = recognise_slots(_separate_bodies(_slotted_body()))

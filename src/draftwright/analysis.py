@@ -17,6 +17,14 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import cast
 
+from b123d_recognisers import (
+    RecognitionResult,
+    TurnedProfile,
+    TurnedStep,
+    analyse_cylinders,
+    build_recognition_result,
+    full_cylinders,
+)
 from build123d import Compound, Shape
 from build123d_drafting.helpers import draft_preset
 from OCP.IFSelect import IFSelect_ReturnStatus
@@ -47,14 +55,6 @@ from draftwright.compose import (
 from draftwright.model import build_part_model
 from draftwright.model.ir import Datum, PartModel, StepFeature, StepLevelFeature
 from draftwright.model.planner import plan_dimensions
-from draftwright.recognition import (
-    RecognitionResult,
-    TurnedProfile,
-    TurnedStep,
-    analyse_cylinders,
-    build_recognition_result,
-    full_cylinders,
-)
 
 _log = logging.getLogger(__name__)
 

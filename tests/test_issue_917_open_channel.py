@@ -2,11 +2,11 @@
 
 from dataclasses import replace
 
+from b123d_recognisers import recognise_channels, recognise_pockets
 from build123d import Align, Box, Cylinder, Pos, Rot
 
 from draftwright import build_drawing
 from draftwright.model import ChannelFeature, HoleFeature, PartModel, plan_dimensions
-from draftwright.recognition import recognise_channels, recognise_pockets
 
 
 def _u_channel(*, lower_wall=12.5, upper_wall=12.5):

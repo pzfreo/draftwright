@@ -10,17 +10,17 @@ pockets on one centreline) is the end-to-end regression: it must render ONE grou
 
 from pathlib import Path
 
-from build123d import Box, Pos, import_step
-
-from draftwright.make_drawing import build_drawing
-from draftwright.model import pocket, pocket_pattern  # noqa: F401  (declared-path symmetry)
-from draftwright.model.detect import build_part_model
-from draftwright.recognition import (
+from b123d_recognisers import (
     PocketArray,
     PocketGrid,
     recognise_pocket_patterns,
     recognise_pockets,
 )
+from build123d import Box, Pos, import_step
+
+from draftwright.make_drawing import build_drawing
+from draftwright.model import pocket, pocket_pattern  # noqa: F401  (declared-path symmetry)
+from draftwright.model.detect import build_part_model
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "tuner_jig_blind_obround_pockets.step"
 
@@ -79,7 +79,7 @@ def test_non_coplanar_aligned_pockets_do_not_merge():
     # three identical pockets whose in-plane (XY) centres form a constant-pitch row but which
     # sit on DIFFERENT depth planes (staggered d_lo/d_hi) must NOT merge into one planar array
     # that does not exist — pattern detection projects the depth coord away (Codex #849).
-    from draftwright.recognition.slots import Pocket
+    from b123d_recognisers.slots import Pocket
 
     def pk(cy, d_lo):
         return Pocket(
@@ -104,7 +104,7 @@ def test_non_coplanar_aligned_pockets_do_not_merge():
 def test_opposite_facing_pockets_do_not_merge():
     # identical pockets sharing the SAME absolute depth range but opening OPPOSITE faces sit on
     # different faces — d_lo/d_hi alone can't tell them apart, so open_sign keys them (Codex #849).
-    from draftwright.recognition.slots import Pocket
+    from b123d_recognisers.slots import Pocket
 
     def pk(cy, sign):
         return Pocket(
@@ -130,7 +130,7 @@ def test_opposite_facing_pockets_do_not_merge():
 def test_edge_anchored_and_interior_pockets_do_not_form_one_pattern():
     from dataclasses import replace
 
-    from draftwright.recognition.slots import Pocket
+    from b123d_recognisers.slots import Pocket
 
     base = Pocket(
         width_axis="x",

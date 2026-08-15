@@ -42,6 +42,18 @@ warnings.filterwarnings("ignore", category=SoftDeprecationWarning)
 build123d object and get a fully dimensioned drawing — that is the detected front door and
 being automatic is the whole point of it.
 
+## Compatibility re-exports — scheduled, silent
+
+The recognition extraction keeps two import facades for one migration window. They do not warn
+at import time because importing a compatibility module must not make otherwise-correct builds
+noisy, but they are compatibility surfaces under ADR 0005 §4 and therefore have an explicit
+exit. The extraction epic is the tracker; private historical submodules were not retained.
+
+| Surface | Use instead | Compatibility since | Removed in |
+|---|---|---|---|
+| `draftwright.recognition` public symbols | import the same symbols from `b123d_recognisers` | 0.4.6 (`b123d-recognisers#1`) | 0.6.0 |
+| `draftwright.score.feature_census` | `b123d_recognisers.feature_census` | 0.4.6 (`b123d-recognisers#1`) | 0.6.0 |
+
 ## Live deprecations
 
 | Surface | Use instead | Deprecated in | Removed in |
