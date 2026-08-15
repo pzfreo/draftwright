@@ -30,9 +30,10 @@ Known limits (static analysis can't fully model these; none occurs in a way that
 DAG violation today, so they are accepted rather than chased):
 
 - **Dynamic imports.** ``importlib.import_module(x)`` / ``__import__(x)`` with a non-literal
-  argument can't be resolved statically. The two current uses (``__init__`` lazy public-API
-  loader, ``sheet_emit``'s emitter) both pass a variable and both live at the top layer
-  (L7/L8), where an upward edge is impossible anyway. A future dynamic import of an internal
+  argument can't be resolved statically. The current uses (``__init__`` lazy public-API
+  loader, ``sheet_emit``'s emitter, and ``recogniser_contract``'s declaration validator) pass a
+  variable and live at the top layer (L7/L8), where an upward edge is impossible anyway. A
+  future dynamic import of an internal
   module from a lower layer would not be seen — prefer a static import there.
 - **A function called during module init.** Imports inside a ``def`` are treated as lazy
   (cycle-breakers). If a module defined such a function *and called it at module scope*, the
@@ -98,6 +99,9 @@ _LAYERS: dict[str, int] = {
     "make_drawing": 7,
     "sheet": 7,
     "sheet_emit": 7,
+    # Cross-repository CI contract: dynamically resolves declared implementations at every
+    # lower layer, so it deliberately sits above the whole engine beside the user surfaces.
+    "recogniser_contract": 7,
     "cli": 7,
     # 8 — the package root: the public API surface, above everything
     "__init__": 8,

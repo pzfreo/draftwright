@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- Draftwright now validates the released `b123d-recognisers` 0.2.0 capability manifest against
+  an exhaustive consumer-owned declaration of IR, DSL, generated-code, drawing, completeness,
+  and documentation states. Unknown families, stale implementations, record-schema drift, and
+  unevidenced state transitions fail closed; intentionally geometry-only repeating-profile
+  evidence remains usable without acquiring invented drafting semantics.
+
 ### Fixed
 
 - Machined-feature leader callouts now collect all clear alternatives within each

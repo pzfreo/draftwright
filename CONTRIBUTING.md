@@ -82,6 +82,16 @@ Test helpers follow the same evidence rule. Extract a structural assertion only 
 two slices use the same contract. Physical grouping, applicability, and correspondence
 keys stay family-specific unless a failing fixture proves otherwise.
 
+### Cross-repository recognition changes
+
+Changes to a recogniser or its public record follow the package-owned
+[tests-first delivery protocol](https://github.com/pzfreo/b123d-recognisers/blob/main/docs/delivery-protocol.md).
+Draftwright owns the IR adapter, `Sheet` declaration, generated-code round trip, drawing
+regression, and completeness decision; it must not duplicate geometry recognition. Before either
+PR merges, run the documented two-checkout command from the package checkout against the committed
+Draftwright candidate branch. Production dependencies remain exact, hash-verified PyPI artifacts;
+never commit a path or Git override.
+
 ## Pull requests
 
 - Branch off `main` and open a PR with a clear description of **why**.

@@ -15,11 +15,15 @@
 
 - [ ] `scripts/pr-check --quick`
 - [ ] `scripts/pr-check` before final review
+- [ ] Cross-repository recogniser changes follow the [tests-first delivery protocol][recogniser-protocol]
+      and its two-checkout check
 - [ ] The named mutation was observed failing before the implementation passed it
 - [ ] Automatic, declared, and generated-script paths were checked where affected
 - [ ] Recognition and repeated-lint call counts were checked where affected
 
 Use `N/A` with a reason for items that do not apply, such as fixture evidence on a docs-only PR.
+
+[recogniser-protocol]: https://github.com/pzfreo/b123d-recognisers/blob/main/docs/delivery-protocol.md
 
 ## Stop check
 

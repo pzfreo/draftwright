@@ -166,7 +166,7 @@ def _pattern_feature(pat, members) -> PatternFeature:
             _member_hole(members[0], frame),
             members=locs,
             pitch=pat.pitch,
-            direction=tuple(pat.direction),
+            direction=pat.direction,
         )
     if isinstance(pat, RectGrid):
         frame = Frame(_xyz(pat.center), axis)

@@ -166,6 +166,11 @@ entry. Keep `_LAYERS` and this section in step.
 - **`recognition_cache.py`** — Draftwright's ADR 0017 one-result lifecycle owner. It calls
   external `build_recognition_result(part)` at most once for a build/lazy-critique run; the
   package owns recognition, while Draftwright owns when the result is computed and reused.
+- **`recogniser_contract.py`** — the fail-closed cross-repository capability join. It consumes
+  only the installed `b123d-recognisers` public manifest, then validates Draftwright-owned IR,
+  `Sheet`, generated-code, drawing, completeness, and documentation declarations. It is rank 7
+  because validation dynamically resolves implementation references across every lower layer;
+  package geometry policy never imports or owns this consumer overlay.
 - **`model/`** — the ADR 0015 IR waist: `ir.py` (the `Feature`/`DimParameter`/
   `Datum`/`PartModel` types — the one inventory), `detect.py` (detectors →
   `Feature` objects, adapting `b123d_recognisers` records), `planner.py`
