@@ -516,9 +516,10 @@ def material_field(triangles) -> MaterialField:
         if len(triangle) != 3:
             continue
         try:
-            corners = tuple((float(point[0]), float(point[1])) for point in triangle)
+            first, second, third = ((float(point[0]), float(point[1])) for point in triangle)
         except Exception:  # noqa: BLE001 — a malformed lowering entry is simply not material
             continue
+        corners = (first, second, third)
         if any(not math.isfinite(value) for point in corners for value in point):
             continue
         (ax, ay), (bx, by), (cx, cy) = corners
