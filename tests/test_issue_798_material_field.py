@@ -13,9 +13,12 @@ import math
 import pytest
 
 from draftwright._geometry import (
+    _MATERIAL_SPAN_TICKS,
     MaterialField,
     _segment_triangle_interval,
     material_field,
+    material_intervals,
+    material_reentry_span,
     material_span,
 )
 
@@ -183,3 +186,90 @@ class TestDeterminism:
         assert isinstance(field, MaterialField)
         with pytest.raises(Exception):
             field.cell = 1.0  # type: ignore[misc]
+
+
+class TestMaterialIntervals:
+    def test_two_bodies_are_two_intervals(self):
+        field = material_field(_square(0, 0, 5, 10) + _square(15, 0, 20, 10))
+        assert len(material_intervals((0, 5), (20, 5), field)) == 2
+
+    def test_one_body_is_one_interval(self):
+        field = material_field(_square(0, 0, 10, 10))
+        assert len(material_intervals((-5, 5), (15, 5), field)) == 1
+
+    def test_intervals_are_ordered_along_the_segment(self):
+        field = material_field(_square(0, 0, 5, 10) + _square(15, 0, 20, 10))
+        intervals = material_intervals((0, 5), (20, 5), field)
+        assert intervals == tuple(sorted(intervals))
+
+    def test_a_bridge_closes_a_narrow_gap(self):
+        # Two bodies 0.1 mm apart read as one traversal under a 0.5 mm bridge: the
+        # gap is below the resolution the lowering can be trusted at.
+        field = material_field(_square(0, 0, 10, 10) + _square(10.1, 0, 20, 10))
+        assert len(material_intervals((0, 5), (20, 5), field)) == 2
+        assert len(material_intervals((0, 5), (20, 5), field, bridge=0.5)) == 1
+
+    def test_a_bridge_does_not_absorb_a_real_gap(self):
+        # Mutation guard on the bridge: a 10 mm void must survive a 0.5 mm bridge, or
+        # a genuine cut is silently reported as one traversal.
+        field = material_field(_square(0, 0, 5, 10) + _square(15, 0, 20, 10))
+        assert len(material_intervals((0, 5), (20, 5), field, bridge=0.5)) == 2
+
+
+class TestMaterialReentrySpan:
+    def test_a_leader_exiting_its_own_body_is_not_a_defect(self):
+        # THE case that makes the raw span unusable as a predicate: every correct ⌀,
+        # hole and pocket callout starts on the part and crosses material to reach
+        # clear page. Charging for that would condemn the whole sheet.
+        field = material_field(_square(0, 0, 10, 10))
+        assert material_span((5, 5), (25, 5), field) == pytest.approx(5.0)
+        assert material_reentry_span((5, 5), (25, 5), field) == 0.0
+
+    def test_cutting_a_second_body_is_the_defect(self):
+        # Tip inside the left body, shaft ploughing on through a neighbour. The
+        # tolerance is the documented tick resolution (1e-6 of the segment length),
+        # not an arbitrary slack: the interval union is deliberately fixed-point so
+        # that summing it is platform-stable.
+        field = material_field(_square(0, 0, 5, 10) + _square(15, 0, 20, 10))
+        assert material_reentry_span((2, 5), (25, 5), field) == pytest.approx(5.0, abs=1e-3)
+
+    def test_passing_over_a_through_hole_is_not_a_reentry(self):
+        # The filled model's payoff, stated as a leader: a shaft leaving a bore
+        # crosses the annulus wall once. A crossing COUNT sees two outline crossings
+        # and calls it a cut; there is no second material traversal here at all.
+        field = material_field(_square(-20, -1, -5, 1) + _square(5, -1, 20, 1))
+        assert material_reentry_span((0, 0), (30, 0), field) == 0.0
+
+    def test_the_defect_is_a_magnitude_not_a_flag(self):
+        # Two cuts of different severity must be rankable, or the solver cannot
+        # prefer the better of two imperfect routes.
+        field = material_field(_square(0, 0, 5, 10) + _square(15, 0, 17, 10))
+        slight = material_reentry_span((2, 5), (25, 5), field)
+        field_worse = material_field(_square(0, 0, 5, 10) + _square(15, 0, 30, 10))
+        severe = material_reentry_span((2, 5), (40, 5), field_worse)
+        assert 0 < slight < severe
+
+    def test_a_clear_route_scores_zero(self):
+        field = material_field(_square(0, 0, 10, 10))
+        assert material_reentry_span((15, 15), (25, 25), field) == 0.0
+
+    def test_the_reentry_never_exceeds_the_total_span(self):
+        field = material_field(_square(0, 0, 5, 10) + _square(15, 0, 20, 10))
+        probe = ((2, 5), (25, 5))
+        assert material_reentry_span(*probe, field) <= material_span(*probe, field) + 1e-9
+
+    def test_a_bridged_sliver_does_not_invent_a_reentry(self):
+        # A tip grazing a curved boundary can be split into a sliver plus the real
+        # traversal by where facets fall. Without the bridge that mesh detail becomes
+        # a routing verdict; the assertion pins that it does not.
+        field = material_field(_square(0, 0, 0.02, 10) + _square(0.04, 0, 10, 10))
+        assert material_reentry_span((0, 5), (25, 5), field) > 0
+        assert material_reentry_span((0, 5), (25, 5), field, bridge=0.1) == 0.0
+
+
+class TestTicksContract:
+    def test_intervals_are_expressed_in_the_documented_tick_scale(self):
+        # A full-length traversal spans the whole tick range, so callers converting
+        # ticks back to mm share one convention with the module.
+        field = material_field(_square(0, 0, 10, 10))
+        assert material_intervals((0, 5), (10, 5), field) == ((0, _MATERIAL_SPAN_TICKS),)

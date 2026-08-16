@@ -593,14 +593,40 @@ def material_span(p, q, field: MaterialField) -> float:
     segment parameter) so summing it is associative and platform-stable, the same convention
     ``layout``'s cost scaling uses.
     """
-    if not field.triangles or field.box is None:
-        return 0.0
     length = math.hypot(q[0] - p[0], q[1] - p[1])
+    return (
+        length
+        * sum(hi - lo for lo, hi in material_intervals(p, q, field))
+        / (_MATERIAL_SPAN_TICKS)
+    )
+
+
+def material_intervals(
+    p, q, field: MaterialField, *, bridge: float = 0.0
+) -> tuple[tuple[int, int], ...]:
+    """Disjoint fixed-point sub-intervals of *p*→*q* that lie inside *field*'s material.
+
+    Ordered along the segment, in :data:`_MATERIAL_SPAN_TICKS` per unit of the segment
+    parameter. The *structure* is what distinguishes a legitimate route from a defective
+    one — a leader that exits its own feature makes one traversal, a shaft cutting a
+    neighbouring body makes a second — so callers that need that distinction read the
+    intervals rather than the summed span.
+
+    *bridge* (page mm) closes gaps narrower than itself before the intervals are returned.
+    The triangles approximate curved boundaries, so a shaft grazing one can be split into
+    slivers by where the facets happen to fall; without a bridge those slivers read as
+    extra traversals and a mesh detail becomes a routing verdict. Set it to the lowering's
+    chord tolerance — never larger, or a genuine thin gap between two bodies is absorbed
+    and a real cut is reported as one traversal.
+    """
+    length = math.hypot(q[0] - p[0], q[1] - p[1])
+    if not field.triangles or field.box is None:
+        return ()
     if length <= 1e-12:
-        return 0.0
+        return ()
     if not _segment_clips_box(p, q, field.box):
-        return 0.0
-    intervals: list[tuple[int, int]] = []
+        return ()
+    raw: list[tuple[int, int]] = []
     for position in _probe_triangles(p, q, field):
         span = _segment_triangle_interval(p, q, field.triangles[position])
         if span is None:
@@ -608,20 +634,53 @@ def material_span(p, q, field: MaterialField) -> float:
         lo = max(0, min(_MATERIAL_SPAN_TICKS, round(span[0] * _MATERIAL_SPAN_TICKS)))
         hi = max(0, min(_MATERIAL_SPAN_TICKS, round(span[1] * _MATERIAL_SPAN_TICKS)))
         if hi > lo:
-            intervals.append((lo, hi))
-    if not intervals:
-        return 0.0
-    intervals.sort()
-    total = 0
-    current_lo, current_hi = intervals[0]
-    for lo, hi in intervals[1:]:
-        if lo > current_hi:
-            total += current_hi - current_lo
+            raw.append((lo, hi))
+    if not raw:
+        return ()
+    raw.sort()
+    gap = (
+        0
+        if bridge <= 0.0
+        else max(0, min(_MATERIAL_SPAN_TICKS, round(bridge / length * _MATERIAL_SPAN_TICKS)))
+    )
+    merged: list[tuple[int, int]] = []
+    current_lo, current_hi = raw[0]
+    for lo, hi in raw[1:]:
+        if lo > current_hi + gap:
+            merged.append((current_lo, current_hi))
             current_lo, current_hi = lo, hi
         else:
             current_hi = max(current_hi, hi)
-    total += current_hi - current_lo
-    return length * total / _MATERIAL_SPAN_TICKS
+    merged.append((current_lo, current_hi))
+    return tuple(merged)
+
+
+def material_reentry_span(p, q, field: MaterialField, *, bridge: float = 0.0) -> float:
+    """Page-mm of *p*→*q* inside material **after** its first traversal — the routing defect.
+
+    A leader is attached to the feature it names, so its tip starts on or inside the body and
+    its shaft must pass through material to reach clear page. That first traversal is the
+    legitimate exit every ⌀, hole and pocket callout makes, and :func:`material_span` counts
+    it; charging for it would condemn every correct leader on the sheet. What is *not*
+    legitimate is going back in: a second traversal means the shaft left the body and cut
+    into something else — a neighbouring step, a flange, another lobe — which is exactly the
+    defect #798 names.
+
+    This is the filled-region form of the Phase-1 crossing-count rule (one outline crossing
+    is an exit, two is a cut), and it inherits none of that rule's void problem: a shaft
+    passing over a through-hole re-enters no material, so it is not a second traversal.
+
+    The one assumption is that *p* is the leader's own attachment point. Every candidate
+    generator in the engine builds tips that way (a projected feature origin, or a rim point
+    advanced along the lead direction), so a shaft that begins in clear space and ploughs
+    through the body would be charged for one traversal fewer than it deserves — a case the
+    geometry cannot distinguish and the tip convention does not produce.
+    """
+    intervals = material_intervals(p, q, field, bridge=bridge)
+    if len(intervals) <= 1:
+        return 0.0
+    length = math.hypot(q[0] - p[0], q[1] - p[1])
+    return length * sum(hi - lo for lo, hi in intervals[1:]) / _MATERIAL_SPAN_TICKS
 
 
 def _probe_triangles(p, q, field: MaterialField):
