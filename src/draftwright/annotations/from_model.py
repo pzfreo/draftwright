@@ -55,7 +55,6 @@ from draftwright._core import (
     _legible_locations,
     _legible_steps,
     _log,
-    _shape_box2d,
     _solve_strip_ys,
     _text_size,
     _title_block_box,
@@ -1432,8 +1431,11 @@ def _reroute_crossing_diameters(dwg, *, ctx) -> int:
 
     Two triggers, both re-routed to the clear side:
 
-    * The shaft CUTS THROUGH the body (the Phase-1 ``_leader_shaft_hits_edges``
-      discriminator) — a nested feature clipping a neighbour.
+    * The shaft CUTS THROUGH the body — measured on the shared filled material field,
+      the same predicate the router and the critique use (#798). It used to use the
+      outline-crossing heuristic the critique has since retired, which made this a third
+      consumer on a rule the other two no longer trust: a shaft merely passing over a
+      through-hole was re-routed here while the critique would not have flagged it.
     * An END feature (tip at the part's axial extreme, e.g. a ⌀6 boss stub) whose
       row/column-solved elbow diagonals back INTO the body — a near-miss that reads
       as clipping the outline even where it does not strictly cross.
@@ -1448,15 +1450,13 @@ def _reroute_crossing_diameters(dwg, *, ctx) -> int:
     silhouette). If nothing is both clear and safe the leader is restored unchanged
     (Phase-1 then flags it). A PINNED leader (ADR 0012) is never moved. Returns the
     number re-routed."""
-    from draftwright.linting.structural import _leader_shaft_hits_edges
+    field = view_material(dwg, "front")
+    if field is None:
+        return 0
 
-    vs = dwg.views.get("front")
-    if not vs or vs[0] is None:
-        return 0
-    try:
-        edges = [(e, _shape_box2d(e)) for e in vs[0].edges()]
-    except Exception:  # noqa: BLE001 — an unanalysable projected shape just skips re-routing
-        return 0
+    def _cuts(tip_point, elbow_point) -> bool:
+        return bool(material_penalty_units(tip_point, elbow_point, field))
+
     fb = dwg.view_bounds("front")
     if not fb:
         return 0
@@ -1475,7 +1475,7 @@ def _reroute_crossing_diameters(dwg, *, ctx) -> int:
         if dwg.registry.is_pinned(name):  # a pin is the user's "stays put" (ADR 0012)
             continue
         tip, elbow = ldr.tip, ldr.elbow
-        crosses = _leader_shaft_hits_edges(tip, elbow, edges)
+        crosses = _cuts(tip, elbow)
         ax = 0 if name.startswith("m_dia_x") else 1  # axial page axis (X row / Y column)
         rad = 1 - ax
         lo_b, hi_b = fb[ax], fb[ax + 2]
@@ -1515,7 +1515,7 @@ def _reroute_crossing_diameters(dwg, *, ctx) -> int:
                     b = shp.bounding_box()
                     obstacles.append((b.min.X, b.min.Y, b.max.X, b.max.Y))
             for ex, ey in candidates:
-                if _leader_shaft_hits_edges(tip, (ex, ey), edges):
+                if _cuts(tip, (ex, ey)):
                     continue
                 cand = Leader(
                     tip=(tip[0], tip[1], 0), elbow=(ex, ey, 0), label=ldr.label, draft=draft

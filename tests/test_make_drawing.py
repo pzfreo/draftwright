@@ -9962,9 +9962,11 @@ class TestLeaderCrossesSilhouette:
         from draftwright.annotations.from_model import _reroute_crossing_diameters
 
         dwg, crossing = self._crossing_boss_drawing()
-        # force every silhouette check to "crosses", so no candidate is ever accepted
+        # Force every route to read as cutting, so no candidate is ever accepted. The
+        # re-router now measures against the shared material field (#798), so this
+        # patches that predicate rather than the retired outline-crossing one.
         monkeypatch.setattr(
-            "draftwright.linting.structural._leader_shaft_hits_edges", lambda *a, **k: True
+            "draftwright.annotations.from_model.material_penalty_units", lambda *a, **k: 1
         )
         _reroute_crossing_diameters(dwg, ctx=_ctx_for(dwg))
         restored = dwg.get_annotation("m_dia_x0")

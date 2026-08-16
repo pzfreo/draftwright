@@ -470,6 +470,17 @@ def _leader_ink_crosses_box(
 # rational-arithmetic clipping: no rasterisation, no sampling, no tolerance sweep, so
 # the answer is identical on every platform (ADR 0001).
 
+#: Page mm of material below which a shaft is not treated as cutting the part.
+#:
+#: A visibility floor, not a tuning knob: rendered line work is ~0.25 mm wide, so a cut
+#: thinner than a stroke cannot be seen on the sheet, and a curved boundary's chord
+#: approximation must not be reported as a defect of the drawing.
+#:
+#: Defined HERE, once, because the router and the critique must agree by construction —
+#: that is the point of #798. Two copies of this number is one edit away from the
+#: disagreement the shared field removes.
+MATERIAL_VISIBLE_FLOOR = 0.25
+
 _MATERIAL_SPAN_TICKS = 1_000_000  # fixed-point resolution of the parametric interval union
 _MATERIAL_MAX_GRID = 128  # per-axis cell cap: bounds index memory for a dense mesh
 
@@ -717,8 +728,11 @@ def _probe_triangles(p, q, field: MaterialField):
             seen.setdefault(position, None)
         if (column, row) == (last_column, last_row):
             break
-        # Advance along whichever axis reaches its next cell boundary first. Ties step
-        # both, so a corner-exact diagonal cannot skip the cell it passes through.
+        # Advance along whichever axis reaches its next cell boundary first; an exact tie
+        # (a corner-crossing diagonal) advances the column. The cell that is only touched
+        # at that corner is skipped, which is sound because a segment through a single
+        # point spans zero length of any triangle there — but it IS a skip, so do not read
+        # this as visiting every incident cell.
         next_column = column + (1 if last_column > column else -1 if last_column < column else 0)
         next_row = row + (1 if last_row > row else -1 if last_row < row else 0)
         if next_column == column and next_row == row:

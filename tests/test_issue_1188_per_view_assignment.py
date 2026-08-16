@@ -13,6 +13,8 @@ import json
 import os
 from pathlib import Path
 
+import pytest
+
 from draftwright import build_drawing
 from draftwright.annotations.leaders import _assign_by_view
 from draftwright.layout import _assign_leader_candidates
@@ -50,20 +52,22 @@ class TestItIsADecompositionNotAnApproximation:
         assert {split.choices[0], split.choices[1]} == {0, 1}
         assert {split.choices[2], split.choices[3]} == {0, 1}
 
-    def test_a_conflict_spanning_views_cannot_be_expressed(self):
-        # The guard on the premise. Conflicts are only ever constructed for same-view
-        # pairs (drain_feature_leaders skips the rest), so a cross-view pair is not
-        # representable here — if one were ever passed it would be silently dropped, and
-        # this asserts the decomposition does not pretend otherwise.
-        costs = [[1.0], [1.0]]
-        split = _assign_by_view(
-            ["front", "side"],
-            costs,
-            [(0, 0, 1, 0)],
-            priorities=[0.0, 0.0],
-            penalties_by_job=[[0], [0]],
-        )
-        assert split.choices == (0, 0)
+    def test_a_conflict_spanning_views_fails_closed(self):
+        # The guard on the premise this decomposition rests on. Today both call sites
+        # build same-view conflicts only, so it never fires — but a cross-view conflict
+        # would make the split silently WRONG (each half solved as if the constraint did
+        # not exist). Dropping such a pair quietly is the dangerous behaviour; raising is
+        # the safe one, so the invariant is asserted rather than assumed.
+        from draftwright.annotations.leaders import _FeatureLeaderInvariantError
+
+        with pytest.raises(_FeatureLeaderInvariantError, match="spans views"):
+            _assign_by_view(
+                ["front", "side"],
+                [[1.0], [1.0]],
+                [(0, 0, 1, 0)],
+                priorities=[0.0, 0.0],
+                penalties_by_job=[[0], [0]],
+            )
 
     def test_states_and_optimality_are_aggregated(self):
         costs = [[1.0], [1.0]]

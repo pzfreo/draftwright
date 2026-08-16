@@ -757,6 +757,12 @@ class Drawing:
                 )
                 cache[key] = hit
             fields[key] = hit[1]
+        # Evict entries for shapes no longer on the sheet. Each holds a strong reference
+        # to its view shape, and `_fit_iso_view` re-projects (once per build, again on
+        # finalize), so without this every superseded iso Compound is pinned for the
+        # drawing's lifetime — the same reason `_lint` prunes `_ann_box_cache`.
+        for stale in [key for key in cache if key not in fields]:
+            del cache[stale]
         return fields
 
     @property

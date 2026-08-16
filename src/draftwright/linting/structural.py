@@ -17,6 +17,7 @@ from build123d import GeomType
 
 from draftwright._core import _shape_box2d
 from draftwright._geometry import (
+    MATERIAL_VISIBLE_FLOOR,
     _boxes_overlap,
     _segment_clip_extent,
     _segment_clips_box,
@@ -25,11 +26,9 @@ from draftwright._geometry import (
 from draftwright.linting.issues import LintIssue, _IssueAggregation
 from draftwright.projection import _MATERIAL_PAGE_TOLERANCE
 
-#: Page-mm of re-entry below which a shaft is not reported as cutting the body. This is a
-#: visibility floor, not a tuning knob: rendered line work is ~0.25 mm wide, so a cut
-#: thinner than a stroke cannot be seen on the sheet. It also keeps a curved boundary's
-#: chord approximation from being reported as a defect of the drawing.
-_MATERIAL_REENTRY_FLOOR = 0.25
+#: The shared visible-stroke floor. Imported rather than restated so the critique cannot
+#: drift from the router that solves against the same field (#798).
+_MATERIAL_REENTRY_FLOOR = MATERIAL_VISIBLE_FLOOR
 
 _log = logging.getLogger(__name__)
 
@@ -487,89 +486,6 @@ def _edges_intersect_rect(edge_entries, rect) -> bool:
         except Exception:
             return True
     return False
-
-
-def _seg_seg_point(a, b, c, d):
-    """Intersection point of segments *a*-*b* and *c*-*d*, or ``None`` (parallel,
-    collinear, or no overlap). Collinear returns ``None`` on purpose — a shaft
-    running ALONG an edge does not cut across it."""
-    rx, ry = b[0] - a[0], b[1] - a[1]
-    sx, sy = d[0] - c[0], d[1] - c[1]
-    denom = rx * sy - ry * sx
-    if abs(denom) < 1e-12:
-        return None
-    qpx, qpy = c[0] - a[0], c[1] - a[1]
-    t = (qpx * sy - qpy * sx) / denom
-    u = (qpx * ry - qpy * rx) / denom
-    if 0.0 <= t <= 1.0 and 0.0 <= u <= 1.0:
-        return (a[0] + t * rx, a[1] + t * ry)
-    return None
-
-
-def _leader_shaft_hits_edges(tip, elbow, edge_entries, skip_mm=0.5) -> bool:
-    """True if the leader shaft *tip*→*elbow* cuts THROUGH the projected view
-    silhouette *edge_entries* (``(edge, bbox2d)`` pairs, #796).
-
-    The discriminator is the count of DISTINCT crossing points, past a *skip_mm*
-    step off the tip:
-
-    * A leader that legitimately EXITS the outline — a hole/feature callout whose
-      tip is at an internal point, or a ⌀ callout whose tip is on the surface and
-      whose shaft runs outward — crosses the outline **once** (or not at all).
-    * A shaft that cuts THROUGH a body — a ⌀ leader clipping a neighbouring step,
-      a groove leader crossing a flange — **enters and exits**, crossing **twice**.
-
-    Genuine crossing POINTS are computed (not edge-bbox hits) and deduped within
-    0.5 mm, so a shaft merely grazing a shared vertex, or a doubled/coincident
-    projected edge, counts once — not two (review of #799). Straight edges use an
-    exact segment intersection; a curved edge is sampled ~1 mm; an edge whose
-    geometry THROWS during analysis counts as one crossing (conservative). A cut
-    is **two or more** distinct crossings beyond the tip's on-outline touch, which
-    the skip removes (the tip's own edge crosses at t<0 of the skipped shaft).
-
-    The 0.5 mm dedup radius is a page-space resolution floor: a shaft cutting a
-    feature narrower than ~0.5 mm ON THE PAGE merges to one crossing and is not
-    flagged — acceptable for a Phase-1 observability notice (#798 owns the robust
-    filled-region test)."""
-    tx, ty = tip[0], tip[1]
-    ex, ey = elbow[0], elbow[1]
-    length = ((ex - tx) ** 2 + (ey - ty) ** 2) ** 0.5
-    if length < 1e-9:
-        return False
-    t = min(0.5, skip_mm / length)  # step off the tip; never past the shaft midpoint
-    a = (tx + t * (ex - tx), ty + t * (ey - ty))
-    b = (ex, ey)
-    points: list[tuple[float, float]] = []
-    opaque = 0
-    for e, eb in edge_entries:
-        if eb is None:
-            continue
-        if not _segment_clips_box(a, b, eb):  # cheap bbox prefilter
-            continue
-        try:
-            if e.geom_type == GeomType.LINE:
-                s, d = e.start_point(), e.end_point()
-                p = _seg_seg_point(a, b, (s.X, s.Y), (d.X, d.Y))
-                if p is not None:
-                    points.append(p)
-            else:
-                n = min(200, max(8, int(e.length) + 1))
-                prev = e.position_at(0)
-                for i in range(1, n + 1):
-                    cur = e.position_at(i / n)
-                    p = _seg_seg_point(a, b, (prev.X, prev.Y), (cur.X, cur.Y))
-                    if p is not None:
-                        points.append(p)
-                    prev = cur
-        except Exception:
-            opaque += 1
-    distinct = 0
-    seen: list[tuple[float, float]] = []
-    for p in points:
-        if not any(abs(p[0] - q[0]) < 0.5 and abs(p[1] - q[1]) < 0.5 for q in seen):
-            seen.append(p)
-            distinct += 1
-    return (distinct + opaque) >= 2
 
 
 def _view_edge_entries(vs, cache):
