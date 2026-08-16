@@ -899,7 +899,7 @@ def test_continuous_face_coverage_accepts_multi_shape_cut_results():
         None,
     )
     assert not _face_exactly_covered(
-        MultiShapeCutFace((0.0, 2e-8)),
+        MultiShapeCutFace((6e-9, 6e-9)),
         (((0.0, 0.0), (2.0, 0.0), (0.0, 2.0)),),
         None,
     )
