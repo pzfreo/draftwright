@@ -96,16 +96,21 @@ def _add_changelog(root: Path, old: str, new: str, manifest_hash: str) -> None:
     if marker in text:
         return
     bullet = (
-        f"{marker}. The immutable PyPI wheel/sdist hashes and capability-manifest digest "
-        f"`{manifest_hash}` are recorded in `.github/recogniser-release.json`; focused "
-        "compatibility evidence and the normal consumer gates run on the generated PR.\n"
+        f"{marker}.\n"
+        "  The immutable PyPI wheel/sdist hashes and capability-manifest digest "
+        f"`{manifest_hash}` are\n"
+        "  recorded in `.github/recogniser-release.json`; focused compatibility evidence and "
+        "the\n"
+        "  normal consumer gates run on the generated PR.\n"
     )
-    unreleased_start = text.find("## [Unreleased]")
-    if unreleased_start < 0:
+    heading = re.search(r"^## (?:Unreleased|\[Unreleased\])$", text, re.MULTILINE)
+    if heading is None:
         raise RuntimeError("CHANGELOG.md has no Unreleased section")
-    unreleased_end = text.find("\n## [", unreleased_start + 1)
-    if unreleased_end < 0:
-        unreleased_end = len(text)
+    unreleased_start = heading.start()
+    next_heading = re.search(r"^## ", text[heading.end() :], re.MULTILINE)
+    unreleased_end = (
+        heading.end() + next_heading.start() if next_heading is not None else len(text)
+    )
     changed = text.find("### Changed\n", unreleased_start, unreleased_end)
     if changed >= 0:
         insert_at = changed + len("### Changed\n")

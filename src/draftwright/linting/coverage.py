@@ -1033,8 +1033,10 @@ def lint_prismatic_coverage(
             "caller-assembled inventory: an empty stand-in silences it."
         )
     _rec = build_recognition_result(part) if recognition is None else recognition
+    ladder_bounds = bbox if bbox is not None else part.bounding_box()
     source_shoulders = project_step_shoulders(
-        _rec.risers, levels=_rec.step_ladder(bbox if bbox is not None else part.bounding_box())
+        _rec.risers,
+        levels=_rec.step_ladder_for_z_span(ladder_bounds.min.Z, ladder_bounds.max.Z),
     )
     model_shoulders = {
         (axis, round(pos, 3))

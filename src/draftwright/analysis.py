@@ -630,7 +630,7 @@ def _analyse(
         # by #1025). Both callers deriving this separately let lint project over a different
         # ladder than the model was sized from — which is exactly the divergence one waist is
         # supposed to prevent.
-        step_zs = recognition.step_ladder(bb)
+        step_zs = recognition.step_ladder_for_z_span(bb.min.Z, bb.max.Z)
     # The aggregate owns the shared substrate from here on.  Rebind the local projection so
     # model construction, Analysis and the finished BuildState all consume the same inventory
     # object rather than parallel list/tuple wrappers that merely happen to contain equal data.

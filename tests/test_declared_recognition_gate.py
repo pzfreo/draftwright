@@ -497,8 +497,8 @@ def test_one_ladder_rule_serves_sizing_and_critique():
     face levels — that distinction exists because a blind bore's flat floor is a face level
     and is emphatically not an OD shoulder. `_analyse` had that rule; critique derived its own
     level set separately, so lint could project risers over a different ladder than the model
-    was sized from (Codex #1031 r3). `RecognitionResult.step_ladder` is now the one rule both
-    call.
+    was sized from (Codex #1031 r3). `RecognitionResult.step_ladder_for_z_span` is now the one
+    rule both call, with Draftwright adapting its bounding box to the two scalar Z limits.
 
     The fixture is chosen so the two candidate sets actually differ; on an ordinary prismatic
     part they coincide and this would assert nothing.
@@ -507,7 +507,7 @@ def test_one_ladder_rule_serves_sizing_and_critique():
     rec = build_recognition_result(part)
     bb = part.bounding_box()
 
-    ladder = rec.step_ladder(bb)
+    ladder = rec.step_ladder_for_z_span(bb.min.Z, bb.max.Z)
     raw_level_zs = [level.z for level in rec.step_levels]
     assert ladder != raw_level_zs, (
         "fixture stopped exercising the divergence — the turned ladder and the raw face "
@@ -520,7 +520,7 @@ def test_one_ladder_rule_serves_sizing_and_critique():
     # the call, because on a turned part `step_zs` feeds only the strip reservation — there is
     # no rendered rung to read the difference off, so a behavioural assertion here would be
     # vacuous and would pass with the consolidation removed (verified: it did).
-    with counting_calls({"ladder": RecognitionResult.step_ladder}) as calls:
+    with counting_calls({"ladder": RecognitionResult.step_ladder_for_z_span}) as calls:
         drawing = build_drawing(part)
         sizing = dict(calls)
         calls.clear()
@@ -528,15 +528,41 @@ def test_one_ladder_rule_serves_sizing_and_critique():
         critique = dict(calls)
 
     assert sizing.get("ladder"), (
-        "the build never called RecognitionResult.step_ladder — sizing is deriving its own "
-        "ladder again, which is the drift this consolidation removes"
+        "the build never called RecognitionResult.step_ladder_for_z_span — sizing is deriving "
+        "its own ladder again, which is the drift this consolidation removes"
     )
     # Both consumers, asserted separately. Counting across the whole build satisfied the
     # assertion from `_analyse`'s call alone, so critique could revert to the raw face levels
     # and this guard would stay green — the regression it names, undetected (Codex #1031 r2).
     assert critique.get("ladder"), (
-        "lint never called RecognitionResult.step_ladder — critique is projecting risers over "
-        "a different ladder than the model was sized from"
+        "lint never called RecognitionResult.step_ladder_for_z_span — critique is projecting "
+        "risers over a different ladder than the model was sized from"
     )
     lengths = sorted(n for n in drawing.annotations() if n.startswith("m_steplen"))
     assert len(lengths) == 2, f"expected one length per turned segment, got {lengths}"
+
+
+def test_sizing_and_critique_adapt_the_part_bounds_to_the_scalar_ladder_boundary(
+    monkeypatch,
+):
+    """Both production callers pass only the independently measured Z envelope."""
+    part = Pos(0, 0, 17) * _turned_shaft_with_blind_bore()
+    bb = part.bounding_box()
+    calls: list[tuple[float, float]] = []
+    original = RecognitionResult.step_ladder_for_z_span
+
+    def recording_projection(self, z_min, z_max, **kwargs):
+        calls.append((z_min, z_max))
+        return original(self, z_min, z_max, **kwargs)
+
+    monkeypatch.setattr(RecognitionResult, "step_ladder_for_z_span", recording_projection)
+
+    drawing = build_drawing(part)
+    sizing_calls = list(calls)
+    calls.clear()
+    drawing.lint()
+    critique_calls = list(calls)
+
+    expected = (bb.min.Z, bb.max.Z)
+    assert sizing_calls and all(call == expected for call in sizing_calls)
+    assert critique_calls and all(call == expected for call in critique_calls)

@@ -107,7 +107,8 @@ def test_current_release_lock_has_machine_checked_registry_evidence() -> None:
     subprocess.run([str(ROOT / "scripts" / "check-recogniser-release")], cwd=ROOT, check=True)
 
 
-def test_dependency_updater_reuses_existing_unreleased_changed_heading() -> None:
+@pytest.mark.parametrize("heading", ("## Unreleased", "## [Unreleased]"))
+def test_dependency_updater_reuses_existing_unreleased_changed_heading(heading: str) -> None:
     loader = SourceFileLoader(
         "draftwright_recogniser_dependency_update",
         str(ROOT / "scripts/update-recogniser-dependency"),
@@ -120,7 +121,7 @@ def test_dependency_updater_reuses_existing_unreleased_changed_heading() -> None
         root = Path(directory)
         changelog = root / "CHANGELOG.md"
         changelog.write_text(
-            "# Changelog\n\n## [Unreleased]\n\n### Changed\n\n- Existing change.\n\n"
+            f"# Changelog\n\n{heading}\n\n### Changed\n\n- Existing change.\n\n"
             "### Fixed\n\n- Existing fix.\n\n## [0.1.0]\n",
             encoding="utf-8",
         )

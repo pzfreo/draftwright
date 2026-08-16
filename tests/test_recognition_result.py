@@ -139,7 +139,7 @@ def test_orchestrator_injects_each_shared_dependency_once(monkeypatch):
         counted("repeating_radial_profiles", []),
     )
     monkeypatch.setattr(result_module, "recognise_turned_steps", cyl_consumer("turned_steps", []))
-    # The area-filtered records retain face support (#915); `step_ladder()` projects their Z
+    # The area-filtered records retain face support (#915); the scalar-span boundary projects Z
     # values for sizing/critique. It takes the part only — no substrate identity to assert.
     level_records = [FaceLevel(4.0, (0.0, 8.0), (0.0, 6.0)), FaceLevel(9.0)]
     monkeypatch.setattr(result_module, "step_level_records", counted("step_levels", level_records))
@@ -193,7 +193,7 @@ def test_orchestrator_injects_each_shared_dependency_once(monkeypatch):
     assert built.holes == tuple(holes)
     assert built.step_levels == tuple(level_records)
     bb = SimpleNamespace(min=SimpleNamespace(Z=0.0), max=SimpleNamespace(Z=10.0))
-    assert built.step_ladder(bb) == [4.0, 9.0]
+    assert built.step_ladder_for_z_span(bb.min.Z, bb.max.Z) == [4.0, 9.0]
 
 
 def _grooved_flatted_shaft():
@@ -260,6 +260,7 @@ def test_injecting_the_aggregate_builds_the_same_model_as_detecting(name, build)
     """
     part = build()
     rec = build_recognition_result(part)
+    bb = part.bounding_box()
 
     detected = build_part_model(part)
     injected = build_part_model(
@@ -275,7 +276,7 @@ def test_injecting_the_aggregate_builds_the_same_model_as_detecting(name, build)
         pockets=list(rec.pockets),
         pocket_patterns=list(rec.pocket_patterns),
         pads=list(rec.pads),
-        step_zs=rec.step_ladder(part.bounding_box()),
+        step_zs=rec.step_ladder_for_z_span(bb.min.Z, bb.max.Z),
         face_levels=list(rec.step_levels),
         risers=list(rec.risers),
         chamfers=list(rec.chamfers),

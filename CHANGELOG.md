@@ -20,6 +20,14 @@
   unevidenced state transitions fail closed; intentionally geometry-only repeating-profile
   evidence remains usable without acquiring invented drafting semantics.
 
+### Changed
+
+- Updated the exact `b123d-recognisers` production lock from 0.2.0 to 0.2.1.
+  The immutable PyPI wheel/sdist hashes and capability-manifest digest
+  `383a196329ed6a3d1bf88f18ae4ff75613c032f35d40f2b53302b6744da4d19e` are
+  recorded in `.github/recogniser-release.json`; focused compatibility evidence and the
+  normal consumer gates run on the generated PR.
+
 ### Fixed
 
 - Post-release development-version bumps now update the consumer-contract identity on a branch,
