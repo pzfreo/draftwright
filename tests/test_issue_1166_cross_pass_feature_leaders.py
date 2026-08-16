@@ -448,6 +448,19 @@ def test_shifted_dimension_keeps_rendered_arrowheads_in_fixed_ink():
     ]
     assert blockers == ["shifted_dimension:arrow:1"]
 
+    basic = Dimension(
+        (0.0, 20.0),
+        (20.0, 20.0),
+        "above",
+        10.0,
+        drawing.draft,
+        label="20",
+        basic=True,
+    )
+    ctx.place(basic, "basic_dimension", view="front")
+    basic_components = _annotation_fixed_ink(drawing, "basic_dimension", basic)
+    assert len([component for component in basic_components if ":arrow:" in component.name]) == 2
+
 
 def test_owned_unrelated_centerline_at_the_tip_is_not_a_global_axis_exemption():
     drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
@@ -707,6 +720,13 @@ def test_future_section_cannot_veto_a_required_leader_but_title_is_hard(monkeypa
     reservation = drawing.get_annotation(reservation_name)
     reservation.is_provisional_layout_reservation = True
     assert _boxes_overlap(probe.label_bbox, reservation.label_bbox)
+
+    # Exercise the producer fallback, not only the normal joint solve: optional
+    # future furniture must not become a veto when a resource guard fires.
+    monkeypatch.setattr(
+        "draftwright.annotations.leaders._FEATURE_LEADER_MAX_CANDIDATES",
+        0,
+    )
 
     ctx = PlacementContext(
         registry=drawing.registry,

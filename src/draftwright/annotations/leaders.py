@@ -428,12 +428,12 @@ def _rendered_face_hull(face, *, curve_envelope=0.01):
             for vertex in vertices
             if math.isfinite(float(vertex.X)) and math.isfinite(float(vertex.Y))
         )
-        curved = any(
-            getattr(getattr(edge, "geom_type", None), "name", "") != "LINE"
-            for edge in face.edges()
+        edge_kinds = tuple(
+            getattr(getattr(edge, "geom_type", None), "name", "") for edge in face.edges()
         )
+        curved = any(edge_kind != "LINE" for edge_kind in edge_kinds)
     except Exception:  # noqa: BLE001 — optional placement must fail closed
-        return (), ()
+        return (), (), ()
     if curved:
         hull_points = tuple(
             (x + dx, y + dy)
@@ -443,7 +443,7 @@ def _rendered_face_hull(face, *, curve_envelope=0.01):
         )
     else:
         hull_points = points
-    return _convex_hull(hull_points), points
+    return _convex_hull(hull_points), points, edge_kinds
 
 
 def _rendered_residual_components(name, annotation, components, label, owner, kind):
@@ -474,30 +474,42 @@ def _rendered_residual_components(name, annotation, components, label, owner, ki
     except Exception:  # noqa: BLE001 — optional placement must fail closed
         return None
     for face in faces:
-        hull, rendered_points = _rendered_face_hull(face)
+        hull, rendered_points, edge_kinds = _rendered_face_hull(face)
         if not hull:
             return None
         if rendered_points and all(covered(point) for point in rendered_points):
             continue
-        residual.append(hull)
+        component_kind = (
+            "arc"
+            if kind == "CenterlineCircle"
+            else "arrow"
+            if len(edge_kinds) == 3 or any(edge_kind != "LINE" for edge_kind in edge_kinds)
+            else "ink"
+        )
+        residual.append((component_kind, hull))
     residual.sort(
-        key=lambda polygon: (
-            min(point[0] for point in polygon),
-            min(point[1] for point in polygon),
-            max(point[0] for point in polygon),
-            max(point[1] for point in polygon),
+        key=lambda item: (
+            item[0],
+            min(point[0] for point in item[1]),
+            min(point[1] for point in item[1]),
+            max(point[0] for point in item[1]),
+            max(point[1] for point in item[1]),
         )
     )
-    component_kind = "arc" if kind == "CenterlineCircle" else "arrow"
-    return tuple(
-        _FixedInkComponent(
-            f"{name}:{component_kind}:{index}",
-            polygons=(polygon,),
-            owner=owner,
-            kind=kind,
+    indices: dict[str, int] = {}
+    out = []
+    for component_kind, polygon in residual:
+        index = indices.get(component_kind, 0)
+        indices[component_kind] = index + 1
+        out.append(
+            _FixedInkComponent(
+                f"{name}:{component_kind}:{index}",
+                polygons=(polygon,),
+                owner=owner,
+                kind=kind,
+            )
         )
-        for index, polygon in enumerate(residual)
-    )
+    return tuple(out)
 
 
 def _annotation_fixed_ink(dwg, name, annotation):
@@ -597,6 +609,32 @@ def _fixed_annotation_obstacles(dwg, view, *, provisional: bool = False):
         if bool(getattr(annotation, "is_provisional_layout_reservation", False)) != provisional:
             continue
         yield from _annotation_fixed_ink(dwg, name, annotation)
+
+
+def _legacy_fallback_obstacles(dwg, view):
+    """Pre-shared-solve occupancy, excluding optional future furniture.
+
+    The producer fallback preserves the old first-clear floor when a resource
+    guard fires, but a provisional section reservation was never committed ink
+    and cannot veto a required feature leader under that fallback.  View scope
+    and the historical centre-furniture exemption otherwise match the legacy
+    strip inventory exactly.
+    """
+
+    return tuple(
+        box
+        for name, box in strip_obstacles(
+            dwg,
+            view=view,
+            crossable=CROSSABLE_TYPES,
+            named=True,
+        )
+        if not getattr(
+            dwg.get_annotation(name),
+            "is_provisional_layout_reservation",
+            False,
+        )
+    )
 
 
 def feature_leader_fixed_conflicts(dwg, fixed_names) -> tuple[tuple[str, str], ...]:
@@ -883,15 +921,10 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
         total_cost = 0.0
         fixed = fixed_obstacles()
         legacy_boxes = {
-            view: tuple(
-                strip_obstacles(
-                    dwg,
-                    view=view,
-                    # Producer fallback replays the pre-#1166 acceptance floor;
-                    # exact blockers below still persist any retained crossing.
-                    crossable=CROSSABLE_TYPES,
-                )
-            )
+            # Producer fallback replays the pre-#1166 acceptance floor; exact
+            # blockers below still persist any retained crossing.  Optional
+            # future section furniture cannot become a resource-cap veto.
+            view: _legacy_fallback_obstacles(dwg, view)
             for view in dict.fromkeys(job.view for job in jobs)
         }
         for job_index, job in enumerate(jobs):
