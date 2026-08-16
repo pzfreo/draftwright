@@ -1,0 +1,50 @@
+#!/usr/bin/env python3
+"""Delegate the local candidate check to the package-owned two-checkout harness."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+from pathlib import Path
+
+
+def main() -> int:
+    root = Path(__file__).resolve().parents[1]
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--package", type=Path, default=root.parent / "b123d-recognisers")
+    parser.add_argument("--plan", action="store_true")
+    args = parser.parse_args()
+    package = args.package.resolve()
+    harness = package / "tools" / "check_downstream.py"
+    command = [
+        "uv",
+        "run",
+        str(harness),
+        "--package",
+        str(package),
+        "--draftwright",
+        str(root),
+    ]
+    if args.plan:
+        print(
+            json.dumps(
+                {
+                    "owner": "b123d-recognisers",
+                    "draftwright": str(root),
+                    "command": command + ["--plan"],
+                },
+                indent=2,
+            )
+        )
+        return 0
+    if not harness.is_file():
+        parser.error(f"{package} does not contain tools/check_downstream.py")
+    os.chdir(package)
+    os.execvp(command[0], command)
+    return 1  # pragma: no cover - os.execvp either replaces the process or raises
+
+
+if __name__ == "__main__":
+    sys.exit(main())

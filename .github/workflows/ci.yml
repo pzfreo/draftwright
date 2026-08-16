@@ -9,6 +9,16 @@ on:
     # per-PR matrix is Linux-only.
     - cron: "17 4 * * 6"
   workflow_dispatch:
+    inputs:
+      maintenance_bump:
+        description: Run one canonical coverage suite for an automation-only version/dependency PR
+        required: false
+        default: false
+        type: boolean
+      maintenance_pr_number:
+        description: PR number receiving Codecov patch/project statuses for a maintenance bump
+        required: false
+        type: string
 
 # A PR needs results only for its latest head. Each main push gets a unique group because it
 # owns a post-merge slow-suite run that must survive later merges.
@@ -16,13 +26,18 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+permissions:
+  contents: read
+
 jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
-      - uses: astral-sh/setup-uv@v8.2.0
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           enable-cache: true
           python-version: "3.12"
@@ -36,7 +51,7 @@ jobs:
   test:
     # The PR is the compatibility gate. A merge to protected main has already passed these
     # exact checks, so main keeps lint + the slow post-merge safety net without repeating them.
-    if: github.event_name != 'push'
+    if: github.event_name != 'push' && !inputs.maintenance_bump
     permissions:
       contents: read
     strategy:
@@ -78,9 +93,11 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
-      - uses: astral-sh/setup-uv@v8.2.0
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           enable-cache: true
           python-version: ${{ matrix.python-version }}
@@ -106,18 +123,20 @@ jobs:
           --durations=25
 
   coverage:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || inputs.maintenance_bump
     # The ninth OS/Python compatibility entry, split out so only the one job that
     # uploads to Codecov receives an OIDC token and renders retained reports.
     name: test (ubuntu-latest, 3.13)
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write
+      id-token: write # Authenticate the single canonical Codecov upload without a secret.
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
-      - uses: astral-sh/setup-uv@v8.2.0
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           enable-cache: true
           python-version: "3.13"
@@ -135,17 +154,18 @@ jobs:
           --durations=25
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6
         with:
           files: coverage.xml
           # Branch protection requires Codecov's project and patch checks. Fail this
           # job too when the upload cannot produce those checks, rather than hanging.
           fail_ci_if_error: true
+          override_pr: ${{ inputs.maintenance_pr_number || github.event.pull_request.number }}
           use_oidc: true
 
       - name: Upload coverage report
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: coverage-linux-py3.13
           path: |
@@ -166,8 +186,10 @@ jobs:
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: astral-sh/setup-uv@v8.2.0
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           enable-cache: true
           python-version: "3.12"

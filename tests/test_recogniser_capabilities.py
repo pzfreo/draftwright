@@ -7,6 +7,7 @@ import copy
 import dataclasses
 import importlib.metadata
 import inspect
+import json
 import typing
 from pathlib import Path
 
@@ -29,6 +30,9 @@ from draftwright.sheet import Sheet
 from draftwright.sheet_emit import _feature_line, emit_sheet_script
 
 ROOT = Path(__file__).parents[1]
+PINNED_VERSION = json.loads(
+    (ROOT / ".github/recogniser-release.json").read_text(encoding="utf-8")
+)["version"]
 
 
 def _families(declaration: dict) -> dict[str, dict]:
@@ -88,7 +92,7 @@ def _emitter_literal_kinds() -> set[str]:
 
 def test_installed_released_package_contract_validates_without_a_sibling_checkout() -> None:
     distribution = importlib.metadata.distribution("b123d-recognisers")
-    assert distribution.version == "0.2.0"
+    assert distribution.version == PINNED_VERSION
     assert distribution.read_text("direct_url.json") is None
     package_path = Path(inspect.getfile(recognition)).resolve()
     assert package_path.is_relative_to(ROOT / ".venv")
@@ -347,8 +351,8 @@ def test_state_transition_requires_version_release_notes_and_compatibility_evide
             "unknown or missing top-level fields",
         ),
         (
-            lambda _declaration, package: package["package"].update({"version": "0.2.1"}),
-            "does not satisfy ==0.2.0",
+            lambda _declaration, package: package["package"].update({"version": "99.99.99"}),
+            f"does not satisfy =={PINNED_VERSION}",
         ),
         (
             lambda _declaration, package: package.update({"families": {}}),

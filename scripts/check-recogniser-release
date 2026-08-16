@@ -1,0 +1,128 @@
+#!/usr/bin/env python3
+"""Fail closed unless Draftwright's recogniser pin is one immutable PyPI release."""
+
+from __future__ import annotations
+
+import json
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+
+def fail(message: str) -> None:
+    raise SystemExit(f"recogniser release evidence: {message}")
+
+
+def verify(root: Path, installed: object) -> str:
+    """Verify checked-in evidence against an independently probed installed distribution."""
+    evidence = json.loads((root / ".github/recogniser-release.json").read_text(encoding="utf-8"))
+    if set(evidence) != {
+        "artifacts",
+        "capability_manifest_sha256",
+        "distribution",
+        "index",
+        "version",
+    }:
+        fail("release record has unknown or missing fields")
+    version = evidence["version"]
+    if not isinstance(version, str) or not re.fullmatch(
+        r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)", version
+    ):
+        fail("release record has an invalid version")
+    if evidence["distribution"] != "b123d-recognisers":
+        fail("release record has an invalid distribution")
+    if evidence["index"] != "https://pypi.org/simple":
+        fail("release record is not from the canonical PyPI index")
+    manifest_digest = evidence["capability_manifest_sha256"]
+    if not isinstance(manifest_digest, str) or not re.fullmatch(r"[0-9a-f]{64}", manifest_digest):
+        fail("release record has an invalid capability-manifest digest")
+    artifacts = evidence["artifacts"]
+    if (
+        not isinstance(artifacts, dict)
+        or not artifacts
+        or not all(
+            isinstance(name, str)
+            and isinstance(digest, str)
+            and re.fullmatch(r"[0-9a-f]{64}", digest)
+            for name, digest in artifacts.items()
+        )
+        or not any(name.endswith(".whl") for name in artifacts)
+        or not any(name.endswith(".tar.gz") for name in artifacts)
+    ):
+        fail("release record must contain hash-verified wheel and sdist artifacts")
+    dependency = f"b123d-recognisers=={version}"
+    project = (root / "pyproject.toml").read_text(encoding="utf-8")
+    if f'"{dependency}"' not in project:
+        fail("pyproject dependency and release record disagree")
+    contract = (root / "src/draftwright/recogniser_contract.py").read_text(encoding="utf-8")
+    if f'_PACKAGE_VERSION = "{version}"' not in contract:
+        fail("consumer capability declaration and release record disagree")
+
+    lock = (root / "uv.lock").read_text(encoding="utf-8")
+    blocks = re.findall(
+        r'\[\[package\]\]\nname = "b123d-recognisers"\n(.*?)(?=\n\[\[package\]\]|\Z)',
+        lock,
+        re.DOTALL,
+    )
+    if len(blocks) != 1:
+        fail("uv.lock must contain exactly one recogniser package block")
+    block = blocks[0]
+    version_match = re.match(r'version = "([^"]+)"\n', block)
+    if not version_match or version_match.group(1) != version:
+        fail("uv.lock version and release record disagree")
+    source_match = re.match(r'version = "[^"]+"\nsource = \{ registry = "([^"]+)" \}\n', block)
+    if not source_match or source_match.group(1) != evidence["index"]:
+        fail("uv.lock is not registry-backed by the recorded immutable index")
+    if "git+" in block or "path =" in block or "editable = true" in block:
+        fail("uv.lock contains a mutable Git/path source")
+    locked_artifacts = {
+        Path(url).name: digest
+        for url, digest in re.findall(r'url = "([^"]+)", hash = "sha256:([0-9a-f]{64})"', block)
+    }
+    if locked_artifacts != artifacts:
+        fail("uv.lock artifact names/hashes and release record disagree")
+
+    if installed != {
+        "version": version,
+        "direct_url": None,
+        "manifest_sha256": manifest_digest,
+    }:
+        fail(f"installed registry package does not match release evidence: {installed!r}")
+    return version
+
+
+def _installed_probe(root: Path) -> object:
+    result = subprocess.run(
+        [
+            "uv",
+            "run",
+            "python",
+            "-c",
+            (
+                "import hashlib,importlib.metadata,json; "
+                "from b123d_recognisers import capability_manifest; "
+                "d=importlib.metadata.distribution('b123d-recognisers'); "
+                "m=json.dumps(capability_manifest(format_version=1),sort_keys=True,"
+                "separators=(',',':')).encode(); "
+                "print(json.dumps({'version':d.version,'direct_url':d.read_text('direct_url.json'),"
+                "'manifest_sha256':hashlib.sha256(m).hexdigest()}))"
+            ),
+        ],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return json.loads(result.stdout)
+
+
+def main() -> int:
+    root = Path(__file__).resolve().parents[1]
+    version = verify(root, _installed_probe(root))
+    print(f"b123d-recognisers {version}: exact PyPI pin, hashes and manifest verified")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

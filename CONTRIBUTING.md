@@ -92,6 +92,10 @@ PR merges, run the documented two-checkout command from the package checkout aga
 Draftwright candidate branch. Production dependencies remain exact, hash-verified PyPI artifacts;
 never commit a path or Git override.
 
+The complete local command, compatibility windows, landing order, automation, rollback, CI budget,
+and failure-ownership rules are in the
+[recogniser development workflow](docs/recogniser-development-workflow.md).
+
 ## Pull requests
 
 - Branch off `main` and open a PR with a clear description of **why**.

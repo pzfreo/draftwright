@@ -116,7 +116,10 @@ def test_testpypi_snapshot_build_and_publish_share_one_job():
     assert "environment: testpypi" in snapshot
     assert "contents: read\n      id-token: write" in snapshot
     assert "- run: uv build" in snapshot
-    assert "- uses: pypa/gh-action-pypi-publish@release/v1" in snapshot
+    assert (
+        "- uses: pypa/gh-action-pypi-publish@"
+        "dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1" in snapshot
+    )
     assert "repository-url: https://test.pypi.org/legacy/" in snapshot
     assert "if: github.event_name == 'release'" in _job(workflow, "build-release")
     assert "needs: build-release" in _job(workflow, "publish-pypi")

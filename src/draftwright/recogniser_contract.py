@@ -19,6 +19,7 @@ from b123d_recognisers import capability_manifest
 
 CONSUMER_CAPABILITY_FORMAT = "draftwright-recogniser-capabilities"
 CONSUMER_CAPABILITY_FORMAT_VERSION = 1
+_PACKAGE_VERSION = "0.2.0"
 _BOUNDARIES = (
     "ir_adapter",
     "dsl_declaration",
@@ -205,7 +206,7 @@ def consumer_capability_declaration() -> dict[str, Any]:
         "consumer": {"name": "draftwright", "version": "0.4.7.dev0"},
         "package_compatibility": {
             "distribution": "b123d-recognisers",
-            "version": "==0.2.0",
+            "version": f"=={_PACKAGE_VERSION}",
             "manifest_format": 1,
         },
         "families": families,
@@ -325,11 +326,11 @@ def validate_recogniser_capabilities(
     compatibility = current["package_compatibility"]
     if not isinstance(compatibility, dict) or compatibility != {
         "distribution": "b123d-recognisers",
-        "version": "==0.2.0",
+        "version": f"=={_PACKAGE_VERSION}",
         "manifest_format": 1,
     }:
         raise RecogniserCapabilityError(
-            "package compatibility must pin b123d-recognisers 0.2.0 format 1"
+            f"package compatibility must pin b123d-recognisers {_PACKAGE_VERSION} format 1"
         )
     if (
         not isinstance(manifest, dict)
@@ -339,10 +340,10 @@ def validate_recogniser_capabilities(
     ):
         raise RecogniserCapabilityError("installed recogniser manifest format is unsupported")
     package_info = manifest.get("package")
-    if not isinstance(package_info, dict) or package_info.get("version") != "0.2.0":
+    if not isinstance(package_info, dict) or package_info.get("version") != _PACKAGE_VERSION:
         raise RecogniserCapabilityError(
             f"installed package version {getattr(package_info, 'get', lambda _key: None)('version')!r} "
-            "does not satisfy ==0.2.0; update the pin and declaration together"
+            f"does not satisfy =={_PACKAGE_VERSION}; update the pin and declaration together"
         )
     package_families = manifest.get("families")
     families = current["families"]
@@ -366,7 +367,8 @@ def validate_recogniser_capabilities(
         missing = sorted(set(package_by_id) - set(ids))
         stale = sorted(set(ids) - set(package_by_id))
         raise RecogniserCapabilityError(
-            f"family inventory mismatch for installed 0.2.0; unknown={missing}, stale={stale}; "
+            f"family inventory mismatch for installed {_PACKAGE_VERSION}; "
+            f"unknown={missing}, stale={stale}; "
             "declare every package family explicitly"
         )
     root = source_root or Path(__file__).resolve().parents[2]

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import b123d_recognisers as external
@@ -18,11 +19,9 @@ from draftwright.score import feature_census
 
 ROOT = Path(__file__).parents[1]
 RECOGNITION_DIR = ROOT / "src" / "draftwright" / "recognition"
-PINNED_VERSION = "0.2.0"
-RELEASE_HASHES = {
-    "16f6e13160310069c2ab610233af3b8da3c6ffb03b481aa38e532e8743381eda",
-    "2ea7e0220bcfc590a2a36dd4eeb5c8ba30ab94141a1eac26094f7917e998f034",
-}
+RELEASE = json.loads((ROOT / ".github/recogniser-release.json").read_text(encoding="utf-8"))
+PINNED_VERSION = RELEASE["version"]
+RELEASE_HASHES = set(RELEASE["artifacts"].values())
 
 
 def test_dependency_is_pinned_to_the_published_stable_release() -> None:

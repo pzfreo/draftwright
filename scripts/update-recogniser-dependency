@@ -1,0 +1,190 @@
+#!/usr/bin/env python3
+"""Prepare an exact, registry-backed b123d-recognisers dependency update."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+_VERSION = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
+
+
+def _replace_once(path: Path, before: str, after: str) -> None:
+    text = path.read_text(encoding="utf-8")
+    if text.count(before) != 1:
+        raise RuntimeError(f"expected exactly one {before!r} in {path}")
+    path.write_text(text.replace(before, after), encoding="utf-8")
+
+
+def _package_block(lock: str) -> str:
+    matches = re.findall(
+        r'\[\[package\]\]\nname = "b123d-recognisers"\n(.*?)(?=\n\[\[package\]\]|\Z)',
+        lock,
+        re.DOTALL,
+    )
+    if len(matches) != 1:
+        raise RuntimeError("uv.lock must contain exactly one b123d-recognisers package")
+    return matches[0]
+
+
+def _installed_manifest(root: Path) -> dict[str, object]:
+    result = subprocess.run(
+        [
+            "uv",
+            "run",
+            "python",
+            "-c",
+            (
+                "import hashlib,importlib.metadata,json; "
+                "from b123d_recognisers import capability_manifest; "
+                "d=importlib.metadata.distribution('b123d-recognisers'); "
+                "m=json.dumps(capability_manifest(format_version=1),sort_keys=True,"
+                "separators=(',',':')).encode(); "
+                "print(json.dumps({'version':d.version,'direct_url':d.read_text('direct_url.json'),"
+                "'manifest_sha256':hashlib.sha256(m).hexdigest()}))"
+            ),
+        ],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return json.loads(result.stdout)
+
+
+def _record(root: Path, version: str) -> dict[str, object]:
+    block = _package_block((root / "uv.lock").read_text(encoding="utf-8"))
+    version_match = re.match(r'version = "([^"]+)"\n', block)
+    if not version_match or version_match.group(1) != version:
+        raise RuntimeError(f"uv.lock did not resolve requested version {version}")
+    source_match = re.match(r'version = "[^"]+"\nsource = \{ registry = "([^"]+)" \}\n', block)
+    if not source_match:
+        raise RuntimeError("candidate must resolve from a registry source")
+    index_match = source_match.group(1)
+    if index_match != "https://pypi.org/simple":
+        raise RuntimeError("candidate must resolve from the immutable PyPI index")
+    if "git+" in block or "path =" in block or "editable = true" in block:
+        raise RuntimeError("candidate resolved from a mutable Git/path source")
+    artifacts = {
+        Path(url).name: digest
+        for url, digest in re.findall(r'url = "([^"]+)", hash = "sha256:([0-9a-f]{64})"', block)
+    }
+    if not artifacts or not any(name.endswith(".whl") for name in artifacts):
+        raise RuntimeError("locked release has no hash-verified wheel")
+    if not any(name.endswith(".tar.gz") for name in artifacts):
+        raise RuntimeError("locked release has no hash-verified sdist")
+    installed = _installed_manifest(root)
+    if installed["version"] != version or installed["direct_url"] is not None:
+        raise RuntimeError(f"installed package is not the requested registry release: {installed}")
+    return {
+        "artifacts": dict(sorted(artifacts.items())),
+        "capability_manifest_sha256": installed["manifest_sha256"],
+        "distribution": "b123d-recognisers",
+        "index": index_match,
+        "version": version,
+    }
+
+
+def _add_changelog(root: Path, old: str, new: str, manifest_hash: str) -> None:
+    path = root / "CHANGELOG.md"
+    text = path.read_text(encoding="utf-8")
+    marker = f"- Updated the exact `b123d-recognisers` production lock from {old} to {new}"
+    if marker in text:
+        return
+    bullet = (
+        f"{marker}. The immutable PyPI wheel/sdist hashes and capability-manifest digest "
+        f"`{manifest_hash}` are recorded in `.github/recogniser-release.json`; focused "
+        "compatibility evidence and the normal consumer gates run on the generated PR.\n"
+    )
+    unreleased_start = text.find("## [Unreleased]")
+    if unreleased_start < 0:
+        raise RuntimeError("CHANGELOG.md has no Unreleased section")
+    unreleased_end = text.find("\n## [", unreleased_start + 1)
+    if unreleased_end < 0:
+        unreleased_end = len(text)
+    changed = text.find("### Changed\n", unreleased_start, unreleased_end)
+    if changed >= 0:
+        insert_at = changed + len("### Changed\n")
+        if text.startswith("\n", insert_at):
+            insert_at += 1
+        updated = text[:insert_at] + bullet + text[insert_at:]
+    else:
+        fixed = text.find("### Fixed\n", unreleased_start, unreleased_end)
+        if fixed < 0:
+            raise RuntimeError("CHANGELOG.md has no Unreleased Fixed section anchor")
+        updated = text[:fixed] + "### Changed\n\n" + bullet + "\n" + text[fixed:]
+    path.write_text(updated, encoding="utf-8")
+
+
+def main() -> int:
+    root = Path(__file__).resolve().parents[1]
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("version")
+    parser.add_argument(
+        "--allow-line-change",
+        action="store_true",
+        help="allow an explicitly reviewed major/minor compatibility-window change",
+    )
+    args = parser.parse_args()
+    match = _VERSION.fullmatch(args.version)
+    if not match:
+        parser.error("version must be a stable X.Y.Z release")
+    contract = root / "src/draftwright/recogniser_contract.py"
+    contract_text = contract.read_text(encoding="utf-8")
+    current_match = re.search(r'^_PACKAGE_VERSION = "([^"]+)"$', contract_text, re.MULTILINE)
+    if not current_match:
+        raise RuntimeError("consumer contract has no single package version")
+    current = current_match.group(1)
+    current_parts = current.split(".")
+    target_parts = args.version.split(".")
+    if current_parts[:2] != target_parts[:2] and not args.allow_line_change:
+        parser.error(
+            f"{current} -> {args.version} changes the compatibility line; "
+            "use --allow-line-change only with breaking/additive policy evidence"
+        )
+
+    paths = [
+        root / "pyproject.toml",
+        root / "uv.lock",
+        contract,
+        root / ".github/recogniser-release.json",
+        root / "CHANGELOG.md",
+    ]
+    snapshots = {path: path.read_bytes() for path in paths}
+    try:
+        if current != args.version:
+            _replace_once(
+                root / "pyproject.toml",
+                f'"b123d-recognisers=={current}"',
+                f'"b123d-recognisers=={args.version}"',
+            )
+            _replace_once(
+                contract,
+                f'_PACKAGE_VERSION = "{current}"',
+                f'_PACKAGE_VERSION = "{args.version}"',
+            )
+        subprocess.run(
+            ["uv", "lock", "--upgrade-package", "b123d-recognisers"], cwd=root, check=True
+        )
+        subprocess.run(["uv", "sync", "--locked"], cwd=root, check=True)
+        record = _record(root, args.version)
+        (root / ".github/recogniser-release.json").write_text(
+            json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        if current != args.version:
+            _add_changelog(root, current, args.version, str(record["capability_manifest_sha256"]))
+        subprocess.run([str(root / "scripts/check-recogniser-release")], cwd=root, check=True)
+    except BaseException:
+        for path, content in snapshots.items():
+            path.write_bytes(content)
+        raise
+    print(f"prepared b123d-recognisers {current} -> {args.version}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

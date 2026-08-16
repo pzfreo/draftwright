@@ -4,6 +4,11 @@
 
 ### Added
 
+- Recogniser co-development now has a one-command, wheel-based two-checkout check; an exact
+  registry-release evidence record; automated dependency PR preparation; and documented landing,
+  compatibility, deprecation, rollback, ownership, and CI-budget rules. Dependency PRs retain the
+  canonical coverage/Codecov gate while avoiding four duplicate platform suites and the slow tier
+  (#1170).
 - A versioned, independently authored STEP-analysis corpus and evaluator now report detection
   recall/false positives, parameter fidelity, and downstream usefulness as separate evidence
   layers. Hash-pinned positive, negative, ambiguous, compound, and topology-order-variant fixtures,
@@ -17,6 +22,9 @@
 
 ### Fixed
 
+- Post-release development-version bumps now update the consumer-contract identity on a branch,
+  open a protected PR, and dispatch the narrow maintenance gate instead of attempting a rejected
+  direct push to protected `main` (#1170).
 - Machined-feature leader callouts now collect all clear alternatives within each
   post-drain pass and use a bounded maximum-cardinality, minimum-leader-length
   assignment instead of taking corners greedily in feature order (#740). If a

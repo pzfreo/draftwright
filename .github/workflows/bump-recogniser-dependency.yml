@@ -1,0 +1,89 @@
+name: Bump recogniser dependency
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Stable b123d-recognisers version already published on PyPI
+        required: true
+        type: string
+      allow_line_change:
+        description: Explicitly permit a reviewed major/minor compatibility-window change
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: recogniser-dependency-bump
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  prepare-pr:
+    name: Prepare immutable recogniser dependency PR
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write # Dispatch the narrow, branch-SHA-bound CI run.
+      contents: write # Push only the generated automation branch.
+      pull-requests: write # Open the generated update PR.
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        # zizmor: ignore[artipacked] -- this job pushes; it uploads no artifacts.
+        with:
+          ref: main
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: true
+          python-version: "3.13"
+      - name: Update exact release evidence
+        env:
+          ALLOW_LINE_CHANGE: ${{ inputs.allow_line_change }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          args=("$VERSION")
+          if [[ "$ALLOW_LINE_CHANGE" == "true" ]]; then args+=(--allow-line-change); fi
+          scripts/update-recogniser-dependency "${args[@]}"
+      - name: Run focused consumer compatibility checks
+        run: |
+          scripts/check-recogniser-release
+          uv run pytest -q \
+            tests/test_external_recognition_boundary.py \
+            tests/test_recogniser_capabilities.py \
+            tests/test_two_repository_workflow.py
+      - name: Restrict generated diff
+        shell: bash
+        run: |
+          while IFS= read -r path; do
+            case "$path" in
+              .github/recogniser-release.json|CHANGELOG.md|pyproject.toml|uv.lock|src/draftwright/recogniser_contract.py) ;;
+              *) echo "::error::unexpected generated path: $path"; exit 1 ;;
+            esac
+          done < <(git diff --name-only)
+          test -n "$(git diff --name-only)"
+      - name: Commit immutable dependency update
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          branch="automation/recognisers-${VERSION}-${GITHUB_RUN_ID}"
+          git switch -c "$branch"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/recogniser-release.json CHANGELOG.md pyproject.toml uv.lock \
+            src/draftwright/recogniser_contract.py
+          git commit -m "chore: bump b123d-recognisers to ${VERSION}"
+          git push origin HEAD:"$branch"
+          echo "BRANCH=$branch" >> "$GITHUB_ENV"
+      - name: Open evidence-bearing pull request and dispatch narrow CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          manifest=$(python -c \
+            "import json; print(json.load(open('.github/recogniser-release.json'))['capability_manifest_sha256'])")
+          gh pr create --base main --head "$BRANCH" \
+            --title "chore: bump b123d-recognisers to ${VERSION}" \
+            --body "Automated exact PyPI dependency update to \`${VERSION}\`. The generated diff records wheel/sdist SHA-256 values, capability-manifest digest \`${manifest}\`, changelog evidence, and the consumer compatibility pin. Focused contract tests passed; a single-runner canonical coverage gate is dispatched below. No slow tier is run."
+          pr_number=$(gh pr view "$BRANCH" --json number --jq .number)
+          gh workflow run ci.yml --ref "$BRANCH" \
+            -f maintenance_bump=true -f maintenance_pr_number="$pr_number"

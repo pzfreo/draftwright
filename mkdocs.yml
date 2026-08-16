@@ -22,6 +22,7 @@ nav:
       - Feature declarations: reference/declarations.md
       - Recogniser capability contract: reference/recogniser-capabilities.md
       - STEP analysis evaluation: reference/step-analysis-evaluation.md
+      - Recogniser development workflow: recogniser-development-workflow.md
       - External spur gear requirements: reference/external-spur-gears.md
 
 theme:
