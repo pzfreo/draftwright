@@ -123,7 +123,13 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   `feature_leader_crossing`, independently of opt-in tracing, while a producer
   replay beyond the exact fixed-probe budget persists as
   `feature_leader_fixed_ink_unverified` without exceeding that bound and cannot
-  report a perfect legibility quality score.
+  report a perfect legibility quality score. ADR 0014 Amendment 3 (#798) adds
+  material re-entry to that Policy-B penalty at a stated exchange rate (one unit
+  per visible stroke width of buried shaft) — a cost, never an eligibility gate
+  and never an acceptance test, so no callout is dropped because its route cuts.
+  The resource-cap floor, which is what actually runs on dense parts, gained a
+  bounded lookahead past a first acceptable-but-cutting route; a job whose first
+  acceptable route already clears the body selects it exactly where it always did.
   - **`annotations/sections.py`** — section A–A + detail views (ISO 128-44 arrows,
     ISO 128-50 hatching).
   - **`annotations/balloons.py`** — the leadered hole-balloon pass (#111/#516;
@@ -159,7 +165,12 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   and `model.declare._plane_axes` so a pattern's `angle` means the same thing
   detected as declared (#969); the DAG's bottom leaf (guarded
   by `test_geometry_is_a_leaf`) so the IR waist uses them without importing
-  `_core`.
+  `_core`. Also the ADR 0014 Amendment 3 **filled material field** (#798):
+  `MaterialField`/`material_field` (page-plane triangles + a uniform grid index),
+  `material_span`, `material_intervals`, and `material_reentry_span` — exact
+  half-plane clipping with a fixed-point interval union and an incremental cell
+  walk, no sampling. Re-entry, not traversal, is the routing defect: a leader's
+  first passage out of the body is the legitimate exit every callout makes.
 - **`_pmi_part21.py`** — the rank-0 structured ISO 10303-21 adapter for AP242
   geometric-tolerance facts that OCCT's XCAF transfer drops. It resolves explicit
   Part21 references and SI length units, and requires unique semantic-name + kind
@@ -213,7 +224,14 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   feature-inventory detection (ADR 0015), view sizing, and the strip/zone
   model (`fv_zones`/`pv_zones`/`sv_zones`) that ADR 0014 placement reads.
 - **`projection.py`** — HLR projection and view-coordinate transforms
-  (`_assemble`'s geometry half; #161).
+  (`_assemble`'s geometry half; #161). Also the #798 **material lowering**:
+  `part_material_mesh` tessellates the part once per build and
+  `view_material_field` projects that one mesh per view, so every view measures
+  the same material. The mesh is taken under explicit control (copy →
+  `BRepTools.Clean_s` → `BRepMesh_IncrementalMesh`) because OCC caches a
+  triangulation on the shape and returns it for any later request — even a finer
+  one — which would make the field a function of build *history* (the ADR 0006
+  hazard). `Drawing.material_fields()` holds the result on `BuildState`.
 - **`sheet.py`** — the fluent declarative **`Sheet`** facade (ADR 0011):
   feature verbs (`hole`/`boss`/`slot`/…), aspect verbs (`.tolerance`/`.fit`/
   `.finish`), GD&T (`datum`/`control`). Facade tier: builds a `PartModel` via
@@ -384,7 +402,12 @@ Current ADRs:
   one canonical late stage (maximum placed, priority, clear-route penalty, then
   leader length), retaining the old lazy greedy result as the resource-cap floor
   without relaxing page/view/title hard constraints and preserving the abandoned
-  admitted inventory in state-cap traces.
+  admitted inventory in state-cap traces. Amendment 3 (#798) prices a shaft
+  cutting back through the part into that same Policy-B penalty, measured on one
+  filled projected-material lowering **shared with the
+  `leader_crosses_silhouette` critique**, so router and lint cannot disagree; it
+  is a cost, never an acceptance test, and the resource-cap floor — which is what
+  actually runs on dense parts — gained a bounded clear-route lookahead.
 - **0015** — **Accepted** (supersedes 0008, #697): **the part-drawing compiler
   as built** — detectors + declared features → the one PartModel waist (two
   tiers, ADR 0013) → planner → render-intents → shared infra; with the
