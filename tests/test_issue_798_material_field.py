@@ -9,6 +9,7 @@ not evidence.
 from __future__ import annotations
 
 import math
+from types import SimpleNamespace
 
 import pytest
 
@@ -413,3 +414,82 @@ class TestMalformedLoweringEntries:
         triangle = ((0.0, 0.0), (10.0, 0.0), (0.0, 10.0))
         ungridded = MaterialField((triangle,), (0.0, 0.0, 10.0, 10.0), {}, 0.0)
         assert material_span((1.0, 1.0), (2.0, 2.0), ungridded) > 0
+
+
+class TestPerFaceLoweringFailures:
+    """`part_material_mesh` returns None rather than a partial mesh for EVERY way a face
+    can fail, not just an unusable solid. A mesh missing some faces reports routes
+    straight through the gap as clear, which is worse than having no field at all —
+    the caller can fall back honestly from None, but cannot detect a silent hole."""
+
+    @staticmethod
+    def _fake_part(monkeypatch, face):
+        """Swap the deepcopy for a stand-in whose faces misbehave.
+
+        The real solid's ``wrapped`` is kept so the OCC clean/remesh calls still work;
+        only the face iteration is substituted, which is where the per-face guards live.
+        """
+        from build123d import Box
+
+        from draftwright import projection
+
+        real = Box(10, 10, 10)
+
+        class _Part:
+            wrapped = real.wrapped
+
+            @staticmethod
+            def faces():
+                return [face]
+
+        monkeypatch.setattr(projection.copy, "deepcopy", lambda _part: _Part())
+        return real
+
+    @staticmethod
+    def _vertex(x, y, z):
+        return SimpleNamespace(X=x, Y=y, Z=z)
+
+    def test_a_face_that_cannot_be_tessellated_yields_no_mesh(self, monkeypatch):
+        from draftwright.projection import part_material_mesh
+
+        class _Raising:
+            @staticmethod
+            def tessellate(_tolerance):
+                raise RuntimeError("unmeshable face")
+
+        real = self._fake_part(monkeypatch, _Raising())
+        assert part_material_mesh(real, 1.0) is None
+
+    def test_a_non_finite_vertex_yields_no_mesh(self, monkeypatch):
+        from draftwright.projection import part_material_mesh
+
+        vertices = [
+            self._vertex(float("nan"), 0.0, 0.0),
+            self._vertex(1.0, 0.0, 0.0),
+            self._vertex(0.0, 1.0, 0.0),
+        ]
+
+        class _NonFinite:
+            @staticmethod
+            def tessellate(_tolerance):
+                return vertices, [(0, 1, 2)]
+
+        real = self._fake_part(monkeypatch, _NonFinite())
+        assert part_material_mesh(real, 1.0) is None
+
+    def test_a_facet_referencing_a_missing_vertex_yields_no_mesh(self, monkeypatch):
+        from draftwright.projection import part_material_mesh
+
+        vertices = [
+            self._vertex(0.0, 0.0, 0.0),
+            self._vertex(1.0, 0.0, 0.0),
+            self._vertex(0.0, 1.0, 0.0),
+        ]
+
+        class _BadIndex:
+            @staticmethod
+            def tessellate(_tolerance):
+                return vertices, [(0, 1, 7)]
+
+        real = self._fake_part(monkeypatch, _BadIndex())
+        assert part_material_mesh(real, 1.0) is None
