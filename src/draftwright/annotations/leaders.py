@@ -668,9 +668,9 @@ def _rendered_residual_components(
     try:
         raw_faces = annotation.faces()
         if max_components is None:
-            faces = raw_faces
+            faces = tuple(raw_faces)
         else:
-            faces = list(islice(iter(raw_faces), max_components + 1))
+            faces = tuple(islice(iter(raw_faces), max_components + 1))
             if len(faces) > max_components:
                 return _FIXED_INVENTORY_EXHAUSTED
     except Exception:  # noqa: BLE001 — optional placement must fail closed
@@ -683,35 +683,38 @@ def _rendered_residual_components(
         # fields may be only a partial description of the rendered object.
         return () if allow_empty_faces else None
     for face in faces:
-        hull, rendered_points, triangles, edge_kinds = _rendered_face_hull(face)
-        if not hull:
+        try:
+            hull, rendered_points, triangles, edge_kinds = _rendered_face_hull(face)
+            if not hull:
+                return None
+            represented = (
+                rendered_points
+                and triangles
+                and all(
+                    component_covers(tuple(rendered_points[index] for index in triangle))
+                    for triangle in triangles
+                )
+            )
+            curved = any(edge_kind != "LINE" for edge_kind in edge_kinds)
+            if represented and (
+                not curved
+                or _face_exactly_covered(
+                    face,
+                    tuple(polygon for component in components for polygon in component.polygons),
+                    label,
+                )
+            ):
+                continue
+            component_kind = (
+                "arc"
+                if kind == "CenterlineCircle"
+                else "arrow"
+                if kind == "Dimension"
+                and (len(edge_kinds) == 3 or any(edge_kind != "LINE" for edge_kind in edge_kinds))
+                else "ink"
+            )
+        except Exception:  # noqa: BLE001 — malformed rendered ink is unavailable
             return None
-        represented = (
-            rendered_points
-            and triangles
-            and all(
-                component_covers(tuple(rendered_points[index] for index in triangle))
-                for triangle in triangles
-            )
-        )
-        curved = any(edge_kind != "LINE" for edge_kind in edge_kinds)
-        if represented and (
-            not curved
-            or _face_exactly_covered(
-                face,
-                tuple(polygon for component in components for polygon in component.polygons),
-                label,
-            )
-        ):
-            continue
-        component_kind = (
-            "arc"
-            if kind == "CenterlineCircle"
-            else "arrow"
-            if kind == "Dimension"
-            and (len(edge_kinds) == 3 or any(edge_kind != "LINE" for edge_kind in edge_kinds))
-            else "ink"
-        )
         residual.append((component_kind, hull))
         if max_components is not None and len(residual) > max_components:
             return _FIXED_INVENTORY_EXHAUSTED

@@ -1379,6 +1379,42 @@ def test_malformed_fixed_polygons_use_the_unavailable_inventory_contract(polygon
     assert conservative[-1].box == (0.0, 0.0, drawing.page_w, drawing.page_h)
 
 
+def test_malformed_rendered_triangles_use_the_unavailable_inventory_contract():
+    drawing = build_drawing(Box(10, 10, 2), page="A4", auto_dims=False)
+    rendered_box = Box(4, 3, 1).bounding_box()
+
+    class MalformedFace:
+        def tessellate(self, _tolerance):
+            vertices = (
+                SimpleNamespace(X=0.0, Y=0.0),
+                SimpleNamespace(X=1.0, Y=0.0),
+                SimpleNamespace(X=0.0, Y=1.0),
+            )
+            return vertices, ((0, 1, 99),)
+
+        def edges(self):
+            return ()
+
+    annotation = SimpleNamespace(
+        segments=(((0.0, 0.0), (1.0, 0.0)),),
+        fixed_ink_polygons=(),
+        label_bbox=None,
+        faces=lambda: (MalformedFace(),),
+        bounding_box=lambda: rendered_box,
+    )
+
+    bounded = _annotation_fixed_ink(
+        drawing,
+        "malformed_tessellation",
+        annotation,
+        max_components=8,
+    )
+    conservative = _annotation_fixed_ink(drawing, "malformed_tessellation", annotation)
+
+    assert bounded is _FIXED_INVENTORY_EXHAUSTED
+    assert conservative[-1].name == "malformed_tessellation:geometry"
+
+
 def test_fixed_residual_keeps_a_face_bridging_disjoint_known_components():
     face = Face.make_rect(10.0, 1.0)
     left = ((-5.0, -0.5), (-4.0, -0.5), (-4.0, 0.5), (-5.0, 0.5))
