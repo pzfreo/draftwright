@@ -756,6 +756,43 @@ def test_final_preflight_yields_when_landed_leader_metadata_is_unavailable(
     )
 
 
+@pytest.mark.parametrize("rendered_failure", ["empty", "exception"])
+def test_final_preflight_fails_closed_when_rendered_faces_are_unavailable(
+    monkeypatch, rendered_failure
+):
+    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+    ctx = PlacementContext(
+        registry=drawing.registry,
+        coverage=drawing.coverage,
+        items=drawing.items,
+        part_model=drawing.model(),
+    )
+    leader = Leader(
+        tip=(50.0, 50.0, 0.0),
+        elbow=(60.0, 60.0, 0.0),
+        label="R1",
+        draft=drawing.draft,
+    )
+    ctx.place(leader, "m_fillet0", view="front")
+    ctx.place(
+        Centerline((40.0, 40.0, 0.0), (70.0, 40.0, 0.0)),
+        "section_line",
+        view="front",
+    )
+    assert feature_leader_fixed_conflicts(drawing, ("section_line",)) == ()
+
+    def unavailable_faces(_annotation):
+        if rendered_failure == "exception":
+            raise RuntimeError("rendered faces unavailable")
+        return ()
+
+    monkeypatch.setattr(Leader, "faces", unavailable_faces)
+
+    assert feature_leader_fixed_conflicts(drawing, ("section_line",)) == (
+        ("m_fillet0", "m_fillet0:geometry_unverified"),
+    )
+
+
 def test_cross_pass_objective_avoids_the_per_pass_greedy_trap():
     # Job 0's shortest alternative blocks job 1's only candidate. Independent
     # first-clear passes place one; the shared lexicographic solve places both.
@@ -1616,6 +1653,44 @@ def test_fixed_obstacle_probe_budget_precedes_joint_geometry(monkeypatch, tmp_pa
     assert legibility["score"] < 1.0
     assert legibility["infos"] == len(issues)
     assert legibility["by_code"] == {"feature_leader_fixed_ink_unverified": len(issues)}
+
+
+def test_fixed_probe_product_budget_replays_the_exact_producer_floor(monkeypatch, tmp_path):
+    """Candidate×fixed work is capped even when the fixed inventory itself fits."""
+
+    part, model = _narrow_cross_pass_part()
+    monkeypatch.setattr(
+        "draftwright.annotations.leaders._FEATURE_LEADER_MAX_FIXED_PROBES",
+        75,
+    )
+    trace_path = tmp_path / "bounded-fixed-probe-product.json"
+
+    drawing = build_drawing(part, model=model, page="A3", trace=trace_path)
+    event = next(
+        item
+        for item in json.loads(trace_path.read_text(encoding="utf-8"))["pass_events"]
+        if item["label"] == "feature_leader_inventory"
+    )
+
+    assert event["assignment"] == "greedy_fixed_probe_budget"
+    assert event["optimal"] is False
+    assert event["fixed_probe_bound"] > 75 >= event["fixed_probes"]
+    assert event["pair_probes"] == 0
+    assert event["objective"]["placed"] == 4
+    assert set(_feature_leader_names(drawing)) == {
+        "hc_side0",
+        "hc_side1",
+        "m_fillet_x0",
+        "m_pocket_yz0",
+    }
+    assert all(item["producer_fallback"]["selected"] is not None for item in event["items"])
+    selected = [item["producer_fallback"]["selected"] for item in event["items"]]
+    assert selected[0]["fixed_blockers"] == []
+    assert all(entry["fixed_blockers"] == ["fixed_probe_budget"] for entry in selected[1:])
+    issues = drawing.lint()
+    assert len(issues) == 3
+    assert {issue.code for issue in issues} == {"feature_leader_fixed_ink_unverified"}
+    assert all("probe budget exhausted" in issue.message for issue in issues)
 
 
 def test_candidate_budget_preserves_the_exact_pre_joint_hole_floor(monkeypatch):
