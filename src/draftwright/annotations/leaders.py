@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from itertools import chain, islice, tee
 from typing import Any
 
@@ -374,65 +374,130 @@ def _fixed_blockers(candidate, job, page, fixed_components) -> tuple[str, ...]:
     return tuple(dict.fromkeys(blockers))
 
 
-def _line_intersection(first, second, third, fourth):
-    """Intersection of two infinite page-plane lines, or ``None`` when parallel."""
+def _hard_fixed_blockers(blockers) -> tuple[str, ...]:
+    """Constraints no compatibility/resource fallback may relax."""
 
-    ax, ay = first
-    bx, by = second
-    cx, cy = third
-    dx, dy = fourth
-    denominator = (ax - bx) * (cy - dy) - (ay - by) * (cx - dx)
-    if abs(denominator) <= 1e-12:
-        return None
-    determinant_ab = ax * by - ay * bx
-    determinant_cd = cx * dy - cy * dx
-    return (
-        (determinant_ab * (cx - dx) - (ax - bx) * determinant_cd) / denominator,
-        (determinant_ab * (cy - dy) - (ay - by) * determinant_cd) / denominator,
+    return tuple(
+        blocker
+        for blocker in blockers
+        if blocker in {"page", "unmeasurable_label"}
+        or blocker.startswith(("view:", "title_block"))
     )
 
 
-def _dimension_arrow_components(name, annotation, segments, draft):
-    """Analytical arrow ink for a rendered helpers ``Dimension``.
+def _convex_hull(points):
+    """Deterministic convex hull for a small rendered face sample."""
 
-    Helpers expose the two dimension-line pieces first and the witness strokes
-    afterwards.  Their intersections are the arrow tips; the nearest line-piece
-    centre points toward each head's rendered base.  The shared #367 containing
-    triangle covers all supported ``HeadType`` variants without inflating the
-    complete witness corridor.
+    unique = sorted(set(points))
+    if len(unique) < 3:
+        return ()
+
+    def cross(origin, first, second):
+        return (first[0] - origin[0]) * (second[1] - origin[1]) - (first[1] - origin[1]) * (
+            second[0] - origin[0]
+        )
+
+    lower: list[tuple[float, float]] = []
+    for point in unique:
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], point) <= 0.0:
+            lower.pop()
+        lower.append(point)
+    upper: list[tuple[float, float]] = []
+    for point in reversed(unique):
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], point) <= 0.0:
+            upper.pop()
+        upper.append(point)
+    return tuple((*lower[:-1], *upper[:-1]))
+
+
+def _rendered_face_hull(face, *, curve_envelope=0.01):
+    """Lower one planar OCC face to a bounded containing polygon.
+
+    Straight-edged faces retain their exact vertices.  Curved helper ink is
+    tessellated once while the fixed inventory is collected, then receives a
+    tiny square envelope matching the tessellation tolerance.  Candidate
+    exploration remains pure polygon arithmetic; unlike an annotation AABB,
+    each dashed arc remains a local actual-width component and does not flood a
+    circle's empty interior.
     """
 
-    if type(annotation).__name__ != "Dimension" or len(segments) < 4:
-        return ()
-    dimension_lines = segments[:2]
-    witnesses = segments[2:4]
-    components = []
-    for index, witness in enumerate(witnesses):
-        tip = _line_intersection(*dimension_lines[0], *witness)
-        if tip is None:
+    try:
+        vertices, _triangles = face.tessellate(curve_envelope)
+        points = tuple(
+            (float(vertex.X), float(vertex.Y))
+            for vertex in vertices
+            if math.isfinite(float(vertex.X)) and math.isfinite(float(vertex.Y))
+        )
+        curved = any(
+            getattr(getattr(edge, "geom_type", None), "name", "") != "LINE"
+            for edge in face.edges()
+        )
+    except Exception:  # noqa: BLE001 — optional placement must fail closed
+        return (), ()
+    if curved:
+        hull_points = tuple(
+            (x + dx, y + dy)
+            for x, y in points
+            for dx in (-curve_envelope, curve_envelope)
+            for dy in (-curve_envelope, curve_envelope)
+        )
+    else:
+        hull_points = points
+    return _convex_hull(hull_points), points
+
+
+def _rendered_residual_components(name, annotation, components, label, owner, kind):
+    """Rendered faces not already represented by segment/label metadata.
+
+    ``Dimension.segments`` is intentionally variable: a shifted label may
+    suppress either dimension-line span while both arrowheads still render.
+    ``CenterlineCircle`` exposes no linear segments because its chain ring is
+    made from OCC arcs.  Face-local lowering handles both boundaries without
+    guessing segment count/order and keeps stable component identities.
+    """
+
+    def covered(point):
+        if label is not None and (
+            label[0] - 1e-6 <= point[0] <= label[2] + 1e-6
+            and label[1] - 1e-6 <= point[1] <= label[3] + 1e-6
+        ):
+            return True
+        return any(
+            _point_in_convex_component(point, polygon, tol=1e-5)
+            for component in components
+            for polygon in component.polygons
+        )
+
+    residual = []
+    try:
+        faces = annotation.faces()
+    except Exception:  # noqa: BLE001 — optional placement must fail closed
+        return None
+    for face in faces:
+        hull, rendered_points = _rendered_face_hull(face)
+        if not hull:
+            return None
+        if rendered_points and all(covered(point) for point in rendered_points):
             continue
-        centres = tuple(
-            ((first[0] + second[0]) / 2.0, (first[1] + second[1]) / 2.0)
-            for first, second in dimension_lines
+        residual.append(hull)
+    residual.sort(
+        key=lambda polygon: (
+            min(point[0] for point in polygon),
+            min(point[1] for point in polygon),
+            max(point[0] for point in polygon),
+            max(point[1] for point in polygon),
         )
-        centre = min(centres, key=lambda point: math.hypot(point[0] - tip[0], point[1] - tip[1]))
-        dx, dy = centre[0] - tip[0], centre[1] - tip[1]
-        length = math.hypot(dx, dy)
-        if length <= 1e-12:
-            continue
-        elbow = (
-            tip[0] + dx / length * draft.arrow_length,
-            tip[1] + dy / length * draft.arrow_length,
+    )
+    component_kind = "arc" if kind == "CenterlineCircle" else "arrow"
+    return tuple(
+        _FixedInkComponent(
+            f"{name}:{component_kind}:{index}",
+            polygons=(polygon,),
+            owner=owner,
+            kind=kind,
         )
-        arrow = _leader_ink_polygons(
-            tip,
-            elbow,
-            arrow_length=draft.arrow_length,
-            line_width=0.0,
-        )
-        if arrow:
-            components.append(_FixedInkComponent(f"{name}:arrow:{index}", polygons=(arrow[-1],)))
-    return tuple(components)
+        for index, polygon in enumerate(residual)
+    )
 
 
 def _annotation_fixed_ink(dwg, name, annotation):
@@ -488,13 +553,24 @@ def _annotation_fixed_ink(dwg, name, annotation):
                     segment=(first, second),
                 )
             )
-    components.extend(
-        replace(component, owner=owner, kind=kind)
-        for component in _dimension_arrow_components(name, annotation, segments, dwg.draft)
-    )
     label = _label_box(annotation)
     if label is not None:
         components.append(_FixedInkComponent(f"{name}:label", box=label, owner=owner, kind=kind))
+    if kind in {"Dimension", "CenterlineCircle"}:
+        residual = _rendered_residual_components(name, annotation, components, label, owner, kind)
+        if residual is None:
+            geometry = _geom_box(annotation, getattr(dwg, "box_cache", None))
+            if geometry is not None:
+                components.append(
+                    _FixedInkComponent(
+                        f"{name}:geometry",
+                        box=geometry,
+                        owner=owner,
+                        kind=kind,
+                    )
+                )
+        else:
+            components.extend(residual)
     if not components:
         geometry = _geom_box(annotation, getattr(dwg, "box_cache", None))
         if geometry is not None:
@@ -647,6 +723,7 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
         viable_count=None,
         policy_b_blockers=(),
         candidate_inventory=(),
+        producer_fallback=None,
         reason=None,
     ):
         job = jobs[job_index]
@@ -668,6 +745,8 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
             # once with the geometry/objective data that decided its fate.
             "candidate_inventory": [dict(entry) for entry in candidate_inventory],
         }
+        if producer_fallback is not None:
+            item["producer_fallback"] = dict(producer_fallback)
         if viable_count is not None:
             item["viable_candidates"] = viable_count
         if policy_b_blockers:
@@ -786,7 +865,16 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
                     }
                 )
 
-    def greedy(reason, *, fixed_probes=0, pair_probes=0) -> int:
+    def greedy(
+        reason,
+        *,
+        fixed_probes=0,
+        pair_probes=0,
+        states=0,
+        abandoned_inventories=None,
+        abandoned_rejected=None,
+        abandoned_raw_counts=None,
+    ) -> int:
         """Deterministic first-clear floor in original stage/job order."""
 
         placed_count = 0
@@ -809,6 +897,7 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
         for job_index, job in enumerate(jobs):
             obstacle_count = len(fixed[job.view])
             blockers_by_raw = []
+            fallback_rejected = []
             raw_count = 0
             selected = None
             selected_policy_b: tuple[str, ...] = ()
@@ -820,13 +909,20 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
             for candidate in source:
                 raw_count = max(raw_count, candidate.raw_index + 1)
                 blockers = _fixed_blockers(candidate, job, page, fixed[job.view])
-                accepted = (
+                hard_blockers = _hard_fixed_blockers(blockers)
+                accepted = not hard_blockers and (
                     job.fallback_accept(candidate, legacy_boxes[job.view], page)
                     if job.fallback_accept is not None
                     else not blockers
                 )
                 if not accepted:
                     blockers_by_raw.append((candidate.raw_index, blockers))
+                    fallback_rejected.append(
+                        {
+                            "candidate": candidate.raw_index,
+                            "blockers": list(blockers or ("legacy_occupancy",)),
+                        }
+                    )
                     inventory.append(candidate_entry(candidate, "fixed_rejected", blockers))
                     continue
                 annotation = _materialize(dwg, job, candidate)
@@ -835,20 +931,49 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
                     inventory.append(
                         candidate_entry(candidate, "geometry_validation", ("geometry_validation",))
                     )
+                    fallback_rejected.append(
+                        {
+                            "candidate": candidate.raw_index,
+                            "blockers": ["geometry_validation"],
+                        }
+                    )
                     continue
                 selected = candidate
                 selected_policy_b = blockers
                 inventory.append(candidate_entry(candidate, "selected", blockers))
                 break
+            producer_fallback = {
+                "candidates_tried": raw_count,
+                "selected": (
+                    candidate_entry(selected, "selected", selected_policy_b)
+                    if selected is not None
+                    else None
+                ),
+                "rejected": fallback_rejected,
+            }
+            recorded_inventory = (
+                abandoned_inventories[job_index]
+                if abandoned_inventories is not None
+                else inventory
+            )
+            recorded_rejected = (
+                abandoned_rejected[job_index]
+                if abandoned_rejected is not None
+                else blockers_by_raw
+            )
+            recorded_raw_count = (
+                abandoned_raw_counts[job_index] if abandoned_raw_counts is not None else raw_count
+            )
             if selected is None:
                 drop(job_index)
                 record_item(
                     job_index,
                     None,
-                    raw_count,
-                    blockers_by_raw,
+                    recorded_raw_count,
+                    recorded_rejected,
                     obstacle_count=obstacle_count,
-                    candidate_inventory=inventory,
+                    candidate_inventory=recorded_inventory,
+                    producer_fallback=producer_fallback,
                     reason="no_clear_room",
                 )
                 continue
@@ -865,11 +990,12 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
             record_item(
                 job_index,
                 selected,
-                raw_count,
-                blockers_by_raw,
+                recorded_raw_count,
+                recorded_rejected,
                 obstacle_count=obstacle_count,
                 policy_b_blockers=selected_policy_b,
-                candidate_inventory=inventory,
+                candidate_inventory=recorded_inventory,
+                producer_fallback=producer_fallback,
             )
             placed_count += 1
             total_priority += job.priority
@@ -878,6 +1004,7 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
         set_assignment(
             reason,
             optimal=False,
+            states=states,
             fixed_probes=fixed_probes,
             pair_probes=pair_probes,
             placed=placed_count,
@@ -925,11 +1052,7 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
             candidate = _measure(raw_index, raw, job, dwg.draft)
             measured.append(candidate)
             blockers = _fixed_blockers(candidate, job, page, fixed[job.view])
-            hard_blocked = any(
-                blocker in {"page", "unmeasurable_label"}
-                or blocker.startswith(("view:", "title_block"))
-                for blocker in blockers
-            )
+            hard_blocked = bool(_hard_fixed_blockers(blockers))
             if blockers and (hard_blocked or not job.allow_policy_b_fixed):
                 rejected.append((raw_index, blockers))
                 continue
@@ -971,16 +1094,50 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
             [len(blockers) for blockers in job_blockers] for job_blockers in policy_blockers_by_job
         ],
     )
+
+    def all_conflict_names(job_index, candidate_index):
+        names = set()
+        for earlier_job, earlier_index, later_job, later_index in conflicts:
+            if (job_index, candidate_index) == (earlier_job, earlier_index):
+                names.add(jobs[later_job].name)
+            elif (job_index, candidate_index) == (later_job, later_index):
+                names.add(jobs[earlier_job].name)
+        return tuple(sorted(names))
+
     if not assignment.optimal:
         # The layout solver's bounded-search incumbent is seeded from the new
         # exact-ink candidate order, not from every producer's canonical
         # pre-#1166 lazy fallback.  Replaying that producer floor is the only
         # general guarantee that resource pressure cannot reduce semantic
         # cardinality relative to the established renderer.
+        abandoned_inventories = []
+        for job_index, measured in enumerate(measured_by_job):
+            rejected_lookup = dict(rejected_by_job[job_index])
+            viable_index = {
+                candidate.raw_index: index
+                for index, candidate in enumerate(viable_by_job[job_index])
+            }
+            inventory = []
+            for candidate in measured:
+                if candidate.raw_index in rejected_lookup:
+                    status = "fixed_rejected"
+                    blockers = rejected_lookup[candidate.raw_index]
+                    conflict_names = ()
+                else:
+                    status = "joint_abandoned"
+                    candidate_index = viable_index[candidate.raw_index]
+                    blockers = policy_blockers_by_job[job_index][candidate_index]
+                    conflict_names = all_conflict_names(job_index, candidate_index)
+                inventory.append(candidate_entry(candidate, status, blockers, conflict_names))
+            abandoned_inventories.append(inventory)
         return greedy(
             "greedy_state_budget",
             fixed_probes=fixed_probe_bound,
             pair_probes=pair_probes,
+            states=assignment.states,
+            abandoned_inventories=abandoned_inventories,
+            abandoned_rejected=rejected_by_job,
+            abandoned_raw_counts=raw_count_by_job,
         )
     assignment_states = assignment.states
 

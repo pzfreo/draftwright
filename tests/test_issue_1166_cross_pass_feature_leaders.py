@@ -7,7 +7,14 @@ from types import SimpleNamespace
 
 import pytest
 from build123d import Align, Box, Cylinder, Pos, Rot
-from build123d_drafting.helpers import Centerline, CenterMark, Draft, Leader
+from build123d_drafting.helpers import (
+    Centerline,
+    CenterlineCircle,
+    CenterMark,
+    Dimension,
+    Draft,
+    Leader,
+)
 
 from draftwright import ScaleCompletenessWarning, build_drawing
 from draftwright._geometry import (
@@ -15,12 +22,14 @@ from draftwright._geometry import (
     _convex_polygons_overlap,
     _leader_ink_polygons,
     _segments_cross_or_overlap,
+    _stroke_polygon,
 )
 from draftwright.annotations._common import PlacementContext
 from draftwright.annotations.leaders import (
     FeatureLeaderJob,
     _annotation_fixed_ink,
     _candidate_conflict,
+    _candidate_hits_component,
     _measure,
     _MeasuredLeaderCandidate,
     _point_in_convex_component,
@@ -314,6 +323,132 @@ def test_unrelated_center_furniture_is_fixed_ink_but_own_mark_is_not():
     assert not any(issue.code == "feature_leader_crossing" for issue in drawing.lint())
 
 
+def test_circular_center_furniture_keeps_its_empty_interior_available():
+    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+    ctx = PlacementContext(
+        registry=drawing.registry,
+        coverage=drawing.coverage,
+        items=drawing.items,
+        part_model=drawing.model(),
+        feature_leaders=[],
+    )
+    ring_owner = object()
+    leader_owner = object()
+    ctx.place(
+        CenterlineCircle((100.0, 100.0), 40.0, drawing.draft),
+        "unrelated_center_circle",
+        view="front",
+        feature=ring_owner,
+    )
+    components = _annotation_fixed_ink(
+        drawing,
+        "unrelated_center_circle",
+        drawing.get_annotation("unrelated_center_circle"),
+    )
+    assert components
+    assert all(":arc:" in component.name for component in components)
+    assert not any(component.name.endswith(":geometry") for component in components)
+    arc_polygons = tuple(component.polygons[0] for component in components)
+    for face in drawing.get_annotation("unrelated_center_circle").faces():
+        for edge in face.edges():
+            assert all(
+                any(
+                    _point_in_convex_component((position.X, position.Y), polygon)
+                    for polygon in arc_polygons
+                )
+                for position in edge.positions(tuple(index / 32 for index in range(33)))
+            )
+
+    ring_stroke = _stroke_polygon((79.9, 99.0), (80.1, 101.0), 0.1)
+    assert ring_stroke is not None
+    ring_hit = _MeasuredLeaderCandidate(
+        object(),
+        (79.9, 99.0),
+        (80.1, 101.0),
+        leader_owner,
+        0,
+        1.0,
+        None,
+        (),
+        (ring_stroke,),
+    )
+    assert any(_candidate_hits_component(ring_hit, component) for component in components)
+
+    tip = (92.0, 100.0)
+    elbow = (100.0, 100.0)
+
+    def build(tip, elbow, _feature):
+        return Leader(tip=(*tip, 0), elbow=(*elbow, 0), label="R1", draft=drawing.draft)
+
+    collect_feature_leader(
+        ctx,
+        FeatureLeaderJob(
+            name="interior_leader",
+            view="front",
+            silhouette=(0.0, 0.0, 1.0, 1.0),
+            label="R1",
+            candidates=((tip, elbow, leader_owner),),
+            build=build,
+            measurement=(),
+            noun="fillet",
+            drop_code="fillet_dropped",
+        ),
+    )
+    analysis = SimpleNamespace(
+        margin=10.0,
+        PAGE_W=drawing.page_w,
+        PAGE_H=drawing.page_h,
+        TB_W=drawing.get_annotation("title_block").bounding_box().size.X,
+    )
+
+    assert drain_feature_leaders(drawing, analysis, ctx) == 1
+    assert drawing.get_annotation("interior_leader").segments[0][1] == elbow
+
+
+def test_shifted_dimension_keeps_rendered_arrowheads_in_fixed_ink():
+    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+    ctx = PlacementContext(
+        registry=drawing.registry,
+        coverage=drawing.coverage,
+        items=drawing.items,
+        part_model=drawing.model(),
+    )
+    shifted = Dimension(
+        (0.0, 0.0),
+        (20.0, 0.0),
+        "above",
+        10.0,
+        drawing.draft,
+        label="20",
+        label_offset_x=12.0,
+    )
+    assert len(shifted.segments) == 3
+    ctx.place(shifted, "shifted_dimension", view="front")
+    components = _annotation_fixed_ink(drawing, "shifted_dimension", shifted)
+    arrows = [component for component in components if ":arrow:" in component.name]
+    assert len(arrows) == 2
+
+    arrow_only_stroke = _stroke_polygon((19.2, 9.3), (19.2, 10.7), 0.1)
+    assert arrow_only_stroke is not None
+    arrow_only = _MeasuredLeaderCandidate(
+        object(),
+        (19.2, 9.3),
+        (19.2, 10.7),
+        object(),
+        0,
+        1.0,
+        None,
+        (),
+        (arrow_only_stroke,),
+    )
+    blockers = [
+        component.name
+        for component in components
+        if _candidate_hits_component(arrow_only, component)
+    ]
+    assert blockers == ["shifted_dimension:arrow:1"]
+
+
 def test_owned_unrelated_centerline_at_the_tip_is_not_a_global_axis_exemption():
     drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
     bounds = drawing.view_bounds("front")
@@ -543,7 +678,7 @@ def test_candidate_budget_preserves_the_exact_pre_joint_hole_floor(monkeypatch):
     )
 
 
-def test_future_section_cannot_veto_a_required_leader_but_title_is_hard():
+def test_future_section_cannot_veto_a_required_leader_but_title_is_hard(monkeypatch):
     drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
     rendered_title_box = drawing.get_annotation("title_block").bounding_box()
     analysis = SimpleNamespace(
@@ -629,8 +764,13 @@ def test_future_section_cannot_veto_a_required_leader_but_title_is_hard():
             measurement=(),
             noun="hole",
             drop_code="callout_dropped",
+            fallback_accept=lambda *_args: True,
             allow_policy_b_fixed=True,
         ),
+    )
+    monkeypatch.setattr(
+        "draftwright.annotations.leaders._FEATURE_LEADER_MAX_CANDIDATES",
+        0,
     )
     assert drain_feature_leaders(drawing, analysis, ctx) == 0
     assert "title_blocked_leader" not in drawing.annotations()

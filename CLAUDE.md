@@ -102,7 +102,8 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   - **`annotations/leaders.py`** — the one bounded late inventory for compatible
   automatic/deferred same-view feature leaders (#1166): sparse ordinary
   side/plan hole jobs and the five post-drain machined-feature families lower
-  exact committed component ink conflicts (including centre furniture),
+  exact committed component ink conflicts (including component-local curved
+  centre furniture and rendered shifted-dimension arrows),
   priorities, Policy-B penalties, and numeric costs into `layout.py`; optional
   sections enter only a separately bounded no-worse refinement, then validate
   their final ink against landed leaders, repair one end-symbol extent, and yield on conflict,
@@ -367,7 +368,9 @@ Current ADRs:
   bounded within-pass machined-leader assignment; Amendment 2 (#1166) collects
   compatible sparse ordinary side/plan hole and post-drain machined leaders into
   one canonical late stage (maximum placed, priority, clear-route penalty, then
-  leader length), retaining the old lazy greedy result as the resource-cap floor.
+  leader length), retaining the old lazy greedy result as the resource-cap floor
+  without relaxing page/view/title hard constraints and preserving the abandoned
+  admitted inventory in state-cap traces.
 - **0015** — **Accepted** (supersedes 0008, #697): **the part-drawing compiler
   as built** — detectors + declared features → the one PartModel waist (two
   tiers, ADR 0013) → planner → render-intents → shared infra; with the

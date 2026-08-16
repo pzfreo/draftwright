@@ -42,7 +42,12 @@ and arrow ink against the completed fixed annotation inventory, including
 actual-width dimension/witness strokes, their local arrow ink, labels, centre
 furniture. Strip-carving AABB inflation is not collision truth. Fixed rejections
 name stable annotation components (`:segment:n`, `:arrow:n`, `:label`) in the
-bounded trace, and the one rendered survivor is tessellated once to validate
+bounded trace. Fixed curved helper ink that has no linear-segment metadata is
+lowered once from its rendered planar faces into deterministic component-local
+containing polygons before the geometry-only assignment: dashed
+`CenterlineCircle` arcs remain separate rather than flooding the ring interior,
+and shifted `Dimension` labels retain every arrow that actually rendered instead
+of relying on a fixed segment count/order. The one rendered survivor is tessellated once to validate
 that its OCC faces remain inside the analytical ink contract. Established Policy B remains explicit for both
 ordinary-hole and machined-feature leaders: a candidate crossing late fixed
 furniture stays eligible with a penalty, while page, label-over-own-silhouette,
@@ -69,8 +74,12 @@ and candidate×fixed-obstacle probe caps, before quadratic geometry by a
 candidate-pair cap, and inside the exact solve by the existing state cap. A cap
 replays the original lazy candidate stream in
 canonical pass order, retaining each producer's former greedy/queue floor and
-recording any Policy-B blockers; a state-cap incumbent is not emitted directly
-because its new exact-ink seed is not necessarily that producer floor. Early
+recording any Policy-B blockers. Page bounds, label-over-own-silhouette, and the
+mandatory title reservation remain hard under every resource fallback. A
+state-cap incumbent is not emitted directly because its new exact-ink seed is
+not necessarily that producer floor; the trace nevertheless retains every fully
+admitted joint candidate as abandoned, plus the separately replayed producer
+selection, so exhaustion remains explainable. Early
 section rows are marked provisional and excluded from the primary assignment:
 an optional not-yet-committed section cannot veto a required leader. After an
 optimal primary result exists, one separately probe/state-bounded refinement may

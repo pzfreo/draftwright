@@ -31,7 +31,8 @@
   furniture/table semantics or await #798 silhouette-aware routing. The solve
   preserves required/priority-ranked evidence, rejects new-leader crossings,
   checks complete leader ink against actual-width fixed dimension/witness,
-  arrow, label, and centre-furniture components, prefers
+  arrow, label, and centre-furniture components (including rendered arrows on
+  shifted dimensions and component-local dashed circular centre furniture), prefers
   clear routes over explicit Policy-B fallbacks, and then minimises real leader
   length. Provisional sections cannot veto that primary result: one separately
   bounded refinement may choose an equally complete leader inventory that clears
@@ -40,8 +41,10 @@
   ink contract. A retained fixed-ink crossing now emits the machine-readable
   `feature_leader_crossing` info finding instead of appearing lint-clean. Candidate,
   fixed-obstacle-probe, pair, and exact-search work is bounded with the producer's
-  legacy lazy result as the floor, including state-cap exhaustion. Trace output
-  records every bounded candidate and names exact committed/provisional components,
+  legacy lazy result as the floor, including state-cap exhaustion; page,
+  own-silhouette, and title-reservation constraints remain hard in every fallback.
+  Trace output preserves an abandoned fully admitted inventory when state search
+  exhausts, records the producer-floor replay separately, and names exact committed/provisional components,
   refinement status, and competing blockers; live
   single-callout edits remain immediate.
 

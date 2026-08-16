@@ -619,5 +619,27 @@ def test_state_budget_replays_the_producer_legacy_floor(monkeypatch, tmp_path):
 
     assert event["assignment"] == "greedy_state_budget"
     assert event["optimal"] is False
+    assert event["states"] > 0
     assert len(names) == 5
     assert len(issues) == 1
+    assert all("producer_fallback" in item for item in event["items"])
+    assert all(
+        sorted(candidate["candidate"] for candidate in item["candidate_inventory"])
+        == list(range(item["candidates_tried"]))
+        for item in event["items"]
+    )
+    assert all(
+        candidate["outcome"] in {"fixed_rejected", "joint_abandoned"}
+        for item in event["items"]
+        for candidate in item["candidate_inventory"]
+    )
+    assert any(
+        item["candidates_tried"] > item["producer_fallback"]["candidates_tried"]
+        for item in event["items"]
+    )
+    assert any(
+        candidate.get("assignment_blockers")
+        for item in event["items"]
+        for candidate in item["candidate_inventory"]
+        if candidate["outcome"] == "joint_abandoned"
+    )
