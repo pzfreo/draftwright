@@ -127,11 +127,10 @@ def collect_feature_leader(ctx, job: FeatureLeaderJob) -> bool:
     return True
 
 
-def _segments(annotation) -> tuple:
-    raw = getattr(annotation, "segments", ()) or ()
+def _coerce_segments(raw) -> tuple:
     out = []
-    for segment in raw:
-        try:
+    try:
+        for segment in raw:
             first, second = segment
             out.append(
                 (
@@ -139,20 +138,42 @@ def _segments(annotation) -> tuple:
                     (float(second[0]), float(second[1])),
                 )
             )
-        except (TypeError, ValueError, IndexError):
-            continue
+    except Exception:  # noqa: BLE001 — optional metadata iterators may fail
+        return ()
     return tuple(out)
 
 
-def _label_box(annotation):
-    raw = getattr(annotation, "label_bbox", None)
+def _segments(annotation) -> tuple:
+    try:
+        raw = getattr(annotation, "segments", ()) or ()
+    except Exception:  # noqa: BLE001 — optional fixed metadata must fail closed
+        return ()
+    return _coerce_segments(raw)
+
+
+def _coerce_box(raw):
     if raw is None:
         return None
     try:
         box = tuple(float(value) for value in raw)
-    except (TypeError, ValueError):
+    except Exception:  # noqa: BLE001 — optional metadata iterators may fail
         return None
-    return box if len(box) == 4 and all(math.isfinite(value) for value in box) else None
+    return (
+        box
+        if len(box) == 4
+        and all(math.isfinite(value) for value in box)
+        and box[0] < box[2]
+        and box[1] < box[3]
+        else None
+    )
+
+
+def _label_box(annotation):
+    try:
+        raw = getattr(annotation, "label_bbox", None)
+    except Exception:  # noqa: BLE001 — optional fixed metadata must fail closed
+        return None
+    return _coerce_box(raw)
 
 
 def _ink_hits_box(candidate: _MeasuredLeaderCandidate, box) -> bool:
@@ -237,13 +258,8 @@ def _measure(raw_index, raw, job: FeatureLeaderJob, draft) -> _MeasuredLeaderCan
                 raw_label, raw_segments = geometry
                 if raw_label is None:
                     raise ValueError("missing analytical label box")
-                label_box = tuple(float(value) for value in raw_label)
-                if (
-                    len(label_box) != 4
-                    or not all(math.isfinite(value) for value in label_box)
-                    or label_box[0] >= label_box[2]
-                    or label_box[1] >= label_box[3]
-                ):
+                label_box = _coerce_box(raw_label)
+                if label_box is None:
                     raise ValueError("invalid analytical label box")
                 segments = tuple(
                     (
@@ -621,6 +637,7 @@ def _rendered_residual_components(
     kind,
     *,
     max_components=None,
+    allow_empty_faces=False,
 ):
     """Rendered faces not already represented by segment/label metadata.
 
@@ -657,6 +674,13 @@ def _rendered_residual_components(
                 return _FIXED_INVENTORY_EXHAUSTED
     except Exception:  # noqa: BLE001 — optional placement must fail closed
         return None
+    if not faces:
+        # Some provisional/final furniture publishes a complete analytical
+        # footprint through ``fixed_ink_polygons`` while its OCC carrier is
+        # edge-only.  That explicit contract is sufficient.  Empty faces with
+        # only generic segment/label metadata remain unavailable because those
+        # fields may be only a partial description of the rendered object.
+        return () if allow_empty_faces else None
     for face in faces:
         hull, rendered_points, triangles, edge_kinds = _rendered_face_hull(face)
         if not hull:
@@ -718,35 +742,6 @@ def _rendered_residual_components(
 def _annotation_fixed_ink(dwg, name, annotation, *, max_components=None):
     """Exact-width fixed ink components for one already-rendered annotation."""
 
-    if max_components is None:
-        segments = _segments(annotation)
-        raw_fixed_polygons = getattr(annotation, "fixed_ink_polygons", ()) or ()
-    else:
-        raw_segments = getattr(annotation, "segments", ()) or ()
-        segment_prefix = list(islice(iter(raw_segments), max_components + 1))
-        if len(segment_prefix) > max_components:
-            return _FIXED_INVENTORY_EXHAUSTED
-        parsed_segments = []
-        for segment in segment_prefix:
-            try:
-                first, second = segment
-                parsed_segments.append(
-                    (
-                        (float(first[0]), float(first[1])),
-                        (float(second[0]), float(second[1])),
-                    )
-                )
-            except (TypeError, ValueError, IndexError):
-                continue
-        segments = tuple(parsed_segments)
-        raw_fixed_polygons = list(
-            islice(
-                iter(getattr(annotation, "fixed_ink_polygons", ()) or ()),
-                max_components + 1,
-            )
-        )
-        if len(raw_fixed_polygons) > max_components:
-            return _FIXED_INVENTORY_EXHAUSTED
     components: list[_FixedInkComponent] = []
     owner = dwg.registry.feature_of(name)
     kind = type(annotation).__name__
@@ -754,25 +749,65 @@ def _annotation_fixed_ink(dwg, name, annotation, *, max_components=None):
         0.15 if kind in {"CenterMark", "Centerline", "CenterlineCircle"} else dwg.draft.line_width
     )
 
+    def unavailable():
+        if max_components is not None:
+            return _FIXED_INVENTORY_EXHAUSTED
+        page = (0.0, 0.0, float(dwg.page_w), float(dwg.page_h))
+        return (
+            *components,
+            _FixedInkComponent(
+                f"{name}:geometry_unverified",
+                box=page,
+                owner=owner,
+                kind=kind,
+            ),
+        )
+
+    try:
+        raw_segments = getattr(annotation, "segments", ()) or ()
+        raw_polygons = getattr(annotation, "fixed_ink_polygons", ()) or ()
+        raw_label = getattr(annotation, "label_bbox", None)
+        global_axis = bool(getattr(annotation, "is_global_axis_centerline", False))
+        if max_components is None:
+            segment_prefix = tuple(raw_segments)
+            raw_fixed_polygons = tuple(raw_polygons)
+        else:
+            segment_prefix = tuple(islice(iter(raw_segments), max_components + 1))
+            if len(segment_prefix) > max_components:
+                return _FIXED_INVENTORY_EXHAUSTED
+            raw_fixed_polygons = tuple(islice(iter(raw_polygons), max_components + 1))
+            if len(raw_fixed_polygons) > max_components:
+                return _FIXED_INVENTORY_EXHAUSTED
+    except Exception:  # noqa: BLE001 — unavailable fixed metadata is not exact ink
+        return unavailable()
+    segments = _coerce_segments(segment_prefix)
+    if len(segments) != len(segment_prefix):
+        return unavailable()
+    if raw_label is not None and _coerce_box(raw_label) is None:
+        return unavailable()
+
     def exhausted():
         return max_components is not None and len(components) > max_components
 
     for index, polygon in enumerate(raw_fixed_polygons):
         try:
             points = tuple((float(point[0]), float(point[1])) for point in polygon)
-        except (TypeError, ValueError, IndexError):
-            continue
-        if len(points) >= 3:
-            components.append(
-                _FixedInkComponent(
-                    f"{name}:ink:{index}",
-                    polygons=(points,),
-                    owner=owner,
-                    kind=kind,
-                )
+        except Exception:  # noqa: BLE001 — partial exact metadata must fail closed
+            return unavailable()
+        if len(points) < 3 or any(
+            not math.isfinite(coordinate) for point in points for coordinate in point
+        ):
+            return unavailable()
+        components.append(
+            _FixedInkComponent(
+                f"{name}:ink:{index}",
+                polygons=(points,),
+                owner=owner,
+                kind=kind,
             )
-            if exhausted():
-                return _FIXED_INVENTORY_EXHAUSTED
+        )
+        if exhausted():
+            return _FIXED_INVENTORY_EXHAUSTED
     if type(annotation).__name__ == "Leader" and segments:
         components.append(
             _FixedInkComponent(
@@ -802,12 +837,12 @@ def _annotation_fixed_ink(dwg, name, annotation, *, max_components=None):
                     owner=owner,
                     kind=kind,
                     segment=(first, second),
-                    global_axis=bool(getattr(annotation, "is_global_axis_centerline", False)),
+                    global_axis=global_axis,
                 )
             )
             if exhausted():
                 return _FIXED_INVENTORY_EXHAUSTED
-    label = _label_box(annotation)
+    label = _coerce_box(raw_label)
     if label is not None:
         components.append(_FixedInkComponent(f"{name}:label", box=label, owner=owner, kind=kind))
         if exhausted():
@@ -821,23 +856,16 @@ def _annotation_fixed_ink(dwg, name, annotation, *, max_components=None):
         owner,
         kind,
         max_components=remaining,
+        allow_empty_faces=bool(raw_fixed_polygons),
     )
     if residual is _FIXED_INVENTORY_EXHAUSTED:
         return _FIXED_INVENTORY_EXHAUSTED
     if residual is None:
-        geometry = _geom_box(annotation, getattr(dwg, "box_cache", None))
+        if max_components is not None:
+            return _FIXED_INVENTORY_EXHAUSTED
+        geometry = _coerce_box(_geom_box(annotation, getattr(dwg, "box_cache", None)))
         if geometry is None:
-            if max_components is not None:
-                return _FIXED_INVENTORY_EXHAUSTED
-            geometry = (0.0, 0.0, float(dwg.page_w), float(dwg.page_h))
-            components.append(
-                _FixedInkComponent(
-                    f"{name}:geometry_unverified",
-                    box=geometry,
-                    owner=owner,
-                    kind=kind,
-                )
-            )
+            return unavailable()
         else:
             components.append(
                 _FixedInkComponent(
@@ -852,7 +880,7 @@ def _annotation_fixed_ink(dwg, name, annotation, *, max_components=None):
     else:
         components.extend(residual)
     if not components:
-        geometry = _geom_box(annotation, getattr(dwg, "box_cache", None))
+        geometry = _coerce_box(_geom_box(annotation, getattr(dwg, "box_cache", None)))
         if geometry is not None:
             components.append(
                 _FixedInkComponent(f"{name}:geometry", box=geometry, owner=owner, kind=kind)

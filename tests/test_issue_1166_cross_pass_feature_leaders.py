@@ -1194,18 +1194,36 @@ def test_zero_component_budget_stops_before_rendered_face_lowering():
     assert face_calls == 1
 
 
-def test_failed_residual_and_box_extraction_cannot_certify_partial_fixed_ink():
+@pytest.mark.parametrize(
+    "box_values",
+    [
+        None,
+        (float("nan"), 0.0, 2.0, 2.0),
+        (2.0, 2.0, 1.0, 1.0),
+        (1.0, 1.0, 1.0, 2.0),
+    ],
+)
+def test_failed_residual_and_bad_box_cannot_certify_partial_fixed_ink(box_values):
     drawing = build_drawing(Box(10, 10, 2), page="A4", auto_dims=False)
 
-    def unavailable():
+    def faces():
         raise RuntimeError("rendered geometry unavailable")
+
+    def bounding_box():
+        if box_values is None:
+            raise RuntimeError("rendered geometry unavailable")
+        x0, y0, x1, y1 = box_values
+        return SimpleNamespace(
+            min=SimpleNamespace(X=x0, Y=y0),
+            max=SimpleNamespace(X=x1, Y=y1),
+        )
 
     annotation = SimpleNamespace(
         segments=(((0.0, 0.0), (1.0, 0.0)),),
         fixed_ink_polygons=(),
         label_bbox=None,
-        faces=unavailable,
-        bounding_box=unavailable,
+        faces=faces,
+        bounding_box=bounding_box,
     )
 
     bounded = _annotation_fixed_ink(
@@ -1224,6 +1242,87 @@ def test_failed_residual_and_box_extraction_cannot_certify_partial_fixed_ink():
     assert [component.name for component in conservative][-1] == (
         "unavailable_fixed_ink:geometry_unverified"
     )
+    assert conservative[-1].box == (0.0, 0.0, drawing.page_w, drawing.page_h)
+
+
+def test_empty_face_inventory_uses_only_conservative_geometry_fallback():
+    drawing = build_drawing(Box(10, 10, 2), page="A4", auto_dims=False)
+    bbox_calls = 0
+    rendered_box = Box(4, 3, 1).bounding_box()
+
+    def bounding_box():
+        nonlocal bbox_calls
+        bbox_calls += 1
+        return rendered_box
+
+    annotation = SimpleNamespace(
+        segments=(((0.0, 0.0), (1.0, 0.0)),),
+        fixed_ink_polygons=(),
+        label_bbox=None,
+        faces=lambda: (),
+        bounding_box=bounding_box,
+    )
+
+    bounded = _annotation_fixed_ink(
+        drawing,
+        "empty_faces",
+        annotation,
+        max_components=8,
+    )
+    conservative = _annotation_fixed_ink(drawing, "empty_faces", annotation)
+
+    assert bounded is _FIXED_INVENTORY_EXHAUSTED
+    assert [component.name for component in conservative][-1] == "empty_faces:geometry"
+    assert bbox_calls == 1
+
+
+def test_empty_faces_accept_an_explicit_complete_fixed_ink_footprint():
+    drawing = build_drawing(Box(10, 10, 2), page="A4", auto_dims=False)
+    polygon = ((0.0, 0.0), (2.0, 0.0), (2.0, 1.0), (0.0, 1.0))
+    annotation = SimpleNamespace(
+        segments=(),
+        fixed_ink_polygons=(polygon,),
+        label_bbox=None,
+        faces=lambda: (),
+    )
+
+    components = _annotation_fixed_ink(
+        drawing,
+        "explicit_fixed_ink",
+        annotation,
+        max_components=8,
+    )
+
+    assert components is not _FIXED_INVENTORY_EXHAUSTED
+    assert [component.name for component in components] == ["explicit_fixed_ink:ink:0"]
+    assert components[0].polygons == (polygon,)
+
+
+@pytest.mark.parametrize("raising_attribute", ["segments", "fixed_ink_polygons", "label_bbox"])
+def test_raising_fixed_metadata_uses_the_unavailable_inventory_contract(raising_attribute):
+    drawing = build_drawing(Box(10, 10, 2), page="A4", auto_dims=False)
+
+    class RaisingMetadata:
+        segments = ()
+        fixed_ink_polygons = ()
+        label_bbox = None
+
+        def __getattribute__(self, name):
+            if name == raising_attribute:
+                raise RuntimeError(f"{name} unavailable")
+            return super().__getattribute__(name)
+
+    annotation = RaisingMetadata()
+    bounded = _annotation_fixed_ink(
+        drawing,
+        "raising_metadata",
+        annotation,
+        max_components=8,
+    )
+    conservative = _annotation_fixed_ink(drawing, "raising_metadata", annotation)
+
+    assert bounded is _FIXED_INVENTORY_EXHAUSTED
+    assert conservative[-1].name == "raising_metadata:geometry_unverified"
     assert conservative[-1].box == (0.0, 0.0, drawing.page_w, drawing.page_h)
 
 
