@@ -500,6 +500,25 @@ Current ADRs:
   breaks its claimed contract; a green suite alone is not evidence that the guard is
   load-bearing.
 
+- **0018** — **Accepted** (2026-08-16; #1130): **requirement-driven view planning
+  and editable sheet layout**. One view-planning model between drawing requirements and
+  projection: authored `ViewConstraints` and the automatic planner share one semantic
+  `ViewSpec`/layout vocabulary and produce one immutable `ResolvedViewPlan`. Page,
+  preferred scale, view set and arrangement are chosen **jointly** against complete view
+  blocks measured with fixed paper-space typography; a candidate is feasible only when
+  the real shared annotation solve preserves every supported requirement and all blocks
+  stay in bounds. Supersedes ADR 0004's **fixed four-view topology** (0004's
+  compose-then-pack of each selected block still stands). Users edit whole view blocks,
+  never feature-annotation coordinates (ADR 0012/0014 keep those). Infeasibility is a
+  first-class `plan_infeasible` result, never a silent relaxation of an authored
+  constraint.
+  **Nothing is implemented yet** — there is no `ViewSpec`/`ResolvedViewPlan` in the code
+  and the engine still builds fixed front/plan/side/iso. The ADR's "Required evidence
+  before acceptance" list is the per-slice delivery gate, not waived by acceptance.
+  Accepted on converging evidence from #1187 (leaders that cut the part have no clear
+  route because the SHEET is full — every remedy is compositional) and #1190 (the
+  section is placed into leftover space, so its presence tracks room rather than need).
+
 ## Dependencies
 
 - `build123d-drafting-helpers>=0.13.0` (Apache 2.0)

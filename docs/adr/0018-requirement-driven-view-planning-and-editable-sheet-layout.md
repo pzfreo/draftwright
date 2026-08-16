@@ -1,8 +1,41 @@
 # ADR 0018 — Requirement-driven view planning and editable sheet layout
 
-- **Status:** Proposed; tracked by #1130
-- **Date:** 2026-08-11
+- **Status:** **Accepted** (2026-08-16). **Nothing here is implemented yet** — no
+  `ViewSpec`, `ViewConstraints` or `ResolvedViewPlan` exists in the code, and the engine
+  still builds the fixed front/plan/side/iso topology. Read this as the decided
+  direction, not as a description of current behaviour; delivery is phased through
+  #1130, first slice a no-behaviour-change `ViewSpec`/`ResolvedViewPlan` representation.
+  The "Required evidence before acceptance" list below is retained verbatim as the
+  **delivery gate** each slice is measured against — accepting the direction does not
+  waive it, and automatic semantic view selection lands only once those invariants are
+  guarded.
+- **Date:** 2026-08-11 (proposed), 2026-08-16 (accepted)
 - **Deciders:** Paul Fremantle (pzfreo)
+
+## Why now — the evidence that converged (2026-08-16)
+
+Proposed from one case (a thin planetary plate where the fixed four-view topology
+drove an A1 sheet at 1:1). Two independent investigations then landed on the same
+missing decision from opposite directions, neither looking for it:
+
+- **#1187 (leader routing).** After #798 and #1188, ten leaders still cut the part
+  across the corpus. Sweeping each one's elbow through 64 directions × 6 shaft lengths
+  — far more freedom than any producer offers — found **hundreds of routes clear of
+  the material and, for five of six distinct cases, zero clear of everything else**.
+  The part's shape is not what traps them: the sheet is full. Every remedy that
+  survives that finding is compositional — fewer things on the sheet, more room, or a
+  different view set — and none of them is a router's decision to make.
+- **#1190 (section A–A).** The section is not part of the scale/layout decision at
+  all. ADR 0004 picks a scale by packing view blocks; the section is then placed
+  opportunistically into whatever is left, which is why its presence tracked leftover
+  space rather than need. Making it a required scale outcome was tried and reverted —
+  it turned an optional view into a scale blocker that could raise
+  `ScaleIncompatibilityError`. The honest fix was to record the outcome, which leaves
+  the structural gap exactly where this ADR says it is.
+
+Both reduce to the same thing: **which views should exist is a decision nothing
+currently owns.** That is what tipped this from a good idea to a gap with measurements
+attached.
 
 ## Context
 
