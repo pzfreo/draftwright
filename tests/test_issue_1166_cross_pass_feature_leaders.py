@@ -462,7 +462,7 @@ def test_shifted_dimension_keeps_rendered_arrowheads_in_fixed_ink():
     assert len([component for component in basic_components if ":arrow:" in component.name]) == 2
 
 
-def test_owned_unrelated_centerline_at_the_tip_is_not_a_global_axis_exemption():
+def test_ownerless_section_centerline_at_the_tip_is_not_a_global_axis_exemption():
     drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
     bounds = drawing.view_bounds("front")
     assert bounds is not None
@@ -477,9 +477,8 @@ def test_owned_unrelated_centerline_at_the_tip_is_not_a_global_axis_exemption():
     )
     ctx.place(
         Centerline((tip[0], tip[1] - 6.0, 0.0), (tip[0], tip[1] + 6.0, 0.0)),
-        "unrelated_centerline",
+        "section_line",
         view="front",
-        feature=object(),
     )
 
     def build(tip, elbow, _feature):
@@ -509,10 +508,40 @@ def test_owned_unrelated_centerline_at_the_tip_is_not_a_global_axis_exemption():
 
     assert drain_feature_leaders(drawing, analysis, ctx) == 1
     assert any(
-        issue.code == "feature_leader_crossing"
-        and "unrelated_centerline:segment:0" in issue.message
+        issue.code == "feature_leader_crossing" and "section_line:segment:0" in issue.message
         for issue in drawing.lint()
     )
+
+
+def test_explicit_global_turning_axis_allows_only_tip_attachment():
+    drawing = build_drawing(Cylinder(10, 20), page="A4")
+    centerline = drawing.get_annotation("centerline_front")
+    components = _annotation_fixed_ink(drawing, "centerline_front", centerline)
+    axis_components = [component for component in components if component.segment is not None]
+    assert axis_components
+    assert all(component.global_axis for component in axis_components)
+    axis_component = axis_components[len(axis_components) // 2]
+    assert axis_component.segment is not None
+    first, second = axis_component.segment
+    tip = ((first[0] + second[0]) / 2.0, (first[1] + second[1]) / 2.0)
+    elbow = (tip[0] + 10.0, tip[1] + 10.0)
+    candidate = _MeasuredLeaderCandidate(
+        object(),
+        tip,
+        elbow,
+        object(),
+        0,
+        1.0,
+        None,
+        ((tip, elbow),),
+        _leader_ink_polygons(
+            tip,
+            elbow,
+            arrow_length=drawing.draft.arrow_length,
+            line_width=drawing.draft.line_width,
+        ),
+    )
+    assert _candidate_hits_component(candidate, axis_component) is False
 
 
 def test_cross_pass_objective_avoids_the_per_pass_greedy_trap():

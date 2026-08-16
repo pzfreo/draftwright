@@ -42,7 +42,10 @@ and arrow ink against the completed fixed annotation inventory, including
 actual-width dimension/witness strokes, their local arrow ink, labels, centre
 furniture. Strip-carving AABB inflation is not collision truth. Fixed rejections
 name stable annotation components (`:segment:n`, `:arrow:n`, `:label`) in the
-bounded trace. Fixed curved helper ink that has no linear-segment metadata is
+bounded trace. A leader-tip attachment is exempt only on an explicitly marked
+global turning-axis centreline; an ownerless section/cutting line is ordinary
+fixed ink, not an implicit axis exemption. Fixed curved helper ink that has no
+linear-segment metadata is
 lowered once from its rendered planar faces into deterministic component-local
 containing polygons before the geometry-only assignment: dashed
 `CenterlineCircle` arcs remain separate rather than flooding the ring interior,

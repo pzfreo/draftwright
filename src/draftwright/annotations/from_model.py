@@ -4189,6 +4189,14 @@ def render_step_positions(dwg, plan, frame, *, ctx) -> int:
     return n
 
 
+def _global_axis_centerline(first, second):
+    """A turning-axis centreline whose tip attachment is intentional (#1166)."""
+
+    centerline = Centerline(first, second)
+    centerline.is_global_axis_centerline = True
+    return centerline
+
+
 def render_rotational(dwg, plan, a, *, ctx) -> int:
     """Rotational furniture from the IR `RotationalFeature` (#237): the OD dim (above
     the front view), the rotation-axis centrelines (front + side), and the concentric
@@ -4232,12 +4240,18 @@ def render_rotational(dwg, plan, a, *, ctx) -> int:
             )
             n += 1
         ctx.place(
-            Centerline((FX(a.cx), FZ(a.bb.min.Z) - 5, 0), (FX(a.cx), FZ(a.bb.max.Z) + 5, 0)),
+            _global_axis_centerline(
+                (FX(a.cx), FZ(a.bb.min.Z) - 5, 0),
+                (FX(a.cx), FZ(a.bb.max.Z) + 5, 0),
+            ),
             "centerline_front",
             view="front",
         )
         ctx.place(
-            Centerline((SX(a.cy), SZ(a.bb.min.Z) - 5, 0), (SX(a.cy), SZ(a.bb.max.Z) + 5, 0)),
+            _global_axis_centerline(
+                (SX(a.cy), SZ(a.bb.min.Z) - 5, 0),
+                (SX(a.cy), SZ(a.bb.max.Z) + 5, 0),
+            ),
             "centerline_side",
             view="side",
         )
@@ -4322,12 +4336,18 @@ def render_rotational(dwg, plan, a, *, ctx) -> int:
             )
             n += 1
         ctx.place(
-            Centerline((FX(a.bb.min.X) - 5, FZ(a.cz), 0), (FX(a.bb.max.X) + 5, FZ(a.cz), 0)),
+            _global_axis_centerline(
+                (FX(a.bb.min.X) - 5, FZ(a.cz), 0),
+                (FX(a.bb.max.X) + 5, FZ(a.cz), 0),
+            ),
             "centerline_front",
             view="front",
         )
         ctx.place(
-            Centerline((PX(a.bb.min.X) - 5, PY(a.cy), 0), (PX(a.bb.max.X) + 5, PY(a.cy), 0)),
+            _global_axis_centerline(
+                (PX(a.bb.min.X) - 5, PY(a.cy), 0),
+                (PX(a.bb.max.X) + 5, PY(a.cy), 0),
+            ),
             "centerline_plan",
             view="plan",
         )
@@ -4351,12 +4371,18 @@ def render_rotational(dwg, plan, a, *, ctx) -> int:
             )
             n += 1
         ctx.place(
-            Centerline((SX(a.bb.min.Y) - 5, SZ(a.cz), 0), (SX(a.bb.max.Y) + 5, SZ(a.cz), 0)),
+            _global_axis_centerline(
+                (SX(a.bb.min.Y) - 5, SZ(a.cz), 0),
+                (SX(a.bb.max.Y) + 5, SZ(a.cz), 0),
+            ),
             "centerline_side",
             view="side",
         )
         ctx.place(
-            Centerline((PX(a.cx), PY(a.bb.min.Y) - 5, 0), (PX(a.cx), PY(a.bb.max.Y) + 5, 0)),
+            _global_axis_centerline(
+                (PX(a.cx), PY(a.bb.min.Y) - 5, 0),
+                (PX(a.cx), PY(a.bb.max.Y) + 5, 0),
+            ),
             "centerline_plan",
             view="plan",
         )
@@ -4390,23 +4416,35 @@ def render_local_turned_centerlines(dwg, a, *, ctx) -> int:
 
     if axis == "x":
         _place(
-            Centerline((FX(a.bb.min.X) - 5, FZ(a.cz), 0), (FX(a.bb.max.X) + 5, FZ(a.cz), 0)),
+            _global_axis_centerline(
+                (FX(a.bb.min.X) - 5, FZ(a.cz), 0),
+                (FX(a.bb.max.X) + 5, FZ(a.cz), 0),
+            ),
             "centerline_front",
             "front",
         )
         _place(
-            Centerline((PX(a.bb.min.X) - 5, PY(a.cy), 0), (PX(a.bb.max.X) + 5, PY(a.cy), 0)),
+            _global_axis_centerline(
+                (PX(a.bb.min.X) - 5, PY(a.cy), 0),
+                (PX(a.bb.max.X) + 5, PY(a.cy), 0),
+            ),
             "centerline_plan",
             "plan",
         )
     elif axis == "y":
         _place(
-            Centerline((SX(a.bb.min.Y) - 5, SZ(a.cz), 0), (SX(a.bb.max.Y) + 5, SZ(a.cz), 0)),
+            _global_axis_centerline(
+                (SX(a.bb.min.Y) - 5, SZ(a.cz), 0),
+                (SX(a.bb.max.Y) + 5, SZ(a.cz), 0),
+            ),
             "centerline_side",
             "side",
         )
         _place(
-            Centerline((PX(a.cx), PY(a.bb.min.Y) - 5, 0), (PX(a.cx), PY(a.bb.max.Y) + 5, 0)),
+            _global_axis_centerline(
+                (PX(a.cx), PY(a.bb.min.Y) - 5, 0),
+                (PX(a.cx), PY(a.bb.max.Y) + 5, 0),
+            ),
             "centerline_plan",
             "plan",
         )

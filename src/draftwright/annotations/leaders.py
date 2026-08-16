@@ -99,6 +99,7 @@ class _FixedInkComponent:
     owner: Any = None
     kind: str = ""
     segment: tuple[tuple[float, float], tuple[float, float]] | None = None
+    global_axis: bool = False
 
 
 def collect_feature_leader(ctx, job: FeatureLeaderJob) -> bool:
@@ -315,11 +316,7 @@ def _candidate_hits_component(
         # A feature leader intentionally originates inside its own centre
         # furniture; unrelated centre furniture remains fixed ink (#305).
         return False
-    if (
-        component.kind == "Centerline"
-        and component.owner is None
-        and component.segment is not None
-    ):
+    if component.kind == "Centerline" and component.global_axis and component.segment is not None:
         first, second = component.segment
         sx, sy = second[0] - first[0], second[1] - first[1]
         length_squared = sx * sx + sy * sy
@@ -563,6 +560,7 @@ def _annotation_fixed_ink(dwg, name, annotation):
                     owner=owner,
                     kind=kind,
                     segment=(first, second),
+                    global_axis=bool(getattr(annotation, "is_global_axis_centerline", False)),
                 )
             )
     label = _label_box(annotation)
