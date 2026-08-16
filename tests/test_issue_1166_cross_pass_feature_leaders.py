@@ -747,6 +747,9 @@ def test_future_section_cannot_veto_a_required_leader_but_title_is_hard(monkeypa
             measurement=(),
             noun="fillet",
             drop_code="fillet_dropped",
+            fallback_accept=lambda candidate, boxes, _page: not any(
+                _boxes_overlap(candidate.label_box, box) for box in boxes
+            ),
             allow_policy_b_fixed=True,
         ),
     )
