@@ -118,6 +118,28 @@ class TestTheReasonCodeIsTheRealReason:
         dwg = build_drawing(_counterbored_block(), page="A3")
         assert dwg.section_decision["reason"] == "cut_empty"
 
+    def test_a_raising_cut_is_reported_as_a_failed_cut(self, monkeypatch):
+        # OCC booleans raise broadly; the section must record that rather than let it
+        # escape or vanish. Distinct from `cut_empty`, which returns None cleanly.
+        def explode(*_args, **_kwargs):
+            raise RuntimeError("Standard_DomainError")
+
+        monkeypatch.setattr(sections_module, "_fuzzy_cut", explode)
+        dwg = build_drawing(_counterbored_block(), page="A3")
+        assert dwg.section_decision["reason"] == "cut_failed"
+        assert "Standard_DomainError" in dwg.section_decision["detail"]
+
+    def test_room_existing_but_blocked_by_the_title_block_says_title_block(self, monkeypatch):
+        # The complement of the no_room test, and the other half of the ordering fix:
+        # segments DO fit, and none clears the title block. Reporting `no_room` here
+        # would be as wrong as blaming the title block when nothing fits.
+        monkeypatch.setattr(
+            sections_module, "_segments_clearing_title_block", lambda *_a, **_k: []
+        )
+        dwg = build_drawing(_counterbored_block(), page="A3")
+        assert dwg.section_decision["reason"] == "title_block"
+        assert "title block" in dwg.section_decision["detail"]
+
 
 class TestTheRoomCheckFindsAGapRatherThanTheRightmostObstacle:
     def test_a_remote_obstacle_does_not_veto_the_whole_band(self):
