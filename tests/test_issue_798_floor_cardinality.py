@@ -32,7 +32,7 @@ from draftwright.annotations.leaders import (
 )
 
 
-def _harness(candidate_count):
+def _harness(candidate_count, *, accept=None):
     """A drawing plus a single leader job offering *candidate_count* clear alternatives.
 
     Every alternative is placed well clear of the view in open margin, so the only thing
@@ -49,6 +49,12 @@ def _harness(candidate_count):
 
     def build(tip_point, elbow, _feature):
         return Leader(tip=(*tip_point, 0), elbow=elbow, label="R1", draft=drawing.draft)
+
+    fallback_accept = (
+        None
+        if accept is None
+        else (lambda candidate, _obstacles, _page, _test=accept: _test(candidate))
+    )
 
     ctx = PlacementContext(
         registry=drawing.registry,
@@ -70,6 +76,7 @@ def _harness(candidate_count):
             noun="fillet",
             drop_code="fillet_dropped",
             allow_policy_b_fixed=True,
+            fallback_accept=fallback_accept,
         ),
     )
     analysis = SimpleNamespace(
@@ -151,3 +158,45 @@ class TestMaterialIsNeverAnAcceptanceTest:
         monkeypatch.setattr(leaders_module, "_material_units", lambda *_a, **_k: 40)
         drawing, analysis, ctx = _harness(6)
         assert drain_feature_leaders(drawing, analysis, ctx) == 1
+
+
+class TestTheResumeScanAppliesTheSameConstraints:
+    """The resume is a continuation of the same scan, not a bypass of it. It must still
+    reject a candidate the floor would not accept, and still skip one that fails to
+    render — otherwise "never drop a callout" would quietly become "place anything"."""
+
+    def test_the_resume_still_rejects_unacceptable_candidates(self, monkeypatch, forced_floor):
+        # Reaching the resume's own reject branch takes a precise shape, so it is spelled
+        # out: candidates up to the lookahead are ACCEPTED (so they are held) but fail to
+        # render (so phase 2 is exhausted), and the candidates the resume then meets are
+        # refused before it finds one it can take.
+        lookahead = leaders_module._GREEDY_MATERIAL_LOOKAHEAD
+        refused = range(lookahead + 2, lookahead + 8)
+        takeable = lookahead + 8
+        monkeypatch.setattr(leaders_module, "_material_units", lambda *_a, **_k: 1)
+        real_materialize = leaders_module._materialize
+
+        def flaky(dwg, job, candidate):
+            if candidate.raw_index <= lookahead + 1:
+                return None  # every held candidate fails, so phase 2 finds nothing
+            return real_materialize(dwg, job, candidate)
+
+        monkeypatch.setattr(leaders_module, "_materialize", flaky)
+        drawing, analysis, ctx = _harness(
+            takeable + 4, accept=lambda candidate: candidate.raw_index not in refused
+        )
+        assert drain_feature_leaders(drawing, analysis, ctx) == 1
+        placed = drawing.get_annotation("m_fillet0")
+        assert placed is not None
+        # It skipped the refused ones and took the first the accept test allowed.
+        assert placed.segments[0][1][0] == pytest.approx(
+            drawing.view_bounds("front")[2] + 14.0 + 0.35 * takeable
+        )
+
+    def test_a_job_with_no_acceptable_candidate_at_all_is_dropped(self, forced_floor):
+        # The other side of the contract: the floor is not obliged to invent a placement.
+        # A job whose every candidate is refused drops, with its drop code recorded.
+        drawing, analysis, ctx = _harness(6, accept=lambda _candidate: False)
+        assert drain_feature_leaders(drawing, analysis, ctx) == 0
+        assert drawing.get_annotation("m_fillet0") is None
+        assert any(issue.code == "fillet_dropped" for issue in drawing.registry.issues)

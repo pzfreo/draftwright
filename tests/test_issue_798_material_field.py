@@ -379,3 +379,37 @@ class TestTheLoweringFailsWhole:
         from draftwright.projection import view_material_field
 
         assert not view_material_field(None, lambda point: (point[0], point[1]))
+
+
+class TestMalformedLoweringEntries:
+    """The lowering is fed by OCC tessellation, so the field constructor takes whatever
+    the mesher produced. A malformed entry must be dropped, never interpreted."""
+
+    def test_a_non_triangle_is_dropped(self):
+        field = material_field([((0, 0), (1, 0)), ((0, 0), (1, 0), (0, 1))])
+        assert len(field.triangles) == 1
+
+    def test_an_unreadable_corner_is_dropped(self):
+        field = material_field([("not a point", (1, 0), (0, 1)), ((0, 0), (1, 0), (0, 1))])
+        assert len(field.triangles) == 1
+
+    def test_a_corner_with_too_few_coordinates_is_dropped(self):
+        field = material_field([((0,), (1, 0), (0, 1)), ((0, 0), (1, 0), (0, 1))])
+        assert len(field.triangles) == 1
+
+    def test_a_degenerate_triangle_probes_as_clear(self):
+        # Reachable only by calling the interval helper directly — material_field drops
+        # zero-area triangles — but it must answer "no material", not divide by zero.
+        assert (
+            _segment_triangle_interval(
+                (0.0, 0.0), (10.0, 0.0), ((0.0, 0.0), (5.0, 0.0), (9.0, 0.0))
+            )
+            is None
+        )
+
+    def test_a_field_with_no_grid_still_probes_every_triangle(self):
+        # Defensive: a MaterialField carrying no usable cell size falls back to scanning
+        # the whole triangle list rather than silently reporting clear.
+        triangle = ((0.0, 0.0), (10.0, 0.0), (0.0, 10.0))
+        ungridded = MaterialField((triangle,), (0.0, 0.0, 10.0, 10.0), {}, 0.0)
+        assert material_span((1.0, 1.0), (2.0, 2.0), ungridded) > 0

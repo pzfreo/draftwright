@@ -261,3 +261,35 @@ class TestCardinalityIsNotTradedForCleanliness:
         accept = source.index("accepted = not hard_blockers")
         units = source.index("units = _material_units(candidate, field)")
         assert accept < units, "material must not participate in the acceptance decision"
+
+
+class TestTheFieldDegradesHonestly:
+    def test_an_unmeshable_part_yields_no_fields_rather_than_empty_ones(self, monkeypatch):
+        # "No material known" and "no material" must not be the same value: an empty dict
+        # makes every consumer skip the check, where a dict of empty fields would make
+        # them all conclude the routes are clear.
+        import draftwright.drawing as drawing_module
+
+        monkeypatch.setattr(drawing_module, "part_material_mesh", lambda *_a, **_k: None)
+        dwg = build_drawing(_nested_boss())
+        assert dwg.material_fields() == {}
+        assert [i for i in dwg.lint() if i.code == "leader_crosses_silhouette"] == []
+
+    def test_the_failed_mesh_is_not_retried_on_every_call(self, monkeypatch):
+        # A failure is a cacheable outcome. Re-meshing an unmeshable part on every lint
+        # would pay the most expensive step repeatedly for the same answer.
+        import draftwright.drawing as drawing_module
+
+        calls = []
+
+        def counted(*_args, **_kwargs):
+            calls.append(1)
+            return None
+
+        monkeypatch.setattr(drawing_module, "part_material_mesh", counted)
+        dwg = build_drawing(_nested_boss())
+        attempted = len(calls)
+        assert attempted == 1, "the mesh should be attempted once during the build"
+        dwg.material_fields()
+        dwg.material_fields()
+        assert len(calls) == attempted
