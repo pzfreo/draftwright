@@ -407,7 +407,13 @@ Current ADRs:
   filled projected-material lowering **shared with the
   `leader_crosses_silhouette` critique**, so router and lint cannot disagree; it
   is a cost, never an acceptance test, and the resource-cap floor — which is what
-  actually runs on dense parts — gained a bounded clear-route lookahead.
+  actually runs on dense parts — gained a bounded clear-route lookahead. Amendment 4
+  (2026-08-16) records that a work budget must bound **measured** work rather than
+  predict it: three guards were found silently disabling the feature they protect on
+  ordinary input (the joint assignment never running on any dense part; two balloon
+  bounds over by 1.5x and **497x**, the latter refusing a hole table at 0.4% of its
+  real cost). Prefer a live counter; an unavoidable pre-check must be exact rather
+  than conservative; and a budget that fires is a capability loss that should say so.
 - **0015** — **Accepted** (supersedes 0008, #697): **the part-drawing compiler
   as built** — detectors + declared features → the one PartModel waist (two
   tiers, ADR 0013) → planner → render-intents → shared infra; with the
