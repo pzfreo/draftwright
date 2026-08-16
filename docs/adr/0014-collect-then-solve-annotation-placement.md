@@ -64,7 +64,9 @@ fail-closed per alternative. If selected construction raises or violates this
 contract, the joint result is abandoned and the canonical lazy producer floor
 validates its tail in order; one bad helper survivor therefore cannot turn a
 valid later alternative into a false drop, and an all-invalid tail is diagnosed
-as geometry validation rather than spatial exhaustion. The complete mandatory
+as geometry validation rather than spatial exhaustion. Compiler invariant
+violations (for example, rendered hole ink without its semantic label) remain
+loud rather than being reclassified as optional placement failure. The complete mandatory
 title band remains a hard reservation even after its strokes and glyphs render;
 blank title cells are not placement space. Established Policy B remains explicit for both
 ordinary-hole and machined-feature leaders: a candidate crossing late fixed

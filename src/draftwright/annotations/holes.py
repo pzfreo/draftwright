@@ -70,7 +70,11 @@ from draftwright.annotations.from_model import (
     callout_from_spec,
     hole_callout_spec,
 )
-from draftwright.annotations.leaders import FeatureLeaderJob, collect_feature_leader
+from draftwright.annotations.leaders import (
+    FeatureLeaderJob,
+    _FeatureLeaderInvariantError,
+    collect_feature_leader,
+)
 from draftwright.layout import StripCandidate, plan_strip
 from draftwright.model import plan_dimensions
 from draftwright.model.compiled import FeatureRef, compile_dimensions, resolve_feature
@@ -92,7 +96,9 @@ def _profiled_callout_leader(*, callout, **kw):
     """
     semantic_label = getattr(callout, "label", "")
     if not semantic_label:
-        raise ValueError("a rendered hole callout must carry a non-empty semantic label")
+        raise _FeatureLeaderInvariantError(
+            "a rendered hole callout must carry a non-empty semantic label"
+        )
     leader = Leader(callout=callout, **kw)
     leader.label = semantic_label
     leader.covers_profiles = getattr(callout, "covers_profiles", ())

@@ -38,6 +38,10 @@ _FEATURE_LEADER_MAX_FIXED_PROBES = 100_000
 _FEATURE_LEADER_MAX_PAIR_PROBES = 100_000
 
 
+class _FeatureLeaderInvariantError(ValueError):
+    """A compiler invariant violation that must remain loud at the public boundary."""
+
+
 @dataclass(frozen=True)
 class FeatureLeaderJob:
     """One semantic feature-callout job collected for the shared late solve.
@@ -213,6 +217,8 @@ def _measure(raw_index, raw, job: FeatureLeaderJob, draft) -> _MeasuredLeaderCan
                 label_box, segments = None, ()
             else:
                 label_box, segments = geometry
+    except _FeatureLeaderInvariantError:
+        raise
     except Exception:  # noqa: BLE001 — one optional alternative must fail closed
         # Preserve the bounded inventory/trace entry while making the failed
         # alternative hard-ineligible through ``unmeasurable_label``.  A later
@@ -381,6 +387,8 @@ def _materialize(dwg, job: FeatureLeaderJob, candidate: _MeasuredLeaderCandidate
         # Candidate evaluation remains arithmetic; lint can reuse this validation
         # measurement rather than tessellating the committed Leader again (#1138).
         _geom_box(annotation, getattr(dwg, "box_cache", None))
+    except _FeatureLeaderInvariantError:
+        raise
     except Exception:  # noqa: BLE001 — optional placement must fail closed
         return None
     return annotation

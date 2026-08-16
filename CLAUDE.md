@@ -109,7 +109,8 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   datum/GD&T faces without segment metadata; candidate construction fails closed
   per alternative, while a selected-survivor construction exception or mismatch
   replays the canonical lazy producer tail rather than silently reducing
-  cardinality; the complete title band stays hard after rendering; only explicitly
+  cardinality, without swallowing compiler invariant errors; the complete title
+  band stays hard after rendering; only explicitly
   marked global turning axes exempt only the arrow-local tip attachment (not
   near-collinear shaft travel),
   priorities, Policy-B penalties, and numeric costs into `layout.py`; optional

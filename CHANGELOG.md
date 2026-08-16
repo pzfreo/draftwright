@@ -48,7 +48,8 @@
   or selected-survivor construction raises, or a survivor fails validation, the
   bad alternative fails closed and the canonical lazy producer tail is replayed
   instead of falsely dropping an otherwise valid callout; an all-invalid tail is
-  reported as geometry validation rather than no clear room;
+  reported as geometry validation rather than no clear room, while compiler
+  invariant violations such as a missing semantic callout label remain loud;
   only explicitly marked global turning axes permit an arrow-local leader-tip
   attachment; near-collinear shaft travel and ownerless section/cutting lines
   remain fixed ink. The solve prefers
