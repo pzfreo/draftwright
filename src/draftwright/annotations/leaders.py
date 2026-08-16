@@ -468,18 +468,16 @@ def _rendered_face_hull(face, *, curve_envelope=0.01):
     """
 
     try:
-        vertices, _triangles = face.tessellate(curve_envelope)
-        points = tuple(
-            (float(vertex.X), float(vertex.Y))
-            for vertex in vertices
-            if math.isfinite(float(vertex.X)) and math.isfinite(float(vertex.Y))
-        )
+        vertices, triangles = face.tessellate(curve_envelope)
+        points = tuple((float(vertex.X), float(vertex.Y)) for vertex in vertices)
+        if any(not math.isfinite(value) for point in points for value in point):
+            return (), (), (), ()
         edge_kinds = tuple(
             getattr(getattr(edge, "geom_type", None), "name", "") for edge in face.edges()
         )
         curved = any(edge_kind != "LINE" for edge_kind in edge_kinds)
     except Exception:  # noqa: BLE001 — optional placement must fail closed
-        return (), (), ()
+        return (), (), (), ()
     if curved:
         hull_points = tuple(
             (x + dx, y + dy)
@@ -489,7 +487,7 @@ def _rendered_face_hull(face, *, curve_envelope=0.01):
         )
     else:
         hull_points = points
-    return _convex_hull(hull_points), points, edge_kinds
+    return _convex_hull(hull_points), points, tuple(triangles), edge_kinds
 
 
 def _rendered_residual_components(name, annotation, components, label, owner, kind):
@@ -502,14 +500,15 @@ def _rendered_residual_components(name, annotation, components, label, owner, ki
     guessing segment count/order and keeps stable component identities.
     """
 
-    def covered(point):
-        if label is not None and (
+    def component_covers(points):
+        if label is not None and all(
             label[0] - 1e-6 <= point[0] <= label[2] + 1e-6
             and label[1] - 1e-6 <= point[1] <= label[3] + 1e-6
+            for point in points
         ):
             return True
         return any(
-            _point_in_convex_component(point, polygon, tol=1e-5)
+            all(_point_in_convex_component(point, polygon, tol=1e-5) for point in points)
             for component in components
             for polygon in component.polygons
         )
@@ -520,10 +519,17 @@ def _rendered_residual_components(name, annotation, components, label, owner, ki
     except Exception:  # noqa: BLE001 — optional placement must fail closed
         return None
     for face in faces:
-        hull, rendered_points, edge_kinds = _rendered_face_hull(face)
+        hull, rendered_points, triangles, edge_kinds = _rendered_face_hull(face)
         if not hull:
             return None
-        if rendered_points and all(covered(point) for point in rendered_points):
+        if (
+            rendered_points
+            and triangles
+            and all(
+                component_covers(tuple(rendered_points[index] for index in triangle))
+                for triangle in triangles
+            )
+        ):
             continue
         component_kind = (
             "arc"

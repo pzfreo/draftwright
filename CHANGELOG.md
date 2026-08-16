@@ -41,6 +41,8 @@
   checks complete leader ink against actual-width fixed dimension/witness,
   arrow, label, and centre-furniture components (including rendered arrows on
   shifted dimensions and component-local dashed circular centre furniture);
+  fixed residual faces and the selected survivor both require each tessellation
+  triangle to fit one same analytical component rather than merely the union;
   only explicitly marked global turning axes permit an arrow-local leader-tip
   attachment; near-collinear shaft travel and ownerless section/cutting lines
   remain fixed ink. The solve prefers

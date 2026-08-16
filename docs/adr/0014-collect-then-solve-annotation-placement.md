@@ -52,9 +52,10 @@ lowered once from its rendered planar faces into deterministic component-local
 containing polygons before the geometry-only assignment: dashed
 `CenterlineCircle` arcs remain separate rather than flooding the ring interior,
 and shifted `Dimension` labels retain every arrow that actually rendered instead
-of relying on a fixed segment count/order. The one rendered survivor is tessellated once; every
-mesh triangle must fit within one same convex analytical component, so a face cannot bridge
-separate shaft/shelf/arrow/label regions. Established Policy B remains explicit for both
+of relying on a fixed segment count/order. A fixed rendered face is considered
+already represented only when each tessellation triangle fits within one same
+known component. The one rendered survivor uses the same rule, so neither side
+can bridge separate shaft/shelf/arrow/label regions. Established Policy B remains explicit for both
 ordinary-hole and machined-feature leaders: a candidate crossing late fixed
 furniture stays eligible with a penalty, while page, label-over-own-silhouette,
 and new-leader conflicts remain infeasible. If such a candidate wins because

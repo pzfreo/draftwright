@@ -30,10 +30,12 @@ from draftwright.annotations.leaders import (
     _annotation_fixed_ink,
     _candidate_conflict,
     _candidate_hits_component,
+    _FixedInkComponent,
     _measure,
     _MeasuredLeaderCandidate,
     _point_in_convex_component,
     _rendered_ink_matches,
+    _rendered_residual_components,
     collect_feature_leader,
     drain_feature_leaders,
     feature_leader_fixed_conflicts,
@@ -811,6 +813,35 @@ def test_selected_occ_survivor_rejects_a_face_bridging_disjoint_components():
     # Every tessellation vertex is covered by the union, but each triangle
     # bridges the uncovered eight-millimetre gap between the two components.
     assert _rendered_ink_matches(candidate, face) is False
+
+
+def test_fixed_residual_keeps_a_face_bridging_disjoint_known_components():
+    face = Face.make_rect(10.0, 1.0)
+    left = ((-5.0, -0.5), (-4.0, -0.5), (-4.0, 0.5), (-5.0, 0.5))
+    right = ((4.0, -0.5), (5.0, -0.5), (5.0, 0.5), (4.0, 0.5))
+    known = (
+        _FixedInkComponent("fixed:left", polygons=(left,)),
+        _FixedInkComponent("fixed:right", polygons=(right,)),
+    )
+
+    residual = _rendered_residual_components("fixed", face, known, None, None, "Note")
+
+    assert residual is not None
+    assert [component.name for component in residual] == ["fixed:ink:0"]
+    bridge_stroke = _stroke_polygon((0.0, -1.0), (0.0, 1.0), 0.1)
+    assert bridge_stroke is not None
+    candidate = _MeasuredLeaderCandidate(
+        object(),
+        (0.0, -1.0),
+        (0.0, 1.0),
+        object(),
+        0,
+        1.0,
+        None,
+        (),
+        (bridge_stroke,),
+    )
+    assert _candidate_hits_component(candidate, residual[0])
 
 
 def test_cross_pass_candidate_budget_precedes_collect_all_geometry(monkeypatch, tmp_path):

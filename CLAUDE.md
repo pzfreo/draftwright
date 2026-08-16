@@ -103,7 +103,8 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   automatic/deferred same-view feature leaders (#1166): sparse ordinary
   side/plan hole jobs and the five post-drain machined-feature families lower
   exact committed component ink conflicts (including component-local curved
-  centre furniture and rendered shifted-dimension arrows); only explicitly
+  centre furniture and rendered shifted-dimension arrows), retaining any
+  rendered residual triangle not covered by one same known component; only explicitly
   marked global turning axes exempt only the arrow-local tip attachment (not
   near-collinear shaft travel),
   priorities, Policy-B penalties, and numeric costs into `layout.py`; optional
