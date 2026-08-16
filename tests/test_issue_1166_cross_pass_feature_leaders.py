@@ -1,6 +1,7 @@
 """#1166 — one bounded same-view inventory for compatible feature leaders."""
 
 import json
+import math
 from dataclasses import replace
 from itertools import combinations
 from types import SimpleNamespace
@@ -27,6 +28,7 @@ from draftwright._geometry import (
 )
 from draftwright.annotations._common import PlacementContext, SolveTrace
 from draftwright.annotations.leaders import (
+    _FIXED_INVENTORY_EXHAUSTED,
     FeatureLeaderJob,
     _annotation_fixed_ink,
     _candidate_conflict,
@@ -975,7 +977,17 @@ def test_rendered_validation_failure_replays_the_producer_tail(
 
 @pytest.mark.parametrize("valid_tail", [True, False])
 @pytest.mark.parametrize("drop_callback", [False, True])
-@pytest.mark.parametrize("failure", ["exception", "malformed_analytical"])
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "exception",
+        "geometry_none",
+        "missing_label",
+        "malformed_analytical",
+        "nonfinite_segment",
+        "overflow_analytical",
+    ],
+)
 @pytest.mark.parametrize("fixed_budget", [None, 0])
 def test_candidate_measurement_failure_is_truthful_and_does_not_abort(
     monkeypatch, tmp_path, valid_tail, drop_callback, failure, fixed_budget
@@ -1007,6 +1019,14 @@ def test_candidate_measurement_failure_is_truthful_and_does_not_abort(
         return Leader(tip=(*tip, 0), elbow=(*elbow, 0), label="R1", draft=drawing.draft)
 
     def analytical(tip, elbow, _feature):
+        if failure == "geometry_none" and (elbow == bad or not valid_tail):
+            return None
+        if failure == "missing_label" and (elbow == bad or not valid_tail):
+            return None, (((0.0, 0.0), (1.0, 1.0)),)
+        if failure == "nonfinite_segment" and (elbow == bad or not valid_tail):
+            return (0.0, 0.0, 1.0, 1.0), (((0.0, 0.0), (float("inf"), 1.0)),)
+        if failure == "overflow_analytical" and (elbow == bad or not valid_tail):
+            return (0.0, 0.0, 1.0, 1.0), (((1e308, 0.0), (-1e308, 0.0)),)
         if elbow == bad or not valid_tail:
             return (float("nan"), 0.0, 1.0, 1.0), (((0.0, 0.0), (1.0, 1.0)),)
         expected = build(tip, elbow, _feature)
@@ -1029,7 +1049,7 @@ def test_candidate_measurement_failure_is_truthful_and_does_not_abort(
             label="R1",
             candidates=((tip, bad, object()), (tip, good, object())),
             build=build,
-            analytical_geometry=(analytical if failure == "malformed_analytical" else None),
+            analytical_geometry=(analytical if failure != "exception" else None),
             measurement=(),
             noun="fillet",
             drop_code="fillet_dropped",
@@ -1073,6 +1093,99 @@ def test_candidate_measurement_failure_is_truthful_and_does_not_abort(
         assert item["candidate_inventory"][1]["outcome"] == "selected"
     else:
         assert item["reason"] == "geometry_validation"
+
+
+def test_malformed_candidate_metadata_stays_finite_and_fails_closed():
+    job = FeatureLeaderJob(
+        name="malformed",
+        view="front",
+        silhouette=(0.0, 0.0, 1.0, 1.0),
+        label="R1",
+        candidates=(),
+        build=lambda *_args: SimpleNamespace(
+            label_bbox=("bad", 0.0, 1.0, 1.0),
+            segments=(object(),),
+        ),
+        measurement=(),
+        noun="fillet",
+        drop_code="fillet_dropped",
+    )
+
+    malformed_metadata = _measure(0, ((0.0, 0.0), (1.0, 1.0), object()), job, Draft())
+    malformed_raw = _measure(1, (), job, Draft())
+    nonfinite_point = _measure(
+        2,
+        ((float("inf"), 0.0), (1.0, 1.0), object()),
+        job,
+        Draft(),
+    )
+
+    for candidate in (malformed_metadata, malformed_raw, nonfinite_point):
+        assert candidate.failure_reason == "geometry_validation"
+        assert all(map(math.isfinite, (*candidate.tip, *candidate.elbow, candidate.cost)))
+
+
+def test_live_context_without_shared_inventory_keeps_immediate_path():
+    assert not collect_feature_leader(SimpleNamespace(feature_leaders=None), object())
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"segments": (((0.0, 0.0), (1.0, 1.0)),)},
+        {"fixed_ink_polygons": (((0.0, 0.0), (1.0, 0.0), (0.0, 1.0)),)},
+        {"label_bbox": (0.0, 0.0, 1.0, 1.0)},
+    ],
+)
+def test_zero_component_budget_stops_before_each_fixed_metadata_source(metadata):
+    drawing = build_drawing(Box(10, 10, 2), page="A4", auto_dims=False)
+    face_calls = 0
+
+    def faces():
+        nonlocal face_calls
+        face_calls += 1
+        return (Face.make_rect(1.0, 1.0),)
+
+    annotation_metadata = {
+        "segments": (),
+        "fixed_ink_polygons": (),
+        "label_bbox": None,
+        "faces": faces,
+    }
+    annotation_metadata.update(metadata)
+    annotation = SimpleNamespace(**annotation_metadata)
+
+    result = _annotation_fixed_ink(
+        drawing,
+        "fixed_budget_probe",
+        annotation,
+        max_components=0,
+    )
+
+    assert result is _FIXED_INVENTORY_EXHAUSTED
+    assert face_calls == 0
+
+
+def test_zero_component_budget_stops_before_rendered_face_lowering():
+    face_calls = 0
+
+    def faces():
+        nonlocal face_calls
+        face_calls += 1
+        return (Face.make_rect(1.0, 1.0),)
+
+    result = _rendered_residual_components(
+        "fixed",
+        SimpleNamespace(faces=faces),
+        (),
+        None,
+        None,
+        "Note",
+        max_components=0,
+    )
+
+    assert result is _FIXED_INVENTORY_EXHAUSTED
+    assert face_calls == 1
 
 
 def test_fixed_residual_keeps_a_face_bridging_disjoint_known_components():
@@ -1157,8 +1270,7 @@ def test_fixed_obstacle_probe_budget_precedes_joint_geometry(monkeypatch, tmp_pa
 
     def counted_lower(*args, **kwargs):
         nonlocal lowerings
-        if kwargs.get("max_components") is not None:
-            lowerings += 1
+        lowerings += 1
         return original_lower(*args, **kwargs)
 
     monkeypatch.setattr(leaders, "_FEATURE_LEADER_MAX_FIXED_PROBES", 0)

@@ -30,7 +30,7 @@ from draftwright.annotations._common import (
     annotation_obstacle_boxes,
     strip_obstacles,
 )
-from draftwright.layout import _LEADER_ASSIGN_MAX_JOBS, _assign_leader_candidates
+from draftwright.layout import _FLOW_COST_SCALE, _LEADER_ASSIGN_MAX_JOBS, _assign_leader_candidates
 from draftwright.model.compiled import resolve_feature
 
 _FEATURE_LEADER_MAX_CANDIDATES = 512
@@ -260,6 +260,8 @@ def _measure(raw_index, raw, job: FeatureLeaderJob, draft) -> _MeasuredLeaderCan
         cost = sum(
             math.hypot(second[0] - first[0], second[1] - first[1]) for first, second in segments
         ) or math.hypot(elbow2[0] - tip2[0], elbow2[1] - tip2[1])
+        if cost < 0 or not math.isfinite(cost * _FLOW_COST_SCALE):
+            raise ValueError("leader candidate cost exceeds the layout fixed-point range")
         primary = _leader_ink_polygons(
             tip2,
             elbow2,
@@ -272,6 +274,13 @@ def _measure(raw_index, raw, job: FeatureLeaderJob, draft) -> _MeasuredLeaderCan
             if (polygon := _stroke_polygon(first, second, draft.line_width)) is not None
         )
         axis_residual = _axis_residual_ink(tip2, elbow2, draft)
+        if any(
+            not math.isfinite(coordinate)
+            for polygon in (*primary, *shelves, *axis_residual)
+            for point in polygon
+            for coordinate in point
+        ):
+            raise ValueError("non-finite analytical leader ink")
     except _FeatureLeaderInvariantError:
         raise
     except Exception:  # noqa: BLE001 — one optional alternative must fail closed
@@ -280,7 +289,10 @@ def _measure(raw_index, raw, job: FeatureLeaderJob, draft) -> _MeasuredLeaderCan
         # must not abort unrelated jobs in the shared stage.
         annotation = None
         label_box, segments = None, ()
-        cost = math.hypot(elbow2[0] - tip2[0], elbow2[1] - tip2[1])
+        tip2 = safe_point(raw[0] if isinstance(raw, (tuple, list)) and raw else ())
+        elbow2 = safe_point(raw[1] if isinstance(raw, (tuple, list)) and len(raw) > 1 else ())
+        fallback_cost = math.hypot(elbow2[0] - tip2[0], elbow2[1] - tip2[1])
+        cost = fallback_cost if math.isfinite(fallback_cost * _FLOW_COST_SCALE) else 0.0
         primary = shelves = axis_residual = ()
         failure_reason = "geometry_validation"
     else:
@@ -1298,6 +1310,7 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
                     blockers = _fixed_blockers(candidate, job, page, fixed_components)
                     actual_fixed_probes += len(fixed_components)
                 else:
+                    fixed_verified = False
                     # Replay preserves the producer floor when exact
                     # classification exceeds its work budget. Boundary/title
                     # constraints remain hard and the uncertainty is explicit.
@@ -1375,10 +1388,23 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
                 continue
             place(job_index, selected, annotation)
             record_policy_b(job_index, selected_policy_b)
-            fixed[job.view] = (
-                *fixed[job.view],
-                *_annotation_fixed_ink(dwg, job.name, annotation),
-            )
+            if fixed_verified:
+                remaining_components = _FEATURE_LEADER_MAX_FIXED_PROBES - sum(
+                    len(components) for components in fixed.values()
+                )
+                if remaining_components <= 0:
+                    fixed_verified = False
+                else:
+                    landed_components = _annotation_fixed_ink(
+                        dwg,
+                        job.name,
+                        annotation,
+                        max_components=remaining_components,
+                    )
+                    if landed_components is _FIXED_INVENTORY_EXHAUSTED:
+                        fixed_verified = False
+                    else:
+                        fixed[job.view] = (*fixed[job.view], *landed_components)
             legacy_boxes[job.view] = (
                 *legacy_boxes[job.view],
                 *annotation_obstacle_boxes(dwg, annotation),
