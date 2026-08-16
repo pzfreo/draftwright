@@ -174,3 +174,58 @@ class TestGreedyFloorPrefersClearRoutes:
 
         assert _material_units(_Candidate(), None) == 0
         assert _MATERIAL_PENALTY_UNIT > 0
+
+
+class TestCardinalityIsNotTradedForCleanliness:
+    """#798 — a crossing is cosmetic; a missing dimension is not.
+
+    Preferring a clear route can only ever reorder a job's own alternatives, never
+    reject one: material is a preference in the resource-cap floor, never an
+    acceptance test, so no callout is dropped *because* its route cuts. The residual
+    risk is second-order — placement is sequential, so a re-chosen winner is a
+    different obstacle for later jobs, and one of those could fail to place.
+
+    Measured across every fixture that reaches the floor, the placed count is
+    unchanged (134 before and after). These fixtures pin that per part, so a future
+    change that does start trading callouts for tidiness fails here and names the
+    part, rather than being noticed on a drawing.
+    """
+
+    # (fixture stem, feature-leader callouts the floor must keep placing)
+    CASES = (
+        ("nist_ctc_04_asme1_ap203", 15),
+        ("nist_ctc_05_asme1_ap242", 16),
+    )
+
+    def test_the_dense_fixtures_place_the_same_callouts_as_before(self, tmp_path):
+        import json
+        import os
+
+        from pathlib import Path
+
+        for stem, expected in self.CASES:
+            trace = tmp_path / f"{stem}.json"
+            os.environ["DRAFTWRIGHT_TRACE"] = str(trace)
+            try:
+                build_drawing(step_file=str(Path("tests/fixtures") / f"{stem}.stp"))
+                events = json.loads(trace.read_text())["pass_events"]
+            finally:
+                os.environ.pop("DRAFTWRIGHT_TRACE", None)
+            event = next(e for e in events if e.get("label") == "feature_leader_inventory")
+            assert event["objective"]["placed"] == expected, (
+                f"{stem}: the leader floor placed {event['objective']['placed']} callouts, "
+                f"not {expected} — a route preference must never cost a dimension"
+            )
+
+    def test_material_is_never_an_acceptance_test(self):
+        # The direct guarantee, read off the code rather than a fixture: the floor's
+        # accept decision is computed before material is consulted, so a cutting route
+        # stays eligible (Policy B) and can still be selected when nothing else is.
+        import inspect
+
+        from draftwright.annotations import leaders
+
+        source = inspect.getsource(leaders.drain_feature_leaders)
+        accept = source.index("accepted = not hard_blockers")
+        units = source.index("units = _material_units(candidate, field)")
+        assert accept < units, "material must not participate in the acceptance decision"
