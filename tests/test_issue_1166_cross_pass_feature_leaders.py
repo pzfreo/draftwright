@@ -25,7 +25,7 @@ from draftwright._geometry import (
     _segments_cross_or_overlap,
     _stroke_polygon,
 )
-from draftwright.annotations._common import PlacementContext
+from draftwright.annotations._common import PlacementContext, SolveTrace
 from draftwright.annotations.leaders import (
     FeatureLeaderJob,
     _annotation_fixed_ink,
@@ -863,7 +863,6 @@ def test_rendered_validation_failure_replays_the_valid_producer_tail(tmp_path):
         Box(40, 30, 8),
         page="A4",
         auto_dims=False,
-        trace=trace_path,
     )
     bounds = drawing.view_bounds("front")
     assert bounds is not None
@@ -876,7 +875,7 @@ def test_rendered_validation_failure_replays_the_valid_producer_tail(tmp_path):
         items=drawing.items,
         part_model=drawing.model(),
         feature_leaders=[],
-        trace=drawing._build.trace,
+        trace=SolveTrace(trace_path),
     )
 
     def leader(tip, elbow):
