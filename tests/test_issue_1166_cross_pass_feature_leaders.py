@@ -609,6 +609,63 @@ def test_explicit_global_turning_axis_allows_only_tip_attachment():
     assert _candidate_hits_component(shelf_crossing, continuous_axis) is True
 
 
+@pytest.mark.parametrize(
+    "case",
+    ("zero_length_axis", "box_label", "box_residual", "polygon_label"),
+)
+def test_global_axis_exemption_keeps_every_non_attachment_collision(case):
+    draft = Draft()
+    tip = (0.0, 0.0)
+    elbow = (5.0, 5.0)
+    primary = _leader_ink_polygons(
+        tip,
+        elbow,
+        arrow_length=draft.arrow_length,
+        line_width=draft.line_width,
+    )
+    label_box = (20.0, 20.0, 22.0, 22.0)
+    residual = ()
+    segment = ((0.0, -10.0), (0.0, 10.0))
+    component = _FixedInkComponent(
+        "axis:segment:0",
+        box=(-0.2, -0.2, 0.2, 0.2),
+        kind="Centerline",
+        segment=segment,
+        global_axis=True,
+    )
+    if case == "zero_length_axis":
+        label_box = (-0.1, -0.1, 0.1, 0.1)
+        component = replace(component, segment=((0.0, 0.0), (0.0, 0.0)))
+    elif case == "box_label":
+        label_box = (-0.1, -0.1, 0.1, 0.1)
+    elif case == "box_residual":
+        residual_polygon = _stroke_polygon((-1.0, 2.0), (1.0, 2.0), draft.line_width)
+        assert residual_polygon is not None
+        residual = (residual_polygon,)
+        component = replace(component, box=(-0.2, 1.5, 0.2, 2.5))
+    else:
+        label_box = (-0.1, 1.5, 0.1, 2.5)
+        component = replace(
+            component,
+            box=None,
+            polygons=((((-0.2, 1.0), (0.2, 1.0), (0.2, 3.0), (-0.2, 3.0))),),
+        )
+    candidate = _MeasuredLeaderCandidate(
+        object(),
+        tip,
+        elbow,
+        object(),
+        0,
+        1.0,
+        label_box,
+        ((tip, elbow),),
+        primary,
+        residual,
+    )
+
+    assert _candidate_hits_component(candidate, component)
+
+
 def test_global_axis_tip_attachment_does_not_exempt_a_later_shelf_crossing():
     drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
     ctx = PlacementContext(
@@ -904,6 +961,26 @@ def test_continuous_face_coverage_accepts_multi_shape_cut_results():
         None,
     )
 
+    class CutMustNotRun:
+        area = 10.0
+
+        def cut(self, *_cover_faces):
+            raise AssertionError("degenerate analytical ink must fail before OCC cut")
+
+    assert not _face_exactly_covered(CutMustNotRun(), ((), ((0.0, 0.0),)), None)
+
+    class CutRaises:
+        area = 10.0
+
+        def cut(self, *_cover_faces):
+            raise RuntimeError("OCC subtraction failed")
+
+    assert not _face_exactly_covered(
+        CutRaises(),
+        (((0.0, 0.0), (2.0, 0.0), (0.0, 2.0)),),
+        None,
+    )
+
 
 def test_selected_occ_survivor_tessellates_curves_between_quarter_stations():
     circle = Edge.make_circle(1.0)
@@ -1069,6 +1146,74 @@ def test_rendered_validation_failure_replays_the_producer_tail(
         assert item["outcome"] == "dropped"
         assert item["reason"] == "geometry_validation"
         assert item["producer_fallback"]["selected"] is None
+
+
+def test_prebuilt_survivor_mesh_failure_replays_a_valid_tail(tmp_path):
+    trace_path = tmp_path / "prebuilt-geometry-feedback.json"
+    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+    bounds = drawing.view_bounds("front")
+    assert bounds is not None
+    tip = (bounds[2], (bounds[1] + bounds[3]) / 2.0)
+    bad = (tip[0] + 12.0, tip[1])
+    good = (tip[0] + 22.0, tip[1] + 4.0)
+    ctx = PlacementContext(
+        registry=drawing.registry,
+        coverage=drawing.coverage,
+        items=drawing.items,
+        part_model=drawing.model(),
+        feature_leaders=[],
+        trace=SolveTrace(trace_path),
+    )
+
+    def build(tip, elbow, _feature):
+        leader = Leader(tip=(*tip, 0), elbow=(*elbow, 0), label="R1", draft=drawing.draft)
+        if elbow != bad:
+            return leader
+
+        def faces():
+            raise RuntimeError("prebuilt survivor tessellation failed")
+
+        return SimpleNamespace(
+            label_bbox=leader.label_bbox,
+            segments=leader.segments,
+            faces=faces,
+        )
+
+    collect_feature_leader(
+        ctx,
+        FeatureLeaderJob(
+            name="m_fillet0",
+            view="front",
+            silhouette=bounds,
+            label="R1",
+            candidates=((tip, bad, object()), (tip, good, object())),
+            build=build,
+            measurement=(),
+            noun="fillet",
+            drop_code="fillet_dropped",
+        ),
+    )
+    title = drawing.get_annotation("title_block").bounding_box()
+    analysis = SimpleNamespace(
+        margin=10.0,
+        PAGE_W=drawing.page_w,
+        PAGE_H=drawing.page_h,
+        TB_W=title.size.X,
+    )
+
+    assert drain_feature_leaders(drawing, analysis, ctx) == 1
+    ctx.trace.write()
+    assert drawing.get_annotation("m_fillet0").segments[0][1] == good
+    event = next(
+        item
+        for item in json.loads(trace_path.read_text(encoding="utf-8"))["pass_events"]
+        if item["label"] == "feature_leader_inventory"
+    )
+    assert event["assignment"] == "greedy_geometry_validation"
+    item = event["items"][0]
+    assert item["candidate_inventory"][0]["outcome"] == "geometry_validation"
+    assert item["producer_fallback"]["rejected"][0]["blockers"] == ["geometry_validation"]
+    assert item["producer_fallback"]["selected"]["candidate"] == 1
 
 
 @pytest.mark.parametrize("valid_tail", [True, False])
@@ -1716,6 +1861,92 @@ def test_fixed_probe_product_budget_replays_the_exact_producer_floor(monkeypatch
     assert len(issues) == 3
     assert {issue.code for issue in issues} == {"feature_leader_fixed_ink_unverified"}
     assert all("probe budget exhausted" in issue.message for issue in issues)
+
+
+@pytest.mark.parametrize("hard_boundary", ("page", "silhouette", "title"))
+def test_resource_fallback_never_bypasses_hard_boundaries(monkeypatch, tmp_path, hard_boundary):
+    monkeypatch.setattr(
+        "draftwright.annotations.leaders._FEATURE_LEADER_MAX_FIXED_PROBES",
+        0,
+    )
+    trace_path = tmp_path / f"hard-{hard_boundary}.json"
+    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+    title = drawing.get_annotation("title_block").bounding_box()
+    if hard_boundary == "page":
+        tip = (270.0, 100.0)
+        elbow = (291.0, 100.0, 0.0)
+    elif hard_boundary == "silhouette":
+        tip = (120.0, 100.0)
+        elbow = (140.0, 100.0, 0.0)
+    else:
+        title_y = (title.min.Y + title.max.Y) / 2.0
+        tip = (title.min.X - 8.0, title_y)
+        elbow = (title.min.X + 2.0, title_y, 0.0)
+    probe = Leader(tip=(*tip, 0.0), elbow=elbow, label="BLOCKED", draft=drawing.draft)
+    silhouette = drawing.view_bounds("front")
+    assert silhouette is not None
+    if hard_boundary == "silhouette":
+        x0, y0, x1, y1 = probe.label_bbox
+        silhouette = (x0 - 1.0, y0 - 1.0, x1 + 1.0, y1 + 1.0)
+    built = 0
+
+    def analytical(_tip, _elbow, _feature):
+        return probe.label_bbox, probe.segments
+
+    def build(_tip, _elbow, _feature):
+        nonlocal built
+        built += 1
+        return probe
+
+    ctx = PlacementContext(
+        registry=drawing.registry,
+        coverage=drawing.coverage,
+        items=drawing.items,
+        part_model=drawing.model(),
+        feature_leaders=[],
+        trace=SolveTrace(trace_path),
+    )
+    collect_feature_leader(
+        ctx,
+        FeatureLeaderJob(
+            name=f"hard_{hard_boundary}_leader",
+            view="front",
+            silhouette=silhouette,
+            label="BLOCKED",
+            candidates=((tip, elbow, object()),),
+            build=build,
+            analytical_geometry=analytical,
+            measurement=(),
+            noun="fillet",
+            drop_code="fillet_dropped",
+            fallback_accept=lambda *_args: True,
+            allow_policy_b_fixed=True,
+        ),
+    )
+    analysis = SimpleNamespace(
+        margin=10.0,
+        PAGE_W=drawing.page_w,
+        PAGE_H=drawing.page_h,
+        TB_W=title.size.X,
+    )
+
+    assert drain_feature_leaders(drawing, analysis, ctx) == 0
+    assert built == 0
+    ctx.trace.write()
+    event = next(
+        item
+        for item in json.loads(trace_path.read_text(encoding="utf-8"))["pass_events"]
+        if item["label"] == "feature_leader_inventory"
+    )
+    assert event["assignment"] == "greedy_fixed_inventory_budget"
+    rejected = event["items"][0]["producer_fallback"]["rejected"]
+    assert len(rejected) == 1
+    target = {
+        "page": "page",
+        "silhouette": "view:front:silhouette",
+        "title": "title_block:reserved",
+    }[hard_boundary]
+    assert set(rejected[0]["blockers"]) == {target, "fixed_probe_budget"}
 
 
 def test_candidate_budget_preserves_the_exact_pre_joint_hole_floor(monkeypatch):

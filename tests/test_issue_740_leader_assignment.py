@@ -186,6 +186,32 @@ def test_pure_assignment_rejects_malformed_numeric_inputs(costs, conflicts, max_
         _assign_leader_candidates(costs, conflicts, max_states=max_states)
 
 
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    (
+        ({"priorities": (1.0,)}, "priorities must match the number of jobs"),
+        ({"priorities": (1.0, float("nan"))}, "priorities must be finite"),
+        ({"penalties_by_job": ((0,),)}, "penalties must match the candidate-cost shape"),
+        ({"penalties_by_job": ((0,), (-1,))}, "penalties must be non-negative"),
+    ),
+)
+def test_pure_assignment_rejects_malformed_objective_inputs(kwargs, message):
+    with pytest.raises(ValueError, match=message):
+        _assign_leader_candidates(((1.0,), (2.0,)), (), **kwargs)
+
+
+def test_priority_bound_prunes_an_equal_cardinality_lower_priority_tail():
+    result = _assign_leader_candidates(
+        ((4.0,), (3.0, 3.0, 2.0)),
+        ((0, 0, 1, 0), (0, 0, 1, 1), (0, 0, 1, 2)),
+        priorities=(10.0, 1.0),
+    )
+
+    assert result.choices == (0, None)
+    assert result.optimal
+    assert result.states == 4
+
+
 def test_same_job_conflict_is_redundant_with_one_candidate_per_job():
     result = _assign_leader_candidates(((1.0, 2.0),), ((0, 0, 0, 1),))
 
