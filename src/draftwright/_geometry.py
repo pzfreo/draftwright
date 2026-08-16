@@ -458,6 +458,231 @@ def _leader_ink_crosses_box(
     )
 
 
+# ── Filled material field (#798) ────────────────────────────────────────────────────────
+# Leader routing needs "does this shaft travel THROUGH the part", which an outline
+# CROSSING COUNT cannot answer: a shaft passing over an internal hole crosses that
+# circle twice and has entered no material at all. The filled model subtracts every
+# void for free, so the void exemptions a count-based test needs (hole, pocket
+# opening, bore) stop being policy and become geometry.
+#
+# The field is a bounded set of page-plane triangles — the caller lowers the projected
+# view faces (that half needs OCC and lives above this leaf). Everything below is exact
+# rational-arithmetic clipping: no rasterisation, no sampling, no tolerance sweep, so
+# the answer is identical on every platform (ADR 0001).
+
+_MATERIAL_SPAN_TICKS = 1_000_000  # fixed-point resolution of the parametric interval union
+_MATERIAL_MAX_GRID = 128  # per-axis cell cap: bounds index memory for a dense mesh
+
+
+@dataclass(frozen=True)
+class MaterialField:
+    """A view's filled projected material, as page-plane triangles with a uniform grid index.
+
+    Built by :func:`material_field`. ``triangles`` are page-mm coordinates; ``box`` is their
+    aggregate AABB; ``index`` maps a grid cell to the triangles overlapping it, so a probe
+    visits only the cells its segment actually crosses rather than the whole mesh.
+    """
+
+    triangles: tuple[tuple[tuple[float, float], tuple[float, float], tuple[float, float]], ...]
+    box: tuple[float, float, float, float] | None
+    index: dict[tuple[int, int], tuple[int, ...]]
+    cell: float
+
+    def __bool__(self) -> bool:
+        return bool(self.triangles)
+
+
+def material_field(triangles) -> MaterialField:
+    """Index page-plane *triangles* into a :class:`MaterialField`.
+
+    Degenerate (zero-area) and non-finite triangles are dropped — they carry no material and
+    would only add probe cost. The grid is sized from the triangle count (``ceil(sqrt(n))``
+    cells per axis, capped), so the cell size is a deterministic function of the input rather
+    than a tuned constant.
+    """
+    kept: list[tuple[tuple[float, float], tuple[float, float], tuple[float, float]]] = []
+    for triangle in triangles:
+        if len(triangle) != 3:
+            continue
+        try:
+            corners = tuple((float(point[0]), float(point[1])) for point in triangle)
+        except Exception:  # noqa: BLE001 — a malformed lowering entry is simply not material
+            continue
+        if any(not math.isfinite(value) for point in corners for value in point):
+            continue
+        (ax, ay), (bx, by), (cx, cy) = corners
+        if abs((bx - ax) * (cy - ay) - (by - ay) * (cx - ax)) <= 1e-12:
+            continue
+        kept.append(corners)
+    if not kept:
+        return MaterialField((), None, {}, 0.0)
+    xs = [x for triangle in kept for x, _ in triangle]
+    ys = [y for triangle in kept for _, y in triangle]
+    box = (min(xs), min(ys), max(xs), max(ys))
+    per_axis = min(_MATERIAL_MAX_GRID, max(1, math.ceil(math.sqrt(len(kept)))))
+    extent = max(box[2] - box[0], box[3] - box[1])
+    cell = (extent / per_axis) if extent > 0 else 0.0
+    index: dict[tuple[int, int], list[int]] = {}
+    if cell > 0:
+        for position, triangle in enumerate(kept):
+            txs = [x for x, _ in triangle]
+            tys = [y for _, y in triangle]
+            for column in range(
+                int((min(txs) - box[0]) // cell), int((max(txs) - box[0]) // cell) + 1
+            ):
+                for row in range(
+                    int((min(tys) - box[1]) // cell), int((max(tys) - box[1]) // cell) + 1
+                ):
+                    index.setdefault((column, row), []).append(position)
+    return MaterialField(
+        tuple(kept),
+        box,
+        {key: tuple(value) for key, value in index.items()},
+        cell,
+    )
+
+
+def _segment_triangle_interval(p, q, triangle):
+    """Parametric ``(lo, hi)`` sub-interval of *p*→*q* inside *triangle*, or ``None``.
+
+    Exact half-plane clipping against the triangle's three edges (winding-independent), the
+    same Liang–Barsky shape :func:`_segment_clip_extent` uses for a box.
+    """
+    (ax, ay), (bx, by), (cx, cy) = triangle
+    winding = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
+    if winding == 0.0:
+        return None
+    sign = 1.0 if winding > 0 else -1.0
+    dx, dy = q[0] - p[0], q[1] - p[1]
+    lo, hi = 0.0, 1.0
+    for (ex, ey), (fx, fy) in (((ax, ay), (bx, by)), ((bx, by), (cx, cy)), ((cx, cy), (ax, ay))):
+        edge_x, edge_y = fx - ex, fy - ey
+        constant = (edge_x * (p[1] - ey) - edge_y * (p[0] - ex)) * sign
+        slope = (edge_x * dy - edge_y * dx) * sign
+        if slope == 0.0:
+            # Parallel to this edge; only a strictly-outside segment is rejected. The
+            # boundary is INCLUSIVE here, unlike _convex_polygons_overlap's touching-is-
+            # clear rule, and the difference is forced: these triangles are a decomposition
+            # of a filled region, so most edges are interior artefacts of the mesher. A
+            # segment running along the diagonal of a meshed square lies on a shared edge
+            # of both triangles while being wholly inside the body. Excluding boundaries
+            # would make the answer depend on how the region happened to be cut — exactly
+            # the platform-dependence this field exists to avoid.
+            if constant < 0.0:
+                return None
+            continue
+        bound = -constant / slope
+        if slope > 0.0:
+            lo = max(lo, bound)
+        else:
+            hi = min(hi, bound)
+        if lo >= hi:
+            return None
+    return (lo, hi) if hi > lo else None
+
+
+def material_span(p, q, field: MaterialField) -> float:
+    """Page-mm length of segment *p*→*q* that lies inside *field*'s material.
+
+    Zero for a clear route; the traversed length otherwise — a magnitude, not a flag, so a
+    0.2 mm graze can rank below a 40 mm cut instead of tying with it. Overlapping triangles
+    (adjacent projected faces share edges, and a mesh may double up) are unioned, so the
+    result is bounded by the segment's own length however many triangles cover it.
+
+    The union is accumulated in fixed point (:data:`_MATERIAL_SPAN_TICKS` per unit of the
+    segment parameter) so summing it is associative and platform-stable, the same convention
+    ``layout``'s cost scaling uses.
+    """
+    if not field.triangles or field.box is None:
+        return 0.0
+    length = math.hypot(q[0] - p[0], q[1] - p[1])
+    if length <= 1e-12:
+        return 0.0
+    if not _segment_clips_box(p, q, field.box):
+        return 0.0
+    intervals: list[tuple[int, int]] = []
+    for position in _probe_triangles(p, q, field):
+        span = _segment_triangle_interval(p, q, field.triangles[position])
+        if span is None:
+            continue
+        lo = max(0, min(_MATERIAL_SPAN_TICKS, round(span[0] * _MATERIAL_SPAN_TICKS)))
+        hi = max(0, min(_MATERIAL_SPAN_TICKS, round(span[1] * _MATERIAL_SPAN_TICKS)))
+        if hi > lo:
+            intervals.append((lo, hi))
+    if not intervals:
+        return 0.0
+    intervals.sort()
+    total = 0
+    current_lo, current_hi = intervals[0]
+    for lo, hi in intervals[1:]:
+        if lo > current_hi:
+            total += current_hi - current_lo
+            current_lo, current_hi = lo, hi
+        else:
+            current_hi = max(current_hi, hi)
+    total += current_hi - current_lo
+    return length * total / _MATERIAL_SPAN_TICKS
+
+
+def _probe_triangles(p, q, field: MaterialField):
+    """Indices of *field* triangles whose cells segment *p*→*q* crosses, each yielded once.
+
+    An incremental cell walk, not a bounding-box sweep: a long diagonal shaft's bbox can
+    cover the entire grid, which would defeat the index exactly where it matters most.
+    """
+    if field.cell <= 0:
+        return range(len(field.triangles))
+    box = field.box
+    assert box is not None  # guarded by the caller's empty-field check
+    columns = max(1, int((box[2] - box[0]) // field.cell) + 1)
+    rows = max(1, int((box[3] - box[1]) // field.cell) + 1)
+
+    def cell_of(point):
+        return (
+            min(columns - 1, max(0, int((point[0] - box[0]) // field.cell))),
+            min(rows - 1, max(0, int((point[1] - box[1]) // field.cell))),
+        )
+
+    # No clip needed: cell_of clamps to the grid, so the walk already spans exactly the
+    # cells the segment can reach. The entry-time maths below uses the true endpoints, so
+    # clamping the ENDS cannot change which interior cells the line passes through.
+    start, end = (float(p[0]), float(p[1])), (float(q[0]), float(q[1]))
+    column, row = cell_of(start)
+    last_column, last_row = cell_of(end)
+    seen: dict[int, None] = {}
+    steps = 0
+    limit = columns + rows + 2  # a monotone walk visits at most this many cells
+    while steps <= limit:
+        steps += 1
+        for position in field.index.get((column, row), ()):
+            seen.setdefault(position, None)
+        if (column, row) == (last_column, last_row):
+            break
+        # Advance along whichever axis reaches its next cell boundary first. Ties step
+        # both, so a corner-exact diagonal cannot skip the cell it passes through.
+        next_column = column + (1 if last_column > column else -1 if last_column < column else 0)
+        next_row = row + (1 if last_row > row else -1 if last_row < row else 0)
+        if next_column == column and next_row == row:
+            break
+        span_x = _cell_entry_t(start, end, box[0] + max(column, next_column) * field.cell, 0)
+        span_y = _cell_entry_t(start, end, box[1] + max(row, next_row) * field.cell, 1)
+        if next_column != column and (span_y is None or (span_x is not None and span_x <= span_y)):
+            column = next_column
+        elif next_row != row:
+            row = next_row
+        else:
+            column = next_column
+    return tuple(seen)
+
+
+def _cell_entry_t(start, end, boundary: float, axis: int):
+    """Segment parameter at which *start*→*end* meets the *axis* plane at *boundary*."""
+    delta = end[axis] - start[axis]
+    if delta == 0.0:
+        return None
+    return (boundary - start[axis]) / delta
+
+
 def _segments_cross_or_overlap(a1, a2, b1, b2) -> bool:
     """Whether two page-plane segments cross or overlap beyond a shared endpoint.
 
