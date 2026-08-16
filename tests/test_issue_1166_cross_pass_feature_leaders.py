@@ -857,7 +857,12 @@ def test_selected_occ_survivor_rejects_a_face_bridging_disjoint_components():
     assert _rendered_ink_matches(candidate, face) is False
 
 
-def test_rendered_validation_failure_replays_the_valid_producer_tail(tmp_path):
+@pytest.mark.parametrize("failure", ["mismatch", "exception"])
+@pytest.mark.parametrize("valid_tail", [True, False])
+@pytest.mark.parametrize("drop_callback", [False, True])
+def test_rendered_validation_failure_replays_the_producer_tail(
+    tmp_path, failure, valid_tail, drop_callback
+):
     trace_path = tmp_path / "geometry-feedback.json"
     drawing = build_drawing(
         Box(40, 30, 8),
@@ -886,11 +891,20 @@ def test_rendered_validation_failure_replays_the_valid_producer_tail(tmp_path):
         return expected.label_bbox, expected.segments
 
     def build(tip, elbow, _feature):
-        if elbow == short:
+        if elbow == short or not valid_tail:
             # Simulate helper drift after analytical collection: the first
-            # winner no longer matches its measured survivor contract.
+            # winner either raises or no longer matches its measured contract.
+            if failure == "exception":
+                raise RuntimeError("helper construction failed")
             return leader(tip, (elbow[0] + 1.0, elbow[1]))
         return leader(tip, elbow)
+
+    def on_drop(reason):
+        ctx.record_issue(
+            "warning",
+            "fillet_dropped",
+            f"drop callback reason: {reason}",
+        )
 
     collect_feature_leader(
         ctx,
@@ -905,6 +919,7 @@ def test_rendered_validation_failure_replays_the_valid_producer_tail(tmp_path):
             measurement=(),
             noun="fillet",
             drop_code="fillet_dropped",
+            on_drop=on_drop if drop_callback else None,
         ),
     )
     analysis = SimpleNamespace(
@@ -914,10 +929,19 @@ def test_rendered_validation_failure_replays_the_valid_producer_tail(tmp_path):
         TB_W=drawing.get_annotation("title_block").bounding_box().size.X,
     )
 
-    assert drain_feature_leaders(drawing, analysis, ctx) == 1
+    assert drain_feature_leaders(drawing, analysis, ctx) == int(valid_tail)
     ctx.trace.write()
-    assert drawing.get_annotation("m_fillet0").segments[0][1] == long
-    assert not [issue for issue in drawing.lint() if issue.code == "fillet_dropped"]
+    issues = [issue for issue in drawing.lint() if issue.code == "fillet_dropped"]
+    if valid_tail:
+        assert drawing.get_annotation("m_fillet0").segments[0][1] == long
+        assert not issues
+    else:
+        assert "m_fillet0" not in drawing.annotations()
+        assert len(issues) == 1
+        expected = (
+            "geometry_validation" if drop_callback else "rendered geometry validation failed"
+        )
+        assert expected in issues[0].message
     event = next(
         item
         for item in json.loads(trace_path.read_text(encoding="utf-8"))["pass_events"]
@@ -931,8 +955,62 @@ def test_rendered_validation_failure_replays_the_valid_producer_tail(tmp_path):
         "geometry_validation",
         "objective_rejected",
     ]
-    assert item["producer_fallback"]["rejected"][0]["blockers"] == ["geometry_validation"]
-    assert item["producer_fallback"]["selected"]["candidate"] == 1
+    assert all(
+        entry["blockers"] == ["geometry_validation"]
+        for entry in item["producer_fallback"]["rejected"]
+    )
+    if valid_tail:
+        assert item["producer_fallback"]["selected"]["candidate"] == 1
+    else:
+        assert item["outcome"] == "dropped"
+        assert item["reason"] == "geometry_validation"
+        assert item["producer_fallback"]["selected"] is None
+
+
+def test_candidate_construction_exception_does_not_abort_the_shared_inventory():
+    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+    bounds = drawing.view_bounds("front")
+    assert bounds is not None
+    tip = (bounds[2], (bounds[1] + bounds[3]) / 2.0)
+    bad = (tip[0] + 12.0, tip[1])
+    good = (tip[0] + 22.0, tip[1] + 4.0)
+    ctx = PlacementContext(
+        registry=drawing.registry,
+        coverage=drawing.coverage,
+        items=drawing.items,
+        part_model=drawing.model(),
+        feature_leaders=[],
+    )
+
+    def build(tip, elbow, _feature):
+        if elbow == bad:
+            raise RuntimeError("one candidate could not be constructed")
+        return Leader(tip=(*tip, 0), elbow=(*elbow, 0), label="R1", draft=drawing.draft)
+
+    collect_feature_leader(
+        ctx,
+        FeatureLeaderJob(
+            name="m_fillet0",
+            view="front",
+            silhouette=bounds,
+            label="R1",
+            candidates=((tip, bad, object()), (tip, good, object())),
+            build=build,
+            measurement=(),
+            noun="fillet",
+            drop_code="fillet_dropped",
+        ),
+    )
+    analysis = SimpleNamespace(
+        margin=10.0,
+        PAGE_W=drawing.page_w,
+        PAGE_H=drawing.page_h,
+        TB_W=drawing.get_annotation("title_block").bounding_box().size.X,
+    )
+
+    assert drain_feature_leaders(drawing, analysis, ctx) == 1
+    assert drawing.get_annotation("m_fillet0").segments[0][1] == good
+    assert not [issue for issue in drawing.lint() if issue.code == "fillet_dropped"]
 
 
 def test_fixed_residual_keeps_a_face_bridging_disjoint_known_components():
@@ -1174,6 +1252,57 @@ def test_future_section_cannot_veto_a_required_leader_but_title_is_hard(monkeypa
     assert drain_feature_leaders(drawing, analysis, ctx) == 0
     assert "title_blocked_leader" not in drawing.annotations()
     assert any(issue.code == "callout_dropped" for issue in drawing.registry.issues)
+
+
+def test_rendered_title_keeps_the_whole_mandatory_band_hard():
+    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+    title = drawing.get_annotation("title_block")
+    title_box = title.bounding_box()
+    bounds = drawing.view_bounds("front")
+    assert bounds is not None
+    analysis = SimpleNamespace(
+        margin=10.0,
+        PAGE_W=drawing.page_w,
+        PAGE_H=drawing.page_h,
+        TB_W=title_box.size.X,
+    )
+
+    # This dot sits in blank rendered title-cell space: it misses the title's
+    # decomposed strokes/glyphs, but the whole mandatory band is reserved.
+    tip = (173.0, 12.0)
+    elbow = (174.0, 12.0, 0)
+
+    def build(tip, elbow, _feature):
+        return Leader(tip=(*tip, 0), elbow=elbow, label=".", draft=drawing.draft)
+
+    probe = build(tip, elbow, None)
+    assert title_box.min.X < probe.label_bbox[0] < probe.label_bbox[2] < title_box.max.X
+    assert title_box.min.Y < probe.label_bbox[1] < probe.label_bbox[3] < title_box.max.Y
+    ctx = PlacementContext(
+        registry=drawing.registry,
+        coverage=drawing.coverage,
+        items=drawing.items,
+        part_model=drawing.model(),
+        feature_leaders=[],
+    )
+    assert collect_feature_leader(
+        ctx,
+        FeatureLeaderJob(
+            name="title_cell_leader",
+            view="front",
+            silhouette=bounds,
+            label=".",
+            candidates=((tip, elbow, None),),
+            build=build,
+            measurement=(),
+            noun="fillet",
+            drop_code="fillet_dropped",
+        ),
+    )
+
+    assert drain_feature_leaders(drawing, analysis, ctx) == 0
+    assert "title_cell_leader" not in drawing.annotations()
+    assert any(issue.code == "fillet_dropped" for issue in drawing.registry.issues)
 
 
 def test_provisional_section_refines_without_reducing_required_leaders():

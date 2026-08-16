@@ -75,7 +75,7 @@ class FeatureLeaderJob:
     allow_policy_b_fixed: bool = False
     priority: float = 0.0
     on_place: Callable[[Any], None] | None = None
-    on_drop: Callable[[], None] | None = None
+    on_drop: Callable[[str], None] | None = None
 
 
 @dataclass(frozen=True)
@@ -201,17 +201,25 @@ def _measure(raw_index, raw, job: FeatureLeaderJob, draft) -> _MeasuredLeaderCan
     tip, elbow, feature = raw
     tip2 = (float(tip[0]), float(tip[1]))
     elbow2 = (float(elbow[0]), float(elbow[1]))
-    if job.analytical_geometry is None:
-        annotation = job.build(tip, elbow, feature)
-        label_box = _label_box(annotation)
-        segments = _segments(annotation)
-    else:
-        annotation = None
-        geometry = job.analytical_geometry(tip, elbow, feature)
-        if geometry is None:
-            label_box, segments = None, ()
+    try:
+        if job.analytical_geometry is None:
+            annotation = job.build(tip, elbow, feature)
+            label_box = _label_box(annotation)
+            segments = _segments(annotation)
         else:
-            label_box, segments = geometry
+            annotation = None
+            geometry = job.analytical_geometry(tip, elbow, feature)
+            if geometry is None:
+                label_box, segments = None, ()
+            else:
+                label_box, segments = geometry
+    except Exception:  # noqa: BLE001 — one optional alternative must fail closed
+        # Preserve the bounded inventory/trace entry while making the failed
+        # alternative hard-ineligible through ``unmeasurable_label``.  A later
+        # producer alternative can still win; one helper failure must not abort
+        # unrelated jobs in the shared stage.
+        annotation = None
+        label_box, segments = None, ()
     # The helper's shelf length is fixed for a job's label.  Summing real
     # segments still gives the right objective for mixed callout types and is
     # deterministic after the bundled-font render.
@@ -361,17 +369,20 @@ def _rendered_ink_matches(candidate: _MeasuredLeaderCandidate, annotation, *, to
 
 
 def _materialize(dwg, job: FeatureLeaderJob, candidate: _MeasuredLeaderCandidate):
-    annotation = candidate.annotation
-    if annotation is None:
-        annotation = job.build(candidate.tip, candidate.elbow, candidate.feature)
-        if not _geometry_matches(candidate, annotation):
+    try:
+        annotation = candidate.annotation
+        if annotation is None:
+            annotation = job.build(candidate.tip, candidate.elbow, candidate.feature)
+            if not _geometry_matches(candidate, annotation):
+                return None
+        if not _rendered_ink_matches(candidate, annotation):
             return None
-    if not _rendered_ink_matches(candidate, annotation):
+        # Seed the Drawing's shared OCC-box memo with the one rendered survivor.
+        # Candidate evaluation remains arithmetic; lint can reuse this validation
+        # measurement rather than tessellating the committed Leader again (#1138).
+        _geom_box(annotation, getattr(dwg, "box_cache", None))
+    except Exception:  # noqa: BLE001 — optional placement must fail closed
         return None
-    # Seed the Drawing's shared OCC-box memo with the one rendered survivor.
-    # Candidate evaluation remains arithmetic; lint can reuse this validation
-    # measurement rather than tessellating the committed Leader again (#1138).
-    _geom_box(annotation, getattr(dwg, "box_cache", None))
     return annotation
 
 
@@ -838,11 +849,12 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
     def fixed_obstacles() -> dict[str, tuple[_FixedInkComponent, ...]]:
         """Complete committed fixed ink; optional future furniture is excluded."""
 
-        title_reservation = (
-            ()
-            if "title_block" in dwg.annotations()
-            else (_FixedInkComponent("title_block:reserved", box=title_block),)
-        )
+        # The entire mandatory band is hard, including blank cells between the
+        # rendered title-block strokes and glyphs.  Keep the reservation after
+        # the title is rendered so deferred/finalize entry cannot place a
+        # feature leader into that visually empty but semantically reserved
+        # space.
+        title_reservation = (_FixedInkComponent("title_block:reserved", box=title_block),)
         return {
             view: (
                 *title_reservation,
@@ -927,15 +939,20 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
         if job.on_place is not None:
             job.on_place(annotation)
 
-    def drop(job_index):
+    def drop(job_index, *, reason="no_clear_room"):
         job = jobs[job_index]
         if job.on_drop is not None:
-            job.on_drop()
+            job.on_drop(reason)
         else:
+            detail = (
+                "rendered geometry validation failed"
+                if reason == "geometry_validation"
+                else "no clear room"
+            )
             ctx.record_issue(
                 "warning",
                 job.drop_code,
-                f"{job.noun} callout {job.label} not placed (no clear room)",
+                f"{job.noun} callout {job.label} not placed ({detail})",
                 measurement=job.measurement,
             )
 
@@ -1149,7 +1166,15 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
                 abandoned_raw_counts[job_index] if abandoned_raw_counts is not None else raw_count
             )
             if selected is None:
-                drop(job_index)
+                terminal_reason = (
+                    "geometry_validation"
+                    if fallback_rejected
+                    and all(
+                        entry["blockers"] == ["geometry_validation"] for entry in fallback_rejected
+                    )
+                    else "no_clear_room"
+                )
+                drop(job_index, reason=terminal_reason)
                 record_item(
                     job_index,
                     None,
@@ -1158,7 +1183,7 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
                     obstacle_count=obstacle_count,
                     candidate_inventory=recorded_inventory,
                     producer_fallback=producer_fallback,
-                    reason="no_clear_room",
+                    reason=terminal_reason,
                 )
                 continue
             place(job_index, selected, annotation)

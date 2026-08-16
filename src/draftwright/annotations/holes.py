@@ -2634,13 +2634,18 @@ def _place_queue(
                         [HoleRef.of(member) for member in members],
                     )
 
-            def _on_drop(*, _dia=dia, _feat=feat, _callout=callout):
+            def _on_drop(reason, *, _dia=dia, _feat=feat, _callout=callout):
+                detail = (
+                    "rendered geometry validation failed"
+                    if reason == "geometry_validation"
+                    else "shared leader inventory full"
+                )
                 _record_callout_drop(
                     ctx,
                     dwg,
                     view,
                     _dia,
-                    "shared leader inventory full",
+                    detail,
                     _feat,
                     callout=_callout,
                 )

@@ -59,10 +59,14 @@ can bridge separate shaft/shelf/arrow/label regions. Curved faces additionally
 retain no exact OCC area outside the analytical union, closing the space between
 tessellation stations. Residual-face lowering applies to every rendered fixed
 annotation, including filled datum/GD&T glyphs that expose no corresponding
-segment metadata. If the selected rendered survivor violates this contract, the
-joint result is abandoned and the canonical lazy producer floor validates its
-tail in order; one bad helper survivor therefore cannot turn a valid later
-alternative into a false drop. Established Policy B remains explicit for both
+segment metadata. Candidate and selected rendered-survivor construction are
+fail-closed per alternative. If selected construction raises or violates this
+contract, the joint result is abandoned and the canonical lazy producer floor
+validates its tail in order; one bad helper survivor therefore cannot turn a
+valid later alternative into a false drop, and an all-invalid tail is diagnosed
+as geometry validation rather than spatial exhaustion. The complete mandatory
+title band remains a hard reservation even after its strokes and glyphs render;
+blank title cells are not placement space. Established Policy B remains explicit for both
 ordinary-hole and machined-feature leaders: a candidate crossing late fixed
 furniture stays eligible with a penalty, while page, label-over-own-silhouette,
 and new-leader conflicts remain infeasible. If such a candidate wins because

@@ -44,9 +44,11 @@
   fixed residual faces and the selected survivor both require each tessellation
   triangle to fit one same analytical component rather than merely the union,
   plus exact continuous OCC containment for curved faces; residual lowering
-  also retains filled datum/GD&T faces absent from segment metadata; if a
-  selected survivor fails validation, the canonical lazy producer tail is
-  replayed instead of falsely dropping an otherwise valid callout;
+  also retains filled datum/GD&T faces absent from segment metadata; if candidate
+  or selected-survivor construction raises, or a survivor fails validation, the
+  bad alternative fails closed and the canonical lazy producer tail is replayed
+  instead of falsely dropping an otherwise valid callout; an all-invalid tail is
+  reported as geometry validation rather than no clear room;
   only explicitly marked global turning axes permit an arrow-local leader-tip
   attachment; near-collinear shaft travel and ownerless section/cutting lines
   remain fixed ink. The solve prefers
