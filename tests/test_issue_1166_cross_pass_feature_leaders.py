@@ -732,6 +732,26 @@ def test_selected_occ_survivor_tessellates_curves_between_quarter_stations():
     assert _rendered_ink_matches(candidate, face) is False
 
 
+def test_selected_occ_survivor_rejects_a_face_bridging_disjoint_components():
+    face = Face.make_rect(10.0, 1.0)
+    left = ((-5.0, -0.5), (-4.0, -0.5), (-4.0, 0.5), (-5.0, 0.5))
+    right = ((4.0, -0.5), (5.0, -0.5), (5.0, 0.5), (4.0, 0.5))
+    candidate = _MeasuredLeaderCandidate(
+        face,
+        (0.0, 0.0),
+        (1.0, 0.0),
+        None,
+        0,
+        1.0,
+        None,
+        (),
+        (left, right),
+    )
+    # Every tessellation vertex is covered by the union, but each triangle
+    # bridges the uncovered eight-millimetre gap between the two components.
+    assert _rendered_ink_matches(candidate, face) is False
+
+
 def test_cross_pass_candidate_budget_precedes_collect_all_geometry(monkeypatch, tmp_path):
     part, model = _narrow_cross_pass_part()
     import draftwright.annotations.leaders as leaders

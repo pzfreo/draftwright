@@ -263,21 +263,24 @@ def _rendered_ink_matches(candidate: _MeasuredLeaderCandidate, annotation, *, to
     """Validate the selected OCC survivor against its analytical ink contract.
 
     Metadata parity alone cannot detect a helper change to arrow flare or stroke
-    width.  Sample every rendered face boundary after the one selected Leader is
-    built and require it to remain inside either the measured label box or the
-    candidate's shaft/shelf/arrow components. Candidate exploration remains pure
-    arithmetic; only the bounded survivor pays this OCC validation cost.
+    width. Tessellate every rendered face after the one selected Leader is built
+    and require each mesh triangle to remain inside one convex measured label,
+    shaft, shelf, or arrow component. Requiring a common containing component
+    also prevents a rendered face from bridging disjoint analytical polygons.
+    Candidate exploration remains pure arithmetic; only the bounded survivor
+    pays this OCC validation cost.
     """
 
-    def covered(point):
+    def component_covers(points):
         label = candidate.label_box
-        if label is not None and (
+        if label is not None and all(
             label[0] - tol <= point[0] <= label[2] + tol
             and label[1] - tol <= point[1] <= label[3] + tol
+            for point in points
         ):
             return True
         return any(
-            _point_in_convex_component(point, polygon, tol=tol)
+            all(_point_in_convex_component(point, polygon, tol=tol) for point in points)
             for polygon in candidate.ink_polygons
         )
 
@@ -286,11 +289,12 @@ def _rendered_ink_matches(candidate: _MeasuredLeaderCandidate, annotation, *, to
         if not faces:
             return False
         for face in faces:
-            vertices, _triangles = face.tessellate(0.01)
-            if not vertices:
+            vertices, triangles = face.tessellate(0.01)
+            if not vertices or not triangles:
                 return False
-            for vertex in vertices:
-                if not covered((float(vertex.X), float(vertex.Y))):
+            points = tuple((float(vertex.X), float(vertex.Y)) for vertex in vertices)
+            for triangle in triangles:
+                if not component_covers(tuple(points[index] for index in triangle)):
                     return False
     except Exception:  # noqa: BLE001 — optional placement must fail closed
         return False
