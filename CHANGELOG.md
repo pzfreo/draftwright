@@ -48,7 +48,8 @@
   or selected-survivor construction raises, or a survivor fails validation, the
   bad alternative fails closed and the canonical lazy producer tail is replayed
   instead of falsely dropping an otherwise valid callout; an all-invalid tail is
-  reported as geometry validation rather than no clear room, while compiler
+  reported as validation-stage geometry failure rather than no clear room (so
+  scale fallback does not retry a non-spatial helper defect), while compiler
   invariant violations such as a missing semantic callout label remain loud;
   only explicitly marked global turning axes permit an arrow-local leader-tip
   attachment; near-collinear shaft travel and ownerless section/cutting lines
@@ -60,7 +61,8 @@
   end-symbol repair and yields if exact ink still conflicts. The selected OCC survivor is validated against the same analytical
   ink contract. A retained fixed-ink crossing now emits the machine-readable
   `feature_leader_crossing` info finding instead of appearing lint-clean. Candidate,
-  fixed-obstacle-probe, pair, and exact-search work is bounded with the producer's
+  fixed-component lowering, fixed-obstacle-probe, pair, and exact-search work is
+  bounded; the fixed inventory is lowered once and reused with the producer's
   legacy lazy result as the floor, including state-cap exhaustion; page,
   own-silhouette, and title-reservation constraints remain hard in every fallback.
   A replay that exhausts exact fixed-probe classification is retained visibly as

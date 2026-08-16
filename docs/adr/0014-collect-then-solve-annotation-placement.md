@@ -64,7 +64,8 @@ fail-closed per alternative. If selected construction raises or violates this
 contract, the joint result is abandoned and the canonical lazy producer floor
 validates its tail in order; one bad helper survivor therefore cannot turn a
 valid later alternative into a false drop, and an all-invalid tail is diagnosed
-as geometry validation rather than spatial exhaustion. Compiler invariant
+as a validation-stage geometry failure rather than spatial exhaustion, so it is
+not treated as a scale-remediable placement drop. Compiler invariant
 violations (for example, rendered hole ink without its semantic label) remain
 loud rather than being reclassified as optional placement failure. The complete mandatory
 title band remains a hard reservation even after its strokes and glyphs render;
@@ -89,9 +90,11 @@ alternatives lower label/shaft geometry analytically and materialise only the
 selected OCC `Leader`; the rendered survivor is checked against that geometry
 before it is committed.
 
-The inventory is bounded before OCC construction by job, expanded-candidate,
-and candidate×fixed-obstacle probe caps, before quadratic geometry by a
-candidate-pair cap, and inside the exact solve by the existing state cap. A cap
+The inventory is bounded before candidate OCC construction by job and
+expanded-candidate caps. Fixed rendered ink is itself component-bounded while
+it is lowered, cached once across joint/fallback use, and then guarded by the
+candidate×fixed-obstacle probe cap. Quadratic candidate geometry has a separate
+pair cap, and the exact solve retains its existing state cap. A cap
 replays the original lazy candidate stream in
 canonical pass order, retaining each producer's former greedy/queue floor and
 recording any Policy-B blockers while exact classification remains within the

@@ -36,6 +36,7 @@ from draftwright.model.compiled import resolve_feature
 _FEATURE_LEADER_MAX_CANDIDATES = 512
 _FEATURE_LEADER_MAX_FIXED_PROBES = 100_000
 _FEATURE_LEADER_MAX_PAIR_PROBES = 100_000
+_FIXED_INVENTORY_EXHAUSTED = object()
 
 
 class _FeatureLeaderInvariantError(ValueError):
@@ -94,6 +95,7 @@ class _MeasuredLeaderCandidate:
     segments: tuple[tuple[tuple[float, float], tuple[float, float]], ...]
     ink_polygons: tuple[tuple[tuple[float, float], ...], ...]
     axis_residual_polygons: tuple[tuple[tuple[float, float], ...], ...] = ()
+    failure_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -202,10 +204,26 @@ def _axis_residual_ink(tip, elbow, draft):
 
 
 def _measure(raw_index, raw, job: FeatureLeaderJob, draft) -> _MeasuredLeaderCandidate:
-    tip, elbow, feature = raw
-    tip2 = (float(tip[0]), float(tip[1]))
-    elbow2 = (float(elbow[0]), float(elbow[1]))
+    def safe_point(value):
+        point = []
+        for index in (0, 1):
+            try:
+                coordinate = float(value[index])
+            except Exception:  # noqa: BLE001 — trace needs a stable failed-candidate point
+                coordinate = 0.0
+            point.append(coordinate if math.isfinite(coordinate) else 0.0)
+        return tuple(point)
+
+    feature = raw[2] if isinstance(raw, (tuple, list)) and len(raw) > 2 else None
+    tip2 = safe_point(raw[0] if isinstance(raw, (tuple, list)) and raw else ())
+    elbow2 = safe_point(raw[1] if isinstance(raw, (tuple, list)) and len(raw) > 1 else ())
+    failure_reason: str | None
     try:
+        tip, elbow, feature = raw
+        tip2 = (float(tip[0]), float(tip[1]))
+        elbow2 = (float(elbow[0]), float(elbow[1]))
+        if not all(math.isfinite(value) for value in (*tip2, *elbow2)):
+            raise ValueError("non-finite leader candidate")
         if job.analytical_geometry is None:
             annotation = job.build(tip, elbow, feature)
             label_box = _label_box(annotation)
@@ -216,34 +234,57 @@ def _measure(raw_index, raw, job: FeatureLeaderJob, draft) -> _MeasuredLeaderCan
             if geometry is None:
                 label_box, segments = None, ()
             else:
-                label_box, segments = geometry
+                raw_label, raw_segments = geometry
+                if raw_label is None:
+                    raise ValueError("missing analytical label box")
+                label_box = tuple(float(value) for value in raw_label)
+                if len(label_box) != 4 or not all(math.isfinite(value) for value in label_box):
+                    raise ValueError("invalid analytical label box")
+                segments = tuple(
+                    (
+                        (float(first[0]), float(first[1])),
+                        (float(second[0]), float(second[1])),
+                    )
+                    for first, second in raw_segments
+                )
+                if not all(
+                    math.isfinite(value)
+                    for first, second in segments
+                    for value in (*first, *second)
+                ):
+                    raise ValueError("non-finite analytical leader segment")
+        if label_box is None or not segments:
+            raise ValueError("unmeasurable leader candidate")
+        # The helper's shelf length is fixed for a job's label.  Summing real
+        # segments gives the deterministic objective for mixed callout types.
+        cost = sum(
+            math.hypot(second[0] - first[0], second[1] - first[1]) for first, second in segments
+        ) or math.hypot(elbow2[0] - tip2[0], elbow2[1] - tip2[1])
+        primary = _leader_ink_polygons(
+            tip2,
+            elbow2,
+            arrow_length=draft.arrow_length,
+            line_width=draft.line_width,
+        )
+        shelves = tuple(
+            polygon
+            for first, second in segments[1:]
+            if (polygon := _stroke_polygon(first, second, draft.line_width)) is not None
+        )
+        axis_residual = _axis_residual_ink(tip2, elbow2, draft)
     except _FeatureLeaderInvariantError:
         raise
     except Exception:  # noqa: BLE001 — one optional alternative must fail closed
-        # Preserve the bounded inventory/trace entry while making the failed
-        # alternative hard-ineligible through ``unmeasurable_label``.  A later
-        # producer alternative can still win; one helper failure must not abort
-        # unrelated jobs in the shared stage.
+        # Preserve the bounded inventory/trace entry with its truthful terminal
+        # cause.  A later producer alternative can still win; one helper failure
+        # must not abort unrelated jobs in the shared stage.
         annotation = None
         label_box, segments = None, ()
-    # The helper's shelf length is fixed for a job's label.  Summing real
-    # segments still gives the right objective for mixed callout types and is
-    # deterministic after the bundled-font render.
-    cost = sum(
-        math.hypot(second[0] - first[0], second[1] - first[1]) for first, second in segments
-    ) or math.hypot(elbow2[0] - tip2[0], elbow2[1] - tip2[1])
-    primary = _leader_ink_polygons(
-        tip2,
-        elbow2,
-        arrow_length=draft.arrow_length,
-        line_width=draft.line_width,
-    )
-    shelves = tuple(
-        polygon
-        for first, second in segments[1:]
-        if (polygon := _stroke_polygon(first, second, draft.line_width)) is not None
-    )
-    axis_residual = _axis_residual_ink(tip2, elbow2, draft)
+        cost = math.hypot(elbow2[0] - tip2[0], elbow2[1] - tip2[1])
+        primary = shelves = axis_residual = ()
+        failure_reason = "geometry_validation"
+    else:
+        failure_reason = None
     return _MeasuredLeaderCandidate(
         annotation,
         tip2,
@@ -255,6 +296,7 @@ def _measure(raw_index, raw, job: FeatureLeaderJob, draft) -> _MeasuredLeaderCan
         segments,
         (*primary, *shelves),
         (*axis_residual, *shelves),
+        failure_reason,
     )
 
 
@@ -466,7 +508,9 @@ def _candidate_hits_component(
 def _fixed_blockers(candidate, job, page, fixed_components) -> tuple[str, ...]:
     blockers = []
     label = candidate.label_box
-    if label is None:
+    if candidate.failure_reason is not None:
+        blockers.append(candidate.failure_reason)
+    elif label is None:
         blockers.append("unmeasurable_label")
     else:
         if label[0] < page[0] or label[1] < page[1] or label[2] > page[2] or label[3] > page[3]:
@@ -487,7 +531,7 @@ def _hard_fixed_blockers(blockers) -> tuple[str, ...]:
     return tuple(
         blocker
         for blocker in blockers
-        if blocker in {"page", "unmeasurable_label"}
+        if blocker in {"page", "unmeasurable_label", "geometry_validation"}
         or blocker.startswith(("view:", "title_block"))
     )
 
@@ -551,7 +595,16 @@ def _rendered_face_hull(face, *, curve_envelope=0.01):
     return _convex_hull(hull_points), points, tuple(triangles), edge_kinds
 
 
-def _rendered_residual_components(name, annotation, components, label, owner, kind):
+def _rendered_residual_components(
+    name,
+    annotation,
+    components,
+    label,
+    owner,
+    kind,
+    *,
+    max_components=None,
+):
     """Rendered faces not already represented by segment/label metadata.
 
     ``Dimension.segments`` is intentionally variable: a shifted label may
@@ -578,7 +631,13 @@ def _rendered_residual_components(name, annotation, components, label, owner, ki
 
     residual = []
     try:
-        faces = annotation.faces()
+        raw_faces = annotation.faces()
+        if max_components is None:
+            faces = raw_faces
+        else:
+            faces = list(islice(iter(raw_faces), max_components + 1))
+            if len(faces) > max_components:
+                return _FIXED_INVENTORY_EXHAUSTED
     except Exception:  # noqa: BLE001 — optional placement must fail closed
         return None
     for face in faces:
@@ -612,6 +671,8 @@ def _rendered_residual_components(name, annotation, components, label, owner, ki
             else "ink"
         )
         residual.append((component_kind, hull))
+        if max_components is not None and len(residual) > max_components:
+            return _FIXED_INVENTORY_EXHAUSTED
     residual.sort(
         key=lambda item: (
             item[0],
@@ -637,17 +698,49 @@ def _rendered_residual_components(name, annotation, components, label, owner, ki
     return tuple(out)
 
 
-def _annotation_fixed_ink(dwg, name, annotation):
+def _annotation_fixed_ink(dwg, name, annotation, *, max_components=None):
     """Exact-width fixed ink components for one already-rendered annotation."""
 
-    segments = _segments(annotation)
-    components = []
+    if max_components is None:
+        segments = _segments(annotation)
+        raw_fixed_polygons = getattr(annotation, "fixed_ink_polygons", ()) or ()
+    else:
+        raw_segments = getattr(annotation, "segments", ()) or ()
+        segment_prefix = list(islice(iter(raw_segments), max_components + 1))
+        if len(segment_prefix) > max_components:
+            return _FIXED_INVENTORY_EXHAUSTED
+        parsed_segments = []
+        for segment in segment_prefix:
+            try:
+                first, second = segment
+                parsed_segments.append(
+                    (
+                        (float(first[0]), float(first[1])),
+                        (float(second[0]), float(second[1])),
+                    )
+                )
+            except (TypeError, ValueError, IndexError):
+                continue
+        segments = tuple(parsed_segments)
+        raw_fixed_polygons = list(
+            islice(
+                iter(getattr(annotation, "fixed_ink_polygons", ()) or ()),
+                max_components + 1,
+            )
+        )
+        if len(raw_fixed_polygons) > max_components:
+            return _FIXED_INVENTORY_EXHAUSTED
+    components: list[_FixedInkComponent] = []
     owner = dwg.registry.feature_of(name)
     kind = type(annotation).__name__
     line_width = (
         0.15 if kind in {"CenterMark", "Centerline", "CenterlineCircle"} else dwg.draft.line_width
     )
-    for index, polygon in enumerate(getattr(annotation, "fixed_ink_polygons", ()) or ()):
+
+    def exhausted():
+        return max_components is not None and len(components) > max_components
+
+    for index, polygon in enumerate(raw_fixed_polygons):
         try:
             points = tuple((float(point[0]), float(point[1])) for point in polygon)
         except (TypeError, ValueError, IndexError):
@@ -661,6 +754,8 @@ def _annotation_fixed_ink(dwg, name, annotation):
                     kind=kind,
                 )
             )
+            if exhausted():
+                return _FIXED_INVENTORY_EXHAUSTED
     if type(annotation).__name__ == "Leader" and segments:
         components.append(
             _FixedInkComponent(
@@ -675,6 +770,8 @@ def _annotation_fixed_ink(dwg, name, annotation):
                 kind=kind,
             )
         )
+        if exhausted():
+            return _FIXED_INVENTORY_EXHAUSTED
         segment_start = 1
     else:
         segment_start = 0
@@ -691,10 +788,25 @@ def _annotation_fixed_ink(dwg, name, annotation):
                     global_axis=bool(getattr(annotation, "is_global_axis_centerline", False)),
                 )
             )
+            if exhausted():
+                return _FIXED_INVENTORY_EXHAUSTED
     label = _label_box(annotation)
     if label is not None:
         components.append(_FixedInkComponent(f"{name}:label", box=label, owner=owner, kind=kind))
-    residual = _rendered_residual_components(name, annotation, components, label, owner, kind)
+        if exhausted():
+            return _FIXED_INVENTORY_EXHAUSTED
+    remaining = None if max_components is None else max_components - len(components)
+    residual = _rendered_residual_components(
+        name,
+        annotation,
+        components,
+        label,
+        owner,
+        kind,
+        max_components=remaining,
+    )
+    if residual is _FIXED_INVENTORY_EXHAUSTED:
+        return _FIXED_INVENTORY_EXHAUSTED
     if residual is None:
         geometry = _geom_box(annotation, getattr(dwg, "box_cache", None))
         if geometry is not None:
@@ -706,6 +818,8 @@ def _annotation_fixed_ink(dwg, name, annotation):
                     kind=kind,
                 )
             )
+            if exhausted():
+                return _FIXED_INVENTORY_EXHAUSTED
     else:
         components.extend(residual)
     if not components:
@@ -714,6 +828,8 @@ def _annotation_fixed_ink(dwg, name, annotation):
             components.append(
                 _FixedInkComponent(f"{name}:geometry", box=geometry, owner=owner, kind=kind)
             )
+            if exhausted():
+                return _FIXED_INVENTORY_EXHAUSTED
     return tuple(components)
 
 
@@ -854,30 +970,77 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
         raw_jobs.append(iter(joint))
         fallback_jobs.append(iter(fallback))
 
-    def fixed_obstacles() -> dict[str, tuple[_FixedInkComponent, ...]]:
-        """Complete committed fixed ink; optional future furniture is excluded."""
+    views = tuple(dict.fromkeys(job.view for job in jobs))
+    inventory_unset = object()
+    committed_inventory = inventory_unset
+    provisional_inventory = inventory_unset
 
-        # The entire mandatory band is hard, including blank cells between the
-        # rendered title-block strokes and glyphs.  Keep the reservation after
-        # the title is rendered so deferred/finalize entry cannot place a
-        # feature leader into that visually empty but semantically reserved
-        # space.
-        title_reservation = (_FixedInkComponent("title_block:reserved", box=title_block),)
-        return {
-            view: (
-                *title_reservation,
-                *_fixed_annotation_obstacles(dwg, view),
-            )
-            for view in dict.fromkeys(job.view for job in jobs)
-        }
+    def bounded_fixed_obstacles(*, provisional=False):
+        """Lower fixed ink once, stopping before the component work cap.
 
-    def provisional_obstacles() -> dict[str, tuple[_FixedInkComponent, ...]]:
-        """Optional future ink used only by a bounded secondary preference."""
+        The candidate×component probe cap cannot protect an eager OCC scan that
+        happens before it is computed.  Bound the component inventory itself,
+        cache it across joint/fallback use, and let resource fallback mark exact
+        classification unverified when the inventory is too large.
+        """
 
-        return {
-            view: tuple(_fixed_annotation_obstacles(dwg, view, provisional=True))
-            for view in dict.fromkeys(job.view for job in jobs)
-        }
+        nonlocal committed_inventory, provisional_inventory
+        cached = provisional_inventory if provisional else committed_inventory
+        if cached is not inventory_unset:
+            return cached
+        remaining = _FEATURE_LEADER_MAX_FIXED_PROBES
+        lowered: dict[str, tuple[_FixedInkComponent, ...]] = {}
+        result = {}
+        for view in views:
+            components = []
+            if not provisional:
+                # The entire mandatory band is hard, including blank cells
+                # between rendered title-block strokes and glyphs.
+                if remaining < 1:
+                    cached = _FIXED_INVENTORY_EXHAUSTED
+                    break
+                components.append(_FixedInkComponent("title_block:reserved", box=title_block))
+                remaining -= 1
+            for name, annotation in dwg.iter_annotations():
+                owner = dwg.view_of(name)
+                if owner is not None and owner != view:
+                    continue
+                if (
+                    bool(getattr(annotation, "is_provisional_layout_reservation", False))
+                    != provisional
+                ):
+                    continue
+                if remaining <= 0:
+                    cached = _FIXED_INVENTORY_EXHAUSTED
+                    break
+                annotation_components = lowered.get(name)
+                if annotation_components is None:
+                    annotation_components = _annotation_fixed_ink(
+                        dwg,
+                        name,
+                        annotation,
+                        max_components=remaining,
+                    )
+                    if annotation_components is _FIXED_INVENTORY_EXHAUSTED:
+                        cached = _FIXED_INVENTORY_EXHAUSTED
+                        break
+                    lowered[name] = annotation_components
+                if len(annotation_components) > remaining:
+                    cached = _FIXED_INVENTORY_EXHAUSTED
+                    break
+                components.extend(annotation_components)
+                remaining -= len(annotation_components)
+            else:
+                result[view] = tuple(components)
+                continue
+            break
+        else:
+            cached = result
+        if provisional:
+            provisional_inventory = cached
+        else:
+            committed_inventory = cached
+        return cached
 
     def record_item(
         job_index,
@@ -962,6 +1125,7 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
                 job.drop_code,
                 f"{job.noun} callout {job.label} not placed ({detail})",
                 measurement=job.measurement,
+                outcome_stage=("validation" if reason == "geometry_validation" else "placement"),
             )
 
     def record_policy_b(job_index, blockers) -> None:
@@ -1065,7 +1229,9 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
         total_penalty = 0
         total_cost = 0.0
         actual_fixed_probes = fixed_probes
-        fixed = fixed_obstacles()
+        fixed_result = bounded_fixed_obstacles()
+        fixed_verified = fixed_result is not _FIXED_INVENTORY_EXHAUSTED
+        fixed = fixed_result if fixed_verified else {view: () for view in views}
         legacy_boxes = {
             # Producer fallback replays the pre-#1166 acceptance floor; exact
             # blockers below still persist any retained crossing.  Optional
@@ -1077,7 +1243,9 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
         def boundary_blockers(candidate, job):
             blockers = []
             label = candidate.label_box
-            if label is None:
+            if candidate.failure_reason is not None:
+                blockers.append(candidate.failure_reason)
+            elif label is None:
                 blockers.append("unmeasurable_label")
             else:
                 if (
@@ -1092,6 +1260,22 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
             if _ink_hits_box(candidate, title_block):
                 blockers.append("title_block:reserved")
             return tuple(blockers)
+
+        def terminal_reason(rejected):
+            return (
+                "geometry_validation"
+                if rejected
+                and all(
+                    "geometry_validation" in entry["blockers"]
+                    and set(entry["blockers"])
+                    <= {
+                        "geometry_validation",
+                        "fixed_probe_budget",
+                    }
+                    for entry in rejected
+                )
+                else "no_clear_room"
+            )
 
         for job_index, job in enumerate(jobs):
             obstacle_count = len(fixed[job.view])
@@ -1108,7 +1292,9 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
             for candidate in source:
                 raw_count = max(raw_count, candidate.raw_index + 1)
                 fixed_components = fixed[job.view]
-                if actual_fixed_probes + len(fixed_components) <= _FEATURE_LEADER_MAX_FIXED_PROBES:
+                if fixed_verified and (
+                    actual_fixed_probes + len(fixed_components) <= _FEATURE_LEADER_MAX_FIXED_PROBES
+                ):
                     blockers = _fixed_blockers(candidate, job, page, fixed_components)
                     actual_fixed_probes += len(fixed_components)
                 else:
@@ -1174,15 +1360,8 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
                 abandoned_raw_counts[job_index] if abandoned_raw_counts is not None else raw_count
             )
             if selected is None:
-                terminal_reason = (
-                    "geometry_validation"
-                    if fallback_rejected
-                    and all(
-                        entry["blockers"] == ["geometry_validation"] for entry in fallback_rejected
-                    )
-                    else "no_clear_room"
-                )
-                drop(job_index, reason=terminal_reason)
+                drop_reason = terminal_reason(fallback_rejected)
+                drop(job_index, reason=drop_reason)
                 record_item(
                     job_index,
                     None,
@@ -1191,7 +1370,7 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
                     obstacle_count=obstacle_count,
                     candidate_inventory=recorded_inventory,
                     producer_fallback=producer_fallback,
-                    reason=terminal_reason,
+                    reason=drop_reason,
                 )
                 continue
             place(job_index, selected, annotation)
@@ -1247,7 +1426,12 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
         candidate_count += len(prefix)
         candidate_counts_by_job.append(len(prefix))
 
-    fixed = fixed_obstacles()
+    fixed = bounded_fixed_obstacles()
+    if fixed is _FIXED_INVENTORY_EXHAUSTED:
+        return greedy(
+            "greedy_fixed_inventory_budget",
+            fixed_probe_bound=_FEATURE_LEADER_MAX_FIXED_PROBES + 1,
+        )
     fixed_probe_bound = sum(
         count * len(fixed[job.view])
         for count, job in zip(candidate_counts_by_job, jobs, strict=True)
@@ -1371,17 +1555,24 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
     # penalty as the major component so the refinement cannot trade a real
     # dimension/witness crossing for future optional furniture.  If either the
     # probe or exact-search budget is exhausted, retain the primary result.
-    provisional = provisional_obstacles()
-    provisional_probe_bound = sum(
-        len(candidates) * len(provisional[job.view])
-        for job, candidates in zip(jobs, viable_by_job, strict=True)
+    provisional = bounded_fixed_obstacles(provisional=True)
+    provisional_inventory_exhausted = provisional is _FIXED_INVENTORY_EXHAUSTED
+    provisional_probe_bound = (
+        _FEATURE_LEADER_MAX_FIXED_PROBES + 1
+        if provisional_inventory_exhausted
+        else sum(
+            len(candidates) * len(provisional[job.view])
+            for job, candidates in zip(jobs, viable_by_job, strict=True)
+        )
     )
     provisional_refinement = "not_needed"
     provisional_blockers_by_job: list[list[tuple[str, ...]]] = [
         [() for _candidate in candidates] for candidates in viable_by_job
     ]
-    if provisional_probe_bound and (
-        fixed_probe_bound + provisional_probe_bound <= _FEATURE_LEADER_MAX_FIXED_PROBES
+    if (
+        not provisional_inventory_exhausted
+        and provisional_probe_bound
+        and (fixed_probe_bound + provisional_probe_bound <= _FEATURE_LEADER_MAX_FIXED_PROBES)
     ):
         provisional_blockers_by_job = [
             [
@@ -1581,7 +1772,18 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
     placed_count = 0
     for job_index, choice in enumerate(final_choices):
         if choice is None:
-            drop(job_index)
+            reason = (
+                "geometry_validation"
+                if rejected_by_job[job_index]
+                and all(
+                    blockers == ("geometry_validation",)
+                    for _raw_index, blockers in rejected_by_job[job_index]
+                )
+                else "assignment_conflict"
+                if viable_by_job[job_index]
+                else "no_clear_room"
+            )
+            drop(job_index, reason=reason)
             record_item(
                 job_index,
                 None,
@@ -1590,13 +1792,7 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
                 obstacle_count=len(fixed[jobs[job_index].view]),
                 viable_count=len(viable_by_job[job_index]),
                 candidate_inventory=joint_inventory(job_index),
-                reason=(
-                    "geometry_validation"
-                    if job_index in geometry_failures
-                    else "assignment_conflict"
-                    if viable_by_job[job_index]
-                    else "no_clear_room"
-                ),
+                reason=reason,
             )
             continue
         candidate = viable_by_job[job_index][choice]

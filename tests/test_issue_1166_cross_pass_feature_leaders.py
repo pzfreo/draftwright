@@ -43,7 +43,9 @@ from draftwright.annotations.leaders import (
     feature_leader_fixed_conflicts,
 )
 from draftwright.annotations.orchestrator import _PASS_SEQUENCE
+from draftwright.builder import _is_required_scale_drop
 from draftwright.layout import _assign_leader_candidates
+from draftwright.linting.issues import is_placement_drop
 from draftwright.model import fillet
 
 
@@ -904,6 +906,7 @@ def test_rendered_validation_failure_replays_the_producer_tail(
             "warning",
             "fillet_dropped",
             f"drop callback reason: {reason}",
+            outcome_stage=("validation" if reason == "geometry_validation" else "placement"),
         )
 
     collect_feature_leader(
@@ -942,6 +945,9 @@ def test_rendered_validation_failure_replays_the_producer_tail(
             "geometry_validation" if drop_callback else "rendered geometry validation failed"
         )
         assert expected in issues[0].message
+        assert issues[0].outcome_stage == "validation"
+        assert not is_placement_drop(issues[0])
+        assert not _is_required_scale_drop(issues[0])
     event = next(
         item
         for item in json.loads(trace_path.read_text(encoding="utf-8"))["pass_events"]
@@ -967,7 +973,19 @@ def test_rendered_validation_failure_replays_the_producer_tail(
         assert item["producer_fallback"]["selected"] is None
 
 
-def test_candidate_construction_exception_does_not_abort_the_shared_inventory():
+@pytest.mark.parametrize("valid_tail", [True, False])
+@pytest.mark.parametrize("drop_callback", [False, True])
+@pytest.mark.parametrize("failure", ["exception", "malformed_analytical"])
+@pytest.mark.parametrize("fixed_budget", [None, 0])
+def test_candidate_measurement_failure_is_truthful_and_does_not_abort(
+    monkeypatch, tmp_path, valid_tail, drop_callback, failure, fixed_budget
+):
+    if fixed_budget is not None:
+        monkeypatch.setattr(
+            "draftwright.annotations.leaders._FEATURE_LEADER_MAX_FIXED_PROBES",
+            fixed_budget,
+        )
+    trace_path = tmp_path / "candidate-construction.json"
     drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
     bounds = drawing.view_bounds("front")
     assert bounds is not None
@@ -980,12 +998,27 @@ def test_candidate_construction_exception_does_not_abort_the_shared_inventory():
         items=drawing.items,
         part_model=drawing.model(),
         feature_leaders=[],
+        trace=SolveTrace(trace_path),
     )
 
     def build(tip, elbow, _feature):
-        if elbow == bad:
+        if failure == "exception" and (elbow == bad or not valid_tail):
             raise RuntimeError("one candidate could not be constructed")
         return Leader(tip=(*tip, 0), elbow=(*elbow, 0), label="R1", draft=drawing.draft)
+
+    def analytical(tip, elbow, _feature):
+        if elbow == bad or not valid_tail:
+            return (float("nan"), 0.0, 1.0, 1.0), (((0.0, 0.0), (1.0, 1.0)),)
+        expected = build(tip, elbow, _feature)
+        return expected.label_bbox, expected.segments
+
+    def on_drop(reason):
+        ctx.record_issue(
+            "warning",
+            "fillet_dropped",
+            f"drop callback reason: {reason}",
+            outcome_stage=("validation" if reason == "geometry_validation" else "placement"),
+        )
 
     collect_feature_leader(
         ctx,
@@ -996,9 +1029,11 @@ def test_candidate_construction_exception_does_not_abort_the_shared_inventory():
             label="R1",
             candidates=((tip, bad, object()), (tip, good, object())),
             build=build,
+            analytical_geometry=(analytical if failure == "malformed_analytical" else None),
             measurement=(),
             noun="fillet",
             drop_code="fillet_dropped",
+            on_drop=on_drop if drop_callback else None,
         ),
     )
     analysis = SimpleNamespace(
@@ -1008,9 +1043,36 @@ def test_candidate_construction_exception_does_not_abort_the_shared_inventory():
         TB_W=drawing.get_annotation("title_block").bounding_box().size.X,
     )
 
-    assert drain_feature_leaders(drawing, analysis, ctx) == 1
-    assert drawing.get_annotation("m_fillet0").segments[0][1] == good
-    assert not [issue for issue in drawing.lint() if issue.code == "fillet_dropped"]
+    assert drain_feature_leaders(drawing, analysis, ctx) == int(valid_tail)
+    ctx.trace.write()
+    issues = [issue for issue in drawing.lint() if issue.code == "fillet_dropped"]
+    if valid_tail:
+        assert drawing.get_annotation("m_fillet0").segments[0][1] == good
+        assert not issues
+    else:
+        assert "m_fillet0" not in drawing.annotations()
+        assert len(issues) == 1
+        expected = (
+            "geometry_validation" if drop_callback else "rendered geometry validation failed"
+        )
+        assert expected in issues[0].message
+        assert issues[0].outcome_stage == "validation"
+        assert not is_placement_drop(issues[0])
+        assert not _is_required_scale_drop(issues[0])
+    event = next(
+        item
+        for item in json.loads(trace_path.read_text(encoding="utf-8"))["pass_events"]
+        if item["label"] == "feature_leader_inventory"
+    )
+    item = event["items"][0]
+    expected_blockers = ["geometry_validation"]
+    if fixed_budget == 0:
+        expected_blockers.append("fixed_probe_budget")
+    assert item["candidate_inventory"][0]["fixed_blockers"] == expected_blockers
+    if valid_tail:
+        assert item["candidate_inventory"][1]["outcome"] == "selected"
+    else:
+        assert item["reason"] == "geometry_validation"
 
 
 def test_fixed_residual_keeps_a_face_bridging_disjoint_known_components():
@@ -1084,15 +1146,24 @@ def test_fixed_obstacle_probe_budget_precedes_joint_geometry(monkeypatch, tmp_pa
     import draftwright.annotations.leaders as leaders
 
     probes = 0
+    lowerings = 0
     original = leaders._candidate_hits_component
+    original_lower = leaders._annotation_fixed_ink
 
     def counted(*args, **kwargs):
         nonlocal probes
         probes += 1
         return original(*args, **kwargs)
 
+    def counted_lower(*args, **kwargs):
+        nonlocal lowerings
+        if kwargs.get("max_components") is not None:
+            lowerings += 1
+        return original_lower(*args, **kwargs)
+
     monkeypatch.setattr(leaders, "_FEATURE_LEADER_MAX_FIXED_PROBES", 0)
     monkeypatch.setattr(leaders, "_candidate_hits_component", counted)
+    monkeypatch.setattr(leaders, "_annotation_fixed_ink", counted_lower)
     trace_path = tmp_path / "bounded-fixed-probes.json"
 
     drawing = build_drawing(part, model=model, page="A3", trace=trace_path)
@@ -1102,11 +1173,12 @@ def test_fixed_obstacle_probe_budget_precedes_joint_geometry(monkeypatch, tmp_pa
         if item["label"] == "feature_leader_inventory"
     )
 
-    assert event["assignment"] == "greedy_fixed_probe_budget"
+    assert event["assignment"] == "greedy_fixed_inventory_budget"
     assert event["optimal"] is False
     assert event["fixed_probes"] == 0
     assert event["fixed_probe_bound"] > 0
     assert probes == 0
+    assert lowerings == 0
     assert set(_feature_leader_names(drawing)) == {
         "hc_side0",
         "hc_side1",

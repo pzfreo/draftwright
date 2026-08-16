@@ -109,7 +109,9 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   datum/GD&T faces without segment metadata; candidate construction fails closed
   per alternative, while a selected-survivor construction exception or mismatch
   replays the canonical lazy producer tail rather than silently reducing
-  cardinality, without swallowing compiler invariant errors; the complete title
+  cardinality, with validation-stage diagnostics and without swallowing compiler
+  invariant errors; fixed components are lowered once under the same resource
+  discipline and reused; the complete title
   band stays hard after rendering; only explicitly
   marked global turning axes exempt only the arrow-local tip attachment (not
   near-collinear shaft travel),

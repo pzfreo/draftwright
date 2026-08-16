@@ -580,7 +580,17 @@ def _legible_locations(positions, scale):
     return kept, n_too_close
 
 
-def _record_callout_drop(ctx, dwg, view, diam, reason, feat=None, callout=None):
+def _record_callout_drop(
+    ctx,
+    dwg,
+    view,
+    diam,
+    reason,
+    feat=None,
+    callout=None,
+    *,
+    outcome_stage=None,
+):
     """Record a hole callout the layout could not place (#36).
 
     A warning (the drawing is incomplete, not invalid), whose diameter is
@@ -612,6 +622,7 @@ def _record_callout_drop(ctx, dwg, view, diam, reason, feat=None, callout=None):
         f"hole callout ø{_fmt(diam)} dropped from the {view} view ({reason})",
         measurement=measurements,
         hole_requirements=hole_requirements,
+        outcome_stage=outcome_stage,
     )
     # First-class escalation object alongside the lint code (ADR 0009 Amdt 1, #351 PR-2).
     # The resolver (`_maybe_tabulate_holes`) triggers on these; the lint code stays for
@@ -2654,6 +2665,9 @@ def _place_queue(
                     detail,
                     _feat,
                     callout=_callout,
+                    outcome_stage=(
+                        "validation" if reason == "geometry_validation" else "placement"
+                    ),
                 )
 
             collect_feature_leader(
