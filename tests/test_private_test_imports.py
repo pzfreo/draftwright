@@ -47,6 +47,14 @@ _ALLOW: frozenset[tuple[str, str]] = frozenset(
         ("from_model", "_fillet_label"),
         ("from_model", "_flat_label"),
         ("from_model", "_groove_label"),
+        # _segments_clearing_title_block: the section's title-block filter (#1190). Same
+        # rationale as _diameter_step_anchor below — the condition only bites when the
+        # section row dips into the title-block band, which depends on page size and
+        # part height, so a build-seam test needs geometry that happens to trip it. The
+        # first attempt at this guard used a fixture whose row did NOT dip in: it passed
+        # under a mutation that deleted the filter entirely. A pure helper is testable
+        # without hunting for such geometry, and its mutation demonstrably fails.
+        ("sections", "_segments_clearing_title_block"),
         # Pure geometry/selection helpers with unit-level coverage.
         ("from_model", "_bore_half_span"),
         ("from_model", "_diameter_column_left"),

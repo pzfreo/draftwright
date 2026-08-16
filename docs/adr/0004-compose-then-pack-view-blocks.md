@@ -1,7 +1,12 @@
 # ADR 0004 — Compose-then-pack: views as blocks carrying their annotation footprint
 
 - **Status:** Accepted (2026-06-19; amended 2026-06-20, 2026-07-09,
-  2026-07-18 and 2026-08-14 — see Amendments)
+  2026-07-18 and 2026-08-14 — see Amendments). **Its fixed four-view topology
+  assumption is superseded by [ADR 0018](0018-requirement-driven-view-planning-and-editable-sheet-layout.md)
+  (accepted 2026-08-16)**: which view blocks exist is now 0018's decision. Everything
+  else here stands and is what 0018 builds on — each selected view is still composed
+  with its annotation footprint before outer packing, and footprints are still page-mm
+  box layouts rather than bbox-measured geometry.
 - **Date:** 2026-06-19
 - **Deciders:** Paul Fremantle (pzfreo)
 
