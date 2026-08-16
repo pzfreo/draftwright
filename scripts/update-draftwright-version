@@ -9,16 +9,15 @@ import subprocess
 import sys
 from pathlib import Path
 
-_DEV_VERSION = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)\.dev0$")
+_VERSION = re.compile(
+    r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:\.dev(0|[1-9]\d*))?$"
+)
 
 
-def main() -> int:
-    root = Path(__file__).resolve().parents[1]
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("version")
-    args = parser.parse_args()
-    if not _DEV_VERSION.fullmatch(args.version):
-        parser.error("post-release version must be X.Y.Z.dev0")
+def update(root: Path, target: str) -> None:
+    """Update package metadata and the independently validated consumer identity together."""
+    if not _VERSION.fullmatch(target):
+        raise ValueError("version must be X.Y.Z or X.Y.Z.devN")
     project = root / "pyproject.toml"
     lock = root / "uv.lock"
     contract = root / "src/draftwright/recogniser_contract.py"
@@ -29,18 +28,29 @@ def main() -> int:
     current = current_match.group(1)
     contract_text = contract.read_text(encoding="utf-8")
     old_identity = f'"consumer": {{"name": "draftwright", "version": "{current}"}}'
-    new_identity = f'"consumer": {{"name": "draftwright", "version": "{args.version}"}}'
+    new_identity = f'"consumer": {{"name": "draftwright", "version": "{target}"}}'
     if contract_text.count(old_identity) != 1:
         raise RuntimeError("consumer declaration version is stale before the bump")
     snapshots = {path: path.read_bytes() for path in (project, lock, contract)}
     try:
-        subprocess.run(["uv", "version", args.version], cwd=root, check=True)
+        subprocess.run(["uv", "version", "--no-sync", target], cwd=root, check=True)
         contract.write_text(contract_text.replace(old_identity, new_identity), encoding="utf-8")
     except BaseException:
         for path, content in snapshots.items():
             path.write_bytes(content)
         raise
-    print(f"prepared Draftwright {current} -> {args.version}")
+    print(f"prepared Draftwright {current} -> {target}")
+
+
+def main() -> int:
+    root = Path(__file__).resolve().parents[1]
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("version")
+    args = parser.parse_args()
+    try:
+        update(root, args.version)
+    except ValueError as error:
+        parser.error(str(error))
     return 0
 
 

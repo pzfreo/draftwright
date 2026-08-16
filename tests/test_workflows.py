@@ -115,6 +115,7 @@ def test_testpypi_snapshot_build_and_publish_share_one_job():
     assert "if: github.event_name == 'push'" in snapshot
     assert "environment: testpypi" in snapshot
     assert "contents: read\n      id-token: write" in snapshot
+    assert 'scripts/update-draftwright-version "${base}.dev${RUN_NUMBER}"' in snapshot
     assert "- run: uv build" in snapshot
     assert (
         "- uses: pypa/gh-action-pypi-publish@"
@@ -122,4 +123,5 @@ def test_testpypi_snapshot_build_and_publish_share_one_job():
     )
     assert "repository-url: https://test.pypi.org/legacy/" in snapshot
     assert "if: github.event_name == 'release'" in _job(workflow, "build-release")
+    assert 'scripts/update-draftwright-version "$base"' in _job(workflow, "build-release")
     assert "needs: build-release" in _job(workflow, "publish-pypi")

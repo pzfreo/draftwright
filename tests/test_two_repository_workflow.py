@@ -99,6 +99,37 @@ def test_post_release_version_bump_is_a_pr_not_a_protected_main_push() -> None:
     assert "git push\n" not in bump
 
 
+@pytest.mark.parametrize("target", ("0.4.7", "0.4.8.dev0", "0.4.8.dev123"))
+def test_version_updater_keeps_release_and_development_identity_atomic(
+    tmp_path: Path, target: str
+) -> None:
+    for relative in (
+        "pyproject.toml",
+        "uv.lock",
+        "src/draftwright/recogniser_contract.py",
+    ):
+        destination = tmp_path / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(ROOT / relative, destination)
+
+    loader = SourceFileLoader(
+        "draftwright_version_update",
+        str(ROOT / "scripts/update-draftwright-version"),
+    )
+    spec = spec_from_loader(loader.name, loader)
+    assert spec is not None
+    module = module_from_spec(spec)
+    loader.exec_module(module)
+    module.update(tmp_path, target)
+
+    assert f'version = "{target}"' in (tmp_path / "pyproject.toml").read_text()
+    lock = (tmp_path / "uv.lock").read_text()
+    package = lock.split('[[package]]\nname = "draftwright"', 1)[1].split("[[package]]", 1)[0]
+    assert f'version = "{target}"' in package
+    contract = (tmp_path / "src/draftwright/recogniser_contract.py").read_text()
+    assert contract.count(f'"consumer": {{"name": "draftwright", "version": "{target}"}}') == 1
+
+
 def test_current_release_lock_has_machine_checked_registry_evidence() -> None:
     lock = (ROOT / "uv.lock").read_text(encoding="utf-8")
     assert lock.count('name = "b123d-recognisers"') > 1, (

@@ -34,7 +34,7 @@ jobs:
         run: |
           current=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
           base="${current%.dev*}"
-          uv version "${base}.dev${RUN_NUMBER}"
+          scripts/update-draftwright-version "${base}.dev${RUN_NUMBER}"
       - run: uv build
       - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
         with:
@@ -57,7 +57,7 @@ jobs:
         run: |
           current=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
           base="${current%.dev*}"
-          uv version "$base"
+          scripts/update-draftwright-version "$base"
       - run: uv build
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:

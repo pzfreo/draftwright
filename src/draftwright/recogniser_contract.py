@@ -235,7 +235,16 @@ def _resolve_implementation(reference: str) -> object:
     raise RecogniserCapabilityError(f"stale implementation module in {reference!r}")
 
 
-def _validate_stage(stage: object, family_id: str, boundary: str, root: Path) -> None:
+def _evidence_reference_is_valid(path: object, root: Path | None) -> bool:
+    if not isinstance(path, str) or not path:
+        return False
+    candidate = Path(path)
+    if candidate.is_absolute() or ".." in candidate.parts:
+        return False
+    return root is None or (root / candidate).is_file()
+
+
+def _validate_stage(stage: object, family_id: str, boundary: str, root: Path | None) -> None:
     context = f"family {family_id!r} boundary {boundary!r}"
     if not isinstance(stage, dict) or set(stage) - {
         "evidence",
@@ -266,7 +275,7 @@ def _validate_stage(stage: object, family_id: str, boundary: str, root: Path) ->
                 f"{context} evidence must be non-empty, unique and sorted"
             )
         for path in evidence:
-            if not isinstance(path, str) or not (root / path).is_file():
+            if not _evidence_reference_is_valid(path, root):
                 raise RecogniserCapabilityError(
                     f"{context} evidence {path!r} is missing; add an independent behavior test"
                 )
@@ -371,7 +380,10 @@ def validate_recogniser_capabilities(
             f"unknown={missing}, stale={stale}; "
             "declare every package family explicitly"
         )
-    root = source_root or Path(__file__).resolve().parents[2]
+    checkout_root = Path(__file__).resolve().parents[2]
+    root = source_root
+    if root is None and (checkout_root / "pyproject.toml").is_file():
+        root = checkout_root
     for family in families:
         family_id = family["id"]
         allowed = {
@@ -502,9 +514,9 @@ def validate_recogniser_capabilities(
             or not isinstance(evidence, list)
             or not evidence
             or evidence != sorted(set(evidence))
-            or any(not isinstance(path, str) or not (root / path).is_file() for path in evidence)
+            or any(not _evidence_reference_is_valid(path, root) for path in evidence)
             or not isinstance(notes, str)
-            or not (root / notes).is_file()
+            or not _evidence_reference_is_valid(notes, root)
             or not re.fullmatch(r"\d+\.\d+\.\d+(?:\.dev\d+)?", str(transition["version"]))
         ):
             raise RecogniserCapabilityError(

@@ -30,6 +30,12 @@
 
 ### Fixed
 
+- Stable release and TestPyPI snapshot builds now update package metadata and the independently
+  validated Draftwright consumer-contract identity atomically. This prevents stripped `.dev0`
+  and numbered development artifacts from failing their own capability-contract validation.
+- Installed wheels validate every portable recogniser-contract property without requiring the
+  repository-only behavior-test files whose existence remains a strict source/CI gate. This keeps
+  the packaged STEP-analysis evaluator usable without weakening evidence checks in development.
 - Post-release development-version bumps now update the consumer-contract identity on a branch,
   open a protected PR, and dispatch the narrow maintenance gate instead of attempting a rejected
   direct push to protected `main` (#1170).

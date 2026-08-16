@@ -15,6 +15,7 @@ import b123d_recognisers as recognition
 import pytest
 from build123d import Cylinder
 
+import draftwright.recogniser_contract as contract_module
 from draftwright.model.detect import (
     _CONVERTERS,
     _DERIVED_CONVERTERS,
@@ -33,6 +34,20 @@ ROOT = Path(__file__).parents[1]
 PINNED_VERSION = json.loads(
     (ROOT / ".github/recogniser-release.json").read_text(encoding="utf-8")
 )["version"]
+
+
+def test_installed_wheel_layout_validates_portable_contract_without_source_evidence(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    installed_module = tmp_path / "lib/python/site-packages/draftwright/recogniser_contract.py"
+    monkeypatch.setattr(contract_module, "__file__", str(installed_module))
+
+    validate_recogniser_capabilities()
+
+
+@pytest.mark.parametrize("reference", [None, "", "/tmp/evidence.py", "../evidence.py"])
+def test_installed_wheel_rejects_nonportable_evidence_references(reference: object) -> None:
+    assert not contract_module._evidence_reference_is_valid(reference, None)
 
 
 def _families(declaration: dict) -> dict[str, dict]:
