@@ -216,6 +216,8 @@ jobs:
     if: always()
     needs: [lint, test, coverage]
     runs-on: ubuntu-latest
+    permissions:
+      statuses: write # Attach the dispatched maintenance gate to its generated PR head.
     steps:
       - name: Require every gating job to have succeeded or been legitimately skipped
         env:
@@ -236,3 +238,16 @@ jobs:
             esac
           done
           exit $failed
+
+      - name: Attach successful maintenance gate to the generated PR head
+        if: inputs.maintenance_bump
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: >-
+          gh api --method POST
+          "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}"
+          -f state=success
+          -f context=ci-ok
+          -f description="Maintenance CI passed"
+          -f target_url="$TARGET_URL"

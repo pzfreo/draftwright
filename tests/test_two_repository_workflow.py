@@ -69,6 +69,10 @@ def test_maintenance_dispatch_runs_one_coverage_suite_and_never_the_slow_tier() 
     assert "github.event_name != 'push' && !inputs.maintenance_bump" in workflow
     assert "maintenance_pr_number" in workflow
     assert "override_pr:" in workflow
+    assert "statuses: write" in workflow
+    assert "statuses/${GITHUB_SHA}" in workflow
+    assert "context=ci-ok" in workflow
+    assert "if: inputs.maintenance_bump" in workflow
 
 
 def test_dependency_bump_automation_opens_a_pr_and_dispatches_narrow_ci() -> None:
