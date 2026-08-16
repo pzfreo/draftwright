@@ -234,22 +234,8 @@ def _add_section_view(dwg, a: Analysis, section, *, ctx):
         if y0 < row_y1 and row_y0 < y1 and x1 > side_right
     ]
     free = carve_free_segments(side_right + 10, right_limit, blocked, 6.0)
-    pos_x = next(
-        (lo + half_w for lo, hi in free if hi - lo >= 2 * half_w),
-        right_limit + half_w,  # nothing fits: fail the check below exactly as before
-    )
-    tb_left = a.PAGE_W - a.TB_W - _TB_CLEAR
-    if a.FV_Y - half_h - 10 < _TB_CLEAR + _TB_H and pos_x + half_w > tb_left - 4:
-        _skip_section(
-            dwg,
-            ctx,
-            "title_block",
-            "would collide with the title block; "
-            f"the caption sits at y={a.FV_Y - half_h - 7:.1f} and the title block "
-            f"reaches y={_TB_CLEAR + _TB_H:.1f}",
-        )
-        return
-    if pos_x + half_w > right_limit:
+    fitting = [(lo, hi) for lo, hi in free if hi - lo >= 2 * half_w]
+    if not fitting:
         _skip_section(
             dwg,
             ctx,
@@ -258,6 +244,27 @@ def _add_section_view(dwg, a: Analysis, section, *, ctx):
             f"{2 * half_w:.1f} mm section within x<={right_limit:.1f}",
         )
         return
+    # The section's row dips into the title-block band only when its CAPTION does —
+    # the view itself can clear the block while the caption at `-half_h - 7` does not,
+    # which is exactly why GRM-01 is refused on A4 (view bottom y 49.5, caption y 42.5,
+    # block top y 46.0). Every fitting segment is tested, not just the leftmost: a
+    # segment further left may clear the block where the first does not.
+    tb_left = a.PAGE_W - a.TB_W - _TB_CLEAR
+    shares_title_row = a.FV_Y - half_h - 10 < _TB_CLEAR + _TB_H
+    usable = [
+        (lo, hi) for lo, hi in fitting if not shares_title_row or lo + 2 * half_w <= tb_left - 4
+    ]
+    if not usable:
+        _skip_section(
+            dwg,
+            ctx,
+            "title_block",
+            "would collide with the title block; the caption sits at "
+            f"y={a.FV_Y - half_h - 7:.1f} and the title block reaches "
+            f"y={_TB_CLEAR + _TB_H:.1f} out to x={tb_left:.1f}",
+        )
+        return
+    pos_x = usable[0][0] + half_w
 
     big = 4 * a.bbox_max
     # STEP imports with PMI carry annotation curves beside the solid, and a
@@ -265,7 +272,7 @@ def _add_section_view(dwg, a: Analysis, section, *, ctx):
     # never let a failed boolean abort the whole drawing
     solids = a.part.solids()
     if not solids:
-        _skip_section(dwg, ctx, "no_solids", "no solid bodies to cut")
+        _skip_section(dwg, ctx, "no_solids", "no solid bodies to cut", stage="validation")
         return
     body = solids[0] if len(solids) == 1 else Compound(children=list(solids))
     try:
@@ -273,10 +280,10 @@ def _add_section_view(dwg, a: Analysis, section, *, ctx):
         # (Standard_DomainError) on some cast geometry — see _fuzzy_cut / #20.
         keep_behind = _fuzzy_cut(body, Pos(a.cx, y_star - big / 2, a.cz) * Box(big, big, big))
     except Exception as exc:  # noqa: BLE001 — OCC booleans raise broadly
-        _skip_section(dwg, ctx, "cut_failed", f"cut failed: {exc}")
+        _skip_section(dwg, ctx, "cut_failed", f"cut failed: {exc}", stage="validation")
         return
     if keep_behind is None:
-        _skip_section(dwg, ctx, "cut_empty", "boolean cut produced no solid")
+        _skip_section(dwg, ctx, "cut_empty", "boolean cut produced no solid", stage="validation")
         return
     # Resolve the final cutting-plane ink before committing the section view.
     # Optional section furniture yields if a required landed feature leader
@@ -427,7 +434,9 @@ def _add_section_letters(dwg, y_page, x0, x1, *, ctx):
     ctx.place(Note("A", (x1 + 3, y_page + lift), dwg.draft), "section_a_right")
 
 
-def _skip_section(dwg, ctx, reason: str, detail: str, *, severity: str = "warning") -> None:
+def _skip_section(
+    dwg, ctx, reason: str, detail: str, *, severity: str = "warning", stage: str = "placement"
+) -> None:
     """Abandon section A–A, recording the outcome the same way on every path (#1190).
 
     The one exit for a warranted-but-unplaced section. Before this, each skip logged
@@ -437,6 +446,12 @@ def _skip_section(dwg, ctx, reason: str, detail: str, *, severity: str = "warnin
     profile, so its loss is a `section_dropped` lint issue (the `*_dropped` suffix
     puts it in the legibility inventory automatically) AND a structured record on the
     drawing, which is what a caller can actually branch on.
+
+    *stage* separates the two kinds of loss, as the codebase does elsewhere: a
+    ``placement`` drop is a required outcome the scale search can try to rescue by
+    rescaling, while a ``validation`` failure (no solids, a boolean that would not
+    cut) is a geometry fact no scale can change — sending the search hunting for a
+    smaller scale would burn the whole ladder to arrive at the same answer.
     """
     _log.warning("Section A–A skipped (%s)", detail)
     dwg.record_section_decision("skipped", reason=reason, detail=detail)
@@ -444,7 +459,7 @@ def _skip_section(dwg, ctx, reason: str, detail: str, *, severity: str = "warnin
         severity,
         "section_dropped",
         f"section A–A not placed ({detail})",
-        outcome_stage="placement",
+        outcome_stage=stage,
     )
     _clear_section_reservation(dwg)
 

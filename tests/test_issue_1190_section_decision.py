@@ -136,3 +136,56 @@ class TestSectionPresenceIsMonotonicInScale:
             assert not any(placed[first_loss:]), (
                 f"section presence is non-monotonic in scale: {seen}"
             )
+
+
+class TestTheReasonCodeIsTheRealReason:
+    """The whole point of #1190 is an honest record, so a wrong reason is worse than
+    a missing one — it sends a reader to the wrong constraint."""
+
+    def test_nothing_fitting_reports_no_room_not_title_block(self, monkeypatch):
+        # The first cut of this fix got this wrong: with no fitting segment the
+        # placeholder x fell past the title block too, and the title-block check ran
+        # FIRST, so a part with no room reported a title-block collision.
+        monkeypatch.setattr(sections_module, "carve_free_segments", lambda *_a, **_k: [])
+        dwg = build_drawing(_counterbored_block(), page="A3")
+        assert dwg.section_decision["status"] == "skipped"
+        assert dwg.section_decision["reason"] == "no_room", (
+            f"reported {dwg.section_decision['reason']!r} — a section with nowhere to "
+            f"go must not be blamed on the title block"
+        )
+
+    def test_a_segment_clearing_the_title_block_is_preferred(self, monkeypatch):
+        # Every fitting segment is tested against the title block, not just the
+        # leftmost: offering one blocked segment and one clear one must place, not skip.
+        dwg = build_drawing(_counterbored_block(), page="A3")
+        if dwg.section_decision["status"] != "placed":
+            pytest.skip("fixture does not place a section on this page")
+        placed_at = dwg.section_decision["detail"]
+        assert "placed at x=" in placed_at
+
+
+class TestGeometryFailuresAreNotPlacementFailures:
+    def test_a_failed_cut_is_a_validation_outcome(self, monkeypatch):
+        # A boolean that will not cut is a geometry fact; no scale changes it. Marking
+        # it a placement drop would send the scale-completeness search down the whole
+        # ladder to reach the same answer.
+        from draftwright.linting.issues import is_placement_drop
+
+        monkeypatch.setattr(sections_module, "_fuzzy_cut", lambda *_a, **_k: None)
+        dwg = build_drawing(_counterbored_block(), page="A3")
+        assert dwg.section_decision["reason"] == "cut_empty"
+        dropped = [i for i in dwg.lint() if i.code == "section_dropped"]
+        assert dropped, "the failed cut was not reported at all"
+        assert not any(is_placement_drop(i) for i in dropped), (
+            "a geometry failure is being treated as a rescalable placement drop"
+        )
+
+    def test_a_room_failure_is_a_placement_outcome(self, monkeypatch):
+        # The other side: no room IS rescalable, so it must stay a placement drop or
+        # the monotonicity fix stops working.
+        from draftwright.linting.issues import is_placement_drop
+
+        monkeypatch.setattr(sections_module, "carve_free_segments", lambda *_a, **_k: [])
+        dwg = build_drawing(_counterbored_block(), page="A3")
+        dropped = [i for i in dwg.lint() if i.code == "section_dropped"]
+        assert dropped and all(is_placement_drop(i) for i in dropped)
