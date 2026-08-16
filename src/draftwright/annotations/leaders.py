@@ -31,7 +31,12 @@ from draftwright.annotations._common import (
     annotation_obstacle_boxes,
     strip_obstacles,
 )
-from draftwright.layout import _FLOW_COST_SCALE, _LEADER_ASSIGN_MAX_JOBS, _assign_leader_candidates
+from draftwright.layout import (
+    _FLOW_COST_SCALE,
+    _LEADER_ASSIGN_MAX_JOBS,
+    _assign_leader_candidates,
+    _LeaderAssignment,
+)
 from draftwright.model.compiled import resolve_feature
 from draftwright.projection import _MATERIAL_PAGE_TOLERANCE
 
@@ -596,6 +601,56 @@ def _candidate_hits_component(
         for candidate_polygon in candidate.ink_polygons
         for fixed_polygon in component.polygons
     )
+
+
+def _assign_by_view(
+    job_views,
+    costs_by_job,
+    conflicts,
+    *,
+    priorities,
+    penalties_by_job,
+):
+    """Solve the leader assignment independently per view and merge the results (#1188).
+
+    **Exact, not an approximation.** Two facts make the problem separable: a candidate
+    conflict is only ever constructed for a same-view pair, and every term of the
+    lexicographic objective (placed, priority, penalty, cost) is a sum over jobs. The
+    optimum of the whole inventory is therefore the union of the per-view optima.
+
+    The reason to bother is that the search is combinatorial in the number of jobs. Solved
+    as one set, a twenty-job part exhausts the state budget and falls back to the greedy
+    floor — which is what was happening on every dense fixture, so Amendment 2's
+    guarantees applied precisely nowhere they were needed. Solved per view, the same
+    inventory is three small searches that complete.
+
+    Each view gets the full state budget: the budgets bound the work of one search, and
+    these searches are independent.
+    """
+    order: dict[str, list[int]] = {}
+    for job_index, view in enumerate(job_views):
+        order.setdefault(view, []).append(job_index)
+    choices: list[int | None] = [None] * len(costs_by_job)
+    optimal = True
+    states = 0
+    for view, members in order.items():
+        local = {job_index: position for position, job_index in enumerate(members)}
+        local_conflicts = [
+            (local[left_job], left_candidate, local[right_job], right_candidate)
+            for left_job, left_candidate, right_job, right_candidate in conflicts
+            if left_job in local and right_job in local
+        ]
+        result = _assign_leader_candidates(
+            [costs_by_job[job_index] for job_index in members],
+            local_conflicts,
+            priorities=[priorities[job_index] for job_index in members],
+            penalties_by_job=[penalties_by_job[job_index] for job_index in members],
+        )
+        for position, job_index in enumerate(members):
+            choices[job_index] = result.choices[position]
+        optimal = optimal and result.optimal
+        states += result.states
+    return _LeaderAssignment(tuple(choices), optimal, states)
 
 
 def _material_units(candidate: _MeasuredLeaderCandidate, field) -> int:
@@ -1650,16 +1705,22 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
     if len(jobs) > _LEADER_ASSIGN_MAX_JOBS:
         return greedy("greedy_job_budget")
 
-    candidate_count = 0
+    # Budgets are per VIEW, because the solve is (#1188). Jobs in different views never
+    # conflict, so they are separate searches sharing nothing; charging them against one
+    # global allowance made a three-view part exhaust the budget at a third of the
+    # inventory each view could actually handle, and every dense fixture fell back to the
+    # greedy floor before the exact solve began.
     candidate_counts_by_job = []
+    candidates_by_view: dict[str, int] = {}
     for job_index, iterator in enumerate(raw_jobs):
-        remaining = _FEATURE_LEADER_MAX_CANDIDATES - candidate_count
+        view = jobs[job_index].view
+        remaining = _FEATURE_LEADER_MAX_CANDIDATES - candidates_by_view.get(view, 0)
         prefix = list(islice(iterator, remaining + 1))
         if len(prefix) > remaining:
             raw_jobs[job_index] = chain(prefix, iterator)
             return greedy("greedy_candidate_budget")
         raw_jobs[job_index] = iter(prefix)
-        candidate_count += len(prefix)
+        candidates_by_view[view] = candidates_by_view.get(view, 0) + len(prefix)
         candidate_counts_by_job.append(len(prefix))
 
     fixed = bounded_fixed_obstacles()
@@ -1668,11 +1729,11 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
             "greedy_fixed_inventory_budget",
             fixed_probe_bound=_FEATURE_LEADER_MAX_FIXED_PROBES + 1,
         )
-    fixed_probe_bound = sum(
-        count * len(fixed[job.view])
-        for count, job in zip(candidate_counts_by_job, jobs, strict=True)
-    )
-    if fixed_probe_bound > _FEATURE_LEADER_MAX_FIXED_PROBES:
+    probes_by_view: dict[str, int] = {}
+    for count, job in zip(candidate_counts_by_job, jobs, strict=True):
+        probes_by_view[job.view] = probes_by_view.get(job.view, 0) + count * len(fixed[job.view])
+    fixed_probe_bound = sum(probes_by_view.values())
+    if any(bound > _FEATURE_LEADER_MAX_FIXED_PROBES for bound in probes_by_view.values()):
         return greedy(
             "greedy_fixed_probe_budget",
             fixed_probe_bound=fixed_probe_bound,
@@ -1736,7 +1797,8 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
                     if _candidate_conflict(earlier, later):
                         conflicts.append((earlier_job, earlier_index, later_job, later_index))
 
-    assignment = _assign_leader_candidates(
+    assignment = _assign_by_view(
+        [job.view for job in jobs],
         [[candidate.cost for candidate in candidates] for candidates in viable_by_job],
         conflicts,
         priorities=[job.priority for job in jobs],
@@ -1839,7 +1901,8 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
             max((len(blockers) for blockers in job_blockers), default=0)
             for job_blockers in provisional_blockers_by_job
         )
-        refined = _assign_leader_candidates(
+        refined = _assign_by_view(
+            [job.view for job in jobs],
             [[candidate.cost for candidate in candidates] for candidates in viable_by_job],
             conflicts,
             priorities=[job.priority for job in jobs],
