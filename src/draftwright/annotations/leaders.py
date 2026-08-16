@@ -132,12 +132,13 @@ def _coerce_segments(raw) -> tuple:
     try:
         for segment in raw:
             first, second = segment
-            out.append(
-                (
-                    (float(first[0]), float(first[1])),
-                    (float(second[0]), float(second[1])),
-                )
+            parsed = (
+                (float(first[0]), float(first[1])),
+                (float(second[0]), float(second[1])),
             )
+            if any(not math.isfinite(value) for point in parsed for value in point):
+                return ()
+            out.append(parsed)
     except Exception:  # noqa: BLE001 — optional metadata iterators may fail
         return ()
     return tuple(out)
@@ -798,10 +799,13 @@ def _annotation_fixed_ink(dwg, name, annotation, *, max_components=None):
             not math.isfinite(coordinate) for point in points for coordinate in point
         ):
             return unavailable()
+        hull = _convex_hull(points)
+        if len(hull) < 3:
+            return unavailable()
         components.append(
             _FixedInkComponent(
                 f"{name}:ink:{index}",
-                polygons=(points,),
+                polygons=(hull,),
                 owner=owner,
                 kind=kind,
             )

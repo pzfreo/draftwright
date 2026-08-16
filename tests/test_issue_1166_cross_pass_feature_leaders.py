@@ -1295,7 +1295,7 @@ def test_empty_faces_accept_an_explicit_complete_fixed_ink_footprint():
 
     assert components is not _FIXED_INVENTORY_EXHAUSTED
     assert [component.name for component in components] == ["explicit_fixed_ink:ink:0"]
-    assert components[0].polygons == (polygon,)
+    assert set(components[0].polygons[0]) == set(polygon)
 
 
 @pytest.mark.parametrize("raising_attribute", ["segments", "fixed_ink_polygons", "label_bbox"])
@@ -1323,6 +1323,59 @@ def test_raising_fixed_metadata_uses_the_unavailable_inventory_contract(raising_
 
     assert bounded is _FIXED_INVENTORY_EXHAUSTED
     assert conservative[-1].name == "raising_metadata:geometry_unverified"
+    assert conservative[-1].box == (0.0, 0.0, drawing.page_w, drawing.page_h)
+
+
+@pytest.mark.parametrize("coordinate", [float("nan"), float("inf"), -float("inf")])
+def test_nonfinite_fixed_segments_use_the_unavailable_inventory_contract(coordinate):
+    drawing = build_drawing(Box(10, 10, 2), page="A4", auto_dims=False)
+    annotation = SimpleNamespace(
+        segments=(((coordinate, 0.0), (1.0, 0.0)),),
+        fixed_ink_polygons=(),
+        label_bbox=None,
+        faces=lambda: (Face.make_rect(1.0, 1.0),),
+    )
+
+    bounded = _annotation_fixed_ink(
+        drawing,
+        "nonfinite_segment",
+        annotation,
+        max_components=8,
+    )
+    conservative = _annotation_fixed_ink(drawing, "nonfinite_segment", annotation)
+
+    assert bounded is _FIXED_INVENTORY_EXHAUSTED
+    assert conservative[-1].name == "nonfinite_segment:geometry_unverified"
+    assert conservative[-1].box == (0.0, 0.0, drawing.page_w, drawing.page_h)
+
+
+@pytest.mark.parametrize(
+    "polygon",
+    [
+        ((0.0, 0.0), (1.0, 0.0)),
+        ((0.0, 0.0), (1.0, 0.0), (2.0, 0.0)),
+        ((0.0, 0.0), (float("nan"), 0.0), (0.0, 1.0)),
+    ],
+)
+def test_malformed_fixed_polygons_use_the_unavailable_inventory_contract(polygon):
+    drawing = build_drawing(Box(10, 10, 2), page="A4", auto_dims=False)
+    annotation = SimpleNamespace(
+        segments=(),
+        fixed_ink_polygons=(polygon,),
+        label_bbox=None,
+        faces=lambda: (),
+    )
+
+    bounded = _annotation_fixed_ink(
+        drawing,
+        "malformed_polygon",
+        annotation,
+        max_components=8,
+    )
+    conservative = _annotation_fixed_ink(drawing, "malformed_polygon", annotation)
+
+    assert bounded is _FIXED_INVENTORY_EXHAUSTED
+    assert conservative[-1].name == "malformed_polygon:geometry_unverified"
     assert conservative[-1].box == (0.0, 0.0, drawing.page_w, drawing.page_h)
 
 
