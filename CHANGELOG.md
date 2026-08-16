@@ -22,6 +22,14 @@
 
 ### Changed
 
+- Updated the exact `b123d-recognisers` production lock from 0.2.2 to 0.2.4.
+  The immutable PyPI wheel/sdist hashes and capability-manifest digest `d0023d30e583c03abc55f09dfeaaa56fddf56334afa0417818480b2fa2ce3f0f` are
+  recorded in `.github/recogniser-release.json`; focused compatibility evidence and the
+  normal consumer gates run on the generated PR.
+- Updated the exact `b123d-recognisers` production lock from 0.2.1 to 0.2.2.
+  The immutable PyPI wheel/sdist hashes and capability-manifest digest `7985befc8572bfe6d1c0805dfdf690d74a5a4a5f14d5988cc29c366315ff04ca` are
+  recorded in `.github/recogniser-release.json`; focused compatibility evidence and the
+  normal consumer gates run on the generated PR.
 - Updated the exact `b123d-recognisers` production lock from 0.2.0 to 0.2.1.
   The immutable PyPI wheel/sdist hashes and capability-manifest digest
   `383a196329ed6a3d1bf88f18ae4ff75613c032f35d40f2b53302b6744da4d19e` are
