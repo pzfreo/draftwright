@@ -238,7 +238,12 @@ def _measure(raw_index, raw, job: FeatureLeaderJob, draft) -> _MeasuredLeaderCan
                 if raw_label is None:
                     raise ValueError("missing analytical label box")
                 label_box = tuple(float(value) for value in raw_label)
-                if len(label_box) != 4 or not all(math.isfinite(value) for value in label_box):
+                if (
+                    len(label_box) != 4
+                    or not all(math.isfinite(value) for value in label_box)
+                    or label_box[0] >= label_box[2]
+                    or label_box[1] >= label_box[3]
+                ):
                     raise ValueError("invalid analytical label box")
                 segments = tuple(
                     (
@@ -821,7 +826,19 @@ def _annotation_fixed_ink(dwg, name, annotation, *, max_components=None):
         return _FIXED_INVENTORY_EXHAUSTED
     if residual is None:
         geometry = _geom_box(annotation, getattr(dwg, "box_cache", None))
-        if geometry is not None:
+        if geometry is None:
+            if max_components is not None:
+                return _FIXED_INVENTORY_EXHAUSTED
+            geometry = (0.0, 0.0, float(dwg.page_w), float(dwg.page_h))
+            components.append(
+                _FixedInkComponent(
+                    f"{name}:geometry_unverified",
+                    box=geometry,
+                    owner=owner,
+                    kind=kind,
+                )
+            )
+        else:
             components.append(
                 _FixedInkComponent(
                     f"{name}:geometry",

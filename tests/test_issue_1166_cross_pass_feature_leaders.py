@@ -984,6 +984,8 @@ def test_rendered_validation_failure_replays_the_producer_tail(
         "geometry_none",
         "missing_label",
         "malformed_analytical",
+        "reversed_label",
+        "degenerate_label",
         "nonfinite_segment",
         "overflow_analytical",
     ],
@@ -1023,6 +1025,10 @@ def test_candidate_measurement_failure_is_truthful_and_does_not_abort(
             return None
         if failure == "missing_label" and (elbow == bad or not valid_tail):
             return None, (((0.0, 0.0), (1.0, 1.0)),)
+        if failure == "reversed_label" and (elbow == bad or not valid_tail):
+            return (10.0, 10.0, 5.0, 5.0), (((0.0, 0.0), (1.0, 1.0)),)
+        if failure == "degenerate_label" and (elbow == bad or not valid_tail):
+            return (5.0, 5.0, 5.0, 6.0), (((0.0, 0.0), (1.0, 1.0)),)
         if failure == "nonfinite_segment" and (elbow == bad or not valid_tail):
             return (0.0, 0.0, 1.0, 1.0), (((0.0, 0.0), (float("inf"), 1.0)),)
         if failure == "overflow_analytical" and (elbow == bad or not valid_tail):
@@ -1186,6 +1192,39 @@ def test_zero_component_budget_stops_before_rendered_face_lowering():
 
     assert result is _FIXED_INVENTORY_EXHAUSTED
     assert face_calls == 1
+
+
+def test_failed_residual_and_box_extraction_cannot_certify_partial_fixed_ink():
+    drawing = build_drawing(Box(10, 10, 2), page="A4", auto_dims=False)
+
+    def unavailable():
+        raise RuntimeError("rendered geometry unavailable")
+
+    annotation = SimpleNamespace(
+        segments=(((0.0, 0.0), (1.0, 0.0)),),
+        fixed_ink_polygons=(),
+        label_bbox=None,
+        faces=unavailable,
+        bounding_box=unavailable,
+    )
+
+    bounded = _annotation_fixed_ink(
+        drawing,
+        "unavailable_fixed_ink",
+        annotation,
+        max_components=8,
+    )
+    conservative = _annotation_fixed_ink(
+        drawing,
+        "unavailable_fixed_ink",
+        annotation,
+    )
+
+    assert bounded is _FIXED_INVENTORY_EXHAUSTED
+    assert [component.name for component in conservative][-1] == (
+        "unavailable_fixed_ink:geometry_unverified"
+    )
+    assert conservative[-1].box == (0.0, 0.0, drawing.page_w, drawing.page_h)
 
 
 def test_fixed_residual_keeps_a_face_bridging_disjoint_known_components():
