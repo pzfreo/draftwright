@@ -98,7 +98,9 @@ from draftwright.linting import (
 from draftwright.linting.issues import _collect_issue_aggregation, _current_issue_aggregation
 from draftwright.linting.quality import quality_components
 from draftwright.projection import (
+    part_material_mesh,
     project_view_geometry,
+    view_material_field,
 )
 from draftwright.recognition_cache import RecognitionCache
 from draftwright.registry import AnnotationRegistry
@@ -326,6 +328,11 @@ class BuildState:
     part_model: object | None = None
     view_edge_cache: dict = dataclasses_field(default_factory=dict)
     ann_box_cache: dict = dataclasses_field(default_factory=dict)
+    #: Per-view filled projected material (#798), keyed by ``id(view_shape)`` because the
+    #: projected shapes carry no view label — lint names them ``view@<id>``. Built lazily
+    #: and at most once per drawing: the one tessellation behind it is the expensive part
+    #: (~1 s on CTC-02), and a build→critique→fix loop lints repeatedly.
+    material_fields: dict = dataclasses_field(default_factory=dict)
     principal_profile_cache: tuple[object, bool, tuple[LintIssue, ...]] | None = None
     trace: Any = None
     detail_view: bool = False
@@ -352,6 +359,7 @@ class BuildState:
         boxes together — a rolled-back drawing must re-measure everything."""
         self.view_edge_cache.clear()
         self.ann_box_cache.clear()
+        self.material_fields.clear()
 
     def ensure_recognition(self, part) -> RecognitionResult:
         """The run's recognition aggregate, recognising *part* once if nothing has yet.
@@ -691,6 +699,34 @@ class Drawing:
     @property
     def _ann_box_cache(self) -> dict:
         return self._build.ann_box_cache
+
+    def material_fields(self) -> dict:
+        """The per-view filled projected material of this drawing, keyed by ``id(shape)``.
+
+        The ADR 0014 leader routing and the ``leader_crosses_silhouette`` critique must
+        agree on what counts as travelling through the part, so both read this ONE
+        lowering rather than each deriving the answer from the projected outline. Built at
+        most once per drawing (see :attr:`BuildState.material_fields`); an empty dict means
+        the part could not be meshed, which callers must read as "no material known" rather
+        than "clear" — inventing clearance from a failed lowering is how a silent geometry
+        failure becomes a confident wrong answer.
+        """
+        cache = self._build.material_fields
+        if cache or self._build.analysis is None:
+            return cache
+        part = getattr(self._build.analysis, "part", None)
+        if part is None:
+            return cache
+        mesh = part_material_mesh(part, self.scale)
+        if mesh is None:
+            return cache
+        for name, placed in self.views.items():
+            if not placed or placed[0] is None:
+                continue
+            cache[id(placed[0])] = view_material_field(
+                mesh, lambda point, view=name: self.at(view, *point)[:2]
+            )
+        return cache
 
     @property
     def box_cache(self) -> dict:
@@ -2912,6 +2948,7 @@ class Drawing:
                 view_shapes=view_shapes,
                 view_edge_cache=self._view_edge_cache,
                 ann_box_cache=self._ann_box_cache,
+                view_material_fields=self.material_fields(),
                 _aggregation=aggregation,
             )
         else:
@@ -2924,6 +2961,7 @@ class Drawing:
                     view_shapes=view_shapes,
                     view_edge_cache=self._view_edge_cache,
                     ann_box_cache=self._ann_box_cache,
+                    view_material_fields=self.material_fields(),
                     _aggregation=aggregation,
                 )
         if self.part is not None and physical:

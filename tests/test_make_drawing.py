@@ -9242,8 +9242,19 @@ class TestTurnedDiameters:
 
         codes = {issue.code for issue in dwg.lint()}
         assert "feature_not_dimensioned" not in codes
-        assert "leader_crosses_silhouette" not in codes
         assert "axial_length_missing" not in codes
+
+        # #798: the bolt-circle callout spends 27.6 mm of its 49 mm shaft inside the
+        # flange body. This assertion used to read `not in codes` and passed only
+        # because the check was blind: the outline-crossing form exempted every
+        # `covers_diameters` annotation wholesale, and this is a hole callout. Measured
+        # against the filled material field the cut is real, and pinning WHICH leader
+        # is a stronger guard than the absence it replaces. Front-view hole callouts
+        # keep their specialised placer under ADR 0014, so routing this one clear is
+        # #798's own remaining work.
+        silhouette = [i for i in dwg.lint() if i.code == "leader_crosses_silhouette"]
+        assert len(silhouette) == 1, [i.message for i in silhouette]
+        assert "4× ⌀4 THRU" in silhouette[0].message
 
         for name in tuple(dwg.annotations()):
             if "steplen" in name:
@@ -9473,10 +9484,13 @@ class TestTurnedDiameters:
         # location dimensions. The hole-family ledger added by #1143 reports those two
         # physical requirements honestly on both paths; reconstruction must preserve the
         # same critique as well as the same annotation set.
+        # The `leader_crosses_silhouette` entry is the #798 bolt-circle cut described in
+        # test_issue_881_...; it appears on BOTH paths, which is what this test is
+        # actually about — the replay reproduces the same critique, defects included.
         assert (
             auto.lint_summary()["by_code"]
             == replayed.lint_summary()["by_code"]
-            == {"hole_requirement_missing": 2}
+            == {"hole_requirement_missing": 2, "leader_crosses_silhouette": 1}
         )
 
         # ── from #881: the Y-step furniture lands in the right views on the replay ──
