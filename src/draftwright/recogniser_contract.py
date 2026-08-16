@@ -19,7 +19,7 @@ from b123d_recognisers import capability_manifest
 
 CONSUMER_CAPABILITY_FORMAT = "draftwright-recogniser-capabilities"
 CONSUMER_CAPABILITY_FORMAT_VERSION = 1
-_PACKAGE_VERSION = "0.2.1"
+_PACKAGE_VERSION = "0.2.4"
 _BOUNDARIES = (
     "ir_adapter",
     "dsl_declaration",
