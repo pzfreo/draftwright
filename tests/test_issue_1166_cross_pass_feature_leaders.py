@@ -925,6 +925,7 @@ def test_rendered_validation_failure_replays_the_valid_producer_tail(tmp_path):
     )
     assert event["assignment"] == "greedy_geometry_validation"
     assert event["optimal"] is False
+    assert event["fixed_probes"] <= event["fixed_probe_bound"]
     item = event["items"][0]
     assert [entry["outcome"] for entry in item["candidate_inventory"]] == [
         "geometry_validation",

@@ -1190,7 +1190,7 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
             optimal=False,
             states=states,
             fixed_probes=actual_fixed_probes,
-            fixed_probe_bound=fixed_probe_bound,
+            fixed_probe_bound=max(fixed_probe_bound, actual_fixed_probes),
             pair_probes=pair_probes,
             placed=placed_count,
             priority=total_priority,
