@@ -23,6 +23,7 @@ from draftwright._geometry import (
     _convex_polygons_overlap,
     _leader_ink_polygons,
     _stroke_polygon,
+    material_reentry_span,
 )
 from draftwright.annotations._common import (
     CROSSABLE_TYPES,
@@ -32,11 +33,27 @@ from draftwright.annotations._common import (
 )
 from draftwright.layout import _FLOW_COST_SCALE, _LEADER_ASSIGN_MAX_JOBS, _assign_leader_candidates
 from draftwright.model.compiled import resolve_feature
+from draftwright.projection import _MATERIAL_PAGE_TOLERANCE
 
 _FEATURE_LEADER_MAX_CANDIDATES = 512
 _FEATURE_LEADER_MAX_FIXED_PROBES = 100_000
 _FEATURE_LEADER_MAX_PAIR_PROBES = 100_000
 _FIXED_INVENTORY_EXHAUSTED = object()
+
+# Page mm of shaft buried in the part per unit of Policy-B penalty (#798).
+#
+# This is the exchange rate between the two things the penalty now counts: crossing a
+# piece of committed annotation ink, and cutting back through the part body. Stating it
+# as a rate is the honest form, because neither strict ordering survives the range. A
+# shaft grazing 0.3 mm of material is not worse than crossing a dimension line, and a
+# shaft ploughing 63 mm through three lobes is far worse than crossing several. Charging
+# per visible stroke width makes the trade continuous: ~1 unit for a graze, 254 for that
+# 63 mm cut, so a real cut cannot be bought with a shorter route while a trivial one
+# still loses only a close contest.
+#
+# The unit is the same visible-stroke floor the critique uses, and deliberately so — a
+# cut the sheet cannot show must not steer the solve.
+_MATERIAL_PENALTY_UNIT = 0.25
 
 
 class _FeatureLeaderInvariantError(ValueError):
@@ -575,6 +592,29 @@ def _candidate_hits_component(
     )
 
 
+def _material_units(candidate: _MeasuredLeaderCandidate, field) -> int:
+    """Policy-B penalty units for the part material this candidate's shaft cuts back into.
+
+    Measured on the same tip→elbow shaft, against the same filled field, with the same
+    bridge as the ``leader_crosses_silhouette`` critique, so a route the solver accepts
+    cannot be one the critique then reports — the two are one predicate by construction,
+    not by agreement.
+
+    Re-entry, not total traversal: a leader is attached to the feature it names, so its
+    first passage out of the body is the legitimate exit every callout makes. Charging it
+    would price every correct leader on the sheet as defective.
+    """
+    if field is None or not field:
+        return 0
+    cut = material_reentry_span(
+        candidate.tip,
+        candidate.elbow,
+        field,
+        bridge=_MATERIAL_PAGE_TOLERANCE,
+    )
+    return int(cut / _MATERIAL_PENALTY_UNIT) if cut > _MATERIAL_PENALTY_UNIT else 0
+
+
 def _fixed_blockers(candidate, job, page, fixed_components) -> tuple[str, ...]:
     blockers = []
     label = candidate.label_box
@@ -1073,6 +1113,19 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
         fallback_jobs.append(iter(fallback))
 
     views = tuple(dict.fromkeys(job.view for job in jobs))
+    # The build's ONE filled-material lowering, indexed the way this stage needs it. Taken
+    # from the drawing here rather than threaded through every producer's job, so a new
+    # leader family joins the inventory without having to remember to carry the field —
+    # and so there is exactly one lowering behind both routing and critique (#798).
+    material_by_view: dict[str, Any] = {}
+    try:
+        fields = dwg.material_fields()
+    except Exception:  # noqa: BLE001 — an unmeshable part routes on the other constraints
+        fields = {}
+    for view in views:
+        placed = dwg.views.get(view)
+        if placed and placed[0] is not None:
+            material_by_view[view] = fields.get(id(placed[0]))
     inventory_unset = object()
     committed_inventory = inventory_unset
     provisional_inventory = inventory_unset
@@ -1511,7 +1564,13 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
             )
             placed_count += 1
             total_priority += job.priority
-            total_penalty += len(selected_policy_b)
+            # The resource-cap floor replays the producer's own lazy selection, which does
+            # not weigh material — its contract is only that it cannot place FEWER
+            # callouts than the pre-#1166 renderer. Its reported penalty still counts the
+            # material it accepted, so a fallback result is not traced as cleaner than it is.
+            total_penalty += len(selected_policy_b) + _material_units(
+                selected, material_by_view.get(job.view)
+            )
             total_cost += selected.cost
         set_assignment(
             reason,
@@ -1559,15 +1618,18 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
         )
     viable_by_job = []
     policy_blockers_by_job = []
+    material_by_job = []
     rejected_by_job = []
     measured_by_job = []
     raw_count_by_job = []
     for job, iterator in zip(jobs, raw_jobs, strict=True):
         viable = []
         policy_blockers = []
+        material_units = []
         rejected = []
         measured = []
         raw_count = 0
+        field = material_by_view.get(job.view)
         for raw_index, raw in enumerate(iterator):
             raw_count = raw_index + 1
             candidate = _measure(raw_index, raw, job, dwg.draft)
@@ -1579,8 +1641,13 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
                 continue
             viable.append(candidate)
             policy_blockers.append(blockers)
+            # Cutting the body is a Policy-B cost, never an eligibility gate: a nested
+            # feature can have no clear route at all, and dropping its callout to keep the
+            # outline tidy would trade a required measurement for a cosmetic one.
+            material_units.append(_material_units(candidate, field))
         viable_by_job.append(viable)
         policy_blockers_by_job.append(policy_blockers)
+        material_by_job.append(material_units)
         rejected_by_job.append(rejected)
         measured_by_job.append(measured)
         raw_count_by_job.append(raw_count)
@@ -1613,7 +1680,13 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
         conflicts,
         priorities=[job.priority for job in jobs],
         penalties_by_job=[
-            [len(blockers) for blockers in job_blockers] for job_blockers in policy_blockers_by_job
+            [
+                len(blockers) + units
+                for blockers, units in zip(job_blockers, job_units, strict=True)
+            ]
+            for job_blockers, job_units in zip(
+                policy_blockers_by_job, material_by_job, strict=True
+            )
         ],
     )
 
@@ -1711,16 +1784,22 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
             priorities=[job.priority for job in jobs],
             penalties_by_job=[
                 [
-                    len(fixed_blockers) * max_provisional_penalty + len(provisional_blockers)
-                    for fixed_blockers, provisional_blockers in zip(
+                    (len(fixed_blockers) + units) * max_provisional_penalty
+                    + len(provisional_blockers)
+                    for fixed_blockers, provisional_blockers, units in zip(
                         fixed_job_blockers,
                         provisional_job_blockers,
+                        material_job_units,
                         strict=True,
                     )
                 ]
-                for fixed_job_blockers, provisional_job_blockers in zip(
+                # Material joins the COMMITTED major component, beside the fixed-ink
+                # blockers: a cut through the part is a real defect on the finished sheet,
+                # so the refinement must not be able to buy a clear section row with one.
+                for fixed_job_blockers, provisional_job_blockers, material_job_units in zip(
                     policy_blockers_by_job,
                     provisional_blockers_by_job,
+                    material_by_job,
                     strict=True,
                 )
             ],
