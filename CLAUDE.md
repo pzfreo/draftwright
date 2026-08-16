@@ -104,7 +104,9 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   side/plan hole jobs and the five post-drain machined-feature families lower
   exact committed component ink conflicts (including component-local curved
   centre furniture and rendered shifted-dimension arrows), retaining any
-  rendered residual triangle not covered by one same known component; only explicitly
+  rendered residual triangle not covered by one same known component and any
+  curved residual area between tessellation stations, including filled
+  datum/GD&T faces without segment metadata; only explicitly
   marked global turning axes exempt only the arrow-local tip attachment (not
   near-collinear shaft travel),
   priorities, Policy-B penalties, and numeric costs into `layout.py`; optional
@@ -114,7 +116,8 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   any retained fixed-ink Policy-B crossing persists as
   `feature_leader_crossing`, independently of opt-in tracing, while a producer
   replay beyond the exact fixed-probe budget persists as
-  `feature_leader_fixed_ink_unverified` without exceeding that bound.
+  `feature_leader_fixed_ink_unverified` without exceeding that bound and cannot
+  report a perfect legibility quality score.
   - **`annotations/sections.py`** — section A–A + detail views (ISO 128-44 arrows,
     ISO 128-50 hatching).
   - **`annotations/balloons.py`** — the leadered hole-balloon pass (#111/#516;

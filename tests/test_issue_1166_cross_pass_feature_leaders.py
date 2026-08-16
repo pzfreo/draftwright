@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 from build123d import Align, Box, Cylinder, Edge, Face, Pos, Rot, Wire
+from build123d_drafting import DatumFeature
 from build123d_drafting.helpers import (
     Centerline,
     CenterlineCircle,
@@ -30,6 +31,7 @@ from draftwright.annotations.leaders import (
     _annotation_fixed_ink,
     _candidate_conflict,
     _candidate_hits_component,
+    _convex_hull,
     _FixedInkComponent,
     _measure,
     _MeasuredLeaderCandidate,
@@ -465,6 +467,34 @@ def test_shifted_dimension_keeps_rendered_arrowheads_in_fixed_ink():
     assert len([component for component in basic_components if ":arrow:" in component.name]) == 2
 
 
+def test_filled_datum_face_is_part_of_the_fixed_ink_inventory():
+    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+    datum = DatumFeature("A", draft=drawing.draft, filled=True)
+
+    components = _annotation_fixed_ink(drawing, "datum_test", datum)
+    triangle_only_stroke = _stroke_polygon((-0.5, 2.0), (0.5, 2.0), 0.1)
+    assert triangle_only_stroke is not None
+    candidate = _MeasuredLeaderCandidate(
+        object(),
+        (-0.5, 2.0),
+        (0.5, 2.0),
+        object(),
+        0,
+        1.0,
+        None,
+        (),
+        (triangle_only_stroke,),
+    )
+
+    blockers = [
+        component.name
+        for component in components
+        if _candidate_hits_component(candidate, component)
+    ]
+    assert len(blockers) == 1
+    assert blockers[0].startswith("datum_test:ink:")
+
+
 def test_ownerless_section_centerline_at_the_tip_is_not_a_global_axis_exemption():
     drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
     bounds = drawing.view_bounds("front")
@@ -778,7 +808,8 @@ def test_selected_occ_survivor_validates_arrow_shaft_and_shelf_ink():
 def test_selected_occ_survivor_tessellates_curves_between_quarter_stations():
     circle = Edge.make_circle(1.0)
     face = Face(Wire(circle))
-    diamond = ((1.0, 0.0), (0.0, 1.0), (-1.0, 0.0), (0.0, -1.0))
+    vertices, _triangles = face.tessellate(0.01)
+    inscribed_hull = _convex_hull(tuple((vertex.X, vertex.Y) for vertex in vertices))
     candidate = _MeasuredLeaderCandidate(
         face,
         (0.0, 0.0),
@@ -788,11 +819,22 @@ def test_selected_occ_survivor_tessellates_curves_between_quarter_stations():
         1.0,
         None,
         (),
-        (diamond,),
+        (inscribed_hull,),
     )
-    # The old five edge stations were exactly the diamond's vertices and
-    # falsely accepted the circle; tessellated between-station ink escapes it.
+    # Every tessellation vertex is in this inscribed polygon; the continuous
+    # circle still escapes it between every adjacent station.
     assert _rendered_ink_matches(candidate, face) is False
+
+    residual = _rendered_residual_components(
+        "fixed",
+        face,
+        (_FixedInkComponent("fixed:known", polygons=(inscribed_hull,)),),
+        None,
+        None,
+        "CenterlineCircle",
+    )
+    assert residual is not None
+    assert [component.name for component in residual] == ["fixed:arc:0"]
 
 
 def test_selected_occ_survivor_rejects_a_face_bridging_disjoint_components():
@@ -918,6 +960,10 @@ def test_fixed_obstacle_probe_budget_precedes_joint_geometry(monkeypatch, tmp_pa
     issues = drawing.lint()
     assert {issue.code for issue in issues} == {"feature_leader_fixed_ink_unverified"}
     assert all("probe budget exhausted" in issue.message for issue in issues)
+    legibility = drawing.lint_summary()["quality"]["legibility"]
+    assert legibility["score"] < 1.0
+    assert legibility["infos"] == len(issues)
+    assert legibility["by_code"] == {"feature_leader_fixed_ink_unverified": len(issues)}
 
 
 def test_candidate_budget_preserves_the_exact_pre_joint_hole_floor(monkeypatch):

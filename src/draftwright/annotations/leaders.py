@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from itertools import chain, islice, tee
 from typing import Any
 
+from build123d import Face, Vector, Wire
+
 from draftwright._core import _TB_CLEAR, _TB_H
 from draftwright._geometry import (
     _boxes_overlap,
@@ -276,6 +278,37 @@ def _point_in_convex_component(point, polygon, *, tol=1e-6) -> bool:
     return not signs or all(sign == signs[0] for sign in signs)
 
 
+def _face_exactly_covered(face, polygons, label, *, tol=1e-8) -> bool:
+    """Whether continuous OCC face ink is contained by analytical components."""
+
+    try:
+        if label is not None:
+            bbox = face.bounding_box()
+            if (
+                label[0] - tol <= float(bbox.min.X)
+                and label[1] - tol <= float(bbox.min.Y)
+                and float(bbox.max.X) <= label[2] + tol
+                and float(bbox.max.Y) <= label[3] + tol
+            ):
+                return True
+        cover_faces = [
+            Face(
+                Wire.make_polygon(
+                    [Vector(float(x), float(y), 0.0) for x, y in polygon],
+                    close=True,
+                )
+            )
+            for polygon in polygons
+            if len(polygon) >= 3
+        ]
+        if not cover_faces:
+            return False
+        residual = face.cut(*cover_faces)
+        return bool(float(residual.area) <= max(tol, abs(float(face.area)) * 1e-9))
+    except Exception:  # noqa: BLE001 — optional placement must fail closed
+        return False
+
+
 def _rendered_ink_matches(candidate: _MeasuredLeaderCandidate, annotation, *, tol=1e-6) -> bool:
     """Validate the selected OCC survivor against its analytical ink contract.
 
@@ -313,6 +346,15 @@ def _rendered_ink_matches(candidate: _MeasuredLeaderCandidate, annotation, *, to
             for triangle in triangles:
                 if not component_covers(tuple(points[index] for index in triangle)):
                     return False
+            edge_kinds = tuple(
+                getattr(getattr(edge, "geom_type", None), "name", "") for edge in face.edges()
+            )
+            if any(edge_kind != "LINE" for edge_kind in edge_kinds) and not _face_exactly_covered(
+                face,
+                candidate.ink_polygons,
+                candidate.label_box,
+            ):
+                return False
     except Exception:  # noqa: BLE001 — optional placement must fail closed
         return False
     return True
@@ -496,8 +538,10 @@ def _rendered_residual_components(name, annotation, components, label, owner, ki
     ``Dimension.segments`` is intentionally variable: a shifted label may
     suppress either dimension-line span while both arrowheads still render.
     ``CenterlineCircle`` exposes no linear segments because its chain ring is
-    made from OCC arcs.  Face-local lowering handles both boundaries without
-    guessing segment count/order and keeps stable component identities.
+    made from OCC arcs, while filled datum/GD&T glyphs expose faces that have no
+    segment metadata at all. Face-local lowering handles every rendered
+    annotation kind without guessing segment count/order and keeps stable
+    component identities.
     """
 
     def component_covers(points):
@@ -522,12 +566,21 @@ def _rendered_residual_components(name, annotation, components, label, owner, ki
         hull, rendered_points, triangles, edge_kinds = _rendered_face_hull(face)
         if not hull:
             return None
-        if (
+        represented = (
             rendered_points
             and triangles
             and all(
                 component_covers(tuple(rendered_points[index] for index in triangle))
                 for triangle in triangles
+            )
+        )
+        curved = any(edge_kind != "LINE" for edge_kind in edge_kinds)
+        if represented and (
+            not curved
+            or _face_exactly_covered(
+                face,
+                tuple(polygon for component in components for polygon in component.polygons),
+                label,
             )
         ):
             continue
@@ -535,7 +588,8 @@ def _rendered_residual_components(name, annotation, components, label, owner, ki
             "arc"
             if kind == "CenterlineCircle"
             else "arrow"
-            if len(edge_kinds) == 3 or any(edge_kind != "LINE" for edge_kind in edge_kinds)
+            if kind == "Dimension"
+            and (len(edge_kinds) == 3 or any(edge_kind != "LINE" for edge_kind in edge_kinds))
             else "ink"
         )
         residual.append((component_kind, hull))
@@ -621,21 +675,20 @@ def _annotation_fixed_ink(dwg, name, annotation):
     label = _label_box(annotation)
     if label is not None:
         components.append(_FixedInkComponent(f"{name}:label", box=label, owner=owner, kind=kind))
-    if kind in {"Dimension", "CenterlineCircle"}:
-        residual = _rendered_residual_components(name, annotation, components, label, owner, kind)
-        if residual is None:
-            geometry = _geom_box(annotation, getattr(dwg, "box_cache", None))
-            if geometry is not None:
-                components.append(
-                    _FixedInkComponent(
-                        f"{name}:geometry",
-                        box=geometry,
-                        owner=owner,
-                        kind=kind,
-                    )
+    residual = _rendered_residual_components(name, annotation, components, label, owner, kind)
+    if residual is None:
+        geometry = _geom_box(annotation, getattr(dwg, "box_cache", None))
+        if geometry is not None:
+            components.append(
+                _FixedInkComponent(
+                    f"{name}:geometry",
+                    box=geometry,
+                    owner=owner,
+                    kind=kind,
                 )
-        else:
-            components.extend(residual)
+            )
+    else:
+        components.extend(residual)
     if not components:
         geometry = _geom_box(annotation, getattr(dwg, "box_cache", None))
         if geometry is not None:

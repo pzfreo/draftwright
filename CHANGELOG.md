@@ -42,7 +42,9 @@
   arrow, label, and centre-furniture components (including rendered arrows on
   shifted dimensions and component-local dashed circular centre furniture);
   fixed residual faces and the selected survivor both require each tessellation
-  triangle to fit one same analytical component rather than merely the union;
+  triangle to fit one same analytical component rather than merely the union,
+  plus exact continuous OCC containment for curved faces; residual lowering
+  also retains filled datum/GD&T faces absent from segment metadata;
   only explicitly marked global turning axes permit an arrow-local leader-tip
   attachment; near-collinear shaft travel and ownerless section/cutting lines
   remain fixed ink. The solve prefers
@@ -57,7 +59,8 @@
   legacy lazy result as the floor, including state-cap exhaustion; page,
   own-silhouette, and title-reservation constraints remain hard in every fallback.
   A replay that exhausts exact fixed-probe classification is retained visibly as
-  `feature_leader_fixed_ink_unverified` rather than rescanning past the cap.
+  `feature_leader_fixed_ink_unverified` rather than rescanning past the cap, and
+  that uncertainty participates in the legibility quality inventory.
   Trace output preserves an abandoned fully admitted inventory when state search
   exhausts, records the producer-floor replay separately, and names exact committed/provisional components,
   refinement status, and competing blockers; live

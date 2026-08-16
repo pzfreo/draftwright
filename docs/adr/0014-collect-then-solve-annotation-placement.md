@@ -55,7 +55,11 @@ and shifted `Dimension` labels retain every arrow that actually rendered instead
 of relying on a fixed segment count/order. A fixed rendered face is considered
 already represented only when each tessellation triangle fits within one same
 known component. The one rendered survivor uses the same rule, so neither side
-can bridge separate shaft/shelf/arrow/label regions. Established Policy B remains explicit for both
+can bridge separate shaft/shelf/arrow/label regions. Curved faces additionally
+retain no exact OCC area outside the analytical union, closing the space between
+tessellation stations. Residual-face lowering applies to every rendered fixed
+annotation, including filled datum/GD&T glyphs that expose no corresponding
+segment metadata. Established Policy B remains explicit for both
 ordinary-hole and machined-feature leaders: a candidate crossing late fixed
 furniture stays eligible with a penalty, while page, label-over-own-silhouette,
 and new-leader conflicts remain infeasible. If such a candidate wins because
@@ -84,7 +88,9 @@ canonical pass order, retaining each producer's former greedy/queue floor and
 recording any Policy-B blockers while exact classification remains within the
 same fixed-probe budget. If that budget is exhausted, the replay performs no
 unbounded fixed-component scan and persists a
-`feature_leader_fixed_ink_unverified` info finding instead. Page bounds,
+`feature_leader_fixed_ink_unverified` info finding instead. That uncertainty is
+part of the legibility quality inventory, so an unverified replay cannot certify
+a perfect legibility score. Page bounds,
 label-over-own-silhouette, and the
 mandatory title reservation remain hard under every resource fallback. A
 state-cap incumbent is not emitted directly because its new exact-ink seed is
