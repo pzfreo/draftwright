@@ -1427,41 +1427,7 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
             ]
         )
 
-    materialized = {}
-    geometry_failures = set()
-    final_choices = list(assignment.choices)
-    for job_index, choice in enumerate(final_choices):
-        if choice is None:
-            continue
-        annotation = _materialize(dwg, jobs[job_index], viable_by_job[job_index][choice])
-        if annotation is None:
-            geometry_failures.add(job_index)
-            final_choices[job_index] = None
-        else:
-            materialized[job_index] = annotation
-
-    objective_cost = sum(
-        viable_by_job[job_index][choice].cost
-        for job_index, choice in enumerate(final_choices)
-        if choice is not None
-    )
-    objective_priority = sum(
-        jobs[job_index].priority
-        for job_index, choice in enumerate(final_choices)
-        if choice is not None
-    )
-    objective_penalty = sum(
-        len(policy_blockers_by_job[job_index][choice])
-        for job_index, choice in enumerate(final_choices)
-        if choice is not None
-    )
-    objective_provisional_penalty = sum(
-        len(provisional_blockers_by_job[job_index][choice])
-        for job_index, choice in enumerate(final_choices)
-        if choice is not None
-    )
-
-    def joint_inventory(job_index):
+    def joint_inventory(job_index, geometry_failures=(), *, abandoned=False):
         rejected = dict(rejected_by_job[job_index])
         viable_index = {
             candidate.raw_index: index for index, candidate in enumerate(viable_by_job[job_index])
@@ -1483,7 +1449,13 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
             fixed_blockers = policy_blockers_by_job[job_index][index]
             conflicts_with = selected_conflict_names(job_index, index)
             if candidate.raw_index == selected_raw:
-                status = "geometry_validation" if job_index in geometry_failures else "selected"
+                status = (
+                    "geometry_validation"
+                    if job_index in geometry_failures
+                    else "joint_abandoned"
+                    if abandoned
+                    else "selected"
+                )
             elif conflicts_with:
                 status = "conflict_rejected"
             else:
@@ -1494,6 +1466,65 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
                     provisional_blockers_by_job[job_index][index]
                 )
         return entries
+
+    materialized = {}
+    geometry_failures = set()
+    for job_index, choice in enumerate(assignment.choices):
+        if choice is None:
+            continue
+        annotation = _materialize(dwg, jobs[job_index], viable_by_job[job_index][choice])
+        if annotation is None:
+            geometry_failures.add(job_index)
+        else:
+            materialized[job_index] = annotation
+
+    if geometry_failures:
+        # Rendered-OCC validation is deliberately outside the numeric search,
+        # but failure cannot silently reduce the solver's primary cardinality.
+        # Replay the canonical lazy producer floor: it validates candidates in
+        # order and continues after a bad survivor, remaining bounded by the
+        # original streams and preserving the pre-shared-stage semantic floor.
+        total_fixed_probes = fixed_probe_bound + (
+            provisional_probe_bound
+            if provisional_refinement not in {"not_needed", "probe_budget_retained_primary"}
+            else 0
+        )
+        return greedy(
+            "greedy_geometry_validation",
+            fixed_probes=total_fixed_probes,
+            fixed_probe_bound=total_fixed_probes,
+            pair_probes=pair_probes,
+            states=assignment_states,
+            abandoned_inventories=[
+                joint_inventory(job_index, geometry_failures, abandoned=True)
+                for job_index in range(len(jobs))
+            ],
+            abandoned_rejected=rejected_by_job,
+            abandoned_raw_counts=raw_count_by_job,
+        )
+
+    final_choices = list(assignment.choices)
+
+    objective_cost = sum(
+        viable_by_job[job_index][choice].cost
+        for job_index, choice in enumerate(final_choices)
+        if choice is not None
+    )
+    objective_priority = sum(
+        jobs[job_index].priority
+        for job_index, choice in enumerate(final_choices)
+        if choice is not None
+    )
+    objective_penalty = sum(
+        len(policy_blockers_by_job[job_index][choice])
+        for job_index, choice in enumerate(final_choices)
+        if choice is not None
+    )
+    objective_provisional_penalty = sum(
+        len(provisional_blockers_by_job[job_index][choice])
+        for job_index, choice in enumerate(final_choices)
+        if choice is not None
+    )
 
     total_fixed_probes = fixed_probe_bound + (
         provisional_probe_bound

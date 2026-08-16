@@ -106,7 +106,9 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   centre furniture and rendered shifted-dimension arrows), retaining any
   rendered residual triangle not covered by one same known component and any
   curved residual area between tessellation stations, including filled
-  datum/GD&T faces without segment metadata; only explicitly
+  datum/GD&T faces without segment metadata; a selected-survivor mismatch
+  replays the canonical lazy producer tail rather than silently reducing
+  cardinality; only explicitly
   marked global turning axes exempt only the arrow-local tip attachment (not
   near-collinear shaft travel),
   priorities, Policy-B penalties, and numeric costs into `layout.py`; optional

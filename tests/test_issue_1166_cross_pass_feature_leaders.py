@@ -857,6 +857,84 @@ def test_selected_occ_survivor_rejects_a_face_bridging_disjoint_components():
     assert _rendered_ink_matches(candidate, face) is False
 
 
+def test_rendered_validation_failure_replays_the_valid_producer_tail(tmp_path):
+    trace_path = tmp_path / "geometry-feedback.json"
+    drawing = build_drawing(
+        Box(40, 30, 8),
+        page="A4",
+        auto_dims=False,
+        trace=trace_path,
+    )
+    bounds = drawing.view_bounds("front")
+    assert bounds is not None
+    tip = (bounds[2], (bounds[1] + bounds[3]) / 2.0)
+    short = (tip[0] + 12.0, tip[1])
+    long = (tip[0] + 22.0, tip[1] + 4.0)
+    ctx = PlacementContext(
+        registry=drawing.registry,
+        coverage=drawing.coverage,
+        items=drawing.items,
+        part_model=drawing.model(),
+        feature_leaders=[],
+        trace=drawing._build.trace,
+    )
+
+    def leader(tip, elbow):
+        return Leader(tip=(*tip, 0), elbow=(*elbow, 0), label="R1", draft=drawing.draft)
+
+    def analytical(tip, elbow, _feature):
+        expected = leader(tip, elbow)
+        return expected.label_bbox, expected.segments
+
+    def build(tip, elbow, _feature):
+        if elbow == short:
+            # Simulate helper drift after analytical collection: the first
+            # winner no longer matches its measured survivor contract.
+            return leader(tip, (elbow[0] + 1.0, elbow[1]))
+        return leader(tip, elbow)
+
+    collect_feature_leader(
+        ctx,
+        FeatureLeaderJob(
+            name="m_fillet0",
+            view="front",
+            silhouette=bounds,
+            label="R1",
+            candidates=((tip, short, object()), (tip, long, object())),
+            build=build,
+            analytical_geometry=analytical,
+            measurement=(),
+            noun="fillet",
+            drop_code="fillet_dropped",
+        ),
+    )
+    analysis = SimpleNamespace(
+        margin=10.0,
+        PAGE_W=drawing.page_w,
+        PAGE_H=drawing.page_h,
+        TB_W=drawing.get_annotation("title_block").bounding_box().size.X,
+    )
+
+    assert drain_feature_leaders(drawing, analysis, ctx) == 1
+    ctx.trace.write()
+    assert drawing.get_annotation("m_fillet0").segments[0][1] == long
+    assert not [issue for issue in drawing.lint() if issue.code == "fillet_dropped"]
+    event = next(
+        item
+        for item in json.loads(trace_path.read_text(encoding="utf-8"))["pass_events"]
+        if item["label"] == "feature_leader_inventory"
+    )
+    assert event["assignment"] == "greedy_geometry_validation"
+    assert event["optimal"] is False
+    item = event["items"][0]
+    assert [entry["outcome"] for entry in item["candidate_inventory"]] == [
+        "geometry_validation",
+        "objective_rejected",
+    ]
+    assert item["producer_fallback"]["rejected"][0]["blockers"] == ["geometry_validation"]
+    assert item["producer_fallback"]["selected"]["candidate"] == 1
+
+
 def test_fixed_residual_keeps_a_face_bridging_disjoint_known_components():
     face = Face.make_rect(10.0, 1.0)
     left = ((-5.0, -0.5), (-4.0, -0.5), (-4.0, 0.5), (-5.0, 0.5))
