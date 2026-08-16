@@ -199,9 +199,13 @@ def _add_section_view(dwg, a: Analysis, section, *, ctx):
     `SectionPlan`, ADR 0008 Amendment 4); this is the shared rendering machinery it
     feeds. The cut plane (normal Y at ``section.cut_y``, parallel to the front view)
     removes material on the viewer's side so the cut face shows the hole profiles as
-    visible line-work. Placed right of the side view when there is room (skipped with
-    a log otherwise), captioned, marked with ISO 128-44 cutting-plane arrows and 'A'
-    letters on the plan view, and filled with ISO 128-50 45° hatching on the cut face.
+    visible line-work. Placed in the **leftmost free gap** right of the side view that
+    fits it and clears the title block — not merely "after everything already there",
+    which let one remote occupant veto a band the section fitted in (#1190). When no
+    gap qualifies the section is skipped and the outcome is RECORDED, on
+    ``Drawing.section_decision`` and as a ``section_dropped`` lint issue, never only
+    logged. Captioned, marked with ISO 128-44 cutting-plane arrows and 'A' letters on
+    the plan view, and filled with ISO 128-50 45° hatching on the cut face.
     """
     y_star = section.cut_y
 
@@ -250,10 +254,12 @@ def _add_section_view(dwg, a: Analysis, section, *, ctx):
     # block top y 46.0). Every fitting segment is tested, not just the leftmost: a
     # segment further left may clear the block where the first does not.
     tb_left = a.PAGE_W - a.TB_W - _TB_CLEAR
-    shares_title_row = a.FV_Y - half_h - 10 < _TB_CLEAR + _TB_H
-    usable = [
-        (lo, hi) for lo, hi in fitting if not shares_title_row or lo + 2 * half_w <= tb_left - 4
-    ]
+    usable = _segments_clearing_title_block(
+        fitting,
+        half_w,
+        shares_title_row=a.FV_Y - half_h - 10 < _TB_CLEAR + _TB_H,
+        tb_left=tb_left,
+    )
     if not usable:
         _skip_section(
             dwg,
@@ -272,7 +278,7 @@ def _add_section_view(dwg, a: Analysis, section, *, ctx):
     # never let a failed boolean abort the whole drawing
     solids = a.part.solids()
     if not solids:
-        _skip_section(dwg, ctx, "no_solids", "no solid bodies to cut", stage="validation")
+        _skip_section(dwg, ctx, "no_solids", "no solid bodies to cut")
         return
     body = solids[0] if len(solids) == 1 else Compound(children=list(solids))
     try:
@@ -280,10 +286,10 @@ def _add_section_view(dwg, a: Analysis, section, *, ctx):
         # (Standard_DomainError) on some cast geometry — see _fuzzy_cut / #20.
         keep_behind = _fuzzy_cut(body, Pos(a.cx, y_star - big / 2, a.cz) * Box(big, big, big))
     except Exception as exc:  # noqa: BLE001 — OCC booleans raise broadly
-        _skip_section(dwg, ctx, "cut_failed", f"cut failed: {exc}", stage="validation")
+        _skip_section(dwg, ctx, "cut_failed", f"cut failed: {exc}")
         return
     if keep_behind is None:
-        _skip_section(dwg, ctx, "cut_empty", "boolean cut produced no solid", stage="validation")
+        _skip_section(dwg, ctx, "cut_empty", "boolean cut produced no solid")
         return
     # Resolve the final cutting-plane ink before committing the section view.
     # Optional section furniture yields if a required landed feature leader
@@ -434,9 +440,24 @@ def _add_section_letters(dwg, y_page, x0, x1, *, ctx):
     ctx.place(Note("A", (x1 + 3, y_page + lift), dwg.draft), "section_a_right")
 
 
-def _skip_section(
-    dwg, ctx, reason: str, detail: str, *, severity: str = "warning", stage: str = "placement"
-) -> None:
+def _segments_clearing_title_block(fitting, half_w, *, shares_title_row, tb_left):
+    """The subset of *fitting* free segments a section may actually occupy (#1190).
+
+    Pure and separately testable on purpose. The condition it encodes only bites when
+    the section's row dips into the title-block band — which depends on page size and
+    part height — so driving it through a built drawing needs geometry that happens to
+    trip it, and a fixture that does not silently tests nothing. That is exactly how the
+    first attempt at this guard passed while asserting nothing.
+
+    Every fitting segment is offered, not just the leftmost: a segment further left may
+    clear the block where the first does not.
+    """
+    if not shares_title_row:
+        return list(fitting)
+    return [(lo, hi) for lo, hi in fitting if lo + 2 * half_w <= tb_left - 4]
+
+
+def _skip_section(dwg, ctx, reason: str, detail: str, *, severity: str = "warning") -> None:
     """Abandon section A–A, recording the outcome the same way on every path (#1190).
 
     The one exit for a warranted-but-unplaced section. Before this, each skip logged
@@ -447,11 +468,20 @@ def _skip_section(
     puts it in the legibility inventory automatically) AND a structured record on the
     drawing, which is what a caller can actually branch on.
 
-    *stage* separates the two kinds of loss, as the codebase does elsewhere: a
-    ``placement`` drop is a required outcome the scale search can try to rescue by
-    rescaling, while a ``validation`` failure (no solids, a boolean that would not
-    cut) is a geometry fact no scale can change — sending the search hunting for a
-    smaller scale would burn the whole ladder to arrive at the same answer.
+    Deliberately NOT an ``outcome_stage="placement"`` drop. That stage marks a
+    *required* outcome, so `builder._is_required_scale_drop` turns it into a scale
+    blocker — and an explicit `scale=` request then rebuilds the whole ISO ladder and
+    raises `ScaleIncompatibilityError` when no scale places the section, where the
+    engine previously returned a drawing. A section is optional furniture that YIELDS
+    (see `_reserve_section_row` and the leader-conflict yield below): escalating a
+    deliberate yield into "no complete scale exists" inverts that, and for
+    `leader_conflict` it overrules a choice the engine just made in favour of a
+    required annotation.
+
+    So the outcome is recorded, never enforced. Being recorded is the whole fix: the
+    reported "presence is non-monotonic in scale" was really presence being
+    *unexplained*, and a caller reading `section_decision` at 2.5 now sees
+    ``skipped/no_room`` rather than an unaccountable absence.
     """
     _log.warning("Section A–A skipped (%s)", detail)
     dwg.record_section_decision("skipped", reason=reason, detail=detail)
@@ -459,7 +489,7 @@ def _skip_section(
         severity,
         "section_dropped",
         f"section A–A not placed ({detail})",
-        outcome_stage=stage,
+        outcome_stage="validation",
     )
     _clear_section_reservation(dwg)
 
