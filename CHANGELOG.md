@@ -45,6 +45,8 @@
   fixed-obstacle-probe, pair, and exact-search work is bounded with the producer's
   legacy lazy result as the floor, including state-cap exhaustion; page,
   own-silhouette, and title-reservation constraints remain hard in every fallback.
+  A replay that exhausts exact fixed-probe classification is retained visibly as
+  `feature_leader_fixed_ink_unverified` rather than rescanning past the cap.
   Trace output preserves an abandoned fully admitted inventory when state search
   exhausts, records the producer-floor replay separately, and names exact committed/provisional components,
   refinement status, and competing blockers; live

@@ -87,6 +87,7 @@ class _MeasuredLeaderCandidate:
     label_box: tuple[float, float, float, float] | None
     segments: tuple[tuple[tuple[float, float], tuple[float, float]], ...]
     ink_polygons: tuple[tuple[tuple[float, float], ...], ...]
+    attachment_polygons: tuple[tuple[tuple[float, float], ...], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -220,6 +221,7 @@ def _measure(raw_index, raw, job: FeatureLeaderJob, draft) -> _MeasuredLeaderCan
         label_box,
         segments,
         (*primary, *shelves),
+        primary,
     )
 
 
@@ -280,9 +282,15 @@ def _rendered_ink_matches(candidate: _MeasuredLeaderCandidate, annotation, *, to
         )
 
     try:
-        for edge in annotation.edges():
-            for position in edge.positions((0.0, 0.25, 0.5, 0.75, 1.0)):
-                if not covered((float(position.X), float(position.Y))):
+        faces = tuple(annotation.faces())
+        if not faces:
+            return False
+        for face in faces:
+            vertices, _triangles = face.tessellate(0.01)
+            if not vertices:
+                return False
+            for vertex in vertices:
+                if not covered((float(vertex.X), float(vertex.Y))):
                     return False
     except Exception:  # noqa: BLE001 — optional placement must fail closed
         return False
@@ -336,9 +344,29 @@ def _candidate_hits_component(
             if on_segment and non_collinear:
                 # A turned-feature leader may truthfully originate on the
                 # global axis centreline.  The local arrow/line junction is an
-                # attachment, not an unrelated crossing; collinear travel is
-                # still blocked, as is centre furniture away from the tip.
-                return False
+                # attachment, not an unrelated crossing.  Only that primary
+                # tip ink is exempt: a later shelf/label crossing the same axis
+                # remains fixed-ink conflict, as does collinear shaft travel.
+                residual_polygons = candidate.ink_polygons[len(candidate.attachment_polygons) :]
+                if component.box is not None:
+                    if candidate.label_box is not None and _boxes_overlap(
+                        candidate.label_box, component.box
+                    ):
+                        return True
+                    return any(
+                        _convex_polygon_overlaps_box(polygon, component.box)
+                        for polygon in residual_polygons
+                    )
+                if candidate.label_box is not None and any(
+                    _convex_polygon_overlaps_box(polygon, candidate.label_box)
+                    for polygon in component.polygons
+                ):
+                    return True
+                return any(
+                    _convex_polygons_overlap(candidate_polygon, fixed_polygon)
+                    for candidate_polygon in residual_polygons
+                    for fixed_polygon in component.polygons
+                )
     if component.box is not None:
         return _ink_hits_box(candidate, component.box)
     if candidate.label_box is not None and any(
@@ -673,6 +701,7 @@ def feature_leader_fixed_conflicts(dwg, fixed_names) -> tuple[tuple[str, str], .
             _label_box(annotation),
             segments,
             (*primary, *shelves),
+            primary,
         )
         conflicts.extend(
             (name, component.name)
@@ -709,6 +738,12 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
         analysis.PAGE_W - analysis.margin,
         analysis.PAGE_H - analysis.margin,
     )
+    title_block = (
+        analysis.PAGE_W - analysis.TB_W - _TB_CLEAR,
+        _TB_CLEAR,
+        analysis.PAGE_W - _TB_CLEAR,
+        _TB_CLEAR + _TB_H,
+    )
     raw_jobs = []
     fallback_jobs = []
     for job in jobs:
@@ -722,12 +757,6 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
     def fixed_obstacles() -> dict[str, tuple[_FixedInkComponent, ...]]:
         """Complete committed fixed ink; optional future furniture is excluded."""
 
-        title_block = (
-            analysis.PAGE_W - analysis.TB_W - _TB_CLEAR,
-            _TB_CLEAR,
-            analysis.PAGE_W - _TB_CLEAR,
-            _TB_CLEAR + _TB_H,
-        )
         title_reservation = (
             ()
             if "title_block" in dwg.annotations()
@@ -837,21 +866,30 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
         than looking clean merely because the trace recorder was disabled.
         """
 
+        unverified = "fixed_probe_budget" in blockers
         crossed = tuple(
             blocker
             for blocker in blockers
-            if blocker not in {"page", "unmeasurable_label"} and not blocker.startswith("view:")
+            if blocker not in {"page", "unmeasurable_label", "fixed_probe_budget"}
+            and not blocker.startswith("view:")
         )
-        if not crossed:
-            return
         job = jobs[job_index]
-        ctx.record_issue(
-            "info",
-            "feature_leader_crossing",
-            f"{job.noun} callout {job.label} retained under Policy B across: "
-            + ", ".join(crossed),
-            measurement=job.measurement,
-        )
+        if crossed:
+            ctx.record_issue(
+                "info",
+                "feature_leader_crossing",
+                f"{job.noun} callout {job.label} retained under Policy B across: "
+                + ", ".join(crossed),
+                measurement=job.measurement,
+            )
+        if unverified:
+            ctx.record_issue(
+                "info",
+                "feature_leader_fixed_ink_unverified",
+                f"{job.noun} callout {job.label} retained under the producer floor "
+                "without exact fixed-ink classification (probe budget exhausted)",
+                measurement=job.measurement,
+            )
 
     def candidate_entry(candidate, status, blockers=(), assignment_blockers=()):
         entry = {
@@ -872,6 +910,7 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
         optimal,
         states=0,
         fixed_probes=0,
+        fixed_probe_bound=0,
         pair_probes=0,
         placed=0,
         priority=0.0,
@@ -888,6 +927,7 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
                         "optimal": optimal,
                         "states": states,
                         "fixed_probes": fixed_probes,
+                        "fixed_probe_bound": fixed_probe_bound,
                         "pair_probes": pair_probes,
                         "provisional_refinement": provisional_refinement,
                         "inventory_jobs": len(jobs),
@@ -905,6 +945,7 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
         reason,
         *,
         fixed_probes=0,
+        fixed_probe_bound=0,
         pair_probes=0,
         states=0,
         abandoned_inventories=None,
@@ -917,6 +958,7 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
         total_priority = 0.0
         total_penalty = 0
         total_cost = 0.0
+        actual_fixed_probes = fixed_probes
         fixed = fixed_obstacles()
         legacy_boxes = {
             # Producer fallback replays the pre-#1166 acceptance floor; exact
@@ -925,6 +967,26 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
             view: _legacy_fallback_obstacles(dwg, view)
             for view in dict.fromkeys(job.view for job in jobs)
         }
+
+        def boundary_blockers(candidate, job):
+            blockers = []
+            label = candidate.label_box
+            if label is None:
+                blockers.append("unmeasurable_label")
+            else:
+                if (
+                    label[0] < page[0]
+                    or label[1] < page[1]
+                    or label[2] > page[2]
+                    or label[3] > page[3]
+                ):
+                    blockers.append("page")
+                if _boxes_overlap(label, job.silhouette):
+                    blockers.append(f"view:{job.view}:silhouette")
+            if _ink_hits_box(candidate, title_block):
+                blockers.append("title_block:reserved")
+            return tuple(blockers)
+
         for job_index, job in enumerate(jobs):
             obstacle_count = len(fixed[job.view])
             blockers_by_raw = []
@@ -939,12 +1001,22 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
             )
             for candidate in source:
                 raw_count = max(raw_count, candidate.raw_index + 1)
-                blockers = _fixed_blockers(candidate, job, page, fixed[job.view])
+                fixed_components = fixed[job.view]
+                if actual_fixed_probes + len(fixed_components) <= _FEATURE_LEADER_MAX_FIXED_PROBES:
+                    blockers = _fixed_blockers(candidate, job, page, fixed_components)
+                    actual_fixed_probes += len(fixed_components)
+                else:
+                    # Replay preserves the producer floor when exact
+                    # classification exceeds its work budget. Boundary/title
+                    # constraints remain hard and the uncertainty is explicit.
+                    blockers = (*boundary_blockers(candidate, job), "fixed_probe_budget")
                 hard_blockers = _hard_fixed_blockers(blockers)
                 accepted = not hard_blockers and (
                     job.fallback_accept(candidate, legacy_boxes[job.view], page)
                     if job.fallback_accept is not None
-                    else not blockers
+                    else not tuple(
+                        blocker for blocker in blockers if blocker != "fixed_probe_budget"
+                    )
                 )
                 if not accepted:
                     blockers_by_raw.append((candidate.raw_index, blockers))
@@ -1036,7 +1108,8 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
             reason,
             optimal=False,
             states=states,
-            fixed_probes=fixed_probes,
+            fixed_probes=actual_fixed_probes,
+            fixed_probe_bound=fixed_probe_bound,
             pair_probes=pair_probes,
             placed=placed_count,
             priority=total_priority,
@@ -1066,7 +1139,10 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
         for count, job in zip(candidate_counts_by_job, jobs, strict=True)
     )
     if fixed_probe_bound > _FEATURE_LEADER_MAX_FIXED_PROBES:
-        return greedy("greedy_fixed_probe_budget", fixed_probes=fixed_probe_bound)
+        return greedy(
+            "greedy_fixed_probe_budget",
+            fixed_probe_bound=fixed_probe_bound,
+        )
     viable_by_job = []
     policy_blockers_by_job = []
     rejected_by_job = []
@@ -1104,6 +1180,7 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
             return greedy(
                 "greedy_pair_budget",
                 fixed_probes=fixed_probe_bound,
+                fixed_probe_bound=fixed_probe_bound,
                 pair_probes=pair_probes,
             )
 
@@ -1164,6 +1241,7 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
         return greedy(
             "greedy_state_budget",
             fixed_probes=fixed_probe_bound,
+            fixed_probe_bound=fixed_probe_bound,
             pair_probes=pair_probes,
             states=assignment.states,
             abandoned_inventories=abandoned_inventories,
@@ -1336,16 +1414,17 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
                 )
         return entries
 
+    total_fixed_probes = fixed_probe_bound + (
+        provisional_probe_bound
+        if provisional_refinement not in {"not_needed", "probe_budget_retained_primary"}
+        else 0
+    )
     set_assignment(
         "joint",
         optimal=True,
         states=assignment_states,
-        fixed_probes=fixed_probe_bound
-        + (
-            provisional_probe_bound
-            if provisional_refinement not in {"not_needed", "probe_budget_retained_primary"}
-            else 0
-        ),
+        fixed_probes=total_fixed_probes,
+        fixed_probe_bound=total_fixed_probes,
         pair_probes=pair_probes,
         placed=sum(choice is not None for choice in final_choices),
         priority=objective_priority,

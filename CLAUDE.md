@@ -110,7 +110,9 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   their final ink against landed leaders, repair one end-symbol extent, and yield on conflict,
   then validate the selected OCC ink and emit it with its original provenance;
   any retained fixed-ink Policy-B crossing persists as
-  `feature_leader_crossing`, independently of opt-in tracing.
+  `feature_leader_crossing`, independently of opt-in tracing, while a producer
+  replay beyond the exact fixed-probe budget persists as
+  `feature_leader_fixed_ink_unverified` without exceeding that bound.
   - **`annotations/sections.py`** — section A–A + detail views (ISO 128-44 arrows,
     ISO 128-50 hatching).
   - **`annotations/balloons.py`** — the leadered hole-balloon pass (#111/#516;

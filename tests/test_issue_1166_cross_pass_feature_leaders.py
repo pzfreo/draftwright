@@ -6,7 +6,7 @@ from itertools import combinations
 from types import SimpleNamespace
 
 import pytest
-from build123d import Align, Box, Cylinder, Pos, Rot
+from build123d import Align, Box, Cylinder, Edge, Face, Pos, Rot, Wire
 from build123d_drafting.helpers import (
     Centerline,
     CenterlineCircle,
@@ -529,6 +529,12 @@ def test_explicit_global_turning_axis_allows_only_tip_attachment():
     first, second = axis_component.segment
     tip = ((first[0] + second[0]) / 2.0, (first[1] + second[1]) / 2.0)
     elbow = (tip[0] + 10.0, tip[1] + 10.0)
+    primary = _leader_ink_polygons(
+        tip,
+        elbow,
+        arrow_length=drawing.draft.arrow_length,
+        line_width=drawing.draft.line_width,
+    )
     candidate = _MeasuredLeaderCandidate(
         object(),
         tip,
@@ -538,14 +544,85 @@ def test_explicit_global_turning_axis_allows_only_tip_attachment():
         1.0,
         None,
         ((tip, elbow),),
-        _leader_ink_polygons(
-            tip,
-            elbow,
-            arrow_length=drawing.draft.arrow_length,
-            line_width=drawing.draft.line_width,
-        ),
+        primary,
+        primary,
     )
     assert _candidate_hits_component(candidate, axis_component) is False
+
+    shelf_segment = ((elbow[0], elbow[1]), (tip[0] - 10.0, elbow[1]))
+    shelf = _stroke_polygon(*shelf_segment, drawing.draft.line_width)
+    assert shelf is not None
+    shelf_crossing = replace(
+        candidate,
+        segments=((tip, elbow), shelf_segment),
+        ink_polygons=(*primary, shelf),
+    )
+    continuous_ink = _stroke_polygon(
+        (tip[0], tip[1] - 20.0),
+        (tip[0], tip[1] + 20.0),
+        drawing.draft.line_width,
+    )
+    assert continuous_ink is not None
+    continuous_axis = replace(
+        axis_component,
+        polygons=(continuous_ink,),
+        segment=((tip[0], tip[1] - 20.0), (tip[0], tip[1] + 20.0)),
+    )
+    assert _candidate_hits_component(shelf_crossing, continuous_axis) is True
+
+
+def test_global_axis_tip_attachment_does_not_exempt_a_later_shelf_crossing():
+    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+    ctx = PlacementContext(
+        registry=drawing.registry,
+        coverage=drawing.coverage,
+        items=drawing.items,
+        part_model=drawing.model(),
+        feature_leaders=[],
+    )
+    axis = Centerline((100.0, 95.0, 0.0), (100.0, 105.0, 0.0))
+    axis.is_global_axis_centerline = True
+    ctx.place(axis, "test_global_axis", view="front")
+
+    tip = (100.0, 100.0)
+    elbow = (100.5, 100.5, 0.0)
+
+    def build(tip, elbow, text_side):
+        return Leader(
+            tip=(*tip, 0.0),
+            elbow=elbow,
+            label="R1",
+            draft=drawing.draft,
+            text_side=text_side,
+        )
+
+    collect_feature_leader(
+        ctx,
+        FeatureLeaderJob(
+            name="m_fillet0",
+            view="front",
+            silhouette=(20.0, 20.0, 40.0, 40.0),
+            label="R1",
+            candidates=((tip, elbow, "left"), (tip, elbow, "right")),
+            build=build,
+            measurement=(),
+            noun="fillet",
+            drop_code="fillet_dropped",
+            allow_policy_b_fixed=True,
+        ),
+    )
+    analysis = SimpleNamespace(
+        margin=10.0,
+        PAGE_W=drawing.page_w,
+        PAGE_H=drawing.page_h,
+        TB_W=drawing.get_annotation("title_block").bounding_box().size.X,
+    )
+
+    assert drain_feature_leaders(drawing, analysis, ctx) == 1
+    leader = drawing.get_annotation("m_fillet0")
+    assert leader.segments[1][1][0] > elbow[0]  # clear right shelf wins
+    assert drawing.lint() == []
+    assert feature_leader_fixed_conflicts(drawing, ("test_global_axis",)) == ()
 
 
 def test_cross_pass_objective_avoids_the_per_pass_greedy_trap():
@@ -635,6 +712,26 @@ def test_selected_occ_survivor_validates_arrow_shaft_and_shelf_ink():
     )
 
 
+def test_selected_occ_survivor_tessellates_curves_between_quarter_stations():
+    circle = Edge.make_circle(1.0)
+    face = Face(Wire(circle))
+    diamond = ((1.0, 0.0), (0.0, 1.0), (-1.0, 0.0), (0.0, -1.0))
+    candidate = _MeasuredLeaderCandidate(
+        face,
+        (0.0, 0.0),
+        (1.0, 0.0),
+        None,
+        0,
+        1.0,
+        None,
+        (),
+        (diamond,),
+    )
+    # The old five edge stations were exactly the diamond's vertices and
+    # falsely accepted the circle; tessellated between-station ink escapes it.
+    assert _rendered_ink_matches(candidate, face) is False
+
+
 def test_cross_pass_candidate_budget_precedes_collect_all_geometry(monkeypatch, tmp_path):
     part, model = _narrow_cross_pass_part()
     import draftwright.annotations.leaders as leaders
@@ -674,10 +771,18 @@ def test_cross_pass_candidate_budget_precedes_collect_all_geometry(monkeypatch, 
 
 def test_fixed_obstacle_probe_budget_precedes_joint_geometry(monkeypatch, tmp_path):
     part, model = _narrow_cross_pass_part()
-    monkeypatch.setattr(
-        "draftwright.annotations.leaders._FEATURE_LEADER_MAX_FIXED_PROBES",
-        0,
-    )
+    import draftwright.annotations.leaders as leaders
+
+    probes = 0
+    original = leaders._candidate_hits_component
+
+    def counted(*args, **kwargs):
+        nonlocal probes
+        probes += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(leaders, "_FEATURE_LEADER_MAX_FIXED_PROBES", 0)
+    monkeypatch.setattr(leaders, "_candidate_hits_component", counted)
     trace_path = tmp_path / "bounded-fixed-probes.json"
 
     drawing = build_drawing(part, model=model, page="A3", trace=trace_path)
@@ -689,7 +794,9 @@ def test_fixed_obstacle_probe_budget_precedes_joint_geometry(monkeypatch, tmp_pa
 
     assert event["assignment"] == "greedy_fixed_probe_budget"
     assert event["optimal"] is False
-    assert event["fixed_probes"] > 0
+    assert event["fixed_probes"] == 0
+    assert event["fixed_probe_bound"] > 0
+    assert probes == 0
     assert set(_feature_leader_names(drawing)) == {
         "hc_side0",
         "hc_side1",
@@ -697,8 +804,8 @@ def test_fixed_obstacle_probe_budget_precedes_joint_geometry(monkeypatch, tmp_pa
         "m_pocket_yz0",
     }
     issues = drawing.lint()
-    assert {issue.code for issue in issues} == {"feature_leader_crossing"}
-    assert all("Policy B" in issue.message for issue in issues)
+    assert {issue.code for issue in issues} == {"feature_leader_fixed_ink_unverified"}
+    assert all("probe budget exhausted" in issue.message for issue in issues)
 
 
 def test_candidate_budget_preserves_the_exact_pre_joint_hole_floor(monkeypatch):

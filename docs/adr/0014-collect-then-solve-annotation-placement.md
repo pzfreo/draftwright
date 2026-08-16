@@ -44,7 +44,8 @@ furniture. Strip-carving AABB inflation is not collision truth. Fixed rejections
 name stable annotation components (`:segment:n`, `:arrow:n`, `:label`) in the
 bounded trace. A leader-tip attachment is exempt only on an explicitly marked
 global turning-axis centreline; an ownerless section/cutting line is ordinary
-fixed ink, not an implicit axis exemption. Fixed curved helper ink that has no
+fixed ink, not an implicit axis exemption, and any later shelf/label crossing
+that same axis remains a conflict. Fixed curved helper ink that has no
 linear-segment metadata is
 lowered once from its rendered planar faces into deterministic component-local
 containing polygons before the geometry-only assignment: dashed
@@ -77,7 +78,11 @@ and candidate×fixed-obstacle probe caps, before quadratic geometry by a
 candidate-pair cap, and inside the exact solve by the existing state cap. A cap
 replays the original lazy candidate stream in
 canonical pass order, retaining each producer's former greedy/queue floor and
-recording any Policy-B blockers. Page bounds, label-over-own-silhouette, and the
+recording any Policy-B blockers while exact classification remains within the
+same fixed-probe budget. If that budget is exhausted, the replay performs no
+unbounded fixed-component scan and persists a
+`feature_leader_fixed_ink_unverified` info finding instead. Page bounds,
+label-over-own-silhouette, and the
 mandatory title reservation remain hard under every resource fallback. A
 state-cap incumbent is not emitted directly because its new exact-ink seed is
 not necessarily that producer floor; the trace nevertheless retains every fully
