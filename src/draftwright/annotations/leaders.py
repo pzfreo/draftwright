@@ -87,7 +87,7 @@ class _MeasuredLeaderCandidate:
     label_box: tuple[float, float, float, float] | None
     segments: tuple[tuple[tuple[float, float], tuple[float, float]], ...]
     ink_polygons: tuple[tuple[tuple[float, float], ...], ...]
-    attachment_polygons: tuple[tuple[tuple[float, float], ...], ...] = ()
+    axis_residual_polygons: tuple[tuple[tuple[float, float], ...], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -179,6 +179,22 @@ def _candidate_conflict(left: _MeasuredLeaderCandidate, right: _MeasuredLeaderCa
     )
 
 
+def _axis_residual_ink(tip, elbow, draft):
+    """Leader ink beyond the arrow-sized local tip-attachment neighbourhood."""
+
+    dx, dy = float(elbow[0]) - float(tip[0]), float(elbow[1]) - float(tip[1])
+    length = math.hypot(dx, dy)
+    local_length = min(length, max(0.0, float(draft.arrow_length)))
+    if length <= local_length + 1e-12:
+        return ()
+    start = (
+        float(tip[0]) + dx * local_length / length,
+        float(tip[1]) + dy * local_length / length,
+    )
+    shaft = _stroke_polygon(start, elbow, draft.line_width)
+    return (shaft,) if shaft is not None else ()
+
+
 def _measure(raw_index, raw, job: FeatureLeaderJob, draft) -> _MeasuredLeaderCandidate:
     tip, elbow, feature = raw
     tip2 = (float(tip[0]), float(tip[1]))
@@ -211,6 +227,7 @@ def _measure(raw_index, raw, job: FeatureLeaderJob, draft) -> _MeasuredLeaderCan
         for first, second in segments[1:]
         if (polygon := _stroke_polygon(first, second, draft.line_width)) is not None
     )
+    axis_residual = _axis_residual_ink(tip2, elbow2, draft)
     return _MeasuredLeaderCandidate(
         annotation,
         tip2,
@@ -221,7 +238,7 @@ def _measure(raw_index, raw, job: FeatureLeaderJob, draft) -> _MeasuredLeaderCan
         label_box,
         segments,
         (*primary, *shelves),
-        primary,
+        (*axis_residual, *shelves),
     )
 
 
@@ -351,7 +368,7 @@ def _candidate_hits_component(
                 # attachment, not an unrelated crossing.  Only that primary
                 # tip ink is exempt: a later shelf/label crossing the same axis
                 # remains fixed-ink conflict, as does collinear shaft travel.
-                residual_polygons = candidate.ink_polygons[len(candidate.attachment_polygons) :]
+                residual_polygons = candidate.axis_residual_polygons
                 if component.box is not None:
                     if candidate.label_box is not None and _boxes_overlap(
                         candidate.label_box, component.box
@@ -695,6 +712,7 @@ def feature_leader_fixed_conflicts(dwg, fixed_names) -> tuple[tuple[str, str], .
             for first, second in segments[1:]
             if (polygon := _stroke_polygon(first, second, dwg.draft.line_width)) is not None
         )
+        axis_residual = _axis_residual_ink(tip, elbow, dwg.draft)
         candidate = _MeasuredLeaderCandidate(
             annotation,
             tip,
@@ -705,7 +723,7 @@ def feature_leader_fixed_conflicts(dwg, fixed_names) -> tuple[tuple[str, str], .
             _label_box(annotation),
             segments,
             (*primary, *shelves),
-            primary,
+            (*axis_residual, *shelves),
         )
         conflicts.extend(
             (name, component.name)

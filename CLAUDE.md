@@ -104,7 +104,8 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   side/plan hole jobs and the five post-drain machined-feature families lower
   exact committed component ink conflicts (including component-local curved
   centre furniture and rendered shifted-dimension arrows); only explicitly
-  marked global turning axes exempt a leader-tip attachment,
+  marked global turning axes exempt only the arrow-local tip attachment (not
+  near-collinear shaft travel),
   priorities, Policy-B penalties, and numeric costs into `layout.py`; optional
   sections enter only a separately bounded no-worse refinement, then validate
   their final ink against landed leaders, repair one end-symbol extent, and yield on conflict,

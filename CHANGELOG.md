@@ -41,8 +41,9 @@
   checks complete leader ink against actual-width fixed dimension/witness,
   arrow, label, and centre-furniture components (including rendered arrows on
   shifted dimensions and component-local dashed circular centre furniture);
-  only explicitly marked global turning axes permit a leader-tip attachment, so
-  ownerless section/cutting lines remain fixed ink. The solve prefers
+  only explicitly marked global turning axes permit an arrow-local leader-tip
+  attachment; near-collinear shaft travel and ownerless section/cutting lines
+  remain fixed ink. The solve prefers
   clear routes over explicit Policy-B fallbacks, and then minimises real leader
   length. Provisional sections cannot veto that primary result: one separately
   bounded refinement may choose an equally complete leader inventory that clears

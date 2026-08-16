@@ -545,7 +545,7 @@ def test_explicit_global_turning_axis_allows_only_tip_attachment():
         None,
         ((tip, elbow),),
         primary,
-        primary,
+        (),
     )
     assert _candidate_hits_component(candidate, axis_component) is False
 
@@ -556,6 +556,7 @@ def test_explicit_global_turning_axis_allows_only_tip_attachment():
         candidate,
         segments=((tip, elbow), shelf_segment),
         ink_polygons=(*primary, shelf),
+        axis_residual_polygons=(shelf,),
     )
     continuous_ink = _stroke_polygon(
         (tip[0], tip[1] - 20.0),
@@ -623,6 +624,66 @@ def test_global_axis_tip_attachment_does_not_exempt_a_later_shelf_crossing():
     assert leader.segments[1][1][0] > elbow[0]  # clear right shelf wins
     assert drawing.lint() == []
     assert feature_leader_fixed_conflicts(drawing, ("test_global_axis",)) == ()
+
+
+def test_global_axis_tip_attachment_does_not_exempt_near_collinear_shaft_travel():
+    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+    ctx = PlacementContext(
+        registry=drawing.registry,
+        coverage=drawing.coverage,
+        items=drawing.items,
+        part_model=drawing.model(),
+        feature_leaders=[],
+    )
+    axis = Centerline((50.0, 100.0, 0.0), (150.0, 100.0, 0.0))
+    axis.is_global_axis_centerline = True
+    ctx.place(axis, "test_global_axis", view="front")
+
+    tip = (50.0, 100.0)
+    elbow = (150.0, 100.01, 0.0)
+
+    def build(tip, elbow, _feature):
+        return Leader(
+            tip=(*tip, 0.0),
+            elbow=elbow,
+            label="R1",
+            draft=drawing.draft,
+            text_side="right",
+        )
+
+    collect_feature_leader(
+        ctx,
+        FeatureLeaderJob(
+            name="m_fillet0",
+            view="front",
+            silhouette=(20.0, 20.0, 40.0, 40.0),
+            label="R1",
+            candidates=((tip, elbow, object()),),
+            build=build,
+            measurement=(),
+            noun="fillet",
+            drop_code="fillet_dropped",
+            allow_policy_b_fixed=True,
+        ),
+    )
+    analysis = SimpleNamespace(
+        margin=10.0,
+        PAGE_W=drawing.page_w,
+        PAGE_H=drawing.page_h,
+        TB_W=drawing.get_annotation("title_block").bounding_box().size.X,
+    )
+
+    assert drain_feature_leaders(drawing, analysis, ctx) == 1
+    assert any(
+        issue.code == "feature_leader_crossing" and "test_global_axis:segment:" in issue.message
+        for issue in drawing.lint()
+    )
+    conflicts = feature_leader_fixed_conflicts(drawing, ("test_global_axis",))
+    assert conflicts
+    assert all(
+        leader == "m_fillet0" and component.startswith("test_global_axis:segment:")
+        for leader, component in conflicts
+    )
 
 
 def test_cross_pass_objective_avoids_the_per_pass_greedy_trap():

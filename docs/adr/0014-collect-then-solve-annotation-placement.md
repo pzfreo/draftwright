@@ -44,8 +44,9 @@ furniture. Strip-carving AABB inflation is not collision truth. Fixed rejections
 name stable annotation components (`:segment:n`, `:arrow:n`, `:label`) in the
 bounded trace. A leader-tip attachment is exempt only on an explicitly marked
 global turning-axis centreline; an ownerless section/cutting line is ordinary
-fixed ink, not an implicit axis exemption, and any later shelf/label crossing
-that same axis remains a conflict. Fixed curved helper ink that has no
+fixed ink, not an implicit axis exemption. The exemption is limited to the
+arrow-sized local tip neighbourhood; near-collinear travel and any later
+shelf/label crossing that same axis remain conflicts. Fixed curved helper ink that has no
 linear-segment metadata is
 lowered once from its rendered planar faces into deterministic component-local
 containing polygons before the geometry-only assignment: dashed
