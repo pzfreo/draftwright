@@ -722,6 +722,40 @@ def test_global_axis_tip_attachment_does_not_exempt_near_collinear_shaft_travel(
     )
 
 
+@pytest.mark.parametrize("unavailable_attribute", ["segments", "label_bbox"])
+def test_final_preflight_yields_when_landed_leader_metadata_is_unavailable(
+    monkeypatch, unavailable_attribute
+):
+    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+    ctx = PlacementContext(
+        registry=drawing.registry,
+        coverage=drawing.coverage,
+        items=drawing.items,
+        part_model=drawing.model(),
+    )
+    leader = Leader(
+        tip=(50.0, 50.0, 0.0),
+        elbow=(60.0, 60.0, 0.0),
+        label="R1",
+        draft=drawing.draft,
+    )
+    ctx.place(leader, "m_fillet0", view="front")
+    ctx.place(
+        Centerline((40.0, 50.0, 0.0), (70.0, 50.0, 0.0)),
+        "section_line",
+        view="front",
+    )
+
+    def unavailable(_annotation):
+        raise RuntimeError(f"{unavailable_attribute} unavailable")
+
+    monkeypatch.setattr(Leader, unavailable_attribute, property(unavailable))
+
+    assert feature_leader_fixed_conflicts(drawing, ("section_line",)) == (
+        ("m_fillet0", "m_fillet0:geometry_unverified"),
+    )
+
+
 def test_cross_pass_objective_avoids_the_per_pass_greedy_trap():
     # Job 0's shortest alternative blocks job 1's only candidate. Independent
     # first-clear passes place one; the shared lexicographic solve places both.
@@ -1413,6 +1447,57 @@ def test_malformed_rendered_triangles_use_the_unavailable_inventory_contract():
 
     assert bounded is _FIXED_INVENTORY_EXHAUSTED
     assert conservative[-1].name == "malformed_tessellation:geometry"
+
+
+@pytest.mark.parametrize(
+    ("vertices", "triangles"),
+    [
+        (((0.2, 0.2), (0.3, 0.2), (99.0, 99.0)), ((),)),
+        (((0.2, 0.2), (0.3, 0.2), (99.0, 99.0)), ((0,),)),
+        (((0.2, 0.2), (0.3, 0.2), (99.0, 99.0)), ((0, 1),)),
+        (((0.2, 0.2), (0.3, 0.2), (99.0, 99.0)), ((0, 0, 1),)),
+        (((0.2, 0.2), (0.3, 0.2), (99.0, 99.0)), ((0, 1, True),)),
+        (((0.2, 0.2), (0.3, 0.2), (99.0, 99.0), (0.2, 0.3)), ((0, 1, 3),)),
+        (((0.2, 0.2), (0.3, 0.2), (float("nan"), 99.0)), ((0, 1, 2),)),
+    ],
+)
+def test_malformed_face_mesh_fails_both_rendered_ink_paths(vertices, triangles):
+    class MalformedRendered:
+        def faces(self):
+            return (self,)
+
+        def tessellate(self, _tolerance):
+            return tuple(SimpleNamespace(X=x, Y=y) for x, y in vertices), triangles
+
+        def edges(self):
+            return ()
+
+    annotation = MalformedRendered()
+    containing = ((0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0))
+    candidate = _MeasuredLeaderCandidate(
+        annotation,
+        (0.0, 0.0),
+        (1.0, 0.0),
+        None,
+        0,
+        1.0,
+        None,
+        (),
+        (containing,),
+    )
+
+    assert _rendered_ink_matches(candidate, annotation) is False
+    assert (
+        _rendered_residual_components(
+            "malformed",
+            annotation,
+            (_FixedInkComponent("malformed:known", polygons=(containing,)),),
+            None,
+            None,
+            "Note",
+        )
+        is None
+    )
 
 
 def test_fixed_residual_keeps_a_face_bridging_disjoint_known_components():

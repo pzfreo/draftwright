@@ -399,6 +399,37 @@ def _face_exactly_covered(face, polygons, label, *, tol=1e-8) -> bool:
         return False
 
 
+def _validated_face_mesh(face, tolerance):
+    """Return one complete finite triangular mesh, or ``None`` when malformed."""
+
+    try:
+        vertices, raw_triangles = face.tessellate(tolerance)
+        points = tuple((float(vertex.X), float(vertex.Y)) for vertex in vertices)
+        if not points or any(not math.isfinite(value) for point in points for value in point):
+            return None
+        triangles = []
+        referenced: set[int] = set()
+        for raw_triangle in raw_triangles:
+            triangle = tuple(raw_triangle)
+            if (
+                len(triangle) != 3
+                or any(type(index) is not int for index in triangle)
+                or len(set(triangle)) != 3
+                or any(index < 0 or index >= len(points) for index in triangle)
+            ):
+                return None
+            triangles.append(triangle)
+            referenced.update(triangle)
+        if not triangles or referenced != set(range(len(points))):
+            return None
+        edge_kinds = tuple(
+            getattr(getattr(edge, "geom_type", None), "name", "") for edge in face.edges()
+        )
+    except Exception:  # noqa: BLE001 — optional placement must fail closed
+        return None
+    return points, tuple(triangles), edge_kinds
+
+
 def _rendered_ink_matches(candidate: _MeasuredLeaderCandidate, annotation, *, tol=1e-6) -> bool:
     """Validate the selected OCC survivor against its analytical ink contract.
 
@@ -429,16 +460,13 @@ def _rendered_ink_matches(candidate: _MeasuredLeaderCandidate, annotation, *, to
         if not faces:
             return False
         for face in faces:
-            vertices, triangles = face.tessellate(0.01)
-            if not vertices or not triangles:
+            mesh = _validated_face_mesh(face, 0.01)
+            if mesh is None:
                 return False
-            points = tuple((float(vertex.X), float(vertex.Y)) for vertex in vertices)
+            points, triangles, edge_kinds = mesh
             for triangle in triangles:
                 if not component_covers(tuple(points[index] for index in triangle)):
                     return False
-            edge_kinds = tuple(
-                getattr(getattr(edge, "geom_type", None), "name", "") for edge in face.edges()
-            )
             if any(edge_kind != "LINE" for edge_kind in edge_kinds) and not _face_exactly_covered(
                 face,
                 candidate.ink_polygons,
@@ -606,17 +634,11 @@ def _rendered_face_hull(face, *, curve_envelope=0.01):
     circle's empty interior.
     """
 
-    try:
-        vertices, triangles = face.tessellate(curve_envelope)
-        points = tuple((float(vertex.X), float(vertex.Y)) for vertex in vertices)
-        if any(not math.isfinite(value) for point in points for value in point):
-            return (), (), (), ()
-        edge_kinds = tuple(
-            getattr(getattr(edge, "geom_type", None), "name", "") for edge in face.edges()
-        )
-        curved = any(edge_kind != "LINE" for edge_kind in edge_kinds)
-    except Exception:  # noqa: BLE001 — optional placement must fail closed
+    mesh = _validated_face_mesh(face, curve_envelope)
+    if mesh is None:
         return (), (), (), ()
+    points, triangles, edge_kinds = mesh
+    curved = any(edge_kind != "LINE" for edge_kind in edge_kinds)
     if curved:
         hull_points = tuple(
             (x + dx, y + dy)
@@ -957,6 +979,7 @@ def feature_leader_fixed_conflicts(dwg, fixed_names) -> tuple[tuple[str, str], .
             continue
         segments = _segments(annotation)
         if not segments:
+            conflicts.append((name, f"{name}:geometry_unverified"))
             continue
         tip, elbow = segments[0]
         primary = _leader_ink_polygons(
@@ -971,6 +994,10 @@ def feature_leader_fixed_conflicts(dwg, fixed_names) -> tuple[tuple[str, str], .
             if (polygon := _stroke_polygon(first, second, dwg.draft.line_width)) is not None
         )
         axis_residual = _axis_residual_ink(tip, elbow, dwg.draft)
+        label = _label_box(annotation)
+        if label is None:
+            conflicts.append((name, f"{name}:geometry_unverified"))
+            continue
         candidate = _MeasuredLeaderCandidate(
             annotation,
             tip,
@@ -978,11 +1005,14 @@ def feature_leader_fixed_conflicts(dwg, fixed_names) -> tuple[tuple[str, str], .
             dwg.registry.feature_of(name),
             0,
             0.0,
-            _label_box(annotation),
+            label,
             segments,
             (*primary, *shelves),
             (*axis_residual, *shelves),
         )
+        if not _rendered_ink_matches(candidate, annotation):
+            conflicts.append((name, f"{name}:geometry_unverified"))
+            continue
         conflicts.extend(
             (name, component.name)
             for component in fixed
