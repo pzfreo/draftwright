@@ -187,10 +187,25 @@ the hole-table transaction: relocating a hole callout after the fact invalidates
 bookkeeping this ADR fences off precisely because pattern callout winners carry
 downstream furniture and table semantics. Recorded so it is not re-derived.
 
-Hole callouts on their specialised immediate path, boss diameters, and the pre-drain
-diameter consumers therefore remain unrouted, tracked by **#1187**. Their fix is not a
-larger lookahead; it is a decision about those placers' downstream semantics. That the
-joint assignment does not reach dense parts at all is **#1188**.
+The material term reaches every placer that weighs routing, not only the shared
+inventory: the within-pass assignment and the legacy first-clear scope in
+`_leader_callout_pass` take the same preference through the same
+`material_penalty_units`, so boss diameters and the machined families cannot drift from
+the critique either (#1187). The pre-drain diameter and grouped pattern consumers keep
+their pure legacy selection, as Amendment 1 requires.
+
+What remains crossing after all of this is **not** unrouted work. Measured on the
+finished sheet, the retained crossings have hundreds of routes clear of the *material*
+and **none** clear of everything else: every alternative collides with committed ink,
+the page margin, or the silhouette. The sheet is full, and Policy B keeps the callout at
+a logged cost rather than dropping a dimension for tidiness. That claim is measured per
+case rather than asserted (`tests/test_issue_1187_unroutable_leaders.py`), so it moves
+with the drawing instead of going stale.
+
+Widening a producer's candidate fan to reach those routes was tried and rejected:
+richer candidates push dense parts back over the per-view budget and out of the exact
+solve, which cost more than it bought. Candidate richness trades against solve reach,
+and #1188 records where that balance currently sits.
 
 ## Context (short — the full story is 0009's)
 

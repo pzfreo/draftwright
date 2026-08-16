@@ -653,13 +653,13 @@ def _assign_by_view(
     return _LeaderAssignment(tuple(choices), optimal, states)
 
 
-def _material_units(candidate: _MeasuredLeaderCandidate, field) -> int:
-    """Policy-B penalty units for the part material this candidate's shaft cuts back into.
+def material_penalty_units(tip, elbow, field) -> int:
+    """Policy-B penalty units for the part material a tip→elbow shaft cuts back into.
 
-    Measured on the same tip→elbow shaft, against the same filled field, with the same
-    bridge as the ``leader_crosses_silhouette`` critique, so a route the solver accepts
-    cannot be one the critique then reports — the two are one predicate by construction,
-    not by agreement.
+    Measured against the same filled field, with the same bridge, as the
+    ``leader_crosses_silhouette`` critique, so a route a placer accepts cannot be one the
+    critique then reports — one predicate by construction, not by agreement. Shared by
+    every placer that weighs routing, so the answer cannot drift between them.
 
     Re-entry, not total traversal: a leader is attached to the feature it names, so its
     first passage out of the body is the legitimate exit every callout makes. Charging it
@@ -668,12 +668,29 @@ def _material_units(candidate: _MeasuredLeaderCandidate, field) -> int:
     if field is None or not field:
         return 0
     cut = material_reentry_span(
-        candidate.tip,
-        candidate.elbow,
-        field,
-        bridge=_MATERIAL_PAGE_TOLERANCE,
+        (tip[0], tip[1]), (elbow[0], elbow[1]), field, bridge=_MATERIAL_PAGE_TOLERANCE
     )
     return int(cut / _MATERIAL_PENALTY_UNIT) if cut > _MATERIAL_PENALTY_UNIT else 0
+
+
+def view_material(dwg, view):
+    """The filled projected material for *view*, or ``None`` when it is unavailable.
+
+    The one lookup: the fields are keyed by projected-shape identity because those shapes
+    carry no view label, which is a detail no placer should have to know.
+    """
+    try:
+        placed = dwg.views.get(view)
+        if not placed or placed[0] is None:
+            return None
+        return dwg.material_fields().get(id(placed[0]))
+    except Exception:  # noqa: BLE001 — an unmeshable part routes on the other constraints
+        return None
+
+
+def _material_units(candidate: _MeasuredLeaderCandidate, field) -> int:
+    """:func:`material_penalty_units` for an already-measured shared-inventory candidate."""
+    return material_penalty_units(candidate.tip, candidate.elbow, field)
 
 
 def _fixed_blockers(candidate, job, page, fixed_components) -> tuple[str, ...]:

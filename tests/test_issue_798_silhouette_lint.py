@@ -200,7 +200,6 @@ class TestCardinalityIsNotTradedForCleanliness:
     def test_the_dense_fixtures_place_the_same_callouts_as_before(self, tmp_path):
         import json
         import os
-
         from pathlib import Path
 
         for stem, expected in self.CASES:

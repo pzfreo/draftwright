@@ -82,11 +82,17 @@ from draftwright.annotations._common import (
     strip_free_span,
     strip_obstacles,
 )
-from draftwright.annotations.leaders import FeatureLeaderJob, collect_feature_leader
+from draftwright.annotations.leaders import (
+    _GREEDY_MATERIAL_LOOKAHEAD,
+    FeatureLeaderJob,
+    _assign_by_view,
+    collect_feature_leader,
+    material_penalty_units,
+    view_material,
+)
 from draftwright.layout import (
     _LEADER_ASSIGN_MAX_JOBS,
     StripCandidate,
-    _assign_leader_candidates,
     plan_strip,
 )
 
@@ -1620,6 +1626,11 @@ def _corner_escape_candidates(dwg, view, vb, members, reach, *, provenances=None
     cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
     for member, owner in zip(members, owners, strict=True):
         tip = dwg.at(view, *member.frame.origin)
+        # Two axis escapes only. Widening this fan to five directions was measured
+        # (#1187): it does find clear routes, but the extra candidates push dense parts
+        # back over the per-view candidate budget and out of the exact solve, which cost
+        # more than it bought — +2 callouts placed, +2 cuts, and three fixtures lost
+        # `joint`. Candidate richness trades against solve reach; this is the balance.
         directions = (
             (1.0 if tip[0] >= cx else -1.0, 0.0),
             (0.0, 1.0 if tip[1] >= cy else -1.0),
@@ -1882,9 +1893,21 @@ def _leader_callout_pass(
         for job in jobs:
             name, view, vb, label, raw_candidates, measurement = job
             obstacles = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
+            field = view_material(dwg, view)
             tried = 0
+            chosen = None
+            # Acceptable-but-cutting alternatives, held while a bounded lookahead searches
+            # for one that clears the body (#1187). Empty in the common case, where the
+            # first acceptable route already clears and this breaks exactly where the
+            # pre-#798 loop did.
+            held: list[tuple[int, int, Any]] = []
+            examined_since_accept = None
             for raw_index, (tip, elbow, feature) in enumerate(raw_candidates):
                 tried = raw_index + 1
+                if examined_since_accept is not None:
+                    examined_since_accept += 1
+                    if examined_since_accept > _GREEDY_MATERIAL_LOOKAHEAD:
+                        break
                 leader = Leader(tip=(tip[0], tip[1], 0), elbow=elbow, label=label, draft=dwg.draft)
                 if not _label_lands_clear(leader, obstacles, vb, page, geom_clear=geom_clear):
                     continue
@@ -1898,17 +1921,23 @@ def _leader_callout_pass(
                     tuple(annotation_obstacle_boxes(dwg, leader)),
                     math.hypot(elbow[0] - tip[0], elbow[1] - tip[1]),
                 )
-                place(candidate, job)
-                trace_item(
-                    name,
-                    view,
-                    label,
-                    tried,
-                    len(obstacles),
-                    candidate,
-                )
-                placed_count += 1
+                units = material_penalty_units(tip, elbow, field)
+                if units:
+                    # Eligible, but it cuts the part. Policy B keeps a required callout at
+                    # a logged cost rather than dropping it, so this is only ever a
+                    # preference — the candidate stays available if nothing clearer is.
+                    held.append((units, raw_index, candidate))
+                    if examined_since_accept is None:
+                        examined_since_accept = 0
+                    continue
+                chosen = candidate
                 break
+            if chosen is None and held:
+                chosen = min(held, key=lambda entry: entry[:2])[2]
+            if chosen is not None:
+                place(chosen, job)
+                trace_item(name, view, label, tried, len(obstacles), chosen)
+                placed_count += 1
             else:
                 ctx.record_issue(
                     "warning",
@@ -2001,9 +2030,21 @@ def _leader_callout_pass(
                     if _box_hits(later.check_box, earlier.obstacle_boxes):
                         conflicts.append((earlier_job, earlier_index, later_job, later_index))
 
-    assignment = _assign_leader_candidates(
+    # Same material term and same per-view decomposition as the shared inventory
+    # (#798/#1188): a within-pass callout is no more entitled to cut the part than a
+    # shared one, and its conflicts are likewise same-view only.
+    assignment = _assign_by_view(
+        [job[1] for job in jobs],
         [[candidate.cost for candidate in candidates] for candidates in candidates_by_job],
         conflicts,
+        priorities=[0.0] * len(jobs),
+        penalties_by_job=[
+            [
+                material_penalty_units(candidate.tip, candidate.elbow, view_material(dwg, job[1]))
+                for candidate in candidates
+            ]
+            for job, candidates in zip(jobs, candidates_by_job, strict=True)
+        ],
     )
     if ev is not None:
         ev.update(

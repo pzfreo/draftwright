@@ -57,8 +57,10 @@ def test_pre_drain_pattern_keeps_legacy_greedy_semantics(monkeypatch):
     def forbidden_joint_solve(*_args, **_kwargs):
         raise AssertionError("a pre-drain pattern must not enter #740's joint solver")
 
+    # The joint solve is reached through the per-view decomposition since #1188; that
+    # wrapper is the one call site, so it is what a pre-drain pattern must never enter.
     monkeypatch.setattr(
-        "draftwright.annotations.from_model._assign_leader_candidates",
+        "draftwright.annotations.from_model._assign_by_view",
         forbidden_joint_solve,
     )
     member = pocket(
