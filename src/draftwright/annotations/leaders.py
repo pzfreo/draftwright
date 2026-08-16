@@ -55,6 +55,12 @@ _FIXED_INVENTORY_EXHAUSTED = object()
 # cut the sheet cannot show must not steer the solve.
 _MATERIAL_PENALTY_UNIT = 0.25
 
+# Raw candidates the resource-cap floor may examine past its first acceptable-but-cutting
+# route while looking for one that does not cut. Bounded because the floor is what runs
+# when the exact solve has already been ruled out on cost: it must stay lazy. Zero would
+# restore the pre-#798 first-clear behaviour exactly.
+_GREEDY_MATERIAL_LOOKAHEAD = 32
+
 
 class _FeatureLeaderInvariantError(ValueError):
     """A compiler invariant violation that must remain loud at the public boundary."""
@@ -1376,8 +1382,17 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
         abandoned_inventories=None,
         abandoned_rejected=None,
         abandoned_raw_counts=None,
+        prefer_clear=True,
     ) -> int:
-        """Deterministic first-clear floor in original stage/job order."""
+        """Deterministic first-clear floor in original stage/job order.
+
+        With *prefer_clear* a job whose first acceptable route cuts back through the part
+        looks a bounded distance further for one that does not (#798). Every other job
+        behaves exactly as the pre-#798 floor did, because a first acceptable route that
+        already clears the body breaks the loop in the same place. ``prefer_clear=False``
+        restores the original selection verbatim and is what the cardinality guard
+        compares against.
+        """
 
         placed_count = 0
         total_priority = 0.0
@@ -1439,13 +1454,25 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
             raw_count = 0
             selected = None
             selected_policy_b: tuple[str, ...] = ()
+            annotation = None
             inventory = []
+            field = material_by_view.get(job.view)
+            # Accepted-but-cutting alternatives, held back while a bounded lookahead
+            # searches for one that does not cut. Empty in the common case: the first
+            # acceptable route usually clears the body, and then this loop breaks exactly
+            # where the pre-#798 one did.
+            held: list[tuple[int, int, Any, tuple[str, ...]]] = []
+            examined_since_accept = None
             source = (
                 _measure(raw_index, raw, job, dwg.draft)
                 for raw_index, raw in enumerate(fallback_jobs[job_index])
             )
             for candidate in source:
                 raw_count = max(raw_count, candidate.raw_index + 1)
+                if examined_since_accept is not None:
+                    examined_since_accept += 1
+                    if examined_since_accept > _GREEDY_MATERIAL_LOOKAHEAD:
+                        break
                 fixed_components = fixed[job.view]
                 if fixed_verified and (
                     actual_fixed_probes + len(fixed_components) <= _FEATURE_LEADER_MAX_FIXED_PROBES
@@ -1476,6 +1503,16 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
                     )
                     inventory.append(candidate_entry(candidate, "fixed_rejected", blockers))
                     continue
+                units = _material_units(candidate, field) if prefer_clear else 0
+                if units:
+                    # Acceptable, but it cuts the part. Keep looking a bounded distance
+                    # for a route that does not, and remember this one in case none does:
+                    # Policy B keeps a required callout at a logged cost rather than
+                    # dropping it for a placement reason (ADR 0014).
+                    held.append((units, candidate.raw_index, candidate, blockers))
+                    if examined_since_accept is None:
+                        examined_since_accept = 0
+                    continue
                 annotation = _materialize(dwg, job, candidate)
                 if annotation is None:
                     blockers_by_raw.append((candidate.raw_index, ("geometry_validation",)))
@@ -1493,6 +1530,30 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
                 selected_policy_b = blockers
                 inventory.append(candidate_entry(candidate, "selected", blockers))
                 break
+            if selected is None:
+                # No clear route inside the lookahead. Fall back to the least-cutting
+                # candidate held, shallowest first, original order breaking ties — the
+                # same result the pre-#798 floor reached whenever nothing clear exists.
+                for _units, _raw_index, candidate, blockers in sorted(held, key=lambda h: h[:2]):
+                    annotation = _materialize(dwg, job, candidate)
+                    if annotation is None:
+                        blockers_by_raw.append((candidate.raw_index, ("geometry_validation",)))
+                        inventory.append(
+                            candidate_entry(
+                                candidate, "geometry_validation", ("geometry_validation",)
+                            )
+                        )
+                        fallback_rejected.append(
+                            {
+                                "candidate": candidate.raw_index,
+                                "blockers": ["geometry_validation"],
+                            }
+                        )
+                        continue
+                    selected = candidate
+                    selected_policy_b = blockers
+                    inventory.append(candidate_entry(candidate, "selected", blockers))
+                    break
             producer_fallback = {
                 "candidates_tried": raw_count,
                 "selected": (

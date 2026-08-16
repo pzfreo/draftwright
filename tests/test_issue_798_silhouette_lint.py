@@ -134,3 +134,43 @@ class TestFieldLifecycle:
         state.view_edge_cache[1] = object()
         state.clear_geometry_caches()
         assert state.material_fields == {}
+
+
+class TestGreedyFloorPrefersClearRoutes:
+    """#798 — the resource-cap floor is what actually runs on dense parts.
+
+    Measured across every fixture, the joint ADR 0014 Amendment 2 assignment runs only
+    on modest inventories; a 20-job part expands past the candidate cap and falls back
+    here. So this is where a cutting route has to be rejected, and these tests pin the
+    two properties that make that safe.
+    """
+
+    def test_a_clear_first_route_breaks_where_it_always_did(self):
+        # The blast radius is deliberately tiny: a job whose first acceptable route
+        # already clears the body selects it immediately, exactly as the pre-#798 floor
+        # did. Only a job whose first acceptable route CUTS looks further.
+        from draftwright.annotations import leaders
+
+        assert leaders._GREEDY_MATERIAL_LOOKAHEAD > 0
+        dwg = build_drawing(_nested_boss())
+        assert [i for i in dwg.lint() if i.code == "leader_crosses_silhouette"] == []
+
+    def test_the_lookahead_is_bounded(self):
+        # The floor runs precisely when the exact solve has been ruled out on cost, so
+        # it must stay lazy. An unbounded search here would reintroduce the expense the
+        # fallback exists to avoid.
+        from draftwright.annotations import leaders
+
+        assert leaders._GREEDY_MATERIAL_LOOKAHEAD <= 64
+
+    def test_material_units_are_zero_below_the_visible_floor(self):
+        # A cut the sheet cannot show must not steer the solve, or mesh detail becomes a
+        # placement decision.
+        from draftwright.annotations.leaders import _MATERIAL_PENALTY_UNIT, _material_units
+
+        class _Candidate:
+            tip = (0.0, 0.0)
+            elbow = (10.0, 0.0)
+
+        assert _material_units(_Candidate(), None) == 0
+        assert _MATERIAL_PENALTY_UNIT > 0
