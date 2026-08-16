@@ -118,6 +118,11 @@ _ALLOW: dict[str, int] = {
     # draining / exception preservation (#426). No public pending-intent inspector exists, and
     # `with deferred():` auto-finalizes (can't express "fail mid-drain + inspect"), so these drive
     # the recorded list directly.
+    # Forging a stale entry in the #798 material-field cache to prove the identity guard
+    # rejects it. A cache-staleness invariant cannot be exercised through a surface whose
+    # whole job is to hide the cache: `material_fields()` returns fields, never entries,
+    # so there is no public way to plant an entry whose shape no longer matches its key.
+    "_build": 1,
     "_intents": 25,
     # Deferred-mode flag: mode-restoration + no-op-after-drain assertions (some INSIDE
     # `with deferred()`), not mid-drain tests. No public deferred-state read.

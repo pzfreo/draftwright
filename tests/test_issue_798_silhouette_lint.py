@@ -110,12 +110,45 @@ class TestExemptionsTheFilledFieldRemoves:
 class TestFieldLifecycle:
     def test_the_field_is_built_once_and_reused(self):
         # One tessellation per drawing: a build->critique->fix loop lints repeatedly and
-        # the mesh is the expensive part (~1 s on the largest fixture).
+        # the mesh is the expensive part (~1 s on the largest fixture). The RETURNED dict
+        # is rebuilt each call on purpose — it is reconciled against the current views, so
+        # a view added by a later stage is not permanently missing — but the fields inside
+        # it, and the mesh behind them, are the same objects.
         dwg = build_drawing(_nested_boss())
         first = dwg.material_fields()
         assert first, "no material field was built for a meshable part"
-        assert dwg.material_fields() is first
-        assert all(field is first[key] for key, field in dwg.material_fields().items())
+        again = dwg.material_fields()
+        assert set(again) == set(first)
+        assert all(again[key] is field for key, field in first.items())
+
+    def test_a_view_added_after_the_first_call_is_lowered_too(self):
+        # The routing stage asks for the fields before the section/detail stages run, so
+        # a build-once cache would leave every later view permanently unmeasured and its
+        # leaders silently unchecked. Mutation: caching on first call makes this KeyError.
+        dwg = build_drawing(_nested_boss())
+        before = dwg.material_fields()
+        extra = next(iter(dwg.views))
+        later, _hidden = dwg.views[extra]
+        dwg.views["detail_probe"] = (later, None)
+        try:
+            after = dwg.material_fields()
+        finally:
+            del dwg.views["detail_probe"]
+        assert set(after) >= set(before)
+
+    def test_a_replaced_view_shape_is_not_served_from_the_stale_entry(self):
+        # id() is reused after collection, so a cache keyed on it alone can hand back
+        # another view's material. Entries carry their shape and are identity-checked,
+        # the same guard _view_edge_entries uses (#143).
+        dwg = build_drawing(_nested_boss())
+        first = dwg.material_fields()
+        view = next(iter(dwg.views))
+        shape, hidden = dwg.views[view]
+        key = id(shape)
+        assert key in first
+        # Forge a stale entry under the same key with a different owner object.
+        dwg._build.material_fields[key] = (object(), "stale")
+        assert dwg.material_fields()[key] != "stale"
 
     def test_the_field_is_keyed_by_view_shape_identity(self):
         # Projected view shapes carry no label — lint names them view@<id> — so the

@@ -273,3 +273,66 @@ class TestTicksContract:
         # ticks back to mm share one convention with the module.
         field = material_field(_square(0, 0, 10, 10))
         assert material_intervals((0, 5), (10, 5), field) == ((0, _MATERIAL_SPAN_TICKS),)
+
+
+class TestTheIndexAgreesWithBruteForce:
+    """The grid index is an optimisation; if it can skip a cell, a shaft that cuts the
+    part scores as clear and the whole model quietly under-reports. So the indexed probe
+    is checked against an exhaustive scan of every triangle."""
+
+    @staticmethod
+    def _brute_span(p, q, field):
+        from draftwright._geometry import _MATERIAL_SPAN_TICKS, _segment_triangle_interval
+
+        length = math.hypot(q[0] - p[0], q[1] - p[1])
+        if length <= 1e-12:
+            return 0.0
+        raw = []
+        for triangle in field.triangles:  # every triangle, no index
+            span = _segment_triangle_interval(p, q, triangle)
+            if span is None:
+                continue
+            lo = max(0, min(_MATERIAL_SPAN_TICKS, round(span[0] * _MATERIAL_SPAN_TICKS)))
+            hi = max(0, min(_MATERIAL_SPAN_TICKS, round(span[1] * _MATERIAL_SPAN_TICKS)))
+            if hi > lo:
+                raw.append((lo, hi))
+        if not raw:
+            return 0.0
+        raw.sort()
+        total, current_lo, current_hi = 0, *raw[0]
+        for lo, hi in raw[1:]:
+            if lo > current_hi:
+                total += current_hi - current_lo
+                current_lo, current_hi = lo, hi
+            else:
+                current_hi = max(current_hi, hi)
+        total += current_hi - current_lo
+        return length * total / _MATERIAL_SPAN_TICKS
+
+    def test_random_scenes_and_probes_agree_exactly(self):
+        import random
+
+        rng = random.Random(20260816)  # fixed: a flaky geometry guard is worse than none
+        probes = 0
+        for _ in range(400):
+            triangles = []
+            for _member in range(rng.randint(1, 60)):
+                cx, cy = rng.uniform(0, 100), rng.uniform(0, 100)
+                spread = rng.uniform(0.4, 22)
+                triangles.append(
+                    tuple(
+                        (cx + rng.uniform(-spread, spread), cy + rng.uniform(-spread, spread))
+                        for _corner in range(3)
+                    )
+                )
+            field = material_field(triangles)
+            if not field:
+                continue
+            for _probe in range(6):
+                p = (rng.uniform(-20, 120), rng.uniform(-20, 120))
+                q = (rng.uniform(-20, 120), rng.uniform(-20, 120))
+                probes += 1
+                assert material_span(p, q, field) == pytest.approx(
+                    self._brute_span(p, q, field), abs=1e-9
+                ), f"indexed probe disagrees with the exhaustive scan for {p}->{q}"
+        assert probes > 1000, "the sweep must actually exercise the index"

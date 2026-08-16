@@ -514,11 +514,17 @@ def test_build_state_has_a_single_construction_and_fill_site():
         # snapshots it beside the registry/coverage snapshots and restores it on
         # rollback, so a failed drain leaves no trace records for placements that no
         # longer exist.
+        # _build.material_mesh: the #798 filled-material tessellation, memoised here for
+        # the same reason as principal_profile_cache above — it is a lazy cache Drawing
+        # owns, computed on first use because the routing stage needs it mid-build and
+        # lint needs it after. No engine module writes it; placers reach it through
+        # `Drawing.material_fields()` / `leaders.view_material`.
         "drawing.py": [
             "_build",
             "_build.analysis",
             "_build.part_model",
             "_build.trace",
+            "_build.material_mesh",
             "_build.principal_profile_cache",
         ],
     }, writers
