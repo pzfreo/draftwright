@@ -336,3 +336,46 @@ class TestTheIndexAgreesWithBruteForce:
                     self._brute_span(p, q, field), abs=1e-9
                 ), f"indexed probe disagrees with the exhaustive scan for {p}->{q}"
         assert probes > 1000, "the sweep must actually exercise the index"
+
+
+class TestTheLoweringFailsWhole:
+    """A partial mesh is worse than none: routes through the missing faces would read as
+    clear. `part_material_mesh` returns None rather than a subset, and the field it feeds
+    is empty rather than optimistic."""
+
+    def test_a_budget_overrun_yields_no_mesh_rather_than_a_subset(self):
+        from build123d import Box
+
+        from draftwright.projection import part_material_mesh
+
+        assert part_material_mesh(Box(10, 10, 10), 1.0, max_triangles=1) is None
+
+    def test_a_meshable_part_yields_triangles(self):
+        from build123d import Box
+
+        from draftwright.projection import part_material_mesh
+
+        mesh = part_material_mesh(Box(10, 10, 10), 1.0)
+        assert mesh and all(len(triangle) == 3 for triangle in mesh)
+
+    def test_an_unmeshable_object_yields_no_mesh(self):
+        from draftwright.projection import part_material_mesh
+
+        assert part_material_mesh(object(), 1.0) is None
+
+    def test_an_unprojectable_mesh_yields_an_empty_field(self):
+        # Not a field of "everything is clear": an empty field reads as "no material
+        # known", and callers treat that as no evidence rather than as clearance.
+        from draftwright.projection import view_material_field
+
+        def explode(_point):
+            raise RuntimeError("projector unavailable")
+
+        field = view_material_field((((0, 0, 0), (1, 0, 0), (0, 1, 0)),), explode)
+        assert not field
+        assert material_span((0, 0), (10, 10), field) == 0.0
+
+    def test_no_mesh_yields_an_empty_field(self):
+        from draftwright.projection import view_material_field
+
+        assert not view_material_field(None, lambda point: (point[0], point[1]))
