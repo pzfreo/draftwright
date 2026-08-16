@@ -36,6 +36,7 @@ from draftwright.annotations.leaders import (
     _rendered_ink_matches,
     collect_feature_leader,
     drain_feature_leaders,
+    feature_leader_fixed_conflicts,
 )
 from draftwright.annotations.orchestrator import _PASS_SEQUENCE
 from draftwright.layout import _assign_leader_candidates
@@ -510,6 +511,9 @@ def test_ownerless_section_centerline_at_the_tip_is_not_a_global_axis_exemption(
     assert any(
         issue.code == "feature_leader_crossing" and "section_line:segment:0" in issue.message
         for issue in drawing.lint()
+    )
+    assert feature_leader_fixed_conflicts(drawing, ("section_line",)) == (
+        ("m_fillet0", "section_line:segment:0"),
     )
 
 
