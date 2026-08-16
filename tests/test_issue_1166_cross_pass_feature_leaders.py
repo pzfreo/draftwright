@@ -34,6 +34,7 @@ from draftwright.annotations.leaders import (
     _candidate_conflict,
     _candidate_hits_component,
     _convex_hull,
+    _face_exactly_covered,
     _FixedInkComponent,
     _measure,
     _MeasuredLeaderCandidate,
@@ -877,6 +878,30 @@ def test_selected_occ_survivor_validates_arrow_shaft_and_shelf_ink():
     assert not _rendered_ink_matches(
         replace(candidate, ink_polygons=candidate.ink_polygons[:2]),
         candidate.annotation,
+    )
+
+
+def test_continuous_face_coverage_accepts_multi_shape_cut_results():
+    """build123d 0.10 returns a ShapeList where 0.11 returns one shape."""
+
+    class MultiShapeCutFace:
+        area = 10.0
+
+        def __init__(self, residual_areas):
+            self.residual_areas = residual_areas
+
+        def cut(self, *_cover_faces):
+            return [SimpleNamespace(area=area) for area in self.residual_areas]
+
+    assert _face_exactly_covered(
+        MultiShapeCutFace((3e-10, 4e-10)),
+        (((0.0, 0.0), (2.0, 0.0), (0.0, 2.0)),),
+        None,
+    )
+    assert not _face_exactly_covered(
+        MultiShapeCutFace((0.0, 2e-8)),
+        (((0.0, 0.0), (2.0, 0.0), (0.0, 2.0)),),
+        None,
     )
 
 

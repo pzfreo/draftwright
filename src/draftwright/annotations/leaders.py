@@ -394,7 +394,15 @@ def _face_exactly_covered(face, polygons, label, *, tol=1e-8) -> bool:
         if not cover_faces:
             return False
         residual = face.cut(*cover_faces)
-        return bool(float(residual.area) <= max(tol, abs(float(face.area)) * 1e-9))
+        # build123d 0.10 returns a ``ShapeList`` for multi-tool cuts, while
+        # 0.11 returns one area-bearing shape.  Both represent the same OCC
+        # residual; normalise that public-version boundary before applying the
+        # continuous-ink containment test.
+        if hasattr(residual, "area"):
+            residual_area = float(residual.area)
+        else:
+            residual_area = sum(float(piece.area) for piece in residual)
+        return bool(residual_area <= max(tol, abs(float(face.area)) * 1e-9))
     except Exception:  # noqa: BLE001 — optional placement must fail closed
         return False
 
