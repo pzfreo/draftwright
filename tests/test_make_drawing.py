@@ -4779,7 +4779,15 @@ class TestLocationDimsAndSection:
                     assert not (
                         x1 > sb.min.X and x0 < sb.max.X and y1 > sb.min.Y and y0 < sb.max.Y
                     )
-        assert [i for i in dwg.lint() if i.severity != "info"] == []
+        # `section_dropped` is expected here and is the POINT of #1190: this part's
+        # cutting-plane ink crosses a required hole-callout leader, so the section is
+        # withheld. That was previously silent — the assertion below passed because
+        # nothing recorded the omission, not because nothing was omitted.
+        assert dwg.section_decision["status"] == "skipped"
+        assert dwg.section_decision["reason"] == "leader_conflict"
+        assert [
+            i for i in dwg.lint() if i.severity != "info" and i.code != "section_dropped"
+        ] == []
 
     @pytest.mark.timeout(120)
     def test_side_drilled_callouts_survive_capacity_aware_carve(self):
@@ -4814,7 +4822,12 @@ class TestLocationDimsAndSection:
             - Pos(-11, 0, 18) * Cylinder(5, 8)
         )
         dwg = build_drawing(part)
-        assert [i for i in dwg.lint() if i.severity != "info"] == []
+        # See the sibling test above: the withheld section is now reported rather than
+        # silent (#1190), and this assertion previously passed on that silence.
+        assert dwg.section_decision["status"] == "skipped"
+        assert [
+            i for i in dwg.lint() if i.severity != "info" and i.code != "section_dropped"
+        ] == []
 
     @pytest.mark.timeout(120)
     def test_linear_array_locates_its_nearest_member(self):
