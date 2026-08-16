@@ -398,6 +398,9 @@ class Drawing:
         scale: drawing scale factor (e.g. ``2.0`` for 2:1).
         scale_decision: JSON-friendly resolution of an automatic or explicit scale request,
             including the requested/effective scales and any required placement blockers.
+        section_decision: JSON-friendly record of the section A-A outcome (#1190) —
+            ``status`` is ``"placed"``, ``"skipped"`` or ``"not_warranted"``, with a
+            stable ``reason`` code and human-readable ``detail`` when skipped.
         page_w, page_h: sheet size in mm.
         tb_w: title-block width in mm.
         draft: the shared ``Draft`` preset used by the automatic annotations.
@@ -444,6 +447,16 @@ class Drawing:
             "blockers": (),
             "attempted_scales": (),
             "attempts": (),
+        }
+        # Public, JSON-friendly record of what happened to section A-A (#1190). Always
+        # present, so a caller never has to infer the outcome from a log line that one
+        # code path emits and another does not — which is exactly what happened before:
+        # the title-block skip logged at INFO and the no-room skip at WARNING, so the
+        # same omission was visible on one part and silent on another.
+        self.section_decision = {
+            "status": "not_warranted",
+            "reason": None,
+            "detail": "no counterbore/spotface/blind Z-hole — no section warranted",
         }
         self.part = part
         self._cyl_cache = cyls
@@ -709,6 +722,18 @@ class Drawing:
     @property
     def _ann_box_cache(self) -> dict:
         return self._build.ann_box_cache
+
+    def record_section_decision(self, status: str, *, reason=None, detail: str = "") -> None:
+        """Record what happened to section A–A (#1190).
+
+        A public verb rather than an attribute the render pass assigns, so the
+        annotations layer stays off ``Drawing`` internals (ADR 0005) and every outcome
+        lands in one shape. ``status`` is ``"placed"``, ``"skipped"`` or
+        ``"not_warranted"``; ``reason`` is a stable code for the skipped case.
+        """
+        if status not in {"placed", "skipped", "not_warranted"}:
+            raise ValueError(f"unknown section status {status!r}")
+        self.section_decision = {"status": status, "reason": reason, "detail": detail}
 
     def material_fields(self) -> dict:
         """The per-view filled projected material of this drawing, keyed by ``id(shape)``.

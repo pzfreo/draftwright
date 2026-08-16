@@ -44,7 +44,7 @@ from draftwright._core import (
     _log,
 )
 from draftwright._geometry import _leader_ink_polygons, _stroke_polygon
-from draftwright.annotations._common import strip_obstacles
+from draftwright.annotations._common import carve_free_segments, strip_obstacles
 from draftwright.annotations.leaders import feature_leader_fixed_conflicts
 from draftwright.model import plan_sections
 from draftwright.projection import project_view_geometry
@@ -215,28 +215,48 @@ def _add_section_view(dwg, a: Analysis, section, *, ctx):
     side_right = side_vis.bounding_box().max.X
     if side_hid:
         side_right = max(side_right, side_hid.bounding_box().max.X)
-    left_edge = side_right + 10
     row_y0 = a.FV_Y - half_h - 10
     row_y1 = a.FV_Y + half_h + 6
-    for x0, y0, x1, y1 in strip_obstacles(dwg):
-        if y0 < row_y1 and row_y0 < y1 and x1 > side_right:
-            left_edge = max(left_edge, x1 + 6)
-    pos_x = left_edge + half_w
     iso_x0, iso_y0, _, _ = _iso_bbox(dwg)
     right_limit = a.PAGE_W - a.margin
     if a.FV_Y + half_h + 6 > iso_y0 - 2:
         right_limit = min(right_limit, iso_x0 - 4)
+    # Carve the row into free segments and take the leftmost that FITS, rather than
+    # starting after the rightmost obstacle (#1190). The old rule let one remote
+    # occupant veto the whole band: on GRM-01 at A4 a label at x 245-270 — under the
+    # iso view, past the right limit entirely — pushed the start to x 275 while
+    # x 202-245 sat empty and the section needs 24 mm. Same defect as #125's balloon
+    # ring, and the same remedy ADR 0014 records for it: a local remote obstacle must
+    # not displace everything past it.
+    blocked = [
+        (x0, x1)
+        for x0, y0, x1, y1 in strip_obstacles(dwg)
+        if y0 < row_y1 and row_y0 < y1 and x1 > side_right
+    ]
+    free = carve_free_segments(side_right + 10, right_limit, blocked, 6.0)
+    pos_x = next(
+        (lo + half_w for lo, hi in free if hi - lo >= 2 * half_w),
+        right_limit + half_w,  # nothing fits: fail the check below exactly as before
+    )
     tb_left = a.PAGE_W - a.TB_W - _TB_CLEAR
     if a.FV_Y - half_h - 10 < _TB_CLEAR + _TB_H and pos_x + half_w > tb_left - 4:
-        _log.info("Section A–A skipped (would collide with the title block)")
-        _clear_section_reservation(dwg)
+        _skip_section(
+            dwg,
+            ctx,
+            "title_block",
+            "would collide with the title block; "
+            f"the caption sits at y={a.FV_Y - half_h - 7:.1f} and the title block "
+            f"reaches y={_TB_CLEAR + _TB_H:.1f}",
+        )
         return
     if pos_x + half_w > right_limit:
-        _log.warning(
-            "Section A–A skipped (no room right of the side view; "
-            "a wider step-dimension corridor may have reduced the available space)"
+        _skip_section(
+            dwg,
+            ctx,
+            "no_room",
+            f"no free segment right of the side view wide enough for the "
+            f"{2 * half_w:.1f} mm section within x<={right_limit:.1f}",
         )
-        _clear_section_reservation(dwg)
         return
 
     big = 4 * a.bbox_max
@@ -245,8 +265,7 @@ def _add_section_view(dwg, a: Analysis, section, *, ctx):
     # never let a failed boolean abort the whole drawing
     solids = a.part.solids()
     if not solids:
-        _log.info("Section A–A skipped (no solid bodies to cut)")
-        _clear_section_reservation(dwg)
+        _skip_section(dwg, ctx, "no_solids", "no solid bodies to cut")
         return
     body = solids[0] if len(solids) == 1 else Compound(children=list(solids))
     try:
@@ -254,12 +273,10 @@ def _add_section_view(dwg, a: Analysis, section, *, ctx):
         # (Standard_DomainError) on some cast geometry — see _fuzzy_cut / #20.
         keep_behind = _fuzzy_cut(body, Pos(a.cx, y_star - big / 2, a.cz) * Box(big, big, big))
     except Exception as exc:  # noqa: BLE001 — OCC booleans raise broadly
-        _log.warning("Section A–A skipped (cut failed: %s)", exc)
-        _clear_section_reservation(dwg)
+        _skip_section(dwg, ctx, "cut_failed", f"cut failed: {exc}")
         return
     if keep_behind is None:
-        _log.warning("Section A–A skipped (boolean cut produced no solid)")
-        _clear_section_reservation(dwg)
+        _skip_section(dwg, ctx, "cut_empty", "boolean cut produced no solid")
         return
     # Resolve the final cutting-plane ink before committing the section view.
     # Optional section furniture yields if a required landed feature leader
@@ -320,15 +337,18 @@ def _add_section_view(dwg, a: Analysis, section, *, ctx):
             _place_cutting_plane(dwg, y_page, repaired_x0, repaired_x1, ctx=ctx)
             conflicts = feature_leader_fixed_conflicts(dwg, section_names)
     if conflicts:
-        _log.info(
-            "Section A–A skipped (final cutting-plane ink crosses required feature leaders: %s)",
-            ", ".join(f"{leader}/{component}" for leader, component in conflicts),
+        _skip_section(
+            dwg,
+            ctx,
+            "leader_conflict",
+            "final cutting-plane ink crosses required feature leaders: "
+            + ", ".join(f"{leader}/{component}" for leader, component in conflicts),
         )
-        _clear_section_reservation(dwg)
         return
 
     camera = (dwg.look_at[0], dwg.look_at[1] - dwg.dist, dwg.look_at[2])
     dwg._add_view("section_aa", keep_behind, camera, (0, 0, 1), (pos_x, a.FV_Y))
+    dwg.record_section_decision("placed", detail=f"placed at x={pos_x:.1f}")
     ctx.place(
         Note("SECTION A–A", (pos_x, a.FV_Y - half_h - 7), dwg.draft),
         "section_caption",
@@ -405,6 +425,28 @@ def _add_section_letters(dwg, y_page, x0, x1, *, ctx):
     lift = dwg.draft.font_size * 1.4
     ctx.place(Note("A", (x0 - 3, y_page + lift), dwg.draft), "section_a_left")
     ctx.place(Note("A", (x1 + 3, y_page + lift), dwg.draft), "section_a_right")
+
+
+def _skip_section(dwg, ctx, reason: str, detail: str, *, severity: str = "warning") -> None:
+    """Abandon section A–A, recording the outcome the same way on every path (#1190).
+
+    The one exit for a warranted-but-unplaced section. Before this, each skip logged
+    on its own — the title-block case at INFO, the no-room case at WARNING — so the
+    same omission was visible on one part and invisible on another, and nothing
+    reached `lint_summary` at all. A section is the only view showing internal
+    profile, so its loss is a `section_dropped` lint issue (the `*_dropped` suffix
+    puts it in the legibility inventory automatically) AND a structured record on the
+    drawing, which is what a caller can actually branch on.
+    """
+    _log.warning("Section A–A skipped (%s)", detail)
+    dwg.record_section_decision("skipped", reason=reason, detail=detail)
+    ctx.record_issue(
+        severity,
+        "section_dropped",
+        f"section A–A not placed ({detail})",
+        outcome_stage="placement",
+    )
+    _clear_section_reservation(dwg)
 
 
 def _clear_section_reservation(dwg) -> None:
