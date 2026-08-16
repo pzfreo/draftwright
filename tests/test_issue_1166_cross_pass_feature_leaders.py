@@ -964,10 +964,16 @@ def test_continuous_face_coverage_accepts_multi_shape_cut_results():
     class CutMustNotRun:
         area = 10.0
 
-        def cut(self, *_cover_faces):
-            raise AssertionError("degenerate analytical ink must fail before OCC cut")
+        def __init__(self):
+            self.cut_calls = 0
 
-    assert not _face_exactly_covered(CutMustNotRun(), ((), ((0.0, 0.0),)), None)
+        def cut(self, *_cover_faces):
+            self.cut_calls += 1
+            return SimpleNamespace(area=0.0)
+
+    cut_must_not_run = CutMustNotRun()
+    assert not _face_exactly_covered(cut_must_not_run, ((), ((0.0, 0.0),)), None)
+    assert cut_must_not_run.cut_calls == 0
 
     class CutRaises:
         area = 10.0
