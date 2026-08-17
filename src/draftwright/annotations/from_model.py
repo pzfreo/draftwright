@@ -3912,7 +3912,12 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
     has_shoulders = plan.ladder("step_position") is not None
     short_rungs: list = []
 
-    # The chain, inner→outer: (name, page-z span, label, tier size, drop message, dim id).
+    # The chain, inner→outer: (name, page-z span, label, tier size, drop message, dim id,
+    # per-unit value). The last is the number the LABEL's `N×` prefix multiplies — set only
+    # for the representative rung, whose "8× 15" is one 15 mm step rather than a 120 mm run
+    # (#1153). Carried from `ApprovedDimension.value` so lint compares against the
+    # compiler's own number instead of re-deriving a convention from the rendered string,
+    # which is the pattern ADR 0016 Amendment 1 exists to stop.
     chain: list = []
     if rung_set is not None and rung_set.representative:
         (rep,) = rungs
@@ -3924,6 +3929,7 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
                 _SLOT_DIM_STEP,
                 "representative step-height dimension dropped (front-view right strip full)",
                 rep.id,
+                rep.value,
             )
         )
     elif rungs:
@@ -3975,6 +3981,7 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
                     _SLOT_DIM_STEP,
                     "step-height dimension dropped (front-view right strip full)",
                     rung.id,
+                    None,  # no `N×` prefix: the label states the span itself
                 )
             )
 
@@ -3989,21 +3996,29 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
                 _SLOT_DIM_HEIGHT,
                 "overall height dimension dropped (front-view right strip full)",
                 height.id,
+                None,  # no `N×` prefix
             )
         )
 
     names = [c[0] for c in chain]
     solved: dict[str, float] = {}
-    for k, (name, zbase, ztop, label, _tsize, drop_msg, mid) in enumerate(chain):
+    for k, (name, zbase, ztop, label, _tsize, drop_msg, mid, per_unit) in enumerate(chain):
 
-        def _build(pos, name=name, zbase=zbase, ztop=ztop, label=label, k=k):
+        def _build(pos, name=name, zbase=zbase, ztop=ztop, label=label, k=k, per_unit=per_unit):
             base = edge2
             for pn in reversed(names[:k]):  # nearest already-built predecessor's line
                 if pn in solved:
                     base = solved[pn]
                     break
             solved[name] = pos
-            return _dim((base, zbase, 0), (base, ztop, 0), "right", pos - base, draft, label=label)
+            dim = _dim((base, zbase, 0), (base, ztop, 0), "right", pos - base, draft, label=label)
+            if per_unit is not None:
+                # What this dimension's `N× v` label actually measures. Lint reads it in
+                # preference to parsing the label, because `N× v` is drawn under two
+                # conventions here and the string cannot tell them apart: this one is ONE
+                # step, while a hole pitch spans the whole run. Same seam as `_dw_scale`.
+                dim._dw_label_value = per_unit
+            return dim
 
         def _foot(pos, zbase=zbase, ztop=ztop, label=label, k=k):
             # Predecessor-aware prediction (#689 review): the conservative edge-anchored

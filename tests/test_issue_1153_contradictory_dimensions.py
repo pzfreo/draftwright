@@ -6,9 +6,9 @@ same complaint: **lint detects the contradiction and the PDF ships it.**
 
 Export is not in fact silent — it logs every lint issue. What it did was bury a false
 measurement among twenty other lines at the same severity, and let the drawing report
-`passed: True`. Measured before this change: an authored dimension labelled 99 over a
-16 mm path — a 518% contradiction — reported `passed: True` with a quality score of 0.95
-on A2, because the only thing failing the drawing was an unrelated `view_out_of_bounds`.
+`passed: True`. Measured before this change on A2: an authored dimension labelled 99 over a
+16 mm path — a 518% contradiction — reported `passed: True`, `errors: 0`, legacy `score`
+0.95, with that contradiction as the only finding.
 
 The severities were inverted against manufacturing risk. Every other error leaves the
 drawing INCOMPLETE — a view off the page, a callout dropped, a requirement unlowered. A
@@ -88,6 +88,17 @@ class TestMaterialityDecidesTheSeverity:
         assert contradictions, "the discrepancy stopped being reported at all"
         assert all(i.severity == expected for i in contradictions)
 
+    def test_exactly_at_the_threshold_is_an_error(self):
+        # The boundary was unpinned: `>=` -> `>` passed the whole suite. 5% is exactly
+        # representable and reachable — a label of 21 over a 20 mm path — and the prose
+        # said "above" while the code said at-or-above.
+        issues: list = []
+        _lint_dim(SimpleNamespace(label="21", measured_length=20.0), None, issues)
+        found = [i for i in issues if i.code == "label_vs_measured"]
+        assert found and all(i.severity == "error" for i in found), (
+            "a discrepancy exactly at the threshold is not treated as material"
+        )
+
     def test_the_threshold_is_where_the_constant_says(self):
         # Driven either side of the constant rather than at hard-coded percentages, so the
         # policy number stays adjustable without the test quietly measuring something else.
@@ -108,55 +119,89 @@ class TestMaterialityDecidesTheSeverity:
             )
 
 
-class TestAnAmbiguousRepeatLabelIsNotAContradiction:
-    """`N× v` is drawn under two conventions in this codebase and the label cannot tell
-    them apart: `dim_step_typ` "8× 15" is ONE representative step at 15, while a hole
-    pitch "3× 20" spans the whole run at 60.
+class TestTheProducerSaysWhatItsRepeatLabelMeasures:
+    """`N× v` is drawn under two conventions here and the string cannot tell them apart:
+    `dim_step_typ` "8× 15" is ONE representative step at 15, while a hole pitch "3× 20"
+    spans the whole run at 60.
 
-    Comparing only against the product reported the TYP dimension as a 700% error. That was
-    survivable as a warning and became a build failure the moment a material discrepancy
-    became one — which is how promoting the severity surfaced a pre-existing false positive
-    in the check it was promoting.
+    A first cut resolved that by admitting BOTH readings for every repeat label. Adversarial
+    review showed it silently disabled the check on the four product-convention producers:
+    the per-unit value is precisely the length you get from spanning one member instead of
+    the run — the most likely wrong endpoint for a pitch dim, and exactly the defect #1153
+    and #1209 report. A real engine-produced "3× 30" drawn across one pitch went from a 200%
+    warning to no finding at all, in a PR whose subject is detecting contradictions.
+
+    So the producer declares it instead, carrying the compiler's own number rather than
+    re-deriving a convention from the rendered string — which is what ADR 0016 Amendment 1
+    asks for, and the seam `_dw_scale` already uses.
     """
 
-    def test_both_readings_are_admissible(self):
-        assert set(_label_readings("8× 15")) == {120.0, 15.0}
+    def test_an_untagged_label_means_what_it_says(self):
+        assert _label_readings(SimpleNamespace(), "8× 15") == (120.0,)
 
-    def test_a_plain_label_has_one_reading(self):
-        assert _label_readings("16") == (16.0,)
+    def test_a_tagged_label_means_what_the_producer_declared(self):
+        tagged = SimpleNamespace(_dw_label_value=15.0)
+        assert _label_readings(tagged, "8× 15") == (15.0,)
 
-    def test_a_counted_diameter_is_not_a_pitch(self):
-        # "4× ⌀8.5" counts features of diameter 8.5; the product is meaningless.
-        assert _label_readings("4× ⌀8.5") == (8.5,)
+    def test_a_counted_diameter_is_unaffected(self):
+        # "4× ⌀8.5" counts features of diameter 8.5; the product is meaningless and
+        # `_label_value` already handles it.
+        assert _label_readings(SimpleNamespace(), "4× ⌀8.5") == (8.5,)
 
-    @pytest.mark.parametrize("measured", [15.0, 120.0])
-    def test_a_repeat_label_matching_either_reading_is_consistent(self, measured):
+    def test_a_pitch_dim_spanning_one_member_is_still_caught(self):
+        # THE detection the first cut lost. Untagged, so the label means the run.
         issues: list = []
-        _lint_dim(SimpleNamespace(label="8× 15", measured_length=measured), None, issues)
-        assert not [i for i in issues if i.code == "label_vs_measured"], (
-            f"a TYP/pitch dimension drawn at {measured} was reported as contradictory"
+        _lint_dim(SimpleNamespace(label="3× 30", measured_length=30.0), None, issues)
+        found = [i for i in issues if i.code == "label_vs_measured"]
+        assert found and all(i.severity == "error" for i in found), (
+            "a pitch dimension drawn across one member instead of the run went unreported"
         )
 
-    def test_a_repeat_label_matching_neither_reading_still_fails(self):
-        # The ambiguity must not become a blanket exemption: 37 is neither 15 nor 120.
+    def test_a_tagged_typ_dim_drawn_at_its_step_is_clean(self):
         issues: list = []
-        _lint_dim(SimpleNamespace(label="8× 15", measured_length=37.0), None, issues)
-        contradictions = [i for i in issues if i.code == "label_vs_measured"]
-        assert contradictions and all(i.severity == "error" for i in contradictions)
+        _lint_dim(
+            SimpleNamespace(label="8× 15", measured_length=15.0, _dw_label_value=15.0),
+            None,
+            issues,
+        )
+        assert not [i for i in issues if i.code == "label_vs_measured"]
+
+    def test_a_tagged_dim_drawn_at_the_wrong_length_still_fails(self):
+        # Tagging declares the meaning; it is not an exemption.
+        issues: list = []
+        _lint_dim(
+            SimpleNamespace(label="8× 15", measured_length=37.0, _dw_label_value=15.0),
+            None,
+            issues,
+        )
+        found = [i for i in issues if i.code == "label_vs_measured"]
+        assert found and all(i.severity == "error" for i in found)
 
 
 class TestTheEngineStillProducesTruthfulRepeatDimensions:
     def test_a_uniform_staircase_reports_no_contradiction(self):
-        # The real annotation behind the false positive: a TYP step dim labelled `N× v`
-        # and drawn at v. If the engine ever draws it at N·v instead, the other reading
-        # covers it — but it must not report an error either way.
+        # The real annotation behind the false positive. The first version of this test used
+        # rises of [25, 7.5, 7.5, 7.5, 7.5] — NOT uniform, so `_step_repeat` produced no
+        # representative rung, no `N×` label was drawn at all, and it asserted "no
+        # contradictions" on a drawing with no findings whatsoever. It survived the one
+        # mutation it existed to catch.
         from build123d import Pos
 
         from draftwright import build_drawing
 
-        part = Box(80, 40, 10)
-        for i in range(1, 6):
-            part += Pos(0, 0, 5 + i * 7.5) * Box(80 - i * 10, 40, 15)
+        part = Box(100, 40, 10)
+        for i in range(1, 5):
+            part += Pos(0, 0, 10 * i) * Box(100 - 20 * i, 40, 10)
         drawing = build_drawing(part, page="A3")
+        typ = [
+            o
+            for o in drawing.items
+            if "×" in str(getattr(o, "label", "")) and getattr(o, "measured_length", None)
+        ]
+        assert typ, "the fixture no longer draws a repeat-labelled dimension"
+        assert all(getattr(o, "_dw_label_value", None) is not None for o in typ), (
+            "the TYP producer stopped declaring what its label measures, so lint would read "
+            "the label as a span and report a false contradiction"
+        )
         contradictions = [i for i in drawing.lint() if i.code == "label_vs_measured"]
         assert not contradictions, [i.message for i in contradictions]

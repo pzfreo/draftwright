@@ -154,33 +154,36 @@ def _label_bbox(item, warned=None):
         return None
 
 
-def _label_readings(label: str) -> tuple[float, ...]:
-    """Every value *label* could be asserting about the path it is drawn on.
+def _label_readings(item, label: str) -> tuple[float, ...]:
+    """Every value *item*'s label could be asserting about the path it is drawn on.
 
-    Usually one. A bare ``N× v`` is two, because this codebase draws that label under two
-    different conventions and the label cannot tell them apart:
+    Usually one. A bare ``N× v`` is ambiguous, because this codebase draws that label under
+    two conventions and the string cannot tell them apart:
 
-    * ``dim_step_typ`` "8× 15" is ONE representative step drawn at **15** — "eight of
-      these, each 15";
-    * a hole pitch "3× 20" (``annotations/holes.py``) spans the whole run at **60**.
+    * ``dim_step_typ`` "8× 15" is ONE representative step drawn at **15**;
+    * a hole pitch "3× 20" (``annotations/holes.py``, and three sites in
+      ``annotations/from_model.py``) spans the whole run at **60**.
 
-    Comparing against only the product reported the TYP dimension as a 700% error. That was
-    survivable while this check was a warning and became a build failure the moment a
-    material discrepancy became one (#1153), so the ambiguity is now admitted rather than
-    resolved by guessing: a dimension is consistent if it matches EITHER reading.
+    So the producer says which. The one per-unit renderer sets ``_dw_label_value`` to the
+    number the ``N×`` multiplies — the same ad-hoc seam ``_dw_scale`` already uses — and that
+    is then the only reading. Everything else means what the label says.
 
-    The cost is a genuinely wrong ``N× v`` dimension that happens to equal the other
-    reading. Narrowing that needs the ANNOTATION to say which convention it used, which
-    the rendered object does not currently carry.
+    An earlier cut admitted BOTH readings for every untagged ``N× v``, which silently
+    disabled the check on the four product-convention producers: the per-unit value is
+    precisely the length you get from spanning one member instead of the run — the single
+    most likely wrong endpoint for a pitch dim, and exactly the defect #1153/#1209 report. A
+    real engine-produced "3× 30" drawn across one pitch went from a 200% warning to no
+    finding at all. Reading the compiler's own number instead of re-deriving a convention
+    from the rendered string is also what ADR 0016 Amendment 1 asks for.
+
+    If another per-unit producer appears untagged it will report a large false discrepancy —
+    loudly, as an error — which is the right failure mode for a missing tag.
     """
     value = _label_value(label)
     if value is None:
         return ()
-    repeat = re.match(r"\s*(\d+)\s*[×x]\s*(\d+\.?\d*)\s*$", label.split("±")[0].strip())
-    if repeat is not None:
-        per = float(repeat.group(2))
-        return (value, per) if per != value else (value,)
-    return (value,)
+    declared = getattr(item, "_dw_label_value", None)
+    return (float(declared),) if declared is not None else (value,)
 
 
 def _label_value(label: str) -> float | None:
@@ -871,23 +874,32 @@ def _is_angular_label(label: str) -> bool:
     return any(mark in lowered for mark in _DEGREE_MARKS)
 
 
-#: Above this relative discrepancy a dimension does not merely round differently from its
+#: At or above this relative discrepancy a dimension does not merely round differently
+#: from its
 #: geometry — it states something false, and the drawing asserts a measurement the part does
 #: not have. That is a different KIND of defect from everything else lint reports: an
 #: overflowing view or a missing callout leaves the drawing INCOMPLETE, while this leaves it
 #: actively MISLEADING, and a reader has no way to tell which of the two numbers to believe.
 #:
 #: So it is an ERROR, and a drawing carrying one cannot report ``passed: True``. Measured
-#: before that change: an authored dimension labelled 99 over a 16 mm path — a 518%
-#: contradiction — reported ``passed: True`` with a quality score of 0.95 on A2, because the
-#: only thing failing the drawing was an unrelated ``view_out_of_bounds``. The severities
-#: were inverted against manufacturing risk: a view running off the page was an error while
-#: a false measurement was a warning (#1153).
+#: before that change on A2: an authored dimension labelled 99 over a 16 mm path — a 518%
+#: contradiction — reported ``passed: True``, ``errors: 0``, legacy ``score`` 0.95, with
+#: that contradiction as the ONLY finding. The severities were inverted against
+#: manufacturing risk: a view running off the page was an error while a false measurement
+#: was a warning (#1153). (An earlier version of this comment blamed an "unrelated
+#: `view_out_of_bounds`" — that belongs to the A3 variant, where ``passed`` was already
+#: ``False``; on A2 nothing else was wrong at all, and a finding that "fails the drawing"
+#: cannot coexist with ``passed: True``.)
 #:
 #: The threshold exists because the 0.5% REPORTING floor below is close enough to display
 #: rounding and projection foreshortening to be a judgement call; a discrepancy of several
-#: percent cannot be either. It is a policy number, not a measurement — every real case
-#: observed sits far above it: 15.7%, 70.4%, 90.4%, 92.3%, 275%, 518%.
+#: percent cannot be either. It is a policy number, not a measurement. The contradictions
+#: observed sit far above it — 15.7%, 70.4%, 90.4%, 92.3%, 275%, 518% — and the one
+#: legitimate sub-threshold case is the reason it exists: CTC-01 AP242 draws ``'60 ±0.5'``
+#: over a foreshortened 57.735 mm, 3.9% out, which is exactly ``sec 15.75° − 1``. Since a
+#: foreshortened dimension gives ``sec θ − 1``, 0.05 tolerates obliquity to 17.75° — about
+#: 2° of margin over the one real case. Thin against a systematic mechanism; widen it if a
+#: more oblique AP242 dimension turns up, rather than assuming noise.
 _MATERIAL_LABEL_DISCREPANCY = 0.05
 
 
@@ -912,7 +924,7 @@ def _lint_dim(item, part_bbox, issues, drawing_scale: float = 1.0, box_cache=Non
     #
     # Both guards apply: an angular label is skipped outright (its units differ), and a
     # label with more than one admissible reading is compared against the closest (#1153).
-    readings = _label_readings(label)
+    readings = _label_readings(item, label)
     if readings and measured is not None and not _is_angular_label(label):
         # When drawing_scale != 1.0 the geometry was scaled up before projecting
         # (e.g. part.scale(5) for a 7.5 mm feature drawn at 5:1). The measured
