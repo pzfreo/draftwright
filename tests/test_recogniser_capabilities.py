@@ -149,6 +149,18 @@ def test_runtime_adapter_inventory_is_derived_independently_and_exhaustive() -> 
     # second direction; asserting equality here would put the coupling straight back.
     assert declared_records <= package_records
 
+    # Restores the half the subset above gave up. `runtime == union(tiers)` used to assert two
+    # things at once: no converter for a record that does not exist, and no record without a
+    # converter. Relaxing it to a subset kept the first and dropped the second, which would let
+    # a family be declared `supported` while nothing converts what it emits.
+    #
+    # Scoped to records this repository has actually declared, so it cannot recouple: a record
+    # the package emits and we have not adopted is exactly the case that must stay free, and
+    # `tests/test_recogniser_adoption.py` owns it.
+    converted = {record.__name__ for record in set.union(*tiers)}
+    emitted = {record.__name__ for record in runtime}
+    assert emitted & declared_records <= converted
+
 
 def test_dsl_and_generated_code_inventories_are_derived_from_live_code() -> None:
     declaration = consumer_capability_declaration()
@@ -310,6 +322,36 @@ def test_a_package_family_we_have_not_declared_yet_does_not_fail_the_join() -> N
     # `in`, not equality: any family the installed package has genuinely grown since the
     # last declaration is legitimately pending too, and this test is not about those.
     assert "future-thread" in pending_family_declarations(package=package)
+
+
+def test_out_of_order_family_declarations_fail_closed() -> None:
+    """Ordering is checked separately from membership, so it cannot be masked by it.
+
+    While the inventory check was one condition, unsorted ids and a stale family produced the
+    same error. They are different mistakes with different repairs, and splitting membership
+    into a stale-only test left ordering needing its own.
+    """
+    declaration = consumer_capability_declaration()
+    # Rename the first family to sort last, without re-sorting: membership is untouched only
+    # in the sense that the id is still one the package ships -- it is the order that breaks.
+    declaration["families"][0]["id"] = declaration["families"][-1]["id"]
+
+    with pytest.raises(RecogniserCapabilityError, match="unique and sorted"):
+        validate_recogniser_capabilities(declaration)
+
+
+def test_pending_declarations_reject_a_malformed_manifest() -> None:
+    """The pending query fails closed too, rather than reporting an empty to-do list.
+
+    It is the control that replaced a hard failure, so a malformed manifest must not make it
+    quietly answer "nothing pending" -- that would read as adoption being complete.
+
+    ``None`` is deliberately absent from these: it is the "use the installed manifest"
+    sentinel, not a malformed value.
+    """
+    for broken in ("not-a-dict", {}, {"families": "not-an-array"}):
+        with pytest.raises(RecogniserCapabilityError, match="manifest format is unsupported"):
+            pending_family_declarations(package=broken)
 
 
 def test_a_declared_family_the_package_dropped_still_fails_closed() -> None:
