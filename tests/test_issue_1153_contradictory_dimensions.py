@@ -201,12 +201,10 @@ class TestTheTagSurvivesARebuild:
             replace_object=lambda *a, **k: None,
         )
         drawing = NS(items=[old], registry=registry, _registry=registry)
-        try:
-            _replace_dim(drawing, old, new)
-        except Exception:
-            # The helper reaches further into the drawing than this stand-in models; the
-            # attribute copy happens first, which is the contract under test.
-            pass
+        # No `try` here: the real `_replace_dim` completes on this stand-in (verified), and
+        # swallowing would let a future rewrite raise before the copy while the test stayed
+        # green — the exact vacuity this file keeps finding elsewhere.
+        _replace_dim(drawing, old, new)
         assert getattr(new, "_dw_label_value", None) == 10.0, (
             "a rebuilt dimension lost the number its `N×` label multiplies"
         )
