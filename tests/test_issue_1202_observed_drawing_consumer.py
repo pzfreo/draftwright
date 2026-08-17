@@ -15,10 +15,15 @@ hole was dimensioned. A drawing that recognised a hole and then dropped its call
 identically to one that drew it — which is #1176's defect, inside the module meant to
 detect it.
 
-`drawing_consumer` is now derived from a real build: did a hole callout actually reach the
-sheet for this fact? The other three boundaries remain declared and are tracked separately
-— they are the same shape one layer along, and pretending otherwise here would be its own
-overclaim.
+`drawing_consumer` is now derived from a real build: did this hole's size reach the sheet,
+by either sanctioned route — an `hc_*` callout, or the hole TABLE the engine substitutes
+above ~16 scattered holes. The other three boundaries remain declared and are tracked
+separately; they are the same shape one layer along, and pretending otherwise here would be
+its own overclaim.
+
+`unknown` means no IR feature accounts for the hole. It is an honest label, not an
+exemption: `evaluate_case` credits a unit only when the state is `supported`, so downstream
+an `unknown` scores as a MISS.
 """
 
 from __future__ import annotations
@@ -30,8 +35,8 @@ from build123d import Box, Cylinder, Pos
 
 from draftwright import build_drawing
 from draftwright.evaluation.step_analysis import (
-    _drawing_consumer_outcome,
-    _hole_features,
+    _drawing_consumer_outcomes,
+    _hole_candidates,
     evaluate_step_corpus,
     load_corpus,
 )
@@ -51,54 +56,204 @@ def _recognised(part):
     return build_recognition_result(part).holes
 
 
+def _stub_hole(diameter, origin, members=()):
+    """A minimal IR hole feature: what `_hole_candidates` reads, and nothing else."""
+    return SimpleNamespace(
+        kind="hole",
+        frame=SimpleNamespace(origin=origin, axis="z"),
+        diameter=diameter,
+        members=members,
+    )
+
+
+class _StubDrawing:
+    """A drawing stand-in with hand-placed features. *drawn* is the set of feature indices
+    that carry a callout, so a test can say precisely which fact reached the sheet."""
+
+    def __init__(self, features, drawn=frozenset()):
+        self._features = tuple(features)
+        self._drawn = set(drawn)
+
+    def model(self):
+        return SimpleNamespace(features=self._features)
+
+    def iter_annotations(self):
+        return ()
+
+    def annotations_of(self, feature):
+        index = next(i for i, f in enumerate(self._features) if f is feature)
+        return {"hc_stub": object()} if index in self._drawn else {}
+
+
+class _StrippedDrawing:
+    """A real drawing with its provenance answers emptied — what a dropped callout looks
+    like to a consumer. Delegates everything else, so the IR and the table ledger are the
+    engine's own."""
+
+    def __init__(self, drawing, annotations):
+        self._drawing = drawing
+        self._annotations = annotations
+
+    def __getattr__(self, name):
+        return getattr(self._drawing, name)
+
+    def annotations_of(self, _feature):
+        return self._annotations
+
+
 class TestTheOutcomeIsReadOffTheDrawing:
     def test_a_hole_the_drawing_calls_out_is_supported(self):
         part = _part()
         drawing = build_drawing(part)
-        features = _hole_features(drawing)
-        assert features, "fixture produced no IR hole features, so this asserts nothing"
+        assert _hole_candidates(drawing), "no IR candidate accounts for any hole"
         holes = _recognised(part)
         assert holes, "fixture produced no recognised holes"
-        outcomes = {_drawing_consumer_outcome(h, features, drawing) for h in holes}
-        assert outcomes == {"supported"}, outcomes
+        assert set(_drawing_consumer_outcomes(holes, drawing)) == {"supported"}
 
     def test_a_hole_whose_callout_never_reached_the_sheet_is_unsupported(self):
-        # THE case the declared state could not express. The drawing is real; only the
-        # provenance answer is emptied, which is exactly what a dropped callout looks
-        # like to a consumer. Mutation: restore the declared constant and this passes
-        # while reporting `supported` for a hole that was never drawn.
+        # THE case the declared state could not express. Mutation: restore the declared
+        # constant and this reports `supported` for a hole that was never drawn.
         part = _part()
         drawing = build_drawing(part)
-        features = _hole_features(drawing)
-        hole = _recognised(part)[0]
-        assert _drawing_consumer_outcome(hole, features, drawing) == "supported"
-
-        stripped = SimpleNamespace(annotations_of=lambda _feature: {})
-        assert _drawing_consumer_outcome(hole, features, stripped) == "unsupported"
+        holes = _recognised(part)
+        assert set(_drawing_consumer_outcomes(holes, drawing)) == {"supported"}
+        stripped = _StrippedDrawing(drawing, {})
+        assert set(_drawing_consumer_outcomes(holes, stripped)) == {"unsupported"}
 
     def test_furniture_without_a_callout_does_not_count_as_consumed(self):
-        # A centre mark and location dims are placed for a hole whose SIZE callout was
-        # dropped. They are not the fact reaching the sheet — the callout states the
-        # diameter — so counting any annotation would let a dropped callout score as
-        # supported. Measured names on a real build: hc_plan0, m_cm0, m_locx0, m_locy0.
+        # A centre mark and location dims are still placed for a hole whose SIZE callout
+        # was dropped — measured on a real drop: the feature keeps `m_cm0`, sometimes
+        # `m_locy1`, and no `hc_`. Counting any annotation would score that as consumed.
         part = _part()
         drawing = build_drawing(part)
-        features = _hole_features(drawing)
-        hole = _recognised(part)[0]
-
-        furniture_only = SimpleNamespace(
-            annotations_of=lambda _f: {"m_cm0": object(), "m_locx0": object()}
-        )
-        assert _drawing_consumer_outcome(hole, features, furniture_only) == "unsupported"
+        holes = _recognised(part)
+        furniture = _StrippedDrawing(drawing, {"m_cm0": object(), "m_locx0": object()})
+        assert set(_drawing_consumer_outcomes(holes, furniture)) == {"unsupported"}
 
     def test_a_hole_with_no_corresponding_feature_is_unknown(self):
         # ADR 0017 states plainly that recognition-record -> IR-feature correspondence is
-        # NOT yet provided. Where it fails, the honest answer is `unknown` — the oracle's
-        # third outcome — never a silent success or a false failure.
+        # NOT yet provided. Where it fails, the label is `unknown`. It still scores as a
+        # MISS downstream — `evaluate_case` credits only `supported` — so this is an
+        # honest label, not an exemption.
         part = _part()
+        holes = _recognised(part)
+        no_features = SimpleNamespace(
+            model=lambda: SimpleNamespace(features=()),
+            iter_annotations=lambda: (),
+            annotations_of=lambda _f: {},
+        )
+        assert set(_drawing_consumer_outcomes(holes, no_features)) == {"unknown"}
+
+
+class TestTheCorrespondenceIsNotFooledByGeometry:
+    """The matcher was originally axis + diameter + IN-PLANE position, first match wins.
+    Adversarial review found three ways that answers wrongly."""
+
+    def test_two_coaxial_holes_of_equal_diameter_do_not_alias(self):
+        # Dropping the axis component made two opposed bores at the same (x, y) resolve
+        # to the SAME feature, so a dropped callout on the second was invisible. Matching
+        # is now full-3D and consumes the matched position.
+        part = Box(60, 30, 20) - Pos(0, 0, 8) * Cylinder(3, 8) - Pos(0, 0, -5) * Cylinder(3, 14)
         drawing = build_drawing(part)
-        hole = _recognised(part)[0]
-        assert _drawing_consumer_outcome(hole, [], drawing) == "unknown"
+        holes = _recognised(part)
+        if len({(h.diameter, tuple(h.location)) for h in holes}) < 2:
+            pytest.skip("this build did not recognise two distinct coaxial holes")
+        candidates = _hole_candidates(drawing)
+        matched = [c for c in candidates for _p in c.positions]
+        assert len(matched) >= 2, "the two bores collapsed to a single position"
+
+    def test_a_patterned_hole_is_accounted_for(self):
+        # Patterned holes lower to a PatternFeature, NOT a HoleFeature. Matching on that
+        # type alone made recognising a pattern — a capability — LOWER the score: four
+        # identical holes scored `unknown` where the same four with distinct diameters
+        # scored `supported`, both fully drawn.
+        part = Box(80, 80, 10)
+        for x, y in ((-20, -20), (20, -20), (-20, 20), (20, 20)):
+            part -= Pos(x, y, 0) * Cylinder(2.5, 40)
+        drawing = build_drawing(part)
+        holes = _recognised(part)
+        assert holes, "fixture recognised no holes"
+        outcomes = _drawing_consumer_outcomes(holes, drawing)
+        assert "unknown" not in outcomes, (
+            f"a patterned hole was not accounted for by any IR feature: {outcomes}"
+        )
+        assert set(outcomes) == {"supported"}, outcomes
+
+    def test_a_grouped_count_callout_accounts_for_every_member(self):
+        # One HoleFeature with `members` covers several holes. The corpus has no two
+        # holes of equal diameter, so this path was never exercised there.
+        part = Box(60, 30, 12) - Pos(-15, 0, 0) * Cylinder(3, 40) - Pos(15, 0, 0) * Cylinder(3, 40)
+        drawing = build_drawing(part)
+        grouped = [c for c in _hole_candidates(drawing) if len(c.positions) > 1]
+        assert grouped, "fixture no longer produces a grouped feature; the path is untested"
+        outcomes = _drawing_consumer_outcomes(_recognised(part), drawing)
+        assert set(outcomes) == {"supported"}, outcomes
+
+    def test_one_ir_position_cannot_account_for_two_recognised_holes(self):
+        # A matched position is CONSUMED. Without that, one feature answers for every hole
+        # that lands on it, so a duplicate or spurious recognition record silently
+        # inherits a real feature's "supported" instead of showing up as unaccounted.
+        # (With full-3D matching this is the residual case: distinct positions no longer
+        # alias, which is what the in-plane projection used to allow.)
+        hole = SimpleNamespace(axis=(0.0, 0.0, -1.0), location=(0.0, 0.0, 5.0), diameter=6.0)
+        drawing = _StubDrawing(features=(_stub_hole(6.0, (0.0, 0.0, 5.0)),), drawn={0})
+        assert _drawing_consumer_outcomes([hole, hole], drawing) == ["supported", "unknown"], (
+            "one IR position answered for two recognised holes"
+        )
+
+    def test_the_diameter_guard_refuses_a_positional_coincidence(self):
+        # With full-3D matching a position is very nearly unique on its own, so the
+        # axis+diameter test is a CROSS-CHECK, not the primary key — an earlier version of
+        # this test used distinct positions and therefore passed with the guard deleted.
+        # It bites exactly where two features share a position and differ in size, which
+        # is what a counterbore-like arrangement looks like to the matcher.
+        hole = SimpleNamespace(axis=(0.0, 0.0, -1.0), location=(0.0, 0.0, 5.0), diameter=6.0)
+        drawing = _StubDrawing(
+            features=(
+                _stub_hole(diameter=12.0, origin=(0.0, 0.0, 5.0)),  # same place, wrong size
+                _stub_hole(diameter=6.0, origin=(0.0, 0.0, 5.0)),  # the right one
+            ),
+            drawn={1},
+        )
+        assert _drawing_consumer_outcomes([hole], drawing) == ["supported"], (
+            "the hole matched the wrong-diameter feature sharing its position"
+        )
+
+    def test_the_position_tolerance_admits_analytic_noise_but_not_a_real_offset(self):
+        # The IR carries the recogniser's `hole.location` verbatim, so agreement is EXACT
+        # on every fixture (worst residual measured at 0.0, including a side-drilled case
+        # whose z is 6.66e-15). The tolerance is therefore never exercised by a build and
+        # survived being set to 0.0 — an untested constant. Driven directly instead.
+        hole = SimpleNamespace(axis=(0.0, 0.0, -1.0), location=(0.0, 0.0, 5.0), diameter=6.0)
+        near = _StubDrawing(features=(_stub_hole(6.0, (0.0, 5e-7, 5.0)),), drawn={0})
+        far = _StubDrawing(features=(_stub_hole(6.0, (0.0, 1e-3, 5.0)),), drawn={0})
+        assert _drawing_consumer_outcomes([hole], near) == ["supported"]
+        assert _drawing_consumer_outcomes([hole], far) == ["unknown"], (
+            "a millimetre-scale offset was accepted as the same hole"
+        )
+
+
+class TestAHoleTableIsAlsoTheFactReachingTheSheet:
+    def test_a_table_represented_feature_counts_as_consumed(self):
+        # Above ~16 scattered holes the engine WITHDRAWS the individual `hc_*` callouts
+        # and places one table plus balloons, recording the substitution in
+        # `covers_hole_representations_by_feature`. Looking only for `hc_` scored every
+        # hole on such a sheet as lost — a false alarm on exactly the dense sheets #1176
+        # and ADR 0018 are about. Mutation: drop the ledger read and this fails.
+        from draftwright.evaluation.step_analysis import _consumed
+
+        feature = object()
+        table = SimpleNamespace(
+            covers_hole_representations_by_feature=((feature, "hole_table", "escalation"),)
+        )
+        drawing = SimpleNamespace(
+            annotations_of=lambda _f: {"m_cm0": object()},
+            iter_annotations=lambda: (("hole_table_plan", table),),
+        )
+        from draftwright.evaluation.step_analysis import _table_represented
+
+        assert _consumed(feature, drawing, _table_represented(drawing)) is True
+        assert _consumed(object(), drawing, _table_represented(drawing)) is False
 
 
 class TestTheCorpusScoreMovesWithTheDrawing:

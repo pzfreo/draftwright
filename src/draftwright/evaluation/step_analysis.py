@@ -16,6 +16,8 @@ from math import isfinite
 from pathlib import Path
 from typing import Any, Literal, TypeAlias
 
+from draftwright._geometry import _axis_letter_of
+
 Scalar: TypeAlias = int | float | str | bool
 Value: TypeAlias = Scalar | tuple[float, ...]
 Outcome: TypeAlias = Literal["supported", "unknown", "unsupported"]
@@ -615,65 +617,141 @@ def load_corpus(path: str | Path) -> BenchmarkCorpus:
     return BenchmarkCorpus(corpus_version, _METRIC_VERSION, scope, tuple(cases))
 
 
-#: How close a recognised hole's mouth must be to an IR feature's origin, in the plane
-#: normal to its axis, to be the same hole. Generous: the recogniser reports the mouth and
-#: the compiler may mint the origin at either end, so only the IN-PLANE position is
-#: compared, and the diameter must agree independently.
+#: Position agreement required to call a recognised hole and an IR feature the same hole.
+#: Tiny on purpose: the IR carries the recogniser's own ``hole.location`` verbatim
+#: (``model/detect.py`` builds ``Frame(origin=_xyz(rep.location))``), so agreement is
+#: EXACT on every corpus fixture — worst residual measured at 0.0, including the
+#: side-drilled case whose z is 6.66e-15. An earlier version compared only the in-plane
+#: coordinates, on a guess that the compiler might mint the origin at the far end of the
+#: bore. It does not, and dropping the axis component made two opposed coaxial holes of
+#: equal diameter alias onto one feature, hiding a dropped callout on the second.
 _CORRESPONDENCE_TOLERANCE = 1e-6
 
 
-def _hole_features(drawing) -> list:
-    """Every IR hole feature on *drawing*, in model order."""
-    return [f for f in drawing.model().features if type(f).__name__ == "HoleFeature"]
+@dataclass(frozen=True)
+class _Candidate:
+    """One IR feature and the hole positions it can account for."""
+
+    feature: object
+    axis: str
+    diameter: float
+    positions: tuple[tuple[float, ...], ...]
 
 
-def _in_plane(point, axis: str) -> tuple[float, ...]:
-    """*point* with the component along *axis* dropped — the coordinates that identify a
-    hole regardless of which end of the bore a producer chose to name."""
-    drop = {"x": 0, "y": 1, "z": 2}[axis]
-    return tuple(float(v) for i, v in enumerate(point) if i != drop)
+def _hole_candidates(drawing) -> list[_Candidate]:
+    """Every IR feature that can account for a recognised hole.
 
+    Patterned holes lower to a ``PatternFeature`` carrying a representative
+    ``HoleFeature`` and the member centres — they are NOT ``HoleFeature`` instances, so
+    matching on that type alone made recognising a pattern (a capability) *lower* the
+    score: four identical holes scored ``unknown`` where the same four at the same
+    positions with distinct diameters scored ``supported``, both fully drawn.
 
-def _axis_letter(vector) -> str:
-    return max(zip("xyz", vector, strict=True), key=lambda pair: abs(pair[1]))[0]
-
-
-def _drawing_consumer_outcome(hole, features, drawing) -> Outcome:
-    """Did the DRAWING call this recognised hole out? — observed, not declared.
-
-    ``supported`` the feature covering this hole carries a hole callout (``hc_*``);
-    ``unsupported`` a feature covers it and carries none, so the fact was recognised and
-    then lost before the sheet; ``unknown`` no feature corresponds, which is a gap in the
-    recognition-record-to-IR correspondence ADR 0017 explicitly does not yet provide — an
-    honest non-answer, never silently scored as either success or failure.
+    Dispatch is on the IR's own ``kind`` discriminator, which the engine itself uses,
+    rather than on ``type(f).__name__``.
     """
-    axis = _axis_letter(hole.axis)
-    target = _in_plane(hole.location, axis)
-    for feature in features:
-        if feature.frame.axis != axis or abs(feature.diameter - hole.diameter) > 1e-9:
-            continue
-        # A grouped `count×` callout covers several holes through one feature, so every
-        # member position counts, not just the frame origin.
-        positions = feature.members or (feature.frame.origin,)
-        if not any(
-            all(
-                abs(a - b) <= _CORRESPONDENCE_TOLERANCE
-                for a, b in zip(_in_plane(position, axis), target, strict=True)
+    candidates: list[_Candidate] = []
+    for feature in drawing.model().features:
+        kind = getattr(feature, "kind", None)
+        if kind == "hole":
+            # A grouped ``count×`` callout covers several holes through one feature.
+            positions = feature.members or (feature.frame.origin,)
+            candidates.append(
+                _Candidate(feature, feature.frame.axis, feature.diameter, tuple(positions))
             )
-            for position in positions
-        ):
-            continue
-        return (
-            "supported"
-            if any(n.startswith("hc_") for n in drawing.annotations_of(feature))
-            else "unsupported"
-        )
-    return "unknown"
+        elif kind == "pattern" and getattr(feature.member, "kind", None) == "hole":
+            candidates.append(
+                _Candidate(
+                    feature, feature.frame.axis, feature.member.diameter, tuple(feature.members)
+                )
+            )
+    return candidates
+
+
+def _table_represented(drawing) -> list:
+    """Features the engine recorded as carried by a hole TABLE rather than a callout.
+
+    Above ~16 scattered holes the engine escalates: it withdraws the individual ``hc_*``
+    callouts and places one table plus balloons, recording the substitution in
+    ``covers_hole_representations_by_feature``. Looking only for ``hc_`` therefore scored
+    every hole on a dense sheet as lost — on the very sheets #1176 and ADR 0018 are about,
+    the metric's first real encounter with a dense part would have been a false alarm.
+    Reading the engine's own ledger keeps this metric and the engine from disagreeing
+    about whether a fact reached the page.
+    """
+    covered = []
+    for _name, annotation in drawing.iter_annotations():
+        for entry in getattr(annotation, "covers_hole_representations_by_feature", ()):
+            covered.append(entry[0])
+    return covered
+
+
+def _consumed(feature, drawing, represented) -> bool:
+    """Did this feature's SIZE reach the sheet, by either sanctioned route?
+
+    Only the callout or the table counts. A hole whose callout was dropped still keeps
+    its centre mark and location dims (measured: ``m_cm0``, ``m_locx0``), so counting any
+    annotation would score a dropped callout as consumed.
+    """
+    if any(name.startswith("hc_") for name in drawing.annotations_of(feature)):
+        return True
+    return any(candidate == feature for candidate in represented)
+
+
+def _drawing_consumer_outcomes(holes, drawing) -> list[Outcome]:
+    """Per recognised hole: did the DRAWING carry it? — observed, not declared.
+
+    ``supported`` its size reached the sheet; ``unsupported`` a feature accounts for the
+    hole and carries neither callout nor table row; ``unknown`` no feature accounts for
+    it, which is a gap in the recognition-record-to-IR correspondence ADR 0017 explicitly
+    does not yet provide.
+
+    Be precise about ``unknown``: :func:`evaluate_case` credits a unit only when the state
+    is ``supported``, so downstream an ``unknown`` scores as a MISS, distinguishable from
+    a dropped callout only in the diagnostic text. It is an honest label, not an exemption
+    — an earlier version of this docstring claimed it was "never scored as either success
+    or failure", which was wrong about the pipeline it feeds.
+
+    Matching is injective per POSITION: a matched position is consumed, so two opposed
+    coaxial holes of equal diameter cannot both resolve to the first candidate. Grouped
+    features legitimately account for several holes, which is why the position is consumed
+    and not the whole candidate.
+    """
+    remaining = [(candidate, list(candidate.positions)) for candidate in _hole_candidates(drawing)]
+    represented = _table_represented(drawing)
+    outcomes: list[Outcome] = []
+    for hole in holes:
+        axis = _axis_letter_of(hole.axis)
+        target = tuple(float(value) for value in hole.location)
+        for candidate, positions in remaining:
+            if candidate.axis != axis or abs(candidate.diameter - hole.diameter) > 1e-9:
+                continue
+            hit = next(
+                (
+                    position
+                    for position in positions
+                    if all(
+                        abs(a - b) <= _CORRESPONDENCE_TOLERANCE
+                        for a, b in zip(tuple(float(v) for v in position), target, strict=True)
+                    )
+                ),
+                None,
+            )
+            if hit is None:
+                continue
+            positions.remove(hit)
+            outcomes.append(
+                "supported"
+                if _consumed(candidate.feature, drawing, represented)
+                else "unsupported"
+            )
+            break
+        else:
+            outcomes.append("unknown")
+    return outcomes
 
 
 def _default_observers() -> Mapping[str, Observer]:
-    from b123d_recognisers import build_recognition_result
-
     from draftwright.recogniser_contract import (
         consumer_capability_declaration,
         validate_recogniser_capabilities,
@@ -699,12 +777,27 @@ def _default_observers() -> Mapping[str, Observer]:
         # ``test_lazy_upward_imports_are_documented`` (ADR 0005 / #640).
         from draftwright.builder import build_drawing
 
-        recognition = build_recognition_result(part)  # type: ignore[arg-type]
-        # ONE drawing for the whole fixture, built here rather than per hole: the
-        # observation is "what did the sheet do with this fact", so it must come from a
-        # real build, and building per hole would multiply the cost by the hole count.
-        drawing = build_drawing(part)  # type: ignore[arg-type]
-        features = _hole_features(drawing)
+        # ONE drawing per fixture, and ONE recognition: the records scored here come from
+        # the build's own aggregate (ADR 0017's single owner per run), not a second
+        # `build_recognition_result` call, so the facts being scored and the features they
+        # are matched against cannot come from different recognition runs.
+        try:
+            drawing = build_drawing(part)  # type: ignore[arg-type]
+        except Exception:  # noqa: BLE001 — an unbuildable fixture is a non-answer, not a crash
+            drawing = None
+        if drawing is None:
+            from b123d_recognisers import build_recognition_result
+
+            holes = tuple(build_recognition_result(part).holes)  # type: ignore[arg-type]
+            outcomes: list[Outcome] = ["unknown"] * len(holes)
+        else:
+            recognition = drawing.recognition()
+            if recognition is None:  # pragma: no cover — the detected path always fills it
+                from b123d_recognisers import build_recognition_result
+
+                recognition = build_recognition_result(part)  # type: ignore[arg-type]
+            holes = tuple(recognition.holes)
+            outcomes = _drawing_consumer_outcomes(holes, drawing)
         return tuple(
             ObservedFact(
                 family="holes",
@@ -714,12 +807,9 @@ def _default_observers() -> Mapping[str, Observer]:
                     "depth": hole.depth,
                     "diameter": hole.diameter,
                 },
-                downstream={
-                    **declared,
-                    "drawing_consumer": _drawing_consumer_outcome(hole, features, drawing),
-                },
+                downstream={**declared, "drawing_consumer": outcome},
             )
-            for hole in recognition.holes
+            for hole, outcome in zip(holes, outcomes, strict=True)
         )
 
     return {"holes": observe_holes}

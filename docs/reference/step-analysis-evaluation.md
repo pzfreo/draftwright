@@ -13,8 +13,13 @@ An observer may only normalize actual evidence; `ObservedFact` deliberately has 
 identifier. Expected and observed facts are matched by family plus authored physical identity fields.
 
 Format 1 currently proves the `holes` vertical slice. The observer reads released
-`b123d-recognisers` geometry records and the independently enforced Draftwright capability
-declaration. Adding another family requires its own independently authored fixtures, facts,
+`b123d-recognisers` geometry records, builds the drawing, and reads the `drawing_consumer`
+outcome off that build through the ADR 0010 provenance seam — `supported` when the hole's
+size reached the sheet as a callout or a hole-table row, `unsupported` when a feature
+accounts for it and carries neither, `unknown` when no feature accounts for it (#1202). The
+other three downstream boundaries still come from the independently enforced Draftwright
+capability declaration, which is a claim that a code path exists rather than an
+observation. Adding another family requires its own independently authored fixtures, facts,
 identity fields, observer, downstream evidence, and corpus version change; copying a manifest name
 alone cannot enlarge the denominator.
 
