@@ -362,32 +362,45 @@ def _place_iso_nts_note(dwg, a: Analysis, bb) -> None:
     not look at them. On a sparse sheet nothing collides and the fault is invisible; on
     a part whose callouts reach under the iso, the caption lands on top of one.
 
-    So the caption now tries its natural position first — preserving today's placement
-    wherever that is clear — and falls back through positions around the iso block. If
-    nothing is clear it is placed at the natural position anyway: a caption that says
-    which view is not to scale is required content, and Policy B keeps required content
-    at a visible cost rather than dropping it (the overlap is then reported by the
-    ordinary `annotation_overlap` lint).
+    The caption tries its natural position first — preserving today's placement wherever
+    that is clear — then falls back around the iso block. If nothing is clear it is
+    placed naturally anyway: a caption saying which view is not to scale is required
+    content, and Policy B keeps required content at a visible cost rather than dropping
+    it (the overlap is then reported by the ordinary `annotation_overlap` lint).
+
+    Obstacles are annotation **label** boxes plus projected view bounds. Deliberately
+    not `_anno_box`, which falls back to geometry for anything unlabelled: that returns
+    the page-spanning rectangle for the sheet frame and zone grid, so with `frame=True`
+    every candidate was rejected and this whole check became a silent no-op (#1145
+    documents the same trap; `Drawing.add_table` and `linting.structural` skip those
+    riders for exactly this reason). Label boxes also match the lint this fallback
+    appeals to — centre lines and hatching are deliberately exempt there, so blocking on
+    their geometry would move captions for an overlap lint would never report.
     """
     font = dwg.draft.font_size
-    natural_y = max(bb[1] - 2 * font, a.margin + font)
-    centre_x = a.ISO_X
-    candidates = (
-        (centre_x, natural_y),
-        (centre_x, min(bb[3] + 2 * font, a.PAGE_H - a.margin - font)),
-        (centre_x, max(bb[1] - 4 * font, a.margin + font)),
-        (bb[0] - font, natural_y),
-        (bb[2] + font, natural_y),
-    )
-    obstacles = []
-    for item in dwg.items:
-        box = _anno_box(item)
-        if box is not None:
-            obstacles.append(box)
-    # The projected VIEWS too. They are not in `dwg.items` — that list is annotations —
-    # so an annotations-only obstacle set would happily relocate the caption on top of
-    # the front view's line-work, and the fallback positions (above the iso block, or
-    # to either side of it) are exactly the ones that reach a neighbouring view.
+    natural = (a.ISO_X, max(bb[1] - 2 * font, a.margin + font))
+
+    # One Note is built, not one per candidate: its box is position-invariant apart from
+    # translation, so the rest are derived arithmetically rather than by six throwaway
+    # OCC text builds on a path the repack loop runs up to three times per build.
+    probe = Note("ISO VIEW (NTS)", natural, dwg.draft)
+    base = _anno_box(probe)
+    if base is None:
+        place_annotation(dwg.registry, dwg.items, probe, "note_iso_nts")
+        return
+    width, height = base[2] - base[0], base[3] - base[1]
+    offset_x, offset_y = base[0] - natural[0], base[1] - natural[1]
+    side_step = (bb[2] - bb[0]) / 2 + width / 2 + font
+
+    candidates = [
+        natural,
+        (a.ISO_X, min(bb[3] + 2 * font, a.PAGE_H - a.margin - font)),
+        (a.ISO_X, max(bb[1] - 2 * font - height - font, a.margin + font)),
+        (a.ISO_X - side_step, natural[1]),
+        (a.ISO_X + side_step, natural[1]),
+    ]
+
+    obstacles = [box for box in (getattr(item, "label_bbox", None) for item in dwg.items) if box]
     for placed in getattr(dwg, "views", {}).values():
         for shape in placed or ():
             if shape is None:
@@ -397,13 +410,22 @@ def _place_iso_nts_note(dwg, a: Analysis, bb) -> None:
             except Exception:  # noqa: BLE001 — an unmeasurable view is simply not an obstacle
                 continue
             obstacles.append((bounds.min.X, bounds.min.Y, bounds.max.X, bounds.max.Y))
-    chosen = candidates[0]
+
+    chosen, seen = natural, set()
     for position in candidates:
-        probe = Note("ISO VIEW (NTS)", position, dwg.draft)
-        box = _anno_box(probe)
-        if box is None:
-            continue
+        key = (round(position[0], 6), round(position[1], 6))
+        if key in seen:
+            continue  # a clamped candidate can coincide with one already rejected
+        seen.add(key)
+        box = (
+            position[0] + offset_x,
+            position[1] + offset_y,
+            position[0] + offset_x + width,
+            position[1] + offset_y + height,
+        )
         if box[0] < a.margin or box[2] > a.PAGE_W - a.margin:
+            continue
+        if box[1] < a.margin or box[3] > a.PAGE_H - a.margin:
             continue
         if any(_boxes_overlap(box, other) for other in obstacles):
             continue
@@ -412,7 +434,7 @@ def _place_iso_nts_note(dwg, a: Analysis, bb) -> None:
     place_annotation(
         dwg.registry,
         dwg.items,
-        Note("ISO VIEW (NTS)", chosen, dwg.draft),
+        probe if chosen == natural else Note("ISO VIEW (NTS)", chosen, dwg.draft),
         "note_iso_nts",
     )
 
