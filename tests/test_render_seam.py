@@ -374,6 +374,38 @@ class TestTheRadiusLeaderPointsAtTheSurface:
             "the radius leader points somewhere other than the bore surface"
         )
 
+    def test_a_bracketed_bore_draws_its_labelled_length(self):
+        # The OTHER branch. `half_span_pg >= 4` brackets the dimension in place instead of
+        # leading out, and that is the path #1208 actually fixed — yet the leader test
+        # above never reaches it, so the span the fix corrected was uncovered. A radius of
+        # 20 at 1:1 brackets; before #1208 it drew 40.
+        from build123d import Box
+
+        from draftwright import Sheet
+
+        def drawn(kind, value):
+            sheet = Sheet(Box(120, 120, 20), title="T", number="T-1", page="A2", scale=1)
+            sheet.measured_dimension(
+                kind=kind,
+                value=value,
+                label=f"X{value:g}",
+                dominant_axis="z",
+                ref_pts=((0, 0, 0), (0, 0, 10)),
+                ref_bbox=(-20, -20, 0, 20, 20, 10),
+            )
+            sheet.authored_dimensions()
+            drawing = sheet.build()
+            spans = [
+                o.measured_length
+                for n, o in drawing.iter_annotations()
+                if n.startswith("pmi_") and getattr(o, "measured_length", None) is not None
+            ]
+            assert spans, f"{kind} {value} did not bracket in place"
+            return round(spans[0], 3)
+
+        assert drawn("radius", 20.0) == 20.0, "a radius still draws twice its value"
+        assert drawn("diameter", 40.0) == 40.0, "a diameter no longer spans the bore"
+
     def test_the_tip_offset_is_the_bore_radius_not_half_the_span(self):
         # The regression, stated directly: for a radius the drawn span is `value` so half
         # of it is `value / 2`, which is NOT where the surface is.
