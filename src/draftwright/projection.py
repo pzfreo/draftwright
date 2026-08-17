@@ -28,8 +28,8 @@ from OCP.GeomAbs import (
     GeomAbs_Torus,
 )
 
-from draftwright._core import Analysis, _iso_bbox, place_annotation
-from draftwright._geometry import MaterialField, material_field
+from draftwright._core import Analysis, _anno_box, _iso_bbox, place_annotation
+from draftwright._geometry import MaterialField, _boxes_overlap, material_field
 
 _log = logging.getLogger(__name__)
 
@@ -352,6 +352,58 @@ def _project_iso(dwg, a: Analysis, scale, shape_s=None):
     )
 
 
+def _place_iso_nts_note(dwg, a: Analysis, bb) -> None:
+    """Place the "ISO VIEW (NTS)" caption clear of what is already on the sheet.
+
+    This ran with **no collision check at all** — the caption was dropped a fixed two
+    font-heights below the iso bbox and committed. And `_fit_iso_view` runs AFTER
+    `_auto_annotate`, so every dimension and callout is already placed by then: the
+    annotations could not avoid a caption that did not exist yet, and the caption did
+    not look at them. On a sparse sheet nothing collides and the fault is invisible; on
+    a part whose callouts reach under the iso, the caption lands on top of one.
+
+    So the caption now tries its natural position first — preserving today's placement
+    wherever that is clear — and falls back through positions around the iso block. If
+    nothing is clear it is placed at the natural position anyway: a caption that says
+    which view is not to scale is required content, and Policy B keeps required content
+    at a visible cost rather than dropping it (the overlap is then reported by the
+    ordinary `annotation_overlap` lint).
+    """
+    font = dwg.draft.font_size
+    natural_y = max(bb[1] - 2 * font, a.margin + font)
+    centre_x = a.ISO_X
+    candidates = (
+        (centre_x, natural_y),
+        (centre_x, min(bb[3] + 2 * font, a.PAGE_H - a.margin - font)),
+        (centre_x, max(bb[1] - 4 * font, a.margin + font)),
+        (bb[0] - font, natural_y),
+        (bb[2] + font, natural_y),
+    )
+    obstacles = []
+    for item in dwg.items:
+        box = _anno_box(item)
+        if box is not None:
+            obstacles.append(box)
+    chosen = candidates[0]
+    for position in candidates:
+        probe = Note("ISO VIEW (NTS)", position, dwg.draft)
+        box = _anno_box(probe)
+        if box is None:
+            continue
+        if box[0] < a.margin or box[2] > a.PAGE_W - a.margin:
+            continue
+        if any(_boxes_overlap(box, other) for other in obstacles):
+            continue
+        chosen = position
+        break
+    place_annotation(
+        dwg.registry,
+        dwg.items,
+        Note("ISO VIEW (NTS)", chosen, dwg.draft),
+        "note_iso_nts",
+    )
+
+
 def _fit_iso_view(dwg, a: Analysis, annotate: bool = True):
     """Scale the iso view to fill its page zone, captioning it NTS when the
     scale differs from sheet scale.  Pass ``annotate=False`` to suppress the
@@ -421,15 +473,5 @@ def _fit_iso_view(dwg, a: Analysis, annotate: bool = True):
     if factor < 1.0 and not _bbox_within(bb, region):
         _log.warning("Iso view still overflows its page region at %g× sheet scale", factor)
     if annotate:
-        font = dwg.draft.font_size
-        place_annotation(
-            dwg.registry,
-            dwg.items,
-            Note(
-                "ISO VIEW (NTS)",
-                (a.ISO_X, max(bb[1] - 2 * font, a.margin + font)),
-                dwg.draft,
-            ),
-            "note_iso_nts",
-        )
+        _place_iso_nts_note(dwg, a, bb)
     _log.info("Iso view scaled to %g× sheet scale%s", factor, " (NTS)" if annotate else "")
