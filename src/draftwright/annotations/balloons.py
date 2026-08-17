@@ -184,17 +184,6 @@ def render_balloons(
         # carve their horizontal free spans, and take the nearest lane that can
         # carry a balanced share of the ring.  This is measured render geometry;
         # ordered placement across the resulting segments remains in layout.py.
-        if (
-            avoid_annotation_labels
-            and _guarded_top_lane_probe_bound(len(obstacles))
-            > _GUARDED_TOP_LANE_MAX_OBSTACLE_PROBES
-        ):
-            ctx.record_issue(
-                "warning",
-                "balloon_dropped",
-                f"{len(specs)} balloon(s) exceeded the guarded perimeter work budget",
-            )
-            return
         top_lo, top_hi = band_defs["top"][2:]
         other_band_names = ["left", "right"]
         if has_bottom:
@@ -212,8 +201,32 @@ def render_balloons(
             if x1 > top_lo and x0 < top_hi and y1 >= pt:
                 candidates.add(y1 + _STRIP_SPACING + r)
 
+        # Gate on the EXACT quadratic cost, not a pre-estimate (#1190 follow-up). The
+        # loop below rescans every obstacle once per candidate lane, so the work is
+        # precisely `lanes x obstacles` — and the lane set is already built above, in
+        # one linear pass, because most obstacles produce no lane at all: a candidate
+        # comes only from an obstacle overlapping the top band's x-range and reaching
+        # its depth.
+        #
+        # The previous bound assumed one lane per obstacle, `n * (n + 1)`. On the parts
+        # the hole table exists for that overshot the truth by two orders of magnitude
+        # and refused every balloon — so the table's own transaction rolled back, the
+        # crowded callouts it would have replaced stayed, and the sheet stayed full.
+        # A budget for pathological input was disabling the feature on ordinary input.
+        lanes = [y for y in sorted(candidates) if first_line <= y <= last_line]
+        if avoid_annotation_labels and (
+            len(lanes) * len(obstacles) > _GUARDED_TOP_LANE_MAX_OBSTACLE_PROBES
+        ):
+            ctx.record_issue(
+                "warning",
+                "balloon_dropped",
+                f"{len(specs)} balloon(s) exceeded the guarded perimeter work budget "
+                f"({len(lanes)} lanes x {len(obstacles)} obstacles)",
+            )
+            return
+
         lane_options = []
-        for line in sorted(y for y in candidates if first_line <= y <= last_line):
+        for line in lanes:
             blocked = [
                 (x0, x1)
                 for x0, y0, x1, y1 in obstacles
@@ -416,8 +429,12 @@ def _guarded_free_segments(
     scale,
     label_boxes,
     text_box=None,
+    budget=None,
 ):
     """Continuous free coordinates for one member on one balloon band.
+
+    *budget* is a :class:`_CarveBudget` counting the box probes actually performed;
+    when it is exhausted this returns ``None`` and the caller abandons the attempt.
 
     Segment/box intersection can change only when the centre-to-centre ray passes
     a label-box corner; glyph intersection changes at the box edges expanded by
@@ -431,6 +448,8 @@ def _guarded_free_segments(
     )
 
     def hits(coordinate):
+        if budget is not None and not budget.spend():
+            raise _CarveBudgetExhausted
         bx, by = (line, coordinate) if axis == "y" else (coordinate, line)
         return balloon_geometry_hits_annotation_labels(
             tuple((bx + x0, by + y0, bx + x1, by + y1) for x0, y0, x1, y1 in local_glyph_boxes),
@@ -514,22 +533,36 @@ def _guarded_free_segments(
     return tuple(validated)
 
 
-def _guarded_carve_probe_bound(member_count, range_count, label_count, glyph_box_count):
-    """Conservative box-probe bound before continuous interval carving.
+class _CarveBudgetExhausted(Exception):
+    """Raised inside the carve when the live probe budget runs out."""
 
-    Each retained box contributes at most four corner rays, eight rim
-    intersections, and two glyph events per glyph component. Each resulting
-    interval can probe its midpoint, both ends, and the final merged ends, so
-    fewer than six probes are needed per critical coordinate. Every probe scans
-    the retained boxes. Keeping this arithmetic outside
-    :func:`_guarded_free_segments` makes the transaction fail closed before the
-    otherwise-quadratic critical-point expansion starts.
+
+class _CarveBudget:
+    """A live count of the box probes continuous carving actually performs.
+
+    Replaces a *conservative pre-estimate* that was wrong by orders of magnitude.
+    It multiplied worst-case criticals per label by every label and every member and
+    every band — assuming each retained box contributes its full complement of corner
+    rays, rim intersections and glyph events, and that every one survives to be probed.
+    Measured on NIST CTC-04 it predicted 10,546,848 probes for work that costs 21,228:
+    **497x** the truth, against a cap of 5,000,000. So a hole table was refused at 0.4%
+    of its real cost, which is not conservatism, it is a wrong answer — and the refusal
+    was silent, because the transaction simply rolled the table back and the crowded
+    callouts it would have replaced stayed on the sheet.
+
+    Counting real work keeps the guard's purpose (a pathological inventory must not
+    enter an unbounded scan) without it firing on ordinary ones. `spend` returns False
+    once exhausted; the carve then stops and the caller fails closed exactly as before.
     """
-    if member_count <= 0 or range_count <= 0 or label_count <= 0:
-        return 0
-    criticals_per_label = 12 + 2 * max(1, glyph_box_count)
-    probes_per_range = 6 * (2 + label_count * criticals_per_label)
-    return member_count * range_count * probes_per_range * label_count
+
+    __slots__ = ("remaining",)
+
+    def __init__(self, limit):
+        self.remaining = int(limit)
+
+    def spend(self, probes=1):
+        self.remaining -= probes
+        return self.remaining >= 0
 
 
 def _solve_guarded_band(member_indices, members, band_name, band_defs, free_segments):
@@ -841,37 +874,35 @@ def _place_guarded_inventory(
     if not retained_geometry_safe:
         return len(members)
     retained_boxes = (*label_boxes, *retained_component_boxes)
-    range_count = sum(
-        len(top_segments) if band == "top" and top_segments is not None else 1
-        for band, capacity in capacities.items()
-        if capacity > 0
-    )
-    glyph_box_count = max((len(boxes) for boxes in local_glyph_boxes.values()), default=1)
-    if (
-        _guarded_carve_probe_bound(len(members), range_count, len(retained_boxes), glyph_box_count)
-        > _GUARDED_CARVE_MAX_LABEL_PROBES
-    ):
-        return len(members)
     text_boxes = {
         tag: components[1] if len(components) > 1 else None
         for tag, components in local_glyph_boxes.items()
     }
     by_member_band = {}
-    for index, member in enumerate(members):
-        for band, (axis, line, lo, hi) in band_defs.items():
-            if capacities[band] <= 0:
-                continue
-            ranges = top_segments if band == "top" and top_segments is not None else ((lo, hi),)
-            by_member_band[index, band] = _guarded_free_segments(
-                member,
-                axis,
-                line,
-                ranges,
-                radius,
-                dwg.scale,
-                retained_boxes,
-                text_boxes[member[0]],
-            )
+    budget = _CarveBudget(_GUARDED_CARVE_MAX_LABEL_PROBES)
+    try:
+        for index, member in enumerate(members):
+            for band, (axis, line, lo, hi) in band_defs.items():
+                if capacities[band] <= 0:
+                    continue
+                ranges = (
+                    top_segments if band == "top" and top_segments is not None else ((lo, hi),)
+                )
+                by_member_band[index, band] = _guarded_free_segments(
+                    member,
+                    axis,
+                    line,
+                    ranges,
+                    radius,
+                    dwg.scale,
+                    retained_boxes,
+                    text_boxes[member[0]],
+                    budget=budget,
+                )
+    except _CarveBudgetExhausted:
+        # Fails closed exactly as the pre-estimate did — but only after the work has
+        # genuinely been done, not on a prediction that it might be.
+        return len(members)
     guarded = _GuardedSegments(by_member_band, gap, band_gaps)
     assignments, solutions, dropped = _guarded_assignment(
         members,

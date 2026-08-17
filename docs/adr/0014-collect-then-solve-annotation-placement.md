@@ -207,6 +207,37 @@ richer candidates push dense parts back over the per-view budget and out of the 
 solve, which cost more than it bought. Candidate richness trades against solve reach,
 and #1188 records where that balance currently sits.
 
+**Amendment 4 (2026-08-16) — a work budget must bound measured work, not predict
+it.** Three guards were found in one session silently disabling the feature they
+protect, on ordinary input:
+
+| guard | predicted | actual | outcome |
+| --- | --- | --- | --- |
+| feature-leader candidate cap (#1188) | 20 jobs × ~72 candidates vs a 512 cap | — | the joint assignment never ran on ANY dense part, so Amendment 2's guarantees applied precisely nowhere they were needed |
+| balloon top-lane probe bound | 73,712 vs a 50,000 cap | — | 1.5× over; every hole-table balloon refused |
+| balloon carve probe bound | 10,546,848 vs a 5,000,000 cap | **21,228** | 497× over; a hole table refused at 0.4% of its real cost |
+
+Each was correct in intent and wrong in effect. The common fault is a **conservative
+pre-estimate**: a closed-form worst case computed before the work, sized by multiplying
+maxima that never co-occur. The carve bound assumed every retained box contributes its
+full complement of criticals and that every one survives to be probed; on the very input
+its own test called pathological it was wrong by three orders of magnitude.
+
+The rule this ADR now records:
+
+- **Prefer counting real work to predicting it.** A live counter that stops at the cap
+  bounds the work just as a pre-estimate does, and cannot refuse work that fits.
+- **Where a pre-check is genuinely needed, it must be EXACT, not conservative.** The
+  top-lane gate now multiplies the actual candidate-lane count (built in one linear
+  pass) by the obstacle count, because that product *is* the loop's cost.
+- **A budget that fires is a capability loss, and must be observable as one.** All three
+  degraded silently: the drawing simply came back missing a table, a joint solve or a
+  route, with a lint line at most. A guard firing should say which capability it cost.
+
+This is a placement-layer instance of the same discipline ADR 0001 applies to solvers:
+the bound has to be explainable, and "the estimate said it might be expensive" is not an
+explanation a user can act on.
+
 ## Context (short — the full story is 0009's)
 
 A recurring defect class (#133/#225/#305: the "invisible occupant" — one strip,

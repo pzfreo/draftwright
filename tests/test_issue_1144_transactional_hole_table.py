@@ -599,7 +599,22 @@ def test_guarded_solver_budget_rolls_the_automatic_table_transaction_back(monkey
     assert not [issue for issue in drawing.lint() if issue.code == "hole_requirement_missing"]
 
 
-def test_guarded_carve_budget_fires_before_quadratic_label_expansion(monkeypatch):
+def test_guarded_carve_work_stays_within_its_budget(monkeypatch):
+    """The guard bounds the carve's work; it no longer predicts it.
+
+    This asserted that carving must never START on a large retained inventory — the
+    budget was a conservative pre-ESTIMATE checked up front. That estimate was wrong by
+    orders of magnitude in both directions that matter. On NIST CTC-04 it predicted
+    10,546,848 probes for work costing 21,228 (497x), refusing a hole table at 0.4% of
+    its real cost and silently leaving the crowded callouts it would have replaced. And
+    on the deliberately pathological input BELOW — 300 retained boxes, one member, the
+    very case it was written to catch — the real cost is about 4,500 probes, so it was
+    wrong by a further three orders of magnitude about its own worst case.
+
+    The protection's purpose survives: a pathological inventory must not enter an
+    unbounded scan. It is now enforced by counting probes as they happen and stopping
+    at the cap, which bounds the work without refusing work that fits inside it.
+    """
     import draftwright.annotations.balloons as balloons_module
 
     retained_boxes = tuple(
@@ -616,10 +631,14 @@ def test_guarded_carve_budget_fires_before_quadratic_label_expansion(monkeypatch
         lambda *_args: ((), (), True),
     )
 
-    def forbidden_carve(*_args, **_kwargs):
-        pytest.fail("critical-point carving ran before its deterministic work budget")
+    probes = []
+    real_hits = balloons_module.balloon_geometry_hits_annotation_labels
 
-    monkeypatch.setattr(balloons_module, "_guarded_free_segments", forbidden_carve)
+    def counted(*args, **kwargs):
+        probes.append(1)
+        return real_hits(*args, **kwargs)
+
+    monkeypatch.setattr(balloons_module, "balloon_geometry_hits_annotation_labels", counted)
     member = ("A", 0, SimpleNamespace(diameter=2.0), 0.0, 0.0)
 
     dropped = balloons_module._place_guarded_inventory(
@@ -642,7 +661,14 @@ def test_guarded_carve_budget_fires_before_quadratic_label_expansion(monkeypatch
         band_gaps={"left": 10.0},
     )
 
-    assert dropped == 1
+    assert dropped == 1  # still fails closed — for want of room, not want of budget
+    assert len(probes) <= balloons_module._GUARDED_CARVE_MAX_LABEL_PROBES, (
+        "the carve exceeded its budget without stopping"
+    )
+    assert len(probes) < 100_000, (
+        f"this input cost {len(probes)} probes; the retired pre-estimate claimed it "
+        f"exceeded 5,000,000, which is why it refused work that fits comfortably"
+    )
 
 
 def test_guarded_carve_budget_rolls_the_automatic_table_transaction_back(monkeypatch):
