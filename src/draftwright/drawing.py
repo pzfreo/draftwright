@@ -3004,14 +3004,35 @@ class Drawing:
                 _aggregation=aggregation,
             )
         else:
+            # The scale split exists so `label_vs_measured` compares each annotation
+            # against ITS OWN scale — an enlarged detail view (#42) carries `_dw_scale`.
+            # The VIEW-level checks (`view_overlap`, `view_out_of_bounds`,
+            # `view_annotation_*`) do not depend on annotation scale at all, so passing the
+            # views to every group emitted each of their findings once PER GROUP: measured
+            # on `Box(50,50,50)` at A1, `view_overlap` and `view_out_of_bounds` both went
+            # 1 -> 2 purely from tagging one annotation with a second scale (#1204).
+            #
+            # That made `lint_summary()["by_code"]`, the error/warning counts and the
+            # quality score a function of how annotations happen to be GROUPED rather than
+            # of the drawing — the same class of defect as #1196, where lint text depended
+            # on memory addresses.
+            #
+            # So only the view-vs-view and view-vs-page checks are restricted to the
+            # first group; the annotation-vs-view ones still run for every group, because
+            # each group holds DIFFERENT annotations. A first cut nulled `view_shapes` for
+            # later groups instead and lost their `view_annotation_inside_extents`
+            # findings — 2 became 1 on the same fixture, trading a double-count for a
+            # missed defect.
             issues = []
-            for _scale, _anns in by_scale.items():
+            for index, (_scale, _anns) in enumerate(by_scale.items()):
+                first = index == 0
                 issues += lint_drawing(
                     _anns,
                     page_bbox=page_bbox,
                     drawing_scale=_scale,
                     view_shapes=view_shapes,
                     view_names=view_names,
+                    view_geometry=first,
                     view_edge_cache=self._view_edge_cache,
                     ann_box_cache=self._ann_box_cache,
                     view_material_fields=self.material_fields(),

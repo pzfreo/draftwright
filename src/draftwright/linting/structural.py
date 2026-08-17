@@ -220,6 +220,7 @@ def lint_drawing(
     ann_box_cache: dict | None = None,
     view_material_fields: dict | None = None,
     view_names: list | None = None,
+    view_geometry: bool = True,
     _aggregation: _IssueAggregation | None = None,
 ) -> list[LintIssue]:
     """Structural checks on a composed annotation list, duck-typed.
@@ -442,6 +443,7 @@ def lint_drawing(
             items,
             issues,
             view_names=view_names,
+            view_geometry=view_geometry,
             page_bbox=page_bbox,
             edge_cache=view_edge_cache,
             box_cache=box_cache,
@@ -557,6 +559,7 @@ def _lint_view_shapes(
     issues,
     *,
     view_names=None,
+    view_geometry=True,
     page_bbox=None,
     edge_cache=None,
     box_cache=None,
@@ -705,6 +708,18 @@ def _lint_view_shapes(
                         code="leader_crosses_silhouette",
                     )
                 )
+
+    # The remaining checks compare views against EACH OTHER and against the page, so they
+    # say nothing about annotations and give the same answer however the annotations are
+    # grouped. `Drawing._lint` splits annotations by scale and calls this once per group,
+    # which emitted each of their findings once PER GROUP (#1204).
+    #
+    # The annotation-vs-view checks above must still run for every group, because each group
+    # holds DIFFERENT annotations. A first cut of #1204 nulled `view_shapes` for later
+    # groups instead and lost their `view_annotation_inside_extents` findings — trading a
+    # double-count for a missed defect.
+    if not view_geometry:
+        return
 
     # #160 — view shape vs view shape bounding box overlaps
     for i, (aname, abb, _) in enumerate(named_views):
