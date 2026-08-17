@@ -137,7 +137,11 @@ def test_runtime_adapter_inventory_is_derived_independently_and_exhaustive() -> 
         for family in recognition.capability_manifest()["families"]
         for record in family["records"]
     }
-    assert declared_records == package_records
+    # Subset, not equality, and for the same reason the family inventory is: a record we
+    # declare that the package does not ship is a break, while one it ships and we have not
+    # declared yet is a Draftwright to-do. `tests/test_recogniser_adoption.py` owns the
+    # second direction; asserting equality here would put the coupling straight back.
+    assert declared_records <= package_records
 
 
 def test_dsl_and_generated_code_inventories_are_derived_from_live_code() -> None:
@@ -297,7 +301,9 @@ def test_a_package_family_we_have_not_declared_yet_does_not_fail_the_join() -> N
 
     validate_recogniser_capabilities(package=package)
 
-    assert pending_family_declarations(package=package) == ["future-thread"]
+    # `in`, not equality: any family the installed package has genuinely grown since the
+    # last declaration is legitimately pending too, and this test is not about those.
+    assert "future-thread" in pending_family_declarations(package=package)
 
 
 def test_a_declared_family_the_package_dropped_still_fails_closed() -> None:
