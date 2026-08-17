@@ -1111,6 +1111,11 @@ def place_iso_nts_note(dwg, a, bb) -> None:
     ]
 
     obstacles = late_furniture_obstacles(dwg)
+    # The same keep-clear band `add_table` gives its late furniture. Without it a caption
+    # 0.01 mm from a dimension label counted as "clear", and the Policy-B backstop could
+    # not report it either: `annotation_overlap` fires only past 0.5 mm in BOTH axes, so a
+    # flush caption was invisible to the check AND to the lint it defers to.
+    clearance = getattr(dwg.draft, "pad_around_text", 0.0)
 
     chosen, seen = natural, set()
     for position in candidates:
@@ -1132,7 +1137,13 @@ def place_iso_nts_note(dwg, a, bb) -> None:
         # pushes past the iso block and can leave the sheet, which is what this catches.
         if box[0] < a.margin or box[2] > a.PAGE_W - a.margin:
             continue
-        if any(_boxes_overlap(box, other) for other in obstacles):
+        keep_clear = (
+            box[0] - clearance,
+            box[1] - clearance,
+            box[2] + clearance,
+            box[3] + clearance,
+        )
+        if any(_boxes_overlap(keep_clear, other) for other in obstacles):
             continue
         chosen = position
         break

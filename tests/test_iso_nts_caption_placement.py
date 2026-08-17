@@ -84,7 +84,6 @@ class _StandIn:
         self.registry = AnnotationRegistry()
         self.draft = draft
         self.items = list(blockers)
-        self.box_cache = {}
         self.page_w, self.page_h = page_w, page_h
         self._names = {f"blocker{i}": o for i, o in enumerate(blockers)}
         self.views = {f"v{i}": box for i, box in enumerate(view_boxes)}
@@ -203,6 +202,88 @@ class TestTheCaptionAvoidsWhatIsAlreadyPlaced:
             f"caption at {box} runs past the {analysis.PAGE_W - analysis.margin} margin"
         )
         assert box[0] >= analysis.margin - 1e-6
+
+
+class TestTheCaptionKeepsTheSameClearanceAsOtherLateFurniture:
+    def test_a_flush_but_non_overlapping_neighbour_still_displaces_it(self):
+        # `add_table` gives its late furniture `draft.pad_around_text` (2 mm) of keep-clear.
+        # The caption accepted on strict overlap, so a neighbour 1 mm away counted as
+        # clear — and the Policy-B backstop could not report it either: `annotation_overlap`
+        # fires only past 0.5 mm in BOTH axes, so a flush caption was invisible twice over.
+        # Mutation: set `clearance = 0.0` and the caption stays flush against the blocker.
+        iso = (180.0, 120.0, 220.0, 160.0)
+        control, control_analysis = _harness([])
+        place_iso_nts_note(control, control_analysis, iso)
+        natural = _caption_box(control)
+        clearance = control.draft.pad_around_text
+
+        gap = 1.0
+        assert gap < clearance, "the neighbour is already outside the keep-clear band"
+        blocker = (natural[0] - 20.0, natural[1] - 20.0, natural[2] + 20.0, natural[1] - gap)
+        assert not _boxes_overlap(natural, blocker), (
+            "the blocker overlaps the natural position outright, so a strict-overlap "
+            "check would reject it too and the clearance band is not what is tested"
+        )
+
+        stand_in, analysis = _harness([blocker])
+        place_iso_nts_note(stand_in, analysis, iso)
+        box = _caption_box(stand_in)
+        keep_clear = (
+            box[0] - clearance,
+            box[1] - clearance,
+            box[2] + clearance,
+            box[3] + clearance,
+        )
+        assert not _boxes_overlap(keep_clear, blocker), (
+            f"caption at {box} sits inside the {clearance} mm keep-clear band of the "
+            f"annotation at {blocker}"
+        )
+
+
+class TestTheCandidateOrderIsTheStatedOrder:
+    """The order encodes a drafting convention, and a convention no test asserts is a
+    comment. Adversarial review confirmed the pre-review order (above-the-iso tried
+    second) passed the ENTIRE fast tier — the rationale was written down and guarded by
+    nothing, so a future tidy-up could reorder the list and see 4,069 tests agree.
+    """
+
+    def _positions(self, stand_in, analysis, iso):
+        control, control_analysis = _harness([], iso_x=analysis.ISO_X)
+        place_iso_nts_note(control, control_analysis, iso)
+        natural = _caption_box(control)
+        return natural
+
+    def test_a_free_below_position_beats_a_free_above_one(self):
+        # A caption printed over the view it labels is against drawing convention. With
+        # the natural row blocked and BOTH the further-below and above-the-iso positions
+        # free, it must go down. Mutation: move the above candidate back to second and
+        # this fails.
+        iso = (180.0, 120.0, 220.0, 160.0)
+        natural = self._positions(*_harness([], iso_x=200.0), iso)
+        blocker = (natural[0] - 2.0, natural[1] - 1.0, natural[2] + 2.0, natural[3] + 1.0)
+        stand_in, analysis = _harness([blocker])
+        place_iso_nts_note(stand_in, analysis, iso)
+        box = _caption_box(stand_in)
+        assert box[3] < iso[1], (
+            f"caption at {box} went ABOVE the iso block {iso} while a position below it "
+            f"was free"
+        )
+
+    def test_directly_below_beats_beside(self):
+        # A caption beside the iso reads as captioning whatever view is next to it. With
+        # the natural row blocked and further-below, left and right all free, the one
+        # still under the iso wins. Mutation: reorder the two sideways candidates ahead
+        # of the further-below one and this fails.
+        iso = (180.0, 120.0, 220.0, 160.0)
+        natural = self._positions(*_harness([], iso_x=200.0), iso)
+        blocker = (natural[0] - 2.0, natural[1] - 1.0, natural[2] + 2.0, natural[3] + 1.0)
+        stand_in, analysis = _harness([blocker])
+        place_iso_nts_note(stand_in, analysis, iso)
+        box = _caption_box(stand_in)
+        assert box[0] == pytest.approx(natural[0], abs=1e-6), (
+            f"caption at {box} stepped sideways to x={box[0]:.1f} while the column "
+            f"directly under the iso (x={natural[0]:.1f}) was free"
+        )
 
 
 class TestUnlabelledFurnitureIsStillAnObstacle:
