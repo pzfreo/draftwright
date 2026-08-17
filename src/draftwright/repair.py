@@ -41,6 +41,13 @@ def _replace_dim(dwg, old, new):
     scale tag (so a re-placed detail-view dim stays at scale)."""
     if getattr(old, "_dw_scale", None) is not None:
         new._dw_scale = old._dw_scale
+    # And the per-unit meaning of an `N× v` label (#1153). `repair()` runs on every build,
+    # and a tagged `dim_step_typ` is a legal `dim_inside_part` target — so dropping this on
+    # a rebuild turns a correct drawing into a FAILING one, because lint then reads the
+    # label as a span and reports a material contradiction. Its own docstring called this
+    # "the same seam `_dw_scale` uses"; that was only true once it was carried here too.
+    if getattr(old, "_dw_label_value", None) is not None:
+        new._dw_label_value = old._dw_label_value
     dwg.items[dwg.items.index(old)] = new
     dwg.registry.replace_object(old, new)
 

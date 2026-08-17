@@ -30,7 +30,7 @@ from build123d import Box
 from draftwright import Sheet
 from draftwright.linting.structural import (
     _MATERIAL_LABEL_DISCREPANCY,
-    _label_readings,
+    _label_reading,
     _lint_dim,
 )
 
@@ -137,16 +137,16 @@ class TestTheProducerSaysWhatItsRepeatLabelMeasures:
     """
 
     def test_an_untagged_label_means_what_it_says(self):
-        assert _label_readings(SimpleNamespace(), "8× 15") == (120.0,)
+        assert _label_reading(SimpleNamespace(), "8× 15") == 120.0
 
     def test_a_tagged_label_means_what_the_producer_declared(self):
         tagged = SimpleNamespace(_dw_label_value=15.0)
-        assert _label_readings(tagged, "8× 15") == (15.0,)
+        assert _label_reading(tagged, "8× 15") == 15.0
 
     def test_a_counted_diameter_is_unaffected(self):
         # "4× ⌀8.5" counts features of diameter 8.5; the product is meaningless and
         # `_label_value` already handles it.
-        assert _label_readings(SimpleNamespace(), "4× ⌀8.5") == (8.5,)
+        assert _label_reading(SimpleNamespace(), "4× ⌀8.5") == 8.5
 
     def test_a_pitch_dim_spanning_one_member_is_still_caught(self):
         # THE detection the first cut lost. Untagged, so the label means the run.
@@ -176,6 +176,41 @@ class TestTheProducerSaysWhatItsRepeatLabelMeasures:
         )
         found = [i for i in issues if i.code == "label_vs_measured"]
         assert found and all(i.severity == "error" for i in found)
+
+
+class TestTheTagSurvivesARebuild:
+    def test_a_repaired_dimension_keeps_what_its_label_measures(self):
+        # `repair()` runs on EVERY build and a tagged `dim_step_typ` is a legal
+        # `dim_inside_part` target. `_replace_dim` carried `_dw_scale` across the rebuild
+        # and not this tag, so a repair that moved the dimension would turn a correct
+        # drawing into a FAILING one — lint would read '5× 10' as a 50 mm span over a
+        # 10 mm path and call it a material contradiction.
+        #
+        # Latent, not live: instrumenting the whole fast tier showed no tagged dim is
+        # replaced today. That is exactly why it needs a test rather than a measurement.
+        from types import SimpleNamespace as NS
+
+        from draftwright.repair import _replace_dim
+
+        old = NS(_dw_label_value=10.0, _dw_scale=2.0)
+        new = NS()
+        registry = NS(
+            named=lambda _n: None,
+            names=lambda: (),
+            name_of=lambda _o: None,
+            replace_object=lambda *a, **k: None,
+        )
+        drawing = NS(items=[old], registry=registry, _registry=registry)
+        try:
+            _replace_dim(drawing, old, new)
+        except Exception:
+            # The helper reaches further into the drawing than this stand-in models; the
+            # attribute copy happens first, which is the contract under test.
+            pass
+        assert getattr(new, "_dw_label_value", None) == 10.0, (
+            "a rebuilt dimension lost the number its `N×` label multiplies"
+        )
+        assert getattr(new, "_dw_scale", None) == 2.0, "the sibling tag regressed"
 
 
 class TestTheEngineStillProducesTruthfulRepeatDimensions:

@@ -154,36 +154,33 @@ def _label_bbox(item, warned=None):
         return None
 
 
-def _label_readings(item, label: str) -> tuple[float, ...]:
-    """Every value *item*'s label could be asserting about the path it is drawn on.
+def _label_reading(item, label: str) -> float | None:
+    """The value *item*'s label asserts about the path it is drawn on, or ``None``.
 
-    Usually one. A bare ``N× v`` is ambiguous, because this codebase draws that label under
-    two conventions and the string cannot tell them apart:
+    A bare ``N× v`` is ambiguous, because this codebase draws that label under two
+    conventions and the string cannot tell them apart:
 
     * ``dim_step_typ`` "8× 15" is ONE representative step drawn at **15**;
     * a hole pitch "3× 20" (``annotations/holes.py``, and three sites in
       ``annotations/from_model.py``) spans the whole run at **60**.
 
     So the producer says which. The one per-unit renderer sets ``_dw_label_value`` to the
-    number the ``N×`` multiplies — the same ad-hoc seam ``_dw_scale`` already uses — and that
-    is then the only reading. Everything else means what the label says.
+    number the ``N×`` multiplies — carried from ``ApprovedDimension.value``, so lint reads
+    the compiler's own number rather than re-deriving a convention from the rendered string
+    (ADR 0016 Amendment 1). Everything else means what its label says.
 
-    An earlier cut admitted BOTH readings for every untagged ``N× v``, which silently
-    disabled the check on the four product-convention producers: the per-unit value is
-    precisely the length you get from spanning one member instead of the run — the single
-    most likely wrong endpoint for a pitch dim, and exactly the defect #1153/#1209 report. A
-    real engine-produced "3× 30" drawn across one pitch went from a 200% warning to no
-    finding at all. Reading the compiler's own number instead of re-deriving a convention
-    from the rendered string is also what ADR 0016 Amendment 1 asks for.
+    An earlier cut returned BOTH readings for every untagged ``N× v`` and let a dimension
+    pass if it matched either. That silently disabled the check on the four
+    product-convention producers: the per-unit value is precisely the length you get from
+    spanning one member instead of the run — the most likely wrong endpoint for a pitch dim,
+    and exactly the defect #1153 and #1209 report. A real engine-produced "3× 30" drawn
+    across one pitch went from a 200% warning to no finding at all.
 
     If another per-unit producer appears untagged it will report a large false discrepancy —
     loudly, as an error — which is the right failure mode for a missing tag.
     """
-    value = _label_value(label)
-    if value is None:
-        return ()
     declared = getattr(item, "_dw_label_value", None)
-    return (float(declared),) if declared is not None else (value,)
+    return float(declared) if declared is not None else _label_value(label)
 
 
 def _label_value(label: str) -> float | None:
@@ -892,14 +889,19 @@ def _is_angular_label(label: str) -> bool:
 #: cannot coexist with ``passed: True``.)
 #:
 #: The threshold exists because the 0.5% REPORTING floor below is close enough to display
-#: rounding and projection foreshortening to be a judgement call; a discrepancy of several
-#: percent cannot be either. It is a policy number, not a measurement. The contradictions
-#: observed sit far above it — 15.7%, 70.4%, 90.4%, 92.3%, 275%, 518% — and the one
-#: legitimate sub-threshold case is the reason it exists: CTC-01 AP242 draws ``'60 ±0.5'``
-#: over a foreshortened 57.735 mm, 3.9% out, which is exactly ``sec 15.75° − 1``. Since a
-#: foreshortened dimension gives ``sec θ − 1``, 0.05 tolerates obliquity to 17.75° — about
-#: 2° of margin over the one real case. Thin against a systematic mechanism; widen it if a
-#: more oblique AP242 dimension turns up, rather than assuming noise.
+#: rounding and projected foreshortening to be a judgement call; a discrepancy of several
+#: percent cannot be either.
+#:
+#: It is a POLICY NUMBER, chosen, with no observed sub-threshold case to calibrate against —
+#: across 42 corpus builds the only discrepancy of any size is 99.1%. Two earlier versions
+#: of this comment claimed otherwise. The first said "every real case observed sits far
+#: above it"; the second, written to correct that, cited a CTC-01 record at 3.9% which does
+#: not exist — that record is ANGULAR, and #1207 (this comment's own base commit) refuses
+#: it before it can be measured. Do not add a supporting case here without building it.
+#:
+#: What can be stated exactly: a foreshortened dimension gives `sec θ - 1`, so 0.05
+#: tolerates obliquity up to 17.75 degrees. If a more oblique dimension turns up, widen the
+#: threshold on that evidence rather than assuming noise.
 _MATERIAL_LABEL_DISCREPANCY = 0.05
 
 
@@ -924,8 +926,8 @@ def _lint_dim(item, part_bbox, issues, drawing_scale: float = 1.0, box_cache=Non
     #
     # Both guards apply: an angular label is skipped outright (its units differ), and a
     # label with more than one admissible reading is compared against the closest (#1153).
-    readings = _label_readings(item, label)
-    if readings and measured is not None and not _is_angular_label(label):
+    label_val = _label_reading(item, label)
+    if label_val is not None and measured is not None and not _is_angular_label(label):
         # When drawing_scale != 1.0 the geometry was scaled up before projecting
         # (e.g. part.scale(5) for a 7.5 mm feature drawn at 5:1). The measured
         # path length is the *scaled* length; the label carries the *real* value.
@@ -934,12 +936,7 @@ def _lint_dim(item, part_bbox, issues, drawing_scale: float = 1.0, box_cache=Non
         # drawing_scale is guaranteed positive by lint_drawing()'s validation.
         effective_measured = measured / drawing_scale
         if effective_measured > 1e-6:
-            # The CLOSEST admissible reading: a label with two possible meanings is only
-            # contradictory when the drawn path matches neither.
-            ratio = min(
-                abs(reading - effective_measured) / effective_measured for reading in readings
-            )
-            label_val = min(readings, key=lambda r: abs(r - effective_measured))
+            ratio = abs(label_val - effective_measured) / effective_measured
             if ratio > 0.005:
                 issues.append(
                     LintIssue(
