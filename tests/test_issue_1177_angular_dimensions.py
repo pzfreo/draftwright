@@ -45,10 +45,11 @@ _DOVETAIL = ((0, -25, 0), (0, -9, 0), (0, -13.619, 8))
 
 #: Kinds whose value is CATEGORICALLY a straight projected span, so the linear renderer is
 #: the right renderer for them. That is a statement about the category, not a guarantee
-#: that today's renderer draws each correctly — two members are known not to:
-#: `radius` draws a full-diameter line (#1208), and on CTC-04 two `linear` PMI records
-#: draw 260 mm for values of 20 and 25 (#1209). Both are rendering bugs to fix, which is
-#: precisely why they are here and not in the refusal set.
+#: that today's renderer draws each correctly. `radius` did not — it drew a full-diameter
+#: line — and is fixed in this PR (#1208), which is what membership of this set earns
+#: rather than assumes. `linear` still does not on CTC-04, where two PMI records draw
+#: 260 mm for values of 20 and 25 (#1209): a rendering bug to fix, which is precisely why
+#: it is here and not in the refusal set.
 _RENDERABLE = frozenset({"linear", "thickness", "diameter", "radius"})
 
 
@@ -286,6 +287,49 @@ class TestTheOmissionIsReportedOnce:
             f"a source already explained by {explained} is reported again as unexplained"
         )
 
+    def test_suppressing_a_sibling_error_does_not_downgrade_the_outcome(self):
+        # THE regression this PR shipped and then fixed. Adding a code to the suppression
+        # set silences `pmi_not_rendered`, an ERROR that is also geometry-aware. A
+        # suppressor that is itself a plain warning outside `_GEOMETRY_AWARE_CODES`
+        # therefore turns a lost AP242 requirement into `passed: True` with
+        # `geometry_issues: 0` — measured exactly that, one file away from a commit
+        # message arguing it must not happen.
+        from build123d import Box
+
+        from draftwright import build_drawing
+        from draftwright.model.declare import measured_dimension
+
+        degenerate = measured_dimension(
+            kind="linear",
+            value=16,
+            label="16",
+            dominant_axis="Y",
+            ref_pts=((0, -9, 0), (0, -9, 0)),  # two identical points: no witness span
+            source_id="S-DEGEN",
+        )
+        drawing = build_drawing(
+            Box(60, 40, 20), title="T", number="N-1", model=[degenerate], pmi="annotate"
+        )
+        summary = drawing.lint_summary()
+        assert summary["passed"] is False, (
+            "a requirement that produced no annotation left the drawing reporting passed"
+        )
+        assert summary["geometry_issues"] >= 1, (
+            "the lost requirement stopped counting as missing content"
+        )
+
+    def test_every_code_that_suppresses_the_error_carries_its_weight(self):
+        # Stated as an invariant over the set rather than per member, so a fourth
+        # suppressor cannot be added and quietly downgrade its sources.
+        from draftwright.drawing import _GEOMETRY_AWARE_CODES
+        from draftwright.linting.pmi_coverage import _EXPLAINED_OMISSION_CODES
+
+        assert _EXPLAINED_OMISSION_CODES <= set(_GEOMETRY_AWARE_CODES), (
+            f"{sorted(set(_EXPLAINED_OMISSION_CODES) - set(_GEOMETRY_AWARE_CODES))} "
+            f"suppress a geometry-aware error without being geometry-aware, so the "
+            f"missing content stops being counted"
+        )
+
     def test_an_unexplained_omission_is_still_reported(self):
         # The suppression must stay narrow: a record that produced no annotation for a
         # reason nobody recorded is exactly what this check exists to surface.
@@ -356,6 +400,62 @@ class TestTheRefusalKeepsItsWeightInTheSummary:
             if i.code == "dimension_kind_unsupported"
         ]
         assert refusals and all(i.outcome_stage == "validation" for i in refusals)
+
+
+class TestTheRefusalSaysWhatTheKindMeasures:
+    @pytest.mark.parametrize(
+        ("kind", "phrase"),
+        [
+            ("angular", "an angle in degrees"),
+            ("curve_length", "a length along a curve"),
+            ("curved_dist", "a distance along a curve"),
+            ("oriented", "a distance along a stated direction"),
+        ],
+    )
+    def test_each_kind_states_its_own_basis(self, kind, phrase):
+        # `_MEASUREMENT_BASIS` is keyed per kind so "the message stays true as the set
+        # grows" — but nothing asserted any message TEXT, so replacing all four values
+        # with the angular phrase passed 162 tests. The keying was decorative.
+        sheet = Sheet(Box(115, 50, 68), title="T", number="T-1", scale=1)
+        sheet.measured_dimension(
+            kind=kind,
+            value=25.0,
+            label="25",
+            dominant_axis="y",
+            ref_pts=((0, -25, 0), (0, -9, 0)),
+        )
+        sheet.authored_dimensions()
+        messages = [
+            i.message for i in sheet.build().lint() if i.code == "dimension_kind_unsupported"
+        ]
+        assert messages, f"{kind} produced no refusal"
+        assert phrase in messages[0], f"{kind} reported {messages[0]!r}"
+
+
+class TestAnEmittedScriptReportsTheLostRequirement:
+    def test_a_round_tripped_angular_record_is_an_error_not_a_warning(self):
+        # The most user-visible consequence of the severity rule, and it was neither
+        # stated nor tested. `sheet_emit` carries `source_id=` through, so a script
+        # emitted from CTC-01 declares the angular record with its AP242 identity — and
+        # the rule keys on `source_id`, not on pmi mode. The requirement really is lost,
+        # so the error is right; a user round-tripping a script sees `passed` flip.
+        sheet = Sheet(Box(115, 50, 68), title="T", number="T-1", scale=1)
+        sheet.measured_dimension(
+            kind="angular",
+            value=60,
+            label="60°",
+            dominant_axis="y",
+            ref_pts=_DOVETAIL,
+            source_id="dimension:0:1:4:17",
+        )
+        sheet.authored_dimensions()
+        drawing = sheet.build()
+        refusals = [i for i in drawing.lint() if i.code == "dimension_kind_unsupported"]
+        assert refusals and all(i.severity == "error" for i in refusals), (
+            "an emitted script carrying the AP242 source identity reported the loss as a "
+            "mere warning"
+        )
+        assert drawing.lint_summary()["passed"] is False
 
 
 class TestTheLintDiscriminatesByUnit:

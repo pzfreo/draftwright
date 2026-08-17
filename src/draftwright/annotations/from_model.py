@@ -4531,12 +4531,19 @@ def _record_pmi_unrenderable(dwg, label, rec, *, ctx):
     ``pmi_dropped`` (a *placement* failure): this is a *validation* failure, so a caller
     sees a specific reason instead of a misleading "no room" — an authored dim is only
     ``pmi_dropped`` after a real candidate reaches the corridor solver and cannot fit (#562)."""
+    source_id = getattr(rec, "source_id", "")
+    # `error` for a source-bearing record, for the same reason as
+    # `_record_unsupported_dimension_kind`: this SUPPRESSES the sibling `pmi_not_rendered`
+    # error, so leaving it a warning turned a lost AP242 requirement into `passed: True`.
+    # Adding the suppression without raising the severity was the very downgrade #1177's
+    # own commit message argued must not happen — committed one file away from where it
+    # said so.
     ctx.record_issue(
-        "warning",
+        "error" if source_id else "warning",
         "authored_dim_degenerate",
         f"authored dimension {label!r} has degenerate reference geometry (needs two "
         "distinct reference points spanning a legible distance)",
-        source=getattr(rec, "source_id", ""),
+        source=source_id,
     )
 
 

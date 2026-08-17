@@ -120,9 +120,13 @@ _GEOMETRY_AWARE_CODES = frozenset(
         "unrecognised_defining_geometry",
         "pmi_not_lowered",
         "pmi_not_rendered",
-        # Replaces `pmi_not_rendered` for a record refused by category (#1177); the content
-        # is equally missing, so the count must not fall just because the reason improved.
+        # Both REPLACE `pmi_not_rendered` for a record that produced no annotation (#1177);
+        # the content is equally missing, so the count must not fall just because the
+        # reason improved. `authored_dim_degenerate` suppressed that error without
+        # carrying its weight, which is how a lost requirement came to report
+        # `geometry_issues: 0` alongside `passed: True`.
         "dimension_kind_unsupported",
+        "authored_dim_degenerate",
         "axial_length_missing",
         "flat_requirement_suppressed",
         "flat_requirement_missing",
