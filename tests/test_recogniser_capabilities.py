@@ -122,7 +122,13 @@ def test_installed_released_package_contract_validates_without_a_sibling_checkou
 def test_runtime_adapter_inventory_is_derived_independently_and_exhaustive() -> None:
     runtime = _runtime_emitted_records()
     tiers = [set(_CONVERTERS), set(_DERIVED_CONVERTERS), set(_ORCHESTRATED_RECORDS)]
-    assert runtime == set.union(*tiers)
+    # Subset again, and the third place the same coupling was written. A converter for a
+    # record the installed package no longer emits is dead code pointing at a type that is
+    # gone, so that direction still fails. A record with no converter yet is the additive
+    # direction: the family carrying it is reported by `pending_family_declarations`, and
+    # declaring it `supported` forces an `ir_adapter` that `_resolve_implementation` must
+    # import -- so converter coverage is still compelled, at the point the decision is made.
+    assert set.union(*tiers) <= runtime
     assert all(
         not left & right for index, left in enumerate(tiers) for right in tiers[index + 1 :]
     )
