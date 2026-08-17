@@ -28,6 +28,8 @@ an `unknown` scores as a MISS.
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -42,6 +44,14 @@ from draftwright.evaluation.step_analysis import (
 )
 
 _CORPUS = "tests/fixtures/evaluation/corpus-v1.json"
+
+# The engine's own dense fixture, imported once. An earlier version re-ran
+# `sys.path.insert(0, "tests")` on every call — unbounded duplication, and dependent on the
+# working directory.
+_TESTS = str(Path(__file__).parent)
+if _TESTS not in sys.path:
+    sys.path.insert(0, _TESTS)
+from test_issue_1143_hole_completeness import _dense_scattered_plate  # noqa: E402
 
 
 def _part():
@@ -267,11 +277,6 @@ class TestAHoleTableIsAlsoTheFactReachingTheSheet:
     """
 
     def _dense(self):
-        import sys
-
-        sys.path.insert(0, "tests")
-        from test_issue_1143_hole_completeness import _dense_scattered_plate
-
         return _dense_scattered_plate()
 
     def test_a_table_represented_hole_is_consumed_on_a_real_build(self):
@@ -371,6 +376,50 @@ class TestAHoleTableIsAlsoTheFactReachingTheSheet:
             f"the table documents only {parameters}; the filter cannot be shown to matter"
         )
         assert _table_represented(drawing), "nothing was credited at all"
+
+
+class TestTheCreditGoesToTheRightFeature:
+    def test_a_table_credits_only_the_features_it_carries(self):
+        # `_consumed` reduced to `bool(represented)` passed all 21 tests: the table route
+        # was only ever asserted where EVERY feature happened to be credited, so nothing
+        # pinned the credit to the right one. That is round 2's failure shape exactly —
+        # an assertion that holds for the wrong reason.
+        #
+        # Reachable in principle: a grouped pattern marker "has no defining table row and
+        # therefore remains deliberately non-certifying" (annotations/orchestrator.py), so
+        # a sheet can carry a table covering some features and a pattern covering others.
+        from draftwright.evaluation.step_analysis import _consumed
+
+        carried, not_carried = object(), object()
+        drawing = SimpleNamespace(annotations_of=lambda _f: {"m_cm0": object()})
+        assert _consumed(carried, drawing, [carried]) is True
+        assert _consumed(not_carried, drawing, [carried]) is False, (
+            "a feature the table does not carry was credited because some other feature was"
+        )
+
+
+class TestTheCandidateFilterIsLoadBearing:
+    def test_a_hole_is_not_matched_to_a_feature_on_another_axis(self):
+        # The axis half of the axis+diameter cross-check had no test, while the diameter
+        # half did — on the stated reasoning that a redundant cross-check needs one.
+        hole = SimpleNamespace(axis=(0.0, 0.0, -1.0), location=(0.0, 0.0, 5.0), diameter=6.0)
+        sideways = _stub_hole(6.0, (0.0, 0.0, 5.0))
+        sideways.frame = SimpleNamespace(origin=(0.0, 0.0, 5.0), axis="x")
+        drawing = _StubDrawing(features=(sideways,), drawn={0})
+        assert _drawing_consumer_outcomes([hole], drawing) == ["unknown"], (
+            "a z-axis hole was matched to an x-axis feature sharing its position"
+        )
+
+    def test_only_hole_and_pattern_features_are_candidates(self):
+        # Widening the `kind` filter to admit other feature kinds passed everything: no
+        # test established that a non-hole feature cannot account for a hole.
+        hole = SimpleNamespace(axis=(0.0, 0.0, -1.0), location=(0.0, 0.0, 5.0), diameter=6.0)
+        boss = _stub_hole(6.0, (0.0, 0.0, 5.0))
+        boss.kind = "boss"
+        assert _hole_candidates(_StubDrawing(features=(boss,))) == [], (
+            "a boss was admitted as a candidate for a hole"
+        )
+        assert _drawing_consumer_outcomes([hole], _StubDrawing(features=(boss,))) == ["unknown"]
 
 
 class TestTheMatchIsFullyThreeDimensional:

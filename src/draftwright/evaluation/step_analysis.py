@@ -7,14 +7,25 @@ benchmark case supplies the denominator and tolerances.
 The ``drawing_consumer`` boundary is OBSERVED from a real build (#1202) rather than read from
 a capability declaration. Known limit of that approach: it reads the ADR 0010 provenance seam,
 which ``Drawing.annotations_of`` documents as growing "as passes are migrated". An un-tagged
-render pass therefore reads as a genuine omission. The hole-table escalation was the first
-instance — it withdraws the individual callouts and records the substitution on the table — and
-a new representation route must be admitted here or it will register as a false loss.
+render pass therefore reads as a genuine omission, and this is a CLASS of limitation rather
+than a single case. Two instances are known:
+
+* the hole-table escalation, which withdraws the individual callouts and records the
+  substitution on the table — admitted here via that ledger;
+* a **turned** part, where the bore's diameter reaches the sheet as a ``Leader`` (``ldr_z0``)
+  whose ``registry.feature_of`` is ``None``, so it is neither a callout nor a table row. That
+  is inherited ADR 0015 / #754 debt (rotational OD/bore groups are not planner-routed) and
+  the engine's own ledger reports it as missing too, but this benchmark will report a loss
+  for a hole whose size is visibly printed. No corpus fixture is turned today; adding one
+  without addressing #754 would make the number wrong.
+
+A new representation route must be admitted here or it registers as a false loss.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -23,12 +34,12 @@ from math import isfinite
 from pathlib import Path
 from typing import Any, Literal, TypeAlias
 
-from draftwright._geometry import _axis_letter_of
-
 Scalar: TypeAlias = int | float | str | bool
 Value: TypeAlias = Scalar | tuple[float, ...]
 Outcome: TypeAlias = Literal["supported", "unknown", "unsupported"]
 Observer: TypeAlias = Callable[[object], Sequence["ObservedFact"]]
+
+_log = logging.getLogger(__name__)
 
 _CORPUS_FORMAT = "draftwright-step-analysis-corpus"
 _CORPUS_FORMAT_VERSION = 1
@@ -745,6 +756,13 @@ def _drawing_consumer_outcomes(holes, drawing) -> list[Outcome]:
     features legitimately account for several holes, which is why the position is consumed
     and not the whole candidate.
     """
+    # Imported here, not at module level: `_geometry` imports build123d, so a top-level
+    # import would pull the CAD kernel into every consumer of this module — measured, it
+    # took import cost from 0.01 s to 1.27 s and made the lazy `builder` import below buy
+    # nothing at all. An earlier comment claimed that laziness saved the kernel import
+    # while this line was already paying it.
+    from draftwright._geometry import _axis_letter_of
+
     remaining = [(candidate, list(candidate.positions)) for candidate in _hole_candidates(drawing)]
     represented = _table_represented(drawing)
     outcomes: list[Outcome] = []
@@ -813,7 +831,13 @@ def _default_observers() -> Mapping[str, Observer]:
         # are matched against cannot come from different recognition runs.
         try:
             drawing = build_drawing(part)  # type: ignore[arg-type]
-        except Exception:  # noqa: BLE001 — an unbuildable fixture is a non-answer, not a crash
+        except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
+            # The SCORE is the same `unknown` a correspondence gap produces — the oracle has
+            # three outcomes and no fourth — but the two must not be indistinguishable to a
+            # reader. A benchmark whose whole point is that a self-reported number cannot
+            # validate itself should not quietly equate "the compiler has no correspondence"
+            # with "the engine crashed", so the crash is announced.
+            _log.warning("evaluation: drawing build failed (%s); scoring holes as unknown", exc)
             drawing = None
         if drawing is None:
             # The recognition read is guarded too: a fixture that neither builds NOR
