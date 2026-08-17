@@ -120,6 +120,9 @@ _GEOMETRY_AWARE_CODES = frozenset(
         "unrecognised_defining_geometry",
         "pmi_not_lowered",
         "pmi_not_rendered",
+        # Replaces `pmi_not_rendered` for a record refused by category (#1177); the content
+        # is equally missing, so the count must not fall just because the reason improved.
+        "dimension_kind_unsupported",
         "axial_length_missing",
         "flat_requirement_suppressed",
         "flat_requirement_missing",

@@ -4569,35 +4569,70 @@ _PMI_CORRIDOR_PRIORITY = PRIORITY.AUTHORED
 _PMI_SLOT = 10.0  # mm — slot size for PMI dim lines in the strip
 
 
-#: Dimension categories the IR admits but this renderer cannot draw. `Dimension` measures a
-#: straight projected path, so an ANGULAR record rendered through it produces a linear
-#: annotation whose label is in degrees and whose geometry is in millimetres — a drawing that
-#: asserts something false (#1177). The rendering library has no angular primitive at all
-#: (`Dimension`, `DimensionLine`, `SafeDimension`), so drawing one correctly is work in
-#: `build123d-drafting-helpers`, not a gate here.
+#: Dimension categories the IR admits but this renderer cannot draw TRUTHFULLY. `Dimension`
+#: measures a straight projected path, so a record whose value is measured on some other
+#: basis renders as an annotation whose geometry contradicts its own label — a drawing that
+#: asserts something false (#1177). Measured on a 1:1 sheet, value against drawn length:
 #:
-#: Refused at the RENDERER rather than at `Sheet.measured_dimension`, because `angular`
-#: reaches the IR from two sources — the authored façade and detected AP242 PMI
+#:   angular       60      ->  16.0   label states degrees, geometry states millimetres
+#:   curve_length  25.133  ->  16.0   arc length against its chord (57% out)
+#:   curved_dist   25.133  ->  16.0   same
+#:   oriented      20.0    ->  16.0   along a stated direction, not the projected axis (25% out)
+#:
+#: `linear`, `thickness` and `diameter` measure a straight span and are truthful, so they
+#: stay. `radius` is a THIRD defect — it renders a full-diameter-length line carrying an R
+#: label, because `_bore_half_span` returns the value rather than half of it — and is
+#: tracked separately rather than hidden behind a category refusal.
+#:
+#: NOT because the rendering library lacks the primitives. An earlier version of this
+#: comment claimed build123d has no angular dimension; it does — `DimensionLine` and
+#: `ExtensionLine` both take `label_angle`, and render "60.00°" from an arc. The missing
+#: work is on THIS side: deriving the arc and vertex from the record's reference points and
+#: routing the result through the corridor solve. Saying otherwise sends the follow-on to
+#: the wrong repository.
+#:
+#: Refused at the RENDERER rather than at `Sheet.measured_dimension`, because these kinds
+#: reach the IR from two sources — the authored façade and detected AP242 PMI
 #: (`model/detect.py`) — and refusing at the façade would leave the imported path drawing
-#: the false dimension while making a legitimate AP242 file unreadable.
-_UNRENDERABLE_DIMENSION_KINDS = frozenset({"angular"})
+#: the false dimension while making a legitimate AP242 file unreadable. NIST CTC-01 carries
+#: an angular record; CTC-04 carries one drawn 88% wrong.
+_UNRENDERABLE_DIMENSION_KINDS = frozenset({"angular", "curve_length", "curved_dist", "oriented"})
+
+#: What each refused category actually measures, for the diagnostic. Keyed by kind so the
+#: message stays true as the set grows: an earlier version hard-coded "the label states an
+#: angle", which would have been wrong the moment `curve_length` was added.
+_MEASUREMENT_BASIS = {
+    "angular": "an angle in degrees",
+    "curve_length": "a length along a curve",
+    "curved_dist": "a distance along a curve",
+    "oriented": "a distance along a stated direction",
+}
+
+
+def _authored_with_usable_references(record) -> bool:
+    """Whether *record* is an authored dimension with enough geometry to draw at all.
+
+    Shared by the renderable and refused filters so they cannot drift: a predicate added to
+    one only would make a record silently NEITHER drawn nor reported.
+    """
+    return record.kind == "authored_dimension" and record.value > 0 and len(record.ref_pts) >= 2
 
 
 def _record_unsupported_dimension_kind(ctx, rec):
-    """Record an authored dimension whose CATEGORY this renderer cannot draw.
+    """Record an authored dimension whose CATEGORY this renderer cannot draw truthfully.
 
     A validation outcome, not a placement one — the same distinction
-    :func:`_record_pmi_unrenderable` draws, and for the same reason as #1190: an optional
-    or unsupported outcome marked as a placement drop makes every scale infeasible, so an
+    :func:`_record_pmi_unrenderable` draws, and for the same reason as #1190: an optional or
+    unsupported outcome marked as a placement drop makes every scale infeasible, so an
     explicit ``scale=`` request burns the whole ladder and raises where it used to return a
     drawing.
     """
+    basis = _MEASUREMENT_BASIS.get(rec.pmi_kind, "a value this renderer cannot measure")
     ctx.record_issue(
         "warning",
         "dimension_kind_unsupported",
-        f"authored {rec.pmi_kind} dimension {getattr(rec, 'label', '')!r} is not drawn: "
-        f"this renderer measures straight projected paths, so drawing it would state a "
-        f"length where the label states an angle",
+        f"authored {rec.pmi_kind} dimension {getattr(rec, 'label', '')!r} is not drawn: it "
+        f"states {basis}, and this renderer measures only a straight projected path",
         source=getattr(rec, "source_id", ""),
         outcome_stage="validation",
     )
@@ -4614,11 +4649,9 @@ def _renderable_pmi_records(records):
     return [
         r
         for r in records
-        if r.kind == "authored_dimension"
+        if _authored_with_usable_references(r)
         and r.pmi_kind in AUTHORED_DIMENSION_KINDS
         and r.pmi_kind not in _UNRENDERABLE_DIMENSION_KINDS
-        and r.value > 0
-        and len(r.ref_pts) >= 2
     ]
 
 
@@ -4630,10 +4663,7 @@ def _unsupported_kind_records(records):
     return [
         r
         for r in records
-        if r.kind == "authored_dimension"
-        and r.pmi_kind in _UNRENDERABLE_DIMENSION_KINDS
-        and r.value > 0
-        and len(r.ref_pts) >= 2
+        if _authored_with_usable_references(r) and r.pmi_kind in _UNRENDERABLE_DIMENSION_KINDS
     ]
 
 

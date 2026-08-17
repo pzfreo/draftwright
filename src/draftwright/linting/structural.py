@@ -850,9 +850,17 @@ def _lint_dim(item, part_bbox, issues, drawing_scale: float = 1.0, box_cache=Non
     # An ANGULAR label is denominated in degrees; `measured_length` is a projected path in
     # millimetres. Comparing them is a category error, not a discrepancy — it reported a
     # 60 deg dovetail flank as "differs from measured path length 16.000 by 275.0%",
-    # blaming an axis swap for a units mismatch (#1177). The degree sign is the
-    # discriminator because it survives every path into lint: the rendered annotation
-    # carries no `dimension_kind`, so an item reaching here cannot be asked what it is.
+    # blaming an axis swap for a units mismatch (#1177). The label is the discriminator
+    # because a rendered annotation carries no `dimension_kind` and cannot be asked what
+    # it is.
+    #
+    # Be honest about the reach: this catches an AUTHORED label that spells the unit, and
+    # nothing else. Neither real angular record in the fixtures does — CTC-01's is
+    # '60 ±0.5' and CTC-04's is '90 ±1', and 0 of 194 PMI records carry a degree marker —
+    # so on the imported path this guard is inert and the renderer's category refusal is
+    # the whole protection. An earlier version of this comment claimed the marker "survives
+    # every path into lint", which is false. Tagging the annotation with its kind would fix
+    # that properly; it is not done here because nothing angular now reaches the renderer.
     if label_val is not None and measured is not None and not _is_angular_label(label):
         # When drawing_scale != 1.0 the geometry was scaled up before projecting
         # (e.g. part.scale(5) for a 7.5 mm feature drawn at 5:1). The measured

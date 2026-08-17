@@ -38,6 +38,10 @@ from draftwright.linting.structural import _is_angular_label, _lint_dim
 
 _DOVETAIL = ((0, -25, 0), (0, -9, 0), (0, -13.619, 8))
 
+#: Kinds whose value IS a straight span, so the linear renderer states them truthfully.
+#: Verified by measurement, not assumption: each draws a length equal to its value.
+_RENDERABLE = frozenset({"linear", "thickness", "diameter", "radius"})
+
 
 def _sheet_with_angular():
     sheet = Sheet(Box(115, 50, 68), title="T", number="T-1")
@@ -161,6 +165,124 @@ class TestTheRecordFiltersAgree:
         records = [self._record("angular", value=value, refs=refs)]
         assert _renderable_pmi_records(records) == []
         assert _unsupported_kind_records(records) == []
+
+
+class TestEveryDimensionKindIsClassified:
+    """Fail-closed, in the shape ADR 0017 phase 1 gave the recogniser manifest: a new kind
+    cannot be added to the IR and silently admitted to a renderer that cannot draw it.
+
+    Nothing iterated `AUTHORED_DIMENSION_KINDS` before, so a ninth kind would have gone
+    straight into the linear path — which is exactly how `curve_length`, `curved_dist` and
+    `oriented` came to be drawn 25-57% wrong without anyone noticing.
+    """
+
+    def test_every_kind_is_either_renderable_or_explicitly_refused(self):
+        from draftwright.annotations.from_model import _UNRENDERABLE_DIMENSION_KINDS
+        from draftwright.model.ir import AUTHORED_DIMENSION_KINDS
+
+        unclassified = set(AUTHORED_DIMENSION_KINDS) - _RENDERABLE - _UNRENDERABLE_DIMENSION_KINDS
+        assert not unclassified, (
+            f"dimension kind(s) {sorted(unclassified)} are neither known-truthful nor "
+            f"refused — they will be drawn through the LINEAR path, which measures a "
+            f"straight projected span. Verify what the kind measures and add it to one set."
+        )
+
+    def test_every_refused_kind_explains_what_it_measures(self):
+        from draftwright.annotations.from_model import (
+            _MEASUREMENT_BASIS,
+            _UNRENDERABLE_DIMENSION_KINDS,
+        )
+
+        assert _UNRENDERABLE_DIMENSION_KINDS <= set(_MEASUREMENT_BASIS), (
+            "a refused kind has no stated measurement basis, so its diagnostic falls back "
+            "to a generic phrase"
+        )
+
+    @pytest.mark.parametrize(
+        ("kind", "value"),
+        [("curve_length", 25.133), ("curved_dist", 25.133), ("oriented", 20.0)],
+    )
+    def test_a_kind_measured_on_another_basis_is_not_drawn(self, kind, value):
+        # Measured before the fix: each drew a 16.0 mm straight span for these values —
+        # 57%, 57% and 25% out. Same defect as angular; both sides happen to be
+        # millimetres, so lint reported an actionable-looking magnitude error instead of
+        # an axis swap.
+        sheet = Sheet(Box(115, 50, 68), title="T", number="T-1", scale=1)
+        sheet.measured_dimension(
+            kind=kind,
+            value=value,
+            label=str(value),
+            dominant_axis="y",
+            ref_pts=((0, -25, 0), (0, -9, 0)),
+        )
+        sheet.authored_dimensions()
+        drawing = sheet.build()
+        drawn = [
+            getattr(o, "measured_length", None)
+            for _n, o in drawing.iter_annotations()
+            if getattr(o, "measured_length", None) is not None
+        ]
+        assert drawn == [], f"{kind} was drawn as a straight span of {drawn}"
+        assert [i for i in drawing.lint() if i.code == "dimension_kind_unsupported"]
+
+    def test_a_truthful_kind_is_still_drawn(self):
+        # `thickness` measures a straight span and drew 16.0 for a value of 16.0. The
+        # refusal must not widen to kinds that are honest.
+        sheet = Sheet(Box(115, 50, 68), title="T", number="T-1", scale=1)
+        sheet.measured_dimension(
+            kind="thickness",
+            value=16,
+            label="16",
+            dominant_axis="y",
+            ref_pts=((0, -25, 0), (0, -9, 0)),
+        )
+        sheet.authored_dimensions()
+        drawing = sheet.build()
+        assert not [i for i in drawing.lint() if i.code == "dimension_kind_unsupported"]
+
+
+class TestTheOmissionIsReportedOnce:
+    """`lint_pmi_rendering` runs only in `pmi="annotate"` mode, so a Sheet-authored build
+    cannot exercise it — the first version of this class asserted the property on one and
+    passed with the suppression removed. Driven directly."""
+
+    def _reconcile(self, issue_code):
+        from draftwright.linting.pmi_coverage import lint_pmi_rendering
+
+        feature = SimpleNamespace(kind="authored_dimension", source_id="S1", source_ids=("S1",))
+        registry = SimpleNamespace(
+            issues=[SimpleNamespace(code=issue_code, source_ids=("S1",))],
+            names_for_feature=lambda _f: (),
+        )
+        return [i.code for i in lint_pmi_rendering([feature], registry, "annotate")]
+
+    @pytest.mark.parametrize(
+        "explained", ["dimension_kind_unsupported", "authored_dim_degenerate"]
+    )
+    def test_an_explained_omission_is_not_reported_a_second_time(self, explained):
+        # One omission, two reporters at different severities is the defect #1190 was
+        # opened for. `authored_dim_degenerate` had it too — its own docstring says it
+        # exists so "a caller sees a specific reason instead of a misleading 'no room'",
+        # and it was then accompanied by exactly that vaguer error.
+        assert "pmi_not_rendered" not in self._reconcile(explained), (
+            f"a source already explained by {explained} is reported again as unexplained"
+        )
+
+    def test_an_unexplained_omission_is_still_reported(self):
+        # The suppression must stay narrow: a record that produced no annotation for a
+        # reason nobody recorded is exactly what this check exists to surface.
+        assert "pmi_not_rendered" in self._reconcile("some_unrelated_code")
+
+    def test_an_explained_omission_is_not_also_reported_as_unexplained(self):
+        # `lint_pmi_rendering` reported the same source a SECOND time, as an error, having
+        # already been told about it as a warning — one omission, two reporters, different
+        # severities, which is the defect #1190 was opened for.
+        drawing = _sheet_with_angular().build()
+        codes = [i.code for i in drawing.lint()]
+        assert "dimension_kind_unsupported" in codes
+        assert "pmi_not_rendered" not in codes, (
+            "the refusal is reported twice, once with the real reason and once without"
+        )
 
 
 class TestTheLintDiscriminatesByUnit:

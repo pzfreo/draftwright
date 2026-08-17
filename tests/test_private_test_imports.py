@@ -55,6 +55,14 @@ _ALLOW: frozenset[tuple[str, str]] = frozenset(
         # under a mutation that deleted the filter entirely. A pure helper is testable
         # without hunting for such geometry, and its mutation demonstrably fails.
         ("sections", "_segments_clearing_title_block"),
+        # _UNRENDERABLE_DIMENSION_KINDS / _MEASUREMENT_BASIS: the #1177 fail-closed
+        # partition, in the shape ADR 0017 phase 1 gave the recogniser manifest. The guard
+        # asserts that EVERY member of `AUTHORED_DIMENSION_KINDS` is either known-truthful
+        # or explicitly refused, so it must read the refusal set itself — a built drawing
+        # can only ever show one kind at a time, which is precisely how `curve_length`,
+        # `curved_dist` and `oriented` came to be drawn 25-57% wrong unnoticed.
+        ("from_model", "_UNRENDERABLE_DIMENSION_KINDS"),
+        ("from_model", "_MEASUREMENT_BASIS"),
         # _unsupported_kind_records: the other half of the #1177 category partition. A
         # record must be either DRAWN or REPORTED, never both and never silently neither,
         # and the two filters that decide are private with no public surface between them.
