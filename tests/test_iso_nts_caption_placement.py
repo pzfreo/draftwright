@@ -180,7 +180,7 @@ class TestTheCaptionAvoidsWhatIsAlreadyPlaced:
         # one" when tracing showed the left candidate was inside the blocker too. The
         # scenario is now asserted rather than described.
         iso = (355.0, 120.0, 400.0, 160.0)
-        blocker = (300.0, 100.0, 402.0, 170.0)
+        blocker = (300.0, 100.0, 400.9, 170.0)
 
         control, control_analysis = _harness([], iso_x=377.5)
         place_iso_nts_note(control, control_analysis, iso)
@@ -194,6 +194,21 @@ class TestTheCaptionAvoidsWhatIsAlreadyPlaced:
         )
         assert _boxes_overlap(natural, blocker), "the natural position is not blocked"
         assert iso[0] - font - width > blocker[0], "the left-hand candidate is not blocked"
+        # ...and the off-page candidate must be left UNBLOCKED, keep-clear band included.
+        # Adding the 2 mm band pushed the right candidate's guard edge back to 401.0 while
+        # the blocker still ended at 402.0, so the blocker rejected it and the margin check
+        # was never reached — the third time this test has been wrong about its own setup.
+        clearance = control.draft.pad_around_text
+        right_keep_clear = (
+            iso[2] + font - clearance,
+            natural[1] - clearance,
+            right_edge + clearance,
+            natural[3] + clearance,
+        )
+        assert not _boxes_overlap(right_keep_clear, blocker), (
+            f"the blocker reaches the off-page candidate's keep-clear band "
+            f"{right_keep_clear}, so it — not the margin guard — is what rejects it"
+        )
 
         stand_in, analysis = _harness([blocker], iso_x=377.5)
         place_iso_nts_note(stand_in, analysis, iso)
@@ -348,35 +363,28 @@ class TestUnlabelledFurnitureIsStillAnObstacle:
     inside the title-block hull while both sideways candidates were free, trading the
     callout overlap this fix removes for a title-block overlap it had room to avoid."""
 
-    def test_the_caption_does_not_settle_in_a_title_block_cell(self):
-        # The title block's decomposed grid lines bound TEXT-FILLED CELLS, so the stroke
-        # occupancy leaves free pockets inside it — measured, 1,584 of them are big
-        # enough to hold this caption on an A3 sheet. Only the whole-block hull rejects
-        # those. Mutation: drop the title-block arm of `late_furniture_obstacles` and the
-        # caption settles into a cell.
+    def test_the_caption_does_not_settle_inside_the_title_block(self):
+        # The block's decomposed grid lines bound TEXT-FILLED CELLS, so the stroke
+        # occupancy alone leaves free pockets inside it — 1,584 of them are big enough to
+        # hold this caption on an A3 sheet at zero clearance. With the 2 mm keep-clear
+        # band, measured, **none** survives: the grid lines cover every pocket, and the
+        # whole-block hull is defence in depth rather than the thing doing the work.
         #
-        # The iso sits low enough that the caption's natural position lands in one such
-        # pocket. That the pocket really is stroke-free is ASSERTED below, not assumed —
-        # otherwise a shifted grid line would silently turn this into a test of the
-        # segments and it would pass with the hull gone.
-        from draftwright.annotations._common import annotation_obstacle_boxes
-
+        # An earlier version of this test claimed the hull was what rejected the caption
+        # and offered a mutation recipe for it. That was already false when written — the
+        # clearance band had just been added — and adversarial review showed the arm is
+        # killed by no test in the repo. The hull is now pinned STRUCTURALLY, by
+        # `test_the_shared_set_carries_the_title_block_as_one_hull`, which is the honest
+        # scope: the policy is asserted, not a placement consequence it no longer has.
         stand_in, analysis = _harness([], furniture=("title_block",), iso_x=272.6)
-        title_block = stand_in.get_annotation("title_block")
-        hull = _anno_box(title_block)
+        hull = _anno_box(stand_in.get_annotation("title_block"))
+        iso = (260.0, 19.77, 300.0, 60.0)
 
         control, control_analysis = _harness([], iso_x=272.6)
-        iso = (260.0, 19.77, 300.0, 60.0)
         place_iso_nts_note(control, control_analysis, iso)
-        natural = _caption_box(control)
-        strokes = annotation_obstacle_boxes(stand_in, title_block)
-        assert _boxes_overlap(natural, hull), (
-            f"the natural position {natural} is not inside the title block {hull} — "
-            f"there is nothing here for the hull to reject"
-        )
-        assert not any(_boxes_overlap(natural, s) for s in strokes), (
-            f"the natural position {natural} hits a title-block grid line, so the "
-            f"decomposed occupancy would reject it and the hull would not be tested"
+        assert _boxes_overlap(_caption_box(control), hull), (
+            "the unobstructed position is not inside the title block, so this asserts "
+            "nothing about avoiding it"
         )
 
         place_iso_nts_note(stand_in, analysis, iso)
@@ -505,15 +513,31 @@ class TestRealDrawingsAreUnchangedWhereTheyWereClear:
             "so this guard is measuring the wrong thing"
         )
 
-    def test_the_shared_set_holds_the_title_block_but_not_the_frame(self):
-        # Both halves of the policy on ONE real framed sheet: the title block present as a
-        # hull, the frame absent. Mutation: drop either arm of
-        # `late_furniture_obstacles` and one of these fails.
+    def test_the_shared_set_carries_the_title_block_as_one_hull(self):
+        # Membership by NAME is not enough and an earlier version of this test only
+        # checked that: `strip_obstacles` already yields ten boxes named `title_block`
+        # (its grid lines), so `"annotation:title_block" in owners` held with the hull arm
+        # deleted. The policy being pinned is that the block enters as ONE box covering
+        # the whole of it — furniture, not a lattice of free pockets (#1145) — so the
+        # assertion is on the box.
+        from draftwright.annotations._common import late_furniture_obstacles
+
+        dwg = build_drawing(Box(80, 40, 12), page="A3", frame=True)
+        obstacles = late_furniture_obstacles(dwg, named=True)
+        hull = _anno_box(dwg.get_annotation("title_block"))
+        assert any(
+            owner == "annotation:title_block" and box == pytest.approx(hull)
+            for owner, box in obstacles
+        ), (
+            f"no obstacle covers the whole title block {hull}; the decomposed grid lines "
+            f"leave its text cells open"
+        )
+
+    def test_the_shared_set_leaves_out_the_page_spanning_frame(self):
         from draftwright.annotations._common import late_furniture_obstacles
 
         dwg = build_drawing(Box(80, 40, 12), page="A3", frame=True)
         owners = {owner for owner, _box in late_furniture_obstacles(dwg, named=True)}
-        assert "annotation:title_block" in owners
         assert not [o for o in owners if "sheet_frame" in o], (
             f"the page-spanning frame is in the obstacle set: {sorted(owners)}"
         )

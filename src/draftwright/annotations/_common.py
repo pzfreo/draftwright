@@ -1065,7 +1065,11 @@ def place_iso_nts_note(dwg, a, bb) -> None:
     that is clear — then falls back around the iso block. If nothing is clear it is
     placed naturally anyway: a caption saying which view is not to scale is required
     content, and Policy B keeps required content at a visible cost rather than dropping
-    it (the overlap is then reported by the ordinary `annotation_overlap` lint).
+    it. Be precise about that cost, because an earlier version of this docstring was not:
+    `annotation_overlap` compares LABEL boxes, so it reports a retained clash with another
+    label and reports nothing at all for a leader shaft or a view. The obstacle set below
+    is deliberately wider than the lint for exactly that reason — avoidance covers what
+    the backstop cannot.
 
     Obstacles come from :func:`late_furniture_obstacles` — the same set the tables
     place against. Two earlier cuts of this function hand-rolled their own and each got
@@ -1129,12 +1133,15 @@ def place_iso_nts_note(dwg, a, bb) -> None:
             position[0] + offset_x + width,
             position[1] + offset_y + height,
         )
-        # Horizontal only. Every y candidate is already clamped into
-        # [margin + font, PAGE_H - margin - font] above — which is load-bearing, since
-        # the last-resort fallback is the natural position and that must be on the page
-        # — so a vertical check here is unreachable, and an unreachable guard is a guard
-        # no test can cover. The x candidates are NOT clamped: `side_step` deliberately
-        # pushes past the iso block and can leave the sheet, which is what this catches.
+        # Horizontal only, and the reason is narrower than an earlier version of this
+        # comment claimed. The y candidates are NOT all clamped both ways — candidates 1
+        # and 2 are clamped from below only, candidate 5 from above only. What makes a
+        # vertical check unreachable is that each is clamped on the side it can run off,
+        # to `margin + font`, while the caption extends only `height` past its position:
+        # measured, half-height 1.35 against a font of 3.0, so ~1.65 mm of slack remains
+        # and it scales with the font. The x candidates have no clamp at all — the
+        # sideways positions deliberately step past the iso block and can leave the
+        # sheet, which is what this catches.
         if box[0] < a.margin or box[2] > a.PAGE_W - a.margin:
             continue
         keep_clear = (

@@ -430,5 +430,8 @@ def _fit_iso_view(dwg, a: Analysis):
     bb = _iso_bbox(dwg)
     if factor < 1.0 and not _bbox_within(bb, region):
         _log.warning("Iso view still overflows its page region at %g× sheet scale", factor)
-    _log.info("Iso view scaled to %g× sheet scale (NTS)", factor)
+    # No "(NTS)" here: this function no longer places the caption, and the finalize
+    # detail-refit calls it without placing one. Claiming the label would misreport that
+    # path, which is what the removed `annotate` flag used to keep straight.
+    _log.info("Iso view scaled to %g× sheet scale", factor)
     return bb

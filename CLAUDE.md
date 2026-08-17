@@ -142,7 +142,13 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
     (`CorridorCandidate`, `solve_corridor`, `register_corridor`/`drain_corridors`,
     `place_strip_candidates`, `PlacementContext`) plus `_box_hits`, at the
     bottom of the annotations DAG. (The bbox/segment primitives it delegates to
-    live in `_core`/`_geometry` since #700.)
+    live in `_core`/`_geometry` since #700.) It also owns the **post-fit
+    late-furniture** seam (#1197): `late_furniture_obstacles` is the ONE occupancy
+    a placer facing the finished sheet uses — views, decomposed annotation ink,
+    minus the page-spanning riders, plus the title block as one hull — shared by
+    `Drawing.add_table` and by `place_iso_nts_note`, the iso's NTS caption, which
+    lives here rather than in `projection` because rank-2 cannot reach that
+    occupancy and a hand-rolled substitute was wrong twice.
   Submodules import only down or sideways — `_core`/`layout`/`analysis`/
   `projection`/the `model/` IR/`linting.structural`/third-party, never
   `annotate`/`make_drawing`/`drawing` (the drawing is duck-typed as `dwg`) — so
@@ -232,6 +238,11 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   triangulation on the shape and returns it for any later request — even a finer
   one — which would make the field a function of build *history* (the ADR 0006
   hazard). `Drawing.material_fields()` holds the result on `BuildState`.
+  `_fit_iso_view` **returns** the iso bbox when the fitted iso is off sheet scale and
+  therefore needs an NTS caption, else `None`; it does not place that caption. `builder`
+  does, at the common post-fit point *before* `render_gear_tables` — the caption is tied
+  to the block it labels while a table may sit anywhere, so the constrained furniture
+  claims space first (#1197).
 - **`sheet.py`** — the fluent declarative **`Sheet`** facade (ADR 0011):
   feature verbs (`hole`/`boss`/`slot`/…), aspect verbs (`.tolerance`/`.fit`/
   `.finish`), GD&T (`datum`/`control`). Facade tier: builds a `PartModel` via

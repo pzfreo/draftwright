@@ -482,7 +482,7 @@ def _assemble(
         # (auto_dims=False) from the direct CLI, which always labels it (script↔CLI parity).
         _nts_bb = _fit_iso_view(dwg, a)
         _add_title_block(dwg, a)
-        if a.frame:  # sheet border, drawn last (#767) — auto path adds it via the orchestrator
+        if a.frame:  # sheet border (#767) — auto path adds it via the orchestrator
             _add_sheet_frame(dwg, a)
         if a.zones:  # zone-grid ruler (#768), on the frame
             _add_zone_grid(dwg, a)
