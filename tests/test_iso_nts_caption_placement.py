@@ -204,6 +204,61 @@ class TestTheCaptionAvoidsWhatIsAlreadyPlaced:
         assert box[0] >= analysis.margin - 1e-6
 
 
+class TestTheCaptionIsPlacedBeforeTheFreelyPositionedFurniture:
+    """`builder` places the caption, then the tables. The reason is that the caption is
+    tied to the iso block it labels while a table may sit anywhere the sheet has room, so
+    the constrained one must claim its space first and become an obstacle for the free
+    one — not the reverse.
+
+    That rationale was written in a comment and guarded by nothing: swapping the two
+    calls passed the entire fast tier (4,072 tests). Which is exactly the defect the
+    previous review found in the candidate order, reintroduced one level up.
+    """
+
+    def test_the_gear_table_sees_the_caption_as_an_obstacle(self):
+        from build123d import Cylinder
+
+        import draftwright.builder as builder_module
+        from draftwright import Sheet
+        from draftwright.annotations._common import late_furniture_obstacles
+
+        seen = {}
+        original = builder_module.render_gear_tables
+
+        def spy(dwg, model):
+            seen["owners"] = {owner for owner, _box in late_furniture_obstacles(dwg, named=True)}
+            return original(dwg, model)
+
+        sheet = Sheet(Cylinder(8, 10))
+        sheet.external_spur_gear(
+            at=(0, 0, 5),
+            axis="z",
+            tooth_count=13,
+            module=1.25,
+            pressure_angle=20,
+            profile_shift=0,
+            face_width=10,
+            tooth_thickness=1.9634954084936207,
+            tooth_thickness_tolerance=(-0.03, 0.01),
+            flank_tolerance_class=7,
+        )
+        sheet.authored_dimensions()
+        builder_module.render_gear_tables = spy
+        try:
+            drawing = sheet.build()
+        finally:
+            builder_module.render_gear_tables = original
+
+        assert drawing.get_annotation("note_iso_nts") is not None, (
+            "this fixture no longer produces an NTS caption, so it cannot show the "
+            "ordering at all"
+        )
+        assert "annotation:note_iso_nts" in seen.get("owners", set()), (
+            "the gear table was placed before the caption existed, so it could be put "
+            "straight on top of it"
+        )
+
+
 class TestTheCaptionKeepsTheSameClearanceAsOtherLateFurniture:
     def test_a_flush_but_non_overlapping_neighbour_still_displaces_it(self):
         # `add_table` gives its late furniture `draft.pad_around_text` (2 mm) of keep-clear.
