@@ -21,9 +21,10 @@ from __future__ import annotations
 import re
 from types import SimpleNamespace
 
-from build123d import Box
+from build123d import Box, Pos
 
 from draftwright import build_drawing
+from draftwright._core import _MARGIN
 from draftwright._geometry import _boxes_overlap
 from draftwright.linting.structural import _lint_view_shapes, lint_drawing
 
@@ -74,6 +75,15 @@ def _lint_box(dwg, name):
 _ADDRESS = re.compile(r"view@\d+")
 
 
+#: A deliberately tiny drawable area, so EVERY view of any part on any page falls outside
+#: it and `_lint_view_shapes` must emit a named message. The first version of these tests
+#: relied on the engine's own layout producing an overflow — `Box(50,50,50)` at A1 — which
+#: held on macOS and produced NO view lint at all on Linux, so all four failed in CI. The
+#: preconditions caught it rather than passing vacuously, but the fixture had no business
+#: depending on layout: what is under test is that a caller-supplied name reaches the
+#: message attached to the right shape, and that needs controlled bounds, not a real page.
+_TIGHT_PAGE = (200.0, 200.0, 260.0, 260.0)
+
 #: Every code emitted by `_lint_view_shapes` that formats the view NAME — so every code
 #: the defect reached. An earlier version of this list held only the two
 #: `view_annotation_*` codes, on the false premise that `view_out_of_bounds` came from
@@ -106,16 +116,42 @@ def _part():
     return Box(50, 50, 50)
 
 
+def _view_lint(dwg, page_bbox=_TIGHT_PAGE):
+    """Lint *dwg*'s real views and names against a controlled drawable area."""
+    view_items = list(dwg.views.items())
+    return lint_drawing(
+        list(dwg.items),
+        page_bbox=page_bbox,
+        view_shapes=[visible for _n, (visible, _h) in view_items],
+        view_names=[name for name, _pair in view_items],
+    )
+
+
 def _view_messages(dwg):
-    return [i.message for i in dwg.lint() if i.code in _NAMED_VIEW_CODES]
+    return [i.message for i in _view_lint(dwg) if i.code in _NAMED_VIEW_CODES]
+
+
+def _lint_box(dwg, name):
+    """The box lint measures for *name*: the VISIBLE compound only.
+
+    Deliberately not `Drawing.view_bounds`, which unions visible and hidden geometry — a
+    superset that would make the assertion weaker than the property it claims to check.
+    """
+    bb = dwg.views[name][0].bounding_box()
+    return (bb.min.X, bb.min.Y, bb.max.X, bb.max.Y)
+
+
+_OVERFLOW = re.compile(
+    r"view '([^']+)' extends past drawable area \((left|right|above|below) by ([\d.]+) mm\)"
+)
 
 
 class TestTheSameSheetLintsToTheSameText:
     def test_two_builds_of_one_part_produce_identical_view_messages(self):
         # The reported reproduction. Mutation: restore `f"view@{id(vs)}"` and the two
         # message lists differ on every run.
-        first = _view_messages(build_drawing(_part(), page="A1"))
-        second = _view_messages(build_drawing(_part(), page="A1"))
+        first = _view_messages(build_drawing(_part(), page="A3"))
+        second = _view_messages(build_drawing(_part(), page="A3"))
         assert first, "fixture produced no view-related lint, so this asserts nothing"
         assert first == second, (
             "identical inputs produced different lint text:\n"
@@ -125,8 +161,10 @@ class TestTheSameSheetLintsToTheSameText:
     def test_no_message_carries_an_object_address(self):
         # Stronger and cheaper than comparing two runs: an address cannot appear at all.
         # Two runs could also coincide by luck if an allocator reused the same block.
-        dwg = build_drawing(_part(), page="A1")
-        offenders = [i.message for i in dwg.lint() if _ADDRESS.search(i.message)]
+        dwg = build_drawing(_part(), page="A3")
+        offenders = [
+            i.message for i in list(dwg.lint()) + _view_lint(dwg) if _ADDRESS.search(i.message)
+        ]
         assert not offenders, f"lint text still names views by memory address: {offenders}"
 
 
@@ -141,64 +179,128 @@ class TestTheNameMatchesTheViewItDescribes:
     any permutation fails, not just the one the review happened to try.
     """
 
-    def test_the_view_reported_out_of_bounds_is_the_one_that_is_out_of_bounds(self):
-        dwg = build_drawing(_part(), page="A1")
-        above = [
-            i.message
-            for i in dwg.lint()
-            if i.code == "view_out_of_bounds" and "(above" in i.message
-        ]
-        assert above, "fixture no longer overflows upwards; this asserts nothing"
-        named = _quoted_views(above[0])[0]
-        # `_lint_box`, not `view_bounds`: the latter unions hidden geometry, which is the
-        # objection `_lint_box`'s own docstring raises. They coincide here; using the
-        # wrong one anyway would be inconsistent for no reason.
-        highest = max(dwg.views, key=lambda n: _lint_box(dwg, n)[3])
-        assert named == highest, (
-            f"lint blamed view {named!r} for overflowing above, but {highest!r} is the "
-            f"view that actually reaches highest — the name/shape correspondence is off"
-        )
+    def test_the_drawings_own_pairing_is_correct_end_to_end(self):
+        # THE guard on `Drawing._lint`'s own name/shape pairing, which is where a
+        # permutation would actually happen. The other tests here call `lint_drawing`
+        # directly with names they construct, so they cannot see that code at all — an
+        # intermediate version of this file made every one of them layout-independent and
+        # in doing so let the whole permutation battery pass.
+        #
+        # Deterministic without depending on layout: shrink the drawable area AFTER the
+        # build, so every view necessarily overflows and `Drawing._lint` must name each.
+        dwg = build_drawing(_part(), page="A3")
+        boxes = {name: _lint_box(dwg, name) for name in dwg.views}
+        dwg.page_w, dwg.page_h = 60.0, 60.0
+        messages = [i.message for i in dwg.lint() if i.code == "view_out_of_bounds"]
+        assert len(messages) >= 4, f"expected several overflows, got {messages}"
+
+        page = (_MARGIN, _MARGIN, dwg.page_w - _MARGIN, dwg.page_h - _MARGIN)
+        for message in messages:
+            match = _OVERFLOW.search(message)
+            assert match, f"unparsed overflow message: {message!r}"
+            name, direction, amount = match.group(1), match.group(2), float(match.group(3))
+            assert name in boxes, f"lint named {name!r}, which is not a view"
+            x0, y0, x1, y1 = boxes[name]
+            actual = {
+                "left": page[0] - x0,
+                "right": x1 - page[2],
+                "below": page[1] - y0,
+                "above": y1 - page[3],
+            }[direction]
+            assert abs(actual - amount) < 0.06, (
+                f"lint said view {name!r} overflows {direction} by {amount} mm; its real "
+                f"box {(x0, y0, x1, y1)} overflows by {actual:.2f} mm — `Drawing._lint` "
+                f"paired the name with the wrong shape"
+            )
+
+    def test_every_overflow_message_names_the_view_that_actually_overflows(self):
+        # Checks the name against the GEOMETRY, and against the amount the message states,
+        # so any permutation of `view_names` is caught rather than only the one a reviewer
+        # happened to try. Independent of where the engine chose to put the views: the
+        # drawable area is supplied, so the overflows are ours.
+        dwg = build_drawing(_part(), page="A3")
+        messages = [i.message for i in _view_lint(dwg) if i.code == "view_out_of_bounds"]
+        assert messages, "the tight page produced no overflow at all"
+        checked = 0
+        for message in messages:
+            match = _OVERFLOW.search(message)
+            assert match, f"unparsed overflow message: {message!r}"
+            name, direction, amount = match.group(1), match.group(2), float(match.group(3))
+            assert name in dwg.views, f"lint named {name!r}, which is not a view"
+            x0, y0, x1, y1 = _lint_box(dwg, name)
+            actual = {
+                "left": _TIGHT_PAGE[0] - x0,
+                "right": x1 - _TIGHT_PAGE[2],
+                "below": _TIGHT_PAGE[1] - y0,
+                "above": y1 - _TIGHT_PAGE[3],
+            }[direction]
+            assert abs(actual - amount) < 0.06, (
+                f"lint said view {name!r} overflows {direction} by {amount} mm, but its "
+                f"real box {(x0, y0, x1, y1)} overflows by {actual:.2f} mm — the name is "
+                f"on the wrong shape"
+            )
+            checked += 1
+        assert checked >= 2, f"only {checked} view(s) cross-checked"
 
     def test_each_named_view_is_reported_with_its_own_bbox(self):
-        # Overlap is SYMMETRIC, so an earlier version of this test — asserting merely
-        # that the two named views overlap — was invariant under swapping them.
-        # Adversarial review swapped `side` and `iso`, producing
-        #   "view 'iso' bbox [x=400.0-650.0 ...] overlaps view 'side' [x=444.6-612.5 ...]"
-        # with both names on each other's boxes, and all 4,092 fast-tier tests passed.
+        # Overlap is SYMMETRIC, so an earlier version — asserting merely that the two
+        # named views overlap — was invariant under swapping them. Adversarial review
+        # swapped `side` and `iso`, producing both names on each other's boxes, and all
+        # 4,092 fast-tier tests passed. The message PRINTS the boxes, so compare those:
+        # the numbers cannot move with the name.
         #
-        # The message prints the boxes, so compare those. This is permutation-complete
-        # for every view it names: no relabelling survives, because the numbers cannot
-        # move with the name.
-        dwg = build_drawing(_part(), page="A1")
-        printing = [
-            i.message
-            for i in dwg.lint()
-            if i.code in {"view_overlap", "view_annotation_inside_extents"}
-        ]
-        assert printing, "fixture no longer produces a message printing a view box"
-        named = [pair for message in printing for pair in _named_boxes(message)]
-        assert len(named) >= 2, f"expected at least two named boxes, parsed {named}"
-        # Every ortho view must be reachable, or a corruption of the ones that are not
-        # goes unseen — which is how the FRONT view slipped through: it appears only in
-        # `inside_extents`, which the regex used to decline.
-        assert {"front", "side", "iso"} <= {name for name, _box in named}, (
-            f"only {sorted({n for n, _b in named})} are cross-checked; a name corruption "
-            f"on any other view would pass"
+        # Driven on two placed shapes rather than on whichever views the engine happens
+        # to overlap. Whether real views overlap is a layout outcome and differs by
+        # platform — the version of this test that relied on it produced no message at
+        # all on Linux. The shapes are real `Compound`s and go through the real
+        # `lint_drawing`; only their positions are ours.
+        alpha = Pos(100, 100, 0) * Box(60, 40, 1)
+        beta = Pos(130, 120, 0) * Box(60, 40, 1)  # overlaps alpha by 30 x 20
+        issues = lint_drawing(
+            [],
+            page_bbox=(0.0, 0.0, 400.0, 400.0),
+            view_shapes=[alpha, beta],
+            view_names=["alpha", "beta"],
         )
+        overlaps = [i.message for i in issues if i.code == "view_overlap"]
+        assert overlaps, f"the two placed views did not report an overlap: {issues}"
+        named = _named_boxes(overlaps[0])
+        assert len(named) == 2, f"expected two named boxes, parsed {named} from {overlaps[0]!r}"
+        assert {name for name, _b in named} == {"alpha", "beta"}, named
+
+        real = {}
+        for shape, name in ((alpha, "alpha"), (beta, "beta")):
+            bb = shape.bounding_box()
+            real[name] = (bb.min.X, bb.min.Y, bb.max.X, bb.max.Y)
         for name, printed in named:
-            assert name in dwg.views, f"lint named {name!r}, which is not a view"
-            actual = _lint_box(dwg, name)
             # 0.06 mm: the message rounds to one decimal place.
-            assert all(abs(p - a) < 0.06 for p, a in zip(printed, actual, strict=True)), (
+            assert all(abs(p - a) < 0.06 for p, a in zip(printed, real[name], strict=True)), (
                 f"lint printed {printed} for view {name!r}, whose real box is "
-                f"{tuple(round(v, 2) for v in actual)} — the name is on the wrong shape"
+                f"{tuple(round(v, 2) for v in real[name])} — the name is on the wrong shape"
             )
-        overlaps = [i.message for i in dwg.lint() if i.code == "view_overlap"]
-        assert overlaps, "fixture no longer reports overlapping views"
-        pair = _named_boxes(overlaps[0])
-        assert len(pair) == 2 and _boxes_overlap(pair[0][1], pair[1][1]), (
-            f"the views reported as overlapping do not overlap: {pair}"
+        assert _boxes_overlap(*(box for _n, box in named)), (
+            "the views reported as overlapping do not overlap"
         )
+
+    def test_a_swapped_name_pair_is_caught(self):
+        # The property the bbox comparison exists for, stated directly: hand lint the two
+        # names in the wrong order and the printed boxes must no longer match.
+        alpha = Pos(100, 100, 0) * Box(60, 40, 1)
+        beta = Pos(130, 120, 0) * Box(60, 40, 1)
+        issues = lint_drawing(
+            [],
+            page_bbox=(0.0, 0.0, 400.0, 400.0),
+            view_shapes=[alpha, beta],
+            view_names=["beta", "alpha"],  # deliberately swapped
+        )
+        overlaps = [i.message for i in issues if i.code == "view_overlap"]
+        assert overlaps, "no overlap reported, so the swap cannot be observed"
+        named = dict(_named_boxes(overlaps[0]))
+        bb = alpha.bounding_box()
+        alpha_box = (bb.min.X, bb.min.Y, bb.max.X, bb.max.Y)
+        assert not all(
+            abs(p - a) < 0.06 for p, a in zip(named["alpha"], alpha_box, strict=True)
+        ), "a swapped name pair printed the correct boxes, so the check cannot detect one"
 
 
 class TestAViewIsNamedByWhatTheCallerCallsIt:
@@ -206,8 +308,8 @@ class TestAViewIsNamedByWhatTheCallerCallsIt:
         # The point of threading names rather than inventing them: "view 'front'" is
         # actionable where "view[0]" is not. Asserted against the drawing's real keys
         # so this cannot pass on a hard-coded guess.
-        dwg = build_drawing(_part(), page="A1")
-        named = [i.message for i in dwg.lint() if i.code in _NAMED_VIEW_CODES]
+        dwg = build_drawing(_part(), page="A3")
+        named = [i.message for i in _view_lint(dwg) if i.code in _NAMED_VIEW_CODES]
         # Hard assert, not a skip: this covers the PR's headline claim, and this file's
         # whole thesis is that a precondition must FAIL rather than quietly vanish.
         assert named, "fixture produced no view-named lint, so this asserts nothing"
