@@ -187,10 +187,10 @@ def lint_drawing(
     page_bbox=None,
     drawing_scale: float = 1.0,
     view_shapes: list | None = None,
-    view_names: list | None = None,
     view_edge_cache: dict | None = None,
     ann_box_cache: dict | None = None,
     view_material_fields: dict | None = None,
+    view_names: list | None = None,
     _aggregation: _IssueAggregation | None = None,
 ) -> list[LintIssue]:
     """Structural checks on a composed annotation list, duck-typed.
@@ -225,10 +225,6 @@ def lint_drawing(
             dimension while the geometry is drawn enlarged. Defaults to ``1.0``
             (no scaling). See :func:`format_drawing_scale` to render the
             matching "5:1" indicator in the title block.
-        view_names: optional names for *view_shapes*, positionally matched. The
-            caller knows what each view is called (``Drawing.views`` is keyed by
-            name) and lint has no other way to find out, so a message can say
-            "view 'front'" instead of naming the shape by object address (#1196).
         view_shapes: optional list of build123d shapes representing projected
             view outlines.  When provided, annotations are checked against the
             view's actual projected edges (``view_annotation_overlap``,
@@ -542,8 +538,13 @@ def _lint_view_shapes(
         supplied = (
             view_names[index] if view_names is not None and index < len(view_names) else None
         )
+        # *supplied* first: the docstring argues the caller is the authority on what a
+        # view is called, so letting a shape attribute outrank it would contradict that.
+        # Latent today — every projected view carries `label == ""` — but DXF layer
+        # naming is an obvious future reason to label a view compound, and it would
+        # then silently override the drawing's own key.
         name = (
-            getattr(vs, "label", None) or getattr(vs, "name", None) or supplied or f"view[{index}]"
+            supplied or getattr(vs, "label", None) or getattr(vs, "name", None) or f"view[{index}]"
         )
         named_views.append((name, bb, vs))
         view_shape_ids.add(id(vs))

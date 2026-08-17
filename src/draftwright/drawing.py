@@ -2963,9 +2963,10 @@ class Drawing:
         # lint_drawing for bounds checks — draftwright owns linting now and no
         # longer relies on the helpers set_page module-global (ADR 0007).
         page_bbox = (_MARGIN, _MARGIN, self.page_w - _MARGIN, self.page_h - _MARGIN)
-        # Names and shapes come out of ONE traversal: lint matches them positionally,
-        # and two separate comprehensions over the same dict would be a silent
-        # correspondence waiting to drift (#1196).
+        # Names and shapes come out of ONE traversal. Two comprehensions over an
+        # unmutated dict would in fact agree — Python guarantees the iteration order —
+        # so this is defensive style, not a fixed hazard: it keeps the positional
+        # contract lint relies on visible in one line instead of implied across two.
         view_items = list(self.views.items())
         view_names = [name for name, _pair in view_items]
         view_shapes = [vis for _name, (vis, _hidden) in view_items]

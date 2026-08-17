@@ -24,16 +24,34 @@ from types import SimpleNamespace
 from build123d import Box
 
 from draftwright import build_drawing
+from draftwright._geometry import _boxes_overlap
 from draftwright.linting.structural import _lint_view_shapes, lint_drawing
+
+_QUOTED_VIEW = re.compile(r"view '([^']+)'")
+
+
+def _quoted_views(message):
+    """Every view name a message quotes, in order."""
+    return _QUOTED_VIEW.findall(message)
+
 
 _ADDRESS = re.compile(r"view@\d+")
 
 
-#: Codes emitted by `_lint_view_shapes` using the view NAME — the ones the defect
-#: reaches. Chosen by inspection of the emit sites, not by "any message mentioning a
-#: view": `view_out_of_bounds` is produced elsewhere and already carried a real name,
-#: so a fixture that only triggered it would prove nothing.
-_NAMED_VIEW_CODES = {"view_annotation_overlap", "view_annotation_inside_extents"}
+#: Every code emitted by `_lint_view_shapes` that formats the view NAME — so every code
+#: the defect reached. An earlier version of this list held only the two
+#: `view_annotation_*` codes, on the false premise that `view_out_of_bounds` came from
+#: elsewhere and already carried a real name; it has exactly one emit site, inside this
+#: same block, and rendered `view 'view@4859113120'` like the rest. The omission mattered:
+#: for this fixture the excluded codes are the ones naming SEVERAL distinct views, which
+#: is what makes a mislabelling visible at all.
+_NAMED_VIEW_CODES = {
+    "view_annotation_overlap",
+    "view_annotation_inside_extents",
+    "view_overlap",
+    "view_out_of_bounds",
+    "leader_crosses_silhouette",
+}
 
 
 def _part():
@@ -66,6 +84,45 @@ class TestTheSameSheetLintsToTheSameText:
         dwg = build_drawing(_part(), page="A1")
         offenders = [i.message for i in dwg.lint() if _ADDRESS.search(i.message)]
         assert not offenders, f"lint text still names views by memory address: {offenders}"
+
+
+class TestTheNameMatchesTheViewItDescribes:
+    """`view_names` and `view_shapes` are matched BY INDEX, and nothing held that
+    correspondence. Adversarial review shifted the name list by one in `drawing.py` —
+    mislabelling every view — and the **entire fast tier still passed**. Lint then said
+    "view 'side' extends past drawable area" when it was the plan view that overflowed:
+    a confident wrong answer, which is worse than the address it replaced.
+
+    These check the name against the GEOMETRY rather than against a hard-coded string, so
+    any permutation fails, not just the one the review happened to try.
+    """
+
+    def test_the_view_reported_out_of_bounds_is_the_one_that_is_out_of_bounds(self):
+        dwg = build_drawing(_part(), page="A1")
+        above = [
+            i.message
+            for i in dwg.lint()
+            if i.code == "view_out_of_bounds" and "(above" in i.message
+        ]
+        assert above, "fixture no longer overflows upwards; this asserts nothing"
+        named = _quoted_views(above[0])[0]
+        highest = max(dwg.views, key=lambda n: (dwg.view_bounds(n) or (0, 0, 0, -1e9))[3])
+        assert named == highest, (
+            f"lint blamed view {named!r} for overflowing above, but {highest!r} is the "
+            f"view that actually reaches highest — the name/shape correspondence is off"
+        )
+
+    def test_the_two_views_reported_as_overlapping_actually_overlap(self):
+        dwg = build_drawing(_part(), page="A1")
+        overlaps = [i.message for i in dwg.lint() if i.code == "view_overlap"]
+        assert overlaps, "fixture no longer reports overlapping views"
+        first, second = _quoted_views(overlaps[0])[:2]
+        a, b = dwg.view_bounds(first), dwg.view_bounds(second)
+        assert a is not None and b is not None, (first, second)
+        assert _boxes_overlap(a, b), (
+            f"lint named {first!r} and {second!r} as overlapping, but their bounds "
+            f"{a} and {b} are disjoint — the names do not match the shapes"
+        )
 
 
 class TestAViewIsNamedByWhatTheCallerCallsIt:
@@ -110,12 +167,12 @@ class TestTheFallbackIsPositionalNotIdentity:
         def edges(self):
             return []  # no line-work, so an enclosed label reports `inside_extents`
 
-    def _messages(self, view_names=None):
+    def _messages(self, view_names=None, shape=None):
         """Lint one view with one label sitting inside it, returning the messages."""
         issues: list = []
         annotation = SimpleNamespace(label="A", label_bbox=(2.0, 2.0, 4.0, 4.0))
         _lint_view_shapes(
-            [self._Shape((0.0, 0.0, 10.0, 10.0))],
+            [shape if shape is not None else self._Shape((0.0, 0.0, 10.0, 10.0))],
             [annotation],
             issues,
             view_names=view_names,
@@ -130,10 +187,17 @@ class TestTheFallbackIsPositionalNotIdentity:
         assert any("view[0]" in m for m in messages), messages
         assert not any(_ADDRESS.search(m) for m in messages), messages
 
-    def test_two_calls_on_distinct_objects_agree(self):
-        # Distinct shapes each call, so distinct ids; the text must not differ. An
-        # earlier draft compared two empty lists and held under every mutation.
-        assert self._messages() == self._messages()
+    def test_two_calls_on_simultaneously_live_objects_agree(self):
+        # The shapes must be alive AT THE SAME TIME. An earlier version linted one, let
+        # it be freed, then allocated the second — and CPython reused the address, so
+        # under the `id()` mutation the two runs agreed and the test passed in a
+        # whole-file run (it failed under `--dist loadscope`, which is the only reason
+        # CI caught it). That is precisely the coincidence its own comment claimed to
+        # rule out.
+        first_shape = self._Shape((0.0, 0.0, 10.0, 10.0))
+        second_shape = self._Shape((0.0, 0.0, 10.0, 10.0))
+        assert id(first_shape) != id(second_shape)
+        assert self._messages(shape=first_shape) == self._messages(shape=second_shape)
 
     def test_a_supplied_name_wins_over_the_positional_fallback(self):
         assert any("view 'plan'" in m for m in self._messages(view_names=["plan"]))
@@ -147,3 +211,19 @@ class TestTheFallbackIsPositionalNotIdentity:
             view_shapes=[self._Shape((0.0, 0.0, 10.0, 10.0))],
         )
         assert isinstance(issues, list)
+
+    def test_a_positional_call_in_the_upstream_argument_order_still_binds_the_cache(self):
+        # `lint_drawing` is exported in `linting.__all__`, and the upstream helpers'
+        # signature has `view_edge_cache` at position 5. A first cut INSERTED
+        # `view_names` there, so this call silently bound the cache dict to the names —
+        # no error, no caching, degraded view name — and then raised `KeyError: 0` once
+        # the cache was warm and its `id()` keys were indexed as a name list. The
+        # parameter is appended for exactly this reason; keyword-only tests would not
+        # have caught it.
+        annotation = SimpleNamespace(label="A", label_bbox=(2.0, 2.0, 4.0, 4.0))
+        view, cache = self._Shape((0.0, 0.0, 10.0, 10.0)), {}
+        first = lint_drawing([annotation], None, (0.0, 0.0, 100.0, 100.0), 1.0, [view], cache)
+        assert cache, "the positional cache argument was bound to something else"
+        assert first, "the scenario produced no issue, so it asserts nothing"
+        # Again with the now-warm cache: this is where the misbinding raised.
+        assert lint_drawing([annotation], None, (0.0, 0.0, 100.0, 100.0), 1.0, [view], cache)
