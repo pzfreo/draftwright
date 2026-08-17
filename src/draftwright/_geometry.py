@@ -236,25 +236,6 @@ def _boxes_overlap(a, b) -> bool:
     return bool(a[0] < b[2] and a[2] > b[0] and a[1] < b[3] and a[3] > b[1])
 
 
-# Fallback stroke inflation for decomposed occupancy: line_width/2 (~0.08) plus the
-# arrowhead half-width at stroke junctions at DEFAULT presets. Arrow geometry scales
-# with font_size (#688 review), so callers that know the draft derive the pad through
-# :func:`stroke_pad` — arrow half-LENGTH bounds the head's half-width (aspect < 1) AND
-# its protrusion past an inside-arrow shaft trim (al/2).
-STROKE_PAD = 1.2
-
-
-def stroke_pad(draft) -> float:
-    """The preset-aware inflation for one drawn stroke.
-
-    Every consumer of :func:`segment_boxes` must derive its pad here, so that a
-    candidate-time conflict test and the post-placement occupancy it will become
-    agree (#740). Tolerates *draft* being absent or preset-less.
-    """
-    arrow_length = getattr(draft, "arrow_length", None)
-    return max(STROKE_PAD, arrow_length / 2) if arrow_length else STROKE_PAD
-
-
 def segment_boxes(segments, pad: float) -> list[tuple[float, float, float, float]]:
     """One inflated AABB per drawn stroke in *segments* (``((x0, y0), (x1, y1))``).
 
@@ -264,6 +245,10 @@ def segment_boxes(segments, pad: float) -> list[tuple[float, float, float, float
     geometry leaf rather than in the annotations layer because obstacle sets are also
     needed BELOW that layer: :func:`projection._place_iso_nts_note` must see a leader
     shaft, and cannot import upward (#1197).
+
+    *pad* is supplied, not derived: how far a stroke's ink spreads past its centreline
+    is drafting policy (line width, arrowheads), which this module is barred from
+    carrying — it comes from :func:`draftwright._core.stroke_pad_for`.
     """
     return [
         (min(x0, x1) - pad, min(y0, y1) - pad, max(x0, x1) + pad, max(y0, y1) + pad)

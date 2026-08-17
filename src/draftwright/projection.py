@@ -28,13 +28,19 @@ from OCP.GeomAbs import (
     GeomAbs_Torus,
 )
 
-from draftwright._core import Analysis, _anno_box, _iso_bbox, overlap_exempt, place_annotation
+from draftwright._core import (
+    Analysis,
+    _anno_box,
+    _iso_bbox,
+    overlap_exempt,
+    place_annotation,
+    stroke_pad_for,
+)
 from draftwright._geometry import (
     MaterialField,
     _boxes_overlap,
     material_field,
     segment_boxes,
-    stroke_pad,
 )
 
 _log = logging.getLogger(__name__)
@@ -424,7 +430,7 @@ def _place_iso_nts_note(dwg, a: Analysis, bb) -> None:
     ]
 
     obstacles: list[tuple[float, float, float, float]] = []
-    pad = stroke_pad(dwg.draft)
+    pad = stroke_pad_for(dwg.draft)
     for item in dwg.items:
         if overlap_exempt(item):
             continue

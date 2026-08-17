@@ -19,17 +19,17 @@ from typing import Any
 from build123d_drafting.helpers import DEFAULT_FONT_PATH, Dimension, SafeDimension
 
 from draftwright._core import (  # noqa: F401 — _anno_box re-exported (#700)
+    STROKE_PAD,
     _anno_box,
     _text_size,
     place_annotation,
+    stroke_pad_for,
 )
 from draftwright._geometry import (  # noqa: F401
-    STROKE_PAD,
     _boxes_overlap,
     _segment_clips_box,
     _segment_crosses_box,
     segment_boxes,
-    stroke_pad,
 )
 from draftwright.layout import StripCandidate, plan_strip
 from draftwright.linting.issues import LintIssue
@@ -984,9 +984,9 @@ def occupancy_boxes(o, stroke_pad=None):
     return out
 
 
-# The shared default stroke inflation; the decomposition and the preset-aware pad
-# derivation moved down to the geometry leaf (#1197) so placers BELOW the annotations
-# layer can build the same obstacle boxes. Kept as a module name because this module's
+# The shared default stroke inflation. The stroke DECOMPOSITION moved down to the
+# geometry leaf and the PAD POLICY to `_core` (#1197), so placers below the annotations
+# layer build the same obstacle boxes. Kept as a module name because this module's
 # docstrings and callers name it.
 _STROKE_PAD = STROKE_PAD
 
@@ -999,7 +999,7 @@ def annotation_obstacle_boxes(dwg, annotation):
     the boxes :func:`strip_obstacles` will expose after placement (#740).
     """
 
-    return occupancy_boxes(annotation, stroke_pad=stroke_pad(getattr(dwg, "draft", None)))
+    return occupancy_boxes(annotation, stroke_pad=stroke_pad_for(getattr(dwg, "draft", None)))
 
 
 def strip_obstacles(dwg, view=None, *, crossable=(), named=False):

@@ -129,6 +129,31 @@ def _shape_box2d(shape):
         return None
 
 
+# Fallback stroke inflation for decomposed occupancy: line_width/2 (~0.08) plus the
+# arrowhead half-width at stroke junctions at DEFAULT presets.
+STROKE_PAD = 1.2
+
+
+def stroke_pad_for(draft) -> float:
+    """How far one drawn stroke's ink spreads past its centreline, in page mm.
+
+    Arrow geometry scales with ``font_size`` (#688 review), so a caller holding the
+    draft derives the pad from it: arrow half-LENGTH bounds the head's half-width
+    (aspect < 1) *and* its protrusion past an inside-arrow shaft trim (al/2). Every
+    consumer of :func:`draftwright._geometry.segment_boxes` derives its pad here, so a
+    candidate-time conflict test and the post-placement occupancy it becomes agree
+    (#740). Tolerates *draft* being absent or preset-less.
+
+    Policy, not geometry — which is why it sits here rather than beside
+    ``segment_boxes`` in the geometry leaf, whose contract bars drawing knowledge. The
+    name is not ``stroke_pad`` because ``_common.occupancy_boxes`` already takes a
+    ``stroke_pad=`` parameter, and importing a same-named function into that module
+    would shadow it inside the one body most likely to want to call it.
+    """
+    arrow_length = getattr(draft, "arrow_length", None)
+    return max(STROKE_PAD, arrow_length / 2) if arrow_length else STROKE_PAD
+
+
 def overlap_exempt(o) -> bool:
     """True for annotations that take no part in pairwise overlap comparison.
 
