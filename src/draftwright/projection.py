@@ -384,6 +384,19 @@ def _place_iso_nts_note(dwg, a: Analysis, bb) -> None:
         box = _anno_box(item)
         if box is not None:
             obstacles.append(box)
+    # The projected VIEWS too. They are not in `dwg.items` — that list is annotations —
+    # so an annotations-only obstacle set would happily relocate the caption on top of
+    # the front view's line-work, and the fallback positions (above the iso block, or
+    # to either side of it) are exactly the ones that reach a neighbouring view.
+    for placed in getattr(dwg, "views", {}).values():
+        for shape in placed or ():
+            if shape is None:
+                continue
+            try:
+                bounds = shape.bounding_box()
+            except Exception:  # noqa: BLE001 — an unmeasurable view is simply not an obstacle
+                continue
+            obstacles.append((bounds.min.X, bounds.min.Y, bounds.max.X, bounds.max.Y))
     chosen = candidates[0]
     for position in candidates:
         probe = Note("ISO VIEW (NTS)", position, dwg.draft)
