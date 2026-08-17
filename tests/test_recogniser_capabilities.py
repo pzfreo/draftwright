@@ -263,11 +263,11 @@ def test_repeating_profile_is_explicit_geometry_only_critique_evidence() -> None
             "must pin",
         ),
         (
-            # An id the package does not ship: the direction that would have us calling a
-            # recogniser that is gone. Undeclaring a family it *does* ship is no longer a
-            # failure here -- see test_recogniser_adoption.py.
-            # The last family, so the rename cannot disturb the sorted-id ordering and
-            # trip that check first instead.
+            # The stale direction, and the one that really breaks: an id the package does not
+            # ship would have a declared adapter calling a recogniser that is gone. The
+            # opposite -- not declaring a family it *does* ship -- is deliberately no longer a
+            # failure here; see tests/test_recogniser_adoption.py. Renaming the *last* family
+            # so the change cannot disturb sorted-id ordering and trip that check first.
             lambda value: value["families"][-1].update({"id": "zz-retired-family"}),
             "stale=",
         ),
@@ -324,17 +324,26 @@ def test_a_package_family_we_have_not_declared_yet_does_not_fail_the_join() -> N
     assert "future-thread" in pending_family_declarations(package=package)
 
 
-def test_out_of_order_family_declarations_fail_closed() -> None:
-    """Ordering is checked separately from membership, so it cannot be masked by it.
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        pytest.param(lambda families: families.reverse(), id="unsorted"),
+        pytest.param(
+            lambda families: families[0].update({"id": families[-1]["id"]}), id="duplicated"
+        ),
+    ],
+)
+def test_family_declarations_must_be_unique_and_sorted(mutate) -> None:
+    """Both halves of that condition, because one expression checks two different mistakes.
 
-    While the inventory check was one condition, unsorted ids and a stale family produced the
-    same error. They are different mistakes with different repairs, and splitting membership
-    into a stale-only test left ordering needing its own.
+    Ordering is now checked separately from membership, so it cannot be masked by it: while
+    the inventory check was a single condition, unsorted ids and a stale family raised the
+    same error. Reversing the list gives ordering without duplication; copying one id over
+    another gives duplication without any id the package does not ship. An earlier version of
+    this test did only the second while claiming to do the first.
     """
     declaration = consumer_capability_declaration()
-    # Rename the first family to sort last, without re-sorting: membership is untouched only
-    # in the sense that the id is still one the package ships -- it is the order that breaks.
-    declaration["families"][0]["id"] = declaration["families"][-1]["id"]
+    mutate(declaration["families"])
 
     with pytest.raises(RecogniserCapabilityError, match="unique and sorted"):
         validate_recogniser_capabilities(declaration)
@@ -352,15 +361,6 @@ def test_pending_declarations_reject_a_malformed_manifest() -> None:
     for broken in ("not-a-dict", {}, {"families": "not-an-array"}):
         with pytest.raises(RecogniserCapabilityError, match="manifest format is unsupported"):
             pending_family_declarations(package=broken)
-
-
-def test_a_declared_family_the_package_dropped_still_fails_closed() -> None:
-    """The stale direction stays fatal: this is the one that really breaks."""
-    declaration = consumer_capability_declaration()
-    declaration["families"][-1]["id"] = "zz-retired-family"
-
-    with pytest.raises(RecogniserCapabilityError, match="stale="):
-        validate_recogniser_capabilities(declaration)
 
 
 def test_schema_format_fails_closed() -> None:
