@@ -479,3 +479,42 @@ class TestTheRemainingBoundariesAreStillDeclared:
         assert observed, "no facts observed"
         assert {fact.downstream[boundary] for fact in observed} == {"supported"}
         assert {fact.downstream["drawing_consumer"] for fact in observed} == {"unsupported"}
+
+
+class TestAnUnbuildableFixtureIsScoredNotCrashed:
+    """The two fail-open paths. A corpus run must degrade to a scored non-answer rather
+    than a traceback out of its middle — and the crash must still be *visible*, because a
+    benchmark whose point is that a self-reported number cannot validate itself should not
+    quietly equate "the compiler has no correspondence" with "the engine crashed"."""
+
+    def _observe(self, part):
+        from draftwright.evaluation.step_analysis import _default_observers
+
+        return _default_observers()["holes"](part)
+
+    def test_a_build_failure_scores_every_hole_unknown_and_says_so(self, monkeypatch, caplog):
+        import draftwright.builder as builder_module
+
+        def explode(*_a, **_k):
+            raise RuntimeError("Standard_DomainError")
+
+        monkeypatch.setattr(builder_module, "build_drawing", explode)
+        with caplog.at_level("WARNING"):
+            observed = self._observe(_part())
+        assert observed, "recognition still works, so facts must still be observed"
+        assert {f.downstream["drawing_consumer"] for f in observed} == {"unknown"}
+        assert any("Standard_DomainError" in r.getMessage() for r in caplog.records), (
+            "the crash was scored but never announced, so it is indistinguishable from a "
+            "correspondence gap"
+        )
+
+    def test_a_fixture_that_neither_builds_nor_recognises_observes_nothing(self, monkeypatch):
+        # Not an empty score with invented facts — no observation at all, which the oracle
+        # scores as a detection miss against its independent denominator.
+        import draftwright.builder as builder_module
+
+        def explode(*_a, **_k):
+            raise RuntimeError("unanalysable")
+
+        monkeypatch.setattr(builder_module, "build_drawing", explode)
+        assert self._observe(object()) == ()
