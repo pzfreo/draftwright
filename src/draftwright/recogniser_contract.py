@@ -298,6 +298,26 @@ def _validate_stage(stage: object, family_id: str, boundary: str, root: Path | N
         raise RecogniserCapabilityError(f"{context} needs a non-empty rationale")
 
 
+def pending_family_declarations(*, package: object | None = None) -> list[str]:
+    """Package families this consumer has not declared yet, sorted.
+
+    Empty is the healthy state. A non-empty list means the installed package grew a
+    capability Draftwright has not yet decided what to do with -- which is a job for this
+    repository, not a reason to block the package's release. See
+    ``tests/test_recogniser_adoption.py``, which is what makes that job visible.
+    """
+    manifest = capability_manifest(format_version=1) if package is None else package
+    if not isinstance(manifest, dict) or not isinstance(manifest.get("families"), list):
+        raise RecogniserCapabilityError("installed recogniser manifest format is unsupported")
+    package_ids = {
+        family["id"]
+        for family in manifest["families"]
+        if isinstance(family, dict) and isinstance(family.get("id"), str)
+    }
+    declared = {family["id"] for family in consumer_capability_declaration()["families"]}
+    return sorted(package_ids - declared)
+
+
 def validate_recogniser_capabilities(
     declaration: object | None = None,
     *,
@@ -372,13 +392,24 @@ def validate_recogniser_capabilities(
     ):
         raise RecogniserCapabilityError("consumer family declarations must be objects with IDs")
     ids = [family["id"] for family in families]
-    if ids != sorted(set(ids)) or set(ids) != set(package_by_id):
-        missing = sorted(set(package_by_id) - set(ids))
-        stale = sorted(set(ids) - set(package_by_id))
+    if ids != sorted(set(ids)):
+        raise RecogniserCapabilityError(
+            "consumer family declarations must be unique and sorted by id"
+        )
+    # Only the *stale* direction is a compatibility failure. A family we declare that the
+    # package no longer ships means this code would call a recogniser that is gone, so it
+    # stays fatal. A family the package ships that we have not declared cannot reach us at
+    # all -- nothing here constructs `RecognitionResult` or indexes the feature census, so a
+    # new field or key is inert -- and failing on it made the *provider* unreleasable until
+    # its consumer caught up, which inverts the dependency.
+    #
+    # Adoption is still required, and still enforced; it is enforced in Draftwright's own CI
+    # against `pending_family_declarations`, which is where the decision actually lives.
+    stale = sorted(set(ids) - set(package_by_id))
+    if stale:
         raise RecogniserCapabilityError(
             f"family inventory mismatch for installed {_PACKAGE_VERSION}; "
-            f"unknown={missing}, stale={stale}; "
-            "declare every package family explicitly"
+            f"stale={stale}; a declared family is no longer in the package"
         )
     checkout_root = Path(__file__).resolve().parents[2]
     root = source_root

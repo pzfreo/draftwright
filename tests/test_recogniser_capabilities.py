@@ -25,6 +25,7 @@ from draftwright.model.detect import (
 from draftwright.recogniser_contract import (
     RecogniserCapabilityError,
     consumer_capability_declaration,
+    pending_family_declarations,
     validate_recogniser_capabilities,
 )
 from draftwright.sheet import Sheet
@@ -239,7 +240,15 @@ def test_repeating_profile_is_explicit_geometry_only_critique_evidence() -> None
             lambda value: value["package_compatibility"].update({"version": "==0.1.0"}),
             "must pin",
         ),
-        (lambda value: value["families"].pop(), "inventory mismatch"),
+        (
+            # An id the package does not ship: the direction that would have us calling a
+            # recogniser that is gone. Undeclaring a family it *does* ship is no longer a
+            # failure here -- see test_recogniser_adoption.py.
+            # The last family, so the rename cannot disturb the sorted-id ordering and
+            # trip that check first instead.
+            lambda value: value["families"][-1].update({"id": "zz-retired-family"}),
+            "stale=",
+        ),
         (
             lambda value: value["families"][0]["record_schemas"].update({"BossRecord": 99}),
             "record schema mismatch",
@@ -271,13 +280,36 @@ def test_consumer_declaration_fails_closed_on_stale_or_unknown_claims(
         validate_recogniser_capabilities(declaration)
 
 
-def test_unknown_package_family_and_schema_format_fail_closed() -> None:
+def test_a_package_family_we_have_not_declared_yet_does_not_fail_the_join() -> None:
+    """The additive direction is a Draftwright to-do, not a compatibility failure.
+
+    A family the package ships and this repository has not declared cannot reach any
+    Draftwright code path: nothing here constructs ``RecognitionResult`` or indexes the
+    feature census by key. Failing the join on it made every new recogniser a two-repo
+    lockstep release, with the provider blocked on its own consumer.
+
+    It is still tracked -- ``pending_family_declarations`` reports it and
+    ``tests/test_recogniser_adoption.py`` fails Draftwright's build until it is declared.
+    """
     package = recognition.capability_manifest()
     package["families"].append(copy.deepcopy(package["families"][0]))
     package["families"][-1]["id"] = "future-thread"
-    with pytest.raises(RecogniserCapabilityError, match="inventory mismatch"):
-        validate_recogniser_capabilities(package=package)
 
+    validate_recogniser_capabilities(package=package)
+
+    assert pending_family_declarations(package=package) == ["future-thread"]
+
+
+def test_a_declared_family_the_package_dropped_still_fails_closed() -> None:
+    """The stale direction stays fatal: this is the one that really breaks."""
+    declaration = consumer_capability_declaration()
+    declaration["families"][-1]["id"] = "zz-retired-family"
+
+    with pytest.raises(RecogniserCapabilityError, match="stale="):
+        validate_recogniser_capabilities(declaration)
+
+
+def test_schema_format_fails_closed() -> None:
     package = recognition.capability_manifest()
     package["format_version"] = 2
     with pytest.raises(RecogniserCapabilityError, match="manifest format"):
