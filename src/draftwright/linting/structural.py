@@ -16,8 +16,19 @@ import re
 from build123d import GeomType
 
 from draftwright._core import _shape_box2d
-from draftwright._geometry import _boxes_overlap, _segment_clip_extent, _segment_clips_box
+from draftwright._geometry import (
+    MATERIAL_VISIBLE_FLOOR,
+    _boxes_overlap,
+    _segment_clip_extent,
+    _segment_clips_box,
+    material_reentry_span,
+)
 from draftwright.linting.issues import LintIssue, _IssueAggregation
+from draftwright.projection import _MATERIAL_PAGE_TOLERANCE
+
+#: The shared visible-stroke floor. Imported rather than restated so the critique cannot
+#: drift from the router that solves against the same field (#798).
+_MATERIAL_REENTRY_FLOOR = MATERIAL_VISIBLE_FLOOR
 
 _log = logging.getLogger(__name__)
 
@@ -178,6 +189,7 @@ def lint_drawing(
     view_shapes: list | None = None,
     view_edge_cache: dict | None = None,
     ann_box_cache: dict | None = None,
+    view_material_fields: dict | None = None,
     _aggregation: _IssueAggregation | None = None,
 ) -> list[LintIssue]:
     """Structural checks on a composed annotation list, duck-typed.
@@ -241,6 +253,12 @@ def lint_drawing(
             entries are identity-checked, so a replaced annotation is re-measured
             automatically. Omit it for a fresh per-call cache (which still
             de-duplicates the several checks that need the same item's box).
+        view_material_fields: optional ``{id(view_shape): MaterialField}`` giving each
+            view's filled projected material (#798), normally
+            :meth:`draftwright.Drawing.material_fields`. Required for the
+            ``leader_crosses_silhouette`` check — without it there is no material
+            knowledge and the check reports nothing, rather than guessing from the
+            outline and contradicting the router that solves against this same field.
 
     Returns:
         list[LintIssue].
@@ -386,6 +404,7 @@ def lint_drawing(
             edge_cache=view_edge_cache,
             box_cache=box_cache,
             warned=warned_label_bbox,
+            material_fields=view_material_fields,
         )
 
     # Principal envelope completeness check: verify each bbox extent appears
@@ -469,89 +488,6 @@ def _edges_intersect_rect(edge_entries, rect) -> bool:
     return False
 
 
-def _seg_seg_point(a, b, c, d):
-    """Intersection point of segments *a*-*b* and *c*-*d*, or ``None`` (parallel,
-    collinear, or no overlap). Collinear returns ``None`` on purpose — a shaft
-    running ALONG an edge does not cut across it."""
-    rx, ry = b[0] - a[0], b[1] - a[1]
-    sx, sy = d[0] - c[0], d[1] - c[1]
-    denom = rx * sy - ry * sx
-    if abs(denom) < 1e-12:
-        return None
-    qpx, qpy = c[0] - a[0], c[1] - a[1]
-    t = (qpx * sy - qpy * sx) / denom
-    u = (qpx * ry - qpy * rx) / denom
-    if 0.0 <= t <= 1.0 and 0.0 <= u <= 1.0:
-        return (a[0] + t * rx, a[1] + t * ry)
-    return None
-
-
-def _leader_shaft_hits_edges(tip, elbow, edge_entries, skip_mm=0.5) -> bool:
-    """True if the leader shaft *tip*→*elbow* cuts THROUGH the projected view
-    silhouette *edge_entries* (``(edge, bbox2d)`` pairs, #796).
-
-    The discriminator is the count of DISTINCT crossing points, past a *skip_mm*
-    step off the tip:
-
-    * A leader that legitimately EXITS the outline — a hole/feature callout whose
-      tip is at an internal point, or a ⌀ callout whose tip is on the surface and
-      whose shaft runs outward — crosses the outline **once** (or not at all).
-    * A shaft that cuts THROUGH a body — a ⌀ leader clipping a neighbouring step,
-      a groove leader crossing a flange — **enters and exits**, crossing **twice**.
-
-    Genuine crossing POINTS are computed (not edge-bbox hits) and deduped within
-    0.5 mm, so a shaft merely grazing a shared vertex, or a doubled/coincident
-    projected edge, counts once — not two (review of #799). Straight edges use an
-    exact segment intersection; a curved edge is sampled ~1 mm; an edge whose
-    geometry THROWS during analysis counts as one crossing (conservative). A cut
-    is **two or more** distinct crossings beyond the tip's on-outline touch, which
-    the skip removes (the tip's own edge crosses at t<0 of the skipped shaft).
-
-    The 0.5 mm dedup radius is a page-space resolution floor: a shaft cutting a
-    feature narrower than ~0.5 mm ON THE PAGE merges to one crossing and is not
-    flagged — acceptable for a Phase-1 observability notice (#798 owns the robust
-    filled-region test)."""
-    tx, ty = tip[0], tip[1]
-    ex, ey = elbow[0], elbow[1]
-    length = ((ex - tx) ** 2 + (ey - ty) ** 2) ** 0.5
-    if length < 1e-9:
-        return False
-    t = min(0.5, skip_mm / length)  # step off the tip; never past the shaft midpoint
-    a = (tx + t * (ex - tx), ty + t * (ey - ty))
-    b = (ex, ey)
-    points: list[tuple[float, float]] = []
-    opaque = 0
-    for e, eb in edge_entries:
-        if eb is None:
-            continue
-        if not _segment_clips_box(a, b, eb):  # cheap bbox prefilter
-            continue
-        try:
-            if e.geom_type == GeomType.LINE:
-                s, d = e.start_point(), e.end_point()
-                p = _seg_seg_point(a, b, (s.X, s.Y), (d.X, d.Y))
-                if p is not None:
-                    points.append(p)
-            else:
-                n = min(200, max(8, int(e.length) + 1))
-                prev = e.position_at(0)
-                for i in range(1, n + 1):
-                    cur = e.position_at(i / n)
-                    p = _seg_seg_point(a, b, (prev.X, prev.Y), (cur.X, cur.Y))
-                    if p is not None:
-                        points.append(p)
-                    prev = cur
-        except Exception:
-            opaque += 1
-    distinct = 0
-    seen: list[tuple[float, float]] = []
-    for p in points:
-        if not any(abs(p[0] - q[0]) < 0.5 and abs(p[1] - q[1]) < 0.5 for q in seen):
-            seen.append(p)
-            distinct += 1
-    return (distinct + opaque) >= 2
-
-
 def _view_edge_entries(vs, cache):
     """Per-edge ``(edge, bbox2d)`` list for view shape *vs*, memoised in *cache*.
 
@@ -574,7 +510,14 @@ def _view_edge_entries(vs, cache):
 
 
 def _lint_view_shapes(
-    view_shapes, ann_items, issues, page_bbox=None, edge_cache=None, box_cache=None, warned=None
+    view_shapes,
+    ann_items,
+    issues,
+    page_bbox=None,
+    edge_cache=None,
+    box_cache=None,
+    warned=None,
+    material_fields=None,
 ) -> None:
     """Check views against annotations (#159/#76), each other (#160), and the page (#75)."""
     # Build named bbox list; use the shape's id as fallback name.
@@ -646,12 +589,25 @@ def _lint_view_shapes(
                     )
                 )
 
-    # #796 — leader shaft crosses the view silhouette. A leader that routes its
-    # shaft THROUGH the part body to reach its label reads as clipping the
-    # outline; the tip-on-silhouette touch is excluded (see _leader_shaft_hits_edges).
-    # Only tested where the shaft's own bbox overlaps the view (a leader far from a
-    # view can't cross it), reusing the shared edge cache.
+    # #796/#798 — leader shaft cuts back through the part body. Measured against the
+    # build's FILLED projected material (`Drawing.material_fields`), the same lowering
+    # ADR 0014 leader routing solves against, so the notice and the router cannot reach
+    # opposite verdicts on one shaft.
+    #
+    # The predicate is re-entry, not crossing: a leader is attached to the feature it
+    # names, so its first traversal out of the body is the legitimate exit every ⌀, hole
+    # and pocket callout makes. Going back IN is the defect. That subsumes the exemptions
+    # the outline-crossing form needed — a shaft passing over a through-hole re-enters no
+    # material, so `covers_diameters` is no longer an escape and the real cuts it was
+    # hiding (a 16.75 mm hole-callout re-entry on CTC-03) are now visible.
+    #
+    # Without a field there is no material knowledge, so nothing is reported. Falling back
+    # to an outline heuristic would reintroduce exactly the second opinion this check
+    # exists to eliminate.
     for vname, vbb, vs in named_views:
+        field = (material_fields or {}).get(id(vs))
+        if field is None:
+            continue
         for ann in ann_items:
             if id(ann) in view_shape_ids:
                 continue
@@ -659,8 +615,6 @@ def _lint_view_shapes(
                 continue
             if getattr(ann, "is_centerline", False) or getattr(ann, "is_section_hatch", False):
                 continue
-            if getattr(ann, "covers_diameters", None):
-                continue  # a hole/bore callout legitimately exits the part from an internal hole
             try:
                 tip, elbow = ann.tip, ann.elbow
                 shaft_bb = (
@@ -673,18 +627,21 @@ def _lint_view_shapes(
                 continue
             if not _boxes_overlap(vbb, shaft_bb):
                 continue
-            edges = _view_edge_entries(vs, cache)
-            if edges is None:
-                continue
-            if _leader_shaft_hits_edges(tip, elbow, edges):
+            cut = material_reentry_span(
+                (tip[0], tip[1]),
+                (elbow[0], elbow[1]),
+                field,
+                bridge=_MATERIAL_PAGE_TOLERANCE,
+            )
+            if cut > _MATERIAL_REENTRY_FLOOR:
                 albl = getattr(ann, "label", None) or getattr(ann, "name", None) or "leader"
                 issues.append(
                     LintIssue(
                         severity="info",
                         message=(
-                            f"leader '{albl}' shaft crosses view '{vname}' silhouette "
-                            f"— route it clear of the outline, or dimension the feature "
-                            f"in a detail view"
+                            f"leader '{albl}' shaft cuts {cut:.1f} mm back through view "
+                            f"'{vname}' — route it clear of the body, or dimension the "
+                            f"feature in a detail view"
                         ),
                         location=(elbow[0], elbow[1]),
                         code="leader_crosses_silhouette",

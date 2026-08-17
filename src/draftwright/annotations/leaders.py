@@ -18,11 +18,13 @@ from build123d import Face, Vector, Wire
 
 from draftwright._core import _TB_CLEAR, _TB_H
 from draftwright._geometry import (
+    MATERIAL_VISIBLE_FLOOR,
     _boxes_overlap,
     _convex_polygon_overlaps_box,
     _convex_polygons_overlap,
     _leader_ink_polygons,
     _stroke_polygon,
+    material_reentry_span,
 )
 from draftwright.annotations._common import (
     CROSSABLE_TYPES,
@@ -30,13 +32,41 @@ from draftwright.annotations._common import (
     annotation_obstacle_boxes,
     strip_obstacles,
 )
-from draftwright.layout import _FLOW_COST_SCALE, _LEADER_ASSIGN_MAX_JOBS, _assign_leader_candidates
+from draftwright.layout import (
+    _FLOW_COST_SCALE,
+    _LEADER_ASSIGN_MAX_JOBS,
+    _assign_leader_candidates,
+    _LeaderAssignment,
+)
 from draftwright.model.compiled import resolve_feature
+from draftwright.projection import _MATERIAL_PAGE_TOLERANCE
 
 _FEATURE_LEADER_MAX_CANDIDATES = 512
 _FEATURE_LEADER_MAX_FIXED_PROBES = 100_000
 _FEATURE_LEADER_MAX_PAIR_PROBES = 100_000
 _FIXED_INVENTORY_EXHAUSTED = object()
+
+# Page mm of shaft buried in the part per unit of Policy-B penalty (#798).
+#
+# This is the exchange rate between the two things the penalty now counts: crossing a
+# piece of committed annotation ink, and cutting back through the part body. Stating it
+# as a rate is the honest form, because neither strict ordering survives the range. A
+# shaft grazing 0.3 mm of material is not worse than crossing a dimension line, and a
+# shaft ploughing 63 mm through three lobes is far worse than crossing several. Charging
+# per visible stroke width makes the trade continuous: ~1 unit for a graze, 254 for that
+# 63 mm cut, so a real cut cannot be bought with a shorter route while a trivial one
+# still loses only a close contest.
+#
+# The unit is the shared visible-stroke floor, and deliberately so — a cut the sheet
+# cannot show must not steer the solve, and the router must not price what the critique
+# would not report.
+_MATERIAL_PENALTY_UNIT = MATERIAL_VISIBLE_FLOOR
+
+# Raw candidates the resource-cap floor may examine past its first acceptable-but-cutting
+# route while looking for one that does not cut. Bounded because the floor is what runs
+# when the exact solve has already been ruled out on cost: it must stay lazy. Zero would
+# restore the pre-#798 first-clear behaviour exactly.
+_GREEDY_MATERIAL_LOOKAHEAD = 32
 
 
 class _FeatureLeaderInvariantError(ValueError):
@@ -575,6 +605,108 @@ def _candidate_hits_component(
     )
 
 
+def _assign_by_view(
+    job_views,
+    costs_by_job,
+    conflicts,
+    *,
+    priorities,
+    penalties_by_job,
+):
+    """Solve the leader assignment independently per view and merge the results (#1188).
+
+    **Exact, not an approximation.** Two facts make the problem separable: a candidate
+    conflict is only ever constructed for a same-view pair, and every term of the
+    lexicographic objective (placed, priority, penalty, cost) is a sum over jobs. The
+    optimum of the whole inventory is therefore the union of the per-view optima.
+
+    The reason to bother is that the search is combinatorial in the number of jobs. Solved
+    as one set, a twenty-job part exhausts the state budget and falls back to the greedy
+    floor — which is what was happening on every dense fixture, so Amendment 2's
+    guarantees applied precisely nowhere they were needed. Solved per view, the same
+    inventory is three small searches that complete.
+
+    Each view gets the full state budget: the budgets bound the work of one search, and
+    these searches are independent.
+    """
+    order: dict[str, list[int]] = {}
+    for job_index, view in enumerate(job_views):
+        order.setdefault(view, []).append(job_index)
+    choices: list[int | None] = [None] * len(costs_by_job)
+    optimal = True
+    states = 0
+    for view, members in order.items():
+        local = {job_index: position for position, job_index in enumerate(members)}
+        local_conflicts = []
+        for left_job, left_candidate, right_job, right_candidate in conflicts:
+            left_in, right_in = left_job in local, right_job in local
+            if not left_in and not right_in:
+                continue
+            if left_in != right_in:
+                # The exactness of this decomposition rests on conflicts never spanning
+                # views. Filtering such a pair away would silently produce an invalid
+                # assignment, so assert the invariant instead of quietly relying on it.
+                raise _FeatureLeaderInvariantError(
+                    "leader conflict spans views "
+                    f"({job_views[left_job]!r} vs {job_views[right_job]!r}); the per-view "
+                    "decomposition is only exact while conflicts are same-view"
+                )
+            local_conflicts.append(
+                (local[left_job], left_candidate, local[right_job], right_candidate)
+            )
+        result = _assign_leader_candidates(
+            [costs_by_job[job_index] for job_index in members],
+            local_conflicts,
+            priorities=[priorities[job_index] for job_index in members],
+            penalties_by_job=[penalties_by_job[job_index] for job_index in members],
+        )
+        for position, job_index in enumerate(members):
+            choices[job_index] = result.choices[position]
+        optimal = optimal and result.optimal
+        states += result.states
+    return _LeaderAssignment(tuple(choices), optimal, states)
+
+
+def material_penalty_units(tip, elbow, field) -> int:
+    """Policy-B penalty units for the part material a tip→elbow shaft cuts back into.
+
+    Measured against the same filled field, with the same bridge, as the
+    ``leader_crosses_silhouette`` critique, so a route a placer accepts cannot be one the
+    critique then reports — one predicate by construction, not by agreement. Shared by
+    every placer that weighs routing, so the answer cannot drift between them.
+
+    Re-entry, not total traversal: a leader is attached to the feature it names, so its
+    first passage out of the body is the legitimate exit every callout makes. Charging it
+    would price every correct leader on the sheet as defective.
+    """
+    if field is None or not field:
+        return 0
+    cut = material_reentry_span(
+        (tip[0], tip[1]), (elbow[0], elbow[1]), field, bridge=_MATERIAL_PAGE_TOLERANCE
+    )
+    return int(cut / _MATERIAL_PENALTY_UNIT) if cut > _MATERIAL_PENALTY_UNIT else 0
+
+
+def view_material(dwg, view):
+    """The filled projected material for *view*, or ``None`` when it is unavailable.
+
+    The one lookup: the fields are keyed by projected-shape identity because those shapes
+    carry no view label, which is a detail no placer should have to know.
+    """
+    try:
+        placed = dwg.views.get(view)
+        if not placed or placed[0] is None:
+            return None
+        return dwg.material_fields().get(id(placed[0]))
+    except Exception:  # noqa: BLE001 — an unmeshable part routes on the other constraints
+        return None
+
+
+def _material_units(candidate: _MeasuredLeaderCandidate, field) -> int:
+    """:func:`material_penalty_units` for an already-measured shared-inventory candidate."""
+    return material_penalty_units(candidate.tip, candidate.elbow, field)
+
+
 def _fixed_blockers(candidate, job, page, fixed_components) -> tuple[str, ...]:
     blockers = []
     label = candidate.label_box
@@ -1073,6 +1205,19 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
         fallback_jobs.append(iter(fallback))
 
     views = tuple(dict.fromkeys(job.view for job in jobs))
+    # The build's ONE filled-material lowering, indexed the way this stage needs it. Taken
+    # from the drawing here rather than threaded through every producer's job, so a new
+    # leader family joins the inventory without having to remember to carry the field —
+    # and so there is exactly one lowering behind both routing and critique (#798).
+    material_by_view: dict[str, Any] = {}
+    try:
+        fields = dwg.material_fields()
+    except Exception:  # noqa: BLE001 — an unmeshable part routes on the other constraints
+        fields = {}
+    for view in views:
+        placed = dwg.views.get(view)
+        if placed and placed[0] is not None:
+            material_by_view[view] = fields.get(id(placed[0]))
     inventory_unset = object()
     committed_inventory = inventory_unset
     provisional_inventory = inventory_unset
@@ -1323,8 +1468,23 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
         abandoned_inventories=None,
         abandoned_rejected=None,
         abandoned_raw_counts=None,
+        prefer_clear=True,
     ) -> int:
-        """Deterministic first-clear floor in original stage/job order."""
+        """Deterministic first-clear floor in original stage/job order.
+
+        With *prefer_clear* a job whose first acceptable route cuts back through the part
+        looks a bounded distance further for one that does not (#798). Every other job
+        behaves exactly as the pre-#798 floor did, because a first acceptable route that
+        already clears the body breaks the loop in the same place, and a job that
+        exhausts the lookahead resumes the stream in first-clear order rather than
+        dropping.
+
+        ``prefer_clear=False`` restores the original selection verbatim. It is used by the
+        geometry-validation replay, whose whole purpose is to guarantee cardinality after
+        the exact path lost candidates to rendering failures: re-running that with a route
+        preference would search for a better answer at the exact moment the caller needs
+        the most certain one.
+        """
 
         placed_count = 0
         total_priority = 0.0
@@ -1386,13 +1546,25 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
             raw_count = 0
             selected = None
             selected_policy_b: tuple[str, ...] = ()
+            annotation = None
             inventory = []
+            field = material_by_view.get(job.view)
+            # Accepted-but-cutting alternatives, held back while a bounded lookahead
+            # searches for one that does not cut. Empty in the common case: the first
+            # acceptable route usually clears the body, and then this loop breaks exactly
+            # where the pre-#798 one did.
+            held: list[tuple[int, int, Any, tuple[str, ...]]] = []
+            examined_since_accept = None
             source = (
                 _measure(raw_index, raw, job, dwg.draft)
                 for raw_index, raw in enumerate(fallback_jobs[job_index])
             )
             for candidate in source:
                 raw_count = max(raw_count, candidate.raw_index + 1)
+                if examined_since_accept is not None:
+                    examined_since_accept += 1
+                    if examined_since_accept > _GREEDY_MATERIAL_LOOKAHEAD:
+                        break
                 fixed_components = fixed[job.view]
                 if fixed_verified and (
                     actual_fixed_probes + len(fixed_components) <= _FEATURE_LEADER_MAX_FIXED_PROBES
@@ -1423,6 +1595,16 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
                     )
                     inventory.append(candidate_entry(candidate, "fixed_rejected", blockers))
                     continue
+                units = _material_units(candidate, field) if prefer_clear else 0
+                if units:
+                    # Acceptable, but it cuts the part. Keep looking a bounded distance
+                    # for a route that does not, and remember this one in case none does:
+                    # Policy B keeps a required callout at a logged cost rather than
+                    # dropping it for a placement reason (ADR 0014).
+                    held.append((units, candidate.raw_index, candidate, blockers))
+                    if examined_since_accept is None:
+                        examined_since_accept = 0
+                    continue
                 annotation = _materialize(dwg, job, candidate)
                 if annotation is None:
                     blockers_by_raw.append((candidate.raw_index, ("geometry_validation",)))
@@ -1440,6 +1622,87 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
                 selected_policy_b = blockers
                 inventory.append(candidate_entry(candidate, "selected", blockers))
                 break
+            if selected is None:
+                # No clear route inside the lookahead. Fall back to the least-cutting
+                # candidate held, shallowest first, original order breaking ties — the
+                # same result the pre-#798 floor reached whenever nothing clear exists.
+                for _units, _raw_index, candidate, blockers in sorted(held, key=lambda h: h[:2]):
+                    annotation = _materialize(dwg, job, candidate)
+                    if annotation is None:
+                        blockers_by_raw.append((candidate.raw_index, ("geometry_validation",)))
+                        inventory.append(
+                            candidate_entry(
+                                candidate, "geometry_validation", ("geometry_validation",)
+                            )
+                        )
+                        fallback_rejected.append(
+                            {
+                                "candidate": candidate.raw_index,
+                                "blockers": ["geometry_validation"],
+                            }
+                        )
+                        continue
+                    selected = candidate
+                    selected_policy_b = blockers
+                    inventory.append(candidate_entry(candidate, "selected", blockers))
+                    break
+            if selected is None:
+                # Nothing clear inside the lookahead, and every held candidate failed to
+                # render. RESUME the producer stream in pure first-clear order.
+                #
+                # Without this the lookahead is not a preference but a truncation: the
+                # pre-#798 loop scanned the whole stream, so a job whose early candidates
+                # all cut AND all fail geometry validation would be dropped here purely
+                # because it was searched for a better route. That is the one way a
+                # callout could be lost for a routing reason, which Policy B forbids and
+                # which the rest of this design is built to prevent.
+                for candidate in source:
+                    raw_count = max(raw_count, candidate.raw_index + 1)
+                    fixed_components = fixed[job.view]
+                    if fixed_verified and (
+                        actual_fixed_probes + len(fixed_components)
+                        <= _FEATURE_LEADER_MAX_FIXED_PROBES
+                    ):
+                        blockers = _fixed_blockers(candidate, job, page, fixed_components)
+                        actual_fixed_probes += len(fixed_components)
+                    else:
+                        fixed_verified = False
+                        blockers = (*boundary_blockers(candidate, job), "fixed_probe_budget")
+                    if _hard_fixed_blockers(blockers) or not (
+                        job.fallback_accept(candidate, legacy_boxes[job.view], page)
+                        if job.fallback_accept is not None
+                        else not tuple(
+                            blocker for blocker in blockers if blocker != "fixed_probe_budget"
+                        )
+                    ):
+                        blockers_by_raw.append((candidate.raw_index, blockers))
+                        fallback_rejected.append(
+                            {
+                                "candidate": candidate.raw_index,
+                                "blockers": list(blockers or ("legacy_occupancy",)),
+                            }
+                        )
+                        inventory.append(candidate_entry(candidate, "fixed_rejected", blockers))
+                        continue
+                    annotation = _materialize(dwg, job, candidate)
+                    if annotation is None:
+                        blockers_by_raw.append((candidate.raw_index, ("geometry_validation",)))
+                        inventory.append(
+                            candidate_entry(
+                                candidate, "geometry_validation", ("geometry_validation",)
+                            )
+                        )
+                        fallback_rejected.append(
+                            {
+                                "candidate": candidate.raw_index,
+                                "blockers": ["geometry_validation"],
+                            }
+                        )
+                        continue
+                    selected = candidate
+                    selected_policy_b = blockers
+                    inventory.append(candidate_entry(candidate, "selected", blockers))
+                    break
             producer_fallback = {
                 "candidates_tried": raw_count,
                 "selected": (
@@ -1511,7 +1774,13 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
             )
             placed_count += 1
             total_priority += job.priority
-            total_penalty += len(selected_policy_b)
+            # The resource-cap floor replays the producer's own lazy selection, which does
+            # not weigh material — its contract is only that it cannot place FEWER
+            # callouts than the pre-#1166 renderer. Its reported penalty still counts the
+            # material it accepted, so a fallback result is not traced as cleaner than it is.
+            total_penalty += len(selected_policy_b) + _material_units(
+                selected, material_by_view.get(job.view)
+            )
             total_cost += selected.cost
         set_assignment(
             reason,
@@ -1530,16 +1799,22 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
     if len(jobs) > _LEADER_ASSIGN_MAX_JOBS:
         return greedy("greedy_job_budget")
 
-    candidate_count = 0
+    # Budgets are per VIEW, because the solve is (#1188). Jobs in different views never
+    # conflict, so they are separate searches sharing nothing; charging them against one
+    # global allowance made a three-view part exhaust the budget at a third of the
+    # inventory each view could actually handle, and every dense fixture fell back to the
+    # greedy floor before the exact solve began.
     candidate_counts_by_job = []
+    candidates_by_view: dict[str, int] = {}
     for job_index, iterator in enumerate(raw_jobs):
-        remaining = _FEATURE_LEADER_MAX_CANDIDATES - candidate_count
+        view = jobs[job_index].view
+        remaining = _FEATURE_LEADER_MAX_CANDIDATES - candidates_by_view.get(view, 0)
         prefix = list(islice(iterator, remaining + 1))
         if len(prefix) > remaining:
             raw_jobs[job_index] = chain(prefix, iterator)
             return greedy("greedy_candidate_budget")
         raw_jobs[job_index] = iter(prefix)
-        candidate_count += len(prefix)
+        candidates_by_view[view] = candidates_by_view.get(view, 0) + len(prefix)
         candidate_counts_by_job.append(len(prefix))
 
     fixed = bounded_fixed_obstacles()
@@ -1548,26 +1823,29 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
             "greedy_fixed_inventory_budget",
             fixed_probe_bound=_FEATURE_LEADER_MAX_FIXED_PROBES + 1,
         )
-    fixed_probe_bound = sum(
-        count * len(fixed[job.view])
-        for count, job in zip(candidate_counts_by_job, jobs, strict=True)
-    )
-    if fixed_probe_bound > _FEATURE_LEADER_MAX_FIXED_PROBES:
+    probes_by_view: dict[str, int] = {}
+    for count, job in zip(candidate_counts_by_job, jobs, strict=True):
+        probes_by_view[job.view] = probes_by_view.get(job.view, 0) + count * len(fixed[job.view])
+    fixed_probe_bound = sum(probes_by_view.values())
+    if any(bound > _FEATURE_LEADER_MAX_FIXED_PROBES for bound in probes_by_view.values()):
         return greedy(
             "greedy_fixed_probe_budget",
             fixed_probe_bound=fixed_probe_bound,
         )
     viable_by_job = []
     policy_blockers_by_job = []
+    material_by_job = []
     rejected_by_job = []
     measured_by_job = []
     raw_count_by_job = []
     for job, iterator in zip(jobs, raw_jobs, strict=True):
         viable = []
         policy_blockers = []
+        material_units = []
         rejected = []
         measured = []
         raw_count = 0
+        field = material_by_view.get(job.view)
         for raw_index, raw in enumerate(iterator):
             raw_count = raw_index + 1
             candidate = _measure(raw_index, raw, job, dwg.draft)
@@ -1579,8 +1857,13 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
                 continue
             viable.append(candidate)
             policy_blockers.append(blockers)
+            # Cutting the body is a Policy-B cost, never an eligibility gate: a nested
+            # feature can have no clear route at all, and dropping its callout to keep the
+            # outline tidy would trade a required measurement for a cosmetic one.
+            material_units.append(_material_units(candidate, field))
         viable_by_job.append(viable)
         policy_blockers_by_job.append(policy_blockers)
+        material_by_job.append(material_units)
         rejected_by_job.append(rejected)
         measured_by_job.append(measured)
         raw_count_by_job.append(raw_count)
@@ -1608,12 +1891,19 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
                     if _candidate_conflict(earlier, later):
                         conflicts.append((earlier_job, earlier_index, later_job, later_index))
 
-    assignment = _assign_leader_candidates(
+    assignment = _assign_by_view(
+        [job.view for job in jobs],
         [[candidate.cost for candidate in candidates] for candidates in viable_by_job],
         conflicts,
         priorities=[job.priority for job in jobs],
         penalties_by_job=[
-            [len(blockers) for blockers in job_blockers] for job_blockers in policy_blockers_by_job
+            [
+                len(blockers) + units
+                for blockers, units in zip(job_blockers, job_units, strict=True)
+            ]
+            for job_blockers, job_units in zip(
+                policy_blockers_by_job, material_by_job, strict=True
+            )
         ],
     )
 
@@ -1673,22 +1963,32 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
     # probe or exact-search budget is exhausted, retain the primary result.
     provisional = bounded_fixed_obstacles(provisional=True)
     provisional_inventory_exhausted = provisional is _FIXED_INVENTORY_EXHAUSTED
+    provisional_probes_by_view: dict[str, int] = {}
+    if not provisional_inventory_exhausted:
+        for job, candidates in zip(jobs, viable_by_job, strict=True):
+            provisional_probes_by_view[job.view] = provisional_probes_by_view.get(
+                job.view, 0
+            ) + len(candidates) * len(provisional[job.view])
     provisional_probe_bound = (
         _FEATURE_LEADER_MAX_FIXED_PROBES + 1
         if provisional_inventory_exhausted
-        else sum(
-            len(candidates) * len(provisional[job.view])
-            for job, candidates in zip(jobs, viable_by_job, strict=True)
-        )
+        else sum(provisional_probes_by_view.values())
     )
     provisional_refinement = "not_needed"
     provisional_blockers_by_job: list[list[tuple[str, ...]]] = [
         [() for _candidate in candidates] for candidates in viable_by_job
     ]
+    # Per view, matching the primary gate. Summing across views would compare three
+    # independent searches' work against one search's budget, so a dense part could clear
+    # the primary gate and then never attempt the section refinement at all.
     if (
         not provisional_inventory_exhausted
         and provisional_probe_bound
-        and (fixed_probe_bound + provisional_probe_bound <= _FEATURE_LEADER_MAX_FIXED_PROBES)
+        and all(
+            probes_by_view.get(view, 0) + provisional_probes_by_view.get(view, 0)
+            <= _FEATURE_LEADER_MAX_FIXED_PROBES
+            for view in {*probes_by_view, *provisional_probes_by_view}
+        )
     ):
         provisional_blockers_by_job = [
             [
@@ -1705,22 +2005,29 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
             max((len(blockers) for blockers in job_blockers), default=0)
             for job_blockers in provisional_blockers_by_job
         )
-        refined = _assign_leader_candidates(
+        refined = _assign_by_view(
+            [job.view for job in jobs],
             [[candidate.cost for candidate in candidates] for candidates in viable_by_job],
             conflicts,
             priorities=[job.priority for job in jobs],
             penalties_by_job=[
                 [
-                    len(fixed_blockers) * max_provisional_penalty + len(provisional_blockers)
-                    for fixed_blockers, provisional_blockers in zip(
+                    (len(fixed_blockers) + units) * max_provisional_penalty
+                    + len(provisional_blockers)
+                    for fixed_blockers, provisional_blockers, units in zip(
                         fixed_job_blockers,
                         provisional_job_blockers,
+                        material_job_units,
                         strict=True,
                     )
                 ]
-                for fixed_job_blockers, provisional_job_blockers in zip(
+                # Material joins the COMMITTED major component, beside the fixed-ink
+                # blockers: a cut through the part is a real defect on the finished sheet,
+                # so the refinement must not be able to buy a clear section row with one.
+                for fixed_job_blockers, provisional_job_blockers, material_job_units in zip(
                     policy_blockers_by_job,
                     provisional_blockers_by_job,
+                    material_by_job,
                     strict=True,
                 )
             ],
@@ -1831,6 +2138,10 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
         )
         return greedy(
             "greedy_geometry_validation",
+            # A pure legacy replay: this exists to guarantee cardinality after the exact
+            # path lost candidates to rendering failures, so it must not spend its search
+            # looking for a tidier route.
+            prefer_clear=False,
             fixed_probes=total_fixed_probes,
             fixed_probe_bound=total_fixed_probes,
             pair_probes=pair_probes,
@@ -1855,8 +2166,12 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
         for job_index, choice in enumerate(final_choices)
         if choice is not None
     )
+    # Includes the material units, because the solve minimised them: reporting only the
+    # fixed-ink blockers would put this trace on a different scale from the greedy floor's
+    # (which adds them explicitly), in the direction that makes the joint result look
+    # cleaner than it is.
     objective_penalty = sum(
-        len(policy_blockers_by_job[job_index][choice])
+        len(policy_blockers_by_job[job_index][choice]) + material_by_job[job_index][choice]
         for job_index, choice in enumerate(final_choices)
         if choice is not None
     )

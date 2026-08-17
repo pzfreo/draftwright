@@ -76,15 +76,17 @@ and new-leader conflicts remain infeasible. If such a candidate wins because
 every clear relocation is worse, the drawing persists a
 `feature_leader_crossing` info finding with semantic measurement provenance; trace is
 additional explanation, not the only record. Shaft routing through a part
-silhouette remains #798. This preserves a required callout when every relocation
+silhouette is now priced by Amendment 3. This preserves a required callout when every relocation
 is worse, without allowing a shorter crossing to beat a clear route or silently
 certifying the retained crossing as clean.
 
 Pattern queues and dense table-eligible loose-hole inventories retain their
 specialised immediate whole-queue placement because their winners control later
 pattern furniture and transactional table replacement. Profiled-bore queues
-also retain their established placement until #798 owns robust silhouette-aware
-routing. This compatibility boundary keeps Amendment 2 out of those downstream
+also retain their established placement; Amendment 3 prices silhouette routing
+for the shared population but deliberately does not enter these placers, whose
+winners carry downstream semantics.
+This compatibility boundary keeps Amendment 2 out of those downstream
 semantic decisions rather than predicting their future footprint. Ordinary-hole
 alternatives lower label/shaft geometry analytically and materialise only the
 selected OCC `Leader`; the rendered survivor is checked against that geometry
@@ -124,6 +126,117 @@ provisional blockers, refinement status, objective tuple, selected alternatives,
 fallback. A single live post-build
 `Drawing.callout()` remains the documented finished-sheet exemption; a deferred
 batch enters the shared stage.
+
+**Amendment 3 (2026-08-16, #798) — a shaft through the part body is a priced
+Policy-B cost, measured on one filled lowering shared with the critique.** Leader
+routing and the `leader_crosses_silhouette` critique now solve against the same
+per-view *filled projected material*: the part's faces are tessellated once per
+build in model space (`projection.part_material_mesh`) and each view projects that
+one mesh into its own page plane (`view_material_field`), held on `BuildState` and
+built at most once. Both consumers call `_geometry.material_reentry_span`, so a
+route the solver accepts cannot be one the critique then reports — one predicate by
+construction, not by agreement.
+
+The measured quantity is **re-entry**, not traversal. A leader is attached to the
+feature it names, so its first passage out of the body is the legitimate exit every
+⌀, hole, bore and pocket callout makes; charging it would price every correct leader
+on the sheet as defective. A second traversal means the shaft left the body and cut
+into something else. This is the filled form of the superseded outline-crossing rule
+(one crossing is an exit, two is a cut) and it inherits none of that rule's
+exemptions: a shaft passing over a through-hole re-enters no material, so the
+`covers_diameters` escape is gone. Removing it exposed real cuts the outline form
+could not see, because it exempted the whole annotation rather than the exit.
+
+The lowering is taken under explicit control (copy → `BRepTools.Clean_s` →
+`BRepMesh_IncrementalMesh`) rather than by tessellating the shape where it lies. OCC
+caches a triangulation and returns it for any later request, even a strictly finer
+one, so `face.tessellate(deflection)` alone yields whatever mesh an earlier
+operation left behind — making the field a function of build *history*, the silent
+cross-platform layout variable ADR 0006 exists to remove. The page-space chord
+tolerance is pinned and the probe is exact half-plane clipping with a fixed-point
+interval union: no sampling, no rasterisation, no tolerance sweep (ADR 0001).
+
+Material is a **cost, never an eligibility gate, and never an acceptance test**. It
+joins the existing fixed-obstacle Policy-B penalty at a stated exchange rate — one
+unit per visible stroke width of buried shaft — because neither strict ordering
+survives the range: a 0.3 mm graze is not worse than crossing a dimension line, and
+a 63 mm cut through three lobes is far worse than crossing several. A cut the sheet
+cannot show does not steer the solve. It also joins the committed major component of
+the provisional refinement, so optional section furniture cannot be bought with a
+real cut. A nested feature may have no clear route at all; dropping its callout to
+keep the outline tidy would trade a required measurement for a cosmetic one.
+
+**The floor is where this actually bites.** Measured across every fixture, the
+Amendment 2 joint assignment runs only on modest inventories — a twenty-job part
+expands past the candidate cap — and every observed cut was on a part that had
+fallen back. Raising the cap moves the bottleneck to the next guard and multiplies
+build time; that is an architectural boundary of the exact solve, not a tuning knob.
+So the floor gained a bounded lookahead: a job whose first acceptable route cuts
+looks a little further for one that does not, and otherwise keeps the least-cutting
+candidate. A job whose first acceptable route already clears the body selects it in
+the same place the pre-#798 floor did, so the blast radius is only the defective
+jobs. Because the floor is sequential, a re-chosen winner is a different obstacle for
+later jobs; the placed count is unchanged on every fixture and is pinned per part by
+test, rather than guaranteed by a comparison sweep.
+
+A post-placement **relocation** pass was built and rejected. Moving an already-placed
+leader instead of re-placing it makes cardinality invariant by construction and
+reaches placers the shared inventory never owned. It is weaker alone (it must clear
+the complete final inventory, by which time the clear space is taken) and it breaks
+the hole-table transaction: relocating a hole callout after the fact invalidates the
+bookkeeping this ADR fences off precisely because pattern callout winners carry
+downstream furniture and table semantics. Recorded so it is not re-derived.
+
+The material term reaches every placer that weighs routing, not only the shared
+inventory: the within-pass assignment and the legacy first-clear scope in
+`_leader_callout_pass` take the same preference through the same
+`material_penalty_units`, so boss diameters and the machined families cannot drift from
+the critique either (#1187). The pre-drain diameter and grouped pattern consumers keep
+their pure legacy selection, as Amendment 1 requires.
+
+What remains crossing after all of this is **not** unrouted work. Measured on the
+finished sheet, the retained crossings have hundreds of routes clear of the *material*
+and **none** clear of everything else: every alternative collides with committed ink,
+the page margin, or the silhouette. The sheet is full, and Policy B keeps the callout at
+a logged cost rather than dropping a dimension for tidiness. That claim is measured per
+case rather than asserted (`tests/test_issue_1187_unroutable_leaders.py`), so it moves
+with the drawing instead of going stale.
+
+Widening a producer's candidate fan to reach those routes was tried and rejected:
+richer candidates push dense parts back over the per-view budget and out of the exact
+solve, which cost more than it bought. Candidate richness trades against solve reach,
+and #1188 records where that balance currently sits.
+
+**Amendment 4 (2026-08-16) — a work budget must bound measured work, not predict
+it.** Three guards were found in one session silently disabling the feature they
+protect, on ordinary input:
+
+| guard | predicted | actual | outcome |
+| --- | --- | --- | --- |
+| feature-leader candidate cap (#1188) | 20 jobs × ~72 candidates vs a 512 cap | — | the joint assignment never ran on ANY dense part, so Amendment 2's guarantees applied precisely nowhere they were needed |
+| balloon top-lane probe bound | 73,712 vs a 50,000 cap | — | 1.5× over; every hole-table balloon refused |
+| balloon carve probe bound | 10,546,848 vs a 5,000,000 cap | **21,228** | 497× over; a hole table refused at 0.4% of its real cost |
+
+Each was correct in intent and wrong in effect. The common fault is a **conservative
+pre-estimate**: a closed-form worst case computed before the work, sized by multiplying
+maxima that never co-occur. The carve bound assumed every retained box contributes its
+full complement of criticals and that every one survives to be probed; on the very input
+its own test called pathological it was wrong by three orders of magnitude.
+
+The rule this ADR now records:
+
+- **Prefer counting real work to predicting it.** A live counter that stops at the cap
+  bounds the work just as a pre-estimate does, and cannot refuse work that fits.
+- **Where a pre-check is genuinely needed, it must be EXACT, not conservative.** The
+  top-lane gate now multiplies the actual candidate-lane count (built in one linear
+  pass) by the obstacle count, because that product *is* the loop's cost.
+- **A budget that fires is a capability loss, and must be observable as one.** All three
+  degraded silently: the drawing simply came back missing a table, a joint solve or a
+  route, with a lint line at most. A guard firing should say which capability it cost.
+
+This is a placement-layer instance of the same discipline ADR 0001 applies to solvers:
+the bound has to be explainable, and "the estimate said it might be expensive" is not an
+explanation a user can act on.
 
 ## Context (short — the full story is 0009's)
 

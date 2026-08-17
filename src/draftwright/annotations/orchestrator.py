@@ -630,6 +630,14 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # still render after it and avoid the section view.
         if _section is not None:
             _add_section_view(dwg, a, _section, ctx=ctx)
+        else:
+            # Recorded, not left at the initial `not_evaluated`: the planner DID run and
+            # found no counterbore/spotface/blind Z-hole, which is a different fact from
+            # the pass never having run at all (#1190).
+            dwg.record_section_decision(
+                "not_warranted",
+                detail="no counterbore/spotface/blind Z-hole — no section warranted",
+            )
 
     def _s_details():
         # Resolve every queued enlarged-detail request (#307) — prismatic step bands and

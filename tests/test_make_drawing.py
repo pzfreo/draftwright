@@ -4779,7 +4779,15 @@ class TestLocationDimsAndSection:
                     assert not (
                         x1 > sb.min.X and x0 < sb.max.X and y1 > sb.min.Y and y0 < sb.max.Y
                     )
-        assert [i for i in dwg.lint() if i.severity != "info"] == []
+        # `section_dropped` is expected here and is the POINT of #1190: this part's
+        # cutting-plane ink crosses a required hole-callout leader, so the section is
+        # withheld. That was previously silent — the assertion below passed because
+        # nothing recorded the omission, not because nothing was omitted.
+        assert dwg.section_decision["status"] == "skipped"
+        assert dwg.section_decision["reason"] == "leader_conflict"
+        assert [
+            i for i in dwg.lint() if i.severity != "info" and i.code != "section_dropped"
+        ] == []
 
     @pytest.mark.timeout(120)
     def test_side_drilled_callouts_survive_capacity_aware_carve(self):
@@ -4814,7 +4822,12 @@ class TestLocationDimsAndSection:
             - Pos(-11, 0, 18) * Cylinder(5, 8)
         )
         dwg = build_drawing(part)
-        assert [i for i in dwg.lint() if i.severity != "info"] == []
+        # See the sibling test above: the withheld section is now reported rather than
+        # silent (#1190), and this assertion previously passed on that silence.
+        assert dwg.section_decision["status"] == "skipped"
+        assert [
+            i for i in dwg.lint() if i.severity != "info" and i.code != "section_dropped"
+        ] == []
 
     @pytest.mark.timeout(120)
     def test_linear_array_locates_its_nearest_member(self):
@@ -9242,8 +9255,19 @@ class TestTurnedDiameters:
 
         codes = {issue.code for issue in dwg.lint()}
         assert "feature_not_dimensioned" not in codes
-        assert "leader_crosses_silhouette" not in codes
         assert "axial_length_missing" not in codes
+
+        # #798: the bolt-circle callout spends 27.6 mm of its 49 mm shaft inside the
+        # flange body. This assertion used to read `not in codes` and passed only
+        # because the check was blind: the outline-crossing form exempted every
+        # `covers_diameters` annotation wholesale, and this is a hole callout. Measured
+        # against the filled material field the cut is real, and pinning WHICH leader
+        # is a stronger guard than the absence it replaces. Front-view hole callouts
+        # keep their specialised placer under ADR 0014, so routing this one clear is
+        # #798's own remaining work.
+        silhouette = [i for i in dwg.lint() if i.code == "leader_crosses_silhouette"]
+        assert len(silhouette) == 1, [i.message for i in silhouette]
+        assert "4× ⌀4 THRU" in silhouette[0].message
 
         for name in tuple(dwg.annotations()):
             if "steplen" in name:
@@ -9473,10 +9497,13 @@ class TestTurnedDiameters:
         # location dimensions. The hole-family ledger added by #1143 reports those two
         # physical requirements honestly on both paths; reconstruction must preserve the
         # same critique as well as the same annotation set.
+        # The `leader_crosses_silhouette` entry is the #798 bolt-circle cut described in
+        # test_issue_881_...; it appears on BOTH paths, which is what this test is
+        # actually about — the replay reproduces the same critique, defects included.
         assert (
             auto.lint_summary()["by_code"]
             == replayed.lint_summary()["by_code"]
-            == {"hole_requirement_missing": 2}
+            == {"hole_requirement_missing": 2, "leader_crosses_silhouette": 1}
         )
 
         # ── from #881: the Y-step furniture lands in the right views on the replay ──
@@ -9948,9 +9975,11 @@ class TestLeaderCrossesSilhouette:
         from draftwright.annotations.from_model import _reroute_crossing_diameters
 
         dwg, crossing = self._crossing_boss_drawing()
-        # force every silhouette check to "crosses", so no candidate is ever accepted
+        # Force every route to read as cutting, so no candidate is ever accepted. The
+        # re-router now measures against the shared material field (#798), so this
+        # patches that predicate rather than the retired outline-crossing one.
         monkeypatch.setattr(
-            "draftwright.linting.structural._leader_shaft_hits_edges", lambda *a, **k: True
+            "draftwright.annotations.from_model.material_penalty_units", lambda *a, **k: 1
         )
         _reroute_crossing_diameters(dwg, ctx=_ctx_for(dwg))
         restored = dwg.get_annotation("m_dia_x0")

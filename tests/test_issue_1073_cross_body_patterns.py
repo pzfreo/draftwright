@@ -83,9 +83,12 @@ def test_compound_traversal_order_does_not_change_body_correspondence():
 
 
 def test_ambiguous_body_signature_fails_closed(monkeypatch):
-    from b123d_recognisers import slots as slots_module
+    # `_body_signature` moved to `_recess_core` in 0.2.2's seam decomposition. The
+    # patch target follows it; the guarded behaviour — Draftwright failing closed when
+    # the recogniser cannot tell two bodies apart — is unchanged.
+    from b123d_recognisers import _recess_core as recess_module
 
-    monkeypatch.setattr(slots_module, "_body_signature", lambda _solid: (1.0,))
+    monkeypatch.setattr(recess_module, "_body_signature", lambda _solid: (1.0,))
     slots = recognise_slots(_separate_bodies(_slotted_body()))
     pockets = recognise_pockets(_separate_bodies(_pocketed_body()))
 

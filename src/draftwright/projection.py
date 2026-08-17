@@ -10,6 +10,7 @@ and fit the orientation iso into its page zone). `dwg` is duck-typed
 
 from __future__ import annotations
 
+import copy
 import logging
 import math
 
@@ -17,6 +18,8 @@ import numpy as np
 from build123d import Compound, Edge, GeomType, Location, Plane, ThreePointArc, Vector
 from build123d_drafting.helpers import Note, ViewCoordinates, view_axes
 from OCP.BRepAdaptor import BRepAdaptor_Surface
+from OCP.BRepMesh import BRepMesh_IncrementalMesh
+from OCP.BRepTools import BRepTools
 from OCP.GeomAbs import (
     GeomAbs_Cone,
     GeomAbs_Cylinder,
@@ -26,6 +29,7 @@ from OCP.GeomAbs import (
 )
 
 from draftwright._core import Analysis, _iso_bbox, place_annotation
+from draftwright._geometry import MaterialField, material_field
 
 _log = logging.getLogger(__name__)
 
@@ -55,6 +59,90 @@ def _raw_view_projector(axes, look_at_scaled):
         return (x, y)
 
     return proj
+
+
+# ── Filled material lowering (#798) ─────────────────────────────────────────────────────
+# `_exactify_silhouettes` below recovers the OUTLINE. Leader routing needs the filled
+# INTERIOR — "does this shaft travel through the part" — which an outline cannot answer
+# without a crossing-parity argument that a hole or a pocket opening immediately breaks.
+# So the part's faces are tessellated once in model space and each view projects that one
+# mesh into its own page plane, where `_geometry.material_span` probes it exactly.
+#
+# Tessellating once and projecting three times is not only cheaper: it means every view
+# measures the SAME material, so a route judged clear in the front view cannot be judged
+# differently in the side view because the mesher ran twice.
+
+# Page-mm chord error allowed when a curved boundary is approximated by flat triangles.
+# The model-space deflection is derived from this and the drawing scale, so the accuracy
+# that matters (on the page) is what stays fixed as the scale changes.
+_MATERIAL_PAGE_TOLERANCE = 0.05
+_MATERIAL_MAX_TRIANGLES = 60_000
+
+
+def part_material_mesh(part, scale: float, *, max_triangles: int = _MATERIAL_MAX_TRIANGLES):
+    """World-space triangles covering *part*'s faces, or ``None`` if it cannot be meshed.
+
+    One tessellation per build, shared by every view (see the note above). Returns ``None``
+    — never a partial mesh — when a face is unmeshable or the budget is exhausted, because
+    a mesh missing some faces would report material-free routes straight through the gap,
+    which is worse than having no field at all: the caller can fall back honestly, but it
+    cannot detect a silently incomplete answer.
+
+    The shape is **explicitly re-meshed on a copy** rather than tessellated where it lies.
+    OCC caches a triangulation on the shape and hands it back for any later request — even
+    a strictly finer one — so ``face.tessellate(deflection)`` alone returns whatever mesh
+    some earlier operation (HLR, a bounding box, an export) happened to leave behind. That
+    makes the field a function of build HISTORY, which is precisely the silent
+    cross-platform layout variable ADR 0006 exists to eliminate; measured on GRM-03, the
+    incidental mesh also carried 4,154 triangles where a controlled one needs 776. The copy
+    is what keeps the reset off the shared part: cleaning in place would discard a
+    triangulation the render path may still want.
+    """
+    deflection = _MATERIAL_PAGE_TOLERANCE / max(float(scale), 1e-3)
+    try:
+        meshed = copy.deepcopy(part)
+        BRepTools.Clean_s(meshed.wrapped)
+        BRepMesh_IncrementalMesh(meshed.wrapped, deflection, False, 0.5, True)
+        faces = meshed.faces()
+    except Exception:  # noqa: BLE001 — an unanalysable solid simply has no field
+        return None
+    triangles: list[tuple[tuple[float, float, float], ...]] = []
+    for face in faces:
+        try:
+            vertices, facets = face.tessellate(deflection)
+        except Exception:  # noqa: BLE001 — one unmeshable face invalidates the whole field
+            return None
+        points = [(float(v.X), float(v.Y), float(v.Z)) for v in vertices]
+        if any(not math.isfinite(value) for point in points for value in point):
+            return None
+        if len(triangles) + len(facets) > max_triangles:
+            return None
+        for facet in facets:
+            indices = tuple(facet)
+            if len(indices) != 3 or any(i < 0 or i >= len(points) for i in indices):
+                return None
+            triangles.append(tuple(points[i] for i in indices))
+    return tuple(triangles) if triangles else None
+
+
+def view_material_field(mesh, project) -> MaterialField:
+    """Project a world-space *mesh* into one view's page plane as a :class:`MaterialField`.
+
+    *project* maps ``(x, y, z)`` to a page ``(px, py)`` — pass the drawing's own ``at`` for
+    the view, so the field lands in exactly the coordinates the placed annotations use.
+    A projection failure yields an empty field, which reads as "no material known" and
+    leaves routing decisions to the other constraints rather than inventing clearance.
+    """
+    if not mesh:
+        return material_field(())
+    projected = []
+    try:
+        for triangle in mesh:
+            corners = tuple(project(point) for point in triangle)
+            projected.append(tuple((float(c[0]), float(c[1])) for c in corners))
+    except Exception:  # noqa: BLE001 — an unprojectable mesh yields no field, not a partial one
+        return material_field(())
+    return material_field(projected)
 
 
 def _exactify_silhouettes(edges, faces, view_dir, proj_fn, tol=_SILHOUETTE_TOL):

@@ -98,7 +98,9 @@ from draftwright.linting import (
 from draftwright.linting.issues import _collect_issue_aggregation, _current_issue_aggregation
 from draftwright.linting.quality import quality_components
 from draftwright.projection import (
+    part_material_mesh,
     project_view_geometry,
+    view_material_field,
 )
 from draftwright.recognition_cache import RecognitionCache
 from draftwright.registry import AnnotationRegistry
@@ -292,6 +294,11 @@ def feature_key(f) -> str | None:
     return f"{kind}@({x:.3f},{y:.3f},{z:.3f})/{axis}{tail}"
 
 
+#: Distinguishes "the mesh has not been attempted" from "it was attempted and failed".
+#: ``None`` is a real, cacheable outcome here, so it cannot double as the unset marker.
+_MATERIAL_MESH_UNSET = object()
+
+
 @dataclass
 class BuildState:
     """The build context a finished :class:`Drawing` carries (ADR 0005 §2 / #639).
@@ -326,6 +333,15 @@ class BuildState:
     part_model: object | None = None
     view_edge_cache: dict = dataclasses_field(default_factory=dict)
     ann_box_cache: dict = dataclasses_field(default_factory=dict)
+    #: Per-view filled projected material (#798) as ``{id(view_shape): (shape, field)}``.
+    #: Keyed by shape identity because the projected shapes carry no view label — lint
+    #: names them ``view@<id>`` — and holding the shape lets a reused ``id`` be detected,
+    #: the same guard ``_view_edge_entries`` carries (#143).
+    material_fields: dict = dataclasses_field(default_factory=dict)
+    #: The one tessellation behind those fields, or ``None`` once it has been attempted
+    #: and failed. Memoised separately so an unmeshable part is not re-meshed on every
+    #: lint, and so views added by later stages can be lowered without redoing it.
+    material_mesh: Any = _MATERIAL_MESH_UNSET
     principal_profile_cache: tuple[object, bool, tuple[LintIssue, ...]] | None = None
     trace: Any = None
     detail_view: bool = False
@@ -352,6 +368,8 @@ class BuildState:
         boxes together — a rolled-back drawing must re-measure everything."""
         self.view_edge_cache.clear()
         self.ann_box_cache.clear()
+        self.material_fields.clear()
+        self.material_mesh = _MATERIAL_MESH_UNSET
 
     def ensure_recognition(self, part) -> RecognitionResult:
         """The run's recognition aggregate, recognising *part* once if nothing has yet.
@@ -380,6 +398,10 @@ class Drawing:
         scale: drawing scale factor (e.g. ``2.0`` for 2:1).
         scale_decision: JSON-friendly resolution of an automatic or explicit scale request,
             including the requested/effective scales and any required placement blockers.
+        section_decision: JSON-friendly record of the section A-A outcome (#1190) —
+            ``status`` is ``"placed"``, ``"skipped"``, ``"not_warranted"``, or
+            ``"not_evaluated"`` when the section pass never ran (``auto_dims=False``),
+            with a stable ``reason`` code and human-readable ``detail`` when skipped.
         page_w, page_h: sheet size in mm.
         tb_w: title-block width in mm.
         draft: the shared ``Draft`` preset used by the automatic annotations.
@@ -426,6 +448,21 @@ class Drawing:
             "blockers": (),
             "attempted_scales": (),
             "attempts": (),
+        }
+        # Public, JSON-friendly record of what happened to section A-A (#1190). Always
+        # present, so a caller never has to infer the outcome from a log line that one
+        # code path emits and another does not — which is exactly what happened before:
+        # the title-block skip logged at INFO and the no-room skip at WARNING, so the
+        # same omission was visible on one part and silent on another.
+        # Starts NEUTRAL. The section pass only runs under `_auto_annotate`, which the
+        # builder gates on `auto_dims`, so a `build_drawing(part, auto_dims=False)` never
+        # evaluates whether a section is warranted. Claiming "no counterbore" there would
+        # be a wrong answer about the geometry — worse than no answer, since the whole
+        # point of this field is that a caller trusts it instead of reading logs.
+        self.section_decision = {
+            "status": "not_evaluated",
+            "reason": None,
+            "detail": "the section pass has not run",
         }
         self.part = part
         self._cyl_cache = cyls
@@ -691,6 +728,73 @@ class Drawing:
     @property
     def _ann_box_cache(self) -> dict:
         return self._build.ann_box_cache
+
+    def record_section_decision(self, status: str, *, reason=None, detail: str = "") -> None:
+        """Record what happened to section A–A (#1190).
+
+        A public verb rather than an attribute the render pass assigns, so the
+        annotations layer stays off ``Drawing`` internals (ADR 0005) and every outcome
+        lands in one shape. ``status`` is ``"placed"``, ``"skipped"`` or
+        ``"not_warranted"``; ``reason`` is a stable code for the skipped case.
+        """
+        if status not in {"placed", "skipped", "not_warranted", "not_evaluated"}:
+            raise ValueError(f"unknown section status {status!r}")
+        self.section_decision = {"status": status, "reason": reason, "detail": detail}
+
+    def material_fields(self) -> dict:
+        """The per-view filled projected material of this drawing, keyed by ``id(shape)``.
+
+        The ADR 0014 leader routing and the ``leader_crosses_silhouette`` critique must
+        agree on what counts as travelling through the part, so both read this ONE
+        lowering rather than each deriving the answer from the projected outline. An empty
+        dict means the part could not be meshed, which callers must read as "no material
+        known" rather than "clear" — inventing clearance from a failed lowering is how a
+        silent geometry failure becomes a confident wrong answer.
+
+        The tessellation behind it is memoised (including its failure, so an unmeshable
+        part is not retried on every lint), but the per-view fields are reconciled against
+        the CURRENT views on each call, for two reasons:
+
+        * This is first called mid-build, by the feature-leader stage — which runs before
+          the section and detail stages. Fields built once would permanently omit every
+          view added afterwards, and leaders in a detail view would silently never be
+          checked for cutting.
+        * Entries are identity-checked, like ``_view_edge_entries``' (#143), because a
+          replaced view shape can be collected and its ``id`` reused — which would hand
+          back another view's material.
+        """
+        cache = self._build.material_fields
+        analysis = self._build.analysis
+        part = getattr(analysis, "part", None) if analysis is not None else None
+        if part is None:
+            return {}
+        mesh = self._build.material_mesh
+        if mesh is _MATERIAL_MESH_UNSET:
+            mesh = part_material_mesh(part, self.scale)
+            self._build.material_mesh = mesh
+        if mesh is None:
+            return {}
+        fields = {}
+        for name, placed in self.views.items():
+            if not placed or placed[0] is None:
+                continue
+            shape = placed[0]
+            key = id(shape)
+            hit = cache.get(key)
+            if hit is None or hit[0] is not shape:
+                hit = (
+                    shape,
+                    view_material_field(mesh, lambda point, view=name: self.at(view, *point)[:2]),
+                )
+                cache[key] = hit
+            fields[key] = hit[1]
+        # Evict entries for shapes no longer on the sheet. Each holds a strong reference
+        # to its view shape, and `_fit_iso_view` re-projects (once per build, again on
+        # finalize), so without this every superseded iso Compound is pinned for the
+        # drawing's lifetime — the same reason `_lint` prunes `_ann_box_cache`.
+        for stale in [key for key in cache if key not in fields]:
+            del cache[stale]
+        return fields
 
     @property
     def box_cache(self) -> dict:
@@ -1504,8 +1608,10 @@ class Drawing:
         qualifying row. Takes no argument (the auto A–A) and is **not** feature-tagged
         or :meth:`drop`-compatible — a section is atomic, so it is dropped by commenting
         the call. Returns the placed annotation names, or ``[]`` when no section is
-        warranted or there is no room. Call it *after* the per-feature verbs — the
-        section's room check clears whatever is already placed right of the side view.
+        warranted or there is no room. Call it *after* the per-feature verbs — the room
+        check carves the view row around whatever is already placed and takes the
+        leftmost gap that fits, so it needs the occupancy to be complete. The outcome
+        is recorded on :attr:`section_decision` either way (#1190).
         """
         if self._defer_intents:  # #426: record, don't place — finalize() drains it
             self._intents.append(Intent("section", None, {}))
@@ -1893,6 +1999,13 @@ class Drawing:
         if ctx.trace is not None:
             ctx.trace.begin_phase("finalize")
 
+        # The section outcome is transaction state too (#1190): the drain can place or
+        # withhold a section, and a rolled-back drain that leaves `section_decision`
+        # saying "placed" while `views_snap` has removed the view is worse than no
+        # record at all — a caller branches on this field precisely because it is
+        # supposed to be the reliable one.
+        section_snap = dict(self.section_decision)
+
         model, a = self._part_model, self._analysis
         routable = model is not None and a is not None
         r = self._classify_intents(model, a, routable)
@@ -1931,6 +2044,7 @@ class Drawing:
             self.views = views_snap
             self._coords = coords_snap
             self._coverage.restore(coverage_snap)
+            self.section_decision = section_snap
             if sv_above is not None:
                 sv_above.outer_limit = sv_above_limit
             if trace_snap is not None:  # roll the failed drain's records out of the trace
@@ -2395,10 +2509,12 @@ class Drawing:
             ]
 
         def _s_section():
-            # Render the section, reusing the reserved plan (its room check clears
-            # everything right of the side view; _add_section_view clears the
-            # reservation). A recorded section with no trigger (r.section is None) is a
-            # no-op.
+            # Render the section, reusing the reserved plan. The room check carves the
+            # view row into free segments and takes the leftmost that fits and clears
+            # the title block (#1190) — it does NOT simply start past everything already
+            # placed, which let one remote occupant veto the whole band.
+            # `_add_section_view` clears the reservation and records the outcome. A
+            # recorded section with no trigger (r.section is None) is a no-op.
             self._intents = [it for it in self._intents if it.kind != "section"]
             if r.section is not None:
                 assert a is not None
@@ -2912,6 +3028,7 @@ class Drawing:
                 view_shapes=view_shapes,
                 view_edge_cache=self._view_edge_cache,
                 ann_box_cache=self._ann_box_cache,
+                view_material_fields=self.material_fields(),
                 _aggregation=aggregation,
             )
         else:
@@ -2924,6 +3041,7 @@ class Drawing:
                     view_shapes=view_shapes,
                     view_edge_cache=self._view_edge_cache,
                     ann_box_cache=self._ann_box_cache,
+                    view_material_fields=self.material_fields(),
                     _aggregation=aggregation,
                 )
         if self.part is not None and physical:
