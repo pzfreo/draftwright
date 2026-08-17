@@ -15,7 +15,7 @@ import re
 
 from build123d import GeomType
 
-from draftwright._core import _shape_box2d
+from draftwright._core import _shape_box2d, overlap_exempt
 from draftwright._geometry import (
     MATERIAL_VISIBLE_FLOOR,
     _boxes_overlap,
@@ -307,11 +307,9 @@ def lint_drawing(
     for item in items:
         # The sheet frame (#767) spans the page by design; a None box excludes it from every
         # pairwise overlap (like a centerline), so it doesn't "overlap" every annotation.
-        if (
-            getattr(item, "is_centerline", False)
-            or getattr(item, "is_sheet_frame", False)
-            or getattr(item, "is_zone_grid", False)  # border ticks span the frame, like the frame
-        ):
+        # Shared with the caption placer via `_core.overlap_exempt` (#1197) so the set this
+        # check REPORTS on and the set that placer AVOIDS cannot drift apart.
+        if overlap_exempt(item):
             boxes.append(None)
             continue
         boxes.append(_label_box(item))

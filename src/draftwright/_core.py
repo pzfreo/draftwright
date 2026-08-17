@@ -129,6 +129,30 @@ def _shape_box2d(shape):
         return None
 
 
+def overlap_exempt(o) -> bool:
+    """True for annotations that take no part in pairwise overlap comparison.
+
+    All three span far more page than they occupy, so comparing their box against
+    anything is meaningless: the sheet frame and zone grid enclose every view by
+    design (#767/#768), and a centre line must cross the feature it marks. Excluding
+    them is what stops a framed sheet from reading as one universal collision.
+
+    The one definition, because two layers need it and must agree: the
+    ``annotation_overlap`` lint uses it to choose which items to compare, and
+    :func:`projection._place_iso_nts_note` uses it to choose which items to avoid.
+    A placer that avoided MORE than the lint reports would move annotations for
+    collisions no one is told about; one that avoided LESS — as the caption placer
+    did, walking into the title block — leans on a backstop that cannot catch it.
+    It lives here rather than in ``linting`` because ``linting.structural`` imports
+    ``projection``, so the dependency cannot run the other way (#1197).
+    """
+    return bool(
+        getattr(o, "is_centerline", False)
+        or getattr(o, "is_sheet_frame", False)
+        or getattr(o, "is_zone_grid", False)
+    )
+
+
 def _anno_box(o):
     """Page-space bbox ``(x0, y0, x1, y1)`` of an annotation — its text
     ``label_bbox`` if it has one, else its geometric bounding box; ``None`` if

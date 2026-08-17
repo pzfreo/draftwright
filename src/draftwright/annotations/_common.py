@@ -24,9 +24,12 @@ from draftwright._core import (  # noqa: F401 — _anno_box re-exported (#700)
     place_annotation,
 )
 from draftwright._geometry import (  # noqa: F401
+    STROKE_PAD,
     _boxes_overlap,
     _segment_clips_box,
     _segment_crosses_box,
+    segment_boxes,
+    stroke_pad,
 )
 from draftwright.layout import StripCandidate, plan_strip
 from draftwright.linting.issues import LintIssue
@@ -974,29 +977,18 @@ def occupancy_boxes(o, stroke_pad=None):
     if not segs:
         b = _geom_box(o)
         return [b] if b is not None else []
-    pad = _STROKE_PAD if stroke_pad is None else stroke_pad
-    out = []
-    for (x0, y0), (x1, y1) in segs:
-        out.append(
-            (
-                min(x0, x1) - pad,
-                min(y0, y1) - pad,
-                max(x0, x1) + pad,
-                max(y0, y1) + pad,
-            )
-        )
+    out = segment_boxes(segs, _STROKE_PAD if stroke_pad is None else stroke_pad)
     lb = getattr(o, "label_bbox", None)
     if lb is not None:
         out.append((lb[0], lb[1], lb[2], lb[3]))
     return out
 
 
-# Fallback stroke inflation for decomposed occupancy: line_width/2 (~0.08) plus the
-# arrowhead half-width at stroke junctions at DEFAULT presets. Arrow geometry scales
-# with font_size (#688 review), so callers that know the draft derive the pad as
-# max(_STROKE_PAD, draft.arrow_length / 2) — arrow half-LENGTH bounds the head's
-# half-width (aspect < 1) AND its protrusion past an inside-arrow shaft trim (al/2).
-_STROKE_PAD = 1.2
+# The shared default stroke inflation; the decomposition and the preset-aware pad
+# derivation moved down to the geometry leaf (#1197) so placers BELOW the annotations
+# layer can build the same obstacle boxes. Kept as a module name because this module's
+# docstrings and callers name it.
+_STROKE_PAD = STROKE_PAD
 
 
 def annotation_obstacle_boxes(dwg, annotation):
@@ -1007,9 +999,7 @@ def annotation_obstacle_boxes(dwg, annotation):
     the boxes :func:`strip_obstacles` will expose after placement (#740).
     """
 
-    arrow_length = getattr(getattr(dwg, "draft", None), "arrow_length", None)
-    pad = max(_STROKE_PAD, arrow_length / 2) if arrow_length else _STROKE_PAD
-    return occupancy_boxes(annotation, stroke_pad=pad)
+    return occupancy_boxes(annotation, stroke_pad=stroke_pad(getattr(dwg, "draft", None)))
 
 
 def strip_obstacles(dwg, view=None, *, crossable=(), named=False):

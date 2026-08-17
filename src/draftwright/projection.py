@@ -28,8 +28,14 @@ from OCP.GeomAbs import (
     GeomAbs_Torus,
 )
 
-from draftwright._core import Analysis, _anno_box, _iso_bbox, place_annotation
-from draftwright._geometry import MaterialField, _boxes_overlap, material_field
+from draftwright._core import Analysis, _anno_box, _iso_bbox, overlap_exempt, place_annotation
+from draftwright._geometry import (
+    MaterialField,
+    _boxes_overlap,
+    material_field,
+    segment_boxes,
+    stroke_pad,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -368,14 +374,20 @@ def _place_iso_nts_note(dwg, a: Analysis, bb) -> None:
     content, and Policy B keeps required content at a visible cost rather than dropping
     it (the overlap is then reported by the ordinary `annotation_overlap` lint).
 
-    Obstacles are annotation **label** boxes plus projected view bounds. Deliberately
-    not `_anno_box`, which falls back to geometry for anything unlabelled: that returns
-    the page-spanning rectangle for the sheet frame and zone grid, so with `frame=True`
-    every candidate was rejected and this whole check became a silent no-op (#1145
-    documents the same trap; `Drawing.add_table` and `linting.structural` skip those
-    riders for exactly this reason). Label boxes also match the lint this fallback
-    appeals to — centre lines and hatching are deliberately exempt there, so blocking on
-    their geometry would move captions for an overlap lint would never report.
+    The obstacle set is **exactly what the `annotation_overlap` lint compares** — label
+    box where there is one, whole hull otherwise, minus `_core.overlap_exempt` — because
+    that lint is the backstop this fallback appeals to, and a placer must not lean on a
+    check that cannot see what it just did. Two earlier cuts each got one side wrong:
+    plain `_anno_box` returns the page-spanning rectangle for the sheet frame and zone
+    grid, so with `frame=True` every candidate was rejected and the whole check became a
+    silent no-op (#1145 is the same trap); label boxes only then went blind to the title
+    block, which has no label box at all, and walked the caption into it.
+
+    Plus one thing the lint does NOT see: the decomposed stroke boxes of a labelled item
+    (`segment_boxes`). A leader shaft or witness line crossing the caption is a real
+    legibility defect that a label-extent comparison can never report — measured on
+    CTC-05, where the caption sat across `m_locy2`'s witness line and lint said clean.
+    Avoiding more than the lint reports is safe in this direction; the reverse is not.
     """
     font = dwg.draft.font_size
     natural = (a.ISO_X, max(bb[1] - 2 * font, a.margin + font))
@@ -390,17 +402,41 @@ def _place_iso_nts_note(dwg, a: Analysis, bb) -> None:
         return
     width, height = base[2] - base[0], base[3] - base[1]
     offset_x, offset_y = base[0] - natural[0], base[1] - natural[1]
-    side_step = (bb[2] - bb[0]) / 2 + width / 2 + font
 
+    # Sideways candidates are expressed as a desired BOX EDGE and converted back through
+    # `offset_x`, so they clear the iso block's real extent whatever the Note's anchor
+    # convention is. The previous form stepped `(bb width)/2 + (caption width)/2 + font`
+    # from `ISO_X`, which assumes the iso bbox is centred on `ISO_X` — measured on a real
+    # A3 build its centre is 332.9 against an `ISO_X` of 310, so the step both overshot
+    # one side and undershot the other.
+    #
+    # Order is by how well the caption still reads as belonging to the iso view: directly
+    # below (today's placement), then further below, then beside it, and only last ABOVE
+    # — a caption over its view is against drawing convention, so it must not be reached
+    # while a below-or-beside position is free. Left before right is arbitrary but fixed,
+    # because ADR 0001 requires the same sheet twice.
     candidates = [
         natural,
+        (a.ISO_X, max(bb[1] - 3 * font - height, a.margin + font)),
+        (bb[0] - font - width - offset_x, natural[1]),
+        (bb[2] + font - offset_x, natural[1]),
         (a.ISO_X, min(bb[3] + 2 * font, a.PAGE_H - a.margin - font)),
-        (a.ISO_X, max(bb[1] - 2 * font - height - font, a.margin + font)),
-        (a.ISO_X - side_step, natural[1]),
-        (a.ISO_X + side_step, natural[1]),
     ]
 
-    obstacles = [box for box in (getattr(item, "label_bbox", None) for item in dwg.items) if box]
+    obstacles: list[tuple[float, float, float, float]] = []
+    pad = stroke_pad(dwg.draft)
+    for item in dwg.items:
+        if overlap_exempt(item):
+            continue
+        label = getattr(item, "label_bbox", None)
+        box = tuple(label) if label is not None else _anno_box(item)
+        if box is not None:
+            obstacles.append(box)
+        if label is not None:
+            # Strokes are added only ALONGSIDE a label box. An item with no label is
+            # already represented by its whole hull, and decomposing that instead would
+            # shrink the obstacle below what the lint compares.
+            obstacles.extend(segment_boxes(getattr(item, "segments", None) or (), pad))
     for placed in getattr(dwg, "views", {}).values():
         for shape in placed or ():
             if shape is None:
@@ -423,9 +459,13 @@ def _place_iso_nts_note(dwg, a: Analysis, bb) -> None:
             position[0] + offset_x + width,
             position[1] + offset_y + height,
         )
+        # Horizontal only. Every y candidate is already clamped into
+        # [margin + font, PAGE_H - margin - font] above — which is load-bearing, since
+        # the last-resort fallback is the natural position and that must be on the page
+        # — so a vertical check here is unreachable, and an unreachable guard is a guard
+        # no test can cover. The x candidates are NOT clamped: `side_step` deliberately
+        # pushes past the iso block and can leave the sheet, which is what this catches.
         if box[0] < a.margin or box[2] > a.PAGE_W - a.margin:
-            continue
-        if box[1] < a.margin or box[3] > a.PAGE_H - a.margin:
             continue
         if any(_boxes_overlap(box, other) for other in obstacles):
             continue

@@ -22,9 +22,17 @@ from draftwright.projection import _place_iso_nts_note
 
 
 class _Unlabelled:
-    """An annotation with no `label_bbox` but a large geometric bbox — a sheet frame."""
+    """An annotation with no `label_bbox` but a large geometric bbox — a sheet frame.
+
+    It carries the real `is_sheet_frame` marker, because that flag is exactly how the
+    engine tells a page-spanning rider from bounded unlabelled furniture like the title
+    block (`_core.overlap_exempt`). A stand-in without it is not a sheet frame; it is
+    an annotation genuinely occupying the whole page, and treating it as an obstacle
+    is right. `test_the_real_sheet_frame_carries_the_marker` keeps this honest.
+    """
 
     label_bbox = None
+    is_sheet_frame = True
 
     def __init__(self, box):
         self._box = box
@@ -47,11 +55,21 @@ class _FakeView:
         return SimpleNamespace(min=SimpleNamespace(X=x0, Y=y0), max=SimpleNamespace(X=x1, Y=y1))
 
 
-def _harness(obstacle_boxes, view_boxes=(), iso_x=200.0, unlabelled_boxes=()):
+def _harness(
+    obstacle_boxes,
+    view_boxes=(),
+    iso_x=200.0,
+    unlabelled_boxes=(),
+    furniture=(),
+    shafts=(),
+):
     """A duck-typed drawing carrying only what the caption placer reads.
 
     *obstacle_boxes* are annotation label boxes; *view_boxes* are projected views,
-    which live in `dwg.views` rather than `dwg.items` and must be obstacles too.
+    which live in `dwg.views` rather than `dwg.items` and must be obstacles too;
+    *furniture* names real annotations to append to `items` (the title block is bounded
+    page furniture with NO label box, so only the hull fallback reaches it); *shafts*
+    are drawn strokes belonging to an otherwise remote label, as a leader's are.
     """
     from draftwright.registry import AnnotationRegistry
 
@@ -60,6 +78,11 @@ def _harness(obstacle_boxes, view_boxes=(), iso_x=200.0, unlabelled_boxes=()):
     # Riders with no `label_bbox` — the sheet frame and zone grid are these. `_anno_box`
     # would return their page-spanning geometry; the placer must not.
     blockers += [_Unlabelled(box) for box in unlabelled_boxes]
+    # A label parked out of the way, whose SHAFT crosses the sheet: the occupancy a
+    # label-box-only obstacle set cannot see.
+    blockers += [
+        SimpleNamespace(label_bbox=(0.0, 0.0, 0.1, 0.1), segments=[segment]) for segment in shafts
+    ]
     stand_in = SimpleNamespace(
         draft=drawing.draft,
         # A FRESH registry: the caption placer replaces any prior `note_iso_nts`, and
@@ -70,6 +93,14 @@ def _harness(obstacle_boxes, view_boxes=(), iso_x=200.0, unlabelled_boxes=()):
         box_cache={},
         views={f"v{index}": (_FakeView(box), None) for index, box in enumerate(view_boxes)},
     )
+    for name in furniture:
+        real = drawing.get_annotation(name)
+        assert real is not None, f"fixture no longer draws {name!r}"
+        assert getattr(real, "label_bbox", None) is None, (
+            f"{name!r} now carries a label box — it is no longer the unlabelled-furniture "
+            f"case this test exists for"
+        )
+        stand_in.items.append(real)
     analysis = SimpleNamespace(
         ISO_X=iso_x, margin=10.0, PAGE_W=drawing.page_w, PAGE_H=drawing.page_h
     )
@@ -112,25 +143,107 @@ class TestTheCaptionAvoidsWhatIsAlreadyPlaced:
 
     def test_a_sideways_fallback_is_refused_when_it_would_leave_the_page(self):
         # The margin guard, driven rather than assumed. An iso block hard against the
-        # right margin puts the right-hand fallback off the sheet; the caption must take
-        # the LEFT one instead of stepping outside.
+        # right margin puts the right-hand fallback off the sheet, and every OTHER
+        # candidate is blocked — so the guard is the only thing between the caption and
+        # the sheet edge, and the caption falls all the way back to the (overlapping,
+        # Policy-B) natural position rather than stepping outside the page.
         #
-        # The first version of this test blocked every candidate, so it passed through
-        # the required-content fallback and held regardless of the margin check —
-        # deleting that check left it green.
-        # Blocks every candidate EXCEPT the right-hand one, which is the only one that
-        # would leave the page — so the margin guard is the sole thing standing between
-        # the caption and the sheet edge. Traced rather than assumed: an earlier version
-        # left the above-the-iso candidate clear, so it was taken second and the margin
-        # check was never reached.
-        blocker = (300.0, 100.0, 405.0, 170.0)
-        stand_in, analysis = _harness([blocker], iso_x=392.0)
-        _place_iso_nts_note(stand_in, analysis, (380.0, 120.0, 405.0, 160.0))
+        # Two earlier versions of this test were wrong about their own scenario: the
+        # first blocked every candidate including the off-page one, so it held whether or
+        # not the guard existed; the second's comment claimed the caption "takes the LEFT
+        # one" when tracing showed the left candidate was inside the blocker too. The
+        # scenario is now asserted rather than described.
+        iso = (355.0, 120.0, 400.0, 160.0)
+        blocker = (300.0, 100.0, 402.0, 170.0)
+
+        control, control_analysis = _harness([], iso_x=377.5)
+        _place_iso_nts_note(control, control_analysis, iso)
+        natural = _caption_box(control)
+        font = control.draft.font_size
+        width = natural[2] - natural[0]
+        right_edge = iso[2] + font + width
+        assert right_edge > control_analysis.PAGE_W - control_analysis.margin, (
+            f"the right-hand candidate ends at {right_edge:.1f}, inside the margin — "
+            f"there is nothing here for the guard to refuse"
+        )
+        assert _boxes_overlap(natural, blocker), "the natural position is not blocked"
+        assert iso[0] - font - width > blocker[0], "the left-hand candidate is not blocked"
+
+        stand_in, analysis = _harness([blocker], iso_x=377.5)
+        _place_iso_nts_note(stand_in, analysis, iso)
         box = _caption_box(stand_in)
         assert box[2] <= analysis.PAGE_W - analysis.margin + 1e-6, (
             f"caption at {box} runs past the {analysis.PAGE_W - analysis.margin} margin"
         )
         assert box[0] >= analysis.margin - 1e-6
+
+
+class TestUnlabelledFurnitureIsStillAnObstacle:
+    """`title_block` carries `label_bbox is None`, so a label-box-only obstacle set is
+    blind to it — and the further-below candidate walks DOWN with only the page margin
+    as a floor. Adversarial review of #1197 reproduced the caption landing at y 19.0-21.7
+    inside the title-block hull while both sideways candidates were free, trading the
+    callout overlap this fix removes for a title-block overlap it had room to avoid."""
+
+    def test_the_caption_does_not_walk_into_the_title_block(self):
+        # Mutation: drop `title_block` from `_CAPTION_FURNITURE` and the caption takes
+        # the further-below candidate, which is inside the block.
+        stand_in, analysis = _harness([], furniture=("title_block",), iso_x=340.0)
+        title_block = _anno_box(stand_in.items[-1])
+        # An iso block low enough that the further-below candidate dips into the title
+        # block, but high enough that the natural position clears it — otherwise the
+        # natural fallback would satisfy this assertion for the wrong reason.
+        iso = (300.0, 36.0, 380.0, 85.0)
+        font = stand_in.draft.font_size
+        assert iso[1] - 2 * font > title_block[3], "the natural position is not clear"
+        # ...with the natural position blocked by an annotation, so a candidate must be
+        # chosen at all, and narrow enough to leave the left-hand one free.
+        stand_in.items.append(SimpleNamespace(label_bbox=(298.0, 28.0, 400.0, 34.0)))
+        _place_iso_nts_note(stand_in, analysis, iso)
+        box = _caption_box(stand_in)
+        assert not _boxes_overlap(box, title_block), (
+            f"caption at {box} landed inside the title block at {title_block}"
+        )
+        assert box[2] <= iso[0], (
+            f"caption at {box} did not take the free left-hand position beside the iso"
+        )
+
+
+class TestLeaderShaftsAreOccupancyToo:
+    """The `annotation_overlap` lint compares LABEL extents, so a caption struck through
+    by a leader shaft is neither avoided by a label-box obstacle set nor reported by the
+    Policy-B backstop this fallback appeals to. Same defect as the one being fixed, one
+    layer down (#685 is why `occupancy_boxes` decomposes strokes at all)."""
+
+    def test_a_shaft_whose_label_is_elsewhere_still_blocks(self):
+        # The label sits at the origin, far from every candidate; only the stroke reaches
+        # the natural position. Mutation: drop `segment_boxes` from the obstacle set and
+        # the caption stays on the shaft.
+        #
+        # The scenario is verified rather than assumed: an unobstructed CONTROL placement
+        # establishes where the caption goes, and the shaft is only a valid test if it
+        # crosses that. The first version put the shaft at y=111 — 1.6 mm clear of the
+        # natural box — so the caption never had to move and the test survived deleting
+        # the guard it claimed to cover.
+        iso = (180.0, 120.0, 220.0, 160.0)
+        control, control_analysis = _harness([])
+        _place_iso_nts_note(control, control_analysis, iso)
+        natural = _caption_box(control)
+
+        row = (natural[1] + natural[3]) / 2
+        shaft = ((natural[0] - 40.0, row), (natural[2] + 40.0, row))
+        struck = (shaft[0][0] - 1.35, row - 1.35, shaft[1][0] + 1.35, row + 1.35)
+        assert _boxes_overlap(natural, struck), (
+            f"the shaft at {shaft} misses the natural caption position {natural} — "
+            f"this test would pass without the guard it claims to cover"
+        )
+
+        stand_in, analysis = _harness([], shafts=[shaft])
+        _place_iso_nts_note(stand_in, analysis, iso)
+        box = _caption_box(stand_in)
+        assert not _boxes_overlap(box, struck), (
+            f"caption at {box} was placed across the leader shaft at {shaft}"
+        )
 
 
 class TestTheCaptionAvoidsViewsToo:
@@ -188,6 +301,27 @@ class TestRealDrawingsAreUnchangedWhereTheyWereClear:
             f"caption at {box} stayed inside the blocker — a page-spanning rider "
             f"rejected every candidate and the check became a no-op"
         )
+
+    def test_the_real_sheet_frame_carries_the_marker(self):
+        # The stand-in above asserts nothing unless the real frame is exempted the same
+        # way. If the engine ever stops flagging it, the page-spanning rider becomes an
+        # obstacle again and every caption candidate is rejected — a silent no-op.
+        from draftwright._core import overlap_exempt
+
+        dwg = build_drawing(Box(80, 40, 12), page="A3", frame=True)
+        frames = [o for _n, o in dwg.iter_annotations() if getattr(o, "is_sheet_frame", False)]
+        assert frames, "no annotation identifies itself as the sheet frame"
+        assert all(overlap_exempt(f) for f in frames)
+
+    def test_bounded_unlabelled_furniture_is_not_exempted(self):
+        # The other half: `overlap_exempt` must NOT swallow the title block, or the fix
+        # for the caption walking into it goes with it.
+        from draftwright._core import overlap_exempt
+
+        dwg = build_drawing(Box(80, 40, 12), page="A3")
+        title_block = dwg.get_annotation("title_block")
+        assert title_block is not None
+        assert not overlap_exempt(title_block)
 
     def test_a_framed_sheet_is_also_clean(self):
         # `frame=True` draws a page-spanning rider. Before the label-box obstacle set it
