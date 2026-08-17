@@ -11,10 +11,15 @@ and the check that exists to catch a wrong value was itself comparing degrees to
 millimetres — so it reported a units mismatch as an axis swap.
 
 The issue's minimal contract allows either rendering a genuine angular dimension or
-failing loudly as unsupported *before* producing the misleading annotation. The rendering
-library has no angular primitive at all (`Dimension`, `DimensionLine`, `SafeDimension`),
-so drawing one correctly is work in `build123d-drafting-helpers`; this refuses instead,
+failing loudly as unsupported *before* producing the misleading annotation. This refuses,
 and says so.
+
+NOT because the primitives are missing — an earlier version of this docstring claimed the
+rendering library "has no angular primitive at all", and that is false twice over:
+build123d's `DimensionLine` and `ExtensionLine` both take `label_angle` and render "60.00°"
+from an arc, and the helper `SafeDimension` builds one too. The missing work is here:
+deriving the arc and vertex from the record's reference points and routing the result
+through the corridor solve.
 
 Refused at the RENDERER, not at `Sheet.measured_dimension`: `angular` reaches the IR from
 two sources — the authored façade and detected AP242 PMI — so a façade guard would leave
@@ -38,8 +43,12 @@ from draftwright.linting.structural import _is_angular_label, _lint_dim
 
 _DOVETAIL = ((0, -25, 0), (0, -9, 0), (0, -13.619, 8))
 
-#: Kinds whose value IS a straight span, so the linear renderer states them truthfully.
-#: Verified by measurement, not assumption: each draws a length equal to its value.
+#: Kinds whose value is CATEGORICALLY a straight projected span, so the linear renderer is
+#: the right renderer for them. That is a statement about the category, not a guarantee
+#: that today's renderer draws each correctly — two members are known not to:
+#: `radius` draws a full-diameter line (#1208), and on CTC-04 two `linear` PMI records
+#: draw 260 mm for values of 20 and 25 (#1209). Both are rendering bugs to fix, which is
+#: precisely why they are here and not in the refusal set.
 _RENDERABLE = frozenset({"linear", "thickness", "diameter", "radius"})
 
 
@@ -187,6 +196,15 @@ class TestEveryDimensionKindIsClassified:
             f"straight projected span. Verify what the kind measures and add it to one set."
         )
 
+    def test_the_refusal_set_stays_inside_the_kinds_the_ir_admits(self):
+        from draftwright.annotations.from_model import _UNRENDERABLE_DIMENSION_KINDS
+        from draftwright.model.ir import AUTHORED_DIMENSION_KINDS
+
+        assert _UNRENDERABLE_DIMENSION_KINDS <= set(AUTHORED_DIMENSION_KINDS), (
+            "a refused kind is not one the IR admits, so it would be both reported here "
+            "and counted as an un-annotatable gtol record"
+        )
+
     def test_every_refused_kind_explains_what_it_measures(self):
         from draftwright.annotations.from_model import (
             _MEASUREMENT_BASIS,
@@ -283,6 +301,61 @@ class TestTheOmissionIsReportedOnce:
         assert "pmi_not_rendered" not in codes, (
             "the refusal is reported twice, once with the real reason and once without"
         )
+
+
+class TestTheRefusalKeepsItsWeightInTheSummary:
+    def test_the_refusal_counts_as_a_geometry_issue(self):
+        # `dimension_kind_unsupported` REPLACES `pmi_not_rendered` for these sources, and
+        # that code is geometry-aware. Without the new entry the count silently falls —
+        # measured 1 -> 0 here and 6 -> 5 on CTC-01 — so the drawing looks better because
+        # the diagnostic got more precise. Deleting the entry passed the entire 4,114-test
+        # suite before this test existed.
+        drawing = _sheet_with_angular().build()
+        assert drawing.lint_summary()["geometry_issues"] >= 1, (
+            "a refused dimension stopped counting as missing content"
+        )
+
+    def test_an_ap242_sourced_refusal_is_an_error(self):
+        # In annotate mode a requirement that came from the FILE and is absent from the
+        # drawing is an error — the convention `_record_pmi_no_candidate` and all three
+        # `lint_pmi_*` checks already follow. Suppressing the sibling `pmi_not_rendered`
+        # error must not quietly downgrade the outcome to a warning, which is what the
+        # first cut did.
+        from draftwright import build_drawing
+
+        drawing = build_drawing(
+            "tests/fixtures/nist_ctc_01_asme1_ap242.stp",
+            title="CTC-01",
+            number="N-1",
+            pmi="annotate",
+        )
+        refusals = [i for i in drawing.lint() if i.code == "dimension_kind_unsupported"]
+        assert refusals, "CTC-01 no longer carries an angular record"
+        assert all(i.severity == "error" for i in refusals), (
+            f"an AP242-sourced omission is reported at {[i.severity for i in refusals]}"
+        )
+
+    def test_an_authored_refusal_with_no_source_is_a_warning(self):
+        # The other half of the same convention: an author's own declaration is theirs to
+        # fix, not a lost file requirement.
+        refusals = [
+            i
+            for i in _sheet_with_angular().build().lint()
+            if i.code == "dimension_kind_unsupported"
+        ]
+        assert refusals and all(i.severity == "warning" for i in refusals)
+
+    def test_the_refusal_carries_its_validation_stage_explicitly(self):
+        # `is_placement_drop` also falls back to a `_dropped` suffix, which this code does
+        # not have — so the stage kwarg is currently redundant and deleting it passed the
+        # whole suite. It is still the field `builder._is_required_scale_drop` reads, so
+        # pin it directly rather than relying on the name.
+        refusals = [
+            i
+            for i in _sheet_with_angular().build().lint()
+            if i.code == "dimension_kind_unsupported"
+        ]
+        assert refusals and all(i.outcome_stage == "validation" for i in refusals)
 
 
 class TestTheLintDiscriminatesByUnit:

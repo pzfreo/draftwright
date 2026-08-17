@@ -4579,10 +4579,18 @@ _PMI_SLOT = 10.0  # mm — slot size for PMI dim lines in the strip
 #:   curved_dist   25.133  ->  16.0   same
 #:   oriented      20.0    ->  16.0   along a stated direction, not the projected axis (25% out)
 #:
-#: `linear`, `thickness` and `diameter` measure a straight span and are truthful, so they
-#: stay. `radius` is a THIRD defect — it renders a full-diameter-length line carrying an R
-#: label, because `_bore_half_span` returns the value rather than half of it — and is
-#: tracked separately rather than hidden behind a category refusal.
+#: The criterion is whether the value is measured on a basis THIS RENDERER RECEIVES. It
+#: draws the projected span between reference points along the dominant axis, so:
+#: `linear`, `thickness` and `diameter` are that span by definition and stay. An arc length
+#: is not (`curve_length`, `curved_dist`), nor is an angle (`angular`). `oriented` is a
+#: straight span, but along a direction the record states and the renderer is never given —
+#: refused for a different reason from its neighbours, which an earlier version of this
+#: comment lumped together as "needs an arc".
+#:
+#: `radius` is a THIRD defect and is NOT refused: its value is a straight span, so it is
+#: fixable rather than unsupported. `_bore_half_span` returns the value where `diameter`
+#: halves it, so an R6 record renders a 12 mm line labelled R. Tracked as #1208, because
+#: refusing it would file a rendering bug under "unsupported category" and misdescribe it.
 #:
 #: NOT because the rendering library lacks the primitives. An earlier version of this
 #: comment claimed build123d has no angular dimension; it does — `DimensionLine` and
@@ -4627,13 +4635,19 @@ def _record_unsupported_dimension_kind(ctx, rec):
     explicit ``scale=`` request burns the whole ladder and raises where it used to return a
     drawing.
     """
-    basis = _MEASUREMENT_BASIS.get(rec.pmi_kind, "a value this renderer cannot measure")
+    basis = _MEASUREMENT_BASIS[rec.pmi_kind]
+    source_id = getattr(rec, "source_id", "")
+    # `error` for a source-bearing record, matching `_record_pmi_no_candidate` and the
+    # three `lint_pmi_*` checks: in annotate mode a requirement that came from the AP242
+    # file and is absent from the drawing is an error, and suppressing the sibling
+    # `pmi_not_rendered` must not quietly downgrade it. An authored declaration with no
+    # source is the author's own, and a warning.
     ctx.record_issue(
-        "warning",
+        "error" if source_id else "warning",
         "dimension_kind_unsupported",
         f"authored {rec.pmi_kind} dimension {getattr(rec, 'label', '')!r} is not drawn: it "
         f"states {basis}, and this renderer measures only a straight projected path",
-        source=getattr(rec, "source_id", ""),
+        source=source_id,
         outcome_stage="validation",
     )
 
@@ -4663,7 +4677,9 @@ def _unsupported_kind_records(records):
     return [
         r
         for r in records
-        if _authored_with_usable_references(r) and r.pmi_kind in _UNRENDERABLE_DIMENSION_KINDS
+        if _authored_with_usable_references(r)
+        and r.pmi_kind in AUTHORED_DIMENSION_KINDS
+        and r.pmi_kind in _UNRENDERABLE_DIMENSION_KINDS
     ]
 
 
