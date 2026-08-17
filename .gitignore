@@ -14,3 +14,15 @@ coverage*.json
 htmlcov/
 site/
 .DS_Store
+
+# Drawing exports. `Drawing.export()` writes wherever the calling script runs from, so
+# ad-hoc scripts drop artefacts in the repo root — `bracket.pdf` and `grm01.pdf` were
+# swept into a commit that way. These are build products, never sources.
+#
+# PDF and DXF have no tracked instances, so they are ignored anywhere. SVG and PNG DO
+# (docs/images/), so only the repo root is ignored — the one place throwaway scripts
+# write to — rather than hiding a legitimate new docs image.
+*.pdf
+*.dxf
+/*.svg
+/*.png
