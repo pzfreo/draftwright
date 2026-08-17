@@ -265,8 +265,7 @@ class TestTheCaptionIsPlacedBeforeTheFreelyPositionedFurniture:
             builder_module.render_gear_tables = original
 
         assert drawing.get_annotation("note_iso_nts") is not None, (
-            "this fixture no longer produces an NTS caption, so it cannot show the "
-            "ordering at all"
+            "this fixture no longer produces an NTS caption, so it cannot show the ordering at all"
         )
         assert "annotation:note_iso_nts" in seen.get("owners", set()), (
             "the gear table was placed before the caption existed, so it could be put "
@@ -335,8 +334,7 @@ class TestTheCandidateOrderIsTheStatedOrder:
         place_iso_nts_note(stand_in, analysis, iso)
         box = _caption_box(stand_in)
         assert box[3] < iso[1], (
-            f"caption at {box} went ABOVE the iso block {iso} while a position below it "
-            f"was free"
+            f"caption at {box} went ABOVE the iso block {iso} while a position below it was free"
         )
 
     def test_directly_below_beats_beside(self):
@@ -450,7 +448,12 @@ class TestTheCaptionAvoidsViewsToo:
         height = natural[3] - natural[1]
         below_y = natural[1] - font - height  # candidate 2 sits one font-height lower
         view_blocker = (natural[0] - 8.0, below_y - 1.0, natural[2] + 8.0, below_y + height + 1.0)
-        annotation_blocker = (natural[0] - 2.0, natural[1] - 1.0, natural[2] + 2.0, natural[3] + 1.0)
+        annotation_blocker = (
+            natural[0] - 2.0,
+            natural[1] - 1.0,
+            natural[2] + 2.0,
+            natural[3] + 1.0,
+        )
         assert not _boxes_overlap(annotation_blocker, view_blocker), (
             "the annotation blocker already covers the further-below position, so the "
             "view is not what rejects it"
