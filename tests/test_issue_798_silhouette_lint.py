@@ -151,7 +151,8 @@ class TestFieldLifecycle:
         assert dwg.material_fields()[key] != "stale"
 
     def test_the_field_is_keyed_by_view_shape_identity(self):
-        # Projected view shapes carry no label — lint names them view@<id> — so the
+        # Projected view shapes carry no label — lint takes their names from
+        # `Drawing.views` since #1196 — so the
         # fields must be reachable from the shape itself, not from a view name.
         dwg = build_drawing(_nested_boss())
         shapes = {id(vis) for vis, _ in dwg.views.values() if vis is not None}

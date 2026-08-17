@@ -29,10 +29,40 @@ from draftwright.linting.structural import _lint_view_shapes, lint_drawing
 
 _QUOTED_VIEW = re.compile(r"view '([^']+)'")
 
+#: A quoted view name followed by the bbox the message prints for it. The dash between
+#: bounds is an EN dash in the rendered message, so the class is permissive.
+_NAMED_BOX = re.compile(
+    r"view '([^']+)'(?: bbox)? \[x=([\d.]+)[-\u2013\u2014]([\d.]+), "
+    r"y=([\d.]+)[-\u2013\u2014]([\d.]+)\]"
+)
+
 
 def _quoted_views(message):
     """Every view name a message quotes, in order."""
     return _QUOTED_VIEW.findall(message)
+
+
+def _named_boxes(message):
+    """``[(name, (x0, y0, x1, y1))]`` — each view the message names, with the box it
+    printed for that view. This is what makes a name/shape check permutation-complete:
+    the numbers travel in the message beside the name, so a mislabelling is visible
+    without any symmetric predicate to hide behind."""
+    return [
+        (name, (float(x0), float(y0), float(x1), float(y1)))
+        for name, x0, x1, y0, y1 in _NAMED_BOX.findall(message)
+    ]
+
+
+def _lint_box(dwg, name):
+    """The box lint measures for *name*: the VISIBLE compound only.
+
+    Deliberately not `Drawing.view_bounds`, which unions visible and hidden geometry —
+    a superset. They coincide on this fixture, but comparing against the superset would
+    make the assertion weaker than the property it claims to check.
+    """
+    visible = dwg.views[name][0]
+    bb = visible.bounding_box()
+    return (bb.min.X, bb.min.Y, bb.max.X, bb.max.Y)
 
 
 _ADDRESS = re.compile(r"view@\d+")
@@ -58,7 +88,15 @@ def _part():
     """A cube on a large sheet: its envelope dimension labels land inside the front
     view's extents, which is what drives the name-carrying codes. Measured — a denser
     holed part on A3/A4 produces none of them, and an earlier draft of this test used
-    one and asserted nothing."""
+    one and asserted nothing.
+
+    NOTE for whoever lands ADR 0018 / #1130: this fixture works *because* the sheet is
+    badly composed — the plan view runs 73 mm off the drawable area and `side` overlaps
+    `iso`. Requirement-driven view planning is meant to remove exactly that, at which
+    point these tests lose their subject and fail loudly (their preconditions are hard
+    asserts, by design). What they need is any drawing where lint names two or more
+    DISTINCT views in one message; `view_annotation_*` on a crowded sheet would do.
+    """
     return Box(50, 50, 50)
 
 
@@ -112,16 +150,31 @@ class TestTheNameMatchesTheViewItDescribes:
             f"view that actually reaches highest — the name/shape correspondence is off"
         )
 
-    def test_the_two_views_reported_as_overlapping_actually_overlap(self):
+    def test_each_named_view_is_reported_with_its_own_bbox(self):
+        # Overlap is SYMMETRIC, so an earlier version of this test — asserting merely
+        # that the two named views overlap — was invariant under swapping them.
+        # Adversarial review swapped `side` and `iso`, producing
+        #   "view 'iso' bbox [x=400.0-650.0 ...] overlaps view 'side' [x=444.6-612.5 ...]"
+        # with both names on each other's boxes, and all 4,092 fast-tier tests passed.
+        #
+        # The message prints the boxes, so compare those. This is permutation-complete
+        # for every view it names: no relabelling survives, because the numbers cannot
+        # move with the name.
         dwg = build_drawing(_part(), page="A1")
         overlaps = [i.message for i in dwg.lint() if i.code == "view_overlap"]
         assert overlaps, "fixture no longer reports overlapping views"
-        first, second = _quoted_views(overlaps[0])[:2]
-        a, b = dwg.view_bounds(first), dwg.view_bounds(second)
-        assert a is not None and b is not None, (first, second)
-        assert _boxes_overlap(a, b), (
-            f"lint named {first!r} and {second!r} as overlapping, but their bounds "
-            f"{a} and {b} are disjoint — the names do not match the shapes"
+        named = _named_boxes(overlaps[0])
+        assert len(named) >= 2, f"expected two named boxes, parsed {named} from {overlaps[0]!r}"
+        for name, printed in named:
+            assert name in dwg.views, f"lint named {name!r}, which is not a view"
+            actual = _lint_box(dwg, name)
+            # 0.06 mm: the message rounds to one decimal place.
+            assert all(abs(p - a) < 0.06 for p, a in zip(printed, actual, strict=True)), (
+                f"lint printed {printed} for view {name!r}, whose real box is "
+                f"{tuple(round(v, 2) for v in actual)} — the name is on the wrong shape"
+            )
+        assert _boxes_overlap(*(box for _n, box in named[:2])), (
+            "the two views reported as overlapping do not overlap"
         )
 
 
@@ -132,10 +185,9 @@ class TestAViewIsNamedByWhatTheCallerCallsIt:
         # so this cannot pass on a hard-coded guess.
         dwg = build_drawing(_part(), page="A1")
         named = [i.message for i in dwg.lint() if i.code in _NAMED_VIEW_CODES]
-        if not named:
-            import pytest
-
-            pytest.skip("fixture produced no view-named lint on this page")
+        # Hard assert, not a skip: this covers the PR's headline claim, and this file's
+        # whole thesis is that a precondition must FAIL rather than quietly vanish.
+        assert named, "fixture produced no view-named lint, so this asserts nothing"
         keys = set(dwg.views)
         quoted = {m.split("view '", 1)[1].split("'", 1)[0] for m in named}
         assert quoted & keys, (
@@ -202,15 +254,31 @@ class TestTheFallbackIsPositionalNotIdentity:
     def test_a_supplied_name_wins_over_the_positional_fallback(self):
         assert any("view 'plan'" in m for m in self._messages(view_names=["plan"]))
 
+    def test_a_supplied_name_also_wins_over_a_label_on_the_shape(self):
+        # The caller is the authority. Untested until adversarial review pointed it out:
+        # reverting to `label or name or supplied` passed every test, because no fixture
+        # anywhere has a TRUTHY label — every real view compound carries `label == ""`.
+        # DXF layer naming is the obvious future reason one would, and it would then
+        # silently override the drawing's own key.
+        labelled = self._Shape((0.0, 0.0, 10.0, 10.0))
+        labelled.label = "compound-42"
+        messages = self._messages(view_names=["plan"], shape=labelled)
+        assert any("view 'plan'" in m for m in messages), messages
+        assert not any("compound-42" in m for m in messages), messages
+
     def test_lint_drawing_accepts_view_shapes_without_names(self):
         # The parameter is optional: an existing caller passing only `view_shapes` must
         # keep working, or this is a breaking change to a documented surface.
+        # `assert isinstance(issues, list)` was the earlier assertion and held even with
+        # view handling removed entirely — `lint_drawing` always returns a list, and this
+        # scenario produced zero issues. Assert the view was actually PROCESSED.
+        annotation = SimpleNamespace(label="A", label_bbox=(2.0, 2.0, 4.0, 4.0))
         issues = lint_drawing(
-            [],
+            [annotation],
             page_bbox=(0.0, 0.0, 100.0, 100.0),
             view_shapes=[self._Shape((0.0, 0.0, 10.0, 10.0))],
         )
-        assert isinstance(issues, list)
+        assert any("view[0]" in i.message for i in issues), [i.message for i in issues]
 
     def test_a_positional_call_in_the_upstream_argument_order_still_binds_the_cache(self):
         # `lint_drawing` is exported in `linting.__all__`, and the upstream helpers'

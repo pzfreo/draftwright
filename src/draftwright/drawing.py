@@ -335,7 +335,8 @@ class BuildState:
     ann_box_cache: dict = dataclasses_field(default_factory=dict)
     #: Per-view filled projected material (#798) as ``{id(view_shape): (shape, field)}``.
     #: Keyed by shape identity because the projected shapes carry no view label — lint
-    #: names them ``view@<id>`` — and holding the shape lets a reused ``id`` be detected,
+    #: takes their names from ``Drawing.views`` since #1196 — and holding the shape lets
+    #: a reused ``id`` be detected,
     #: the same guard ``_view_edge_entries`` carries (#143).
     material_fields: dict = dataclasses_field(default_factory=dict)
     #: The one tessellation behind those fields, or ``None`` once it has been attempted

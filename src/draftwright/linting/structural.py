@@ -260,6 +260,17 @@ def lint_drawing(
             ``leader_crosses_silhouette`` check — without it there is no material
             knowledge and the check reports nothing, rather than guessing from the
             outline and contradicting the router that solves against this same field.
+        view_names: optional names for *view_shapes*, matched **positionally**. The
+            caller is the authority on what a view is called — ``Drawing.views`` is
+            keyed by name and lint has no other way to find out — so a message can say
+            "view 'front'" rather than naming the shape by object address (#1196). A
+            supplied name outranks any ``label``/``name`` on the shape itself; without
+            one, the fallback is the view's position, never its identity.
+            **Appended, not inserted**: the upstream helpers' signature has
+            ``view_edge_cache`` at position 6, and a positional call written against
+            that order would silently bind a cache dict here — degrading the name, then
+            raising ``KeyError`` once the cache was warm and its ``id()`` keys were
+            indexed as a name list.
 
     Returns:
         list[LintIssue].
