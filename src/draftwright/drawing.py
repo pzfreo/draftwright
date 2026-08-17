@@ -2963,7 +2963,12 @@ class Drawing:
         # lint_drawing for bounds checks — draftwright owns linting now and no
         # longer relies on the helpers set_page module-global (ADR 0007).
         page_bbox = (_MARGIN, _MARGIN, self.page_w - _MARGIN, self.page_h - _MARGIN)
-        view_shapes = [vis for vis, _ in self.views.values()]
+        # Names and shapes come out of ONE traversal: lint matches them positionally,
+        # and two separate comprehensions over the same dict would be a silent
+        # correspondence waiting to drift (#1196).
+        view_items = list(self.views.items())
+        view_names = [name for name, _pair in view_items]
+        view_shapes = [vis for _name, (vis, _hidden) in view_items]
         # Prune box-cache entries for objects no longer on the sheet, so replaced
         # annotations (repair's _replace_dim swaps in a fresh object) don't keep
         # their OCC geometry strongly referenced for the drawing's lifetime.
@@ -2983,6 +2988,7 @@ class Drawing:
                 page_bbox=page_bbox,
                 drawing_scale=self.scale,
                 view_shapes=view_shapes,
+                view_names=view_names,
                 view_edge_cache=self._view_edge_cache,
                 ann_box_cache=self._ann_box_cache,
                 view_material_fields=self.material_fields(),
@@ -2996,6 +3002,7 @@ class Drawing:
                     page_bbox=page_bbox,
                     drawing_scale=_scale,
                     view_shapes=view_shapes,
+                    view_names=view_names,
                     view_edge_cache=self._view_edge_cache,
                     ann_box_cache=self._ann_box_cache,
                     view_material_fields=self.material_fields(),

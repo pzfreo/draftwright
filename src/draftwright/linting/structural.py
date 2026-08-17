@@ -187,6 +187,7 @@ def lint_drawing(
     page_bbox=None,
     drawing_scale: float = 1.0,
     view_shapes: list | None = None,
+    view_names: list | None = None,
     view_edge_cache: dict | None = None,
     ann_box_cache: dict | None = None,
     view_material_fields: dict | None = None,
@@ -224,6 +225,10 @@ def lint_drawing(
             dimension while the geometry is drawn enlarged. Defaults to ``1.0``
             (no scaling). See :func:`format_drawing_scale` to render the
             matching "5:1" indicator in the title block.
+        view_names: optional names for *view_shapes*, positionally matched. The
+            caller knows what each view is called (``Drawing.views`` is keyed by
+            name) and lint has no other way to find out, so a message can say
+            "view 'front'" instead of naming the shape by object address (#1196).
         view_shapes: optional list of build123d shapes representing projected
             view outlines.  When provided, annotations are checked against the
             view's actual projected edges (``view_annotation_overlap``,
@@ -400,6 +405,7 @@ def lint_drawing(
             view_shapes,
             items,
             issues,
+            view_names=view_names,
             page_bbox=page_bbox,
             edge_cache=view_edge_cache,
             box_cache=box_cache,
@@ -513,6 +519,8 @@ def _lint_view_shapes(
     view_shapes,
     ann_items,
     issues,
+    *,
+    view_names=None,
     page_bbox=None,
     edge_cache=None,
     box_cache=None,
@@ -520,14 +528,23 @@ def _lint_view_shapes(
     material_fields=None,
 ) -> None:
     """Check views against annotations (#159/#76), each other (#160), and the page (#75)."""
-    # Build named bbox list; use the shape's id as fallback name.
+    # Build the named bbox list. The name must be DETERMINISTIC: several messages
+    # below identify a view by it, and `id()` is a fresh memory address on every
+    # render, so the same sheet linted twice produced different text and any consumer
+    # diffing two renders saw a change that did not exist in the drawing (#1196).
+    # Prefer the caller's own name for the view; fall back to position, never identity.
     named_views = []
     view_shape_ids = set()
-    for vs in view_shapes:
+    for index, vs in enumerate(view_shapes):
         bb = _ann_box(vs, box_cache if box_cache is not None else {})
         if bb is None:
             continue
-        name = getattr(vs, "label", None) or getattr(vs, "name", None) or f"view@{id(vs)}"
+        supplied = (
+            view_names[index] if view_names is not None and index < len(view_names) else None
+        )
+        name = (
+            getattr(vs, "label", None) or getattr(vs, "name", None) or supplied or f"view[{index}]"
+        )
         named_views.append((name, bb, vs))
         view_shape_ids.add(id(vs))
 
