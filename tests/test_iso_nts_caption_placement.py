@@ -550,3 +550,62 @@ class TestRealDrawingsAreUnchangedWhereTheyWereClear:
         # rejected every candidate and made the whole check a no-op.
         dwg = build_drawing(Box(80, 40, 12), page="A3", frame=True)
         assert not [i for i in dwg.lint() if i.code == "annotation_overlap"]
+
+
+class _Unmeasurable:
+    """A duck-typed item whose `bounding_box()` raises — the compatibility-surface
+    object the two `except Exception` arms exist for."""
+
+    label_bbox = None
+
+    def bounding_box(self):
+        raise RuntimeError("Standard_DomainError")
+
+
+class TestAnUnmeasurableItemDoesNotTakeTheWholeSetDownWithIt:
+    """Three fail-open paths that the docstrings promise and nothing exercised. Each is a
+    duck-typed object misbehaving, which is exactly when a placer must degrade rather
+    than raise: the caller is mid-build with a drawing half-assembled.
+    """
+
+    def test_an_anonymous_item_that_cannot_be_measured_is_skipped(self):
+        # `Drawing.add(obj)` (supported until 0.5.0) yields items with no registry
+        # identity, measured by full bbox. One that raises must not abort the walk and
+        # lose every LATER obstacle with it.
+        from draftwright.annotations._common import late_furniture_obstacles
+
+        stand_in, _analysis = _harness([(150.0, 100.0, 260.0, 122.0)])
+        # In `items` but NOT in `_names`: that is what "anonymous" means here.
+        stand_in.items.insert(0, _Unmeasurable())
+        stand_in.items.append(_Blocker((10.0, 10.0, 20.0, 20.0)))
+
+        boxes = late_furniture_obstacles(stand_in)
+        assert (10.0, 10.0, 20.0, 20.0) in boxes, (
+            "an unmeasurable item earlier in the list swallowed the ones after it"
+        )
+
+    def test_an_unmeasurable_title_block_leaves_the_rest_of_the_set_intact(self):
+        # The hull is the fallback for a block with no label box; when even the hull
+        # cannot be measured the decomposed grid lines remain, so the set degrades
+        # rather than raising.
+        from draftwright.annotations._common import late_furniture_obstacles
+
+        stand_in, _analysis = _harness([(150.0, 100.0, 260.0, 122.0)])
+        stand_in._names["title_block"] = _Unmeasurable()
+
+        boxes = late_furniture_obstacles(stand_in)
+        assert (150.0, 100.0, 260.0, 122.0) in boxes
+
+    def test_a_caption_whose_own_box_is_unresolvable_is_still_placed(self, monkeypatch):
+        # Policy B at its limit: if the caption cannot be measured it cannot be placed
+        # *carefully*, but it is still required content and must reach the sheet. The
+        # alternative — returning without placing — silently drops the one annotation
+        # that says the view is not to scale.
+        import draftwright.annotations._common as common
+
+        monkeypatch.setattr(common, "_anno_box", lambda _o: None)
+        stand_in, analysis = _harness([])
+        place_iso_nts_note(stand_in, analysis, (180.0, 120.0, 220.0, 160.0))
+        assert stand_in.registry.named("note_iso_nts") is not None, (
+            "an unmeasurable caption was dropped instead of placed"
+        )
