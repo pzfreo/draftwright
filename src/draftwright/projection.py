@@ -16,7 +16,7 @@ import math
 
 import numpy as np
 from build123d import Compound, Edge, GeomType, Location, Plane, ThreePointArc, Vector
-from build123d_drafting.helpers import Note, ViewCoordinates, view_axes
+from build123d_drafting.helpers import ViewCoordinates, view_axes
 from OCP.BRepAdaptor import BRepAdaptor_Surface
 from OCP.BRepMesh import BRepMesh_IncrementalMesh
 from OCP.BRepTools import BRepTools
@@ -30,17 +30,11 @@ from OCP.GeomAbs import (
 
 from draftwright._core import (
     Analysis,
-    _anno_box,
     _iso_bbox,
-    overlap_exempt,
-    place_annotation,
-    stroke_pad_for,
 )
 from draftwright._geometry import (
     MaterialField,
-    _boxes_overlap,
     material_field,
-    segment_boxes,
 )
 
 _log = logging.getLogger(__name__)
@@ -364,133 +358,16 @@ def _project_iso(dwg, a: Analysis, scale, shape_s=None):
     )
 
 
-def _place_iso_nts_note(dwg, a: Analysis, bb) -> None:
-    """Place the "ISO VIEW (NTS)" caption clear of what is already on the sheet.
+def _fit_iso_view(dwg, a: Analysis):
+    """Scale the iso view to fill its page zone; return its bbox when the result is
+    NOT to sheet scale and therefore needs an NTS caption, else ``None``.
 
-    This ran with **no collision check at all** — the caption was dropped a fixed two
-    font-heights below the iso bbox and committed. And `_fit_iso_view` runs AFTER
-    `_auto_annotate`, so every dimension and callout is already placed by then: the
-    annotations could not avoid a caption that did not exist yet, and the caption did
-    not look at them. On a sparse sheet nothing collides and the fault is invisible; on
-    a part whose callouts reach under the iso, the caption lands on top of one.
-
-    The caption tries its natural position first — preserving today's placement wherever
-    that is clear — then falls back around the iso block. If nothing is clear it is
-    placed naturally anyway: a caption saying which view is not to scale is required
-    content, and Policy B keeps required content at a visible cost rather than dropping
-    it (the overlap is then reported by the ordinary `annotation_overlap` lint).
-
-    The obstacle set is **exactly what the `annotation_overlap` lint compares** — label
-    box where there is one, whole hull otherwise, minus `_core.overlap_exempt` — because
-    that lint is the backstop this fallback appeals to, and a placer must not lean on a
-    check that cannot see what it just did. Two earlier cuts each got one side wrong:
-    plain `_anno_box` returns the page-spanning rectangle for the sheet frame and zone
-    grid, so with `frame=True` every candidate was rejected and the whole check became a
-    silent no-op (#1145 is the same trap); label boxes only then went blind to the title
-    block, which has no label box at all, and walked the caption into it.
-
-    Plus one thing the lint does NOT see: the decomposed stroke boxes of a labelled item
-    (`segment_boxes`). A leader shaft or witness line crossing the caption is a real
-    legibility defect that a label-extent comparison can never report — measured on
-    CTC-05, where the caption sat across `m_locy2`'s witness line and lint said clean.
-    Avoiding more than the lint reports is safe in this direction; the reverse is not.
-    """
-    font = dwg.draft.font_size
-    natural = (a.ISO_X, max(bb[1] - 2 * font, a.margin + font))
-
-    # One Note is built, not one per candidate: its box is position-invariant apart from
-    # translation, so the rest are derived arithmetically rather than by six throwaway
-    # OCC text builds on a path the repack loop runs up to three times per build.
-    probe = Note("ISO VIEW (NTS)", natural, dwg.draft)
-    base = _anno_box(probe)
-    if base is None:
-        place_annotation(dwg.registry, dwg.items, probe, "note_iso_nts")
-        return
-    width, height = base[2] - base[0], base[3] - base[1]
-    offset_x, offset_y = base[0] - natural[0], base[1] - natural[1]
-
-    # Sideways candidates are expressed as a desired BOX EDGE and converted back through
-    # `offset_x`, so they clear the iso block's real extent whatever the Note's anchor
-    # convention is. The previous form stepped `(bb width)/2 + (caption width)/2 + font`
-    # from `ISO_X`, which assumes the iso bbox is centred on `ISO_X` — measured on a real
-    # A3 build its centre is 332.9 against an `ISO_X` of 310, so the step both overshot
-    # one side and undershot the other.
-    #
-    # Order is by how well the caption still reads as belonging to the iso view: directly
-    # below (today's placement), then further below, then beside it, and only last ABOVE
-    # — a caption over its view is against drawing convention, so it must not be reached
-    # while a below-or-beside position is free. Left before right is arbitrary but fixed,
-    # because ADR 0001 requires the same sheet twice.
-    candidates = [
-        natural,
-        (a.ISO_X, max(bb[1] - 3 * font - height, a.margin + font)),
-        (bb[0] - font - width - offset_x, natural[1]),
-        (bb[2] + font - offset_x, natural[1]),
-        (a.ISO_X, min(bb[3] + 2 * font, a.PAGE_H - a.margin - font)),
-    ]
-
-    obstacles: list[tuple[float, float, float, float]] = []
-    pad = stroke_pad_for(dwg.draft)
-    for item in dwg.items:
-        if overlap_exempt(item):
-            continue
-        label = getattr(item, "label_bbox", None)
-        box = tuple(label) if label is not None else _anno_box(item)
-        if box is not None:
-            obstacles.append(box)
-        if label is not None:
-            # Strokes are added only ALONGSIDE a label box. An item with no label is
-            # already represented by its whole hull, and decomposing that instead would
-            # shrink the obstacle below what the lint compares.
-            obstacles.extend(segment_boxes(getattr(item, "segments", None) or (), pad))
-    for placed in getattr(dwg, "views", {}).values():
-        for shape in placed or ():
-            if shape is None:
-                continue
-            try:
-                bounds = shape.bounding_box()
-            except Exception:  # noqa: BLE001 — an unmeasurable view is simply not an obstacle
-                continue
-            obstacles.append((bounds.min.X, bounds.min.Y, bounds.max.X, bounds.max.Y))
-
-    chosen, seen = natural, set()
-    for position in candidates:
-        key = (round(position[0], 6), round(position[1], 6))
-        if key in seen:
-            continue  # a clamped candidate can coincide with one already rejected
-        seen.add(key)
-        box = (
-            position[0] + offset_x,
-            position[1] + offset_y,
-            position[0] + offset_x + width,
-            position[1] + offset_y + height,
-        )
-        # Horizontal only. Every y candidate is already clamped into
-        # [margin + font, PAGE_H - margin - font] above — which is load-bearing, since
-        # the last-resort fallback is the natural position and that must be on the page
-        # — so a vertical check here is unreachable, and an unreachable guard is a guard
-        # no test can cover. The x candidates are NOT clamped: `side_step` deliberately
-        # pushes past the iso block and can leave the sheet, which is what this catches.
-        if box[0] < a.margin or box[2] > a.PAGE_W - a.margin:
-            continue
-        if any(_boxes_overlap(box, other) for other in obstacles):
-            continue
-        chosen = position
-        break
-    place_annotation(
-        dwg.registry,
-        dwg.items,
-        probe if chosen == natural else Note("ISO VIEW (NTS)", chosen, dwg.draft),
-        "note_iso_nts",
-    )
-
-
-def _fit_iso_view(dwg, a: Analysis, annotate: bool = True):
-    """Scale the iso view to fill its page zone, captioning it NTS when the
-    scale differs from sheet scale.  Pass ``annotate=False`` to suppress the
-    NTS note — used on the finalize detail-refit, which re-fits an iso whose
-    note the build already placed (both the auto and ``auto_dims=False`` build
-    paths label it, so a second add would be redundant).
+    It does not place that caption. The caption is late furniture — it must clear the
+    whole settled sheet — and this module sits below the occupancy model that knows
+    what "clear" means, so placing it here left it with a hand-rolled obstacle set that
+    was wrong twice (#1197). The caller owns the decision: `builder` places it at the
+    common post-fit point beside the tables, and the finalize detail-refit simply
+    ignores the return, as it must — that iso's caption was placed by the build.
 
     The iso is always centred at (ISO_X, ISO_Y) which sits at the centre of
     the available zone.  The projection is linear, so the factor needed to
@@ -553,6 +430,5 @@ def _fit_iso_view(dwg, a: Analysis, annotate: bool = True):
     bb = _iso_bbox(dwg)
     if factor < 1.0 and not _bbox_within(bb, region):
         _log.warning("Iso view still overflows its page region at %g× sheet scale", factor)
-    if annotate:
-        _place_iso_nts_note(dwg, a, bb)
-    _log.info("Iso view scaled to %g× sheet scale%s", factor, " (NTS)" if annotate else "")
+    _log.info("Iso view scaled to %g× sheet scale (NTS)", factor)
+    return bb

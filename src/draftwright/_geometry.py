@@ -236,26 +236,6 @@ def _boxes_overlap(a, b) -> bool:
     return bool(a[0] < b[2] and a[2] > b[0] and a[1] < b[3] and a[3] > b[1])
 
 
-def segment_boxes(segments, pad: float) -> list[tuple[float, float, float, float]]:
-    """One inflated AABB per drawn stroke in *segments* (``((x0, y0), (x1, y1))``).
-
-    The decomposition behind :func:`annotations._common.occupancy_boxes` (#685): an
-    annotation's rendered HULL includes large empty corners — a dimension's ink is
-    L-shaped — so a hull obstacle blocks space the ink never occupies. It lives at the
-    geometry leaf rather than in the annotations layer because obstacle sets are also
-    needed BELOW that layer: :func:`projection._place_iso_nts_note` must see a leader
-    shaft, and cannot import upward (#1197).
-
-    *pad* is supplied, not derived: how far a stroke's ink spreads past its centreline
-    is drafting policy (line width, arrowheads), which this module is barred from
-    carrying — it comes from :func:`draftwright._core.stroke_pad_for`.
-    """
-    return [
-        (min(x0, x1) - pad, min(y0, y1) - pad, max(x0, x1) + pad, max(y0, y1) + pad)
-        for (x0, y0), (x1, y1) in segments
-    ]
-
-
 def _segment_crosses_box(p1, p2, box) -> bool:
     """True when line segment *p1*-*p2* intersects axis-aligned *box*
     ``(x0, y0, x1, y1)`` — the precise counterpart of ``_box_hits`` for a

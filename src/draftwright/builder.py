@@ -43,7 +43,7 @@ from draftwright._core import (
 )
 from draftwright._warnings import ScaleCompletenessWarning
 from draftwright.analysis import Analysis, _analyse
-from draftwright.annotations._common import SolveTrace
+from draftwright.annotations._common import SolveTrace, place_iso_nts_note
 from draftwright.annotations.gears import render_gear_tables
 from draftwright.annotations.orchestrator import (
     _auto_annotate,
@@ -464,7 +464,7 @@ def _assemble(
         # so `annotations/` stays off the state bus (#639/#830). Filled at the single site
         # below, not here — see there (#996 / ADR 0005 §2).
         _diagnostics = _auto_annotate(dwg, a, detail_view=detail_view)
-        _fit_iso_view(dwg, a)
+        _nts_bb = _fit_iso_view(dwg, a)
         _ix0, _iy0, _, _iy1 = _iso_bbox(dwg)
         _final_iso_x_lim = _ix0 - 4
         a.fv_zones.right.outer_limit = min(_fv_ol, _final_iso_x_lim)
@@ -480,7 +480,7 @@ def _assemble(
         # note is sheet furniture — like the title block below — that states the iso is
         # not to scale. Suppressing it here silently diverged the emitted-script drawing
         # (auto_dims=False) from the direct CLI, which always labels it (script↔CLI parity).
-        _fit_iso_view(dwg, a)
+        _nts_bb = _fit_iso_view(dwg, a)
         _add_title_block(dwg, a)
         if a.frame:  # sheet border, drawn last (#767) — auto path adds it via the orchestrator
             _add_sheet_frame(dwg, a)
@@ -488,6 +488,13 @@ def _assemble(
             _add_zone_grid(dwg, a)
         if a.projection:  # projection-method glyph (#769) — auto path adds it via the orchestrator
             _add_projection_symbol(dwg, a)
+
+    # The NTS caption is post-fit late furniture too, and goes FIRST: it is tied to the
+    # iso block it labels, whereas a table may sit anywhere the sheet has room. Placing
+    # the constrained one first makes it an obstacle for the free one rather than the
+    # reverse (`_fit_iso_view` returns the bbox only when the iso is off sheet scale).
+    if _nts_bb is not None:
+        place_iso_nts_note(dwg, a, _nts_bb)
 
     # Gear tables are deliberately post-fit late furniture. `_auto_annotate` runs before
     # `_fit_iso_view`; placing a table there lets the subsequently fitted ISO view move into

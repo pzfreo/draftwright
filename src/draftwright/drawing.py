@@ -52,7 +52,7 @@ from draftwright.annotations._common import (
     PlacementContext,
     _register_hole_table_coverage,
     carve_free_position,
-    strip_obstacles,
+    late_furniture_obstacles,
 )
 from draftwright.annotations.balloons import render_balloons
 from draftwright.annotations.leaders import drain_feature_leaders
@@ -2543,7 +2543,7 @@ class Drawing:
                     _project_iso(self, a, a.SCALE)
                 _resolve_details(self, a, ctx=ctx)
                 if "iso" in self.views:
-                    _fit_iso_view(self, a, annotate=False)
+                    _fit_iso_view(self, a)
 
         def _s_tabulate():
             # Dense-scattered plan-view holes escalate to the hole TABLE + balloon ring —
@@ -2691,54 +2691,11 @@ class Drawing:
         pw = a.PAGE_W if a is not None else self.page_w
         ph = a.PAGE_H if a is not None else self.page_h
         region = (margin, margin, pw - margin, ph - margin)
-        obstacles = [
-            (f"view:{view}", box)
-            for view in self.views
-            if (box := self.view_bounds(view)) is not None
-        ]
-        for annotation_name, box in strip_obstacles(self, named=True):
-            annotation = self.get_annotation(annotation_name)
-            # The border and zone ruler DEFINE the usable region above; treating
-            # either one's page-spanning Compound bbox as a solid obstacle makes
-            # every interior free rectangle disappear (#1145).  Their clearance
-            # is already encoded by ``a.margin``.
-            if any(
-                getattr(annotation, rider, False) for rider in ("is_sheet_frame", "is_zone_grid")
-            ):
-                continue
-            obstacles.append((f"annotation:{annotation_name}", box))
-
-        # ``Drawing.add(obj, name=None)`` remains a supported compatibility
-        # surface until 0.5.0. Anonymous objects have no registry identity, so
-        # the named occupancy walk above cannot see them; retain the old full-bbox
-        # fallback for ONLY those objects (#1145 review), without reintroducing a
-        # coarse duplicate hull for every registered leader/dimension.
-        registered_ids = {id(annotation) for _name, annotation in self.iter_annotations()}
-        for index, annotation in enumerate(self.items):
-            if id(annotation) in registered_ids:
-                continue
-            try:
-                bb = annotation.bounding_box()
-            except Exception:  # noqa: BLE001 — not every compatibility object bbox-es cleanly
-                continue
-            obstacles.append(
-                (f"anonymous-annotation[{index}]", (bb.min.X, bb.min.Y, bb.max.X, bb.max.Y))
-            )
-
-        # A title block's decomposed grid lines bound text-filled cells; the whole
-        # block is furniture, not a collection of free pockets.  Keep its rendered
-        # hull as one named obstacle while other leaders/dimensions retain the more
-        # precise segment + label occupancy from ``strip_obstacles``.
-        title_block = self.get_annotation("title_block")
-        if title_block is not None:
-            try:
-                bb = title_block.bounding_box()
-            except Exception:  # noqa: BLE001 — the decomposed occupancy remains available
-                pass
-            else:
-                obstacles.append(
-                    ("annotation:title_block", (bb.min.X, bb.min.Y, bb.max.X, bb.max.Y))
-                )
+        # The shared post-fit occupancy policy — views, decomposed annotation ink, minus
+        # the page-spanning riders, plus the title-block hull. Extracted so the NTS
+        # caption places against the same set (#1197); every hand-rolled copy of it has
+        # dropped one of the four parts.
+        obstacles = late_furniture_obstacles(self, named=True)
 
         trace = FitBoxTrace()
         pos = fit_box(

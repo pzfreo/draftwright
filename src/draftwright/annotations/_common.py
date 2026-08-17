@@ -16,20 +16,17 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from build123d_drafting.helpers import DEFAULT_FONT_PATH, Dimension, SafeDimension
+from build123d_drafting.helpers import DEFAULT_FONT_PATH, Dimension, Note, SafeDimension
 
 from draftwright._core import (  # noqa: F401 — _anno_box re-exported (#700)
-    STROKE_PAD,
     _anno_box,
     _text_size,
     place_annotation,
-    stroke_pad_for,
 )
 from draftwright._geometry import (  # noqa: F401
     _boxes_overlap,
     _segment_clips_box,
     _segment_crosses_box,
-    segment_boxes,
 )
 from draftwright.layout import StripCandidate, plan_strip
 from draftwright.linting.issues import LintIssue
@@ -977,18 +974,174 @@ def occupancy_boxes(o, stroke_pad=None):
     if not segs:
         b = _geom_box(o)
         return [b] if b is not None else []
-    out = segment_boxes(segs, _STROKE_PAD if stroke_pad is None else stroke_pad)
+    pad = _STROKE_PAD if stroke_pad is None else stroke_pad
+    out = [
+        (min(x0, x1) - pad, min(y0, y1) - pad, max(x0, x1) + pad, max(y0, y1) + pad)
+        for (x0, y0), (x1, y1) in segs
+    ]
     lb = getattr(o, "label_bbox", None)
     if lb is not None:
         out.append((lb[0], lb[1], lb[2], lb[3]))
     return out
 
 
-# The shared default stroke inflation. The stroke DECOMPOSITION moved down to the
-# geometry leaf and the PAD POLICY to `_core` (#1197), so placers below the annotations
-# layer build the same obstacle boxes. Kept as a module name because this module's
-# docstrings and callers name it.
-_STROKE_PAD = STROKE_PAD
+# Fallback stroke inflation for decomposed occupancy: line_width/2 (~0.08) plus the
+# arrowhead half-width at stroke junctions at DEFAULT presets. Arrow geometry scales
+# with font_size (#688 review), so callers that know the draft derive the pad as
+# max(_STROKE_PAD, draft.arrow_length / 2) — arrow half-LENGTH bounds the head's
+# half-width (aspect < 1) AND its protrusion past an inside-arrow shaft trim (al/2).
+_STROKE_PAD = 1.2
+
+
+def late_furniture_obstacles(dwg, *, named=False):
+    """Everything a POST-FIT placement must keep clear of, as AABBs.
+
+    Late furniture — the gear/BOM/revision tables, the hole table, the iso's NTS
+    caption — is placed after ``_fit_iso_view`` has settled the views, so unlike a
+    strip occupant it faces the whole finished sheet. All of it needs the same four
+    things, and the policy is subtle enough in three places that every copy has got
+    one of them wrong:
+
+    * **views**, which own no annotation and so never appear in ``strip_obstacles``;
+    * **the decomposed annotation occupancy**, because a placer consulting only label
+      boxes commits into space a leader shaft or witness line already crosses — the
+      'invisible occupant' class (#133/#225/#305, and again in #1197);
+    * **minus the border and zone ruler**, whose page-spanning Compound bbox has no
+      ``.segments`` to decompose and would otherwise swallow the entire sheet, making
+      the check a silent no-op (#1145);
+    * **plus the title block as one hull**, because its grid lines bound text-filled
+      cells — it is furniture, not a lattice of free pockets — and it carries no
+      ``label_bbox``, so nothing else reaches it.
+
+    Anonymous items (the pre-0.5.0 ``Drawing.add(obj)`` surface) have no registry
+    identity for the named walk to find, so they keep the coarse full-bbox fallback.
+
+    With *named*, boxes come back as ``(owner, box)`` pairs for diagnostics.
+    """
+    obstacles = [
+        (f"view:{view}", box) for view in dwg.views if (box := dwg.view_bounds(view)) is not None
+    ]
+    for annotation_name, box in strip_obstacles(dwg, named=True):
+        annotation = dwg.get_annotation(annotation_name)
+        if any(getattr(annotation, rider, False) for rider in ("is_sheet_frame", "is_zone_grid")):
+            continue
+        obstacles.append((f"annotation:{annotation_name}", box))
+
+    registered_ids = {id(annotation) for _name, annotation in dwg.iter_annotations()}
+    for index, annotation in enumerate(dwg.items):
+        if id(annotation) in registered_ids:
+            continue
+        try:
+            bb = annotation.bounding_box()
+        except Exception:  # noqa: BLE001 — not every compatibility object bbox-es cleanly
+            continue
+        obstacles.append(
+            (f"anonymous-annotation[{index}]", (bb.min.X, bb.min.Y, bb.max.X, bb.max.Y))
+        )
+
+    title_block = dwg.get_annotation("title_block")
+    if title_block is not None:
+        try:
+            bb = title_block.bounding_box()
+        except Exception:  # noqa: BLE001 — the decomposed occupancy remains available
+            pass
+        else:
+            obstacles.append(("annotation:title_block", (bb.min.X, bb.min.Y, bb.max.X, bb.max.Y)))
+
+    return obstacles if named else [box for _owner, box in obstacles]
+
+
+def place_iso_nts_note(dwg, a, bb) -> None:
+    """Place the "ISO VIEW (NTS)" caption clear of what is already on the sheet.
+
+    This ran with **no collision check at all** — the caption was dropped a fixed two
+    font-heights below the iso bbox and committed. And `_fit_iso_view` runs AFTER
+    `_auto_annotate`, so every dimension and callout is already placed by then: the
+    annotations could not avoid a caption that did not exist yet, and the caption did
+    not look at them. On a sparse sheet nothing collides and the fault is invisible; on
+    a part whose callouts reach under the iso, the caption lands on top of one.
+
+    The caption tries its natural position first — preserving today's placement wherever
+    that is clear — then falls back around the iso block. If nothing is clear it is
+    placed naturally anyway: a caption saying which view is not to scale is required
+    content, and Policy B keeps required content at a visible cost rather than dropping
+    it (the overlap is then reported by the ordinary `annotation_overlap` lint).
+
+    Obstacles come from :func:`late_furniture_obstacles` — the same set the tables
+    place against. Two earlier cuts of this function hand-rolled their own and each got
+    one part wrong: whole-geometry boxes swallowed the sheet frame and rejected every
+    candidate (a silent no-op, #1145's trap); label boxes then went blind to the title
+    block and walked the caption into it, and blind to leader shafts, which is the
+    'invisible occupant' class the shared set exists to close. This function places
+    late furniture, so it uses the late-furniture occupancy; it does not get its own.
+
+    """
+    font = dwg.draft.font_size
+    natural = (a.ISO_X, max(bb[1] - 2 * font, a.margin + font))
+
+    # One Note is built, not one per candidate: its box is position-invariant apart from
+    # translation, so the rest are derived arithmetically rather than by six throwaway
+    # OCC text builds on a path the repack loop runs up to three times per build.
+    probe = Note("ISO VIEW (NTS)", natural, dwg.draft)
+    base = _anno_box(probe)
+    if base is None:
+        place_annotation(dwg.registry, dwg.items, probe, "note_iso_nts")
+        return
+    width, height = base[2] - base[0], base[3] - base[1]
+    offset_x, offset_y = base[0] - natural[0], base[1] - natural[1]
+
+    # Sideways candidates are expressed as a desired BOX EDGE and converted back through
+    # `offset_x`, so they clear the iso block's real extent whatever the Note's anchor
+    # convention is. The previous form stepped `(bb width)/2 + (caption width)/2 + font`
+    # from `ISO_X`, which assumes the iso bbox is centred on `ISO_X` — measured on a real
+    # A3 build its centre is 332.9 against an `ISO_X` of 310, so the step both overshot
+    # one side and undershot the other.
+    #
+    # Order is by how well the caption still reads as belonging to the iso view: directly
+    # below (today's placement), then further below, then beside it, and only last ABOVE
+    # — a caption over its view is against drawing convention, so it must not be reached
+    # while a below-or-beside position is free. Left before right is arbitrary but fixed,
+    # because ADR 0001 requires the same sheet twice.
+    candidates = [
+        natural,
+        (a.ISO_X, max(bb[1] - 3 * font - height, a.margin + font)),
+        (bb[0] - font - width - offset_x, natural[1]),
+        (bb[2] + font - offset_x, natural[1]),
+        (a.ISO_X, min(bb[3] + 2 * font, a.PAGE_H - a.margin - font)),
+    ]
+
+    obstacles = late_furniture_obstacles(dwg)
+
+    chosen, seen = natural, set()
+    for position in candidates:
+        key = (round(position[0], 6), round(position[1], 6))
+        if key in seen:
+            continue  # a clamped candidate can coincide with one already rejected
+        seen.add(key)
+        box = (
+            position[0] + offset_x,
+            position[1] + offset_y,
+            position[0] + offset_x + width,
+            position[1] + offset_y + height,
+        )
+        # Horizontal only. Every y candidate is already clamped into
+        # [margin + font, PAGE_H - margin - font] above — which is load-bearing, since
+        # the last-resort fallback is the natural position and that must be on the page
+        # — so a vertical check here is unreachable, and an unreachable guard is a guard
+        # no test can cover. The x candidates are NOT clamped: `side_step` deliberately
+        # pushes past the iso block and can leave the sheet, which is what this catches.
+        if box[0] < a.margin or box[2] > a.PAGE_W - a.margin:
+            continue
+        if any(_boxes_overlap(box, other) for other in obstacles):
+            continue
+        chosen = position
+        break
+    place_annotation(
+        dwg.registry,
+        dwg.items,
+        probe if chosen == natural else Note("ISO VIEW (NTS)", chosen, dwg.draft),
+        "note_iso_nts",
+    )
 
 
 def annotation_obstacle_boxes(dwg, annotation):
@@ -999,7 +1152,9 @@ def annotation_obstacle_boxes(dwg, annotation):
     the boxes :func:`strip_obstacles` will expose after placement (#740).
     """
 
-    return occupancy_boxes(annotation, stroke_pad=stroke_pad_for(getattr(dwg, "draft", None)))
+    arrow_length = getattr(getattr(dwg, "draft", None), "arrow_length", None)
+    pad = max(_STROKE_PAD, arrow_length / 2) if arrow_length else _STROKE_PAD
+    return occupancy_boxes(annotation, stroke_pad=pad)
 
 
 def strip_obstacles(dwg, view=None, *, crossable=(), named=False):
