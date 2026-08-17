@@ -615,6 +615,62 @@ def load_corpus(path: str | Path) -> BenchmarkCorpus:
     return BenchmarkCorpus(corpus_version, _METRIC_VERSION, scope, tuple(cases))
 
 
+#: How close a recognised hole's mouth must be to an IR feature's origin, in the plane
+#: normal to its axis, to be the same hole. Generous: the recogniser reports the mouth and
+#: the compiler may mint the origin at either end, so only the IN-PLANE position is
+#: compared, and the diameter must agree independently.
+_CORRESPONDENCE_TOLERANCE = 1e-6
+
+
+def _hole_features(drawing) -> list:
+    """Every IR hole feature on *drawing*, in model order."""
+    return [f for f in drawing.model().features if type(f).__name__ == "HoleFeature"]
+
+
+def _in_plane(point, axis: str) -> tuple[float, ...]:
+    """*point* with the component along *axis* dropped — the coordinates that identify a
+    hole regardless of which end of the bore a producer chose to name."""
+    drop = {"x": 0, "y": 1, "z": 2}[axis]
+    return tuple(float(v) for i, v in enumerate(point) if i != drop)
+
+
+def _axis_letter(vector) -> str:
+    return max(zip("xyz", vector, strict=True), key=lambda pair: abs(pair[1]))[0]
+
+
+def _drawing_consumer_outcome(hole, features, drawing) -> Outcome:
+    """Did the DRAWING call this recognised hole out? — observed, not declared.
+
+    ``supported`` the feature covering this hole carries a hole callout (``hc_*``);
+    ``unsupported`` a feature covers it and carries none, so the fact was recognised and
+    then lost before the sheet; ``unknown`` no feature corresponds, which is a gap in the
+    recognition-record-to-IR correspondence ADR 0017 explicitly does not yet provide — an
+    honest non-answer, never silently scored as either success or failure.
+    """
+    axis = _axis_letter(hole.axis)
+    target = _in_plane(hole.location, axis)
+    for feature in features:
+        if feature.frame.axis != axis or abs(feature.diameter - hole.diameter) > 1e-9:
+            continue
+        # A grouped `count×` callout covers several holes through one feature, so every
+        # member position counts, not just the frame origin.
+        positions = feature.members or (feature.frame.origin,)
+        if not any(
+            all(
+                abs(a - b) <= _CORRESPONDENCE_TOLERANCE
+                for a, b in zip(_in_plane(position, axis), target, strict=True)
+            )
+            for position in positions
+        ):
+            continue
+        return (
+            "supported"
+            if any(n.startswith("hc_") for n in drawing.annotations_of(feature))
+            else "unsupported"
+        )
+    return "unknown"
+
+
 def _default_observers() -> Mapping[str, Observer]:
     from b123d_recognisers import build_recognition_result
 
@@ -626,10 +682,29 @@ def _default_observers() -> Mapping[str, Observer]:
     consumer = consumer_capability_declaration()
     validate_recogniser_capabilities(consumer)
     declaration = next(family for family in consumer["families"] if family["id"] == "holes")
-    downstream = {boundary: declaration[boundary]["state"] for boundary in _DOWNSTREAM_BOUNDARIES}
+    # The other three boundaries remain DECLARED states — "this code path exists" — which
+    # is the same self-validating shape, one layer along, and is tracked separately. Only
+    # `drawing_consumer` is observed here, because that is the boundary #1176 is about:
+    # a drawing scoring 1.0 while omitting the geometry it owes.
+    declared = {
+        boundary: declaration[boundary]["state"]
+        for boundary in _DOWNSTREAM_BOUNDARIES
+        if boundary != "drawing_consumer"
+    }
 
     def observe_holes(part: object) -> Sequence[ObservedFact]:
+        # The concrete module, not the package root: ``from draftwright import ...``
+        # pulls ``draftwright/__init__.py``, which the DAG guard treats as the TOP module,
+        # so it reads as an upward lazy import out of this top-layer package and fails
+        # ``test_lazy_upward_imports_are_documented`` (ADR 0005 / #640).
+        from draftwright.builder import build_drawing
+
         recognition = build_recognition_result(part)  # type: ignore[arg-type]
+        # ONE drawing for the whole fixture, built here rather than per hole: the
+        # observation is "what did the sheet do with this fact", so it must come from a
+        # real build, and building per hole would multiply the cost by the hole count.
+        drawing = build_drawing(part)  # type: ignore[arg-type]
+        features = _hole_features(drawing)
         return tuple(
             ObservedFact(
                 family="holes",
@@ -639,7 +714,10 @@ def _default_observers() -> Mapping[str, Observer]:
                     "depth": hole.depth,
                     "diameter": hole.diameter,
                 },
-                downstream=downstream,
+                downstream={
+                    **declared,
+                    "drawing_consumer": _drawing_consumer_outcome(hole, features, drawing),
+                },
             )
             for hole in recognition.holes
         )
