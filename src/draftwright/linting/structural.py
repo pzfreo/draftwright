@@ -154,6 +154,35 @@ def _label_bbox(item, warned=None):
         return None
 
 
+def _label_readings(label: str) -> tuple[float, ...]:
+    """Every value *label* could be asserting about the path it is drawn on.
+
+    Usually one. A bare ``N× v`` is two, because this codebase draws that label under two
+    different conventions and the label cannot tell them apart:
+
+    * ``dim_step_typ`` "8× 15" is ONE representative step drawn at **15** — "eight of
+      these, each 15";
+    * a hole pitch "3× 20" (``annotations/holes.py``) spans the whole run at **60**.
+
+    Comparing against only the product reported the TYP dimension as a 700% error. That was
+    survivable while this check was a warning and became a build failure the moment a
+    material discrepancy became one (#1153), so the ambiguity is now admitted rather than
+    resolved by guessing: a dimension is consistent if it matches EITHER reading.
+
+    The cost is a genuinely wrong ``N× v`` dimension that happens to equal the other
+    reading. Narrowing that needs the ANNOTATION to say which convention it used, which
+    the rendered object does not currently carry.
+    """
+    value = _label_value(label)
+    if value is None:
+        return ()
+    repeat = re.match(r"\s*(\d+)\s*[×x]\s*(\d+\.?\d*)\s*$", label.split("±")[0].strip())
+    if repeat is not None:
+        per = float(repeat.group(2))
+        return (value, per) if per != value else (value,)
+    return (value,)
+
+
 def _label_value(label: str) -> float | None:
     """The dimensional value a dimension/callout label asserts, or ``None``.
 
@@ -842,11 +871,30 @@ def _is_angular_label(label: str) -> bool:
     return any(mark in lowered for mark in _DEGREE_MARKS)
 
 
+#: Above this relative discrepancy a dimension does not merely round differently from its
+#: geometry — it states something false, and the drawing asserts a measurement the part does
+#: not have. That is a different KIND of defect from everything else lint reports: an
+#: overflowing view or a missing callout leaves the drawing INCOMPLETE, while this leaves it
+#: actively MISLEADING, and a reader has no way to tell which of the two numbers to believe.
+#:
+#: So it is an ERROR, and a drawing carrying one cannot report ``passed: True``. Measured
+#: before that change: an authored dimension labelled 99 over a 16 mm path — a 518%
+#: contradiction — reported ``passed: True`` with a quality score of 0.95 on A2, because the
+#: only thing failing the drawing was an unrelated ``view_out_of_bounds``. The severities
+#: were inverted against manufacturing risk: a view running off the page was an error while
+#: a false measurement was a warning (#1153).
+#:
+#: The threshold exists because the 0.5% REPORTING floor below is close enough to display
+#: rounding and projection foreshortening to be a judgement call; a discrepancy of several
+#: percent cannot be either. It is a policy number, not a measurement — every real case
+#: observed sits far above it: 15.7%, 70.4%, 90.4%, 92.3%, 275%, 518%.
+_MATERIAL_LABEL_DISCREPANCY = 0.05
+
+
 def _lint_dim(item, part_bbox, issues, drawing_scale: float = 1.0, box_cache=None) -> None:
     label = _item_label(item)
     measured = getattr(item, "measured_length", None)
 
-    label_val = _label_value(label)
     # An ANGULAR label is denominated in degrees; `measured_length` is a projected path in
     # millimetres. Comparing them is a category error, not a discrepancy — it reported a
     # 60 deg dovetail flank as "differs from measured path length 16.000 by 275.0%",
@@ -861,7 +909,11 @@ def _lint_dim(item, part_bbox, issues, drawing_scale: float = 1.0, box_cache=Non
     # the whole protection. An earlier version of this comment claimed the marker "survives
     # every path into lint", which is false. Tagging the annotation with its kind would fix
     # that properly; it is not done here because nothing angular now reaches the renderer.
-    if label_val is not None and measured is not None and not _is_angular_label(label):
+    #
+    # Both guards apply: an angular label is skipped outright (its units differ), and a
+    # label with more than one admissible reading is compared against the closest (#1153).
+    readings = _label_readings(label)
+    if readings and measured is not None and not _is_angular_label(label):
         # When drawing_scale != 1.0 the geometry was scaled up before projecting
         # (e.g. part.scale(5) for a 7.5 mm feature drawn at 5:1). The measured
         # path length is the *scaled* length; the label carries the *real* value.
@@ -870,11 +922,16 @@ def _lint_dim(item, part_bbox, issues, drawing_scale: float = 1.0, box_cache=Non
         # drawing_scale is guaranteed positive by lint_drawing()'s validation.
         effective_measured = measured / drawing_scale
         if effective_measured > 1e-6:
-            ratio = abs(label_val - effective_measured) / effective_measured
+            # The CLOSEST admissible reading: a label with two possible meanings is only
+            # contradictory when the drawn path matches neither.
+            ratio = min(
+                abs(reading - effective_measured) / effective_measured for reading in readings
+            )
+            label_val = min(readings, key=lambda r: abs(r - effective_measured))
             if ratio > 0.005:
                 issues.append(
                     LintIssue(
-                        severity="warning",
+                        severity="error" if ratio >= _MATERIAL_LABEL_DISCREPANCY else "warning",
                         message=(
                             f"Dim '{label}': label value {label_val:.3f} differs from "
                             f"measured path length {measured:.3f}"

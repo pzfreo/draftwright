@@ -44,10 +44,28 @@ class TestLintDrawing:
         assert issues == []
 
     def test_label_value_diverges_from_length(self, draft):
+        # A label of 35 over a 20 mm path: 75% out, so the drawing states a measurement the
+        # part does not have. That is an ERROR since #1153 — every other error leaves the
+        # drawing incomplete, while this one leaves it actively misleading.
         d = Dimension((-10, 0, 0), (10, 0, 0), "above", 8, draft, label="35")
         issues = lint_drawing([d])
-        assert any("35" in i.message or "differs from" in i.message for i in issues)
-        assert any(i.severity == "warning" for i in issues)
+        contradictions = [i for i in issues if i.code == "label_vs_measured"]
+        assert contradictions, [i.code for i in issues]
+        assert all(i.severity == "error" for i in contradictions)
+
+    def test_a_discrepancy_within_rounding_stays_a_warning(self):
+        # Below the materiality threshold the two numbers may legitimately differ —
+        # display rounding, a projected foreshortening — so the drawing is questionable
+        # rather than false, and a build must not fail on it.
+        from types import SimpleNamespace
+
+        from draftwright.linting.structural import _lint_dim
+
+        issues: list = []
+        _lint_dim(SimpleNamespace(label="20.4", measured_length=20.0), None, issues)
+        contradictions = [i for i in issues if i.code == "label_vs_measured"]
+        assert contradictions, "a 2% discrepancy stopped being reported at all"
+        assert all(i.severity == "warning" for i in contradictions)
 
     def test_dim_overlapping_part_flagged(self, draft):
         d = Dimension((-5, 0, 0), (5, 0, 0), "above", 1, draft, label="10")
