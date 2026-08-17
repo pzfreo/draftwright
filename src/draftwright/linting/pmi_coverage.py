@@ -167,6 +167,13 @@ def lint_pmi_lowering(report: PmiExtractionReport | None, features, mode: str) -
     return issues
 
 
+#: Codes that already explain why a typed record produced no annotation. This check exists
+#: to catch an UNEXPLAINED omission, so a record carrying one of these must not also be
+#: reported here — that is one omission with two reporters at different severities, which
+#: is the defect #1190 was opened for.
+_EXPLAINED_OMISSION_CODES = frozenset({"pmi_not_rendered", "dimension_kind_unsupported"})
+
+
 def lint_pmi_rendering(features, registry, mode: str) -> list[LintIssue]:
     """Report source-bearing typed PMI that produced no annotation or placement drop.
 
@@ -192,7 +199,7 @@ def lint_pmi_rendering(features, registry, mode: str) -> list[LintIssue]:
     already_reported = {
         source_id
         for issue in registry.issues
-        if getattr(issue, "code", None) == "pmi_not_rendered"
+        if getattr(issue, "code", None) in _EXPLAINED_OMISSION_CODES
         for source_id in getattr(issue, "source_ids", ())
     }
     return [

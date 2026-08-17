@@ -1112,11 +1112,28 @@ class TestBuildDrawingPmi:
             for source_id in issue.source_ids
         }
 
+        # `dimension:0:1:4:17` is an ANGULAR dimension (label '60 ±0.5'). It used to render
+        # through the linear path, producing an annotation whose label states an angle and
+        # whose geometry states a length — the #1177 defect, present in a real NIST AP242
+        # fixture. It is now refused by category and reported instead, so the eight authored
+        # records partition into six rendered, one dropped for placement, and one refused.
+        refused = {
+            source_id
+            for issue in ctc01_annotated.registry.issues
+            if issue.code == "dimension_kind_unsupported"
+            for source_id in issue.source_ids
+        }
+        angular = {
+            feature.source_id for feature in authored if feature.dimension_kind == "angular"
+        }
         assert len(authored) == 8
-        assert len(rendered) == 7
+        assert len(rendered) == 6
         assert len(dropped) == 1
-        assert rendered.isdisjoint(dropped)
-        assert rendered | dropped == {feature.source_id for feature in authored}
+        assert refused == angular, (
+            f"category refusals {refused} do not match the angular records {angular}"
+        )
+        assert rendered.isdisjoint(dropped) and rendered.isdisjoint(refused)
+        assert rendered | dropped | refused == {feature.source_id for feature in authored}
         assert not [issue for issue in ctc01_annotated.lint() if issue.code == "pmi_not_rendered"]
         assert ctc01_annotated.lint_summary()["pmi"] == {
             "mode": "annotate",
@@ -1124,7 +1141,9 @@ class TestBuildDrawingPmi:
             "by_category": {"datum": 11, "dimension": 21, "geometric_tolerance": 6},
             "extracted": 29,
             "lowered": 25,
-            "rendered": 24,
+            # 24 before #1177: the angular dimension was counted as rendered while what
+            # reached the sheet was a LINEAR annotation asserting a length for an angle.
+            "rendered": 23,
             "dropped": 1,
         }
 

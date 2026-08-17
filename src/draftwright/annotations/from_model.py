@@ -4569,18 +4569,69 @@ _PMI_CORRIDOR_PRIORITY = PRIORITY.AUTHORED
 _PMI_SLOT = 10.0  # mm — slot size for PMI dim lines in the strip
 
 
+#: Dimension categories the IR admits but this renderer cannot draw. `Dimension` measures a
+#: straight projected path, so an ANGULAR record rendered through it produces a linear
+#: annotation whose label is in degrees and whose geometry is in millimetres — a drawing that
+#: asserts something false (#1177). The rendering library has no angular primitive at all
+#: (`Dimension`, `DimensionLine`, `SafeDimension`), so drawing one correctly is work in
+#: `build123d-drafting-helpers`, not a gate here.
+#:
+#: Refused at the RENDERER rather than at `Sheet.measured_dimension`, because `angular`
+#: reaches the IR from two sources — the authored façade and detected AP242 PMI
+#: (`model/detect.py`) — and refusing at the façade would leave the imported path drawing
+#: the false dimension while making a legitimate AP242 file unreadable.
+_UNRENDERABLE_DIMENSION_KINDS = frozenset({"angular"})
+
+
+def _record_unsupported_dimension_kind(ctx, rec):
+    """Record an authored dimension whose CATEGORY this renderer cannot draw.
+
+    A validation outcome, not a placement one — the same distinction
+    :func:`_record_pmi_unrenderable` draws, and for the same reason as #1190: an optional
+    or unsupported outcome marked as a placement drop makes every scale infeasible, so an
+    explicit ``scale=`` request burns the whole ladder and raises where it used to return a
+    drawing.
+    """
+    ctx.record_issue(
+        "warning",
+        "dimension_kind_unsupported",
+        f"authored {rec.pmi_kind} dimension {getattr(rec, 'label', '')!r} is not drawn: "
+        f"this renderer measures straight projected paths, so drawing it would state a "
+        f"length where the label states an angle",
+        source=getattr(rec, "source_id", ""),
+        outcome_stage="validation",
+    )
+
+
 def _renderable_pmi_records(records):
     """PMI records the dimension renderer may place.
 
     Raw ``PmiFeature`` fallbacks can preserve unsupported AP242 records. Do not render those
     just because they happen to carry a numeric value and references; only drafting dimension
-    categories belong in this placement path.
+    categories belong in this placement path — and only those this renderer can actually
+    draw (see :data:`_UNRENDERABLE_DIMENSION_KINDS`).
     """
     return [
         r
         for r in records
         if r.kind == "authored_dimension"
         and r.pmi_kind in AUTHORED_DIMENSION_KINDS
+        and r.pmi_kind not in _UNRENDERABLE_DIMENSION_KINDS
+        and r.value > 0
+        and len(r.ref_pts) >= 2
+    ]
+
+
+def _unsupported_kind_records(records):
+    """Authored records refused purely because of their category, so the omission can be
+    reported. Deliberately not folded into :func:`_renderable_pmi_records`: a record with a
+    zero value or one reference point is refused for a different reason and already has its
+    own diagnostic."""
+    return [
+        r
+        for r in records
+        if r.kind == "authored_dimension"
+        and r.pmi_kind in _UNRENDERABLE_DIMENSION_KINDS
         and r.value > 0
         and len(r.ref_pts) >= 2
     ]
@@ -5006,6 +5057,8 @@ def render_pmi(dwg, model, a, *, ctx) -> int:
     draft = dwg.draft
     pmi = [f for f in model.features if f.kind in ("authored_dimension", "pmi")]
     usable = _renderable_pmi_records(pmi)
+    for refused in _unsupported_kind_records(pmi):
+        _record_unsupported_dimension_kind(ctx, refused)
     n_gtol = sum(1 for r in pmi if r.pmi_kind not in AUTHORED_DIMENSION_KINDS and r.value > 0)
     if n_gtol:
         _log.debug("PMI annotate: %d gtol/datum record(s) not yet annotatable (Phase 4)", n_gtol)

@@ -55,6 +55,14 @@ _ALLOW: frozenset[tuple[str, str]] = frozenset(
         # under a mutation that deleted the filter entirely. A pure helper is testable
         # without hunting for such geometry, and its mutation demonstrably fails.
         ("sections", "_segments_clearing_title_block"),
+        # _unsupported_kind_records: the other half of the #1177 category partition. A
+        # record must be either DRAWN or REPORTED, never both and never silently neither,
+        # and the two filters that decide are private with no public surface between them.
+        # Asserting the partition through a built drawing could only ever observe one side
+        # at a time — and a record refused for a different reason (zero value, one
+        # reference point) must NOT be reported as an unsupported category, which is
+        # exactly the wrong-reason mistake #1190 made with `no_room` and the title block.
+        ("from_model", "_unsupported_kind_records"),
         # Pure geometry/selection helpers with unit-level coverage.
         ("from_model", "_bore_half_span"),
         ("from_model", "_diameter_column_left"),
