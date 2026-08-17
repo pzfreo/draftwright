@@ -29,11 +29,17 @@ from draftwright.linting.structural import _lint_view_shapes, lint_drawing
 
 _QUOTED_VIEW = re.compile(r"view '([^']+)'")
 
-#: A quoted view name followed by the bbox the message prints for it. The dash between
-#: bounds is an EN dash in the rendered message, so the class is permissive.
+#: A quoted view name followed by the box the message prints for it. Two formats print
+#: one — `view 'x' bbox [...]` (`view_overlap`) and `... view 'x' extents [...]`
+#: (`view_annotation_inside_extents`) — and matching only the first left the FRONT view
+#: with no name/geometry cross-check at all: its only messages are the second kind.
+#: Bounds are signed: a large part on a small page projects to negative page
+#: coordinates, and `[\d.]+` would silently drop such a pair, leaving the
+#: `len(named) >= 2` guard as the only thing between the test and vacuity.
+#: The dash between bounds is an EN dash in the rendered message.
 _NAMED_BOX = re.compile(
-    r"view '([^']+)'(?: bbox)? \[x=([\d.]+)[-\u2013\u2014]([\d.]+), "
-    r"y=([\d.]+)[-\u2013\u2014]([\d.]+)\]"
+    r"view '([^']+)'(?: bbox| extents)? \[x=(-?[\d.]+)[-\u2013\u2014](-?[\d.]+), "
+    r"y=(-?[\d.]+)[-\u2013\u2014](-?[\d.]+)\]"
 )
 
 
@@ -144,7 +150,10 @@ class TestTheNameMatchesTheViewItDescribes:
         ]
         assert above, "fixture no longer overflows upwards; this asserts nothing"
         named = _quoted_views(above[0])[0]
-        highest = max(dwg.views, key=lambda n: (dwg.view_bounds(n) or (0, 0, 0, -1e9))[3])
+        # `_lint_box`, not `view_bounds`: the latter unions hidden geometry, which is the
+        # objection `_lint_box`'s own docstring raises. They coincide here; using the
+        # wrong one anyway would be inconsistent for no reason.
+        highest = max(dwg.views, key=lambda n: _lint_box(dwg, n)[3])
         assert named == highest, (
             f"lint blamed view {named!r} for overflowing above, but {highest!r} is the "
             f"view that actually reaches highest — the name/shape correspondence is off"
@@ -161,10 +170,21 @@ class TestTheNameMatchesTheViewItDescribes:
         # for every view it names: no relabelling survives, because the numbers cannot
         # move with the name.
         dwg = build_drawing(_part(), page="A1")
-        overlaps = [i.message for i in dwg.lint() if i.code == "view_overlap"]
-        assert overlaps, "fixture no longer reports overlapping views"
-        named = _named_boxes(overlaps[0])
-        assert len(named) >= 2, f"expected two named boxes, parsed {named} from {overlaps[0]!r}"
+        printing = [
+            i.message
+            for i in dwg.lint()
+            if i.code in {"view_overlap", "view_annotation_inside_extents"}
+        ]
+        assert printing, "fixture no longer produces a message printing a view box"
+        named = [pair for message in printing for pair in _named_boxes(message)]
+        assert len(named) >= 2, f"expected at least two named boxes, parsed {named}"
+        # Every ortho view must be reachable, or a corruption of the ones that are not
+        # goes unseen — which is how the FRONT view slipped through: it appears only in
+        # `inside_extents`, which the regex used to decline.
+        assert {"front", "side", "iso"} <= {name for name, _box in named}, (
+            f"only {sorted({n for n, _b in named})} are cross-checked; a name corruption "
+            f"on any other view would pass"
+        )
         for name, printed in named:
             assert name in dwg.views, f"lint named {name!r}, which is not a view"
             actual = _lint_box(dwg, name)
@@ -173,8 +193,11 @@ class TestTheNameMatchesTheViewItDescribes:
                 f"lint printed {printed} for view {name!r}, whose real box is "
                 f"{tuple(round(v, 2) for v in actual)} — the name is on the wrong shape"
             )
-        assert _boxes_overlap(*(box for _n, box in named[:2])), (
-            "the two views reported as overlapping do not overlap"
+        overlaps = [i.message for i in dwg.lint() if i.code == "view_overlap"]
+        assert overlaps, "fixture no longer reports overlapping views"
+        pair = _named_boxes(overlaps[0])
+        assert len(pair) == 2 and _boxes_overlap(pair[0][1], pair[1][1]), (
+            f"the views reported as overlapping do not overlap: {pair}"
         )
 
 
@@ -189,7 +212,7 @@ class TestAViewIsNamedByWhatTheCallerCallsIt:
         # whole thesis is that a precondition must FAIL rather than quietly vanish.
         assert named, "fixture produced no view-named lint, so this asserts nothing"
         keys = set(dwg.views)
-        quoted = {m.split("view '", 1)[1].split("'", 1)[0] for m in named}
+        quoted = {v for m in named for v in _quoted_views(m)}
         assert quoted & keys, (
             f"no message names a real view; messages quote {quoted}, drawing has {keys}"
         )

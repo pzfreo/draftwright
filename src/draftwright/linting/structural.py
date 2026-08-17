@@ -267,7 +267,7 @@ def lint_drawing(
             supplied name outranks any ``label``/``name`` on the shape itself; without
             one, the fallback is the view's position, never its identity.
             **Appended, not inserted**: the upstream helpers' signature has
-            ``view_edge_cache`` at position 6, and a positional call written against
+            ``view_edge_cache`` as its sixth parameter, and a positional call written against
             that order would silently bind a cache dict here — degrading the name, then
             raising ``KeyError`` once the cache was warm and its ``id()`` keys were
             indexed as a name list.

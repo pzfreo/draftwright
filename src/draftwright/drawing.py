@@ -334,10 +334,10 @@ class BuildState:
     view_edge_cache: dict = dataclasses_field(default_factory=dict)
     ann_box_cache: dict = dataclasses_field(default_factory=dict)
     #: Per-view filled projected material (#798) as ``{id(view_shape): (shape, field)}``.
-    #: Keyed by shape identity because the projected shapes carry no view label — lint
-    #: takes their names from ``Drawing.views`` since #1196 — and holding the shape lets
-    #: a reused ``id`` be detected,
-    #: the same guard ``_view_edge_entries`` carries (#143).
+    #: Keyed by shape identity because the projected shapes carry no view label (lint
+    #: takes their names from ``Drawing.views`` since #1196), and holding the shape
+    #: alongside lets a reused ``id`` be detected — the same guard
+    #: ``_view_edge_entries`` carries (#143).
     material_fields: dict = dataclasses_field(default_factory=dict)
     #: The one tessellation behind those fields, or ``None`` once it has been attempted
     #: and failed. Memoised separately so an unmeshable part is not re-meshed on every
