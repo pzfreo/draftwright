@@ -49,6 +49,7 @@ jobs:
           scripts/check-recogniser-release
           uv run pytest -q \
             tests/test_external_recognition_boundary.py \
+            tests/test_recogniser_adoption.py \
             tests/test_recogniser_capabilities.py \
             tests/test_two_repository_workflow.py
       - name: Restrict generated diff

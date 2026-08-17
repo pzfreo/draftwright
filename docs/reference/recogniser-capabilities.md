@@ -15,9 +15,16 @@ library.
 
 Validation fails closed and names the family and boundary whenever possible:
 
-- **family inventory mismatch** — the installed package added, removed, or renamed a family.
-  Update the package pin deliberately, add or remove the Draftwright declaration, and provide the
-  downstream behavior or an explicit non-supported state.
+- **family inventory mismatch (`stale=`)** — Draftwright declares a family the installed package
+  no longer ships, so a declared adapter would call a recogniser that is gone. Remove or repoint
+  the declaration.
+
+  The opposite direction does **not** fail this validation. A family the package ships and
+  Draftwright has not declared cannot reach any Draftwright code path, and blocking on it made the
+  package unreleasable until its consumer caught up. It is reported by
+  `pending_family_declarations` and fails `tests/test_recogniser_adoption.py` in Draftwright's own
+  CI instead — adoption is still required, and is enforced where the decision is made. Provide the
+  downstream behavior or an explicit non-supported state as before.
 - **record schema mismatch** — a consumed record schema changed. Review the record fields and
   compatibility notes, update the relevant adapter and tests, then pin the accepted schema version.
 - **stale implementation** — a declared adapter, `Sheet` method, emitter, renderer, or completeness

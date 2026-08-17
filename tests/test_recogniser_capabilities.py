@@ -281,7 +281,7 @@ def test_repeating_profile_is_explicit_geometry_only_critique_evidence() -> None
         ),
     ],
 )
-def test_consumer_declaration_fails_closed_on_stale_or_unknown_claims(
+def test_consumer_declaration_fails_closed_on_stale_or_malformed_claims(
     mutate, message: str
 ) -> None:
     declaration = consumer_capability_declaration()
