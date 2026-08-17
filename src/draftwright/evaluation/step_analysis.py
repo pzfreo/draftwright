@@ -3,6 +3,13 @@
 This module scores recogniser observations against an independently authored oracle.  It does
 not inspect ``RecognitionResult`` or the feature census: adapters supply observations, while the
 benchmark case supplies the denominator and tolerances.
+
+The ``drawing_consumer`` boundary is OBSERVED from a real build (#1202) rather than read from
+a capability declaration. Known limit of that approach: it reads the ADR 0010 provenance seam,
+which ``Drawing.annotations_of`` documents as growing "as passes are migrated". An un-tagged
+render pass therefore reads as a genuine omission. The hole-table escalation was the first
+instance — it withdraws the individual callouts and records the substitution on the table — and
+a new representation route must be admitted here or it will register as a false loss.
 """
 
 from __future__ import annotations
@@ -668,34 +675,55 @@ def _hole_candidates(drawing) -> list[_Candidate]:
     return candidates
 
 
+#: The compiled requirement that carries a hole's SIZE. A table row documents several
+#: requirements per hole (location, through-ness, …); only this one is the fact
+#: ``drawing_consumer`` asks about.
+_SIZE_REQUIREMENT = "bore.diameter"
+
+
 def _table_represented(drawing) -> list:
     """Features the engine recorded as carried by a hole TABLE rather than a callout.
 
-    Above ~16 scattered holes the engine escalates: it withdraws the individual ``hc_*``
-    callouts and places one table plus balloons, recording the substitution in
-    ``covers_hole_representations_by_feature``. Looking only for ``hc_`` therefore scored
-    every hole on a dense sheet as lost — on the very sheets #1176 and ADR 0018 are about,
-    the metric's first real encounter with a dense part would have been a false alarm.
-    Reading the engine's own ledger keeps this metric and the engine from disagreeing
-    about whether a fact reached the page.
+    Above ~16 scattered holes the engine withdraws the individual ``hc_*`` callouts and
+    places one table plus balloons, recording the substitution on the table object. Reading
+    only ``hc_`` scored every hole on such a sheet as lost — measured 16 of 16 on a dense
+    plate with no lint issues at all — which inverted the metric: a correct sheet scored
+    worse than the same part with the table forced to fail.
+
+    Read ``covers_hole_representations_by_requirement`` and not the ``…_by_feature``
+    sibling. The sibling exists, and an earlier cut of this function read it, but **no
+    caller populates it**: `representation_features=` appears in the whole tree only at its
+    own definition and its own use in ``annotations/_common.py``. Both real callers pass
+    ``representation_requirements=`` instead. So that read returned nothing on every real
+    drawing while a hand-built stub in the tests made it look correct.
+
+    Filtered to the SIZE requirement: a table row also documents location and through-ness,
+    and crediting those would mean a hole with a located row but no diameter counted as
+    consumed.
+
+    Safe against a dropped table: the ledger is written only after the table is placed and
+    the balloon-completeness gate passes, and the annotation transaction rolls the table
+    back before that point, so a `table_dropped` sheet carries no entries (verified).
     """
     covered = []
     for _name, annotation in drawing.iter_annotations():
-        for entry in getattr(annotation, "covers_hole_representations_by_feature", ()):
-            covered.append(entry[0])
+        for entry in getattr(annotation, "covers_hole_representations_by_requirement", ()):
+            feature, parameter = entry[0], entry[1]
+            if parameter == _SIZE_REQUIREMENT:
+                covered.append(feature)
     return covered
 
 
 def _consumed(feature, drawing, represented) -> bool:
     """Did this feature's SIZE reach the sheet, by either sanctioned route?
 
-    Only the callout or the table counts. A hole whose callout was dropped still keeps
-    its centre mark and location dims (measured: ``m_cm0``, ``m_locx0``), so counting any
+    Only the callout or the table counts. A hole whose callout was dropped still keeps its
+    centre mark and location dims (measured: ``m_cm0``, ``m_locx0``), so counting any
     annotation would score a dropped callout as consumed.
     """
     if any(name.startswith("hc_") for name in drawing.annotations_of(feature)):
         return True
-    return any(candidate == feature for candidate in represented)
+    return any(represented_feature == feature for represented_feature in represented)
 
 
 def _drawing_consumer_outcomes(holes, drawing) -> list[Outcome]:
@@ -771,10 +799,12 @@ def _default_observers() -> Mapping[str, Observer]:
     }
 
     def observe_holes(part: object) -> Sequence[ObservedFact]:
-        # The concrete module, not the package root: ``from draftwright import ...``
-        # pulls ``draftwright/__init__.py``, which the DAG guard treats as the TOP module,
-        # so it reads as an upward lazy import out of this top-layer package and fails
-        # ``test_lazy_upward_imports_are_documented`` (ADR 0005 / #640).
+        # Lazy for COST, not for layering: `evaluation` is rank 7 and `builder` rank 6, so
+        # a module-level import here is a legal downward edge and passes the DAG guard —
+        # an earlier comment claimed otherwise. What it buys is not paying build123d's
+        # ~6 s import to load this module. Import the concrete module rather than the
+        # package root: `from draftwright import ...` pulls `__init__`, which the guard
+        # treats as the TOP module and would make this a genuine upward edge.
         from draftwright.builder import build_drawing
 
         # ONE drawing per fixture, and ONE recognition: the records scored here come from
@@ -786,9 +816,15 @@ def _default_observers() -> Mapping[str, Observer]:
         except Exception:  # noqa: BLE001 — an unbuildable fixture is a non-answer, not a crash
             drawing = None
         if drawing is None:
-            from b123d_recognisers import build_recognition_result
+            # The recognition read is guarded too: a fixture that neither builds NOR
+            # recognises must still yield a scored non-answer rather than a traceback out
+            # of the middle of a corpus run.
+            try:
+                from b123d_recognisers import build_recognition_result
 
-            holes = tuple(build_recognition_result(part).holes)  # type: ignore[arg-type]
+                holes = tuple(build_recognition_result(part).holes)  # type: ignore[arg-type]
+            except Exception:  # noqa: BLE001 — an unanalysable fixture observes nothing
+                return ()
             outcomes: list[Outcome] = ["unknown"] * len(holes)
         else:
             recognition = drawing.recognition()

@@ -150,17 +150,36 @@ class TestTheCorrespondenceIsNotFooledByGeometry:
     Adversarial review found three ways that answers wrongly."""
 
     def test_two_coaxial_holes_of_equal_diameter_do_not_alias(self):
-        # Dropping the axis component made two opposed bores at the same (x, y) resolve
-        # to the SAME feature, so a dropped callout on the second was invisible. Matching
-        # is now full-3D and consumes the matched position.
+        # Dropping the axis component made two opposed bores at the same (x, y) resolve to
+        # the SAME feature, so a dropped callout on the second was invisible.
+        #
+        # An earlier version of this test never called `_drawing_consumer_outcomes` at all
+        # — it counted candidate positions — so it passed with the function replaced by
+        # `raise NotImplementedError`, and the in-plane mutation it claimed to guard
+        # survived. It now blinds ONE of the two features and requires the outcome to move
+        # with it, which is the property "these do not alias" actually means.
         part = Box(60, 30, 20) - Pos(0, 0, 8) * Cylinder(3, 8) - Pos(0, 0, -5) * Cylinder(3, 14)
         drawing = build_drawing(part)
-        holes = _recognised(part)
-        if len({(h.diameter, tuple(h.location)) for h in holes}) < 2:
+        holes = list(drawing.recognition().holes)
+        if len({tuple(h.location) for h in holes}) < 2:
             pytest.skip("this build did not recognise two distinct coaxial holes")
         candidates = _hole_candidates(drawing)
-        matched = [c for c in candidates for _p in c.positions]
-        assert len(matched) >= 2, "the two bores collapsed to a single position"
+        assert len(candidates) >= 2, "the two bores collapsed to one candidate"
+
+        def blinded(index):
+            hidden = candidates[index].feature
+            view = _StrippedDrawing(drawing, None)
+            view.annotations_of = lambda f: {} if f == hidden else drawing.annotations_of(f)
+            return _drawing_consumer_outcomes(holes, view)
+
+        first, second = blinded(0), blinded(1)
+        assert first.count("unsupported") == 1 and second.count("unsupported") == 1, (
+            f"blinding one bore did not lose exactly one hole: {first} / {second}"
+        )
+        assert first != second, (
+            f"blinding either bore gave the same answer {first} — they alias onto one "
+            f"feature, so a dropped callout on the second is invisible"
+        )
 
     def test_a_patterned_hole_is_accounted_for(self):
         # Patterned holes lower to a PatternFeature, NOT a HoleFeature. Matching on that
@@ -234,26 +253,144 @@ class TestTheCorrespondenceIsNotFooledByGeometry:
 
 
 class TestAHoleTableIsAlsoTheFactReachingTheSheet:
-    def test_a_table_represented_feature_counts_as_consumed(self):
-        # Above ~16 scattered holes the engine WITHDRAWS the individual `hc_*` callouts
-        # and places one table plus balloons, recording the substitution in
-        # `covers_hole_representations_by_feature`. Looking only for `hc_` scored every
-        # hole on such a sheet as lost — a false alarm on exactly the dense sheets #1176
-        # and ADR 0018 are about. Mutation: drop the ledger read and this fails.
-        from draftwright.evaluation.step_analysis import _consumed
+    """Above ~16 scattered holes the engine WITHDRAWS the individual `hc_*` callouts and
+    places one table plus balloons. Reading only `hc_` scored every hole on such a sheet
+    as lost — 16 of 16 on a drawing with no lint issues at all — which inverted the
+    metric: a correct sheet scored worse than the same part with the table forced to fail.
 
-        feature = object()
-        table = SimpleNamespace(
-            covers_hole_representations_by_feature=((feature, "hole_table", "escalation"),)
+    Driven through a REAL build. The first version of this test hand-built a
+    `SimpleNamespace` carrying `covers_hole_representations_by_feature`, an attribute
+    **nothing in the engine ever populates** — `representation_features=` appears in the
+    whole tree only at its own definition and its own use. The stub was the entire reason
+    the fix looked correct, and adversarial review caught that the real path still scored
+    16/16 `unsupported`.
+    """
+
+    def _dense(self):
+        import sys
+
+        sys.path.insert(0, "tests")
+        from test_issue_1143_hole_completeness import _dense_scattered_plate
+
+        return _dense_scattered_plate()
+
+    def test_a_table_represented_hole_is_consumed_on_a_real_build(self):
+        part = self._dense()
+        drawing = build_drawing(part, page="A3")
+        annotations = {name for name, _o in drawing.iter_annotations()}
+        assert any(n.startswith("hole_table") for n in annotations), (
+            "fixture no longer escalates to a hole table; this tests nothing"
         )
-        drawing = SimpleNamespace(
-            annotations_of=lambda _f: {"m_cm0": object()},
-            iter_annotations=lambda: (("hole_table_plan", table),),
+        assert not any(n.startswith("hc_") for n in annotations), (
+            "the engine still placed individual callouts, so the table route is untested"
         )
+        outcomes = _drawing_consumer_outcomes(drawing.recognition().holes, drawing)
+        assert outcomes and set(outcomes) == {"supported"}, (
+            f"a correct table-escalated sheet scored {sorted(set(outcomes))}"
+        )
+
+    def test_the_metric_is_not_inverted_on_dense_parts(self):
+        # The sharpest statement of the defect: a correct sheet must not score WORSE than
+        # the same part whose table failed to fit. Before the fix the correct sheet scored
+        # 16/16 unsupported and the broken one only 12/16.
+        part = self._dense()
+        good = build_drawing(part, page="A3")
+        good_outcomes = _drawing_consumer_outcomes(good.recognition().holes, good)
+        good_lost = sum(1 for o in good_outcomes if o != "supported")
+
+        from draftwright import drawing as drawing_module
+
+        original = drawing_module.fit_box
+        drawing_module.fit_box = lambda *a, **k: None
+        try:
+            broken = build_drawing(part, page="A3")
+            broken_outcomes = _drawing_consumer_outcomes(broken.recognition().holes, broken)
+        finally:
+            drawing_module.fit_box = original
+        broken_lost = sum(1 for o in broken_outcomes if o != "supported")
+
+        assert broken_lost > 0, "the table did not actually fail to fit; nothing is compared"
+        assert good_lost < broken_lost, (
+            f"the correct sheet lost {good_lost} holes and the broken one {broken_lost} — "
+            f"the metric rewards a worse drawing"
+        )
+
+    def test_a_dropped_table_is_not_credited(self):
+        # The ledger is written only after the table is placed and the balloon gate
+        # passes, and the annotation transaction rolls it back before that — so a
+        # `table_dropped` sheet must carry no entries to credit.
+        from draftwright import drawing as drawing_module
         from draftwright.evaluation.step_analysis import _table_represented
 
-        assert _consumed(feature, drawing, _table_represented(drawing)) is True
-        assert _consumed(object(), drawing, _table_represented(drawing)) is False
+        original = drawing_module.fit_box
+        drawing_module.fit_box = lambda *a, **k: None
+        try:
+            broken = build_drawing(self._dense(), page="A3")
+        finally:
+            drawing_module.fit_box = original
+        assert _table_represented(broken) == [], (
+            "a table that never reached the sheet still credited its holes"
+        )
+
+    def test_a_row_without_the_size_requirement_is_not_credited(self):
+        # On a real dense plate every feature gets every requirement, so filtering or not
+        # gives the same answer there and the mutation survives. Driven directly. The
+        # attribute name and tuple shape are verified against a real build by the test
+        # below — this varies the PARAMETER, not the structure, so it is not the kind of
+        # invented stub that made the original defect look fixed.
+        from draftwright.evaluation.step_analysis import _table_represented
+
+        located_only = SimpleNamespace(
+            covers_hole_representations_by_requirement=(
+                ("feature-A", "location.location", "hole_table", "escalation"),
+            )
+        )
+        sized = SimpleNamespace(
+            covers_hole_representations_by_requirement=(
+                ("feature-B", "bore.diameter", "hole_table", "escalation"),
+            )
+        )
+        drawing = SimpleNamespace(iter_annotations=lambda: (("t1", located_only), ("t2", sized)))
+        assert _table_represented(drawing) == ["feature-B"], (
+            "a hole whose table row carries only its LOCATION was credited as having its "
+            "size on the sheet"
+        )
+
+    def test_only_the_size_requirement_counts(self):
+        # A table row documents location and through-ness as well. Crediting those would
+        # let a hole with a located row but no diameter score as consumed.
+        from draftwright.evaluation.step_analysis import _SIZE_REQUIREMENT, _table_represented
+
+        drawing = build_drawing(self._dense(), page="A3")
+        parameters = {
+            entry[1]
+            for _n, a in drawing.iter_annotations()
+            for entry in getattr(a, "covers_hole_representations_by_requirement", ())
+        }
+        assert parameters > {_SIZE_REQUIREMENT}, (
+            f"the table documents only {parameters}; the filter cannot be shown to matter"
+        )
+        assert _table_represented(drawing), "nothing was credited at all"
+
+
+class TestTheMatchIsFullyThreeDimensional:
+    def test_a_hole_is_matched_to_the_candidate_at_its_actual_depth(self):
+        # The in-plane defect is MASKED on real geometry by position consumption: two
+        # coaxial bores still resolve distinctly because the first hole consumes the
+        # first candidate's only position. It bites when a hole's true match is not the
+        # first candidate sharing its (x, y) — then the in-plane compare assigns it to
+        # the wrong feature, and the outcome is that feature's, not its own.
+        hole = SimpleNamespace(axis=(0.0, 0.0, -1.0), location=(0.0, 0.0, 10.0), diameter=6.0)
+        drawing = _StubDrawing(
+            features=(
+                _stub_hole(6.0, (0.0, 0.0, 0.0)),  # same (x, y), different depth, DRAWN
+                _stub_hole(6.0, (0.0, 0.0, 10.0)),  # the real match, NOT drawn
+            ),
+            drawn={0},
+        )
+        assert _drawing_consumer_outcomes([hole], drawing) == ["unsupported"], (
+            "the hole was matched to the candidate at the wrong depth and inherited its outcome"
+        )
 
 
 class TestTheCorpusScoreMovesWithTheDrawing:
