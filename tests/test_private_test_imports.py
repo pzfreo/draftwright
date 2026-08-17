@@ -72,11 +72,11 @@ _ALLOW: frozenset[tuple[str, str]] = frozenset(
         # exactly the wrong-reason mistake #1190 made with `no_room` and the title block.
         ("from_model", "_unsupported_kind_records"),
         # Pure geometry/selection helpers with unit-level coverage.
-        ("from_model", "_bore_half_span"),
+        ("from_model", "_bore_span_offsets"),
         ("from_model", "_diameter_column_left"),
         # _diameter_step_anchor: the shared-⌀ leader anchor (#794). The non-coaxial
         # same-⌀ case can't be reached through the public build seam, so its unit
-        # test reads the pure helper directly (like _bore_half_span above).
+        # test reads the pure helper directly (like _bore_span_offsets above).
         ("from_model", "_diameter_step_anchor"),
         ("from_model", "_renderable_pmi_records"),
         ("holes", "_legible_locations"),

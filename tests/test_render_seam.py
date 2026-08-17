@@ -101,26 +101,41 @@ class TestCalloutSpec:
 
 class TestBoreHalfSpan:
     """#360: an imported bore-size dim's half-span from the bore centroid. A diameter
-    record stores the diameter (half = radius); a radius record stores the radius
-    (half = value). The bug keyed on the IR feature `.kind` instead of the drafting
-    dimension category, so the diameter branch was dead and every diameter dim spanned
-    ±diameter — 2× too wide."""
+    record stores the diameter, so its dimension spans the bore; a radius record stores
+    the radius, so its dimension runs from the centre to the surface. Either way the drawn
+    length equals the labelled value. The #360 bug keyed on the IR feature `.kind` instead
+    of the drafting dimension category, so the diameter branch was dead and every diameter
+    dim spanned ±diameter — 2× too wide. #1208 was the same error left in the radius
+    branch, which that fix did not question."""
 
-    def test_diameter_halves_to_the_radius(self):
-        from draftwright.annotations.from_model import _bore_half_span
+    def test_a_diameter_spans_the_bore(self):
+        from draftwright.annotations.from_model import _bore_span_offsets
 
-        assert _bore_half_span("diameter", 35.0) == 17.5
+        assert _bore_span_offsets("diameter", 35.0) == (-17.5, 17.5)
 
-    def test_radius_is_used_as_is(self):
-        from draftwright.annotations.from_model import _bore_half_span
+    def test_a_radius_runs_from_the_centre_to_the_surface(self):
+        # Was `_bore_half_span("radius", 8.0) == 8.0`, which the caller applied
+        # SYMMETRICALLY — so an R8 record drew a 16 mm line labelled R8 (#1208). That
+        # assertion encoded the bug as intent: #360 fixed the diameter branch beside it
+        # and never asked what a radius should span.
+        from draftwright.annotations.from_model import _bore_span_offsets
 
-        assert _bore_half_span("radius", 8.0) == 8.0
+        assert _bore_span_offsets("radius", 8.0) == (0.0, 8.0)
+
+    def test_the_drawn_length_equals_the_labelled_value_for_both(self):
+        # The invariant the two cases share, stated once. A dimension whose drawn length
+        # contradicts its own label is the #1177/#1208/#1209 family.
+        from draftwright.annotations.from_model import _bore_span_offsets
+
+        for kind, value in (("diameter", 35.0), ("radius", 8.0)):
+            lo, hi = _bore_span_offsets(kind, value)
+            assert hi - lo == value, f"{kind} {value} draws {hi - lo}"
 
     def test_the_ir_kind_attr_never_triggers_the_diameter_branch(self):
         # The regression itself: an authored dimension's `.kind` identifies the IR concept,
         # so keying on it (as the old code did) never halves. Pin that pmi_kind is the
         # compatibility category and .kind is the wrong one.
-        from draftwright.annotations.from_model import _bore_half_span
+        from draftwright.annotations.from_model import _bore_span_offsets
         from draftwright.model import AuthoredDimension, Frame
 
         rec = AuthoredDimension(
@@ -131,8 +146,10 @@ class TestBoreHalfSpan:
             dominant_axis="Z",
         )
         assert rec.kind == "authored_dimension"  # IR concept, NOT the dimension category
-        assert _bore_half_span(rec.kind, rec.value) == 35.0  # the old bug: no halving
-        assert _bore_half_span(rec.pmi_kind, rec.value) == 17.5  # the fix: radius
+        # `.kind` is "authored_dimension", which is not "diameter", so the old code took
+        # the non-diameter branch and spanned the full value.
+        assert _bore_span_offsets(rec.kind, rec.value) == (0.0, 35.0)
+        assert _bore_span_offsets(rec.pmi_kind, rec.value) == (-17.5, 17.5)
 
     def test_raw_unsupported_pmi_is_not_renderable_as_a_dimension(self):
         from draftwright.annotations.from_model import _renderable_pmi_records

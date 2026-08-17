@@ -4551,14 +4551,28 @@ def _record_pmi_no_candidate(ctx, label, rec):
     )
 
 
-def _bore_half_span(pmi_kind: str, value: float) -> float:
-    """Half the perpendicular span of a bore-size dim from the bore centroid — the
-    distance to each witness base point. A ``"diameter"`` record stores the full
-    diameter (so half = radius = value/2); a ``"radius"`` record already stores the
-    radius (half = value). Keyed on the drafting dimension category, NOT ``.kind`` (the
-    IR feature kind) — the #360 bug used the latter, so the diameter branch was dead and
-    every diameter dim spanned ±diameter (2× wide)."""
-    return value / 2 if pmi_kind == "diameter" else value
+def _bore_span_offsets(pmi_kind: str, value: float) -> tuple[float, float]:
+    """Signed offsets from the bore centroid to each witness base point.
+
+    The invariant is that the DRAWN LENGTH equals the LABELLED VALUE, for both kinds:
+
+    * a ``"diameter"`` record stores the full diameter and its dimension spans the bore,
+      ``(-value/2, +value/2)`` — length ``value``;
+    * a ``"radius"`` record stores the radius and its dimension runs from the centre to
+      the surface, ``(0, +value)`` — length ``value``.
+
+    The predecessor returned a single half-span that the caller applied symmetrically, so
+    a radius record drew ``centre ± value``: an R6 record produced a **12 mm** line
+    labelled R6 (#1208). The diameter branch was correct, and the radius branch beside it
+    had the same shape of error #360 fixed one line along — that fix keyed on the drafting
+    category rather than the IR ``.kind``, and never questioned what radius should span.
+
+    Keyed on the drafting dimension category, NOT ``.kind``: the #360 bug used the latter,
+    so the diameter branch was dead and every diameter dim spanned ±diameter (2× wide).
+    """
+    if pmi_kind == "diameter":
+        return (-value / 2, value / 2)
+    return (0.0, value)
 
 
 # PMI is pre-authored manufacturing intent from the STEP file. When a strip is over
@@ -4954,7 +4968,10 @@ def _place_pmi_record(dwg, a, ctx, rec, idx, bore_cfg, draft) -> bool:
         # Resolved axis (handles _bore_info's '?' degenerate-bbox fallback); the diameter
         # view table (Z→plan, X→side, Y→front) differs from the linear-dim one (#351 PR-4a).
         ax = bore_axis
-        half = _bore_half_span(rec.pmi_kind, rec.value)
+        lo, hi = _bore_span_offsets(rec.pmi_kind, rec.value)
+        # Half the DRAWN span, which is what the legibility gate is about: a radius dim is
+        # `value` long, not `2 * value`, so the two kinds no longer share a half-width.
+        half = (hi - lo) / 2
         # Narrow bores (page span < text width) lead out to a shelf; bracket dims only
         # when the span fits the label. An unresolved axis matches no cfg → bottom drop.
         half_pg = half * a.SCALE  # bore radius on page (mm)
@@ -4962,7 +4979,7 @@ def _place_pmi_record(dwg, a, ctx, rec, idx, bore_cfg, draft) -> bool:
         if cfg is not None:
             u, v = cfg["centre"](cx_f, cy_f, cz_f)
             if half_pg >= _MIN_INPLACE_BORE_HALF_MM:
-                p1, p2 = cfg["span"](cx_f, cy_f, cz_f, half)
+                p1, p2 = cfg["span"](cx_f, cy_f, cz_f, lo, hi)
                 placed = _pmi_queue_options(
                     dwg,
                     ctx,
@@ -5131,7 +5148,10 @@ def render_pmi(dwg, model, a, *, ctx) -> int:
             "order": ("above", "below"),
             "leader_order": ("above", "below"),
             "centre": lambda cx, cy, cz: (PX(cx), PY(cy)),
-            "span": lambda cx, cy, cz, h: ((PX(cx - h), PY(cy), 0), (PX(cx + h), PY(cy), 0)),
+            "span": lambda cx, cy, cz, lo, hi: (
+                (PX(cx + lo), PY(cy), 0),
+                (PX(cx + hi), PY(cy), 0),
+            ),
         },
         "X": {
             "view": "side",
@@ -5139,7 +5159,10 @@ def render_pmi(dwg, model, a, *, ctx) -> int:
             "order": ("above", "below"),
             "leader_order": ("above", "below"),
             "centre": lambda cx, cy, cz: (SX(cy), SZ(cz)),
-            "span": lambda cx, cy, cz, h: ((SX(cy - h), SZ(cz), 0), (SX(cy + h), SZ(cz), 0)),
+            "span": lambda cx, cy, cz, lo, hi: (
+                (SX(cy + lo), SZ(cz), 0),
+                (SX(cy + hi), SZ(cz), 0),
+            ),
         },
         "Y": {
             "view": "front",
@@ -5147,7 +5170,10 @@ def render_pmi(dwg, model, a, *, ctx) -> int:
             "order": ("above", "below"),
             "leader_order": ("below", "above"),
             "centre": lambda cx, cy, cz: (FX(cx), FZ(cz)),
-            "span": lambda cx, cy, cz, h: ((FX(cx - h), FZ(cz), 0), (FX(cx + h), FZ(cz), 0)),
+            "span": lambda cx, cy, cz, lo, hi: (
+                (FX(cx + lo), FZ(cz), 0),
+                (FX(cx + hi), FZ(cz), 0),
+            ),
         },
     }
 
