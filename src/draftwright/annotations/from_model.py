@@ -4608,23 +4608,11 @@ _PMI_SLOT = 10.0  # mm — slot size for PMI dim lines in the strip
 #: refused for a different reason from its neighbours, which an earlier version of this
 #: comment lumped together as "needs an arc".
 #:
-#: `radius` is a THIRD defect and is NOT refused: its value is a straight span, so it is
-#: fixable rather than unsupported. `_bore_half_span` returns the value where `diameter`
-#: halves it, so an R6 record renders a 12 mm line labelled R. Tracked as #1208, because
-#: refusing it would file a rendering bug under "unsupported category" and misdescribe it.
-#:
-#: NOT because the rendering library lacks the primitives. An earlier version of this
-#: comment claimed build123d has no angular dimension; it does — `DimensionLine` and
-#: `ExtensionLine` both take `label_angle`, and render "60.00°" from an arc. The missing
-#: work is on THIS side: deriving the arc and vertex from the record's reference points and
-#: routing the result through the corridor solve. Saying otherwise sends the follow-on to
-#: the wrong repository.
-#:
-#: Refused at the RENDERER rather than at `Sheet.measured_dimension`, because these kinds
-#: reach the IR from two sources — the authored façade and detected AP242 PMI
-#: (`model/detect.py`) — and refusing at the façade would leave the imported path drawing
-#: the false dimension while making a legitimate AP242 file unreadable. NIST CTC-01 carries
-#: an angular record; CTC-04 carries one drawn 88% wrong.
+#: `radius` is NOT refused: its value is a straight span, so it was fixable rather than
+#: unsupported, and #1208 fixed it in the same PR — a radius now runs centre-to-surface and
+#: draws its labelled length. Refusing it would have filed a rendering bug under
+#: "unsupported category" and misdescribed it. An earlier version of this comment still
+#: described the bug in the present tense, naming a function the same PR had deleted.
 _UNRENDERABLE_DIMENSION_KINDS = frozenset({"angular", "curve_length", "curved_dist", "oriented"})
 
 #: What each refused category actually measures, for the diagnostic. Keyed by kind so the
@@ -4965,7 +4953,8 @@ def _place_pmi_record(dwg, a, ctx, rec, idx, bore_cfg, draft) -> bool:
     name_d = f"pmi_d_{idx}"
 
     if rec.pmi_kind in ("diameter", "radius"):
-        # Bore size: centroid ± value/2 perpendicular to bore axis.
+        # Bore size: a diameter spans centroid ± value/2; a radius runs centroid → +value
+        # (#1208). See `_bore_span_offsets`.
         info = _bore_info(rec)
         if info is None:
             _log.debug("PMI dim[%d] diam: no ref_bbox, skip", idx)
@@ -4976,16 +4965,27 @@ def _place_pmi_record(dwg, a, ctx, rec, idx, bore_cfg, draft) -> bool:
         # view table (Z→plan, X→side, Y→front) differs from the linear-dim one (#351 PR-4a).
         ax = bore_axis
         lo, hi = _bore_span_offsets(rec.pmi_kind, rec.value)
-        # Half the DRAWN span, which is what the legibility gate is about: a radius dim is
-        # `value` long, not `2 * value`, so the two kinds no longer share a half-width.
-        half = (hi - lo) / 2
+        # TWO different quantities, which #1208 briefly conflated:
+        #
+        # * `half_span_pg` — half the DRAWN span, which is what the legibility gate asks
+        #   about ("does the label fit between the witness bases"). A radius dim is `value`
+        #   long, not `2 * value`, so the two kinds no longer share it.
+        # * `surface_pg` — the distance from the bore centre to its SURFACE, which is `hi`
+        #   for BOTH kinds and is where the leader's arrow must point.
+        #
+        # Redefining the single old `half` for the gate silently moved the arrow with it, so
+        # a radius leader pointed halfway between the centre and the arc — into the bore
+        # void — on a case that was previously right. And halving the gate value doubled the
+        # traffic onto that path. One variable, two consumers three lines apart, and the
+        # comment on the intervening line still asserting the old meaning.
+        half_span_pg = ((hi - lo) / 2) * a.SCALE
+        surface_pg = hi * a.SCALE  # centre-to-surface on the page (mm), both kinds
         # Narrow bores (page span < text width) lead out to a shelf; bracket dims only
         # when the span fits the label. An unresolved axis matches no cfg → bottom drop.
-        half_pg = half * a.SCALE  # bore radius on page (mm)
         cfg = bore_cfg.get(bore_axis)
         if cfg is not None:
             u, v = cfg["centre"](cx_f, cy_f, cz_f)
-            if half_pg >= _MIN_INPLACE_BORE_HALF_MM:
+            if half_span_pg >= _MIN_INPLACE_BORE_HALF_MM:
                 p1, p2 = cfg["span"](cx_f, cy_f, cz_f, lo, hi)
                 placed = _pmi_queue_options(
                     dwg,
@@ -5006,7 +5006,7 @@ def _place_pmi_record(dwg, a, ctx, rec, idx, bore_cfg, draft) -> bool:
                     ctx,
                     [
                         _pmi_leader_spec(
-                            (u, v + (half_pg if s == "above" else -half_pg), 0),
+                            (u, v + (surface_pg if s == "above" else -surface_pg), 0),
                             cfg["zones"][s],
                             label,
                             name_d,
@@ -5147,7 +5147,8 @@ def render_pmi(dwg, model, a, *, ctx) -> int:
     # circle in ONE view, dimensioned across it in-plane when the page span fits the label, else
     # led out to a shelf. This one table replaces three near-identical Z/X/Y blocks. `order` is
     # the in-place above/below fallback; `leader_order` the narrow-bore one (Y historically
-    # prefers below first). `centre`/`span` project the circle centre and its ±half endpoints.
+    # prefers below first). `centre`/`span` project the circle centre and its two span
+    # endpoints — symmetric for a diameter, centre-to-surface for a radius (#1208).
     _bore: dict[str, dict[str, Any]] = {
         "Z": {
             "view": "plan",

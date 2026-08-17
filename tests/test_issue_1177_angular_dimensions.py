@@ -318,6 +318,36 @@ class TestTheOmissionIsReportedOnce:
             "the lost requirement stopped counting as missing content"
         )
 
+    def test_every_suppressor_escalates_for_a_source_bearing_record(self):
+        # The regression had TWO symptoms — `geometry_issues: 0` (a COUNT) and
+        # `passed: True` (a SEVERITY; `passed` is literally `errors == 0`). The invariant
+        # below guards only the count, while its comment claimed a fourth suppressor
+        # "cannot quietly downgrade its sources". Downgrade is severity: a suppressor added
+        # at unconditional `warning` satisfies that invariant and still flips `passed`.
+        #
+        # Checked in the source, because there is no runtime registry of recorders — a new
+        # suppressor is a new `ctx.record_issue` call, and this is what makes adding one
+        # without the escalation visible.
+        import inspect
+        import re
+
+        from draftwright.annotations import from_model
+        from draftwright.linting.pmi_coverage import _EXPLAINED_OMISSION_CODES
+
+        source = inspect.getsource(from_model)
+        for code in _EXPLAINED_OMISSION_CODES:
+            if code == "pmi_not_rendered":
+                continue  # the suppressed error itself, not a suppressor
+            call = re.search(
+                r'ctx\.record_issue\(\s*([^\n]*?),\s*"' + re.escape(code) + r'"', source
+            )
+            assert call, f"{code} suppresses an error but is recorded nowhere in from_model"
+            assert "source_id" in call.group(1), (
+                f"{code} suppresses a source-bearing error at a fixed severity "
+                f"({call.group(1).strip()}) — a lost AP242 requirement would leave the "
+                f"drawing reporting passed"
+            )
+
     def test_every_code_that_suppresses_the_error_carries_its_weight(self):
         # Stated as an invariant over the set rather than per member, so a fourth
         # suppressor cannot be added and quietly downgrade its sources.

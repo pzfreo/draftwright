@@ -313,3 +313,73 @@ class TestDiameterColumnOccupancy:
             )
             == 0
         )
+
+
+class TestTheRadiusLeaderPointsAtTheSurface:
+    """#1208's fix redefined a variable the leader tip also read, three lines below.
+
+    `half` became "half the drawn span" for the legibility gate — correct for the gate,
+    and it silently moved the arrow with it: a radius leader pointed halfway between the
+    centre and the arc, into the bore void, on a case that was previously right. Halving
+    the gate value also doubled the traffic onto that path.
+
+    Two records describing the SAME circle must put the arrow in the same place.
+    """
+
+    def _tip_offset(self, kind, value):
+        from draftwright.annotations.from_model import _bore_span_offsets
+
+        _lo, hi = _bore_span_offsets(kind, value)
+        return hi
+
+    def test_the_same_circle_gives_the_same_tip_offset(self):
+        # r=3 and ø6 are one circle. The arrow lands on the surface either way.
+        assert self._tip_offset("radius", 3.0) == self._tip_offset("diameter", 6.0) == 3.0
+
+    def test_two_records_for_one_circle_draw_the_same_leader(self):
+        # The integration guard, because the unit test above does NOT catch the bug: it
+        # asserts `_bore_span_offsets` is right, and the defect was in the CONSUMER three
+        # lines below it, which stopped using `hi`. Reverting the tip to the gate value
+        # passes every offset assertion and moves this leader 1.5 mm.
+        #
+        # r=3 and ø6 describe the same circle. At scale 1 the drawn span is 3 mm, below the
+        # 4 mm in-place gate, so both take the LEADER path — which is exactly the path the
+        # regression doubled the traffic onto.
+        from build123d import Box
+
+        from draftwright import Sheet
+
+        def leader_extent(kind, value):
+            sheet = Sheet(Box(60, 60, 20), title="T", number="T-1", page="A3", scale=1)
+            sheet.measured_dimension(
+                kind=kind,
+                value=value,
+                label=f"X{value:g}",
+                dominant_axis="z",
+                ref_pts=((0, 0, 0), (0, 0, 10)),
+                ref_bbox=(-3, -3, 0, 3, 3, 10),
+            )
+            sheet.authored_dimensions()
+            drawing = sheet.build()
+            leaders = [
+                o
+                for n, o in drawing.iter_annotations()
+                if n.startswith("pmi_") and getattr(o, "elbow", None) is not None
+            ]
+            assert leaders, f"{kind} {value} produced no leader; the gate no longer routes here"
+            box = leaders[0].bounding_box()
+            return round(box.min.Y, 2)
+
+        assert leader_extent("radius", 3.0) == leader_extent("diameter", 6.0), (
+            "the radius leader points somewhere other than the bore surface"
+        )
+
+    def test_the_tip_offset_is_the_bore_radius_not_half_the_span(self):
+        # The regression, stated directly: for a radius the drawn span is `value` so half
+        # of it is `value / 2`, which is NOT where the surface is.
+        from draftwright.annotations.from_model import _bore_span_offsets
+
+        lo, hi = _bore_span_offsets("radius", 8.0)
+        assert (hi - lo) / 2 == 4.0, "the drawn span is still value long"
+        assert hi == 8.0, "the surface is at the full radius"
+        assert hi != (hi - lo) / 2, "gate and tip must not share one value for a radius"
