@@ -464,9 +464,16 @@ def _skip_section(dwg, ctx, reason: str, detail: str, *, severity: str = "warnin
     on its own — the title-block case at INFO, the no-room case at WARNING — so the
     same omission was visible on one part and invisible on another, and nothing
     reached `lint_summary` at all. A section is the only view showing internal
-    profile, so its loss is a `section_dropped` lint issue (the `*_dropped` suffix
-    puts it in the legibility inventory automatically) AND a structured record on the
-    drawing, which is what a caller can actually branch on.
+    profile, so its loss is a `section_dropped` lint issue AND a structured record on
+    the drawing, which is what a caller can actually branch on.
+
+    That issue is **not** in any quality component, and this comment claimed the
+    opposite until #1176 measured it: the `*_dropped` suffix routes to legibility only
+    where `outcome_stage` is unset, and the explicit `"validation"` below takes
+    precedence (`linting/issues.py::is_placement_drop`). The stage is the right choice
+    for the reason given next; the consequence is that a lost section shows up in
+    `lint()` and in `section_decision`, and in no score. `quality.py::_UNSCORED_CODES`
+    now records that rather than leaving it to be rediscovered.
 
     Deliberately NOT an ``outcome_stage="placement"`` drop. That stage marks a
     *required* outcome, so `builder._is_required_scale_drop` turns it into a scale

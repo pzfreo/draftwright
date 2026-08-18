@@ -131,11 +131,17 @@ def _item_label(item) -> str:
 def is_dimension_like(item) -> bool:
     """Whether *item* states a measured quantity — the ONE dimension-like predicate.
 
-    :func:`lint_structural` dispatches its label-vs-measured and dim-inside-part checks on
-    exactly this, so a caller asking "does this drawing assert anything measurable?" gets the
-    same answer the check that would contradict it uses. Spelling it a second time in
-    ``drawing.py`` is what let the quality gate read ``label_bbox`` — text presence on ANY
-    annotation, a title block included — and call it asserted content (#1176 review r3).
+    :func:`lint_drawing` dispatches its label-vs-measured and dim-inside-part checks through
+    this, and so does the principal-dimension sweep below, so a caller asking "does this
+    drawing assert anything measurable?" gets the same answer as the check that would
+    contradict it. Spelling it a second time in ``drawing.py`` is what let the quality gate
+    read ``label_bbox`` — text presence on ANY annotation, a title block included — and call
+    it asserted content (#1176 review r3).
+
+    Both dispatch sites call it. Naming a shared predicate and leaving its callers spelling
+    the condition out is the same defect one step further back: it would make a change here
+    silently stop matching what lint actually does, which is exactly what the paragraph above
+    is about (#1176 review r4).
 
     Deliberately narrow: ``measured_length`` is a plain attribute on the helper's dimension
     types, so this needs none of :func:`_label_bbox`'s raising-property discipline.
@@ -353,7 +359,7 @@ def lint_drawing(
     for item in items:
         if getattr(item, "elbow", None) is not None:
             _lint_leader(item, issues, box_cache, warned=warned_label_bbox)
-        elif getattr(item, "measured_length", None) is not None:
+        elif is_dimension_like(item):
             _lint_dim(item, part_bbox, issues, drawing_scale, box_cache)
 
     # Pairwise label-overlap check. The compare-box for a label-less item is an
@@ -479,7 +485,7 @@ def lint_drawing(
     if part_bbox is not None:
         covered: set[float] = set()
         for item in items:
-            if getattr(item, "measured_length", None) is not None:
+            if is_dimension_like(item):
                 val = _label_value(_item_label(item))
                 if val is not None:
                     covered.add(val)

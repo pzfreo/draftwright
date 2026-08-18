@@ -240,6 +240,9 @@ legibility = crit["quality"]["legibility"]
 # `quality` also carries `fidelity` (#1176): is what the drawing says TRUE? A drawing can
 # be complete, restrained and legible and still assert a measurement the part lacks.
 fidelity = crit["quality"]["fidelity"]
+# …and `unscored`, the findings no component priced, so four components reading "fine"
+# cannot conceal that some of the critique was scored by nothing.
+unscored = crit["quality"]["unscored"]
 # Raw pair findings remain available and keep the original count semantics.
 legibility["warnings"], legibility["by_code"], crit["issues"]
 # The legibility scalar uses primary issues: one affected annotation/failure mechanism even

@@ -149,9 +149,12 @@ _UNRECOGNISED_GEOMETRY_CODE = "unrecognised_defining_geometry"
 #: authored values) join them, and the membership rule has to be stated carefully because
 #: three of the five are *declaration*-vs-geometry checks that never inspect what was
 #: placed. What makes them belong is that the drawing does place something FOR the
-#: declaration: an absent hole gets its ``⌀6 THRU`` leader, and a gear feature gets a data
-#: table bound to it by provenance (``registry.names_for_feature`` — the reconciliation
-#: fails as ``gear_requirement_missing`` when there is not exactly one). A table whose
+#: declaration: an absent hole gets a centre mark, and on the automatic path a ``⌀6 THRU``
+#: leader as well (the authored path draws the mark alone — the check is
+#: declaration-vs-geometry and never inspects what landed, so it fires either way); and a
+#: gear feature gets a data table bound to it by provenance (``registry.names_for_feature``
+#: — the reconciliation fails as ``gear_requirement_missing`` when there is not exactly
+#: one). A table whose
 #: declared axis the geometry contradicts is describing a feature the part does not have
 #: there, exactly as the leader is. That the axis has no printed row does not make the table
 #: silent about it, any more than the leader prints the hole's coordinates.
@@ -215,6 +218,14 @@ _UNSCORED_CODES = frozenset(
         "pmi_not_rendered",
         "pmi_present_but_ignored",
         "pocket_not_located",
+        # A `_dropped` code that scores NOWHERE, which is why the suffix cannot be trusted
+        # on its own. `is_placement_drop` consults `outcome_stage` FIRST and only falls back
+        # to the suffix, and every `_skip_section` emission is `outcome_stage="validation"`
+        # — a deliberate choice, because a placement stage would make an optional section's
+        # absence a scale blocker. So the section-A–A loss reaches no component (#1176
+        # review r4). `sections.py` said the opposite four lines above the call that makes
+        # it false; that comment is corrected.
+        "section_dropped",
         "profiled_bore_not_dimensioned",
         "unrecognised_defining_geometry",
     }
@@ -228,6 +239,22 @@ _UNSCORED_CODES = frozenset(
 #: ``gear_requirement_mismatch`` is a fidelity code. The audit classifies every literal code
 #: individually, so the prefix register governs only the interpolating sites — it can never
 #: reclassify a code somebody spelled out.
+#: `_dropped` codes whose component depends on the ISSUE, not the code: emitted with
+#: ``outcome_stage="placement"`` at one site and ``"validation"`` at another, so the same code
+#: scores on legibility for one instance and on nothing for the next.
+#:
+#: Registered because the audit's "a `_dropped` suffix means legibility" shortcut is only
+#: true where no site sets a validation stage, and that is an assumption about code the audit
+#: can check rather than assume. It found `section_dropped` scoring nowhere while a comment
+#: beside its emission asserted the opposite.
+_STAGE_ROUTED_CODES = frozenset(
+    {
+        "callout_dropped",
+        "gdt_dropped",
+        "pmi_dropped",
+    }
+)
+
 _UNSCORED_CODE_PREFIXES = (
     "channel_requirement_",
     "flat_requirement_",
@@ -242,7 +269,54 @@ def _is_fidelity_issue(issue) -> bool:
     return issue.code in _FIDELITY_CODES
 
 
+def _is_unscored_issue(issue) -> bool:
+    return not _is_legibility_issue(issue) and not _is_fidelity_issue(issue)
+
+
+def _unscored_component(issues) -> dict:
+    """The findings NO quality component scored, as data (#1176 review r4).
+
+    Reported for the same reason completeness reports ``excludes``: a caller reading four
+    components all saying "fine" would otherwise have no way to see that a third of this
+    drawing's findings reached none of them. 25 of the engine's codes score nowhere, and
+    before this the only record of that was a comment.
+
+    ``unclassified`` is the fail-open signal made visible. A code here that is not in
+    :data:`_UNSCORED_CODES` reached no component AND nobody decided it should — which is
+    precisely how a new truth-class code would be silently reported as perfectly truthful.
+    The audit in ``tests/test_issue_1176_quality_fidelity.py`` catches that statically over
+    every code the engine can emit; this catches it at runtime, over the ones it just did.
+    """
+    unscored = [issue for issue in issues if _is_unscored_issue(issue)]
+    by_code = Counter(issue.code for issue in unscored)
+    return {
+        "issues": len(unscored),
+        "by_code": dict(sorted(by_code.items())),
+        "unclassified": sorted(
+            code
+            for code in by_code
+            if code not in _UNSCORED_CODES
+            and not code.startswith(_UNSCORED_CODE_PREFIXES)
+            and code not in _STAGE_ROUTED_CODES
+        ),
+        "reason": "reported by lint and deliberately scored on no quality component",
+    }
+
+
 def _is_legibility_issue(issue) -> bool:
+    """Whether *issue* is a layout defect this component should price.
+
+    Fidelity codes are excluded OUTRIGHT rather than merely being absent from
+    :data:`_LEGIBILITY_CODES`. `is_placement_drop` accepts any issue carrying
+    ``outcome_stage="placement"`` whatever its code, so a truth defect that also reported a
+    placement outcome would be penalised on both axes and make two independent observations
+    look correlated. Comparing the two SETS cannot prevent that, and the guard that claimed
+    to was inert because its probe left `outcome_stage` at its `None` default (#1176 review
+    r4). The precedence is stated here instead, where it is a fact about the code rather
+    than about the registers.
+    """
+    if _is_fidelity_issue(issue):
+        return False
     return issue.code in _LEGIBILITY_CODES or is_placement_drop(issue)
 
 
@@ -500,8 +574,12 @@ def quality_components(
             aggregation=_aggregation,
             basis="drawn_assertion_contradicted_by_its_source",
             available=has_asserted_content,
-            unavailable_reason="the drawing asserts no measurable content",
+            unavailable_reason=(
+                "the drawing states nothing this axis can check: no measured quantity is "
+                "drawn and no feature is declared"
+            ),
         ),
+        "unscored": _unscored_component(issues),
     }
 
 

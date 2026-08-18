@@ -3299,19 +3299,22 @@ class Drawing:
             # Fidelity asks whether what the drawing SAYS is true, so a drawing that says
             # nothing measurable has no answer rather than a perfect one.
             #
-            # The predicate is exactly "a measured quantity is drawn", the domain of
-            # `label_vs_measured`; the four declaration-vs-geometry codes need no gate of
-            # their own because a component that HAS a finding overrides unavailability
-            # inside `_issue_component`. The first cut asked instead whether any item had a
-            # `label_bbox` — true of a title block — so it answered "this sheet has text on
-            # it" and was decided by whether an ISO-view caption happened to be emitted,
-            # which then discarded a real `declared_feature_absent` (#1176 review r3).
-            # The gear data table is the second checkable assertion: its rows ARE what
-            # `gear_repeat_count_mismatch` contradicts, so a sheet carrying one says
-            # something measurable even when it draws no dimension.
-            has_asserted_content=any(
-                is_dimension_like(item) or getattr(item, "gear_requirement_rows", None)
-                for item in self.items
+            # The two terms are the domains of the five truth-class checks:
+            # `label_vs_measured` needs a drawn measured quantity, and the four
+            # declaration-vs-geometry codes need a DECLARED feature to check against the
+            # part. A drawing satisfying neither has nothing this axis could examine.
+            #
+            # Two earlier cuts got this wrong in opposite directions. The first asked
+            # whether any item had a `label_bbox` — true of a title block — so it meant
+            # "this sheet has text on it", and it discarded a real `declared_feature_absent`
+            # (#1176 review r3). The second narrowed to drawn measurements alone, and then
+            # reported "the drawing asserts no measurable content" over a sheet carrying a
+            # ⌀6 THRU callout whose declaration `declared_feature_absent` had just checked
+            # and passed — a clean answer thrown away for the same reason the first threw
+            # away a false one (review r4).
+            has_asserted_content=(
+                any(is_dimension_like(item) for item in self.items)
+                or bool(self._model_declared and getattr(self._part_model, "features", ()))
             ),
             error_penalty=_SCORE_ERROR_PENALTY,
             warning_penalty=_SCORE_WARNING_PENALTY,

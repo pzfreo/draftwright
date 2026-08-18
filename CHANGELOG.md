@@ -13,8 +13,10 @@
   the geometry contradicts — the last of which reports `passed: True` and clean severity
   counts, so it is invisible to every other channel. Each `quality` component reports
   `available: False` with a `reason` rather than a flattering number when it has no
-  evidence, and every lint code the engine emits is now classified onto exactly one
-  component or an explicit unscored register, audited fail-closed (#1176).
+  evidence, and every lint code the engine emits is classified onto exactly one component or
+  an explicit unscored register. `quality["unscored"]` reports the findings that reached no
+  component at all, and flags any whose classification nobody made — a `section_dropped` was
+  found scoring on nothing while a comment beside its emission said the opposite (#1176).
 
 - Recogniser co-development now has a one-command, wheel-based two-checkout check; an exact
   registry-release evidence record; automated dependency PR preparation; and documented landing,
