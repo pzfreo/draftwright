@@ -29,6 +29,10 @@ def _legibility(*issues):
         issues=issues,
         error_penalty=0.15,
         warning_penalty=0.05,
+        # Irrelevant to the component under test; `quality_components` requires it rather
+        # than defaulting to True, because a fail-open default that only tests supply is a
+        # default that only tests are protected by (#1176 review r3).
+        has_asserted_content=True,
     )["legibility"]
 
 
@@ -41,6 +45,10 @@ def _completeness(*issues):
         issues=issues,
         error_penalty=0.15,
         warning_penalty=0.05,
+        # Irrelevant to the component under test; `quality_components` requires it rather
+        # than defaulting to True, because a fail-open default that only tests supply is a
+        # default that only tests are protected by (#1176 review r3).
+        has_asserted_content=True,
     )["completeness"]
 
 
@@ -159,6 +167,10 @@ def test_an_unavailable_completeness_component_is_data_not_a_zero_score():
         issues=(),
         error_penalty=0.15,
         warning_penalty=0.05,
+        # Irrelevant to the component under test; `quality_components` requires it rather
+        # than defaulting to True, because a fail-open default that only tests supply is a
+        # default that only tests are protected by (#1176 review r3).
+        has_asserted_content=True,
     )
     completeness = components["completeness"]
 

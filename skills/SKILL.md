@@ -281,9 +281,16 @@ dwg = build_drawing(part)
 
 # 1. Critique — the machine channel. JSON-friendly aggregate of lint().
 crit = dwg.lint_summary()
-#   {"passed": bool, "score": 0..1, "errors": n, "warnings": n, "infos": n,
-#    "by_code": {code: n}, "issues": [{code, severity, message, suggestion?}, ...]}
+#   {"passed": bool, "score": 0..1, "diagnostic_score": 0..1,
+#    "errors": n, "warnings": n, "infos": n, "by_code": {code: n},
+#    "issues": [{code, severity, message, suggestion?}, ...],
+#    "quality": {"completeness": …, "restraint": …, "legibility": …, "fidelity": …}}
 # Gate on the severity/code COUNTS, not the scalar score.
+#
+# The four `quality` components answer four different questions and none substitutes for
+# another: did required content land, is there too much of it, can a reader make it out,
+# and — `fidelity` — is what it says TRUE. Each reports `available: False` with a `reason`
+# rather than a flattering number when it has no evidence, so read `available` first.
 
 # 2. Each issue names the problem in DOMAIN terms and (when computable) carries a
 #    ready-to-apply suggestion — a domain-API call you paste in, not page maths.

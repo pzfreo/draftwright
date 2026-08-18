@@ -32,6 +32,10 @@ def _legibility(issues, aggregation=None):
         issues=issues,
         error_penalty=0.15,
         warning_penalty=0.05,
+        # Irrelevant to the component under test; `quality_components` requires it rather
+        # than defaulting to True, because a fail-open default that only tests supply is a
+        # default that only tests are protected by (#1176 review r3).
+        has_asserted_content=True,
         _aggregation=aggregation,
     )["legibility"]
 

@@ -41,12 +41,13 @@ from draftwright.linting.pmi_coverage import (
 from draftwright.linting.polygonal_stock_coverage import lint_polygonal_stock_coverage
 from draftwright.linting.profiled_bore_coverage import lint_profiled_bore_coverage
 from draftwright.linting.slot_coverage import lint_slot_coverage
-from draftwright.linting.structural import lint_drawing
+from draftwright.linting.structural import is_dimension_like, lint_drawing
 from draftwright.linting.suggest import _suggest_fix
 
 __all__ = [
     "CoverageState",
     "LintIssue",
+    "is_dimension_like",
     "lint_hole_coverage",
     "lint_polygonal_stock_coverage",
     "_suggest_fix",

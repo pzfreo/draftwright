@@ -128,6 +128,21 @@ def _item_label(item) -> str:
     return getattr(item, "label", "") or getattr(item, "_annotate_label", "") or ""
 
 
+def is_dimension_like(item) -> bool:
+    """Whether *item* states a measured quantity — the ONE dimension-like predicate.
+
+    :func:`lint_structural` dispatches its label-vs-measured and dim-inside-part checks on
+    exactly this, so a caller asking "does this drawing assert anything measurable?" gets the
+    same answer the check that would contradict it uses. Spelling it a second time in
+    ``drawing.py`` is what let the quality gate read ``label_bbox`` — text presence on ANY
+    annotation, a title block included — and call it asserted content (#1176 review r3).
+
+    Deliberately narrow: ``measured_length`` is a plain attribute on the helper's dimension
+    types, so this needs none of :func:`_label_bbox`'s raising-property discipline.
+    """
+    return getattr(item, "measured_length", None) is not None
+
+
 def _label_bbox(item, warned=None):
     """``item.label_bbox`` or ``None`` — a raising property on a user-supplied
     duck-typed item cannot kill lint; it is logged (once per item), not swallowed

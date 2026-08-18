@@ -79,10 +79,11 @@ same iterate-and-fix laps — with no fluency in draftwright internals required.
   coverage gaps, not just drops. Blind spots become silent failures.
 - The legacy `score` is only a severity-weighted diagnostic heuristic. `diagnostic_score`
   exposes the same value under its honest name; callers should gate on severity/code counts
-  and inspect `quality.completeness`, `quality.restraint`, `quality.legibility` and `quality.fidelity`
-separately (#1176 added fidelity: whether what the drawing says is TRUE, which the other
-three do not ask — a drawing can be complete, restrained and legible and still assert a
-measurement the part does not have).
+  and inspect `quality.completeness`, `quality.restraint`, `quality.legibility` and
+  `quality.fidelity` separately. #1176 added fidelity: whether what the drawing says is
+  TRUE, which the other three do not ask — a drawing can be complete, restrained and
+  legible while a normative gear table prints twelve teeth on a thirteen-tooth part, and
+  `passed` stays True.
   Components state when their evidence is partial or unavailable, and no composite
   drawing-quality score is provided. Completeness is deliberately conditional on requirements
   Draftwright recognized and can audit; it reports that scope and any recognized-but-unscored

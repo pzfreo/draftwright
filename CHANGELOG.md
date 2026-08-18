@@ -10,7 +10,11 @@
   (legibility) — none asked whether it is correct, so a drawing labelled 99 over a 16 mm
   path reported a perfect score on every component available to it. Also covers a callout
   drawn for a feature the part does not have, and a gear data table stating a tooth count
-  the geometry contradicts (#1176).
+  the geometry contradicts — the last of which reports `passed: True` and clean severity
+  counts, so it is invisible to every other channel. Each `quality` component reports
+  `available: False` with a `reason` rather than a flattering number when it has no
+  evidence, and every lint code the engine emits is now classified onto exactly one
+  component or an explicit unscored register, audited fail-closed (#1176).
 
 - Recogniser co-development now has a one-command, wheel-based two-checkout check; an exact
   registry-release evidence record; automated dependency PR preparation; and documented landing,
