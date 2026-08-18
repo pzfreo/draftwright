@@ -46,13 +46,27 @@ def _counts(drawing):
     return Counter(i.code for i in drawing.lint() if i.code.startswith(("view_", "leader_")))
 
 
+def _split_into_scale_groups(drawing, groups=2):
+    """Retag annotations so the drawing has *groups* distinct scales, as detail views do."""
+    measured = [a for a in drawing.items if getattr(a, "measured_length", None) is not None]
+    extra = groups - 1
+    # STRICTLY more, not `>=`: one annotation must stay at the sheet scale or the default
+    # group disappears and the split is one group short. Tagging every measured annotation
+    # gave 2 groups when 3 were asked for.
+    assert len(measured) > extra, (
+        f"fixture has {len(measured)} measured annotations; cannot form {groups} groups"
+    )
+    # Derived from the sheet scale so a tag cannot COLLIDE with it. Fixed values of 4.0/5.0
+    # silently produced one group too few, because `Box(50,50,50)` at A1 is itself drawn at
+    # one of them and an untagged annotation reports the sheet scale.
+    for index, annotation in enumerate(measured[:extra]):
+        annotation._dw_scale = drawing.scale * (index + 2)
+    assert len({getattr(a, "_dw_scale", drawing.scale) for a in drawing.items}) == groups
+    return measured[:extra]
+
+
 def _split_into_two_scale_groups(drawing):
-    """Tag one annotation with a second scale, as an enlarged detail view does."""
-    for annotation in drawing.items:
-        if getattr(annotation, "measured_length", None) is not None:
-            annotation._dw_scale = 4.0
-            return annotation
-    pytest.fail("fixture has no measured annotation to retag; the split cannot be exercised")
+    return _split_into_scale_groups(drawing, 2)
 
 
 def _part():
@@ -62,14 +76,19 @@ def _part():
 
 
 class TestTheCountsDoNotMoveWithTheGrouping:
-    def test_view_level_findings_are_reported_once(self):
-        # The reported defect. Mutation: pass `view_geometry=True` for every group and
-        # these double.
+    @pytest.mark.parametrize("groups", [2, 3])
+    def test_view_level_findings_are_reported_once(self, groups):
+        # The reported defect. Mutation: pass `check_view_placement=True` for every group
+        # and these scale linearly with the group count.
+        #
+        # THREE groups as well as two: `first = index != 0` — an off-by-one that restores
+        # the defect at (N-1)x — is coincidentally correct at exactly two groups, and every
+        # test created exactly two, so it passed the whole suite.
         drawing = build_drawing(_part(), page="A1")
         before = _counts(drawing)
         assert set(before) & _VIEW_ONLY, f"fixture produced no view-level finding: {before}"
 
-        _split_into_two_scale_groups(drawing)
+        _split_into_scale_groups(drawing, groups)
         after = _counts(drawing)
         for code in _VIEW_ONLY:
             assert after[code] == before[code], (
@@ -80,19 +99,36 @@ class TestTheCountsDoNotMoveWithTheGrouping:
     def test_annotation_findings_survive_in_every_group(self):
         # The regression the first cut introduced. Nulling the views for later groups made
         # these vanish for the retagged annotation.
+        #
+        # Only codes the fixture ACTUALLY produces are compared. An earlier version looped
+        # over all three and asserted `0 == 0` for two of them, so moving the guard one loop
+        # earlier — which silently drops `leader_crosses_silhouette` for every group after
+        # the first — passed the whole suite. `test_a_real_multi_group_part_keeps_its_leader
+        # _findings` below covers that code on a real part.
         drawing = build_drawing(_part(), page="A1")
         before = _counts(drawing)
-        assert set(before) & _VIEW_VS_ANNOTATION, (
-            f"fixture produced no annotation-vs-view finding: {before}"
-        )
+        present = {c for c in _VIEW_VS_ANNOTATION if before[c] > 0}
+        assert present, f"fixture produced no annotation-vs-view finding: {before}"
 
         _split_into_two_scale_groups(drawing)
         after = _counts(drawing)
-        for code in _VIEW_VS_ANNOTATION:
+        for code in present:
             assert after[code] == before[code], (
                 f"{code} went {before[code]} -> {after[code]}; splitting the annotations by "
                 f"scale must not lose the findings of a group"
             )
+
+    def test_a_real_multi_group_part_keeps_its_leader_findings(self):
+        # `leader_crosses_silhouette` is annotation-dependent and the synthetic fixture
+        # produces none, so nothing guarded it: moving the guard above that loop passed
+        # everything. CTC-05 has two GENUINE scale groups (0.2 and 1.0) and two leader
+        # findings, so it exercises the preserved half on a real part rather than a retag.
+        drawing = build_drawing(step_file="tests/fixtures/nist_ctc_05_asme1_ap242.stp")
+        groups = {getattr(a, "_dw_scale", drawing.scale) for a in drawing.items}
+        assert len(groups) >= 2, f"fixture no longer has multiple scale groups: {groups}"
+        assert _counts(drawing)["leader_crosses_silhouette"] == 2, (
+            "the leader findings of a later scale group were lost"
+        )
 
     def test_the_summarys_view_counts_do_not_move_with_the_grouping(self):
         # The property that matters to a caller, stated over the VIEW families only.

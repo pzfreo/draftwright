@@ -3006,9 +3006,9 @@ class Drawing:
         else:
             # The scale split exists so `label_vs_measured` compares each annotation
             # against ITS OWN scale — an enlarged detail view (#42) carries `_dw_scale`.
-            # The VIEW-level checks (`view_overlap`, `view_out_of_bounds`,
-            # `view_annotation_*`) do not depend on annotation scale at all, so passing the
-            # views to every group emitted each of their findings once PER GROUP: measured
+            # `view_overlap` and `view_out_of_bounds` compare views to EACH OTHER and to
+            # the page, so they do not depend on the annotations at all and passing the
+            # views to every group emitted their findings once PER GROUP: measured
             # on `Box(50,50,50)` at A1, `view_overlap` and `view_out_of_bounds` both went
             # 1 -> 2 purely from tagging one annotation with a second scale (#1204).
             #
@@ -3032,7 +3032,7 @@ class Drawing:
                     drawing_scale=_scale,
                     view_shapes=view_shapes,
                     view_names=view_names,
-                    view_geometry=first,
+                    check_view_placement=first,
                     view_edge_cache=self._view_edge_cache,
                     ann_box_cache=self._ann_box_cache,
                     view_material_fields=self.material_fields(),
