@@ -93,12 +93,18 @@ def _expected_numbers(approved) -> frozenset[float]:
         return frozenset()
     start, end = span
     axis = getattr(approved, "axis", None)
-    # EXCLUDE the declared axis, do not restrict to it. For a location, `axis` is the
-    # FEATURE's axis (`compiled.py`: "`span` is (datum, located point) and `axis` is the
-    # feature's frame axis"), and the dimensions drawn are the offsets PERPENDICULAR to it —
-    # a pocket normal to Z is located by its X and Y. Restricting to the declared axis was
-    # the first cut of this fix and it excluded exactly the components that are drawn,
-    # turning three correct NIST location dimensions into mismatches.
+    # EXCLUDE the declared axis, do not restrict to it — but only because of WHICH producer
+    # reaches here. `_compile_locations` sets `axis` to the FEATURE's axis, so a pocket normal
+    # to Z is located by its X and Y and the Z component is drawn by nothing. Restricting to
+    # the axis was this fix's first cut and it removed exactly the components that ARE drawn,
+    # turning three correct NIST dimensions into mismatches.
+    #
+    # It is NOT a general rule about `axis`. `_shoulder_span` and `_compile_slot_positions`
+    # set it to the MEASURED direction, where excluding it would remove the only drawn
+    # component — those are safe today solely because they set a numeric `value_text` and
+    # return above. A future producer that emits an empty `value_text` with a measured-axis
+    # `axis` would break silently here, so the discriminator wants to be the producer's
+    # intent rather than this inference (#1218 review round 2).
     excluded = "xyz".index(axis) if axis in ("x", "y", "z") else None
     indices = [i for i in range(3) if i != excluded]
     return frozenset(
@@ -110,7 +116,12 @@ def _expected_numbers(approved) -> frozenset[float]:
 #: callout reads ``⌀8 THRU ⌴ ⌀14 ↧ 7`` and claims three separate measurements, so
 #: ``structural._label_value`` — which answers "what does this label assert about the path it is
 #: drawn on", a different question — sees only the 8.
-_NUMBER_RE = re.compile(r"-?\d+(?:\.\d+)?")
+#: Unsigned, deliberately. A round-2 draft admitted a leading ``-`` for a hypothetical negative
+#: ``value_text``; measured, no producer emits one, and the sign turned ordinary hyphenated text
+#: into numbers — the gear table's ``ISO 21771-2:2025`` yielded ``-2.0`` where the drawn glyph is
+#: ``2``. Should a producer ever emit a negative value it reports `value_absent` rather than
+#: silently confirming, which is the safe direction to be wrong in (#1218 review round 2).
+_NUMBER_RE = re.compile(r"\d+(?:\.\d+)?")
 
 #: A leading ``4× ⌀`` repeat count, stripped before numbers are read. A count is not a
 #: measurement, and leaving it in let ``4× ⌀9 THRU`` confirm a claimed bore diameter of 4
@@ -161,6 +172,34 @@ def compiled_values(plan) -> dict:
     return {key: tuple(entries) for key, entries in values.items()}
 
 
+#: Table columns whose cells are counts or identifiers rather than measurements, matched on the
+#: header row a table carries as its first entry.
+#:
+#: ``QTY`` is the reason this exists. `add_hole_table` emits ``TAG | ⌀ | DEPTH | QTY``, and a
+#: table drawing ``ø99`` for a ⌀4 hole was confirmed by its own quantity cell — the same defect
+#: `_REPEAT_RE` fixes for ``4× ⌀9 THRU``, surviving in the path this module calls the one that
+#: matters most, because the strip was applied to the label and not to row cells (#1218 review
+#: round 2). ``TAG`` carries no digits today and is listed so a future numeric tag cannot
+#: quietly become a measurement.
+_NON_MEASURING_COLUMNS = frozenset({"QTY", "TAG", "ITEM", "REF"})
+
+
+def _table_texts(rows) -> list[str]:
+    """A table's cells, minus the columns that do not carry measurements.
+
+    The first row is the header — that is the shape both table producers emit — so the columns
+    to drop are named rather than guessed at by position. A table with no recognisable header
+    contributes every cell, which is the pre-existing behaviour and errs toward false
+    confirmation; that residue is named in :func:`verify_measurement_claims`'s limits.
+    """
+    rows = list(rows or ())
+    if not rows:
+        return []
+    header = [str(cell).strip().upper() for cell in rows[0]]
+    dropped = {i for i, name in enumerate(header) if name in _NON_MEASURING_COLUMNS}
+    return [str(cell) for row in rows[1:] for i, cell in enumerate(row) if i not in dropped]
+
+
 def rendered_numbers(annotation) -> frozenset[float] | None:
     """Every number *annotation* puts on the sheet, or ``None`` when nothing can read it.
 
@@ -182,7 +221,7 @@ def rendered_numbers(annotation) -> frozenset[float] | None:
     except Exception:  # noqa: BLE001 — a raising property on a caller's item must not kill lint
         return None
     texts = [_REPEAT_RE.sub("", str(label))] if label else []
-    texts += [str(cell) for row in (rows or ()) for cell in row]
+    texts += _table_texts(rows)
     if not texts:
         return None
     return frozenset(float(match.group()) for text in texts for match in _NUMBER_RE.finditer(text))
@@ -195,10 +234,16 @@ def verify_measurement_claims(registry, plan) -> list[ClaimOutcome]:
     by relabelling a real drawing and watching this function stay silent):
 
     1. **Presence, not attribution.** It proves the approved value appears among the numbers
-       the annotation draws, not that it appears in the right *position* within a compound
-       label. Relabelling ``⌀8 THRU ⌴ ⌀14 ↧ 7`` to ``⌀14 THRU ⌴ ⌀14 ↧ 8`` still confirms the
-       bore, from the counterbore's depth. Attribution needs the renderer to record spans as
-       it formats.
+       the annotation draws, not that it appears in the right *position*. Relabelling
+       ``⌀8 THRU ⌴ ⌀14 ↧ 7`` to ``⌀14 THRU ⌴ ⌀14 ↧ 8`` still confirms the bore, from the
+       counterbore's depth. **A table is the severe case**, not a footnote to this one: its
+       cells are one flat pool, so a diameter claim can be satisfied by an X or Y coordinate
+       in another column — measured, replacing every diameter cell on a 17-row table left 17
+       of 32 claims confirmed. Matching a claim's parameter to a *column* would fix it and is
+       a real piece of design, not a tightening.
+    5. **One annotation may claim several different ids**, and one rendered number satisfies
+       all of them — measured up to ten distinct ids on a single annotation. Limit 2 is about
+       members *within* one id; this is across ids.
     2. **Members of one `DimensionId` confirm each other.** A hole's location is one id holding
        both the X and the Y offset, so swapping two location labels — two visibly wrong
        dimensions — confirms both. On a four-hole pattern all eight offsets share the id. The
@@ -275,7 +320,8 @@ def lint_claimed_representations(registry, plan) -> list[LintIssue]:
                     code="claimed_value_absent",
                     message=(
                         f"{outcome.annotation} claims {outcome.parameter_id} "
-                        f"({'/'.join(outcome.expected)}) but renders {outcome.rendered}"
+                        f"({'/'.join(outcome.expected)}) but renders "
+                        f"{outcome.rendered or 'no number'}"
                     ),
                 )
             )

@@ -182,7 +182,7 @@ class TestTheDeadFieldIsGone:
         offenders = [
             f"{path.relative_to(root)}:{n}"
             for path in root.rglob("*.py")
-            for n, line in enumerate(path.read_text().splitlines(), 1)
+            for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
             if used.search(line)
         ]
         assert not offenders, f"the dead field is back: {offenders}"
@@ -341,3 +341,60 @@ class TestTheOutputIsDeterministic:
         # of this test did (#1218 review round 2, found by mutation).
         names = [i.message.split()[0] for i in issues]
         assert names == sorted(names), names
+
+
+class TestATableIsNotOneFlatNumberPool:
+    def test_a_quantity_column_cannot_confirm_a_diameter(self):
+        # `add_hole_table` emits TAG | ⌀ | DEPTH | QTY. A table drawing `ø99` for a ⌀4 hole was
+        # confirmed by its own quantity cell — the same defect `_REPEAT_RE` fixes for
+        # `4× ⌀9 THRU`, surviving in the table path because the strip was applied to the label
+        # and not to row cells (#1218 review round 2).
+        claim = _Claim("bore.diameter")
+        approved = SimpleNamespace(id=claim, value_text="4", value=4.0, span=None, axis=None)
+        rows = (("TAG", "⌀", "DEPTH", "QTY"), ("A", "ø99", "THRU", "4"))
+        registry = _Registry(SimpleNamespace(table_rows=rows), (claim,))
+        states = [o.state for o in verify_measurement_claims(registry, _plan(approved))]
+        assert states == ["value_absent"], "a QTY cell confirmed a wrong diameter"
+
+    def test_the_header_row_is_not_read_as_data(self):
+        # Defensive, and it survived its own mutation because no header in the tree carries a
+        # digit today. A column heading like `⌀ 2` is a caption, not a measurement, and a
+        # header that could satisfy a claim would confirm every row in the table at once.
+        claim = _Claim("bore.diameter")
+        approved = SimpleNamespace(id=claim, value_text="2", value=2.0, span=None, axis=None)
+        rows = (("TAG", "⌀ 2", "DEPTH"), ("A", "ø99", "THRU"))
+        registry = _Registry(SimpleNamespace(table_rows=rows), (claim,))
+        assert [o.state for o in verify_measurement_claims(registry, _plan(approved))] == [
+            "value_absent"
+        ]
+
+    def test_a_measuring_column_still_supplies_numbers(self):
+        # The automatic escalated table has no QTY: TAG | ⌀ | DEPTH | X | Y. Dropping too much
+        # would make every table claim unverifiable, which is the opposite failure.
+        claim = _Claim("bore.diameter")
+        approved = SimpleNamespace(id=claim, value_text="2", value=2.0, span=None, axis=None)
+        rows = (("TAG", "⌀", "DEPTH", "X", "Y"), ("A", "ø2", "THRU", "17.3", "12.6"))
+        registry = _Registry(SimpleNamespace(table_rows=rows), (claim,))
+        assert [o.state for o in verify_measurement_claims(registry, _plan(approved))] == [
+            "confirmed"
+        ]
+
+
+class TestTheRemainingSmallGuards:
+    def test_a_span_is_measured_as_a_magnitude(self):
+        # Both earlier span tests used increasing spans, so dropping `abs()` passed the whole
+        # fast tier. A datum above the located point is an ordinary drawing.
+        approved = SimpleNamespace(
+            value=0.0, value_text="", span=((15, 10, 5.5), (-60, -40, -10)), axis="z"
+        )
+        assert _expected_numbers(approved) == frozenset({75.0, 50.0})
+
+    def test_a_radius_repeat_count_is_stripped_too(self):
+        # `4× R25` and `10× R10` carry claims on four corpus fixtures, so the `R` half of the
+        # lookahead is live — and was unpinned, surviving its own mutation.
+        claim = _Claim("fillet.radius")
+        approved = SimpleNamespace(id=claim, value_text="4", value=4.0, span=None, axis=None)
+        registry = _Registry(SimpleNamespace(label="4× R25"), (claim,))
+        assert [o.state for o in verify_measurement_claims(registry, _plan(approved))] == [
+            "value_absent"
+        ]

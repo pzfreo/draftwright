@@ -9,9 +9,9 @@
   believed them; nothing checked the claim against what the annotation draws. Four new codes —
   `claimed_value_absent`, `claimed_measurement_not_compiled`, and two that report an
   unverifiable claim rather than passing it — and `Drawing.add_table` now keeps the rows it
-  draws so a table's claims are readable back. Measured over 20 of the 21 STEP fixtures (the
-  21st segfaults in OCC on import, unrelated to this change): 958 claims, 957 confirmed, and
-  one genuine provenance defect found — see #1219.
+  draws so a table's claims are readable back. Measured over all 21 STEP fixtures: 1,081
+  claims, 1,078 confirmed, and three findings — all instances of one genuine provenance
+  defect, see #1219.
 
 - `lint_summary()["quality"]` gains a fourth component, `fidelity`: whether what the drawing
   says is TRUE. The existing three ask whether required content landed (completeness),
