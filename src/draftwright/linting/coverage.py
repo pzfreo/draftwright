@@ -1270,7 +1270,7 @@ def lint_axial_coverage(part, dwg, assembly=None, prof=_UNSET) -> list:
     ]
 
 
-def lint_boss_height_coverage(part, dwg, features, assembly=None) -> list:
+def lint_boss_height_coverage(part, dwg, features, assembly=None, omissions=()) -> list:
     """Report modeled boss heights that have no rendered linear dimension (#632).
 
     Coverage is reconciled from the drawing registry's feature provenance, not a
@@ -1278,6 +1278,15 @@ def lint_boss_height_coverage(part, dwg, features, assembly=None) -> list:
     is a ``Dimension``. Boss diameter annotations are leaders, so they cannot mask a
     missing axial height. Bosses without a modeled height retain the historical
     diameter-only contract and are outside this check.
+
+    A height the compiler **consolidated** onto an overall extent (#1154 — the boss spans
+    the full thickness, so its height and the envelope width measure the same two faces)
+    counts as covered, but only once that owner is verifiably on the sheet. The owner is
+    read from the omission's ``conveyed_by`` and looked up among the registry's placed
+    measurements: consolidating onto a dimension the placer then drops would otherwise turn
+    a measurement this check exists to demand into silence. Suppression that hands the fact
+    to nobody — an authored omission, a turned-part rule — carries no ``conveyed_by`` and is
+    deliberately not exempted here.
     """
     bosses = [
         feature
@@ -1285,10 +1294,22 @@ def lint_boss_height_coverage(part, dwg, features, assembly=None) -> list:
         if getattr(feature, "kind", None) in ("boss", "polygonal_boss")
         and getattr(feature, "height", None) is not None
     ]
+    registry = getattr(dwg, "registry", None)
+    placed = (
+        {measurement for name in registry.names() for measurement in registry.measurement_of(name)}
+        if registry is not None
+        else set()
+    )
+    conveyed = {
+        omission.feature
+        for omission in omissions
+        if omission.conveyed_by is not None and omission.conveyed_by in placed
+    }
     missing = sum(
         1
         for boss in bosses
-        if not any(isinstance(ann, Dimension) for ann in dwg.annotations_of(boss).values())
+        if boss not in conveyed
+        and not any(isinstance(ann, Dimension) for ann in dwg.annotations_of(boss).values())
     )
     if not missing:
         return []

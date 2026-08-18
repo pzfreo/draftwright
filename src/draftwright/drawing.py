@@ -855,6 +855,14 @@ class Drawing:
           set means omission is suppression. Recoverable by adding a ``dimension(...)`` line.
         - otherwise — a **planner rule** decided it, and ``reason`` names which.
 
+        ``conveyed_by`` distinguishes a measurement that was WITHHELD from one that was
+        CONSOLIDATED (#1154): when it is set, the fact is still on the sheet, stated by the
+        dimension it names. "This is not drawn" and "this is drawn over there" are different
+        answers, and an audit that flattened them would read a de-duplication as a gap. It
+        rides the same stable ``kind@(x,y,z)/axis`` key as ``feature``, so the two halves of
+        one consolidation can be matched up without importing IR types. ``None`` for every
+        other omission, authored ones included — nothing takes those over.
+
         The second is the one worth auditing. A rule that fires where it should not produces
         a drawing that is silently under-defined and lints clean, which is how #997's square
         rule generated four separate issue reports without any of them naming the cause. An
@@ -876,6 +884,14 @@ class Drawing:
                 "value": o.value,
                 "reason": o.reason,
                 "authored": o.authored,
+                "conveyed_by": (
+                    None
+                    if o.conveyed_by is None
+                    else {
+                        "feature": feature_key(o.conveyed_by.feature),
+                        "parameter_id": o.conveyed_by.parameter,
+                    }
+                ),
             }
             for o in self._build.omissions
         ]
@@ -3120,6 +3136,7 @@ class Drawing:
                     self,
                     getattr(model, "features", ()),
                     assembly=self.assembly,
+                    omissions=self._build.omissions,
                 )
             issues += lint_location_coverage(
                 self.part,

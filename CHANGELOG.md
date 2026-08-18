@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Fixed
+
+- A part whose feature-local extent runs between the same two faces as an overall extent
+  is no longer dimensioned twice (#1154). GRM-04's drive plate printed `4.5` twice — once
+  as the hub's height and once as the overall thickness — because two detected records
+  claim one physical fact. The overall extent keeps it; the feature-local one is withheld
+  and records, in `compile_dimensions(...).diagnostics`, which dimension the reader finds
+  it on. Reconciliation is by exact support-plane coincidence, never by value: a square
+  part's two equal extents run between different faces and remain two facts (#997).
+
 ### Added
 
 - `lint_summary()["quality"]` gains a fourth component, `fidelity`: whether what the drawing

@@ -1036,6 +1036,20 @@ def unmirrored_dimensions(model) -> list[str]:
     #
     # `model`, not `declared`: the synthesised envelope adds width and depth parameters the
     # emitter deliberately omits, so compiling the mirror model would report them missing.
+    # A measurement the MIRROR consolidates onto another dimension is named by that
+    # dimension's line, so the script is complete without a line of its own (#1154). This
+    # only ever differs from the source model's answer because `mirror_model` synthesises an
+    # envelope for a part detected without one — a round body's boss height and its overall
+    # height run between the same two faces, so the mirror consolidates where the source had
+    # no overall extent to consolidate onto. Requiring a line for it would demand the script
+    # name a dimension re-running the script does not draw.
+    consolidated = {
+        (id(omission.feature), omission.parameter_id)
+        for omission in compile_dimensions(declared).diagnostics
+        if omission.conveyed_by is not None
+        and _asked(omission.conveyed_by.feature, omission.conveyed_by.parameter)
+    }
+
     missing: list[str] = []
     for intent in compile_dimensions(model).addressable():
         feature = resolve_feature(intent.ref)
@@ -1044,7 +1058,7 @@ def unmirrored_dimensions(model) -> list[str]:
             # synthesised envelope can name it, until #976 gives it a declarative target.
             if synthesised is None or (id(synthesised), "height.length") not in requested:
                 missing.append("(bounding box).overall_height")
-        elif not _asked(feature, intent.role):
+        elif not _asked(feature, intent.role) and (id(feature), intent.role) not in consolidated:
             missing.append(f"{feature.kind}.{intent.role}")
     return sorted(set(missing))
 

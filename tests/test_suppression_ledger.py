@@ -322,7 +322,17 @@ def test_the_ledger_is_plain_data():
     dwg = build_drawing(Rot(0, 90, 0) * Cylinder(10, 40), number="X")
     rows = dwg.suppressions()
     assert rows and all(isinstance(r, dict) for r in rows)
-    assert set(rows[0]) == {"feature", "parameter_id", "value", "reason", "authored"}
+    assert set(rows[0]) == {
+        "feature",
+        "parameter_id",
+        "value",
+        "reason",
+        "authored",
+        # #1154: whether the fact moved to another dimension, or simply went. `conveyed_by`
+        # is itself plain data (the same stable feature key plus a parameter id), so the
+        # audit surface stays diffable without importing `DimensionId`.
+        "conveyed_by",
+    }
     import json
 
     json.dumps(rows)  # must round-trip; a harness will serialise these

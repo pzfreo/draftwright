@@ -421,6 +421,12 @@ class Omission:
     parameter_id: str
     value: float | None
     reason: str
+    #: The dimension that states this fact instead, when the omission was a
+    #: consolidation rather than a withholding (#1154). ``None`` for every other
+    #: omission — including the authored ones, where nothing takes the fact over.
+    #: Completeness lint requires this owner to have actually landed; a consolidation
+    #: onto a dimension the placer then drops is a missing measurement, not a covered one.
+    conveyed_by: DimensionId | None = None
 
     @property
     def authored(self) -> bool:
@@ -1159,6 +1165,7 @@ def _compile_groups(planned) -> tuple[list[ApprovedGroup], list[Omission]]:
                 pd.param.parameter_id,
                 float(pd.param.value),
                 pd.reason or "suppressed",
+                conveyed_by=pd.conveyed_by,
             )
             for pd in g.dims
             if pd.suppressed

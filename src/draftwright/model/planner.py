@@ -12,6 +12,12 @@ contract was tightened twice under adversarial review of the counterbore work:
   two orthogonal 10 mm lengths are distinct. Features own their parameters; they
   do not emit spurious duplicates. Genuine redundancy/count of *repeated identical
   features* ("3× ø8") is upstream (pattern detection), not here.
+- **Collapse by support-plane identity, though** (#1154). Two features CAN emit one
+  physical fact: GRM-04's boss spans the full part thickness, so its height and the
+  envelope width measure between the same two faces and the sheet prints `4.5` twice.
+  That is not the value coincidence the rule above protects — it is one measurement with
+  two owners, and `_consolidated_owner` gives it to the overall extent. The test is exact
+  plane coincidence; see `_same_support_planes` for why nothing looser is admissible.
 
 Current scope: convention + group view selection. Richer render intents
 (suppression / datum / grouping) are the next planned increment (#250); the full
@@ -107,6 +113,14 @@ class PlannedDimension:
     # The source IR feature this dim locates — carried so the renderer can record
     # provenance (ADR 0010). ``None`` for dims not tied to a single feature.
     feature: Feature | None = None
+    # When this dim is suppressed because ANOTHER dimension already states the same
+    # physical fact, the dimension that now owns it (#1154). Suppression alone says a
+    # measurement is not drawn; this says where the reader finds it instead, so
+    # completeness lint can require that the owner actually landed rather than assume
+    # a consolidated fact is on the sheet. ``None`` for every other suppression — those
+    # withhold a measurement that is genuinely absent or genuinely redundant with a
+    # chain no single id names.
+    conveyed_by: DimensionId | None = None
 
 
 # Correlated sets (ADR 0016 identity, tier 3): exact ``(feature kind, role)`` pairs
@@ -288,8 +302,136 @@ def _group_view(feature: Feature) -> str:
     return _END_ON.get(feature.frame.axis, "plan")
 
 
+_PLANE_TOL = 1e-6
+
+#: The reason a feature-local extent carries when an overall extent already states the
+#: same two support planes (#1154).
+_CONSOLIDATED = "the overall extent already measures these two support planes"
+
+
+def _support_planes(param: DimParameter) -> tuple[str, float, float] | None:
+    """The two parallel support planes *param* measures between, as ``(axis, lo, hi)``.
+
+    ``None`` when the parameter does not measure a pair of planes at all: it has no span,
+    it is not a length, or its span is oblique (a diagonal segment crosses no single pair
+    of principal planes, so no other dimension can be *the same* pair).
+
+    Only the along-axis coordinates are kept. Two dimensions of one physical thickness are
+    normally drawn on different segments — GRM-04's boss height runs along the boss axis at
+    ``y=z=0`` while the envelope width runs along a bbox edge at ``y=z=-4`` — and they still
+    measure between the same two faces. The perpendicular offset is where the dimension is
+    *drawn*, not what it measures.
+    """
+    span = param.span
+    if span is None or param.kind != "length":
+        return None
+    a, b = span
+    moving = [i for i in range(3) if abs(b[i] - a[i]) > _PLANE_TOL]
+    if len(moving) != 1:
+        return None
+    i = moving[0]
+    lo, hi = sorted((a[i], b[i]))
+    return ("xyz"[i], lo, hi)
+
+
+def _same_support_planes(
+    a: tuple[str, float, float] | None, b: tuple[str, float, float] | None
+) -> bool:
+    """Whether two ``_support_planes`` results name the same pair of physical planes.
+
+    **Plane coincidence, never equal values.** The distinction is the whole rule and it is
+    the #997 lesson stated the other way round: a 100 x 100 part's width and depth are
+    equal and are two independent facts, because they run between different pairs of faces.
+    GRM-04's ``4.5`` pair run between the *same* two faces, so drawing both states one fact
+    twice. A value comparison cannot tell those apart, and a windowed one (#997 used 5%)
+    additionally reads 100 x 95 as square. So the test is exact plane coincidence at the
+    kernel's own noise floor.
+    """
+    if a is None or b is None:
+        return False
+    return a[0] == b[0] and abs(a[1] - b[1]) <= _PLANE_TOL and abs(a[2] - b[2]) <= _PLANE_TOL
+
+
+def _envelope_suppression(model: PartModel, param: DimParameter):
+    """The overall-extent suppression rules → ``(suppressed, reason)``.
+
+    Split out from :func:`_suppression` so :func:`_consolidated_owner` can ask whether the
+    envelope extent it wants to hand a fact to is *itself* drawn. Consolidating onto a
+    dimension the rule set already withholds would delete the measurement from the sheet.
+    """
+    # A rotational part's OD already conveys its cross-axis extent(s); the envelope
+    # dim(s) perpendicular to the turning axis would double-dimension it (#222). The
+    # axis-aligned envelope dim (the length) is kept. (The overall *height* dim is the
+    # height-ladder renderer's call — it skips it for an X/Y rotational part likewise.)
+    rot = next((f for f in model.features if f.kind == "rotational"), None)
+    if rot is not None:
+        od_perp = {"x": {"depth"}, "y": {"width"}, "z": {"width", "depth"}}[rot.frame.axis]
+        if param.role in od_perp:
+            return True, f"rotational OD ({rot.frame.axis}-axis) conveys this extent"
+    if param.role == "width" and model.orientation == "x":
+        return True, "X-turned (step-length chain conveys the length)"
+    if param.role == "height" and model.orientation == "z":
+        return True, "Z-turned (step-length chain conveys the height)"
+    return False, None
+
+
+def _consolidated_owner(model: PartModel, feature: Feature, param: DimParameter):
+    """The overall extent that already states *param*'s fact, or ``None`` (#1154).
+
+    GRM-04 draws ``4.5`` twice: a boss whose height spans the full part thickness, and the
+    envelope width across the same two faces. Two detected records, one physical fact — so
+    coordinate-key dedup (#650) cannot see it, and value dedup must not (see
+    :func:`_same_support_planes`).
+
+    The **overall extent wins**, always, and the feature-local one is withheld. A part has
+    one overall thickness and it is the dimension a machinist reads first; a boss height
+    that happens to equal it is the accident. The converse rule would delete a required
+    envelope dimension whenever some feature grew to full depth.
+
+    Scope is deliberately narrow: only an ``envelope`` extent can take ownership, and only
+    of a *different* feature's parameter. Feature-to-feature consolidation needs an answer
+    to which of two peers is canonical, and there is no principled one — a step height and
+    a pad thickness across the same two faces are equally entitled.
+    """
+    if feature.kind == "envelope":
+        return None
+    planes = _support_planes(param)
+    if planes is None:
+        return None
+    for envelope in model.features:
+        if envelope.kind != "envelope":
+            continue
+        for extent in envelope.parameters():
+            if not _same_support_planes(_support_planes(extent), planes):
+                continue
+            if not _owner_drawn(model, envelope, extent):
+                continue
+            return DimensionId(envelope, extent.parameter_id)
+    return None
+
+
+def _owner_drawn(model: PartModel, envelope: Feature, extent: DimParameter) -> bool:
+    """Whether the extent about to take ownership of a fact is itself drawn.
+
+    Consolidating onto a dimension the rule set withholds, or one an authored set leaves
+    out, would delete the measurement from the sheet — the consolidation must move a fact
+    to another dimension, never to nowhere.
+
+    The authored half is why an authored omission can still carry a ``conveyed_by``: the
+    author's list decides which dimensions are drawn, not where the geometry puts a fact.
+    A script that lists the overall extent and not the boss height omits nothing a reader
+    needs, and it must critique the same as the automatic drawing that consolidates them
+    (round-trip parity, epic #964).
+    """
+    if _envelope_suppression(model, extent)[0]:
+        return False
+    if model.authored_dimensions is None:
+        return True
+    return _authored_for(model, envelope, extent) is not None
+
+
 def _suppression(model: PartModel, feature: Feature, param: DimParameter):
-    """Model-level suppression intent → ``(suppressed, reason)``. Decisions the
+    """Model-level suppression intent → ``(suppressed, reason, conveyed_by)``. Decisions the
     planner can make from the model alone (ISO 129 no-double-dimensioning): a turned part's
     step-length chain already conveys the length (X) / height (Z), so the envelope dim along
     the turning axis is redundant, and its OD conveys the cross-axis extents.
@@ -340,26 +482,21 @@ def _suppression(model: PartModel, feature: Feature, param: DimParameter):
                     if abs(plate.lo - channel_hi) <= 1e-6 and abs(plate.hi - bbox_hi) <= 1e-6
                 ]
                 if len(lower) == len(upper) == 1 and feature == upper[0]:
-                    return True, (
-                        "opposite wall is derived from the overall extent, lower wall "
-                        "thickness, and channel width"
+                    return (
+                        True,
+                        (
+                            "opposite wall is derived from the overall extent, lower wall "
+                            "thickness, and channel width"
+                        ),
+                        None,
                     )
-    if feature.kind != "envelope":
-        return False, None
-    # A rotational part's OD already conveys its cross-axis extent(s); the envelope
-    # dim(s) perpendicular to the turning axis would double-dimension it (#222). The
-    # axis-aligned envelope dim (the length) is kept. (The overall *height* dim is the
-    # height-ladder renderer's call — it skips it for an X/Y rotational part likewise.)
-    rot = next((f for f in model.features if f.kind == "rotational"), None)
-    if rot is not None:
-        od_perp = {"x": {"depth"}, "y": {"width"}, "z": {"width", "depth"}}[rot.frame.axis]
-        if param.role in od_perp:
-            return True, f"rotational OD ({rot.frame.axis}-axis) conveys this extent"
-    if param.role == "width" and model.orientation == "x":
-        return True, "X-turned (step-length chain conveys the length)"
-    if param.role == "height" and model.orientation == "z":
-        return True, "Z-turned (step-length chain conveys the height)"
-    return False, None
+    if feature.kind == "envelope":
+        suppressed, reason = _envelope_suppression(model, param)
+        return suppressed, reason, None
+    owner = _consolidated_owner(model, feature, param)
+    if owner is not None:
+        return True, _CONSOLIDATED, owner
+    return False, None, None
 
 
 def _datum_for(model: PartModel, param: DimParameter) -> Datum | None:
@@ -770,7 +907,7 @@ def plan_dimensions(model: PartModel) -> list[DimensionGroup]:
                 tol = model.decorations.get((feature, p.kind))
             if tol is not None:
                 p = replace(p, tolerance=tol)
-            suppressed, reason = _suppression(model, feature, p)
+            suppressed, reason, conveyed_by = _suppression(model, feature, p)
             # A caller's `add_dimension(...)` overrides the rule set's suppression for
             # exactly the measurement it names (ADR 0016 / #872). It changes SELECTION
             # only — the value still comes from the geometry, so a request can never
@@ -779,7 +916,7 @@ def plan_dimensions(model: PartModel) -> list[DimensionGroup]:
             # must be able to ask without first knowing the rule set's mind.
             request = _request_for(model, feature, p)
             if request is not None:
-                suppressed, reason = False, None
+                suppressed, reason, conveyed_by = False, None, None
             if model.authored_dimensions is not None:
                 # An authored set REPLACES the rule set rather than adding to it: what the
                 # script lists is what the drawing carries, and everything else is omitted.
@@ -787,15 +924,21 @@ def plan_dimensions(model: PartModel) -> list[DimensionGroup]:
                 # omission stays inspectable, and the compound-callout dependency rules
                 # still refuse to orphan half a term.
                 if _authored_for(model, feature, p) is None:
+                    # `conveyed_by` deliberately SURVIVES an authored omission: the author
+                    # chose which dimensions are drawn, but not where the geometry states
+                    # this fact. Nulling it made a script that lists the overall extent and
+                    # not the boss height critique differently from the automatic drawing
+                    # that consolidates exactly the same two into one (#964 parity).
                     suppressed, reason = True, _AUTHORED_OMISSION
                 else:
-                    suppressed, reason = False, None
+                    suppressed, reason, conveyed_by = False, None, None
             dims.append(
                 PlannedDimension(
                     param=p,
                     convention=_CONVENTION.get((p.role, p.kind), "linear"),
                     suppressed=suppressed,
                     reason=reason,
+                    conveyed_by=conveyed_by,
                     datum=_datum_for(model, p),
                 )
             )
