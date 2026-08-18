@@ -871,9 +871,8 @@ def _is_angular_label(label: str) -> bool:
     return any(mark in lowered for mark in _DEGREE_MARKS)
 
 
-#: At or above this relative discrepancy a dimension does not merely round differently
-#: from its
-#: geometry — it states something false, and the drawing asserts a measurement the part does
+#: At or above this relative discrepancy a dimension does not merely round differently from
+#: its geometry — it states something false, and the drawing asserts a measurement the part does
 #: not have. That is a different KIND of defect from everything else lint reports: an
 #: overflowing view or a missing callout leaves the drawing INCOMPLETE, while this leaves it
 #: actively MISLEADING, and a reader has no way to tell which of the two numbers to believe.
@@ -892,12 +891,18 @@ def _is_angular_label(label: str) -> bool:
 #: rounding and projected foreshortening to be a judgement call; a discrepancy of several
 #: percent cannot be either.
 #:
-#: It is a POLICY NUMBER, chosen, with no observed sub-threshold case to calibrate against —
-#: across 42 corpus builds the only discrepancy of any size is 99.1%. Two earlier versions
-#: of this comment claimed otherwise. The first said "every real case observed sits far
-#: above it"; the second, written to correct that, cited a CTC-01 record at 3.9% which does
-#: not exist — that record is ANGULAR, and #1207 (this comment's own base commit) refuses
-#: it before it can be measured. Do not add a supporting case here without building it.
+#: It is a POLICY NUMBER, chosen, with no observed sub-threshold case to calibrate against.
+#: Measured on the DEFAULT page — which is what `build_drawing(step)` does — the corpus
+#: produces nine discrepancies, all on `pmi="annotate"`: 15.7, 90.4, 92.3, 96.1 x3, 97.6 x2
+#: and 99.1 per cent, across CTC-03/04/05. The smallest is 15.7%, three times the threshold.
+#:
+#: Three earlier versions of this comment were wrong about that corpus, which is why the
+#: qualification matters. The first said "every real case observed sits far above it" and
+#: listed numbers including one not reproducible anywhere. The second cited a CTC-01 record
+#: at 3.9% that does not exist — that record is ANGULAR, and #1207 refuses it before
+#: anything can measure it. The third said "the only discrepancy of any size is 99.1%",
+#: true only with `page="A3"` forced, which is not the default path. Measure on the default
+#: page, and say which page, before adding a number here.
 #:
 #: What can be stated exactly: a foreshortened dimension gives `sec θ - 1`, so 0.05
 #: tolerates obliquity up to 17.75 degrees. If a more oblique dimension turns up, widen the
@@ -925,7 +930,7 @@ def _lint_dim(item, part_bbox, issues, drawing_scale: float = 1.0, box_cache=Non
     # that properly; it is not done here because nothing angular now reaches the renderer.
     #
     # Both guards apply: an angular label is skipped outright (its units differ), and a
-    # label with more than one admissible reading is compared against the closest (#1153).
+    # repeat label is read as its producer declared it (#1153).
     label_val = _label_reading(item, label)
     if label_val is not None and measured is not None and not _is_angular_label(label):
         # When drawing_scale != 1.0 the geometry was scaled up before projecting

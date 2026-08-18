@@ -17,7 +17,14 @@ no way to tell which of the two numbers to believe. That is now an error.
 
 The threshold is a policy number: below a few percent the two may legitimately differ
 (display rounding, projected foreshortening), so the drawing is questionable rather than
-false. Every real case observed sits far above it — 15.7%, 70.4%, 90.4%, 92.3%, 275%, 518%.
+false. Measured on the DEFAULT page, the corpus produces nine discrepancies — 15.7, 90.4,
+92.3, 96.1 x3, 97.6 x2, 99.1 per cent — so the smallest real one is three times the
+threshold and there is no sub-threshold case to calibrate against.
+
+An earlier version of this docstring listed "15.7%, 70.4%, 90.4%, 92.3%, 275%, 518%". Three
+of those do not survive checking: 70.4% is not reproducible anywhere in the corpus, 275% is
+the dovetail ANGULAR case that #1207 now refuses before anything measures it, and 518% is
+the synthetic fixture below rather than an observation.
 """
 
 from __future__ import annotations
@@ -128,8 +135,11 @@ class TestTheProducerSaysWhatItsRepeatLabelMeasures:
     review showed it silently disabled the check on the four product-convention producers:
     the per-unit value is precisely the length you get from spanning one member instead of
     the run — the most likely wrong endpoint for a pitch dim, and exactly the defect #1153
-    and #1209 report. A real engine-produced "3× 30" drawn across one pitch went from a 200%
-    warning to no finding at all, in a PR whose subject is detecting contradictions.
+    and #1209 report. The engine really does draw a "3× 30" pitch dimension — truthfully, at
+    180 mm — and a `3× 30` measured across one pitch went from a 200% warning to no finding
+    at all, in a PR whose subject is detecting contradictions. (That failing case is
+    constructed: no drawing in the corpus draws one wrongly. The label is real, the defect
+    is the one #1153 reports, and the masking is what the first cut made possible.)
 
     So the producer declares it instead, carrying the compiler's own number rather than
     re-deriving a convention from the rendered string — which is what ADR 0016 Amendment 1
@@ -176,6 +186,48 @@ class TestTheProducerSaysWhatItsRepeatLabelMeasures:
         )
         found = [i for i in issues if i.code == "label_vs_measured"]
         assert found and all(i.severity == "error" for i in found)
+
+
+class TestOnlyTheProducerThatMeansItTags:
+    """A wrongly-TAGGED producer silently disables the check for its labels — the exact
+    regression this PR removed, arriving from the other direction. Mis-tagging the
+    step-length-chain collapse passed all 4,182 tests; the equivalent mis-tag on the
+    hole-pitch producer was killed only incidentally, by unrelated `lint() == []`
+    assertions. One producer of four was actually guarded.
+    """
+
+    @pytest.mark.parametrize(
+        ("name", "part"),
+        [
+            ("hole row", "row"),
+            ("hole grid", "grid"),
+        ],
+    )
+    def test_a_product_convention_dimension_is_not_tagged(self, name, part):
+        from build123d import Cylinder, Pos
+
+        from draftwright import build_drawing
+
+        plate = Box(160, 80, 12)
+        if part == "row":
+            for i in range(4):
+                plate -= Pos(-45 + i * 30, 0, 0) * Cylinder(radius=4, height=40)
+        else:
+            for x in (-40, -10, 20, 50):
+                for y in (-20, 20):
+                    plate -= Pos(x, y, 0) * Cylinder(radius=3, height=40)
+        drawing = build_drawing(plate, page="A3")
+        repeats = [
+            o
+            for o in drawing.items
+            if "×" in str(getattr(o, "label", "")) and getattr(o, "measured_length", None)
+        ]
+        assert repeats, f"the {name} fixture drew no repeat-labelled dimension"
+        tagged = [o.label for o in repeats if getattr(o, "_dw_label_value", None) is not None]
+        assert not tagged, (
+            f"{name}: {tagged} claim per-unit semantics, so lint would read their labels as "
+            f"one member instead of the run and stop detecting a wrong-endpoint span"
+        )
 
 
 class TestTheTagSurvivesARebuild:
