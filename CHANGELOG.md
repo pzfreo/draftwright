@@ -4,6 +4,14 @@
 
 ### Added
 
+- `lint_summary()["quality"]` gains a fourth component, `fidelity`: whether what the drawing
+  says is TRUE. The existing three ask whether required content landed (completeness),
+  whether there is too much of it (restraint), and whether a reader can make it out
+  (legibility) — none asked whether it is correct, so a drawing labelled 99 over a 16 mm
+  path reported a perfect score on every component available to it. Also covers a callout
+  drawn for a feature the part does not have, and a gear data table stating a tooth count
+  the geometry contradicts (#1176).
+
 - Recogniser co-development now has a one-command, wheel-based two-checkout check; an exact
   registry-release evidence record; automated dependency PR preparation; and documented landing,
   compatibility, deprecation, rollback, ownership, and CI-budget rules. Dependency PRs retain the

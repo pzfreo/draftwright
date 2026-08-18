@@ -3252,7 +3252,7 @@ class Drawing:
         - ``passed`` — no error-severity issues;
         - ``score`` — legacy coarse 0–1 diagnostic heuristic (see ``_SCORE_*``);
         - ``diagnostic_score`` — the same value under its honest name;
-        - ``quality`` — separable completeness, restraint, and legibility components. No
+        - ``quality`` — separable completeness, restraint, legibility and fidelity components. No
           composite drawing-quality score is manufactured (#1127). Legibility's existing
           severity/code counts are raw findings; its ``primary_*`` counts and scalar group
           producer-identified pair findings by annotation and failure mechanism (#1147);
@@ -3295,6 +3295,13 @@ class Drawing:
             registry=self._registry,
             omissions=self._build.omissions,
             issues=issues,
+            # Fidelity asks whether what the drawing SAYS is true, so a drawing that says
+            # nothing measurable has no answer rather than a perfect one.
+            has_asserted_content=any(
+                getattr(item, "measured_length", None) is not None
+                or getattr(item, "label_bbox", None) is not None
+                for item in self.items
+            ),
             error_penalty=_SCORE_ERROR_PENALTY,
             warning_penalty=_SCORE_WARNING_PENALTY,
             _aggregation=aggregation,

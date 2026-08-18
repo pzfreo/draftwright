@@ -5,6 +5,9 @@ quality verdict.  This module exposes the independently observable terms without
 them into another blessed scalar:
 
 - completeness follows recognition-owned physical requirements to compiler outcomes;
+- fidelity asks whether the content the drawing DOES carry is contradicted by the geometry
+  it is drawn from — a drawing can be complete, restrained and legible and still assert a
+  measurement, a callout or a data-table value the part does not have (#1176);
 - legibility contains only placement/layout diagnostics. Its compatibility counts remain raw
   lint findings, while its score and ``primary_*`` counts collapse only producer-identified
   pair observations from one annotation and failure mechanism;
@@ -128,17 +131,42 @@ _UNRECOGNISED_GEOMETRY_CODE = "unrecognised_defining_geometry"
 #:
 #: This is a fourth axis, and its absence was a hole the other three could not cover. A
 #: drawing labelled 99 over a 16 mm path — a 518% contradiction — reported
-#: ``legibility: 1.0``, because legibility scores LAYOUT (its own basis field says
-#: ``layout_issue_severity_with_info_floor``) and a false dimension is perfectly legible.
-#: With completeness and restraint both unavailable on that drawing, 1.0 was the only
-#: number a caller saw (#1176).
+#: ``legibility: 1.0``, because legibility scores LAYOUT and a false dimension is perfectly
+#: legible. With completeness and restraint unavailable on that drawing, every component a
+#: caller could read said perfect (#1176).
 #:
-#: ``label_vs_measured`` is currently the only such code: it fires when a dimension's label
-#: disagrees with the geometry it is drawn on, which is the one finding that makes a
-#: drawing actively misleading rather than merely imperfect (#1153). Codes for content that
-#: was NOT drawn — ``dimension_kind_unsupported``, the ``*_dropped`` family — belong to
-#: completeness, not here: an omission is a gap, not a lie.
-_FIDELITY_CODES = frozenset({"label_vs_measured"})
+#: The first cut of this set held ``label_vs_measured`` alone and claimed it was "currently
+#: the only such code". That was false, and the two reproductions are worse than the case
+#: it was built for:
+#:
+#: * ``declared_feature_absent`` — a ``⌀6 THRU`` leader and a centre mark drawn pointing at
+#:   SOLID MATERIAL, because the declared hole is not in the part. The sheet tells a
+#:   machinist to drill something the model does not have.
+#: * ``gear_repeat_count_mismatch`` — a normative ISO data table stating 12 teeth on a part
+#:   the linter independently proves has 13. The wrong number is printed on the sheet.
+#:
+#: ``gear_axis_mismatch`` and ``gear_requirement_mismatch`` (a table preserving stale
+#: authored values) are the same shape: placed content contradicted by the geometry or by
+#: the declaration it claims to carry.
+#:
+#: What stays OUT is content that was not drawn — ``dimension_kind_unsupported``, the
+#: ``*_dropped`` family, the ``*_missing`` family. An omission is a gap, not a lie. Note
+#: this is a statement about what fidelity means, not about where those codes go instead:
+#: most of them score on NO component at all (see :func:`quality_components`).
+#:
+#: Hand-maintained, and that is a known weakness — nine lines below,
+#: :data:`_LEGIBILITY_CODES` argues for a suffix rule precisely because "a list has to be
+#: remembered". There is no suffix that means "false", so this list must be, and a new
+#: truth-class code will score as perfectly truthful until somebody adds it.
+_FIDELITY_CODES = frozenset(
+    {
+        "label_vs_measured",
+        "declared_feature_absent",
+        "gear_repeat_count_mismatch",
+        "gear_axis_mismatch",
+        "gear_requirement_mismatch",
+    }
+)
 
 
 def _is_fidelity_issue(issue) -> bool:
@@ -171,10 +199,24 @@ def _primary_issues(issues, aggregation=None) -> list[LintIssue]:
 
 
 def _issue_component(
-    issues, *, error_penalty: float, warning_penalty: float, aggregation=None
+    issues,
+    *,
+    error_penalty: float,
+    warning_penalty: float,
+    aggregation=None,
+    basis: str = "layout_issue_severity_with_info_floor",
+    available: bool = True,
+    unavailable_reason: str | None = None,
 ) -> dict:
     # Compatibility fields remain raw lint-finding counts. Only the scalar penalty uses the
     # explicitly grouped primary inventory; both inventories are exposed and documented.
+    if not available:
+        # Same contract as an unavailable completeness or restraint component: no evidence
+        # is DATA, not a perfect score. Fidelity affirming "nothing false was said" over a
+        # drawing that says nothing is the fail-open this module's own docstring argues
+        # against — and unlike legibility, where an empty sheet genuinely is legible,
+        # truthfulness of an empty utterance is not the same kind of 1.0.
+        return {"available": False, "score": None, "reason": unavailable_reason}
     errors = sum(issue.severity == "error" for issue in issues)
     warnings = sum(issue.severity == "warning" for issue in issues)
     infos = sum(issue.severity == "info" for issue in issues)
@@ -219,7 +261,7 @@ def _issue_component(
         ),
         # Keep the established basis value: severity and the info floor did not change.
         # This additive field names the inventory to which that basis is now applied.
-        "basis": "layout_issue_severity_with_info_floor",
+        "basis": basis,
         "score_inventory": "primary_issues",
     }
 
@@ -320,6 +362,7 @@ def quality_components(
     issues,
     error_penalty: float,
     warning_penalty: float,
+    has_asserted_content: bool = True,
     _aggregation=None,
 ) -> dict:
     """Return independently usable drawing-quality observations.
@@ -368,6 +411,11 @@ def quality_components(
             error_penalty=error_penalty,
             warning_penalty=warning_penalty,
             aggregation=_aggregation,
+            basis="asserted_content_contradicted_by_geometry",
+            available=has_asserted_content,
+            unavailable_reason=(
+                None if has_asserted_content else "the drawing asserts no measurable content"
+            ),
         ),
     }
 
