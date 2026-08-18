@@ -22,6 +22,7 @@ from __future__ import annotations
 import pytest
 from build123d import Align, Box, Cylinder, Pos, Rot
 
+from draftwright import Sheet
 from draftwright.builder import build_drawing, detect_part_model
 from draftwright.drawing import feature_key
 from draftwright.model.compiled import compile_dimensions
@@ -31,7 +32,7 @@ _C = (Align.CENTER, Align.CENTER, Align.CENTER)
 
 
 def _x_hub_plate():
-    """GRM-04's shape: a 4.5 mm plate with a hub flush on both X faces.
+    """GRM-04's *shape*, not its dimensions: a 4.5 mm plate with a hub flush on both X faces.
 
     The hub's height and the overall X thickness are the same two faces, so this draws
     `4.5` twice before the reconciliation.
@@ -126,9 +127,16 @@ class TestTheSameTwoFacesAreDimensionedOnce:
         assert ("boss", "boss_height.length") not in placed
 
     def test_the_reconciliation_reaches_a_boss_on_the_other_axis(self):
-        # A Z boss height renders in a different strip of a different view, so this is the
-        # cross-view half of the acceptance criteria rather than a second copy of the case
-        # above.
+        # A Z boss height renders in the front view's RIGHT strip while an X one renders
+        # ABOVE it (`render_boss_heights`' `specs` table), so this is the cross-view half of
+        # the acceptance criteria rather than a second copy of the case above. It builds the
+        # drawing as well as the plan: asserting the omission alone left the "across
+        # different eligible views" claim resting on the specs table rather than on output
+        # (#1154 review).
+        labels = _labels(build_drawing(_z_hub_plate(), title="T", number="N-1"))
+        assert labels.count("8") == 1, (
+            f"the overall Z thickness is stated {labels.count('8')} times: {labels}"
+        )
         model = detect_part_model(_z_hub_plate())
         boss, param = _boss_height(model)
         assert param.value == 8.0 and param.span is not None
@@ -148,7 +156,10 @@ class TestTheSameTwoFacesAreDimensionedOnce:
             o for o in compile_dimensions(model).diagnostics if o.conveyed_by is not None
         ], "a boss standing proud of the plate lost its height"
         labels = _labels(build_drawing(_proud_boss_plate(), title="T", number="N-1"))
-        assert "4" in labels and "12" in labels, labels
+        # Counts, not membership: this fixture draws `4` twice (the boss height and the
+        # overall depth), so `"4" in labels` would still hold with one of them consolidated
+        # away — the exact loss this test exists to catch (#1154 review).
+        assert labels.count("4") == 2 and labels.count("12") == 1, labels
 
 
 def _envelope(model):
@@ -235,11 +246,10 @@ class TestTheConsolidationIsRecordedAndVerified:
             "feature": feature_key(_envelope(drawing.model())),
             "parameter_id": "width.length",
         }
-        assert all(
-            r["conveyed_by"] is None
-            for r in drawing.suppressions()
-            if r["parameter_id"] != "boss_height.length"
-        )
+        # `_x_hub_plate` produces exactly ONE suppression row, so an "everything else is
+        # None" generator over the rest is empty and trivially true — which is what the
+        # first cut asserted (#1154 review). Say the real thing instead.
+        assert [r["parameter_id"] for r in drawing.suppressions()] == ["boss_height.length"]
 
     def test_coverage_accepts_a_consolidated_height_only_while_its_owner_is_placed(self):
         # `boss_height_missing` exists to demand the axial extent. A consolidation satisfies
@@ -311,3 +321,116 @@ class TestTheConsolidationIsRecordedAndVerified:
             return sorted((i.code, i.severity) for i in dwg.lint())
 
         assert codes(captured["dwg"]) == codes(direct)
+
+
+class TestConsolidationMovesTheFactOrDoesNotHappen:
+    """`_owner_drawn`'s three authorities, none of which had a test (#1154 review).
+
+    Replacing the whole function with `return True` passed the full fast tier, so the guard
+    the commit message opens with — "the consolidation must move a fact to another dimension,
+    never to nowhere" — was asserted only in prose.
+    """
+
+    def test_a_toleranced_height_is_not_handed_to_an_untoleranced_extent(self):
+        # The one case where the feature-local dimension is the one a machinist needs. The
+        # overall extent carries no tolerance, so consolidating DELETED a ±0.05 the author
+        # wrote — silently, with nothing in lint, and recoverable only by knowing to add an
+        # `add_dimension` line. A toleranced dimension and an untoleranced one are not the
+        # same requirement.
+        part = Box(20, 8, 8, align=_C) + Cylinder(7, 8, align=_C)
+        sheet = Sheet(part, title="T", number="N-1", page="A2")
+        sheet.envelope()
+        sheet.diameter(
+            diameter=14, height=8, span=((0, 0, -4), (0, 0, 4)), at=(0, 0, 4), axis="z"
+        ).tolerance(0.05, on="length")
+        sheet.auto_dimensions()
+        drawing = sheet.build()
+        assert not [o for o in compile_dimensions(drawing.model()).diagnostics if o.conveyed_by], (
+            "a toleranced height was consolidated onto an extent that cannot carry it"
+        )
+        assert "8 ±0.1" in _labels(drawing), _labels(drawing)
+
+    def test_an_owner_the_rule_set_withholds_is_refused(self):
+        # A z-rotational part suppresses its envelope width and depth (the OD conveys them),
+        # so a boss spanning the full X extent has no drawn owner to hand its height to.
+        # Asserted on the compiled plan because `render_boss_heights` skips rotational parts
+        # anyway — the loss would be invisible in the drawing and permanent in the plan.
+        part = Cylinder(10, 30, align=_C)
+        sheet = Sheet(part, title="T", number="N-1", page="A2")
+        sheet.rotational(od=20, at=(0, 0, 0), axis="z")
+        sheet.envelope()
+        sheet.diameter(
+            diameter=8, height=20, span=((-10, 0, 0), (10, 0, 0)), at=(10, 0, 0), axis="x"
+        )
+        sheet.auto_dimensions()
+        plan = compile_dimensions(sheet.build().model())
+        assert {o.parameter_id for o in plan.diagnostics if o.conveyed_by} == set(), (
+            "the height was handed to an envelope extent the rotational rule withholds"
+        )
+        assert {o.reason for o in plan.diagnostics} == {
+            "rotational OD (z-axis) conveys this extent"
+        }, "the fixture no longer suppresses the envelope, so nothing is under test"
+
+    def test_an_owner_the_compiler_withholds_is_refused(self):
+        # The THIRD authority. `compiled._compile_overall_height` withholds the overall
+        # height for an X/Y rotational OD, and the first cut consulted only the planner's own
+        # rules — so a declared X-rotational part consolidated its boss height onto a
+        # dimension that same compiler was independently removing, and the drawing carried
+        # neither. `overall_height_withheld` is now the one owner both consult.
+        from draftwright.model.planner import overall_height_withheld
+
+        part = Rot(0, 90, 0) * Cylinder(10, 30, align=_C)
+        sheet = Sheet(part, title="T", number="N-1", page="A2")
+        sheet.rotational(od=20, at=(0, 0, 0), axis="x")
+        sheet.envelope()
+        sheet.diameter(
+            diameter=8, height=20, span=((0, 0, -10), (0, 0, 10)), at=(0, 0, 10), axis="z"
+        )
+        sheet.auto_dimensions()
+        model = sheet.build().model()
+        assert overall_height_withheld(model), (
+            "the fixture no longer withholds the overall height, so nothing is under test"
+        )
+        assert not [o for o in compile_dimensions(model).diagnostics if o.conveyed_by], (
+            "the height was handed to an overall height the compiler withholds"
+        )
+
+    def test_an_owner_the_authored_set_omits_is_refused(self):
+        # And the second authority, from the other side of the parity rule: `conveyed_by`
+        # survives an authored omission only when the author's set KEEPS the owner.
+        part = _z_hub_plate()
+        sheet = Sheet(part, title="T", number="N-1", page="A2")
+        boss = sheet.diameter(
+            diameter=14, height=8, span=((0, 0, -4), (0, 0, 4)), at=(0, 0, 4), axis="z"
+        )
+        envelope = sheet.envelope()
+        sheet.authored_dimensions()
+        sheet.dimension(envelope, "width.length")
+        sheet.dimension(boss, "boss.diameter")
+        model = sheet.build().model()
+        rows = [o for o in compile_dimensions(model).diagnostics if o.conveyed_by]
+        assert not rows, (
+            "the height was handed to an overall height the authored set leaves out: "
+            f"{[(o.parameter_id, o.conveyed_by) for o in rows]}"
+        )
+
+
+class TestThePlaneToleranceIsAToleranceNotAWindow:
+    def test_a_face_half_a_millimetre_short_is_a_different_plane(self):
+        # `_PLANE_TOL` is the kernel's noise floor, not a matching window. Widening it to 0.5
+        # or 2.0 passed the full fast tier (#1154 review), so nothing said which of those it
+        # was — and #997's deleted rule failed precisely by being a window.
+        part = Box(20, 8, 8, align=_C) + Pos(0, 0, 0.25) * Cylinder(7, 7.5, align=_C)
+        model = detect_part_model(part)
+        boss, height = _boss_height(model)
+        assert boss is not None and height.value == pytest.approx(7.5)
+        # The TOP face coincides exactly and the bottom is 0.5 mm short — the hardest case
+        # for a windowed comparison, and the one that decides whether this is a tolerance or
+        # a match radius.
+        assert _support_planes(height) == pytest.approx(("z", -3.5, 4.0), abs=1e-9)
+        assert _support_planes(
+            next(p for p in _envelope(model).parameters() if p.parameter_id == "height.length")
+        ) == pytest.approx(("z", -4.0, 4.0), abs=1e-9)
+        assert not [o for o in compile_dimensions(model).diagnostics if o.conveyed_by], (
+            "a boss 0.5 mm short of the lower face was consolidated onto the 8 mm extent"
+        )

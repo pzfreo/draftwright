@@ -61,7 +61,6 @@ from draftwright.model.ir import (
     PatternFeature,
     PocketFeature,
     Point,
-    PolygonalStockFeature,
     RotationalFeature,
     SlotFeature,
     SlotPatternFeature,
@@ -72,6 +71,7 @@ from draftwright.model.planner import (
     DimensionId,
     authored_location_omitted,
     location_datum,
+    overall_height_withheld,
     plan_dimensions,
     plan_locations,
 )
@@ -422,8 +422,11 @@ class Omission:
     value: float | None
     reason: str
     #: The dimension that states this fact instead, when the omission was a
-    #: consolidation rather than a withholding (#1154). ``None`` for every other
-    #: omission — including the authored ones, where nothing takes the fact over.
+    #: consolidation rather than a withholding (#1154). ``None`` wherever nothing takes the
+    #: fact over — but NOT a synonym for "the rule set did it": an authored omission carries
+    #: it too whenever the author's set keeps the owner, because the author chooses which
+    #: dimensions are drawn and not where the geometry states a fact. Read ``authored`` for
+    #: whose decision it was and this for where the measurement went.
     #: Completeness lint requires this owner to have actually landed; a consolidation
     #: onto a dimension the placer then drops is a missing measurement, not a covered one.
     conveyed_by: DimensionId | None = None
@@ -830,11 +833,19 @@ def _compile_overall_height(
     # Whole polygonal stock already owns the same axial extent as `stock_length.length`.
     # Letting the bbox fallback add `dim_height` would state one physical requirement twice,
     # and would make authored suppression ineffective through an unrelated synthetic value.
-    if any(isinstance(feature, PolygonalStockFeature) for feature in model.features):
-        return None, None, []
+    #
+    # Asked through `planner.overall_height_withheld` rather than re-tested here: the
+    # planner's consolidation needs the same answer (#1154), and the paragraph above about
+    # two owners of this decision applies to a second owner in either direction.
     env = next((f for f in model.features if isinstance(f, EnvelopeFeature)), None)
     bb: Any = model.bbox  # build123d BoundBox
     rot = next((f for f in model.features if isinstance(f, RotationalFeature)), None)
+    if overall_height_withheld(model) and (
+        rot is None or rot.frame.axis not in ("x", "y") or env is None
+    ):
+        # The X/Y-rotational half keeps its own richer return below (it reports an Omission
+        # naming the OD); only the polygonal-stock half returns bare.
+        return None, None, []
     if not include_overall:
         return None, None, []
     mark = marked.get((id(env), "height.length")) if env is not None else None

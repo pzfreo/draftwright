@@ -113,13 +113,16 @@ class PlannedDimension:
     # The source IR feature this dim locates — carried so the renderer can record
     # provenance (ADR 0010). ``None`` for dims not tied to a single feature.
     feature: Feature | None = None
-    # When this dim is suppressed because ANOTHER dimension already states the same
-    # physical fact, the dimension that now owns it (#1154). Suppression alone says a
-    # measurement is not drawn; this says where the reader finds it instead, so
-    # completeness lint can require that the owner actually landed rather than assume
-    # a consolidated fact is on the sheet. ``None`` for every other suppression — those
-    # withhold a measurement that is genuinely absent or genuinely redundant with a
-    # chain no single id names.
+    # When this dim is not drawn because ANOTHER dimension already states the same physical
+    # fact, the dimension that now owns it (#1154). Suppression alone says a measurement is
+    # not drawn; this says where the reader finds it instead, so completeness lint can
+    # require that the owner actually landed rather than assume a consolidated fact is on
+    # the sheet.
+    #
+    # Set INDEPENDENTLY of `reason`: an authored omission carries it too, whenever the
+    # author's set keeps the owner. The author decides which dimensions are drawn, not where
+    # the geometry states a fact, and the two must critique alike (#964 parity). ``None``
+    # wherever nothing takes the fact over.
     conveyed_by: DimensionId | None = None
 
 
@@ -352,6 +355,27 @@ def _same_support_planes(
     return a[0] == b[0] and abs(a[1] - b[1]) <= _PLANE_TOL and abs(a[2] - b[2]) <= _PLANE_TOL
 
 
+def overall_height_withheld(model: PartModel) -> bool:
+    """Whether the overall HEIGHT is withheld for a reason the model alone settles.
+
+    Two conditions, both belonging to `compiled._compile_overall_height`, which is the single
+    owner of "is the overall height drawn" and says so in its own docstring — whole polygonal
+    stock already owning the same axial extent, and an X/Y rotational OD conveying it. They
+    live here, and that function calls this, because :func:`_owner_drawn` needs the same
+    answer and re-deriving half of it beside a docstring warning against exactly that split
+    is how the split happened the first time (#1154 review).
+
+    NOT settled here: ``include_overall``, which is drawing state. It is safe to ignore for
+    consolidation — it is False only when an explicit ``role="height"`` intent draws the same
+    height through the dimension path instead, so the fact is still on the sheet — and that
+    is why it stays an argument to the compiler rather than a model property.
+    """
+    if any(f.kind == "polygonal_stock" for f in model.features):
+        return True
+    rot = next((f for f in model.features if f.kind == "rotational"), None)
+    return rot is not None and rot.frame.axis in ("x", "y")
+
+
 def _envelope_suppression(model: PartModel, param: DimParameter):
     """The overall-extent suppression rules → ``(suppressed, reason)``.
 
@@ -373,6 +397,20 @@ def _envelope_suppression(model: PartModel, param: DimParameter):
     if param.role == "height" and model.orientation == "z":
         return True, "Z-turned (step-length chain conveys the height)"
     return False, None
+
+
+def _decorated(model: PartModel, feature: Feature, param: DimParameter) -> DimParameter:
+    """*param* with the caller's authored tolerance / fit folded on, if any (ADR 0011 §4).
+
+    One owner, because :func:`_consolidated_owner` has to compare a candidate against the
+    extent that would take its fact over, and comparing a decorated parameter with an
+    undecorated one made a toleranced boss height look interchangeable with a plain overall
+    thickness (#1154 review).
+    """
+    tol = model.decorations.get((feature, param.kind, param.role))
+    if tol is None:
+        tol = model.decorations.get((feature, param.kind))
+    return param if tol is None else replace(param, tolerance=tol)
 
 
 def _consolidated_owner(model: PartModel, feature: Feature, param: DimParameter):
@@ -406,6 +444,13 @@ def _consolidated_owner(model: PartModel, feature: Feature, param: DimParameter)
                 continue
             if not _owner_drawn(model, envelope, extent):
                 continue
+            if _decorated(model, envelope, extent).tolerance != param.tolerance:
+                # A toleranced dimension and an untoleranced one are not the same
+                # requirement, so the overall extent cannot state this fact on its behalf.
+                # Consolidating anyway DELETED a ±0.05 the author had written, silently and
+                # with nothing in lint (#1154 review) — which is the one case where the
+                # feature-local dimension is the one a machinist needs.
+                continue
             return DimensionId(envelope, extent.parameter_id)
     return None
 
@@ -417,6 +462,12 @@ def _owner_drawn(model: PartModel, envelope: Feature, extent: DimParameter) -> b
     out, would delete the measurement from the sheet — the consolidation must move a fact
     to another dimension, never to nowhere.
 
+    Three authorities decide that, not one: this module's envelope rules, the authored set,
+    and — for the overall HEIGHT specifically — `compiled._compile_overall_height`, whose
+    model-derivable half is :func:`overall_height_withheld`. The first cut consulted only the
+    first, so a declared X-rotational part consolidated its boss height onto an overall
+    height that same compiler was independently withholding (#1154 review).
+
     The authored half is why an authored omission can still carry a ``conveyed_by``: the
     author's list decides which dimensions are drawn, not where the geometry puts a fact.
     A script that lists the overall extent and not the boss height omits nothing a reader
@@ -424,6 +475,8 @@ def _owner_drawn(model: PartModel, envelope: Feature, extent: DimParameter) -> b
     (round-trip parity, epic #964).
     """
     if _envelope_suppression(model, extent)[0]:
+        return False
+    if extent.parameter_id == "height.length" and overall_height_withheld(model):
         return False
     if model.authored_dimensions is None:
         return True
@@ -902,11 +955,7 @@ def plan_dimensions(model: PartModel) -> list[DimensionGroup]:
             # fallback that folds onto EVERY param of that kind. `kind` stays in the key —
             # a step's length and diameter share role="step", so role alone can't tell
             # them apart.
-            tol = model.decorations.get((feature, p.kind, p.role))
-            if tol is None:
-                tol = model.decorations.get((feature, p.kind))
-            if tol is not None:
-                p = replace(p, tolerance=tol)
+            p = _decorated(model, feature, p)
             suppressed, reason, conveyed_by = _suppression(model, feature, p)
             # A caller's `add_dimension(...)` overrides the rule set's suppression for
             # exactly the measurement it names (ADR 0016 / #872). It changes SELECTION

@@ -10,7 +10,11 @@
   claim one physical fact. The overall extent keeps it; the feature-local one is withheld
   and records, in `compile_dimensions(...).diagnostics`, which dimension the reader finds
   it on. Reconciliation is by exact support-plane coincidence, never by value: a square
-  part's two equal extents run between different faces and remain two facts (#997).
+  part's two equal extents run between different faces and remain two facts (#997). A
+  measurement is handed over only when the extent receiving it is actually drawn — by the
+  planner's rules, by the compiler's overall-height rules, and by an authored set — and
+  never when it carries a tolerance the extent does not, since a toleranced dimension and an
+  untoleranced one are not the same requirement.
 
 ### Added
 

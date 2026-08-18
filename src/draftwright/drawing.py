@@ -860,8 +860,11 @@ class Drawing:
         dimension it names. "This is not drawn" and "this is drawn over there" are different
         answers, and an audit that flattened them would read a de-duplication as a gap. It
         rides the same stable ``kind@(x,y,z)/axis`` key as ``feature``, so the two halves of
-        one consolidation can be matched up without importing IR types. ``None`` for every
-        other omission, authored ones included — nothing takes those over.
+        one consolidation can be matched up without importing IR types. ``None`` wherever
+        nothing takes the fact over — which is NOT the same question as ``authored``: an
+        authored omission carries a ``conveyed_by`` whenever the author's set keeps the
+        owner, since the author chooses which dimensions are drawn and not where the
+        geometry states a fact.
 
         The second is the one worth auditing. A rule that fires where it should not produces
         a drawing that is silently under-defined and lints clean, which is how #997's square
