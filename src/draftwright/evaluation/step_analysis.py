@@ -701,12 +701,12 @@ def _table_represented(drawing) -> list:
     plate with no lint issues at all — which inverted the metric: a correct sheet scored
     worse than the same part with the table forced to fail.
 
-    Read ``covers_hole_representations_by_requirement`` and not the ``…_by_feature``
-    sibling. The sibling exists, and an earlier cut of this function read it, but **no
-    caller populates it**: `representation_features=` appears in the whole tree only at its
-    own definition and its own use in ``annotations/_common.py``. Both real callers pass
-    ``representation_requirements=`` instead. So that read returned nothing on every real
-    drawing while a hand-built stub in the tests made it look correct.
+    Read ``covers_hole_representations_by_requirement``. An earlier cut read a
+    ``…_by_feature`` sibling that no caller ever populated — its ``representation_features``
+    argument appeared in the whole tree only at its own definition and its own use — so the
+    read returned nothing on every real drawing while a hand-built stub in the tests made it
+    look correct. The dead field was removed in #1217; this note stays because the lesson is
+    about the stub, not the field.
 
     Filtered to the SIZE requirement: a table row also documents location and through-ness,
     and crediting those would mean a hole with a located row but no diameter counted as

@@ -92,7 +92,6 @@ def _register_hole_table_coverage(
     locations=(),
     requirements=(),
     representation_reason=None,
-    representation_features=(),
     representation_requirements=(),
 ):
     """Register the semantic facts visibly carried by a placed hole table.
@@ -103,11 +102,6 @@ def _register_hole_table_coverage(
     """
     table.covers_hole_locations = tuple(locations)
     table.covers_hole_requirements_by_feature = tuple(requirements)
-    table.covers_hole_representations_by_feature = tuple(
-        (feature, "hole_table", representation_reason)
-        for feature in representation_features
-        if representation_reason is not None
-    )
     table.covers_hole_representations_by_requirement = tuple(
         (feature, parameter, "hole_table", representation_reason)
         for feature, parameter in representation_requirements
@@ -140,11 +134,6 @@ def _annotation_hole_features(registry, name, annotation) -> frozenset:
             features.add(feature)
     for feature, _requirement, _count in getattr(
         annotation, "covers_hole_requirements_by_feature", ()
-    ):
-        if getattr(feature, "kind", None) in {"hole", "pattern"}:
-            features.add(feature)
-    for feature, _representation, _reason in getattr(
-        annotation, "covers_hole_representations_by_feature", ()
     ):
         if getattr(feature, "kind", None) in {"hole", "pattern"}:
             features.add(feature)
