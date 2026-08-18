@@ -117,4 +117,4 @@ paths = dwg.export("out", formats=("svg", "dxf", "pdf", "png"))   # -> {format: 
 
 `docs/adr/` — especially 0004 (compose-then-pack layout), 0014 (collect-then-solve placement),
 0011 (declare features), 0012 (edits as pinned candidates), 0015 (the compiler pipeline).
-`CLAUDE.md` has the module map.
+`CLAUDE.md` has the compact module map; `docs/architecture.md` the detailed one.
