@@ -217,7 +217,10 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   `Datum`/`PartModel` types — the one inventory), `detect.py` (detectors →
   `Feature` objects, adapting `b123d_recognisers` records), `planner.py`
   (`plan_dimensions` —
-  one rule set → a `DimensionGroup` per feature, + `plan_sections`), and
+  one rule set → a `DimensionGroup` per feature, + `plan_sections`; and, since #1154,
+  the one cross-feature reconciliation: two features measuring between the same two
+  support planes state one fact, so the overall extent keeps it and the feature-local
+  one records where it went), and
   `declare.py` (ADR 0011 object→feature constructors: `hole`/`boss`/`step`/… read
   a feature's size off the build123d object — a second, *declared* front-end into
   the same IR the detectors fill). The narrow middle of the compiler hourglass;

@@ -19,6 +19,8 @@ plate, which is the only way a feature-local height comes to equal an overall ex
 
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 from build123d import Align, Box, Cylinder, Pos, Rot
 
@@ -26,7 +28,7 @@ from draftwright import Sheet
 from draftwright.builder import build_drawing, detect_part_model
 from draftwright.drawing import feature_key
 from draftwright.model.compiled import compile_dimensions
-from draftwright.model.planner import DimensionId, _support_planes
+from draftwright.model.planner import DimensionId, _same_support_planes, _support_planes
 
 _C = (Align.CENTER, Align.CENTER, Align.CENTER)
 
@@ -85,17 +87,29 @@ def _assert_a_candidate_exists(model, *, owner):
     extent = next(p for p in _envelope(model).parameters() if p.parameter_id == owner)
     planes = _support_planes(extent)
     assert planes is not None
+    # `_same_support_planes`, the production predicate — not `pytest.approx`, whose default
+    # relative tolerance is looser than `_PLANE_TOL` at these coordinates and could admit a
+    # candidate the rule itself would reject (#1154 review r3).
     candidates = [
         (f.kind, p.parameter_id)
         for f in model.features
         if f.kind != "envelope"
         for p in f.parameters()
-        if _support_planes(p) is not None and _support_planes(p) == pytest.approx(planes)
+        if _same_support_planes(_support_planes(p), planes)
     ]
     assert candidates, (
         f"no feature measures {owner}'s two support planes, so a refusal proves nothing"
     )
+    # Necessary but not sufficient: a candidate can exist and be refused by a DIFFERENT
+    # authority than the one under test — adding a tolerance to a fixture moved the refusal
+    # to the tolerance rule and left all three refusal tests passing (review r3). Each caller
+    # pairs this with a relaxation that shows the named authority is the one refusing.
     return candidates
+
+
+def _consolidates_when(model) -> bool:
+    """Whether *model* consolidates anything — the positive half of the refusal anchors."""
+    return bool([o for o in compile_dimensions(model).diagnostics if o.conveyed_by])
 
 
 def _assert_the_duplicate_exists(model):
@@ -390,6 +404,15 @@ class TestConsolidationMovesTheFactOrDoesNotHappen:
         sheet.auto_dimensions()
         model = sheet.build().model()
         _assert_a_candidate_exists(model, owner="width.length")
+        # Sufficiency: relaxing THIS authority — the rotational rule that withholds the
+        # envelope width — makes the same geometry consolidate. Without it, a fixture drifted
+        # in some other direction (a tolerance, say) would move the refusal elsewhere and the
+        # test would pass having proved nothing (#1154 review r3).
+        assert _consolidates_when(
+            dataclasses.replace(
+                model, features=tuple(f for f in model.features if f.kind != "rotational")
+            )
+        ), "the rotational rule is not what refuses this consolidation"
         plan = compile_dimensions(model)
         assert {o.parameter_id for o in plan.diagnostics if o.conveyed_by} == set(), (
             "the height was handed to an envelope extent the rotational rule withholds"
@@ -416,6 +439,13 @@ class TestConsolidationMovesTheFactOrDoesNotHappen:
         sheet.auto_dimensions()
         model = sheet.build().model()
         _assert_a_candidate_exists(model, owner="height.length")
+        # Sufficiency: with the rotational feature gone the compiler no longer withholds the
+        # overall height, and the same geometry consolidates.
+        assert _consolidates_when(
+            dataclasses.replace(
+                model, features=tuple(f for f in model.features if f.kind != "rotational")
+            )
+        ), "the compiler's overall-height rule is not what refuses this consolidation"
         assert overall_height_withheld(model), (
             "the fixture no longer withholds the overall height, so nothing is under test"
         )
@@ -437,6 +467,11 @@ class TestConsolidationMovesTheFactOrDoesNotHappen:
         sheet.dimension(boss, "boss.diameter")
         model = sheet.build().model()
         _assert_a_candidate_exists(model, owner="height.length")
+        # Sufficiency: drop the authored set and the same geometry consolidates, so it is
+        # the authored omission of the OWNER that refuses and not some other authority.
+        assert _consolidates_when(dataclasses.replace(model, authored_dimensions=None)), (
+            "the authored set is not what refuses this consolidation"
+        )
         rows = [o for o in compile_dimensions(model).diagnostics if o.conveyed_by]
         assert not rows, (
             "the height was handed to an overall height the authored set leaves out: "
@@ -509,4 +544,12 @@ class TestTheToleranceRuleIsAsymmetric:
         # defect, re-opened by its fix (review r2). A tolerance on the owner is the same
         # requirement on the same two faces; it does not make them two facts.
         assert self._z_hub_labels(on_envelope=True) == ["8"]
-        assert self._z_hub_labels(on_boss=True, on_envelope=True) == ["8"]
+
+    def test_equal_tolerances_on_both_sides_still_keep_both(self):
+        # The r2 correction then went one step too far and admitted "equal tolerances", on
+        # the premise that the receiving extent states the same requirement. Measured, an
+        # envelope decoration is not rendered on ANY axis while `render_boss_heights` appends
+        # `_tol_suffix`, so an identically toleranced boss height lost its ± anyway — the
+        # exact silent loss the tolerance rule was added to stop, re-created by the fix for
+        # its own over-correction (review r3). The rule is about the yielder alone.
+        assert self._z_hub_labels(on_boss=True, on_envelope=True) == ["8", "8 ±0.1"]

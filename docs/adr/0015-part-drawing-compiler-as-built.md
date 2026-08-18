@@ -251,11 +251,15 @@ Two consequences worth stating, both found by review rather than design:
   `polygonal_stock_conveys_height` / `rotational_od_conveys_height` so that
   `compiled._compile_overall_height` stays the single owner of *applying* them
   while the planner can *ask* them.
-- **A tolerance is part of the requirement.** A toleranced dimension and an
-  untoleranced one are not the same fact, so a toleranced measurement is never
-  handed to an extent that cannot state it. The rule is asymmetric: a tolerance
-  on the *receiving* extent is the same requirement on the same two faces and
-  does not block the consolidation.
+- **A tolerance is part of the requirement.** A toleranced measurement is never
+  handed over, full stop. The rule is asymmetric — it is about the *yielding*
+  dimension alone, so a tolerance on the receiving extent is the same requirement
+  on the same two faces and does not block the consolidation. An earlier draft
+  read "never handed to an extent that cannot state it", which admitted equal
+  tolerances on both sides; measured, no envelope extent renders a decoration on
+  any axis, so that exception silently deleted the ± the yielder would have
+  printed. Whether the receiver happens to print a tolerance is not the rule's
+  business.
 
 ## Supersession
 

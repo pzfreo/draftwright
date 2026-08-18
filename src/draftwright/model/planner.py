@@ -456,24 +456,26 @@ def _consolidated_owner(model: PartModel, feature: Feature, param: DimParameter)
                 continue
             if not _owner_drawn(model, envelope, extent):
                 continue
-            if (
-                param.tolerance is not None
-                and _decorated(model, envelope, extent).tolerance != param.tolerance
-            ):
+            if param.tolerance is not None:
                 # A toleranced dimension and an untoleranced one are not the same
                 # requirement, so the overall extent cannot state this fact on its behalf.
                 # Consolidating anyway DELETED a ±0.05 the author had written, silently and
                 # with nothing in lint (#1154 review) — the one case where the feature-local
                 # dimension is the one a machinist needs.
                 #
-                # ASYMMETRIC, deliberately. The first cut compared the two tolerances and
-                # refused whenever they differed, so tolerancing the OVERALL EXTENT brought
-                # the duplicate `8` straight back — this issue's own defect, re-opened by its
-                # fix (review r2). A tolerance on the OWNER is not a problem: it is the same
-                # two faces, so it is the same requirement and one dimension states it.
-                # (Measured: the height ladder renders `_fmt(value)` and does not print the
-                # envelope's decoration at all, so today nothing is even lost. That is a
-                # separate pre-existing gap, and this rule must not depend on it.)
+                # ASYMMETRIC, and about the YIELDER alone. A tolerance on the OWNER is not a
+                # problem — it is the same two faces, so it is the same requirement and one
+                # dimension states it. The first cut refused whenever the two DIFFERED, which
+                # brought the duplicate `8` back for anyone who toleranced the overall
+                # thickness: this issue's own defect, re-opened by its fix (review r2).
+                #
+                # The correction then went one step too far and admitted "equal tolerances on
+                # both sides", on the premise that the receiving extent states the same
+                # requirement. It does not, ever: measured, an envelope decoration is not
+                # rendered on any axis, while `render_boss_heights` appends `_tol_suffix`, so
+                # a boss height toleranced identically to its envelope lost its ± anyway
+                # (review r3). Whether the owner happens to print a tolerance is not this
+                # rule's business — a toleranced measurement is simply never handed over.
                 continue
             return DimensionId(envelope, extent.parameter_id)
     return None
@@ -491,6 +493,11 @@ def _owner_drawn(model: PartModel, envelope: Feature, extent: DimParameter) -> b
     model-derivable half is :func:`overall_height_withheld`. The first cut consulted only the
     first, so a declared X-rotational part consolidated its boss height onto an overall
     height that same compiler was independently withholding (#1154 review).
+
+    Not consulted: an `add_dimension(...)` request, which un-suppresses an owner in
+    `plan_dimensions` but not here, so a caller who explicitly asks for a withheld extent
+    gets a benign duplicate rather than a consolidation. It fails toward keeping content,
+    which is the safe direction for a rule whose whole risk is losing some.
 
     The authored half is why an authored omission can still carry a ``conveyed_by``: the
     author's list decides which dimensions are drawn, not where the geometry puts a fact.

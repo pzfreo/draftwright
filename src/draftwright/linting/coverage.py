@@ -1284,9 +1284,13 @@ def lint_boss_height_coverage(part, dwg, features, assembly=None, omissions=()) 
     counts as covered, but only once that owner is verifiably on the sheet. The owner is
     read from the omission's ``conveyed_by`` and looked up among the registry's placed
     measurements: consolidating onto a dimension the placer then drops would otherwise turn
-    a measurement this check exists to demand into silence. Suppression that hands the fact
-    to nobody — an authored omission, a turned-part rule — carries no ``conveyed_by`` and is
-    deliberately not exempted here.
+    a measurement this check exists to demand into silence.
+
+    The exemption follows ``conveyed_by``, never ``authored``: an authored omission whose set
+    keeps the owner carries one, and takes the exemption, because the author chooses which
+    dimensions are drawn and not where the geometry states a fact (#964 parity). Only a
+    suppression that hands the fact to nobody — a turned-part rule, an authored set that
+    drops the owner too — is left to report.
     """
     bosses = [
         feature
