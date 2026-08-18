@@ -123,6 +123,27 @@ _EXCLUDES = (
 # was noticed, not that nothing was missed.
 _UNRECOGNISED_GEOMETRY_CODE = "unrecognised_defining_geometry"
 
+#: Codes meaning the drawing ASSERTS SOMETHING FALSE — not that it is incomplete, hard to
+#: read, or over-dimensioned, but that a reader following it would be misled.
+#:
+#: This is a fourth axis, and its absence was a hole the other three could not cover. A
+#: drawing labelled 99 over a 16 mm path — a 518% contradiction — reported
+#: ``legibility: 1.0``, because legibility scores LAYOUT (its own basis field says
+#: ``layout_issue_severity_with_info_floor``) and a false dimension is perfectly legible.
+#: With completeness and restraint both unavailable on that drawing, 1.0 was the only
+#: number a caller saw (#1176).
+#:
+#: ``label_vs_measured`` is currently the only such code: it fires when a dimension's label
+#: disagrees with the geometry it is drawn on, which is the one finding that makes a
+#: drawing actively misleading rather than merely imperfect (#1153). Codes for content that
+#: was NOT drawn — ``dimension_kind_unsupported``, the ``*_dropped`` family — belong to
+#: completeness, not here: an omission is a gap, not a lie.
+_FIDELITY_CODES = frozenset({"label_vs_measured"})
+
+
+def _is_fidelity_issue(issue) -> bool:
+    return issue.code in _FIDELITY_CODES
+
 
 def _is_legibility_issue(issue) -> bool:
     return issue.code in _LEGIBILITY_CODES or is_placement_drop(issue)
@@ -310,6 +331,13 @@ def quality_components(
     denominator ``excludes`` — a feature recognition never identified is absent from the
     ledger entirely, so a perfect audited score is not a complete drawing.
 
+    The four axes answer different questions and none substitutes for another:
+    completeness asks whether required content landed, restraint whether there is too much
+    of it, legibility whether a reader can make it out, and **fidelity whether what it says
+    is true**. A drawing can be complete, restrained and legible while asserting a
+    measurement the part does not have, and before fidelity existed that combination scored
+    perfect on the only component available (#1176).
+
     Legibility's ``errors``/``warnings``/``infos``/``by_code`` fields retain their original
     raw-finding semantics. ``primary_*`` fields describe the inventory used by ``score``;
     ``affected_pairs`` is the number of raw pair findings that opted into that aggregation.
@@ -317,6 +345,7 @@ def quality_components(
     """
 
     legibility_issues = [issue for issue in issues if _is_legibility_issue(issue)]
+    fidelity_issues = [issue for issue in issues if _is_fidelity_issue(issue)]
     return {
         "completeness": _completeness_component(
             recognition, features, registry, omissions, issues
@@ -330,6 +359,12 @@ def quality_components(
         },
         "legibility": _issue_component(
             legibility_issues,
+            error_penalty=error_penalty,
+            warning_penalty=warning_penalty,
+            aggregation=_aggregation,
+        ),
+        "fidelity": _issue_component(
+            fidelity_issues,
             error_penalty=error_penalty,
             warning_penalty=warning_penalty,
             aggregation=_aggregation,

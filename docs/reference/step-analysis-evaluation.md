@@ -104,7 +104,8 @@ requirements the current recognition run already found, so it can diagnose downs
 cannot measure physical recall. The independent corpus can measure recall but cannot certify an
 arbitrary production part or a rendered sheet. Keep the feature census descriptive, use this
 evaluation for regression/coverage claims, and use lint codes plus separate drawing completeness,
-restraint, and legibility components for a drawing decision.
+restraint, legibility, and fidelity components for a drawing decision (#1176 added
+fidelity: whether what the drawing says is true, which the other three do not ask).
 
 ## API
 
