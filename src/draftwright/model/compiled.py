@@ -71,9 +71,10 @@ from draftwright.model.planner import (
     DimensionId,
     authored_location_omitted,
     location_datum,
-    overall_height_withheld,
     plan_dimensions,
     plan_locations,
+    polygonal_stock_conveys_height,
+    rotational_od_conveys_height,
 )
 
 
@@ -820,7 +821,10 @@ def _compile_overall_height(
     """The part's overall height — the envelope's ``height`` parameter, drawn in the
     front-view right strip rather than below a view, which is why it rides the ladder.
 
-    Every reason it might not be drawn is settled here, in one place. They used to be split:
+    Every reason it might not be drawn is settled here — as conditions named in `planner`
+    (`polygonal_stock_conveys_height`, `rotational_od_conveys_height`) and applied here, so
+    that #1154's consolidation can ask the same questions without re-deriving them. They used
+    to be split in the way that actually hurts:
     the planner suppressed it for a Z-turned part while the renderer independently suppressed
     it for that AND an X/Y rotational OD AND `include_overall`, and neither knew about the
     other. ``include_overall`` is drawing state (the finalize drain's explicit-envelope-height
@@ -834,18 +838,16 @@ def _compile_overall_height(
     # Letting the bbox fallback add `dim_height` would state one physical requirement twice,
     # and would make authored suppression ineffective through an unrelated synthetic value.
     #
-    # Asked through `planner.overall_height_withheld` rather than re-tested here: the
-    # planner's consolidation needs the same answer (#1154), and the paragraph above about
-    # two owners of this decision applies to a second owner in either direction.
+    # Asked through the planner's predicates rather than re-tested here: its consolidation
+    # needs the same answers (#1154), and the paragraph above about two owners of this
+    # decision applies to a second owner in either direction. Each CONDITION is consulted
+    # where it belongs — collapsing both into one early return here deleted the rotational
+    # case's `Omission` for a part with no envelope feature (#1154 review r2).
+    if polygonal_stock_conveys_height(model):
+        return None, None, []
     env = next((f for f in model.features if isinstance(f, EnvelopeFeature)), None)
     bb: Any = model.bbox  # build123d BoundBox
     rot = next((f for f in model.features if isinstance(f, RotationalFeature)), None)
-    if overall_height_withheld(model) and (
-        rot is None or rot.frame.axis not in ("x", "y") or env is None
-    ):
-        # The X/Y-rotational half keeps its own richer return below (it reports an Omission
-        # naming the OD); only the polygonal-stock half returns bare.
-        return None, None, []
     if not include_overall:
         return None, None, []
     mark = marked.get((id(env), "height.length")) if env is not None else None
@@ -895,7 +897,9 @@ def _compile_overall_height(
             )
             return None, ApprovedContingency("step_length", ladder, inactive), [inactive]
         return ladder, None, []
-    if rot is not None and rot.frame.axis in ("x", "y"):
+    if rot is not None and rotational_od_conveys_height(model):
+        # `rot is not None` is implied by the predicate and stated anyway, so the message
+        # below can read the axis off it without a second narrowing.
         return (
             None,
             None,

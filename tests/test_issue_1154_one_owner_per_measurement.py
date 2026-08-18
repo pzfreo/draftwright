@@ -73,6 +73,31 @@ def _labels(drawing):
     )
 
 
+def _assert_a_candidate_exists(model, *, owner):
+    """A non-envelope length parameter really does share *owner*'s two support planes.
+
+    The positive anchor for the refusal tests. "Nothing was consolidated" is trivially true
+    when no consolidation candidate exists, and shrinking the declared boss in any of the
+    three so it no longer spans the extent left all three passing (#1154 review r2) — the
+    same vacuity `_assert_the_duplicate_exists` was written for, unapplied in the class added
+    to fix it.
+    """
+    extent = next(p for p in _envelope(model).parameters() if p.parameter_id == owner)
+    planes = _support_planes(extent)
+    assert planes is not None
+    candidates = [
+        (f.kind, p.parameter_id)
+        for f in model.features
+        if f.kind != "envelope"
+        for p in f.parameters()
+        if _support_planes(p) is not None and _support_planes(p) == pytest.approx(planes)
+    ]
+    assert candidates, (
+        f"no feature measures {owner}'s two support planes, so a refusal proves nothing"
+    )
+    return candidates
+
+
 def _assert_the_duplicate_exists(model):
     """The fixture must actually contain the defect, or every assertion below is vacuous.
 
@@ -363,7 +388,9 @@ class TestConsolidationMovesTheFactOrDoesNotHappen:
             diameter=8, height=20, span=((-10, 0, 0), (10, 0, 0)), at=(10, 0, 0), axis="x"
         )
         sheet.auto_dimensions()
-        plan = compile_dimensions(sheet.build().model())
+        model = sheet.build().model()
+        _assert_a_candidate_exists(model, owner="width.length")
+        plan = compile_dimensions(model)
         assert {o.parameter_id for o in plan.diagnostics if o.conveyed_by} == set(), (
             "the height was handed to an envelope extent the rotational rule withholds"
         )
@@ -388,6 +415,7 @@ class TestConsolidationMovesTheFactOrDoesNotHappen:
         )
         sheet.auto_dimensions()
         model = sheet.build().model()
+        _assert_a_candidate_exists(model, owner="height.length")
         assert overall_height_withheld(model), (
             "the fixture no longer withholds the overall height, so nothing is under test"
         )
@@ -408,6 +436,7 @@ class TestConsolidationMovesTheFactOrDoesNotHappen:
         sheet.dimension(envelope, "width.length")
         sheet.dimension(boss, "boss.diameter")
         model = sheet.build().model()
+        _assert_a_candidate_exists(model, owner="height.length")
         rows = [o for o in compile_dimensions(model).diagnostics if o.conveyed_by]
         assert not rows, (
             "the height was handed to an overall height the authored set leaves out: "
@@ -434,3 +463,50 @@ class TestThePlaneToleranceIsAToleranceNotAWindow:
         assert not [o for o in compile_dimensions(model).diagnostics if o.conveyed_by], (
             "a boss 0.5 mm short of the lower face was consolidated onto the 8 mm extent"
         )
+
+
+class TestTheConsolidationDoesNotDisturbTheHeightCompiler:
+    def test_a_rotational_part_without_an_envelope_keeps_its_suppression_record(self):
+        # Sharing the overall-height conditions with the planner collapsed two of them into
+        # one early return, which swallowed the richer `Omission` naming the OD whenever the
+        # part had no `.envelope()`. The audit row did not flatten — it vanished — from the
+        # surface whose own docstring says an audit that flattened them "would read a
+        # de-duplication as a gap" (#1154 review r2). The conditions are now two named
+        # predicates, each applied where it belongs.
+        sheet = Sheet(Rot(0, 90, 0) * Cylinder(10, 30), title="T", number="N-1", page="A2")
+        sheet.rotational(od=20, at=(0, 0, 0), axis="x")
+        sheet.auto_dimensions()
+        rows = [
+            row for row in sheet.build().suppressions() if row["parameter_id"] == "height.length"
+        ]
+        assert [row["reason"] for row in rows] == ["rotational OD (x-axis) conveys the height"]
+        assert rows[0]["conveyed_by"] is None, "nothing took this fact over; it is withheld"
+
+
+class TestTheToleranceRuleIsAsymmetric:
+    """Which side carries the tolerance decides the answer, and the two are not alike."""
+
+    def _z_hub_labels(self, *, on_boss=False, on_envelope=False):
+        part = Box(20, 8, 8, align=_C) + Cylinder(7, 8, align=_C)
+        sheet = Sheet(part, title="T", number="N-1", page="A2")
+        envelope = sheet.envelope()
+        boss = sheet.diameter(
+            diameter=14, height=8, span=((0, 0, -4), (0, 0, 4)), at=(0, 0, 4), axis="z"
+        )
+        if on_boss:
+            boss.tolerance(0.05, on="length")
+        if on_envelope:
+            envelope.tolerance(0.05, on="height")
+        sheet.auto_dimensions()
+        return [label for label in _labels(sheet.build()) if label.startswith("8")]
+
+    def test_tolerancing_the_yielding_dimension_keeps_both(self):
+        assert self._z_hub_labels(on_boss=True) == ["8", "8 ±0.1"]
+
+    def test_tolerancing_the_owner_still_consolidates(self):
+        # The first cut compared the two tolerances and refused whenever they differed, so an
+        # author who toleranced the OVERALL THICKNESS got the duplicate `8` back — #1154's own
+        # defect, re-opened by its fix (review r2). A tolerance on the owner is the same
+        # requirement on the same two faces; it does not make them two facts.
+        assert self._z_hub_labels(on_envelope=True) == ["8"]
+        assert self._z_hub_labels(on_boss=True, on_envelope=True) == ["8"]

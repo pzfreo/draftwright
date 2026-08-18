@@ -355,25 +355,37 @@ def _same_support_planes(
     return a[0] == b[0] and abs(a[1] - b[1]) <= _PLANE_TOL and abs(a[2] - b[2]) <= _PLANE_TOL
 
 
+def polygonal_stock_conveys_height(model: PartModel) -> bool:
+    """Whole polygonal stock already owns the same axial extent as ``stock_length.length``."""
+    return any(f.kind == "polygonal_stock" for f in model.features)
+
+
+def rotational_od_conveys_height(model: PartModel) -> bool:
+    """An X/Y rotational OD conveys the overall height, so it is not drawn separately."""
+    rot = next((f for f in model.features if f.kind == "rotational"), None)
+    return rot is not None and rot.frame.axis in ("x", "y")
+
+
 def overall_height_withheld(model: PartModel) -> bool:
     """Whether the overall HEIGHT is withheld for a reason the model alone settles.
 
-    Two conditions, both belonging to `compiled._compile_overall_height`, which is the single
-    owner of "is the overall height drawn" and says so in its own docstring — whole polygonal
-    stock already owning the same axial extent, and an X/Y rotational OD conveying it. They
-    live here, and that function calls this, because :func:`_owner_drawn` needs the same
-    answer and re-deriving half of it beside a docstring warning against exactly that split
-    is how the split happened the first time (#1154 review).
+    The two conditions above, which belong to `compiled._compile_overall_height` — the single
+    owner of "is the overall height drawn", as its own docstring insists. They live here, and
+    that function calls *them* rather than re-testing either, because :func:`_owner_drawn`
+    needs the same answer and re-deriving half of it beside a docstring warning against
+    exactly that split is how the split happened the first time (#1154 review).
+
+    Split into two named predicates rather than one, because the compiler needs them
+    separately: polygonal stock withholds the height outright, while the rotational case
+    returns a richer `Omission` naming the OD. Collapsing them into one early return deleted
+    that diagnostic for a rotational part with no envelope feature (#1154 review r2).
 
     NOT settled here: ``include_overall``, which is drawing state. It is safe to ignore for
     consolidation — it is False only when an explicit ``role="height"`` intent draws the same
     height through the dimension path instead, so the fact is still on the sheet — and that
     is why it stays an argument to the compiler rather than a model property.
     """
-    if any(f.kind == "polygonal_stock" for f in model.features):
-        return True
-    rot = next((f for f in model.features if f.kind == "rotational"), None)
-    return rot is not None and rot.frame.axis in ("x", "y")
+    return polygonal_stock_conveys_height(model) or rotational_od_conveys_height(model)
 
 
 def _envelope_suppression(model: PartModel, param: DimParameter):
@@ -444,12 +456,24 @@ def _consolidated_owner(model: PartModel, feature: Feature, param: DimParameter)
                 continue
             if not _owner_drawn(model, envelope, extent):
                 continue
-            if _decorated(model, envelope, extent).tolerance != param.tolerance:
+            if (
+                param.tolerance is not None
+                and _decorated(model, envelope, extent).tolerance != param.tolerance
+            ):
                 # A toleranced dimension and an untoleranced one are not the same
                 # requirement, so the overall extent cannot state this fact on its behalf.
                 # Consolidating anyway DELETED a ±0.05 the author had written, silently and
-                # with nothing in lint (#1154 review) — which is the one case where the
-                # feature-local dimension is the one a machinist needs.
+                # with nothing in lint (#1154 review) — the one case where the feature-local
+                # dimension is the one a machinist needs.
+                #
+                # ASYMMETRIC, deliberately. The first cut compared the two tolerances and
+                # refused whenever they differed, so tolerancing the OVERALL EXTENT brought
+                # the duplicate `8` straight back — this issue's own defect, re-opened by its
+                # fix (review r2). A tolerance on the OWNER is not a problem: it is the same
+                # two faces, so it is the same requirement and one dimension states it.
+                # (Measured: the height ladder renders `_fmt(value)` and does not print the
+                # envelope's decoration at all, so today nothing is even lost. That is a
+                # separate pre-existing gap, and this rule must not depend on it.)
                 continue
             return DimensionId(envelope, extent.parameter_id)
     return None

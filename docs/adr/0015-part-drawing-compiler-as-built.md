@@ -222,6 +222,41 @@ records cross is the sanctioned `build_part_model` boundary itself.
   real state of the adapter protocol, instead of 0008's aspirational
   "migration complete — one rule set".
 
+## Amendment — cross-feature reconciliation by support-plane identity (2026-08-18, #1154)
+
+The planner's long-standing contract says features own their parameters and "do
+not emit spurious duplicates", and that the planner does **not** de-duplicate by
+value. Both still hold. What #1154 showed is that they leave a case uncovered:
+two features can emit **one physical fact**. GRM-04's hub is flush with both
+faces of its plate, so `boss.boss_height.length` and `envelope.width.length`
+measure between the same two faces and the sheet prints `4.5` twice. Neither
+record is spurious, and no value comparison may collapse them — #997 deleted a
+rule that did exactly that and read a 100 x 95 part as square.
+
+So the planner now reconciles across features on **support-plane coincidence**:
+the two along-axis coordinates a length runs between, compared at the kernel's
+noise floor. The overall extent keeps the fact; the feature-local one is
+withheld and records, as an `Omission.conveyed_by`, the dimension that states it
+instead. This is a *third* kind of planner decision alongside per-parameter
+suppression and authored omission, and it is deliberately narrow: only an
+`envelope` extent may take ownership, because feature-to-feature consolidation
+would need an answer to which of two peers is canonical and there is none.
+
+Two consequences worth stating, both found by review rather than design:
+
+- **A handover requires a receiver.** The measurement moves only if the extent
+  taking it over is itself drawn — which three separate authorities decide (the
+  planner's envelope rules, an authored set, and the compiler's overall-height
+  rules). The model-derivable half of the third lives in `planner` as
+  `polygonal_stock_conveys_height` / `rotational_od_conveys_height` so that
+  `compiled._compile_overall_height` stays the single owner of *applying* them
+  while the planner can *ask* them.
+- **A tolerance is part of the requirement.** A toleranced dimension and an
+  untoleranced one are not the same fact, so a toleranced measurement is never
+  handed to an extent that cannot state it. The rule is asymmetric: a tolerance
+  on the *receiving* extent is the same requirement on the same two faces and
+  does not block the consolidation.
+
 ## Supersession
 
 ADR 0008 is **Superseded by this ADR**. Its status header, decision text, and
