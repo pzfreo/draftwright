@@ -163,8 +163,14 @@ class TestTheCountsDoNotMoveWithTheGrouping:
         drawing = _drawing_producing_both_families()
         before = _counts(drawing)
         present = {c for c in _VIEW_VS_ANNOTATION if before[c] > 0}
-        assert present == _VIEW_VS_ANNOTATION - {"leader_crosses_silhouette"}, (
-            f"the fixture stopped forcing an annotation-vs-view code: {before}"
+        # Only `inside_extents` is forced by CONSTRUCTION: the stub sits at the centre of
+        # the view's bounds, so it is inside them everywhere. Whether it ALSO crosses a
+        # projected edge — which is what promotes it to `view_annotation_overlap` — depends
+        # on where the edges fall, and that differs by platform: macOS produced both codes,
+        # Linux only the first. Requiring both was the fourth fixture in this file to assert
+        # on a layout outcome.
+        assert "view_annotation_inside_extents" in present, (
+            f"the stub stopped landing inside the view it was placed in: {before}"
         )
         # The finding must be in a LATER group, which is what the flag gates. Leaving that
         # to item order let a mutation dropping these for later groups pass.
