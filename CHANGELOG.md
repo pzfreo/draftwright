@@ -10,13 +10,15 @@
   (legibility) — none asked whether it is correct, so a drawing labelled 99 over a 16 mm
   path reported a perfect score on every component available to it. Also covers a callout
   drawn for a feature the part does not have, and a gear data table stating a tooth count
-  the geometry contradicts — the last of which reports `passed: True` and clean severity
-  counts, so it is invisible to every other channel. Each `quality` component reports
-  `available: False` with a `reason` rather than a flattering number when it has no
-  evidence, and every lint code the engine emits is classified onto exactly one component or
-  an explicit unscored register. `quality["unscored"]` reports the findings that reached no
-  component at all, and flags any whose classification nobody made — a `section_dropped` was
-  found scoring on nothing while a comment beside its emission said the opposite (#1176).
+  the geometry contradicts — the last of which reports `passed: True` and zero errors, so
+  the only existing channel that names it is `by_code`. Completeness, restraint and fidelity
+  report `available: False` with a `reason` rather than a flattering number when they have no
+  evidence, and every lint code the engine emits is classified onto exactly one component,
+  an explicit unscored register, or a register of codes whose component depends on the
+  issue's `outcome_stage`. `quality["unscored"]` reports the findings that reached no
+  component at all and flags any whose classification nobody made — `section_dropped` was
+  found scoring on nothing while a comment beside its emission said the opposite, and eleven
+  more `*_dropped` codes reach the engine as `drop_code` data with the same shape (#1176).
 
 - Recogniser co-development now has a one-command, wheel-based two-checkout check; an exact
   registry-release evidence record; automated dependency PR preparation; and documented landing,

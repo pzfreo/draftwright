@@ -73,6 +73,13 @@ _RECON_POS_TOL = 0.5
 _RECON_EXTERNAL = {"hole": False, "boss": True, "step": True}
 _RECON_KINDS = tuple(_RECON_EXTERNAL)  # derive to keep the kind list and polarity map in sync
 
+#: Declared feature kinds any TRUTH check can examine against the geometry — this module's
+#: `_RECON_KINDS` plus the profiled bores it also confirms, plus the gear the gear-coverage
+#: module reconciles. Exported because `lint_summary`'s fidelity component must know whether
+#: a declaration is examinable at all, and re-listing the kinds there let it report "checked,
+#: nothing false" over a declared slot no check looks at (#1176 review r5). One owner.
+EXAMINABLE_DECLARED_KINDS = (*_RECON_KINDS, "double_d_bore", "external_spur_gear")
+
 
 def _dim_vertices(ann) -> list[tuple[float, float]]:
     """A ``Dimension``'s witness endpoints as ``(x, y)`` page points; ``[]`` if they

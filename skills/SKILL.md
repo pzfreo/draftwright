@@ -290,8 +290,10 @@ crit = dwg.lint_summary()
 #
 # The four `quality` components answer four different questions and none substitutes for
 # another: did required content land, is there too much of it, can a reader make it out,
-# and — `fidelity` — is what it says TRUE. Each reports `available: False` with a `reason`
-# rather than a flattering number when it has no evidence, so read `available` first.
+# and — `fidelity` — is what it says TRUE. Completeness, restraint and fidelity report
+# `available: False` with a `reason` rather than a flattering number when they have no
+# evidence, so read `available` first. (Legibility is always available: an empty sheet
+# genuinely IS legible, which is not the same kind of 1.0 as an empty sheet being truthful.)
 # `quality["unscored"]` lists the findings none of the four priced; a non-empty
 # `unclassified` there means a lint code reached no component and nobody decided it should.
 

@@ -49,11 +49,12 @@ from draftwright.linting.structural import is_dimension_like as _is_dimension_li
 
 _REFS = ((0, -25, 0), (0, -9, 0))  # a 16 mm span
 
-#: Producer call sites that forward a code held in a variable, so the AST walk cannot read
-#: the string. Shrink-only. Seven, down from the first cut's ten once conditional
-#: expressions were walked to their leaves; six are the pass-through parameters of the drop
-#: recorders in `annotations/`, and the seventh is `Drawing._record_build_issue` forwarding
-#: its own argument.
+#: Producer call sites where the code is held in a variable the AST walk cannot resolve.
+#: Shrink-only — a new one has to be argued rather than silently widening the blind spot.
+#:
+#: The count is measured, not described: earlier comments here miscounted what the sites
+#: were, which is its own small instance of this issue's failure mode. Assert on the number;
+#: run the test to see the list.
 _INDIRECT_PRODUCER_SITES = 7
 
 
@@ -140,6 +141,66 @@ class TestFidelityIsReportedSeparately:
         assert component["basis"] == available["basis"], (
             "an unavailable component must still say WHAT it would have measured"
         )
+
+    def test_a_detected_drawing_that_dimensions_the_part_is_answerable(self):
+        # The `is_dimension_like` half of the predicate, which nothing exercised: deleting it
+        # passed the entire 4,214-test tier, because every other fixture here reaches
+        # availability through the DECLARED half (#1176 review r5). A detected build declares
+        # nothing, so only the drawn dimensions can make this answerable.
+        from draftwright.builder import build_drawing
+
+        drawing = build_drawing(Box(60, 40, 20), title="T", number="N-1")
+        assert not drawing.model_declared, "the fixture must reach availability the other way"
+        assert any(_is_dimension_like(item) for _n, item in drawing.iter_annotations())
+        component = drawing.lint_summary()["quality"]["fidelity"]
+        assert component["available"] is True and component["score"] == 1.0
+
+    def test_a_declaration_no_truth_check_examines_is_not_certified(self):
+        # The predicate accepted ANY declared feature, so a declared slot — which
+        # `declared_feature_absent` does not look at (`_RECON_KINDS`) and no gear check
+        # touches — was reported as "checked, nothing false" by a drawing that drew nothing
+        # (#1176 review r5). That is the fail-open this module's docstring forbids, reached
+        # from the opposite side to round 3's fail-closed.
+        sheet = Sheet(Box(80, 60, 20), title="T", number="N-1", page="A2")
+        sheet.slot(
+            width=6,
+            length=20,
+            long_axis="x",
+            width_axis="y",
+            depth_axis="z",
+            w_center=0,
+            lo=-10,
+            hi=10,
+            at=(0, 0, 10),
+        )
+        sheet.authored_dimensions()
+        drawing = sheet.build()
+        assert drawing.model_declared and drawing.model().features, (
+            "the fixture must declare something, or it proves nothing about the second term"
+        )
+        component = drawing.lint_summary()["quality"]["fidelity"]
+        assert component["available"] is False and component["score"] is None
+
+    def test_a_finding_always_outranks_the_availability_gate(self):
+        # A direct test of `_issue_component`, deliberately. The override is a FAIL-SAFE
+        # against the predicate drifting from the checks' domains — which has happened three
+        # times in this issue's review history — so a consumer-level test would have to
+        # reproduce the drift it exists to survive. Round 4's consumer-level attempt did not:
+        # widening the predicate made its fixture available by the other term, and deleting
+        # the override then passed the whole tier while the test's comment said otherwise.
+        from draftwright.linting.issues import LintIssue
+        from draftwright.linting.quality import _issue_component
+
+        component = _issue_component(
+            [LintIssue(severity="error", code="label_vs_measured", message="m")],
+            error_penalty=0.2,
+            warning_penalty=0.05,
+            available=False,
+            unavailable_reason="the caller said there was nothing to check",
+        )
+        assert component["available"] is True, "a detected falsehood was discarded unscored"
+        assert component["score"] < 1.0
+        assert component["by_code"] == {"label_vs_measured": 1}
 
     def test_a_finding_outranks_the_availability_gate(self):
         # The gate must never DISCARD a falsehood. This drawing draws no measured quantity,
@@ -295,7 +356,10 @@ class TestFidelityIsAboutFalsehoodNotAbsence:
         assert component["by_code"] == {}, (
             "refusing to draw something was scored as drawing something false"
         )
-        assert component["score"] == 1.0
+        # And the refusal leaves nothing this axis can examine: no measured quantity is
+        # drawn, and a `measured_dimension` declaration is not a feature any truth check
+        # looks at. "No answer" rather than a perfect one.
+        assert component["available"] is False and component["score"] is None
         # And the refusal is itself scored by nothing — an omission is not a legibility
         # fault either. That is reported rather than left implicit.
         assert summary["quality"]["unscored"]["by_code"]["dimension_kind_unsupported"] == 1
@@ -394,28 +458,65 @@ class TestAGearTableCanBeFalseWhileTheDrawingPasses:
         assert summary["quality"]["fidelity"]["score"] < 1.0
 
 
-def _emitted_codes():
-    """Every lint code the engine can produce, by AST over its THREE producer forms.
+#: Producer callables whose ``code`` argument is a lint code. `LintIssue`'s is the FOURTH
+#: positional field (`severity, message, location, code`), which is why the positional form
+#: has to be read by index rather than assumed absent (#1176 review r5).
+_PRODUCERS = {"LintIssue": 3, "record_issue": 1, "_record_build_issue": 1}
 
-    `LintIssue(code=…)`, `ctx.record_issue(severity, code, …)` and
-    `Drawing._record_build_issue(severity, code, …)`, each accepting the code positionally or
-    by keyword. Read from the source rather than by running the engine, because a code
-    emitted only on a path no test reaches is exactly the one that would slip through
-    unclassified.
+#: Callables that take a lint code as ``drop_code`` DATA and record it later. Ten codes
+#: reached the engine only this way and were invisible to an audit that read literals at
+#: producer calls alone; `_render_polygonal_prisms` is here because it forwards its own
+#: ``drop_code`` parameter into a job, and is discovered rather than listed.
+_STAGED_RECORDERS = {"_leader_callout_pass", "FeatureLeaderJob"}
 
-    The first cut of this walk had three demonstrated escapes, each of which let a brand-new
-    code pass all four audits (#1176 review r4): it required `len(args) >= 2` and so skipped
-    the keyword form of the very producer it modelled; it did not know about
-    `_record_build_issue` at all; and it treated a conditional expression as opaque, so
-    widening `"pmi_dropped" if source_ids else "gdt_dropped"` to a third branch hid a new
-    code inside a call site already counted. Conditional branches are now walked to their
-    constant leaves.
+
+def _enclosing_function(tree, node):
+    best = None
+    for func in ast.walk(tree):
+        if isinstance(func, (ast.FunctionDef, ast.AsyncFunctionDef)) and func.lineno <= (
+            node.lineno
+        ) <= (func.end_lineno or func.lineno):
+            if best is None or func.lineno > best.lineno:
+                best = func
+    return best
+
+
+def _emitted_codes(sources=None):
+    """Every lint code the engine can produce, by AST over its producer forms.
+
+    *sources* is a ``{name: text}`` mapping for the smuggling tests below, which feed the
+    walk a snippet instead of the package. Default: every module under ``src/draftwright``.
+
+    Three direct producers — `LintIssue`, `ctx.record_issue` and
+    `Drawing._record_build_issue`, each taking the code positionally or by keyword — plus
+    every ``drop_code=`` argument, which is a lint code handed to a recorder as data.
+
+    Read from the source rather than by running the engine, because a code emitted only on a
+    path no test reaches is exactly the one that would slip through unclassified.
+
+    Successive rounds of #1176 review found five escapes from earlier versions of this walk,
+    each of which let a brand-new code pass every audit below: it required two positional
+    args and so skipped the keyword form of the producer it modelled; it did not know
+    `_record_build_issue` existed; it treated a conditional expression as opaque, so a third
+    branch hid a new code inside a site already counted; it read `LintIssue`'s code only as a
+    keyword, though its positional slot is reachable; and it did not follow ``drop_code``,
+    which is how eleven `*_dropped` codes reach `record_issue`. Each of the five is a
+    regression test in `TestTheAuditCannotBeSmuggledPast`.
+
+    Returns ``(literals, prefixes, indirect, stages)`` where ``stages`` maps a code to the
+    set of ``outcome_stage`` values its producers can give it — ``"<staged>"`` for a code
+    handed to a leader job, whose one recorder stages it ``"validation"`` on a
+    rendered-geometry failure.
     """
     literals: set[str] = set()
     prefixes: set[str] = set()
     indirect: list[str] = []
     stages: dict[str, set[str | None]] = {}
     root = Path(__file__).resolve().parents[1] / "src" / "draftwright"
+    if sources is None:
+        trees = {path: ast.parse(path.read_text()) for path in sorted(root.rglob("*.py"))}
+    else:
+        trees = {root / name: ast.parse(text) for name, text in sources.items()}
 
     def leaves(expr, path, out):
         if isinstance(expr, ast.Constant) and isinstance(expr.value, str):
@@ -429,17 +530,58 @@ def _emitted_codes():
             out.append(None)
             indirect.append(f"{path}:{expr.lineno}")
 
-    for path in sorted(root.rglob("*.py")):
-        for node in ast.walk(ast.parse(path.read_text())):
+    def record(expr, path, staged):
+        found: list = []
+        leaves(expr, path, found)
+        for code in found:
+            if code is None:
+                continue
+            if code.endswith("{}"):
+                prefixes.add(code[:-2])
+            else:
+                literals.add(code)
+                stages.setdefault(code, set()).add(staged)
+
+    # Which functions forward a `drop_code` parameter into a staged recorder. Resolved to a
+    # fixed point rather than listed, so a new forwarding layer is followed instead of
+    # hiding its codes.
+    recorders = set(_STAGED_RECORDERS)
+    for _ in range(4):
+        for path, tree in trees.items():
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                func = node.func
+                name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)
+                if name not in recorders:
+                    continue
+                arg = next((k for k in node.keywords if k.arg == "drop_code"), None)
+                if arg is not None and isinstance(arg.value, ast.Name):
+                    enclosing = _enclosing_function(tree, node)
+                    if enclosing is not None:
+                        recorders.add(enclosing.name)
+
+    for path, tree in trees.items():
+        rel = path.relative_to(root)
+        for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
             func = node.func
             name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)
-            if name not in ("LintIssue", "record_issue", "_record_build_issue"):
+            if any(k.arg is None for k in node.keywords) and name in _PRODUCERS:
+                # `LintIssue(**kwargs)` — the code is not readable and must not pass as
+                # "no code here".
+                indirect.append(f"{rel}:{node.lineno}")
+                continue
+            drop = next((k for k in node.keywords if k.arg == "drop_code"), None)
+            if drop is not None and isinstance(drop.value, ast.Constant):
+                record(drop.value, rel, "<staged>" if name in recorders else None)
+            if name not in _PRODUCERS:
                 continue
             expr = next((k.value for k in node.keywords if k.arg == "code"), None)
-            if expr is None and name != "LintIssue" and len(node.args) >= 2:
-                expr = node.args[1]
+            if expr is None:
+                index = _PRODUCERS[name]
+                expr = node.args[index] if len(node.args) > index else None
             if expr is None:
                 continue
             stage = next((k.value for k in node.keywords if k.arg == "outcome_stage"), None)
@@ -449,16 +591,7 @@ def _emitted_codes():
                 staged = stage.value
             else:
                 staged = "<conditional>"
-            found: list = []
-            leaves(expr, path.relative_to(root), found)
-            for code in found:
-                if code is None:
-                    continue
-                if code.endswith("{}"):
-                    prefixes.add(code[:-2])
-                else:
-                    literals.add(code)
-                    stages.setdefault(code, set()).add(staged)
+            record(expr, rel, staged)
     return literals, prefixes, indirect, stages
 
 
@@ -495,7 +628,7 @@ class TestEveryLintCodeIsClassified:
             code
             for code, seen in stages.items()
             if code.endswith("_dropped")
-            and ("validation" in seen or "<conditional>" in seen)
+            and not seen.isdisjoint({"validation", "<conditional>", "<staged>"})
             and code not in (_UNSCORED_CODES | _STAGE_ROUTED_CODES)
         )
         assert not unexamined, (
@@ -508,7 +641,8 @@ class TestEveryLintCodeIsClassified:
         # The other direction: a renamed code must not leave a dead entry behind, which
         # would make the audit above pass while the real code went unclassified.
         literals, _prefixes, _indirect, _stages = _emitted_codes()
-        stale = sorted((_FIDELITY_CODES | _UNSCORED_CODES | _STAGE_ROUTED_CODES) - literals)
+        registered = _FIDELITY_CODES | _UNSCORED_CODES | _STAGE_ROUTED_CODES | _LEGIBILITY_CODES
+        stale = sorted(registered - literals)
         assert not stale, f"{stale} are registered but no longer emitted anywhere"
 
     def test_every_interpolated_code_family_is_registered(self):
@@ -527,6 +661,39 @@ class TestEveryLintCodeIsClassified:
             f"cannot see it: {indirect}"
         )
 
+    def test_a_stage_routed_code_is_not_reported_as_unclassified(self):
+        # A stage-routed code scores on legibility for its placement instances and on nothing
+        # for its validation ones, so a validation instance reaching `unscored` is EXPECTED,
+        # not an unclassified code. Dropping `_STAGE_ROUTED_CODES` from the filter passed
+        # both quality test files (#1176 review r5).
+        from draftwright.linting.issues import LintIssue
+        from draftwright.linting.quality import _unscored_component
+
+        report = _unscored_component(
+            [
+                LintIssue(
+                    severity="warning",
+                    code="chamfer_dropped",
+                    message="m",
+                    outcome_stage="validation",
+                ),
+                LintIssue(severity="warning", code="not_a_registered_code", message="m"),
+            ]
+        )
+        assert report["by_code"] == {"chamfer_dropped": 1, "not_a_registered_code": 1}
+        assert report["unclassified"] == ["not_a_registered_code"], (
+            "a registered stage-routed code was reported as nobody's decision"
+        )
+
+    def test_the_unscored_inventory_reads_like_the_components_beside_it(self):
+        # It sits under `quality` next to four components, so `for c in quality.values():
+        # c["available"]` must not raise on it — the same ergonomic contract this file
+        # dedicates a test to for the unavailable fidelity shape (#1176 review r5).
+        quality = _quality(99, "99")
+        assert all("available" in component for component in quality.values())
+        assert quality["unscored"]["available"] is True
+        assert quality["unscored"]["score"] is None, "the inventory must not become a score"
+
     def test_the_runtime_report_agrees_with_the_static_register(self):
         # `quality["unscored"]["unclassified"]` is the same question asked of one drawing's
         # own findings, which is what gives `_UNSCORED_CODES` a production consumer rather
@@ -539,3 +706,75 @@ class TestEveryLintCodeIsClassified:
         quality = sheet.build().lint_summary()["quality"]
         assert quality["unscored"]["unclassified"] == []
         assert quality["unscored"]["issues"] == sum(quality["unscored"]["by_code"].values())
+
+
+class TestTheAuditCannotBeSmuggledPast:
+    """One regression test per escape found in a previous version of `_emitted_codes`.
+
+    Each ran green against the walk of its day. They feed the walk a snippet rather than
+    mutating `src/`, so they are fast and deterministic; the source-wide audits above are
+    what tie the walk to the real package.
+    """
+
+    def _codes(self, body):
+        literals, _prefixes, indirect, stages = _emitted_codes({"snippet.py": body})
+        return literals, indirect, stages
+
+    def test_a_keyword_code_on_record_issue_is_seen(self):
+        # The walk read `record_issue`'s code positionally and required two positional args,
+        # so the keyword form of the very producer it modelled was skipped (review r4).
+        literals, _indirect, _stages = self._codes(
+            'ctx.record_issue(severity="warning", code="smuggled_kw", message="m")'
+        )
+        assert "smuggled_kw" in literals
+
+    def test_the_build_issue_producer_is_seen(self):
+        # A third live producer the walk did not know about (review r4).
+        literals, _indirect, _stages = self._codes(
+            'self._record_build_issue("warning", "smuggled_build", "m")'
+        )
+        assert "smuggled_build" in literals
+
+    def test_every_branch_of_a_conditional_code_is_seen(self):
+        # Widening `"a" if p else "b"` to a third branch hid a new code inside a call site
+        # already counted by the indirect ratchet (review r4).
+        literals, _indirect, _stages = self._codes(
+            'ctx.record_issue("warning", "smuggled_if" if p else ("a" if q else "b"), "m")'
+        )
+        assert {"smuggled_if", "a", "b"} <= literals
+
+    def test_a_positional_code_on_lintissue_is_seen(self):
+        # `LintIssue`'s code is its FOURTH field, and the walk read it only as a keyword
+        # (review r5).
+        literals, _indirect, _stages = self._codes(
+            'LintIssue("error", "m", None, "smuggled_positional")'
+        )
+        assert "smuggled_positional" in literals
+
+    def test_a_splatted_producer_call_is_counted_not_ignored(self):
+        # `LintIssue(**kwargs)` matched no `code=` keyword, so it was skipped AND not
+        # counted as indirect — invisible twice over (review r5).
+        literals, indirect, _stages = self._codes("LintIssue(**kwargs)")
+        assert not literals
+        assert indirect, "a splatted producer call passed as 'no code here'"
+
+    def test_a_code_handed_over_as_drop_code_data_is_seen(self):
+        # Eleven `*_dropped` codes reach `record_issue` only as a `drop_code` argument, and
+        # the leader recorder can stage them "validation" — the `section_dropped` defect,
+        # times eleven, invisible to a walk that read literals at producer calls (review r5).
+        literals, _indirect, stages = self._codes(
+            '_leader_callout_pass(dwg, a, jobs, drop_code="smuggled_drop", ctx=ctx)'
+        )
+        assert "smuggled_drop" in literals
+        assert stages["smuggled_drop"] == {"<staged>"}
+
+    def test_a_forwarded_drop_code_makes_its_caller_a_recorder(self):
+        # The forwarding layer is resolved to a fixed point, not listed: a helper that passes
+        # its own `drop_code` parameter into a job makes ITS callers' codes staged too.
+        literals, _indirect, stages = self._codes(
+            "def _wrapper(drop_code):\n"
+            "    return _leader_callout_pass(dwg, a, jobs, drop_code=drop_code, ctx=ctx)\n"
+            '_wrapper(drop_code="smuggled_forwarded")\n'
+        )
+        assert stages["smuggled_forwarded"] == {"<staged>"}
+        assert "smuggled_forwarded" in literals

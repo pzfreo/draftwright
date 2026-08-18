@@ -66,9 +66,12 @@ _LEGIBILITY_CODES = frozenset(
 # recognised by their ``*_dropped`` suffix rather than by a listed vocabulary. A list has to
 # be remembered; the suffix cannot be forgotten, so a drop code introduced tomorrow counts
 # against legibility on the day it is introduced instead of scoring as perfectly legible
-# until somebody notices (#1127 review). The two codes that cannot be read off their suffix
-# (``gdt_dropped``/``pmi_dropped``, which cover validation failures too) carry an explicit
-# ``outcome_stage`` from their producers instead; see ``is_placement_drop``.
+# until somebody notices (#1127 review). Codes that cannot be read off their suffix carry an
+# explicit ``outcome_stage`` from their producers instead (see ``is_placement_drop``); there
+# were two when this was written and there are fourteen now, enumerated in
+# :data:`_STAGE_ROUTED_CODES` and :data:`_UNSCORED_CODES` — and the suffix shortcut turned
+# out to be exactly as forgettable as the list it replaced, because nothing checked that the
+# suffix still meant what it says.
 
 # Recognition inventories that represent potentially dimension-bearing physical families.
 _RECOGNISED_REQUIREMENT_FAMILIES = {
@@ -190,10 +193,15 @@ _FIDELITY_CODES = frozenset(
 #: Nothing here is a bug by itself. Most are omissions — completeness's territory, and it
 #: builds its ledger from requirement outcomes rather than from lint codes, so it never
 #: reads this. What the register buys is the property the three sets could not have
-#: separately: the union of fidelity, legibility and this is exactly the set of codes the
-#: engine emits, audited by ``tests/test_issue_1176_quality_fidelity.py``. A new truth-class
-#: code would otherwise score as perfectly truthful and nothing would say so — the failure
-#: mode the ``_FIDELITY_CODES`` note above admits to and, before this, only admitted to.
+#: separately: every code the engine emits is in fidelity, legibility, this, or
+#: :data:`_STAGE_ROUTED_CODES`, or carries a ``*_dropped`` suffix that no producer overrides
+#: with a validation stage — audited over the source by
+#: ``tests/test_issue_1176_quality_fidelity.py``. A new truth-class code would otherwise
+#: score as perfectly truthful and nothing would say so — the failure mode the
+#: ``_FIDELITY_CODES`` note above admits to and, before this, only admitted to.
+#:
+#: Stated that carefully because the first version of this sentence claimed the union was
+#: "exactly the set of codes the engine emits", which was 41 against 55 (#1176 review r5).
 #:
 #: Membership is not an endorsement: several of these arguably SHOULD score somewhere, and
 #: this register is what makes that visible instead of implicit.
@@ -231,6 +239,38 @@ _UNSCORED_CODES = frozenset(
     }
 )
 
+#: `_dropped` codes whose component depends on the ISSUE, not the code — emitted with
+#: ``outcome_stage="placement"`` at one site and ``"validation"`` at another, so the same code
+#: scores on legibility for one instance and on nothing for the next.
+#:
+#: Registered because the audit's "a `_dropped` suffix means legibility" shortcut is only
+#: true where no site sets a validation stage, and that is an assumption about code the audit
+#: can check rather than assume. It found `section_dropped` scoring nowhere while a comment
+#: beside its emission asserted the opposite.
+#:
+#: The eleven below `pmi_dropped` are every code handed to a leader job as ``drop_code``
+#: data: `leaders.py`'s one drop recorder stages them ``"validation"`` on a rendered-geometry
+#: failure and ``"placement"`` otherwise, so all eleven have the `section_dropped` shape.
+#: They were invisible to the first audit, which only read codes written as literals AT a
+#: producer call — passing the code in as an argument hid ten of them (#1176 review r5).
+_STAGE_ROUTED_CODES = frozenset(
+    {
+        "callout_dropped",
+        "gdt_dropped",
+        "pmi_dropped",
+        "boss_dia_dropped",
+        "chamfer_dropped",
+        "diameter_dropped",
+        "fillet_dropped",
+        "flat_dropped",
+        "groove_dropped",
+        "pocket_dropped",
+        "polygonal_boss_dropped",
+        "polygonal_stock_dropped",
+        "slot_dropped",
+    }
+)
+
 #: Code FAMILIES built by interpolating a requirement state (``hole_requirement_missing``,
 #: ``…_suppressed``, ``…_unverifiable``). Registered by prefix because the state comes from a
 #: `Literal` alias rather than a literal at the call site.
@@ -239,22 +279,6 @@ _UNSCORED_CODES = frozenset(
 #: ``gear_requirement_mismatch`` is a fidelity code. The audit classifies every literal code
 #: individually, so the prefix register governs only the interpolating sites — it can never
 #: reclassify a code somebody spelled out.
-#: `_dropped` codes whose component depends on the ISSUE, not the code: emitted with
-#: ``outcome_stage="placement"`` at one site and ``"validation"`` at another, so the same code
-#: scores on legibility for one instance and on nothing for the next.
-#:
-#: Registered because the audit's "a `_dropped` suffix means legibility" shortcut is only
-#: true where no site sets a validation stage, and that is an assumption about code the audit
-#: can check rather than assume. It found `section_dropped` scoring nowhere while a comment
-#: beside its emission asserted the opposite.
-_STAGE_ROUTED_CODES = frozenset(
-    {
-        "callout_dropped",
-        "gdt_dropped",
-        "pmi_dropped",
-    }
-)
-
 _UNSCORED_CODE_PREFIXES = (
     "channel_requirement_",
     "flat_requirement_",
@@ -278,7 +302,8 @@ def _unscored_component(issues) -> dict:
 
     Reported for the same reason completeness reports ``excludes``: a caller reading four
     components all saying "fine" would otherwise have no way to see that a third of this
-    drawing's findings reached none of them. 25 of the engine's codes score nowhere, and
+    drawing's findings reached none of them. Twenty-two of the engine's codes score nowhere
+    unconditionally, and another thirteen do whenever their producer stages them, and
     before this the only record of that was a comment.
 
     ``unclassified`` is the fail-open signal made visible. A code here that is not in
@@ -290,6 +315,12 @@ def _unscored_component(issues) -> dict:
     unscored = [issue for issue in issues if _is_unscored_issue(issue)]
     by_code = Counter(issue.code for issue in unscored)
     return {
+        # `available`/`score` so a caller can walk `quality.values()` uniformly. This is an
+        # inventory, not a fifth axis: it is always computable, and it is deliberately not a
+        # number — pricing "how much went unscored" would be a fifth score nobody asked for
+        # (#1176 review r5, which found `for c in quality.values(): c["available"]` raising).
+        "available": True,
+        "score": None,
         "issues": len(unscored),
         "by_code": dict(sorted(by_code.items())),
         "unclassified": sorted(
@@ -359,8 +390,15 @@ def _issue_component(
     # predicate is an approximation of the checks' domains, while the finding is the check
     # having fired. The first cut let the argument win, and a `declared_feature_absent` on a
     # 20 mm box was reported as `{available: False, score: None}`: the gate fell closed over
-    # a detected falsehood, which is worse than the fail-open it was added to remove (#1176
-    # review r3).
+    # a detected falsehood (#1176 review r3).
+    #
+    # A FAIL-SAFE, not a live branch: once the predicate covers the checks' domains, an issue
+    # cannot arise while it is False, so no drawing reaches this line with work to do. Kept
+    # because the predicate has drifted from those domains three times in this issue's
+    # review history, and this is the difference between a drift that misreports and a drift
+    # that loses a finding. Guarded by a direct test of this function rather than through
+    # `lint_summary()` for exactly that reason — a consumer-level test of it would have to
+    # reproduce the drift it exists to survive (#1176 review r5).
     available = available or bool(issues)
     errors = sum(issue.severity == "error" for issue in issues)
     warnings = sum(issue.severity == "warning" for issue in issues)
