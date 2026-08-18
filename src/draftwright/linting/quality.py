@@ -251,11 +251,12 @@ _UNSCORED_CODES = frozenset(
 #: Eleven of these — every entry except `gdt_dropped` and `pmi_dropped` — are codes handed
 #: to a leader job as ``drop_code`` data: `leaders.py`'s one drop recorder stages them
 #: ``"validation"`` on a rendered-geometry failure and ``"placement"`` otherwise, so all
-#: eleven have the `section_dropped` shape. They were invisible to the first audit, which
-#: read only codes written as literals AT a producer call; ten of the eleven were new to the
-#: registers, `callout_dropped` having already been here (#1176 review r5). The first version
-#: of this note said "the eleven below `pmi_dropped`", which is ten, and put `callout_dropped`
-#: in the wrong place to make the arithmetic work (review r6).
+#: eleven have the `section_dropped` shape. TEN of them were invisible to the first audit,
+#: which read only codes written as literals AT a producer call, and were new to these
+#: registers; `callout_dropped` is the eleventh and was neither — it is also written as a
+#: literal at three producer calls, so the audit always saw it (#1176 review r5, corrected
+#: twice: the first note said "the eleven below `pmi_dropped`", which is ten, and the second
+#: still said all eleven had been invisible).
 _STAGE_ROUTED_CODES = frozenset(
     {
         "callout_dropped",

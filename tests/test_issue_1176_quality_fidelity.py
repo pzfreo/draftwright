@@ -334,7 +334,8 @@ class TestPlacedContentContradictedByGeometryIsAlsoFalse:
         # earlier comment here claimed the authored path "draws NOTHING for the absent hole,
         # so nothing false reaches the sheet". Measured, that is wrong twice: the authored
         # path still draws a `CenterMark` at the phantom hole, and fidelity still drops to
-        # 0.95 there (`test_a_finding_outranks_the_availability_gate` uses exactly that).
+        # 0.95 there (`test_a_declared_falsehood_with_nothing_drawn_is_still_scored` uses
+        # exactly that).
         # `declared_feature_absent` is a declaration-vs-geometry check that never inspects
         # what was placed, so the difference between the paths is how loudly the sheet
         # states the lie, not whether the check fires.
@@ -531,13 +532,21 @@ def _producer_aliases(trees) -> dict[str, str]:
     (#1176 review r6). Simple assignment aliases (`_mk = LintIssue`) are followed too,
     iterated so a chain resolves.
 
-    **The limit, stated rather than implied**: a producer reached through anything this
-    cannot name — an attribute of an object, a `functools.partial`, a dict entry, a subclass
-    — is invisible, and unlike an unreadable `code` argument there is nothing to count,
-    because the walk cannot tell such a call from any other call in the package. So "every
-    code the engine emits is classified" holds for producers spelled as themselves or bound
-    to a name; it is not a proof against a determined author. What it is proof against is the
-    accident, which is what has actually happened five times.
+    **The limit, measured rather than asserted.** Attribute access is *not* a blind spot when
+    the attribute is named after a producer: `mod.LintIssue(...)` and `ctx.record_issue(...)`
+    are both matched on the attribute name, and the latter is the only way `record_issue` is
+    ever reached. What IS invisible: a `functools.partial`, a dict entry, a subclass, and —
+    measured while writing this — an annotated binding (`_mk: object = LintIssue`) or a
+    tuple-unpack binding, neither of which this function follows. There is nothing to count
+    for any of them, because the walk cannot tell such a call from any other call in the
+    package.
+
+    So "every code the engine emits is classified" holds for producers spelled as themselves,
+    reached as an attribute of that name, or bound by a plain assignment. It is not a proof
+    against a determined author. What it is proof against is the accident, which is what has
+    actually happened six times. The first version of this paragraph claimed one gap that is
+    not one and missed two that are (#1176 re-check) — which is the failure mode this whole
+    slice is about, in the paragraph written to be honest about limits.
     """
     aliases: dict[str, str] = {}
     for tree in trees.values():
@@ -662,6 +671,26 @@ def _emitted_codes(sources=None):
     for path, tree in trees.items():
         rel = path.relative_to(root)
         for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                # A `drop_code` DEFAULT is a lint code too. The walk read call keywords only,
+                # so introducing a code as a forwarding helper's default hid it in exactly the
+                # way a module constant did one round earlier — and the shape already exists
+                # (`holes.py` carries `drop_code=None` defaults on two staged forwarders), so
+                # changing one to a string is the accident this guards (#1176 re-check).
+                args = node.args
+                positional = [*args.posonlyargs, *args.args]
+                pairs = [
+                    *zip(positional[len(positional) - len(args.defaults) :], args.defaults),
+                    *zip(args.kwonlyargs, args.kw_defaults),
+                ]
+                for arg, default in pairs:
+                    if arg.arg != "drop_code" or default is None:
+                        continue
+                    if isinstance(default, ast.Constant) and isinstance(default.value, str):
+                        record(default, rel, "<staged>" if node.name in recorders else None)
+                    elif not isinstance(default, ast.Constant):
+                        indirect.append(f"{rel}:{default.lineno}")
+                continue
             if not isinstance(node, ast.Call):
                 continue
             func = node.func
@@ -672,6 +701,9 @@ def _emitted_codes(sources=None):
                 # "no code here".
                 indirect.append(f"{rel}:{node.lineno}")
                 continue
+            if name in recorders and any(k.arg is None for k in node.keywords):
+                # `_leader_callout_pass(..., **{"drop_code": …})` — unreadable, so counted.
+                indirect.append(f"{rel}:{node.lineno}")
             drop = next((k for k in node.keywords if k.arg == "drop_code"), None)
             if drop is not None:
                 if isinstance(drop.value, ast.Constant):
@@ -873,6 +905,26 @@ class TestTheAuditCannotBeSmuggledPast:
         )
         assert "smuggled_drop" in literals
         assert stages["smuggled_drop"] == {"<staged>"}
+
+    def test_a_drop_code_in_a_parameter_default_is_seen(self):
+        # The same class as the module constant one round earlier: the walk read call
+        # KEYWORDS only, so a code introduced as a forwarding helper's default was in neither
+        # register. The shape already exists — `holes.py` carries `drop_code=None` defaults on
+        # two staged forwarders, so changing one to a string is the accident (#1176 re-check).
+        literals, _indirect, stages = self._codes(
+            "def _probe(dwg, a, jobs, ctx, drop_code='x_dropped'):\n"
+            "    return _leader_callout_pass(dwg, a, jobs, drop_code=drop_code, ctx=ctx)\n"
+        )
+        assert "x_dropped" in literals
+        assert stages["x_dropped"] == {"<staged>"}
+
+    def test_a_splatted_drop_code_is_counted(self):
+        # `_leader_callout_pass(..., **{"drop_code": …})`. The `**kwargs` guard covered the
+        # three producers and not the recorders.
+        _literals, indirect, _stages = self._codes(
+            '_leader_callout_pass(dwg, a, jobs, **{"drop_code": "y_dropped"}, ctx=ctx)\n'
+        )
+        assert indirect, "a splatted recorder call passed as 'no code here'"
 
     def test_a_drop_code_held_in_a_constant_is_counted(self):
         # `drop_code` was recorded only when it was a literal; a `Name` was used to grow the
