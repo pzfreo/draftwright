@@ -25,6 +25,7 @@ fixture below, trading a double-count for a missed defect.
 from __future__ import annotations
 
 from collections import Counter
+from types import SimpleNamespace
 
 import pytest
 from build123d import Box
@@ -69,10 +70,32 @@ def _split_into_two_scale_groups(drawing):
     return _split_into_scale_groups(drawing, 2)
 
 
-def _part():
-    """A cube on a large sheet — its views overlap and overflow, and its envelope labels
-    land inside the front view, so it produces both families of code at once."""
-    return Box(50, 50, 50)
+def _drawing_producing_both_families():
+    """A drawing that reports both code families, WITHOUT depending on layout.
+
+    An earlier version used `Box(50,50,50)` at A1 and relied on the engine happening to
+    overlap two views and drop an envelope label inside a third. That held on macOS and
+    produced NO view findings at all on Linux, so every test in this file failed in CI —
+    the same trap #1196's tests hit, repeated here after the lesson had been written down.
+
+    Both families are now forced:
+
+    * a stub annotation is placed inside the REAL bounds of a real view, read at runtime,
+      so `view_annotation_*` fires wherever the engine put that view;
+    * the drawable area is shrunk AFTER the build, so every view necessarily overflows and
+      `view_out_of_bounds` fires whatever the layout chose.
+    """
+    drawing = build_drawing(Box(60, 40, 20), page="A3")
+    bounds = drawing.view_bounds("front")
+    assert bounds is not None, "the fixture no longer has a front view to place inside"
+    cx, cy = (bounds[0] + bounds[2]) / 2, (bounds[1] + bounds[3]) / 2
+    drawing.items.append(
+        SimpleNamespace(
+            label="STUB", label_bbox=(cx - 4, cy - 1.5, cx + 4, cy + 1.5), measured_length=None
+        )
+    )
+    drawing.page_w, drawing.page_h = 60.0, 60.0
+    return drawing
 
 
 class TestTheCountsDoNotMoveWithTheGrouping:
@@ -84,7 +107,7 @@ class TestTheCountsDoNotMoveWithTheGrouping:
         # THREE groups as well as two: `first = index != 0` — an off-by-one that restores
         # the defect at (N-1)x — is coincidentally correct at exactly two groups, and every
         # test created exactly two, so it passed the whole suite.
-        drawing = build_drawing(_part(), page="A1")
+        drawing = _drawing_producing_both_families()
         before = _counts(drawing)
         assert set(before) & _VIEW_ONLY, f"fixture produced no view-level finding: {before}"
 
@@ -105,7 +128,7 @@ class TestTheCountsDoNotMoveWithTheGrouping:
         # earlier — which silently drops `leader_crosses_silhouette` for every group after
         # the first — passed the whole suite. `test_a_real_multi_group_part_keeps_its_leader
         # _findings` below covers that code on a real part.
-        drawing = build_drawing(_part(), page="A1")
+        drawing = _drawing_producing_both_families()
         before = _counts(drawing)
         present = {c for c in _VIEW_VS_ANNOTATION if before[c] > 0}
         assert present, f"fixture produced no annotation-vs-view finding: {before}"
@@ -138,7 +161,7 @@ class TestTheCountsDoNotMoveWithTheGrouping:
         # at 4:1 — so a new `label_vs_measured` is correct, not drift. A first version of
         # this test compared the entire `by_code` and failed on exactly that, which would
         # have been a real finding about the test rather than the code.
-        drawing = build_drawing(_part(), page="A1")
+        drawing = _drawing_producing_both_families()
         families = _VIEW_ONLY | _VIEW_VS_ANNOTATION
         before = {k: v for k, v in drawing.lint_summary()["by_code"].items() if k in families}
         _split_into_two_scale_groups(drawing)
@@ -167,8 +190,11 @@ class TestTheSplitStillDoesWhatItIsFor:
 
     def test_a_single_group_drawing_is_untouched(self):
         # The common case takes the other branch entirely and must be unaffected.
-        drawing = build_drawing(_part(), page="A1")
+        drawing = _drawing_producing_both_families()
         assert {getattr(a, "_dw_scale", None) for a in drawing.items} == {None}, (
             "the fixture already has more than one scale group"
+        )
+        assert set(_counts(drawing)) >= {"view_out_of_bounds"}, (
+            "the forced overflow stopped firing, so this asserts nothing"
         )
         assert set(_counts(drawing)), "the single-group path stopped reporting view findings"
