@@ -3008,9 +3008,11 @@ class Drawing:
             # against ITS OWN scale — an enlarged detail view (#42) carries `_dw_scale`.
             # `view_overlap` and `view_out_of_bounds` compare views to EACH OTHER and to
             # the page, so they do not depend on the annotations at all and passing the
-            # views to every group emitted their findings once PER GROUP: measured
-            # on `Box(50,50,50)` at A1, `view_overlap` and `view_out_of_bounds` both went
-            # 1 -> 2 purely from tagging one annotation with a second scale (#1204).
+            # views to every group emitted their findings once PER GROUP — 1 -> 2 purely
+            # from tagging one annotation with a second scale (#1204). (Measured on
+            # `Box(50,50,50)` at A1, which reproduces on macOS and NOT on Linux, where that
+            # drawing emits no view findings at all; the tests use a fixture that forces
+            # them rather than relying on a layout.)
             #
             # That made `lint_summary()["by_code"]`, the error/warning counts and the
             # quality score a function of how annotations happen to be GROUPED rather than

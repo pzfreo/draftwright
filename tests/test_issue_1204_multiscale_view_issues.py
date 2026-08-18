@@ -57,9 +57,9 @@ def _split_into_scale_groups(drawing, groups=2):
     assert len(measured) > extra, (
         f"fixture has {len(measured)} measured annotations; cannot form {groups} groups"
     )
-    # Derived from the sheet scale so a tag cannot COLLIDE with it. Fixed values of 4.0/5.0
-    # silently produced one group too few, because `Box(50,50,50)` at A1 is itself drawn at
-    # one of them and an untagged annotation reports the sheet scale.
+    # Derived from the sheet scale so a tag cannot COLLIDE with it. Fixed values silently
+    # produced one group too few on an earlier fixture that happened to be drawn at one of
+    # them, since an untagged annotation reports the sheet scale.
     for index, annotation in enumerate(measured[:extra]):
         annotation._dw_scale = drawing.scale * (index + 2)
     assert len({getattr(a, "_dw_scale", drawing.scale) for a in drawing.items}) == groups
@@ -71,19 +71,31 @@ def _split_into_two_scale_groups(drawing):
 
 
 def _drawing_producing_both_families():
-    """A drawing that reports both code families, WITHOUT depending on layout.
+    """A drawing reporting EVERY code in both families, none of it dependent on layout.
 
-    An earlier version used `Box(50,50,50)` at A1 and relied on the engine happening to
-    overlap two views and drop an envelope label inside a third. That held on macOS and
-    produced NO view findings at all on Linux, so every test in this file failed in CI —
-    the same trap #1196's tests hit, repeated here after the lesson had been written down.
+    Three earlier fixtures each failed a different way, and all three failures were the
+    same mistake — asserting on a finding the engine might or might not produce:
 
-    Both families are now forced:
+    * `Box(50,50,50)` at A1 relied on the engine overlapping two views and dropping a label
+      inside a third. That held on macOS and produced NO view findings on Linux, so every
+      test here failed in CI.
+    * Replacing it with a runtime-placed stub plus a page shrink forced
+      `view_annotation_*` and `view_out_of_bounds`, but never `view_overlap` — so the loop
+      over `_VIEW_ONLY` asserted `0 == 0` for that code and a mutation restoring its
+      duplication passed the whole suite.
+    * The stub carried no `measured_length`, so it could never be retagged into a later
+      scale group: the forced finding only protected whichever group it happened to land
+      in, by luck of item order.
 
-    * a stub annotation is placed inside the REAL bounds of a real view, read at runtime,
-      so `view_annotation_*` fires wherever the engine put that view;
-    * the drawable area is shrunk AFTER the build, so every view necessarily overflows and
-      `view_out_of_bounds` fires whatever the layout chose.
+    So every finding is now constructed:
+
+    * a stub annotation inside the REAL `view_bounds("front")`, read at runtime, forces
+      `view_annotation_*` wherever the engine put that view — and it carries a
+      `measured_length` so the retag helper can move it into a non-first group;
+    * a second NAME for the front view's own shape forces `view_overlap`: one shape cannot
+      fail to overlap itself;
+    * shrinking the drawable area after the build forces `view_out_of_bounds`, since the
+      part is wider than the whole remaining area at any scale A3 permits.
     """
     drawing = build_drawing(Box(60, 40, 20), page="A3")
     bounds = drawing.view_bounds("front")
@@ -91,11 +103,27 @@ def _drawing_producing_both_families():
     cx, cy = (bounds[0] + bounds[2]) / 2, (bounds[1] + bounds[3]) / 2
     drawing.items.append(
         SimpleNamespace(
-            label="STUB", label_bbox=(cx - 4, cy - 1.5, cx + 4, cy + 1.5), measured_length=None
+            label="STUB", label_bbox=(cx - 4, cy - 1.5, cx + 4, cy + 1.5), measured_length=12.0
         )
     )
+    drawing.views["front_echo"] = drawing.views["front"]
     drawing.page_w, drawing.page_h = 60.0, 60.0
     return drawing
+
+
+def _retag_into_a_later_group(drawing, label="STUB"):
+    """Move the annotation carrying a forced finding into a NON-FIRST scale group.
+
+    Which group a finding lands in is what the flag actually gates, and leaving it to item
+    order meant the tests protected whichever group the stub fell in by accident.
+    """
+    first = next(iter({getattr(a, "_dw_scale", drawing.scale) for a in drawing.items}))
+    for annotation in drawing.items:
+        if getattr(annotation, "label", None) == label:
+            annotation._dw_scale = drawing.scale * 7
+            assert getattr(annotation, "_dw_scale") != first
+            return annotation
+    pytest.fail(f"no annotation labelled {label!r} to move")
 
 
 class TestTheCountsDoNotMoveWithTheGrouping:
@@ -109,7 +137,11 @@ class TestTheCountsDoNotMoveWithTheGrouping:
         # test created exactly two, so it passed the whole suite.
         drawing = _drawing_producing_both_families()
         before = _counts(drawing)
-        assert set(before) & _VIEW_ONLY, f"fixture produced no view-level finding: {before}"
+        assert _VIEW_ONLY <= set(before), (
+            f"the fixture stopped forcing a view-level code: {before}. Both must be present "
+            f"or the loop below asserts 0 == 0 for the missing one, which is how a mutation "
+            f"restoring `view_overlap` duplication passed the whole suite."
+        )
 
         _split_into_scale_groups(drawing, groups)
         after = _counts(drawing)
@@ -131,9 +163,13 @@ class TestTheCountsDoNotMoveWithTheGrouping:
         drawing = _drawing_producing_both_families()
         before = _counts(drawing)
         present = {c for c in _VIEW_VS_ANNOTATION if before[c] > 0}
-        assert present, f"fixture produced no annotation-vs-view finding: {before}"
+        assert present == _VIEW_VS_ANNOTATION - {"leader_crosses_silhouette"}, (
+            f"the fixture stopped forcing an annotation-vs-view code: {before}"
+        )
+        # The finding must be in a LATER group, which is what the flag gates. Leaving that
+        # to item order let a mutation dropping these for later groups pass.
+        _retag_into_a_later_group(drawing)
 
-        _split_into_two_scale_groups(drawing)
         after = _counts(drawing)
         for code in present:
             assert after[code] == before[code], (
@@ -142,13 +178,34 @@ class TestTheCountsDoNotMoveWithTheGrouping:
             )
 
     def test_a_real_multi_group_part_keeps_its_leader_findings(self):
-        # `leader_crosses_silhouette` is annotation-dependent and the synthetic fixture
-        # produces none, so nothing guarded it: moving the guard above that loop passed
-        # everything. CTC-05 has two GENUINE scale groups (0.2 and 1.0) and two leader
-        # findings, so it exercises the preserved half on a real part rather than a retag.
+        # `leader_crosses_silhouette` is annotation-dependent, and the synthetic fixture
+        # produces none, so only a real part covers it. CTC-05 has two genuine scale groups
+        # (0.2 and 1.0).
+        #
+        # An earlier version stopped there and constrained NOTHING: both leader findings
+        # sit at scale 0.2, which is group index 0 and always gets the flag. Moving the
+        # guard above the leader loop — dropping those findings for every later group —
+        # passed all 4,178 tests, while the comment here claimed the half was covered.
+        # Tagging the first item pushes the leader-carrying group to index 1, where the
+        # flag is False and the finding must survive on its own.
         drawing = build_drawing(step_file="tests/fixtures/nist_ctc_05_asme1_ap242.stp")
-        groups = {getattr(a, "_dw_scale", drawing.scale) for a in drawing.items}
-        assert len(groups) >= 2, f"fixture no longer has multiple scale groups: {groups}"
+        assert _counts(drawing)["leader_crosses_silhouette"] == 2, "fixture changed"
+
+        drawing.items[0]._dw_scale = drawing.scale * 97
+        order = []
+        for annotation in drawing.items:
+            scale = getattr(annotation, "_dw_scale", drawing.scale)
+            if scale not in order:
+                order.append(scale)
+        leaders = {
+            getattr(a, "_dw_scale", drawing.scale)
+            for a in drawing.items
+            if getattr(a, "elbow", None) is not None
+        }
+        assert order.index(next(iter(leaders))) > 0, (
+            f"the leader-carrying group is still first ({order}, leaders at {leaders}), so "
+            f"this asserts nothing about the flag"
+        )
         assert _counts(drawing)["leader_crosses_silhouette"] == 2, (
             "the leader findings of a later scale group were lost"
         )
