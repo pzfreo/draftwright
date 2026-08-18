@@ -229,7 +229,6 @@ def test_annotation_hole_features_unions_every_semantic_owner_channel():
     direct_location_owner = feature()
     identified_location_owner = feature()
     requirement_owner = feature()
-    representation_owner = feature()
     scoped_representation_owner = feature()
     center_owner = feature()
     ignored_owner = feature("boss")
@@ -243,10 +242,9 @@ def test_annotation_hole_features_unions_every_semantic_owner_channel():
             (requirement_owner, "bore.through", 1),
             (ignored_owner, "bore.through", 1),
         ),
-        covers_hole_representations_by_feature=(
-            (representation_owner, "hole_table", "placed"),
-            (ignored_owner, "hole_table", "placed"),
-        ),
+        # `covers_hole_representations_by_feature` is deliberately absent: it was removed
+        # in #1217 once the verifier showed no caller had ever populated it, so a stub here
+        # would be exercising a reader that no longer exists.
         covers_hole_representations_by_requirement=(
             (
                 scoped_representation_owner,
@@ -277,7 +275,6 @@ def test_annotation_hole_features_unions_every_semantic_owner_channel():
             direct_location_owner,
             identified_location_owner,
             requirement_owner,
-            representation_owner,
             scoped_representation_owner,
             center_owner,
         }

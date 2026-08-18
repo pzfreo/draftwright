@@ -4,6 +4,13 @@
 
 ### Added
 
+- Lint now verifies that an annotation claiming to carry a measurement actually renders it
+  (#1217). Coverage checks read provenance riders the annotations carry about themselves and
+  believed them; nothing checked the claim against what the annotation draws. Three new codes —
+  `claimed_value_absent`, `claimed_measurement_not_compiled` and two unverifiable states — and
+  `Drawing.add_table` now keeps the rows it draws so a table's claims are readable back.
+  Verified on every STEP in the corpus: 156 claims, 156 confirmed.
+
 - `lint_summary()["quality"]` gains a fourth component, `fidelity`: whether what the drawing
   says is TRUE. The existing three ask whether required content landed (completeness),
   whether there is too much of it (restraint), and whether a reader can make it out

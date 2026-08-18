@@ -270,10 +270,10 @@ class TestAHoleTableIsAlsoTheFactReachingTheSheet:
 
     Driven through a REAL build. The first version of this test hand-built a
     `SimpleNamespace` carrying `covers_hole_representations_by_feature`, an attribute
-    **nothing in the engine ever populates** — `representation_features=` appears in the
-    whole tree only at its own definition and its own use. The stub was the entire reason
-    the fix looked correct, and adversarial review caught that the real path still scored
-    16/16 `unsupported`.
+    nothing in the engine ever populated — its `representation_features` argument appeared
+    in the whole tree only at its own definition and its own use. The stub was the entire
+    reason the fix looked correct, and adversarial review caught that the real path still
+    scored 16/16 `unsupported`. The dead field itself was removed in #1217.
     """
 
     def _dense(self):

@@ -79,6 +79,7 @@ from draftwright.linting import (
     lint_axial_coverage,
     lint_boss_height_coverage,
     lint_channel_coverage,
+    lint_claimed_representations,
     lint_declaration_reconciliation,
     lint_declared_gear_coverage,
     lint_drawing,
@@ -2714,6 +2715,12 @@ class Drawing:
         if not rows:
             return None
         table = _build_table(rows, self.draft, block_cols=block_cols)
+        # Keep the rows the table draws, so its content is readable back off the annotation
+        # (#1217). A table renders as compound geometry with no `label`, so without this a
+        # hole table's measurement claims can be neither confirmed nor refuted — and the
+        # claims it carries are exactly the ones coverage relies on when the engine withdraws
+        # the individual callouts. Mirrors `gear_requirement_rows`.
+        table.table_rows = tuple(tuple(str(cell) for cell in row) for row in rows)
         w, h = table.table_size
         a = self._analysis
         margin = a.margin if a is not None else 10.0
@@ -3131,6 +3138,16 @@ class Drawing:
                 **prof_kw,
             )
             model = self._part_model
+            if model is not None:
+                # Every annotation's measurement claims, resolved against what it renders
+                # (#1217). Coverage believes these claims; this is the only thing that
+                # checks them. Cheap — pure Python over the IR and the registry, no
+                # geometry — and it needs the compiled plan because the value an annotation
+                # SHOULD show is the compiler's, never a renderer's own formatting
+                # (ADR 0016 Amendment 1).
+                from draftwright.model.compiled import compile_dimensions
+
+                issues += lint_claimed_representations(self._registry, compile_dimensions(model))
             # Turned bosses/bands remain in the OD + axial-step policy; this check is
             # specifically for a prismatic boss's independent projection height.
             if model is not None and (a is None or (not a.is_rotational and a.prof is None)):

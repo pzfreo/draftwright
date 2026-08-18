@@ -28,6 +28,11 @@ from draftwright.linting.coverage import (
     lint_principal_profile_coverage,
     lint_prismatic_coverage,
 )
+from draftwright.linting.evidence import (
+    ClaimOutcome,
+    lint_claimed_representations,
+    verify_measurement_claims,
+)
 from draftwright.linting.flat_coverage import lint_flat_coverage
 from draftwright.linting.gear_coverage import lint_declared_gear_coverage
 from draftwright.linting.hole_coverage import lint_hole_coverage
@@ -46,10 +51,13 @@ from draftwright.linting.structural import is_dimension_like, lint_drawing
 from draftwright.linting.suggest import _suggest_fix
 
 __all__ = [
+    "ClaimOutcome",
     "CoverageState",
     "EXAMINABLE_DECLARED_KINDS",
     "LintIssue",
     "is_dimension_like",
+    "lint_claimed_representations",
+    "verify_measurement_claims",
     "lint_hole_coverage",
     "lint_polygonal_stock_coverage",
     "_suggest_fix",

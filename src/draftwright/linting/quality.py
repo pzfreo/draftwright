@@ -183,6 +183,13 @@ _FIDELITY_CODES = frozenset(
         "gear_repeat_count_mismatch",
         "gear_axis_mismatch",
         "gear_requirement_mismatch",
+        # An annotation claiming a measurement it does not render, and one claiming a
+        # measurement the compiler never approved (#1217). Both are the sheet contradicting
+        # its own provenance: the drawing asserts, through the seam coverage reads, that it
+        # carries a value it demonstrably does not. Same shape as `label_vs_measured` — the
+        # source contradicted is the compiled plan rather than the projected path.
+        "claimed_value_absent",
+        "claimed_measurement_not_compiled",
     }
 )
 
@@ -226,6 +233,12 @@ _UNSCORED_CODES = frozenset(
         "pmi_not_rendered",
         "pmi_present_but_ignored",
         "pocket_not_located",
+        # Neither confirmed nor refuted: the annotation renders no readable text, or the
+        # compiler approved the measurement with no displayable value. Reported so an
+        # unverifiable claim is visible rather than counted as a pass — but it is evidence
+        # of nothing, so it scores nowhere (#1217).
+        "claimed_representation_unreadable",
+        "claimed_representation_no_expected_value",
         # A `_dropped` code that scores NOWHERE, which is why the suffix cannot be trusted
         # on its own. `is_placement_drop` consults `outcome_stage` FIRST and only falls back
         # to the suffix, and every `_skip_section` emission is `outcome_stage="validation"`
