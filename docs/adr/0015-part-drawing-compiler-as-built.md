@@ -222,6 +222,31 @@ records cross is the sanctioned `build_part_model` boundary itself.
   real state of the adapter protocol, instead of 0008's aspirational
   "migration complete — one rule set".
 
+## Amendment — lint may read the compiled plan to check a claim (2026-08-18, #1217)
+
+The lint/coverage carve-out says lint reads recognition and the placed drawing, "never a
+build-time side channel, and **never the plan**", and points at
+`test_linting_does_not_import_model` as the structural guarantee that it cannot widen
+into IR coupling.
+
+`linting/evidence.py` is an exception, and it is narrow enough to state rather than
+smuggle. It verifies that an annotation claiming to carry a measurement actually renders
+the value **the compiler approved**, so the compiled plan is its expected side by
+construction. Comparing rendered output against rendered output would establish only that
+the renderer agrees with itself.
+
+The circularity the carve-out exists to prevent does not arise. That hazard is a
+completeness *denominator* derived from the plan — a feature the planner omitted would
+then never be flagged as missing. This check contributes no denominator: it takes the set
+of claims as given and asks whether each is borne out. A measurement the planner never
+approved is reported (`claimed_measurement_not_compiled`), not silently excused.
+
+The guard still holds — `linting/` imports no `draftwright.model`; `drawing._lint`
+compiles the plan and passes it in duck-typed — so this remains a fact about one function's
+arguments rather than a new package dependency. The carve-out's sentence is therefore
+qualified, not repealed: lint derives no *requirement* from the plan, and may compare
+against it when checking a claim the drawing itself makes.
+
 ## Amendment — cross-feature reconciliation by support-plane identity (2026-08-18, #1154)
 
 The planner's long-standing contract says features own their parameters and "do

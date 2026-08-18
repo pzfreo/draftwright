@@ -5,10 +5,17 @@ reading **provenance riders** the annotations carry about themselves. That is a 
 observation: an annotation asserting it carries hole 3's diameter is believed, and nothing
 checks that it renders that diameter — or renders anything at all.
 
-The failure mode is not hypothetical. ``covers_hole_representations_by_feature`` was read in two
-places and populated by nothing, which inverted the benchmark's ``drawing_consumer`` metric
-(16/16 ``unsupported`` against a true 16/16 ``supported``) and went unnoticed, because the only
-thing that could have noticed was the metric itself.
+The failure mode is not hypothetical. The benchmark's ``drawing_consumer`` metric was inverted
+— 16/16 ``unsupported`` against a true 16/16 ``supported`` — because it read only ``hc_``
+callout names and so scored every hole on a table-escalated sheet as lost. The *fix* for that
+then read ``covers_hole_representations_by_feature``, a rider no caller populates, and looked
+correct only because a hand-built stub in the tests supplied it.
+
+(An earlier draft of this paragraph said the dead rider caused the inversion, and that it went
+unnoticed "for months". Neither is true: the rider made the attempted fix look correct, and it
+existed for four days — introduced 2026-08-14, caught by the next review cycle. Corrected here
+because a module explaining why claims must be checked is a poor place to leave an unchecked
+one.)
 
 So the ledger becomes a **pointer to the claimed representation, not final proof** (#1206). This
 module resolves each pointer against the built drawing and checks the rendered content carries
@@ -66,8 +73,15 @@ def _expected_numbers(approved) -> frozenset[float]:
     drawing: all four cases on the corpus are ordinary, correct location dimensions whose
     value the compiler did supply, in the field this function had not looked at.
 
-    Axis components only, never the 3-D distance between the span's ends — that is a number no
-    renderer draws, and admitting it would widen what counts as a match for nothing.
+    Narrowed to the approved ``axis`` where the compiler declares one. Accepting all three
+    components repeated the mistake this docstring already rejects for the 3-D distance ("a
+    number no renderer draws"): on a pocket located in a Z-normal plane the Z component is
+    drawn by nothing, and admitting it confirmed a deliberately relabelled X offset (#1218
+    review). Never the 3-D distance, for the original reason.
+
+    All three remain acceptable when no axis is declared, because then nothing says which the
+    renderer took. That residue is named in :func:`verify_measurement_claims`'s limits rather
+    than papered over.
     """
     text = getattr(approved, "value_text", "") or ""
     try:
@@ -78,14 +92,40 @@ def _expected_numbers(approved) -> frozenset[float]:
     if not span or len(span) != 2:
         return frozenset()
     start, end = span
-    return frozenset(float(_fmt(abs(float(end[axis]) - float(start[axis])))) for axis in range(3))
+    axis = getattr(approved, "axis", None)
+    # EXCLUDE the declared axis, do not restrict to it. For a location, `axis` is the
+    # FEATURE's axis (`compiled.py`: "`span` is (datum, located point) and `axis` is the
+    # feature's frame axis"), and the dimensions drawn are the offsets PERPENDICULAR to it —
+    # a pocket normal to Z is located by its X and Y. Restricting to the declared axis was
+    # the first cut of this fix and it excluded exactly the components that are drawn,
+    # turning three correct NIST location dimensions into mismatches.
+    excluded = "xyz".index(axis) if axis in ("x", "y", "z") else None
+    indices = [i for i in range(3) if i != excluded]
+    return frozenset(
+        float(_fmt(abs(float(end[index]) - float(start[index])))) for index in indices
+    )
 
 
 #: Every number a label renders. Deliberately ALL of them, not the leading one: a compound hole
 #: callout reads ``⌀8 THRU ⌴ ⌀14 ↧ 7`` and claims three separate measurements, so
 #: ``structural._label_value`` — which answers "what does this label assert about the path it is
 #: drawn on", a different question — sees only the 8.
-_NUMBER_RE = re.compile(r"\d+(?:\.\d+)?")
+_NUMBER_RE = re.compile(r"-?\d+(?:\.\d+)?")
+
+#: A leading ``4× ⌀`` repeat count, stripped before numbers are read. A count is not a
+#: measurement, and leaving it in let ``4× ⌀9 THRU`` confirm a claimed bore diameter of 4
+#: (#1218 review). Unlike the compound-label residue below, this was never within the stated
+#: limit — the number is not a measurement at all.
+#:
+#: The ⌀/R lookahead is load-bearing and is `structural._label_value`'s own discriminator:
+#: ``N× ⌀d`` counts d-diameter features, while ``N× v`` is a pitch span. Without it this
+#: pattern also matched a pocket's ``44 × 93.4 × 10 DEEP`` and deleted the width — turning
+#: two correct dimensions on `issue_915_case_study_2` into mismatches, which is how a
+#: safety fix becomes the defect it was guarding against.
+#:
+#: The ``N× v`` pitch form is deliberately left alone, so a claim whose value equals the
+#: count could still be confirmed by it. Named in the limits rather than guessed at.
+_REPEAT_RE = re.compile(r"^\s*\d+\s*[×x]\s*(?=[ø⌀Rr])")
 
 
 @dataclass(frozen=True)
@@ -134,12 +174,14 @@ def rendered_numbers(annotation) -> frozenset[float] | None:
     """
     try:
         label = getattr(annotation, "label", None) or getattr(annotation, "_annotate_label", None)
-        rows = getattr(annotation, "table_rows", None) or getattr(
-            annotation, "gear_requirement_rows", None
-        )
+        # `table_rows` only. A gear table carries `gear_requirement_rows` AND no measurement
+        # claim at all (measured: `claims: ()`), so this is never called on one — and it now
+        # carries `table_rows` regardless. Reading both was a second field read by nobody,
+        # added inside the fix for the first one (#1218 review).
+        rows = getattr(annotation, "table_rows", None)
     except Exception:  # noqa: BLE001 — a raising property on a caller's item must not kill lint
         return None
-    texts = [str(label)] if label else []
+    texts = [_REPEAT_RE.sub("", str(label))] if label else []
     texts += [str(cell) for row in (rows or ()) for cell in row]
     if not texts:
         return None
@@ -149,15 +191,41 @@ def rendered_numbers(annotation) -> frozenset[float] | None:
 def verify_measurement_claims(registry, plan) -> list[ClaimOutcome]:
     """Resolve every annotation's measurement claims against what it renders.
 
-    This is a **presence** check, and that limit is worth stating: it proves the approved value
-    appears among the numbers the annotation draws, not that it appears in the right *position*
-    within a compound label. Attributing part of ``⌀8 THRU ⌴ ⌀14 ↧ 7`` to a specific measurement
-    would need the renderer to record spans as it formats. Presence is strictly stronger than
-    what preceded it, which was nothing.
+    **Four limits, all measured rather than reasoned about** (#1218 review found each of them
+    by relabelling a real drawing and watching this function stay silent):
+
+    1. **Presence, not attribution.** It proves the approved value appears among the numbers
+       the annotation draws, not that it appears in the right *position* within a compound
+       label. Relabelling ``⌀8 THRU ⌴ ⌀14 ↧ 7`` to ``⌀14 THRU ⌴ ⌀14 ↧ 8`` still confirms the
+       bore, from the counterbore's depth. Attribution needs the renderer to record spans as
+       it formats.
+    2. **Members of one `DimensionId` confirm each other.** A hole's location is one id holding
+       both the X and the Y offset, so swapping two location labels — two visibly wrong
+       dimensions — confirms both. On a four-hole pattern all eight offsets share the id. The
+       multimap is what stops false *mismatches*; this is its cost, and narrowing it needs
+       per-member identity, which #883 deliberately leaves open.
+    3. **Reach is bounded by ADR 0010 identity.** An annotation carrying no measurement claim
+       is skipped entirely, and roughly half do — measured, 81 of 170 annotations on
+       ``nist_ctc_02`` carry claims. "N claims, N confirmed" is a statement about the claimed
+       part of the sheet, never the whole sheet.
+    4. **Existence is assumed, not checked.** Claims are read by walking the registry, so an
+       approved measurement that NO annotation claims is invisible here. That direction is
+       coverage's job, and #1217's ``annotation_missing`` state is deliberately not
+       implemented — there is nothing to point at.
+
+    What the check compares is also worth being exact about: ``label`` is a rider the renderer
+    attaches, not glyphs recovered from the sheet, so this is the compiled plan against a
+    second self-report rather than against geometry. It is a real cross-source check — the
+    label is built from the formatted arguments the renderer was handed — and ``table_rows`` is
+    genuinely the drawn content. Verifying export-visible text is #1217's step 5.
     """
     approved = compiled_values(plan)
     outcomes: list[ClaimOutcome] = []
-    for name in registry.names():
+    # `sorted`, because `registry.names()` is a set: without it the emitted issue ORDER varies
+    # run to run on the same drawing (measured: five orderings in five processes), against
+    # ADR 0006's determinism posture — the defect #1196 fixed for lint text, reintroduced
+    # through iteration order.
+    for name in sorted(registry.names()):
         claims = registry.measurement_of(name)
         if not claims:
             continue
