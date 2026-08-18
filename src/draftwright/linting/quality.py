@@ -248,11 +248,14 @@ _UNSCORED_CODES = frozenset(
 #: can check rather than assume. It found `section_dropped` scoring nowhere while a comment
 #: beside its emission asserted the opposite.
 #:
-#: The eleven below `pmi_dropped` are every code handed to a leader job as ``drop_code``
-#: data: `leaders.py`'s one drop recorder stages them ``"validation"`` on a rendered-geometry
-#: failure and ``"placement"`` otherwise, so all eleven have the `section_dropped` shape.
-#: They were invisible to the first audit, which only read codes written as literals AT a
-#: producer call — passing the code in as an argument hid ten of them (#1176 review r5).
+#: Eleven of these — every entry except `gdt_dropped` and `pmi_dropped` — are codes handed
+#: to a leader job as ``drop_code`` data: `leaders.py`'s one drop recorder stages them
+#: ``"validation"`` on a rendered-geometry failure and ``"placement"`` otherwise, so all
+#: eleven have the `section_dropped` shape. They were invisible to the first audit, which
+#: read only codes written as literals AT a producer call; ten of the eleven were new to the
+#: registers, `callout_dropped` having already been here (#1176 review r5). The first version
+#: of this note said "the eleven below `pmi_dropped`", which is ten, and put `callout_dropped`
+#: in the wrong place to make the arithmetic work (review r6).
 _STAGE_ROUTED_CODES = frozenset(
     {
         "callout_dropped",

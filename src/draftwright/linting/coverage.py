@@ -74,11 +74,21 @@ _RECON_EXTERNAL = {"hole": False, "boss": True, "step": True}
 _RECON_KINDS = tuple(_RECON_EXTERNAL)  # derive to keep the kind list and polarity map in sync
 
 #: Declared feature kinds any TRUTH check can examine against the geometry — this module's
-#: `_RECON_KINDS` plus the profiled bores it also confirms, plus the gear the gear-coverage
-#: module reconciles. Exported because `lint_summary`'s fidelity component must know whether
-#: a declaration is examinable at all, and re-listing the kinds there let it report "checked,
-#: nothing false" over a declared slot no check looks at (#1176 review r5). One owner.
-EXAMINABLE_DECLARED_KINDS = (*_RECON_KINDS, "double_d_bore", "external_spur_gear")
+#: `_RECON_KINDS`, plus the gear that `gear_coverage` reconciles. Exported because
+#: `lint_summary`'s fidelity component must know whether a declaration is examinable at all,
+#: and re-listing the kinds there let it report "checked, nothing false" over a declared slot
+#: no check looks at (#1176 review r5).
+#:
+#: A first cut also listed ``"double_d_bore"``. There is no such `kind`: `declare.double_d_bore`
+#: returns a `HoleFeature`, and `lint_declaration_reconciliation` reaches it as
+#: ``kind == "hole" and profile == "double_d"``. Dead data, and the docstring's "plus the
+#: profiled bores" described a distinction the tuple did not make (#1176 review r6).
+#:
+#: `_RECON_KINDS` is derived; ``"external_spur_gear"`` is a literal that must match
+#: `gear_coverage`'s own filter. A new gear kind there would narrow this silently — in the
+#: fail-CLOSED direction, and the `bool(issues)` override in `quality.py` catches the
+#: consequence, so it is a real seam rather than a hazard.
+EXAMINABLE_DECLARED_KINDS = (*_RECON_KINDS, "external_spur_gear")
 
 
 def _dim_vertices(ann) -> list[tuple[float, float]]:

@@ -34,9 +34,10 @@ import ast
 from pathlib import Path
 
 import pytest
-from build123d import Box, import_step
+from build123d import Box, Cylinder, Pos, import_step
 
 from draftwright import Sheet
+from draftwright.linting.coverage import EXAMINABLE_DECLARED_KINDS
 from draftwright.linting.quality import (
     _FIDELITY_CODES,
     _LEGIBILITY_CODES,
@@ -110,7 +111,9 @@ class TestFidelityIsReportedSeparately:
         sheet = Sheet(Box(115, 50, 68), title="T", number="T-1", page="A2", scale=1)
         sheet.authored_dimensions()
         drawing = sheet.build()
-        assert not [item for _n, item in drawing.iter_annotations() if _is_dimension_like(item)], (
+        # `drawing.items`, which is what production reads — `iter_annotations()` yields only
+        # the NAMED ones, so a precondition over it can hold while the predicate is false.
+        assert not [item for item in drawing.items if _is_dimension_like(item)], (
             "the fixture now draws a measured quantity, so it does assert something"
         )
         component = drawing.lint_summary()["quality"]["fidelity"]
@@ -140,6 +143,30 @@ class TestFidelityIsReportedSeparately:
         )
         assert component["basis"] == available["basis"], (
             "an unavailable component must still say WHAT it would have measured"
+        )
+
+    def test_a_detected_model_is_not_treated_as_a_declaration(self):
+        # The predicate's THIRD term. `lint_declaration_reconciliation` is gated on
+        # `model_declared`, so a DETECTED `kind="hole"` feature is examined by nothing —
+        # dropping `self._model_declared` re-creates the declared-slot fail-open for every
+        # detected drawing. It survived the whole tier because `is_dimension_like` is true for
+        # essentially every detected build, so this fixture removes that cover: a detected
+        # part whose dimensions have all been stripped from the drawing.
+        from draftwright.builder import build_drawing
+
+        part = Box(60, 40, 20) - Pos(15, 10, 0) * Cylinder(3, 40)
+        drawing = build_drawing(part, title="T", number="N-1")
+        assert not drawing.model_declared
+        assert any(f.kind in EXAMINABLE_DECLARED_KINDS for f in drawing.model().features), (
+            "the fixture detects nothing examinable, so the term is not under test"
+        )
+        for name in [
+            name for name, item in drawing.iter_annotations() if _is_dimension_like(item)
+        ]:
+            drawing.remove(name)
+        component = drawing.lint_summary()["quality"]["fidelity"]
+        assert component["available"] is False, (
+            "a detected model was treated as a declaration this axis can examine"
         )
 
     def test_a_detected_drawing_that_dimensions_the_part_is_answerable(self):
@@ -202,18 +229,21 @@ class TestFidelityIsReportedSeparately:
         assert component["score"] < 1.0
         assert component["by_code"] == {"label_vs_measured": 1}
 
-    def test_a_finding_outranks_the_availability_gate(self):
-        # The gate must never DISCARD a falsehood. This drawing draws no measured quantity,
-        # so the predicate says "asserts nothing" — and it carries a `declared_feature_absent`
-        # for a hole the part lacks. Reported as `{available: False, score: None}`, the round-2
-        # fix would have failed closed over a detected lie, which is worse than the fail-open
-        # it replaced (#1176 review r3). Mutation: drop `available = available or bool(issues)`.
+    def test_a_declared_falsehood_with_nothing_drawn_is_still_scored(self):
+        # The r3 case, kept because it is the user-facing shape: a `⌀6 THRU` declared over
+        # solid material, no measured quantity drawn, and fidelity must still say 0.95.
+        #
+        # It reaches availability through the DECLARED term — `sheet.hole(...)` is a
+        # `kind == "hole"` feature, which is examinable — NOT through the `bool(issues)`
+        # override. Round 5's commit message identified that this comment claimed otherwise
+        # and rewrote a different test, leaving this one saying the untrue thing (review r6).
+        # The override's own guard is `test_a_finding_always_outranks_the_availability_gate`.
         sheet = Sheet(Box(20, 20, 20), title="T", number="N-1", page="A2")
         sheet.hole(at=(5, 5, 0), axis="z", diameter=3, through=True)
         sheet.authored_dimensions()
         drawing = sheet.build()
         summary = drawing.lint_summary()
-        assert not [item for _n, item in drawing.iter_annotations() if _is_dimension_like(item)], (
+        assert not [item for item in drawing.items if _is_dimension_like(item)], (
             "the fixture now asserts a measured quantity, so the gate is not under test"
         )
         assert [i for i in summary["issues"] if i["code"] == "declared_feature_absent"]
@@ -463,11 +493,74 @@ class TestAGearTableCanBeFalseWhileTheDrawingPasses:
 #: has to be read by index rather than assumed absent (#1176 review r5).
 _PRODUCERS = {"LintIssue": 3, "record_issue": 1, "_record_build_issue": 1}
 
-#: Callables that take a lint code as ``drop_code`` DATA and record it later. Ten codes
-#: reached the engine only this way and were invisible to an audit that read literals at
-#: producer calls alone; `_render_polygonal_prisms` is here because it forwards its own
-#: ``drop_code`` parameter into a job, and is discovered rather than listed.
+#: Callables that take a lint code as ``drop_code`` DATA and record it later. Eleven codes
+#: reach the engine only this way and were invisible to an audit that read literals at
+#: producer calls alone. Only the two entry points are listed: the forwarding layers
+#: (`_render_polygonal_prisms` among them) are DISCOVERED by resolving to a fixed point, so a
+#: new one is followed rather than needing to be remembered here.
 _STAGED_RECORDERS = {"_leader_callout_pass", "FeatureLeaderJob"}
+
+
+def _is_forwarded_parameter(expr, tree, node) -> bool:
+    """Whether *expr* is a parameter of some function enclosing *node*.
+
+    Those are the forwarding layers the fixed point already follows to their callers, so
+    counting them again would ratchet on plumbing rather than on a hidden code. ANY enclosing
+    scope, not just the innermost: `holes.py`'s pitch helper forwards its outer function's
+    `drop_code` from inside a nested closure, where the name is a free variable rather than a
+    parameter of the `def` it sits in.
+    """
+    if not isinstance(expr, ast.Name):
+        return False
+    for func in ast.walk(tree):
+        if not isinstance(func, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if not func.lineno <= node.lineno <= (func.end_lineno or func.lineno):
+            continue
+        args = func.args
+        if expr.id in {a.arg for a in (*args.args, *args.posonlyargs, *args.kwonlyargs)}:
+            return True
+    return False
+
+
+def _producer_aliases(trees) -> dict[str, str]:
+    """``{local name: producer name}`` for aliased imports of a producer.
+
+    The walk matches producers by NAME, so `from ...issues import LintIssue as _LI` made
+    every `_LI(...)` call invisible — not counted as a producer and not counted as indirect
+    (#1176 review r6). Simple assignment aliases (`_mk = LintIssue`) are followed too,
+    iterated so a chain resolves.
+
+    **The limit, stated rather than implied**: a producer reached through anything this
+    cannot name — an attribute of an object, a `functools.partial`, a dict entry, a subclass
+    — is invisible, and unlike an unreadable `code` argument there is nothing to count,
+    because the walk cannot tell such a call from any other call in the package. So "every
+    code the engine emits is classified" holds for producers spelled as themselves or bound
+    to a name; it is not a proof against a determined author. What it is proof against is the
+    accident, which is what has actually happened five times.
+    """
+    aliases: dict[str, str] = {}
+    for tree in trees.values():
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                for alias in node.names:
+                    if alias.asname and alias.name in _PRODUCERS:
+                        aliases[alias.asname] = alias.name
+    while True:
+        before = len(aliases)
+        for tree in trees.values():
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Name):
+                    continue
+                source = aliases.get(node.value.id, node.value.id)
+                if source not in _PRODUCERS:
+                    continue
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        aliases[target.id] = source
+        if len(aliases) == before:
+            break
+    return aliases
 
 
 def _enclosing_function(tree, node):
@@ -542,11 +635,14 @@ def _emitted_codes(sources=None):
                 literals.add(code)
                 stages.setdefault(code, set()).add(staged)
 
+    aliases = _producer_aliases(trees)
+
     # Which functions forward a `drop_code` parameter into a staged recorder. Resolved to a
     # fixed point rather than listed, so a new forwarding layer is followed instead of
     # hiding its codes.
     recorders = set(_STAGED_RECORDERS)
-    for _ in range(4):
+    while True:
+        before = len(recorders)
         for path, tree in trees.items():
             for node in ast.walk(tree):
                 if not isinstance(node, ast.Call):
@@ -560,6 +656,8 @@ def _emitted_codes(sources=None):
                     enclosing = _enclosing_function(tree, node)
                     if enclosing is not None:
                         recorders.add(enclosing.name)
+        if len(recorders) == before:
+            break
 
     for path, tree in trees.items():
         rel = path.relative_to(root)
@@ -568,14 +666,22 @@ def _emitted_codes(sources=None):
                 continue
             func = node.func
             name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)
+            name = aliases.get(name, name)
             if any(k.arg is None for k in node.keywords) and name in _PRODUCERS:
                 # `LintIssue(**kwargs)` — the code is not readable and must not pass as
                 # "no code here".
                 indirect.append(f"{rel}:{node.lineno}")
                 continue
             drop = next((k for k in node.keywords if k.arg == "drop_code"), None)
-            if drop is not None and isinstance(drop.value, ast.Constant):
-                record(drop.value, rel, "<staged>" if name in recorders else None)
+            if drop is not None:
+                if isinstance(drop.value, ast.Constant):
+                    record(drop.value, rel, "<staged>" if name in recorders else None)
+                elif not _is_forwarded_parameter(drop.value, tree, node):
+                    # A `drop_code` that is neither a literal nor the enclosing function's own
+                    # parameter hides a code the walk cannot read — a module constant, say,
+                    # which is ordinary refactoring rather than an adversarial act. Counting
+                    # it as indirect is what makes the ratchet bite (#1176 review r6).
+                    indirect.append(f"{rel}:{drop.value.lineno}")
             if name not in _PRODUCERS:
                 continue
             expr = next((k.value for k in node.keywords if k.arg == "code"), None)
@@ -767,6 +873,56 @@ class TestTheAuditCannotBeSmuggledPast:
         )
         assert "smuggled_drop" in literals
         assert stages["smuggled_drop"] == {"<staged>"}
+
+    def test_a_drop_code_held_in_a_constant_is_counted(self):
+        # `drop_code` was recorded only when it was a literal; a `Name` was used to grow the
+        # recorder set and then silently dropped — neither in `literals` nor in `indirect`.
+        # Factoring a repeated code into a module constant is ordinary refactoring, so this
+        # was accident-plausible, and at runtime the leader recorder stages it "validation"
+        # on a geometry failure: `section_dropped`'s defect, invisible (#1176 review r6).
+        literals, indirect, _stages = self._codes(
+            '_MUT = "x_dropped"\n_leader_callout_pass(dwg, a, jobs, drop_code=_MUT, ctx=ctx)\n'
+        )
+        assert not literals
+        assert indirect, "a code held in a module constant passed as 'no code here'"
+
+    def test_an_aliased_producer_import_is_still_a_producer(self):
+        # The walk matched producers by NAME, so `LintIssue as _LI` made every call
+        # invisible — not a producer, and not counted as indirect either (#1176 review r6).
+        literals, _indirect, _stages = self._codes(
+            "from draftwright.linting.issues import LintIssue as _LI\n"
+            '_LI("error", "m", None, "smuggled_alias")\n'
+        )
+        assert "smuggled_alias" in literals
+
+    def test_a_producer_bound_to_another_name_is_still_a_producer(self):
+        # `_mk = LintIssue` then `_mk(...)`, resolved by iterating the assignments so a chain
+        # resolves too. A producer reached through an attribute, a `partial` or a dict entry
+        # stays invisible — `_producer_aliases` says so plainly rather than implying the walk
+        # is proof against a determined author (#1176 review r6).
+        literals, _indirect, _stages = self._codes(
+            '_mk = LintIssue\n_mk2 = _mk\n_mk2("error", "m", None, "smuggled_var")\n'
+        )
+        assert "smuggled_var" in literals
+
+    def test_the_recorder_resolution_converges_rather_than_giving_up(self):
+        # `for _ in range(4)` silently exempted a code behind five forwarding layers: staged
+        # `None` instead of `<staged>`, with `indirect` still zero (#1176 review r6).
+        # REVERSE dependency order, deliberately: defined innermost-first, one pass over the
+        # source resolves the whole chain and a bounded loop looks fine. Written outermost
+        # first, each pass advances the frontier by one layer, which is the shape that
+        # exposed `range(4)`.
+        layers = "".join(
+            f"def _w{i}(drop_code):\n    return _w{i - 1}(drop_code=drop_code)\n"
+            for i in range(6, 0, -1)
+        )
+        body = (
+            layers + "def _w0(drop_code):\n"
+            "    return _leader_callout_pass(dwg, a, jobs, drop_code=drop_code, ctx=ctx)\n"
+            + '_w6(drop_code="smuggled_deep")\n'
+        )
+        _literals, _indirect, stages = self._codes(body)
+        assert stages["smuggled_deep"] == {"<staged>"}
 
     def test_a_forwarded_drop_code_makes_its_caller_a_recorder(self):
         # The forwarding layer is resolved to a fixed point, not listed: a helper that passes

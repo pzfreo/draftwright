@@ -285,7 +285,8 @@ crit = dwg.lint_summary()
 #    "errors": n, "warnings": n, "infos": n, "by_code": {code: n},
 #    "issues": [{code, severity, message, suggestion?}, ...],
 #    "quality": {"completeness": …, "restraint": …, "legibility": …, "fidelity": …,
-#                "unscored": {"issues": n, "by_code": {…}, "unclassified": [...]}}}
+#                "unscored": {"available": True, "score": None, "issues": n,
+#                             "by_code": {…}, "unclassified": [...]}}}
 # Gate on the severity/code COUNTS, not the scalar score.
 #
 # The four `quality` components answer four different questions and none substitutes for
