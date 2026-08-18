@@ -572,6 +572,87 @@ matrix, parallelised with `-n auto`) on every PR; the **slow tier runs post-merg
 on `main`**, not as a PR gate (#153) — a regression there is caught right after
 merge rather than blocking every PR for ~19 min.
 
+## Working practices — evidence, not confidence
+
+These are not style preferences. Each one is here because its absence produced a
+defect that shipped, or a claim that was believed and false. Epic #1202 alone
+produced roughly twenty-five confidently-written false statements in commit
+messages, comments, docstrings and PR bodies — several written *inside the fix
+for the previous one*, twice as a PR's own headline.
+
+### Reproduce every prose claim by execution before committing it
+
+If a sentence in a commit message, comment, docstring or PR body asserts a fact
+about this codebase — a count, a behaviour, "no caller does X", "this is the only
+Y" — run the thing that proves it. Not "I read the code and it looks true".
+
+Real examples, all of which passed review-by-reading and failed on execution:
+
+- *"`label_vs_measured` is currently the only such code"* — there were five.
+- *"any permutation fails"* — one passed all 4,092 tests.
+- *"the union of these registers is exactly the set of codes the engine emits"* —
+  41 against 55.
+- *"`representation_features` is populated by nothing"* — true of the field, but
+  the reason given was wrong, and the neighbouring live parameter was nearly
+  deleted with it.
+- *"156 claims, 156 confirmed across every STEP fixture"* — the script globbed
+  `*.step` and half the fixtures are `*.stp`. The corrected figure was **also**
+  wrong: it mixed repo fixtures with files from a local directory and used
+  `build123d.import_step` instead of the engine's `analysis._import_step`.
+
+**When measuring a corpus, say which files and through which entry point.**
+`build_drawing(path)` and `build123d.import_step(path)` are not the same code
+path — the first uses `STEPControl_Reader` specifically to avoid an XCAF segfault
+the second hits on CTC-02 AP242.
+
+### A green suite is not evidence that a guard is load-bearing
+
+Break the rule on purpose and confirm a named test fails. Assert the substitution
+applied — a run that collects no tests, or a `sed` that matched nothing, is a
+broken harness reporting success.
+
+Guards that survived the **entire** suite until mutated, each with a test sitting
+next to it: three of five `_FIDELITY_CODES` deleted outright; `_owner_drawn`
+replaced with `return True`; `_PLANE_TOL` widened from `1e-6` to **2.0**; both
+halves of an availability predicate *and* its fail-safe override.
+
+**Mutation results expire when the code changes.** Re-run them for anything a
+later commit touches. And beware tests that pass for the wrong reason: a
+determinism test comparing runs *within one process* passes on unsorted code,
+because string hashing is stable for a given `PYTHONHASHSEED`.
+
+### Every fixture asserts its own precondition
+
+A test that the defect is present, before asserting it is handled. Four tests in
+#1202 passed against completely unfixed code because their fixtures never
+contained the defect — a "this thickness is now printed once" test whose geometry
+produced no duplicate in the first place; an "everything else is unaffected"
+generator that was empty.
+
+A precondition is necessary and often not sufficient: a candidate can exist and be
+refused by a *different* mechanism than the one under test. Where that is possible,
+also assert that relaxing the named mechanism changes the outcome.
+
+### Fix it, or state a reason you could not have manufactured
+
+When work turns up a defect, the default is to fix it. Filing needs a reason that
+does not reduce to a choice you just made:
+
+- it needs a **decision that is the maintainer's**; or
+- you **attempted** it and found it larger than it looked.
+
+**"It is in a different file" and "it is a different subsystem" are not reasons.**
+You choose which files a change touches, so citing that boundary is circular — it
+lets any defect be deferred by declining to open the file. Look first; decide
+after. A reason produced before looking is a justification for what you already
+did.
+
+### Read a gate's exit code, never its output
+
+`scripts/pr-check --static` exits non-zero on failure. Grepping its text for
+`error` once hid ruff-format's "Would reformat" for several commits, so a real
+failure read as a pass.
+
 ## License
 
 AGPL-3.0. Anyone running draftwright as a network service must provide their
