@@ -148,6 +148,9 @@ class ClaimOutcome:
     state: ClaimState
     expected: tuple[str, ...] = ()
     rendered: str | None = None
+    #: The claim itself, so a consumer can join on the FEATURE as well as the parameter
+    #: name. `parameter_id` alone says `bore.diameter` without saying whose (#1217 PR 2).
+    measurement: object | None = None
 
 
 def compiled_values(plan) -> dict:
@@ -285,15 +288,21 @@ def verify_measurement_claims(registry, plan) -> list[ClaimOutcome]:
                 else frozenset()
             )
             if not entries:
-                outcomes.append(ClaimOutcome(name, parameter, "unresolved"))
+                outcomes.append(ClaimOutcome(name, parameter, "unresolved", measurement=claim))
             elif not wanted:
-                outcomes.append(ClaimOutcome(name, parameter, "no_expected_value", expected))
+                outcomes.append(
+                    ClaimOutcome(name, parameter, "no_expected_value", expected, measurement=claim)
+                )
             elif numbers is None:
-                outcomes.append(ClaimOutcome(name, parameter, "unreadable", expected))
+                outcomes.append(
+                    ClaimOutcome(name, parameter, "unreadable", expected, measurement=claim)
+                )
             elif any(
                 any(abs(want - number) <= _VALUE_TOL for number in numbers) for want in wanted
             ):
-                outcomes.append(ClaimOutcome(name, parameter, "confirmed", expected))
+                outcomes.append(
+                    ClaimOutcome(name, parameter, "confirmed", expected, measurement=claim)
+                )
             else:
                 outcomes.append(
                     ClaimOutcome(
@@ -302,6 +311,7 @@ def verify_measurement_claims(registry, plan) -> list[ClaimOutcome]:
                         "value_absent",
                         expected,
                         ", ".join(str(number) for number in sorted(numbers)) or None,
+                        measurement=claim,
                     )
                 )
     return outcomes

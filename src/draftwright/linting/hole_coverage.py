@@ -39,6 +39,14 @@ class HoleRequirementOutcome:
     requirement_count: int = 1
     representation: str | None = None
     representation_reason: str | None = None
+    #: The recognised hole positions this outcome accounts for, and the IR features it was
+    #: matched to (#1217). A consumer that must attribute an outcome to a SPECIFIC hole —
+    #: the benchmark zips one observation per recognised hole — cannot do it from
+    #: ``source_at`` and ``member_count``, which describe the group. Carrying the evidence
+    #: is what lets the ledger be a pointer rather than a verdict: ``features`` names what
+    #: to go and check.
+    members: tuple[tuple[float, float, float], ...] = ()
+    features: tuple = ()
 
 
 def _rounded(value) -> float:
@@ -319,6 +327,22 @@ def _tool_center_pattern_key(pattern) -> tuple:
     if key[3] is not None:
         key[3] = _tool_center_members(pattern, (key[3],), depth)[0]
     return tuple(key)
+
+
+def canonical_hole_sites(source) -> tuple[tuple[float, float, float], ...]:
+    """The positions `HoleRequirementOutcome.members` is expressed in (#1217 PR 2).
+
+    Not raw locations. A THROUGH hole's coordinate along its own axis is zeroed, so that the
+    same physical bore keys identically whichever face it was measured from — which is what
+    lets two opposed coaxial holes stay distinct while one hole seen twice does not split.
+
+    Public because the ledger publishes `members` in this space, so a consumer attributing an
+    outcome to a recognised hole has to map into it. Re-deriving the normalisation at the call
+    site would be a second implementation of exactly the kind #1206 exists to remove — and it
+    is a silent one: the benchmark's first cut keyed on raw locations, matched nothing for
+    every through hole, and reported four otherwise-perfect corpus units as `unknown`.
+    """
+    return _members(source)
 
 
 def _source_at(source) -> tuple[float, float, float]:
@@ -710,7 +734,10 @@ def hole_requirement_outcomes(
             # geometry normalization.
             loose_groups[(_recognised_spec(hole), HoleSpec.from_hole(hole).axis)].append(hole)
 
-    sources: list[tuple[HoleSourceKind, object, tuple, int]] = []
+    # Carries the group's member SITES explicitly (#1217 PR 2). The source object is the
+    # representative `holes[0]`, so deriving members from it yields one site for a group of
+    # eight — which a consumer attributing per hole then silently misses seven of.
+    sources: list[tuple[HoleSourceKind, object, tuple, int, tuple]] = []
     for (spec, _direction), holes in loose_groups.items():
         axis_index = "xyz".index(spec[0])
         through = spec[3]
@@ -721,9 +748,15 @@ def hole_requirement_outcomes(
                 site[axis_index] = 0.0
             member_sites.append((site[0], site[1], site[2]))
         members = tuple(sorted(member_sites))
-        sources.append(("hole", holes[0], (spec, members), len(holes)))
+        sources.append(("hole", holes[0], (spec, members), len(holes), members))
     sources.extend(
-        ("hole_pattern", pattern, _pattern_key(pattern), len(pattern.holes))
+        (
+            "hole_pattern",
+            pattern,
+            _pattern_key(pattern),
+            len(pattern.holes),
+            tuple(_members(pattern)),
+        )
         for pattern in recognition.hole_patterns
     )
     attached_countersinks = Counter(
@@ -772,7 +805,7 @@ def hole_requirement_outcomes(
     # recognition-owned sources is ambiguous even when only one source would otherwise
     # propose it as an exact match.
     owner_source_indices: dict[int, set[int]] = defaultdict(set)
-    for index, (kind, _source, key, _member_count) in enumerate(sources):
+    for index, (kind, _source, key, _member_count, _sites) in enumerate(sources):
         if kind == "hole":
             spec, members = key
         else:
@@ -796,7 +829,7 @@ def hole_requirement_outcomes(
     # remain unverifiable.
     exact_proposals: list[tuple] = []
     exact_evidence: list[bool] = []
-    for kind, _source, key, _member_count in sources:
+    for kind, _source, key, _member_count, _sites in sources:
         if kind == "hole":
             source_spec, source_members = key
             spec_features = hole_features_by_spec.get(source_spec, ())
@@ -842,7 +875,7 @@ def hole_requirement_outcomes(
     # simultaneously certify another source at its projected cutter centre.
 
     residual_proposals: dict[int, tuple] = {}
-    for index, (kind, source, key, _member_count) in enumerate(sources):
+    for index, (kind, source, key, _member_count, _sites) in enumerate(sources):
         if matches_by_source[index]:
             continue
         # A partial, duplicate, or multiply-claimed exact owner is contradictory
@@ -906,7 +939,7 @@ def hole_requirement_outcomes(
         if omission.feature is not None and omission.authored
     }
     outcomes = []
-    for index, (kind, source, _key, member_count) in enumerate(sources):
+    for index, (kind, source, _key, member_count, source_sites) in enumerate(sources):
         matched = matches_by_source[index]
         representative = matched[0] if matched else None
         parameters = (
@@ -928,6 +961,7 @@ def hole_requirement_outcomes(
                     "?",
                     "unverifiable",
                     requirement_count=_physical_requirement_count(kind, source, member_count),
+                    members=source_sites,
                 )
             )
             continue
@@ -952,6 +986,8 @@ def hole_requirement_outcomes(
                     state,
                     representation=representation,
                     representation_reason=representation_reason,
+                    members=source_sites,
+                    features=tuple(matched),
                 )
             )
     # The current HoleRecord waist has one countersink slot.  A second seat on the
