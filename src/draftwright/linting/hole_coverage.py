@@ -1025,10 +1025,15 @@ def hole_requirement_outcomes(
         # opening centre is the WRONG value. `members` is published in `canonical_hole_sites`
         # space (a through hole's coordinate along its own axis is zeroed); a raw world
         # coordinate is not, so whether it aliased another requirement's key depended on where
-        # the solid happened to sit. Measured on the `_two_face_countersunk_hole` fixture, the
-        # raw seat centre `(0, 0, 0)` collided exactly with the bore's canonical site — the
-        # non-canonical-key defect class `_members` was fixed for in #1223, re-opened inside
-        # the fix for it (#1229 review).
+        # the solid happened to sit. On `_two_face_countersunk_hole` the raw seat centre was
+        # `(0, 0, 6)` — already a different key from the bore's `(0, 0, 0)`, aliasing nothing as
+        # authored. Translate the solid by −6 and it becomes `(0, 0, 0)` and collides. A key
+        # whose meaning moves with the part is the non-canonical-key defect class `_members` was
+        # fixed for in #1223, re-opened inside the fix for it.
+        #
+        # An earlier version of this comment said the collision was present as authored. It was
+        # not: the harness that "measured" it pooled the members of the ATTACHED countersink
+        # outcome, which legitimately carries the bore's site, with the tail's (#1229 review r2).
         #
         # The seat is physically on `seat_hole`, so its canonical site is both correct and in the
         # published space: a consumer joining by site is told "this hole carries a second
@@ -1039,6 +1044,12 @@ def hole_requirement_outcomes(
         # outcome could not reach a wrong join with the old value either — the protection came
         # from a filter, not from the empty tuple. This makes the field correct for the next
         # consumer rather than fixing a live mis-join, and saying so beats implying otherwise.
+        #
+        # And note what the correct value implies: the tail's key is now IDENTICAL to the bore's
+        # own, by construction, so `(parameter_id, member)` no longer identifies one outcome —
+        # this fixture carries `countersink.diameter` twice on site `(0, 0, 0)`, once `placed`
+        # and once `unverifiable`. That is right (both ARE about that hole), but a consumer
+        # joining on site alone must disambiguate on `state` or `source_at`.
         sites = canonical_hole_sites(seat_hole)
         outcomes.extend(
             HoleRequirementOutcome("hole", at, 1, parameter, "unverifiable", members=sites)

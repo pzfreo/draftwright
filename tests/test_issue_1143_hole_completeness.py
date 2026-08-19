@@ -2323,10 +2323,14 @@ def test_unmatched_second_face_countersink_fails_closed_in_hole_ledger():
     # seat is physically on the hole it matched, so its canonical site is the correct key.
     #
     # Assert the SPACE, not just presence. The first fix here passed the seat's own opening
-    # centre, which is a raw world coordinate: on this very fixture it happened to equal the
-    # bore's canonical site, and translating the solid pulled the two apart — a key whose
-    # meaning depends on where the part sits, which is the defect `canonical_hole_sites` exists
-    # to prevent (#1229 review).
+    # centre, a raw world coordinate. Measured on this fixture that was `(0, 0, 6)` — already a
+    # DIFFERENT key from the bore's `(0, 0, 0)`, so it aliased nothing as authored. Translate the
+    # solid by −6 and the seat centre becomes `(0, 0, 0)` and collides. Which requirement it
+    # aliases depends on where the solid sits, and that is the defect (#1229 review round 2).
+    #
+    # An earlier version of this comment said the collision was present as authored. It was not;
+    # the harness that "measured" it pooled the members of the ATTACHED countersink outcome,
+    # which legitimately carries the bore's site, with the tail's.
     sites = {site for hole in drawing.recognition().holes for site in canonical_hole_sites(hole)}
     assert sites, "no recognised hole sites; the assertion below is vacuous"
     for item in unverifiable:
@@ -2334,10 +2338,41 @@ def test_unmatched_second_face_countersink_fails_closed_in_hole_ledger():
         assert set(item.members) <= sites, (item.parameter_id, item.members, sites)
 
 
-def test_an_unmatched_countersinks_member_site_does_not_move_with_the_part():
-    """The property the raw opening centre broke: a canonical key is translation-invariant."""
-    from build123d import Pos
+def _two_holes_countersunk_on_both_faces():
+    """Two through holes, each countersunk on both faces, 30 mm apart."""
+    part = Box(90, 50, 12)
+    for x in (-15, 15):
+        part -= Pos(x, 0, 0) * Cylinder(3, 12)
+        part -= Pos(x, 0, 4) * Cone(3, 7, 4)
+        part -= Pos(x, 0, -4) * Cone(7, 3, 4)
+    return part
 
+
+def test_an_unmatched_countersink_is_attributed_to_the_hole_it_sits_on():
+    """WHICH hole, not just "a hole in the right space".
+
+    With one hole in the part, `set(members) <= {every hole site}` is satisfied by any hole at
+    all — measured, attributing every seat to `recognition.holes[-1]` survives the entire fast
+    tier. Two holes make the assertion discriminating (#1229 review round 2).
+    """
+    drawing = build_drawing(_two_holes_countersunk_on_both_faces(), page="A3")
+    by_site = {
+        site: hole for hole in drawing.recognition().holes for site in canonical_hole_sites(hole)
+    }
+    assert len(by_site) == 2, f"expected two distinct holes, got {sorted(by_site)}"
+
+    unverifiable = [item for item in _outcomes(drawing) if item.state == "unverifiable"]
+    assert len(unverifiable) == 4, [item.parameter_id for item in unverifiable]
+    for item in unverifiable:
+        # The seat's own x/y identify the hole it sits on; only its axial coordinate differs.
+        expected = next(s for s in by_site if s[:2] == item.source_at[:2])
+        assert item.members == (expected,), (item.parameter_id, item.source_at, item.members)
+
+
+def test_an_unmatched_countersinks_member_site_does_not_move_along_the_hole_axis():
+    """`canonical_hole_sites` zeroes a through hole's coordinate along its OWN axis, so the key
+    is invariant under translation along that axis — and only that one. A lateral offset moves
+    it, correctly, because it identifies a different hole position."""
     keys = []
     for dz in (0.0, -6.0):
         part = _two_face_countersunk_hole()
@@ -2345,6 +2380,9 @@ def test_an_unmatched_countersinks_member_site_does_not_move_with_the_part():
         unverifiable = [item for item in _outcomes(drawing) if item.state == "unverifiable"]
         assert unverifiable, f"dz={dz}: the unmatched-countersink tail did not fire"
         keys.append({member for item in unverifiable for member in item.members})
+    # Without this the assertion below compares two EMPTY sets and passes with `members=()`
+    # — measured: dropping `members` left this test in the passing column (#1229 review round 2).
+    assert keys[0], "no member sites at all; the comparison below would be vacuous"
     assert keys[0] == keys[1], keys
 
 

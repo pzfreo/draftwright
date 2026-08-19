@@ -25,20 +25,22 @@ than a single case. Two instances are known:
 A new representation route must be admitted here or it registers as a false loss.
 
 **Every draftwright import in this module is deliberately inside a function body** — there are
-no module-level ones at all (six in-function), which is the #313 lazy-load pattern rather than
-an accident. It is load-bearing: importing this module costs ~0.01 s, and hoisting ANY engine
-import makes it ~2 s, because every one pulls build123d transitively. Measured in one process,
-the cost is essentially all build123d and is paid once::
+no module-level ones at all — five in-function, plus one `from build123d import import_step` —
+which is the #313 lazy-load pattern rather than an accident. It is load-bearing: importing this module costs ~0.01 s, and hoisting ANY engine import makes it
+one to two seconds, because every one pulls build123d transitively. Measured in a single process,
+the cost is essentially all build123d and is paid once — the draftwright modules themselves are
+free once it is loaded::
 
-    build123d                          2.256 s
-    draftwright.linting.hole_coverage  0.046 s   (after build123d)
-    draftwright.model.compiled         0.026 s
-    draftwright.linting.evidence       0.000 s
-    draftwright.builder                0.016 s
+    build123d                          (the whole cost)
+    draftwright.linting.hole_coverage  ~0.02-0.05 s   (after build123d)
+    draftwright.model.compiled         ~0.01-0.03 s
+    draftwright.linting.evidence        0.000 s
+    draftwright.builder                ~0.01-0.02 s
 
-(An earlier version of this note listed four figures of 1.4-2.0 s, one per module, from four
-separate cold processes — the same one-time cost measured four times and presented as if the
-modules differed. They do not.)
+Absolute seconds are deliberately not quoted for build123d: measurements on two machines gave
+1.35 s and 2.26 s. The SHAPE is the point and it reproduces. (An earlier version listed four
+figures of 1.4-2.0 s, one per module, from four separate cold processes — the same one-time cost
+measured four times and presented as if the modules differed. They do not.)
 
 #1229 filed three of these imports as "unexplained, hoist or justify"; measuring is what showed
 the filing was wrong, and this note is the justification it asked for. Keep new engine imports

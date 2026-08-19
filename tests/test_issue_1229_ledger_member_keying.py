@@ -102,9 +102,11 @@ class TestAGroupCannotMixThroughAndBlind:
 
         recognition = build_drawing(self._mixed_part(), title="T", number="N-1").recognition()
         groups = list(getattr(recognition, "hole_patterns", ()))
+        # `>= 2` says only that the part still recognises as patterns — it carries NO
+        # information about `bottom`, since these six also split positionally at the 40 mm gap.
+        # The load-bearing assertion is `len(bottoms) == 1` inside the loop (#1229 review r2).
         assert len(groups) >= 2, (
-            "the mixed part produced fewer than two groups; either grouping no longer splits on "
-            "`bottom` — the thing this guards — or the fixture stopped recognising"
+            f"the mixed part produced {len(groups)} group(s); it stopped recognising"
         )
         checked = 0
         for group in groups:
