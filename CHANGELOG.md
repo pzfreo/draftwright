@@ -47,6 +47,18 @@
 
 ### Changed
 
+- `HoleRequirementOutcome` gains `members` and `features`, `ClaimOutcome` gains `measurement`,
+  and `linting.hole_coverage.canonical_hole_sites` is public (#1217). A consumer attributing a
+  requirement outcome to a specific recognised hole needs the evidence the outcome accounts
+  for, and needs to key into the canonical space the ledger publishes it in — a through hole's
+  own-axis coordinate is zeroed there.
+- The STEP-analysis benchmark's `drawing_consumer` boundary now consumes
+  `hole_requirement_outcomes` instead of a second correspondence implementation of its own
+  (#1206), and follows the ledger's pointer through `linting.evidence` rather than trusting it.
+  Holes the ledger reports `unverifiable` now score `unknown` where the duplicate credited them
+  by guessing: 26 holes across the four CTC-02/03/04 fixtures. The five-case evaluation corpus
+  is unchanged.
+
 - `Drawing.suppressions()` rows gain a `conveyed_by` key: the dimension that states a
   withheld measurement instead, or `None` when nothing takes the fact over (#1154). It is not
   a synonym for the existing `authored` flag — that says whose decision it was, this says

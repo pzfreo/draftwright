@@ -110,14 +110,22 @@ def _feature_spec(feature) -> tuple:
 
 
 def _members(source, *, rounded: bool = True) -> tuple[tuple[float, float, float], ...]:
+    # `HoleSpec.from_hole(...).axis`, NOT the raw record axis. The producing side keys on
+    # `spec[0]`, i.e. the spec's 6-dp-rounded axis, so deriving the letter from the raw vector
+    # puts the consumer in a different space: a CTC-03 bore at
+    # `(0.707106781186547, 0, -0.707106781186548)` letters as `z` raw and `x` through the
+    # spec, because rounding makes the components an exact tie and `max` takes the first.
+    # Five holes then had no ledger member at all and reached `unknown` through a lookup
+    # default rather than through `unverifiable` — the silent join failure
+    # `canonical_hole_sites` exists to prevent, inside `canonical_hole_sites` (#1223 review).
     recognised = getattr(source, "holes", None)
     if recognised is not None:
         points = tuple(hole.location for hole in recognised)
-        axis = _axis_letter(recognised[0].axis)
+        axis = _axis_letter(HoleSpec.from_hole(recognised[0]).axis)
         through = all(HoleSpec.from_hole(hole).bottom == "through" for hole in recognised)
     elif hasattr(source, "location"):
         points = (source.location,)
-        axis = _axis_letter(source.axis)
+        axis = _axis_letter(HoleSpec.from_hole(source).axis)
         through = HoleSpec.from_hole(source).bottom == "through"
     else:
         points = getattr(source, "members", ()) or (source.frame.origin,)

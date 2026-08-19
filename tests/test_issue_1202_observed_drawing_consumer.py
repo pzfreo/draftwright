@@ -71,9 +71,12 @@ def _size_callouts(drawing):
     score `unsupported` on a turned part, and it went with the duplicate correspondence
     in #1217.
     """
+    # `sorted`, because `registry.names()` is a set: callers index [0], so which annotation
+    # a test corrupts would otherwise vary per process (ADR 0006; `evidence.py` took the
+    # same fix one PR ago).
     return [
         name
-        for name in drawing.registry.names()
+        for name in sorted(drawing.registry.names())
         for measurement in drawing.registry.measurement_of(name)
         if str(getattr(measurement, "parameter", "")) == "bore.diameter"
     ]
@@ -121,16 +124,51 @@ class TestTheOutcomeIsReadOffTheDrawing:
         )
         assert set(_drawing_consumer_outcomes(holes, drawing)) == {"unsupported"}
 
-    def test_a_hole_the_ledger_cannot_join_is_unknown(self):
+    @pytest.mark.parametrize(
+        ("fixture", "expected"),
+        [
+            ("tests/fixtures/nist_ctc_04_asme1_ap203.stp", 8),
+            # CTC-03 carries a 45-degree bore, and it is the ONLY fixture where the raw
+            # record axis and the spec's rounded axis letter differ — the components tie
+            # after rounding and `max` takes the first. CTC-04 is all principal-axis, so it
+            # cannot catch a canonical-space mismatch (#1223 review: the F3 fix survived its
+            # mutation until this case was added).
+            ("tests/fixtures/nist_ctc_03_asme1_ap203.stp", 5),
+        ],
+    )
+    def test_a_hole_the_ledger_cannot_join_is_unknown(self, fixture, expected):
         # ADR 0017 states plainly that recognition-record -> IR-feature correspondence is
         # NOT yet provided. Where it fails the ledger says `unverifiable` and this says
         # `unknown` — which still scores as a MISS, so it is an honest label, not an
         # exemption. Pinned on real geometry: CTC-04 has eight such holes.
-        drawing = build_drawing("tests/fixtures/nist_ctc_04_asme1_ap203.stp")
-        outcomes = _drawing_consumer_outcomes(drawing.recognition().holes, drawing)
-        assert outcomes.count("unknown") == 8, (
+        from draftwright.linting.hole_coverage import (
+            canonical_hole_sites,
+            hole_requirement_outcomes,
+        )
+        from draftwright.model.compiled import compile_dimensions
+
+        drawing = build_drawing(fixture)
+        holes = list(drawing.recognition().holes)
+        outcomes = _drawing_consumer_outcomes(holes, drawing)
+        assert outcomes.count("unknown") == expected, (
             f"the fixture no longer carries unjoinable holes: {set(outcomes)}"
         )
+        # The COUNT alone is equally satisfied by a hole with no ledger entry at all — which
+        # is what a canonical-space mismatch produces, and did on CTC-03 until #1223's review.
+        # Assert the stated property: every `unknown` joins an `unverifiable` entry.
+        ledger = hole_requirement_outcomes(
+            drawing.recognition(),
+            drawing.model().features,
+            drawing.registry,
+            compile_dimensions(drawing.model()).diagnostics,
+        )
+        unverifiable = {m for e in ledger if e.state == "unverifiable" for m in e.members}
+        for hole, outcome in zip(holes, outcomes, strict=True):
+            if outcome == "unknown":
+                assert set(canonical_hole_sites(hole)) & unverifiable, (
+                    f"hole at {tuple(hole.location)} reached `unknown` through a lookup "
+                    "default, not through an `unverifiable` ledger entry"
+                )
 
 
 class TestTheCorrespondenceIsNotFooledByGeometry:
@@ -381,6 +419,47 @@ class TestThePointerIsFollowedNotBelieved:
         ), "the verifier did not refute the location label"
         assert set(_drawing_consumer_outcomes(holes, drawing)) == {"supported"}, (
             "a wrong LOCATION label made the hole's SIZE count as not carried"
+        )
+
+    def test_a_contradicted_callout_unsupports_only_its_own_hole(self):
+        # The scoping had no test: making ANY refuted size claim discredit EVERY hole passed
+        # the entire fast tier, because the two-hole fixture above asserts only
+        # `count("supported") < len(holes)` — true at 0 as well as at 1 (#1223 review).
+        part = Box(90, 40, 12)
+        for x, r in ((-30, 2.0), (0, 3.0), (30, 4.0)):
+            part -= Pos(x, 0, 0) * Cylinder(r, 40)
+        drawing = build_drawing(part)
+        holes = list(drawing.recognition().holes)
+        assert len(holes) == 3, f"the fixture no longer makes three distinct holes: {len(holes)}"
+        assert _drawing_consumer_outcomes(holes, drawing).count("supported") == 3
+        drawing.registry.named(_size_callouts(drawing)[0]).label = "⌀999 THRU"
+        after = _drawing_consumer_outcomes(holes, drawing)
+        assert after.count("supported") == 2, (
+            f"one contradicted callout unsupported {3 - after.count('supported')} holes: {after}"
+        )
+
+    def test_an_annotation_that_draws_nothing_is_not_credited(self):
+        # `supported` is meant to mean the annotation carrying the size RENDERS it. Rejecting
+        # only `value_absent` credited an `unreadable` annotation — one drawing no text at
+        # all — as carrying the size, which is the PR body's own sentence being false of the
+        # code beneath it.
+        part = _part()
+        drawing = build_drawing(part)
+        holes = _recognised(part)
+        assert set(_drawing_consumer_outcomes(holes, drawing)) == {"supported"}
+        drawing.registry.named(_size_callouts(drawing)[0]).label = ""
+        from draftwright.linting.evidence import verify_measurement_claims
+        from draftwright.model.compiled import compile_dimensions
+
+        states = {
+            c.state
+            for c in verify_measurement_claims(
+                drawing.registry, compile_dimensions(drawing.model())
+            )
+        }
+        assert "unreadable" in states, f"the fixture did not produce an unreadable claim: {states}"
+        assert _drawing_consumer_outcomes(holes, drawing).count("supported") < len(holes), (
+            "an annotation drawing no text at all was credited as carrying the size"
         )
 
 

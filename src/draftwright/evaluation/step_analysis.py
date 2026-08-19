@@ -6,7 +6,7 @@ benchmark case supplies the denominator and tolerances.
 
 The ``drawing_consumer`` boundary is OBSERVED from a real build (#1202) rather than read from
 a capability declaration. Known limit of that approach: it reads the ADR 0010 provenance seam,
-which ``Drawing.annotations_of`` documents as growing "as passes are migrated". An un-tagged
+which the registry's measurement provenance carries "as passes are migrated". An un-tagged
 render pass therefore reads as a genuine omission, and this is a CLASS of limitation rather
 than a single case. Two instances are known:
 
@@ -635,17 +635,6 @@ def load_corpus(path: str | Path) -> BenchmarkCorpus:
     return BenchmarkCorpus(corpus_version, _METRIC_VERSION, scope, tuple(cases))
 
 
-#: Position agreement required to call a recognised hole and an IR feature the same hole.
-#: Tiny on purpose: the IR carries the recogniser's own ``hole.location`` verbatim
-#: (``model/detect.py`` builds ``Frame(origin=_xyz(rep.location))``), so agreement is
-#: EXACT on every corpus fixture — worst residual measured at 0.0, including the
-#: side-drilled case whose z is 6.66e-15. An earlier version compared only the in-plane
-#: coordinates, on a guess that the compiler might mint the origin at the far end of the
-#: bore. It does not, and dropping the axis component made two opposed coaxial holes of
-#: equal diameter alias onto one feature, hiding a dropped callout on the second.
-_CORRESPONDENCE_TOLERANCE = 1e-6
-
-
 #: The compiled requirement that carries a hole's SIZE. A table row documents several
 #: requirements per hole (location, through-ness, …); only this one is the fact
 #: ``drawing_consumer`` asks about. Crediting the others would mean a hole with a located
@@ -682,9 +671,16 @@ def _drawing_consumer_outcomes(holes, drawing) -> list[Outcome]:
     through `linting.evidence` and confirms the annotation actually renders the approved
     value. A claim the drawing does not bear out is ``unsupported``, not ``supported``.
 
-    Name prefixes are gone with the duplicate. ``hc_*`` matching is why a bore printed as a
-    plain ``Leader`` scored ``unsupported`` on a turned part; provenance does not care what a
-    renderer called its annotation.
+    Name prefixes are gone with the duplicate: provenance does not care what a renderer called
+    its annotation.
+
+    That does **not** close the turned-part gap, and an earlier draft of this paragraph said
+    it did. Measured on ``Cylinder(20,60) - Cylinder(6,70)``, the outcome is ``unsupported``
+    before and after, with a byte-identical annotation set. The cause was never the name: the
+    bore's ``ø12`` is drawn by ``ldr_z0``, which carries no measurement claim at all, so the
+    ledger reports ``bore.diameter`` as ``missing``. That is the #754 debt this module's own
+    docstring already states in full — which the removed sentence contradicted from twenty
+    lines below it.
     """
     from draftwright.linting.evidence import verify_measurement_claims
     from draftwright.linting.hole_coverage import canonical_hole_sites, hole_requirement_outcomes
@@ -701,10 +697,16 @@ def _drawing_consumer_outcomes(holes, drawing) -> list[Outcome]:
         drawing.registry,
         plan.diagnostics,
     )
-    refuted = {
+    # NOT just `value_absent`. `supported` is meant to mean the annotation carrying the size
+    # renders it, so anything short of `confirmed` fails that: an `unreadable` annotation
+    # draws no text at all, and an `unresolved` one claims a measurement the compiler never
+    # approved (the ADR 0016 Amdt 1 violation). Crediting either was the PR body's own
+    # sentence — "and the annotation carrying it renders that value" — being false of the
+    # code beneath it (#1223 review).
+    unconfirmed = {
         claim.measurement
         for claim in verify_measurement_claims(drawing.registry, plan)
-        if claim.state == "value_absent" and claim.measurement is not None
+        if claim.state != "confirmed" and claim.measurement is not None
     }
 
     def _borne_out(entry) -> bool:
@@ -712,7 +714,7 @@ def _drawing_consumer_outcomes(holes, drawing) -> list[Outcome]:
         return not any(
             getattr(claim, "feature", None) in entry.features
             and str(getattr(claim, "parameter", "")) == _SIZE_REQUIREMENT
-            for claim in refuted
+            for claim in unconfirmed
         )
 
     by_position: dict[tuple, Outcome] = {}
@@ -721,9 +723,12 @@ def _drawing_consumer_outcomes(holes, drawing) -> list[Outcome]:
             state: Outcome = "supported" if entry.state == "placed" else "unsupported"
             if state == "supported" and not _borne_out(entry):
                 state = "unsupported"
-        elif entry.state == "unverifiable":
-            state = "unknown"
         else:
+            # Non-size parameters contribute no site. An `unverifiable` entry needs no arm
+            # of its own: its holes reach `unknown` through the lookup default below, and a
+            # branch that cannot change an outcome is one a reader trusts wrongly. The
+            # property it looked like it was enforcing — that every `unknown` joins an
+            # `unverifiable` entry — is asserted in the tests, where it can fail.
             continue
         for member in entry.members:
             by_position.setdefault(member, state)
