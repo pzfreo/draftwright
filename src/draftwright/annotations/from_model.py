@@ -1008,7 +1008,7 @@ def _place_what_fits(specs, axis: int, min_gap: float, lo: float, hi: float):
 
 def _diameter_row_below(dwg, items, start: int = 0, trace=None, *, ctx) -> int:
     """ø-callout row BELOW the front view for X-turned step/boss diameters (#77).
-    *items* is ``[(anchor, diameter), ...]``. The row is dropped clear of anything
+    *items* is ``[(anchor, dia, feature, tolerance, thread, mids), ...]``. The row is dropped clear of anything
     already below the profile; labels spread along page-x by the ADR-0003 strip
     solve. Skips (returns 0) if there is no room — the diameters then surface as
     ``feature_not_dimensioned``. *trace* (#736): one ``pass_events`` record with a

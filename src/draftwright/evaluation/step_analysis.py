@@ -693,9 +693,12 @@ def _drawing_consumer_outcomes(holes, drawing) -> list[Outcome]:
     ``dim_height`` still carries none, and that one is #1230 rather than a tagging gap.
 
     **The ledger symptom is unchanged by that fix** — measured head against ``main``,
-    ``bore.diameter`` is still ``missing`` and this function still yields no outcome for the
-    part. Tagging the annotation was necessary and is not sufficient, which is worth stating
-    plainly here rather than letting "#1227 is fixed" read as "the turned part is covered".
+    ``bore.diameter`` is still ``missing`` and this function still returns ``unsupported`` for
+    that hole, exactly as the paragraph above says. (A draft of this sentence said "yields no
+    outcome", which is false: there is one outcome and it is ``unsupported``. Contradicting a
+    correct sentence four lines up, inside the fix for a docstring falsified by its own diff.)
+    Tagging the annotation was necessary and is not sufficient, which is worth stating plainly
+    here rather than letting "#1227 is fixed" read as "the turned part is covered".
 
     It is NOT #754, which closed on 2026-07-22 — an earlier draft of this paragraph cited it,
     which is the fourth instance of the stale citation #951 exists to remove, written inside a

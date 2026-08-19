@@ -51,6 +51,16 @@ _NON_MEASURING_ANNOTATIONS = ("detail_caption",)
 #:
 #: Pinned exactly, per part and name, so a fourth occurrence fails rather than being absorbed —
 #: this register is a defect ledger, not an exemption list, and it should shrink to nothing.
+#: Claims the drawing does NOT bear out, pinned the same way and for the same reason. One entry:
+#: `m_locy7` on nist_ctc_02 claims `location_slot.length` (94.1) and renders 430.0, which is
+#: **#1219** and reproduces identically on `main`. It is registered rather than tolerated because
+#: the fast sweep asserts `not unconfirmed` outright and the slow sweep must not be the weaker
+#: gate — a wrong id on a CTC-only path would otherwise survive exactly as one did in fast-tier
+#: code until round 2 of this PR's review (#1225 review, round 3, finding 1).
+_UNCONFIRMED_CLAIMS = {
+    ("nist_ctc_02_asme1_ap203.stp", "m_locy7", "location_slot.length"),
+}
+
 _UNPLANNED_VALUES = {
     ("grm03_thumbwheel_drive_screw.step", "m_steplen0"),
     ("grm03_thumbwheel_drive_screw.step", "dim_height"),
@@ -116,7 +126,8 @@ _BUILT: dict[str, object] = {}
 
 
 def _drawing(key: str, source):
-    # Keep `title`/`number` digit-free. A TitleBlock bakes its text into geometry, so
+    # Keep `title` digit-free (`number` never reaches `label`, so "N-1" is fine — measured).
+    # A TitleBlock bakes its text into geometry, so
     # `rendered_numbers` sees nothing and it counts as silent furniture — but `label` holds the
     # title verbatim, so a title like "T1" would make the title block a ratchet ESCAPE with a
     # thoroughly confusing message (#1225 review, finding 11).
@@ -202,14 +213,16 @@ class TestASecondFamilyCostsNothing:
 
 def _sweep(drawings) -> tuple[list[tuple[str, str]], int, int, list]:
     """Returns (escapes, unclaimed examined, claimed annotations rendering a readable number,
-    claims that did not confirm)."""
+    claims that did not confirm, claims verified)."""
     escapes: list[tuple[str, str]] = []
     unconfirmed: list = []
-    unclaimed = readable = 0
+    unclaimed = readable = claims = 0
     for label, drawing in drawings:
+        checked = _claims(drawing)
+        claims += len(checked)
         unconfirmed += [
             (label, c.annotation, c.parameter_id, c.state)
-            for c in _claims(drawing)
+            for c in checked
             if c.state != "confirmed"
         ]
         for name in sorted(drawing.registry.names()):
@@ -222,8 +235,14 @@ def _sweep(drawings) -> tuple[list[tuple[str, str]], int, int, list]:
                 continue
             if rendered_numbers(annotation):
                 escapes.append((label, name))
-    return escapes, unclaimed, readable, unconfirmed
+    return escapes, unclaimed, readable, unconfirmed, claims
 
+
+_UNCONFIRMED_MESSAGE = (
+    "claim a compiled dimension whose value the annotation does not render. A wrong id is "
+    "worse than a missing one — it is a fidelity lint code and it lowers the quality score. "
+    "Check the id threaded at the producer against the value the label is built from."
+)
 
 _ESCAPE_MESSAGE = (
     "render a measured value and claim nothing, so the verifier cannot see them. Thread "
@@ -278,7 +297,7 @@ class TestNoMeasuredAnnotationEscapesUnclaimed:
         return built
 
     def test_every_annotation_that_states_a_number_carries_a_claim(self):
-        escapes, unclaimed, readable, unconfirmed = self._sweep_fast()
+        escapes, unclaimed, readable, unconfirmed, claims = self._sweep_fast()
         escapes = [e for e in escapes if e not in _UNPLANNED_VALUES]
         # Preconditions. The corpus must be big enough to mean something, and — the part the
         # author's own mutation run missed — `rendered_numbers` must still be able to SEE a
@@ -289,17 +308,18 @@ class TestNoMeasuredAnnotationEscapesUnclaimed:
             f"only {readable} claimed annotations render a readable number; the reader is "
             "blind and the assertion below is vacuous"
         )
+        # The `unconfirmed` assertion needs its own floor for the same reason the escape half
+        # does: `verify_measurement_claims` returning [] makes it pass on an empty set, and
+        # measured, that mutation is killed only by SIBLING tests — the exact shape round 2
+        # caught one level down (#1225 review, round 3, finding 4).
+        assert claims > 100, f"only {claims} claims verified; `not unconfirmed` means little"
         assert not escapes, f"{escapes} {_ESCAPE_MESSAGE}"
         # Presence is not correctness, and the ratchet above only checks presence. Threading the
         # WRONG id — a bore\'s where the OD\'s belongs — passed the entire fast tier, because no
         # test checked the STATE of a claim on a part outside `TestASecondFamilyCostsNothing`
         # (#1225 review, finding 4). A claim the verifier reports as `value_absent` is worse than
         # no claim: it is a fidelity lint code and it lowers the quality score.
-        assert not unconfirmed, (
-            f"{unconfirmed} claim a compiled dimension whose value the annotation does not "
-            "render. A wrong id is worse than a missing one — check the id threaded at the "
-            "producer against the value the label is built from."
-        )
+        assert not unconfirmed, f"{unconfirmed} {_UNCONFIRMED_MESSAGE}"
 
     def _sweep_fast(self):
         return _sweep(self._corpus(self.FIXTURES, parts=True))
@@ -316,17 +336,22 @@ class TestNoMeasuredAnnotationEscapesUnclaimed:
         # 47.8 s locally, and at the 5.2-7.2x ubuntu ratio measured on run 32230860825 that is
         # 251-343 s against the same 300 s timeout. Splitting also lets the two builds run
         # concurrently (#1225 review, finding 1).
-        escapes, unclaimed, readable, _unconfirmed = _sweep(self._corpus((fixture,), parts=False))
+        escapes, unclaimed, readable, unconfirmed, claims = _sweep(
+            self._corpus((fixture,), parts=False)
+        )
         escapes = [e for e in escapes if e not in _UNPLANNED_VALUES]
+        unconfirmed = [u for u in unconfirmed if u[:3] not in _UNCONFIRMED_CLAIMS]
         assert unclaimed > 40, f"only {unclaimed} unclaimed annotations examined; too few"
         assert readable > 40, f"only {readable} claimed annotations render a readable number"
+        assert claims > 100, f"only {claims} claims verified; `not unconfirmed` means little"
         assert not escapes, f"{escapes} {_ESCAPE_MESSAGE}"
+        assert not unconfirmed, f"{unconfirmed} {_UNCONFIRMED_MESSAGE}"
 
     def test_the_unplanned_value_register_is_exactly_the_live_defect(self):
         # A defect ledger that outlives its defect is a hole in the ratchet: whatever #1230 fixes
         # must delete its entry here, and nothing else may be added without an issue. Asserts
         # both directions — every registered pair still escapes, and no unregistered pair does.
-        escapes, _unclaimed, _readable, _unconfirmed = self._sweep_fast()
+        escapes, _unclaimed, _readable, _unconfirmed, _claims_seen = self._sweep_fast()
         assert set(escapes) == _UNPLANNED_VALUES, (
             f"registered {_UNPLANNED_VALUES}, measured {set(escapes)}. An entry that no longer "
             "escapes is fixed — delete it (see #1230). A pair that escapes unregistered is a new "
