@@ -684,6 +684,17 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
             and _concentric_with_axis(a, rx, ry)
         ):
             continue
+        # A slot's position is drawn by `render_slots`, from this same entry (it reads
+        # `slot_positions` by role). Reaching it here too is not a second view of one
+        # measurement, it is a DIFFERENT measurement with no compiled backing: this ladder
+        # takes the plan X/Y of `span[1]` and prints an offset from the datum, while the
+        # entry measures along the slot's long axis. It only ever arrived because the
+        # `loc.axis != "z"` filter above reads `axis` as "Z-normal", and for a slot `axis`
+        # is the LONG axis — so a Z-long slot fell through and an X- or Y-long one did not.
+        # The same feature type getting a plan location dim or not, depending on which way
+        # it happens to run, is the incoherence; every slot is now handled the one way (#1219).
+        if loc.role == SlotFeature.LOCATION_STEM:
+            continue
         # Provenance (ADR 0010): the located feature. `resolve_feature` is the sanctioned
         # seam for exactly this — the corridor's feature map keys drop()/annotations_of().
         # `loc.id` rides along as the measurement identity (#1002): the compiler already

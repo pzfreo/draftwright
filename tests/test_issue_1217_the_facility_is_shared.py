@@ -51,15 +51,11 @@ _NON_MEASURING_ANNOTATIONS = ("detail_caption",)
 #:
 #: Pinned exactly, per part and name, so a fourth occurrence fails rather than being absorbed —
 #: this register is a defect ledger, not an exemption list, and it should shrink to nothing.
-#: Claims the drawing does NOT bear out, pinned the same way and for the same reason. One entry:
-#: `m_locy7` on nist_ctc_02 claims `location_slot.length` (94.1) and renders 430.0, which is
-#: **#1219** and reproduces identically on `main`. It is registered rather than tolerated because
-#: the fast sweep asserts `not unconfirmed` outright and the slow sweep must not be the weaker
-#: gate — a wrong id on a CTC-only path would otherwise survive exactly as one did in fast-tier
-#: code until round 2 of this PR's review (#1225 review, round 3, finding 1).
-_UNCONFIRMED_CLAIMS = {
-    ("nist_ctc_02_asme1_ap203.stp", "m_locy7", "location_slot.length"),
-}
+#: Empty, and that is the point. It held one entry — `m_locy7` on nist_ctc_02 claiming
+#: `location_slot.length` (94.1) while rendering 430.0 — until #1219 was fixed, at which point
+#: the entry had to go. Kept as an empty set rather than deleted so the next such defect is
+#: registered with an issue number instead of the assertion below being softened.
+_UNCONFIRMED_CLAIMS: set[tuple[str, str, str]] = set()
 
 _UNPLANNED_VALUES = {
     ("grm03_thumbwheel_drive_screw.step", "m_steplen0"),
@@ -340,7 +336,10 @@ class TestNoMeasuredAnnotationEscapesUnclaimed:
             self._corpus((fixture,), parts=False)
         )
         escapes = [e for e in escapes if e not in _UNPLANNED_VALUES]
+        seen = {u[:3] for u in unconfirmed}
         unconfirmed = [u for u in unconfirmed if u[:3] not in _UNCONFIRMED_CLAIMS]
+        stale = {r for r in _UNCONFIRMED_CLAIMS if r[0] == fixture.rsplit("/", 1)[-1]} - seen
+        assert not stale, f"{stale} no longer occurs — delete the entry, do not carry it"
         assert unclaimed > 40, f"only {unclaimed} unclaimed annotations examined; too few"
         assert readable > 40, f"only {readable} claimed annotations render a readable number"
         assert claims > 100, f"only {claims} claims verified; `not unconfirmed` means little"
