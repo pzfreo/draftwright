@@ -54,11 +54,16 @@ _UNCONFIRMED_CLAIMS: set[tuple[str, str, str]] = set()
 #:     placement decision rather than a property of the part: the renderer groups steps whose
 #:     projected length falls below `2 * draft.arrow_length`, so the grouping moves with page
 #:     scale and font size. ADR 0016 cannot be satisfied by emitting it from the planner.
-#:   * Not drawing it leaves grm03 reporting `axial_length_missing` — a real coverage gap
-#:     traded for a provenance one. `test_subfloor_head_gets_detail_view` also fails, though
-#:     that test pins the block's PRESENCE, not its value: drawing it with an empty label passes
-#:     it. The load-bearing constraint is `lint_axial_coverage`; an earlier version of this note
-#:     presented the two as independent reasons and they are one (#1233 review).
+#:   * Not drawing it fails `test_subfloor_head_gets_detail_view`, at the line that finds the
+#:     block by name — its PRESENCE is what is pinned, not its value: drawing it with an empty
+#:     label passes that test. Presence is the whole of the constraint.
+#:
+#:     Two earlier versions of this bullet were wrong, in opposite directions. The first paired
+#:     the test with `axial_length_missing` as independent reasons; the second kept
+#:     `axial_length_missing` as "the load-bearing constraint" and dropped the test. Measured,
+#:     grm03 reports `axial_length_missing` IDENTICALLY with and without the block — the block
+#:     carries no claim, so it never counted toward axial coverage and there is no trade at all
+#:     (#1233 review round 2).
 #:
 #: Be honest about the second bullet too: "the compiler cannot authorise it" overstates. The
 #: compiler could approve one candidate per contiguous step run — `hhi - hlo` IS a property of

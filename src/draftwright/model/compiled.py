@@ -869,6 +869,22 @@ def _compile_overall_height(
         # for: declaring `.envelope()` is how the overall height becomes nameable (#876).
         # This is the one place the fallback lives, so refusing it is one branch rather
         # than a rule every renderer has to remember.
+        # `feature=None` here, while the APPROVED rung below now carries a minted envelope
+        # identity (#1230). The two halves of a documented-joinable pair therefore disagree for
+        # this one measurement: `Drawing.measurement_keys` says it is "deliberately the SAME row
+        # shape … so a drawn measurement and a suppressed one are directly comparable", and
+        # `audit._correspondence` keys on the feature string — so it attributes a lost `dim_od`
+        # and `ldr_z0` but not a lost `dim_height` (#1233 review, F3/R4).
+        #
+        # Not closed here, and the reason is measured rather than chosen. Passing the same
+        # identity to both omissions is three lines and does work — but `height.length` is the
+        # ONLY producer of `feature=None` rows in the public ledger (zero featureless rows across
+        # the whole detected corpus; on `test_real_mixed_featureless_and_feature_suppressions_
+        # have_a_total_order`'s own fixture it is the single one). Giving it a feature deletes
+        # the last real source of the mixed `None`/`str` case that #1077's guard exists to sort,
+        # leaving that test asserting something no build can produce. Whether `feature=None`
+        # should stay representable in the public ledger is a question about the ledger's shape,
+        # not about this rung. Tracked on #1230.
         return (
             None,
             None,

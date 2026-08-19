@@ -315,6 +315,45 @@ class TestEveryOutcomeReachesLint:
         plan = SimpleNamespace(groups=(), ladders=(SimpleNamespace(rungs=(rung,)),), locations=())
         assert compiled_values(plan) == {"rung": (rung,)}
 
+    def test_the_minted_height_identity_uses_the_shared_constructor(self):
+        """#976's signature, guarded at last.
+
+        `_compile_overall_height` mints an `EnvelopeFeature` for the overall height of a part
+        that has none, so the rung has an identity to claim (#1230). Hand-rolling that with
+        `Frame(origin=(0, 0, 0))` is the bbox CENTRE only for a part centred on the origin — the
+        defect `detect`, `sheet.envelope()` and `sheet_emit` have each been corrected for, and it
+        went in here a fifth time.
+
+        Nothing caught it: restoring the literal passed 4,302 fast and 44 slow tests, on a corpus
+        that already contains an off-centre envelope-less part (grm03's bbox centre is
+        `(11.75, 0, 0)`). The #1217 ratchet checks that a claim EXISTS, never that its identity
+        is right — so this asserts the identity (#1233 review round 2).
+        """
+        from build123d import Align, Cylinder, Pos
+
+        from draftwright.builder import build_drawing
+        from draftwright.model.compiled import compile_dimensions
+        from draftwright.model.declare import _envelope_from_bbox
+        from draftwright.model.ir import EnvelopeFeature
+
+        centre = (Align.CENTER, Align.CENTER, Align.CENTER)
+        # Offset in Y, so the bbox centre is NOT the origin and the two differ.
+        part = Pos(0, 6, 0) * (Cylinder(20, 60, align=centre) - Cylinder(6, 70, align=centre))
+        model = build_drawing(part, title="T", number="N-1").model()
+        assert not [f for f in model.features if isinstance(f, EnvelopeFeature)], (
+            "the part grew an envelope feature; it can no longer exercise the minted path"
+        )
+        rung = compile_dimensions(model).ladder("overall_height").rungs[0]
+        assert rung.id is not None, "the overall height rung carries no identity"
+        assert rung.id.feature == _envelope_from_bbox(model.bbox), (
+            f"{rung.id.feature.frame} is not the shared constructor's; a hand-rolled envelope "
+            "puts the frame at the origin instead of the bbox centre, so the direct and mirrored "
+            "paths mint unequal ids for the same measurement (#976)"
+        )
+        assert rung.id.feature.frame.origin[1] != 0.0, (
+            "the fixture is centred in Y after all, so this assertion cannot fail"
+        )
+
     def test_contingency_fallbacks_are_part_of_the_expected_set(self):
         # The fourth branch, added for #1230, and it had the same hole as the ladders one: the
         # only thing catching it was an unrelated parametrized case in `test_sheet_emit`.
