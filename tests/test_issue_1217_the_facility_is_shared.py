@@ -19,9 +19,12 @@ from __future__ import annotations
 import pytest
 from build123d import Align, Box, Cylinder, Pos, Rot, chamfer
 
+# `_claims` has ONE definition, in the file that introduced it (#1225 review, finding 10). Two
+# byte-identical copies is how two sides drift apart, which is the whole subject of this epic.
+from test_issue_1217_claimed_representations import _verified as _claims
+
 from draftwright.builder import build_drawing
-from draftwright.linting.evidence import rendered_numbers, verify_measurement_claims
-from draftwright.model.compiled import compile_dimensions
+from draftwright.linting.evidence import rendered_numbers
 
 _C = (Align.CENTER, Align.CENTER, Align.CENTER)
 
@@ -38,9 +41,13 @@ _NON_MEASURING_ANNOTATIONS = ("detail_caption",)
 #:     (0.5 + 2.0 = 2.5). No plan entry holds 2.5, and claiming the two members would be a
 #:     false claim: the annotation does not draw either of them.
 #:   * `dim_height` on grm03 and on the bored tube — measured, `plan.ladder("overall_height")`
-#:     yields a rung with `id=None` on every ROTATIONAL part, while the same rung on a prismatic
-#:     part carries an `EnvelopeFeature` id. Deciding what the rotational rung means is a
-#:     modelling call (a turned part has no envelope feature), not a threading edit.
+#:     yields a rung with `id=None` whenever the model has NO `EnvelopeFeature`, and a rung
+#:     carrying an `EnvelopeFeature` id when it has one (`compiled.py` builds the id from that
+#:     feature, and `_dim_id` returns None for a missing one). "Rotational" is the wrong rule
+#:     and an earlier draft used it: grm03 is not rotational — it recognises as four steps, a
+#:     boss and a hole with no envelope — while `if_step_flat_across_cylinder` IS rotational,
+#:     HAS an envelope, and does not escape. Deciding what the rung means where there is no
+#:     envelope is a modelling call, not a threading edit (#1225 review, finding 7).
 #:
 #: Pinned exactly, per part and name, so a fourth occurrence fails rather than being absorbed —
 #: this register is a defect ledger, not an exemption list, and it should shrink to nothing.
@@ -85,8 +92,9 @@ def _chamfer_part():
     return chamfer(Box(80, 50, 20, align=_C).edges().sort_by()[0:2], 3)
 
 
-#: The families this slice claims, each with the cheapest part that exercises it. The ratchet
-#: sweeps these too — see `TestNoMeasuredAnnotationEscapesUnclaimed.CORPUS`.
+#: The five families this slice claims, each with the cheapest part that exercises it, plus
+#: `bored tube` — #1227's own part, which is not a sixth family but the regression guard for the
+#: threading fixed here. The ratchet sweeps all six.
 _FAMILY_PARTS = {
     "slot": _slot_part,
     "pocket": _pocket_part,
@@ -99,22 +107,24 @@ _FAMILY_PARTS = {
 
 #: Module-scoped build cache. The ratchet and the register test sweep the SAME corpus, and the
 #: exemption test rebuilds a fixture the sweep already built; without this the file builds
-#: `issue_915_case_study_2` three times and every family part twice. Drawings are read-only here
+#: `issue_915_case_study_2` three times. (The family parts are still built once per
+#: `TestASecondFamilyCostsNothing` test, which deliberately does not share state with the sweep.)
+#: Drawings are read-only here
 #: — nothing below mutates one — so sharing is safe and roughly halves the file's wall clock,
 #: which is what keeps it inside the fast tier on ubuntu (#1225 review, findings 1 and 10).
 _BUILT: dict[str, object] = {}
 
 
 def _drawing(key: str, source):
+    # Keep `title`/`number` digit-free. A TitleBlock bakes its text into geometry, so
+    # `rendered_numbers` sees nothing and it counts as silent furniture — but `label` holds the
+    # title verbatim, so a title like "T1" would make the title block a ratchet ESCAPE with a
+    # thoroughly confusing message (#1225 review, finding 11).
     if key not in _BUILT:
         _BUILT[key] = build_drawing(
             source() if callable(source) else source, title="T", number="N-1"
         )
     return _BUILT[key]
-
-
-def _claims(drawing):
-    return verify_measurement_claims(drawing.registry, compile_dimensions(drawing.model()))
 
 
 def _families(drawing) -> set[str]:
@@ -190,11 +200,18 @@ class TestASecondFamilyCostsNothing:
             assert families - others, f"{name} contributed no parameter the others do not"
 
 
-def _sweep(drawings) -> tuple[list[tuple[str, str]], int, int]:
-    """Returns (escapes, unclaimed examined, claimed annotations rendering a readable number)."""
+def _sweep(drawings) -> tuple[list[tuple[str, str]], int, int, list]:
+    """Returns (escapes, unclaimed examined, claimed annotations rendering a readable number,
+    claims that did not confirm)."""
     escapes: list[tuple[str, str]] = []
+    unconfirmed: list = []
     unclaimed = readable = 0
     for label, drawing in drawings:
+        unconfirmed += [
+            (label, c.annotation, c.parameter_id, c.state)
+            for c in _claims(drawing)
+            if c.state != "confirmed"
+        ]
         for name in sorted(drawing.registry.names()):
             annotation = drawing.registry.named(name)
             if drawing.registry.measurement_of(name):
@@ -205,7 +222,7 @@ def _sweep(drawings) -> tuple[list[tuple[str, str]], int, int]:
                 continue
             if rendered_numbers(annotation):
                 escapes.append((label, name))
-    return escapes, unclaimed, readable
+    return escapes, unclaimed, readable, unconfirmed
 
 
 _ESCAPE_MESSAGE = (
@@ -223,15 +240,22 @@ class TestNoMeasuredAnnotationEscapesUnclaimed:
     it is not verified at all, and silently. This asserts the property that makes the reach
     limit honest: every annotation that renders a number claims something.
 
-    The fast-tier corpus is the FAMILY PARTS plus every non-CTC STEP fixture. Sweeping STEP
-    fixtures alone would leave the families this slice is about — bosses, bores, chamfers,
-    turned steps — with no ratchet at all: none of them appears in any fixture (#1225 review,
-    finding 4). The CTC sweep is the same property over a far richer corpus and is slow-tier,
+    The fast-tier corpus is the FAMILY PARTS plus every non-CTC STEP fixture. An earlier draft
+    justified the family parts by saying those families appear in no fixture, which is false:
+    measured over all 16, bosses are in `grm03`, `if_step_flat_across_cylinder` and both
+    `nist_ctc_05`; turned steps in `grm03`; chamfers in `nist_ctc_01`, `03` and `04`.
+
+    The true reason is coverage in the FAST tier specifically: chamfers appear only in CTC
+    fixtures, which are slow-tier, and no fixture at all contains the bored tube this PR's
+    threading fix turns on. Family parts cost ~1.4 s for all six and make the ratchet's reach
+    independent of what the fixture corpus happens to hold (#1225 review, finding 3). The CTC
+    sweep is the same property over a far richer corpus and is slow-tier,
     because a CTC build that takes ~40 s here has timed out at 300 s on ubuntu (#1202, and
     `tests/test_issue_1202_observed_drawing_consumer.py`).
     """
 
-    #: Non-CTC STEP fixtures, all of which build in ~5 s or less.
+    #: Every non-CTC STEP fixture. The slowest, `issue_915_case_study_2`, builds in ~5.9 s
+    #: here and ~42 s on ubuntu — the whole fast sweep is ~14 s locally, ~99 s there.
     FIXTURES = (
         "tests/fixtures/grm03_thumbwheel_drive_screw.step",
         "tests/fixtures/if_step_flat_across_cylinder.step",
@@ -254,7 +278,7 @@ class TestNoMeasuredAnnotationEscapesUnclaimed:
         return built
 
     def test_every_annotation_that_states_a_number_carries_a_claim(self):
-        escapes, unclaimed, readable = self._sweep_fast()
+        escapes, unclaimed, readable, unconfirmed = self._sweep_fast()
         escapes = [e for e in escapes if e not in _UNPLANNED_VALUES]
         # Preconditions. The corpus must be big enough to mean something, and — the part the
         # author's own mutation run missed — `rendered_numbers` must still be able to SEE a
@@ -266,26 +290,43 @@ class TestNoMeasuredAnnotationEscapesUnclaimed:
             "blind and the assertion below is vacuous"
         )
         assert not escapes, f"{escapes} {_ESCAPE_MESSAGE}"
+        # Presence is not correctness, and the ratchet above only checks presence. Threading the
+        # WRONG id — a bore\'s where the OD\'s belongs — passed the entire fast tier, because no
+        # test checked the STATE of a claim on a part outside `TestASecondFamilyCostsNothing`
+        # (#1225 review, finding 4). A claim the verifier reports as `value_absent` is worse than
+        # no claim: it is a fidelity lint code and it lowers the quality score.
+        assert not unconfirmed, (
+            f"{unconfirmed} claim a compiled dimension whose value the annotation does not "
+            "render. A wrong id is worse than a missing one — check the id threaded at the "
+            "producer against the value the label is built from."
+        )
 
     def _sweep_fast(self):
         return _sweep(self._corpus(self.FIXTURES, parts=True))
 
     @pytest.mark.slow
-    def test_the_property_holds_on_the_ctc_corpus_too(self):
+    @pytest.mark.parametrize("fixture", SLOW_FIXTURES)
+    def test_the_property_holds_on_the_ctc_corpus_too(self, fixture):
         # SLOW-tier: the fast sweep above is the PR gate; this is the same property over the
         # richest parts in the repo. CTC builds are slow-tier by policy (#153), and putting one
         # in the fast tier timed out ubuntu 3.10 at 300 s while taking ~53 s on macOS.
-        escapes, unclaimed, readable = _sweep(self._corpus(self.SLOW_FIXTURES, parts=False))
+        #
+        # ONE fixture per test, not both. The slow job runs `-m slow -n auto --dist load`, which
+        # distributes individual tests, so a two-build test pays for both builds on one worker:
+        # 47.8 s locally, and at the 5.2-7.2x ubuntu ratio measured on run 32230860825 that is
+        # 251-343 s against the same 300 s timeout. Splitting also lets the two builds run
+        # concurrently (#1225 review, finding 1).
+        escapes, unclaimed, readable, _unconfirmed = _sweep(self._corpus((fixture,), parts=False))
         escapes = [e for e in escapes if e not in _UNPLANNED_VALUES]
-        assert unclaimed > 100, f"only {unclaimed} unclaimed annotations examined; too few"
-        assert readable > 100, f"only {readable} claimed annotations render a readable number"
+        assert unclaimed > 40, f"only {unclaimed} unclaimed annotations examined; too few"
+        assert readable > 40, f"only {readable} claimed annotations render a readable number"
         assert not escapes, f"{escapes} {_ESCAPE_MESSAGE}"
 
     def test_the_unplanned_value_register_is_exactly_the_live_defect(self):
         # A defect ledger that outlives its defect is a hole in the ratchet: whatever #1230 fixes
         # must delete its entry here, and nothing else may be added without an issue. Asserts
         # both directions — every registered pair still escapes, and no unregistered pair does.
-        escapes, _unclaimed, _readable = self._sweep_fast()
+        escapes, _unclaimed, _readable, _unconfirmed = self._sweep_fast()
         assert set(escapes) == _UNPLANNED_VALUES, (
             f"registered {_UNPLANNED_VALUES}, measured {set(escapes)}. An entry that no longer "
             "escapes is fixed — delete it (see #1230). A pair that escapes unregistered is a new "

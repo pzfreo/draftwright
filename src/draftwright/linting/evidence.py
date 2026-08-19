@@ -255,10 +255,12 @@ def verify_measurement_claims(registry, plan) -> list[ClaimOutcome]:
     3. **Reach is bounded by ADR 0010 identity**, and that bound is narrower than it looks.
        An annotation carrying no measurement claim is skipped, and about half do — 81 of 170
        on ``nist_ctc_02``. But measured across the corpus in
-       ``tests/test_issue_1217_the_facility_is_shared.py``, exactly ONE skipped annotation
-       renders a number **this function can read**, and it is a detail caption whose digits
-       are a scale ratio; the rest are centre marks, bolt circles, notes and title blocks,
-       which assert no measurement to check.
+       ``tests/test_issue_1217_the_facility_is_shared.py``, only FIVE skipped annotations
+       render a number **this function can read**, and every one is accounted for by name
+       there: two detail captions whose digits are a scale ratio, and three in that file's
+       ``_UNPLANNED_VALUES`` — annotations drawing a value the compiled plan holds no identity
+       for, which is #1230 and not a reach limit of this function. The rest are centre marks,
+       bolt circles, notes and title blocks, which assert no measurement to check.
 
        State that predicate precisely, because it is not "renders a number": :func:`rendered_numbers`
        reads ``label``, ``_annotate_label`` and ``table_rows`` and nothing else. The **title

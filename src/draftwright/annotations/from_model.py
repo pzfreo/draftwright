@@ -1034,7 +1034,7 @@ def _diameter_row_below(dwg, items, start: int = 0, trace=None, *, ctx) -> int:
                 for _, d, _, _, _, _ in items
             )
         return 0
-    specs = []  # (tip_page, dia, label, feature), tip on the step's bottom silhouette,
+    specs = []  # (tip_page, dia, label, feature, mids), tip on the step's bottom silhouette,
     for anchor, dia, feat, dtol, thr, mids in items:  # centred along the feature's length
         ax, ay, az = anchor
         tip = dwg.at("front", ax, ay, az - dia / 2)
@@ -1161,7 +1161,7 @@ def _diameter_column_left(dwg, items, start: int = 0, trace=None, *, ctx) -> int
                 for _, d, _, _, _, _ in items
             )
         return 0
-    specs = []  # (tip_page, dia, label, feature), tip on the step's left silhouette,
+    specs = []  # (tip_page, dia, label, feature, mids), tip on the step's left silhouette,
     for anchor, dia, feat, dtol, thr, mids in items:  # centred along the feature's length
         ax, ay, az = anchor
         tip = dwg.at("front", ax - dia / 2, ay, az)

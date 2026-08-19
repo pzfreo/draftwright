@@ -683,16 +683,23 @@ def _drawing_consumer_outcomes(holes, drawing) -> list[Outcome]:
 
     That does **not** close the turned-part gap, and an earlier draft of this paragraph said
     it did. Measured on ``Cylinder(20,60) - Cylinder(6,70)``, the outcome is ``unsupported``
-    before and after, with a byte-identical annotation set. The cause was never the name:
-    **no annotation on that sheet carries a measurement claim at all** — not ``ldr_z0``
-    (``ø12``), not ``dim_od`` (``ø40``), not ``dim_height`` — while the compiled plan does
-    hold ``hole.bore.diameter`` and ``rotational.od.diameter``. So the rotational render path
-    threads no ADR 0010 provenance, and the ledger reports ``bore.diameter`` as ``missing``.
+    before and after, with a byte-identical annotation set.
 
-    That is an annotation-tagging gap, tracked by #1227. It is NOT #754, which closed on
-    2026-07-22 — an earlier draft of this paragraph cited it, which is the fourth instance of
-    the stale citation #951 exists to remove, written inside a sentence correcting a
-    different false claim.
+    The cause was never the name. When this was written no annotation on that sheet carried a
+    measurement claim at all — not ``ldr_z0`` (``ø12``), not ``dim_od`` (``ø40``), not
+    ``dim_height`` — while the compiled plan did hold ``hole.bore.diameter`` and
+    ``rotational.od.diameter``: the rotational render path threaded no ADR 0010 provenance.
+    #1225 fixed the threading, so ``ldr_z0`` and ``dim_od`` now claim and both confirm; only
+    ``dim_height`` still carries none, and that one is #1230 rather than a tagging gap.
+
+    **The ledger symptom is unchanged by that fix** — measured head against ``main``,
+    ``bore.diameter`` is still ``missing`` and this function still yields no outcome for the
+    part. Tagging the annotation was necessary and is not sufficient, which is worth stating
+    plainly here rather than letting "#1227 is fixed" read as "the turned part is covered".
+
+    It is NOT #754, which closed on 2026-07-22 — an earlier draft of this paragraph cited it,
+    which is the fourth instance of the stale citation #951 exists to remove, written inside a
+    sentence correcting a different false claim.
     """
     from draftwright.linting.evidence import verify_measurement_claims
     from draftwright.linting.hole_coverage import canonical_hole_sites, hole_requirement_outcomes

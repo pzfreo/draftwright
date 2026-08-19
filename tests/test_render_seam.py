@@ -280,7 +280,7 @@ class TestDiameterColumnOccupancy:
 
         return _Dwg()
 
-    # (anchor, dia, feature, tolerance, thread) — feature=None (unit test of placement; #412
+    # (anchor, dia, feature, tolerance, thread, mids) — feature=None (unit test of placement; #412
     # added the tag); tolerance=None (untoleranced — a P2a ± field, #28); thread=None (#859)
     _ITEMS = [
         ((10.0, 0.0, 8.0), 12.0, None, None, None, ()),

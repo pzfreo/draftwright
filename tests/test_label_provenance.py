@@ -58,10 +58,15 @@ _FMT_BUDGET: dict[str, tuple[int, str]] = {
     "from_model.render_step_lengths": (3, "labels decided during the repeat-run collapse"),
     "from_model.render_step_lengths._redraw_y": (3, "the same collapse, detail redraw"),
     "from_model._draw_step_chain": (2, "the same collapse, drawing half"),
-    # --- The ø-leader placers take `(anchor, dia, feature, tol, thread)` items, where `dia`
-    # is a float BOTH printed and used for geometry (`az - dia / 2`). Carrying the approved
-    # text alongside it is a five-call-site change to the item tuple; named here rather than
-    # rushed, because the budget's job is to make it visible.
+    # --- The ø-leader placers take `(anchor, dia, feature, tol, thread, mids)` items, where
+    # `dia` is a float BOTH printed and used for geometry (`az - dia / 2`). Carrying the
+    # approved text alongside it is a five-call-site change to the item tuple; named here
+    # rather than rushed, because the budget's job is to make it visible.
+    #
+    # #1225 widened that tuple to carry the compiled measurement IDS and did not take the
+    # opportunity to carry the approved text as well — deliberately: the ids close a
+    # verification gap that had every turned ø callout unclaimed, while the text is a label
+    # -provenance concern with its own budget line. Same tuple, two changes, kept separate.
     "from_model._diameter_row_below": (2, "item tuple carries a float for tip geometry"),
     "from_model._diameter_column_left": (2, "item tuple carries a float for tip geometry"),
     "from_model.render_diameters": (1, "builds those items from approved entries"),
