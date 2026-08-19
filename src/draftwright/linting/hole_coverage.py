@@ -122,7 +122,15 @@ def _members(source, *, rounded: bool = True) -> tuple[tuple[float, float, float
     if recognised is not None:
         points = tuple(hole.location for hole in recognised)
         axis = _axis_letter(HoleSpec.from_hole(recognised[0]).axis)
-        through = all(HoleSpec.from_hole(hole).bottom == "through" for hole in recognised)
+        # From the group's own spec, like `axis` above — NOT `all(...)` over the members.
+        # `bottom` is a `HoleSpec` field and patterns are built by grouping on `_spec_key`, so
+        # a group cannot mix through and blind: the `all()` was exactly equivalent while
+        # reading as if it handled a case the grouping forbids, next to a line deciding the
+        # same question the other way (#1229). Note this is NOT symmetric with `axis`: within
+        # a spec group the members share a ROUNDED axis but their raw axes still differ, which
+        # is why that one must come through the spec. `bottom` needs no such normalisation —
+        # it comes through the spec to say plainly which value defines the group.
+        through = HoleSpec.from_hole(recognised[0]).bottom == "through"
     elif hasattr(source, "location"):
         points = (source.location,)
         axis = _axis_letter(HoleSpec.from_hole(source).axis)
@@ -1006,7 +1014,18 @@ def hole_requirement_outcomes(
     for countersink in unmatched_countersinks:
         at = _point(countersink.location)
         outcomes.extend(
-            HoleRequirementOutcome("hole", at, 1, parameter, "unverifiable")
+            # `members` too, like the two sites above. It was omitted here, so these outcomes
+            # carried the field's `()` default and no site-keyed consumer could reach them —
+            # `canonical_hole_sites` would find no match and fall through to its "unknown"
+            # default, which is the silent join failure that helper exists to prevent, one
+            # branch below where it is enforced (#1229).
+            #
+            # The alternative was an explicit `members=()` saying "deliberately unjoinable".
+            # This is better: the seat HAS a location, and a consumer that can find it and be
+            # told `unverifiable` is strictly better informed than one that cannot find it at
+            # all and infers nothing. Unjoinable to IR PROVENANCE is what `unverifiable`
+            # already says; it does not mean the outcome has no position.
+            HoleRequirementOutcome("hole", at, 1, parameter, "unverifiable", members=(at,))
             for parameter in ("countersink.diameter", "countersink.angle")
         )
     return outcomes

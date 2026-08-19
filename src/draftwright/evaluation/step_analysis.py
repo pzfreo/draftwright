@@ -23,6 +23,21 @@ than a single case. Two instances are known:
   without addressing #754 would make the number wrong.
 
 A new representation route must be admitted here or it registers as a false loss.
+
+**Every draftwright import in this module is deliberately inside a function body** — there are
+no module-level ones at all, which is the #313 lazy-load pattern rather than an accident. It is
+load-bearing and measurable::
+
+    import draftwright.evaluation.step_analysis   0.014 s
+    import draftwright.builder                    1.781 s
+    import draftwright.linting.evidence           1.816 s
+    import draftwright.linting.hole_coverage      1.956 s
+    import draftwright.model.compiled             1.397 s
+
+Every one of them pulls build123d transitively, so hoisting any turns importing this module
+into a two-second operation for a caller that only wants to read a benchmark case. #1229 filed
+three of them as "unexplained, hoist or justify"; measuring is what showed the filing was wrong
+and this note is the justification it asked for. Keep new engine imports inside the bodies too.
 """
 
 from __future__ import annotations
