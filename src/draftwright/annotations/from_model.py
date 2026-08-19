@@ -535,6 +535,14 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
             ):
                 count += 1
             else:
+                # No `measurement=` here, deliberately, and it was worth checking rather than
+                # "fixing" by symmetry with the width/length drops above. A review reported this
+                # as a dropped slot position that names no measurement; measured on `main`, the
+                # record ALREADY carries `location_slot.length`, because the corridor's own drop
+                # path supplies it. Adding `pos.id` here changed nothing observable — the
+                # mutation removing it again survived the suite — so the line stays as it was
+                # rather than carrying a comment claiming a fix it does not make
+                # (#1231 review, finding 5).
                 _record_slot_drop(ctx, dwg, "position", i, name, s)
         elif s.kind == "pocket" and s.frame.axis != "z":
             # Side-/front-opening pockets need two in-plane coordinates in their
@@ -556,7 +564,15 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
                 if _place(axis, start, end, perp_lo, perp_hi, entry, kind, anchor="lo"):
                     count += 1
                 else:
-                    _record_slot_drop(ctx, dwg, "position", i, name, s)
+                    # `entry.id`: this is the non-Z POCKET branch — reached only when
+                    # `pos is None`, which is why passing `pos.id` here raises — and it places
+                    # one entry per in-plane coordinate, so `entry` is the measurement being
+                    # dropped. It previously passed none, unlike the width/length drops above.
+                    # Honest about the evidence: NO test observes this. Reverting it passes the
+                    # full tier. It is kept because the branch demonstrably executes and naming
+                    # the dropped measurement is correct by construction, not because anything
+                    # measured it (#1231 review, finding 5).
+                    _record_slot_drop(ctx, dwg, "position", i, name, s, entry.id)
     return count
 
 

@@ -14,8 +14,23 @@ happens to run along Z fell into BOTH ladders, and each minted a dimension claim
     with the fix:     (none)
 
 Found by the claim verifier (#1218) on `nist_ctc_02`, where only the Y ladder showed it — the X
-one merged the slot's ordinate into a neighbour's. The synthetic part below shows both, builds in
-about a second, and does not need a slow-tier CTC fixture.
+one merged the slot's ordinate into a neighbour's. The synthetic part below shows both and does
+not need a slow-tier CTC fixture.
+
+**The dimension it was drawing was not the slot's position at all.** `model/detect.py::_convert_slot`
+builds a slot's frame as the part's BOUNDING-BOX CENTRE, overwriting only the long-axis
+component, so the compiled entry's other two coordinates are the part centreline. Measured on
+`main`, moving the slot along its width axis leaves the drawn labels unchanged::
+
+    slot x=35  w_center=35.0  ladder m_locx2='70' m_locy1='30'
+    slot x=50  w_center=50.0  ladder m_locx2='70' m_locy1='30'
+    slot x=20  w_center=20.0  ladder m_locx2='70' m_locy1='30'
+
+70 and 30 are half of 140 and 60 — the part's own centre, from the datum. On `nist_ctc_02` the
+same holds: `430` is half the part's Y extent, not the slot at y=390. #1219's own parenthetical
+("correct — the slot sits at y=390") is therefore wrong, and so was the first draft of this
+docstring. The ladder was not mislabelling the slot's position; it was drawing the part's
+centreline and attributing it to the slot.
 
 Two halves to the fix, and a guard for each: the compiler states the direction its measurement
 runs (`discriminator`), and `render_locations` leaves `location_slot` entries to `render_slots`,
@@ -56,8 +71,29 @@ def _z_long_slot_and_located_holes():
     )
 
 
-def _drawing():
-    return build_drawing(_z_long_slot_and_located_holes(), title="T", number="N-1")
+def _x_long_slots_and_located_holes():
+    """Two X-long slots and two located holes — the same shape with the slot running the OTHER
+    way. Before the fix these were filtered out by `loc.axis != "z"` and got no plan-location
+    dim; the point of the renderer half is that every slot is now handled the one way."""
+    return (
+        Box(120, 70, 14, align=_C)
+        - Pos(-25, 0, 0) * Box(30, 10, 40, align=_C)
+        - Pos(25, 0, 0) * Box(30, 10, 40, align=_C)
+        - Pos(-45, 25, 0) * Cylinder(4, 40, align=_C)
+        - Pos(40, -25, 0) * Cylinder(4, 40, align=_C)
+    )
+
+
+#: One build per part, shared. `test_issue_1217` established this for the same reason
+#: (#1225 review, findings 1 and 10); nothing here mutates a drawing.
+_BUILT: dict[str, object] = {}
+
+
+def _drawing(which: str = "z"):
+    if which not in _BUILT:
+        make = {"z": _z_long_slot_and_located_holes, "x": _x_long_slots_and_located_holes}[which]
+        _BUILT[which] = build_drawing(make(), title="T", number="N-1")
+    return _BUILT[which]
 
 
 def _claims(drawing):
@@ -143,16 +179,72 @@ class TestTheSlotPositionIsClaimedOnlyByWhatDrawsIt:
             "position; the plan ladder must not mint a second, uncompiled dimension for it."
         )
 
+    def test_x_long_slots_really_exist_on_the_other_part(self):
+        # Precondition. The first version of the test below used a part that recognised NO slot
+        # and whose ladder was empty, so `assert not []` passed against completely unfixed code
+        # — the exact failure this file's other precondition class exists to prevent, in this
+        # file (#1231 review, finding 2).
+        drawing = _drawing("x")
+        slots = [f for f in drawing.model().features if isinstance(f, SlotFeature)]
+        assert slots, "no slot recognised; the assertion below cannot fail"
+        assert all(s.long_axis == "x" for s in slots), [s.long_axis for s in slots]
+        assert _ladder(drawing), "no plan-location annotations; the ladder is not exercised"
+
     def test_an_x_long_slot_behaves_the_same_way(self):
         # The incoherence the renderer half removes: before, a slot got a spurious plan-location
-        # dim or not depending on which way it ran. Both must now be silent in the ladder.
-        part = Box(90, 50, 12, align=_C) - Pos(0, 0, 4) * Box(120, 10, 6, align=_C)
-        drawing = build_drawing(part, title="T", number="N-1")
+        # dim or not depending on which way it ran. Both must now be silent in the ladder, and
+        # every plan-location annotation must still carry a claim.
+        drawing = _drawing("x")
         assert not [
             n
             for n in _ladder(drawing)
             if any(str(i.parameter) == _SLOT_POSITION for i in drawing.registry.measurement_of(n))
         ]
+        assert not [n for n in _ladder(drawing) if not drawing.registry.measurement_of(n)]
+
+
+class TestADroppedSlotPositionSaysWhichMeasurementItLost:
+    """A property worth pinning, and NOT a guard for anything this change did.
+
+    A review reported that a dropped slot position names no measurement, unlike a dropped width
+    or length. Measured on `main`, it does — the corridor's own drop path supplies
+    `location_slot.length` — so the finding did not reproduce and the `_record_slot_drop` call
+    keeps its original arguments. These tests pass on `main` too.
+
+    They stay because the property is real and nothing else asserted it: a coverage ledger that
+    cannot tell a dropped measurement from an unplanned one reports `missing` where it should
+    report `dropped`.
+    """
+
+    def _part(self):
+        # Two Z-long slots and a hole, sized so the position dims cannot all be placed — the
+        # drop path has to actually run for this to assert anything.
+        return (
+            Box(160, 70, 80, align=_C)
+            - Pos(-40, 0, 10) * Box(14, 100, 80, align=_C)
+            - Pos(40, 0, 10) * Box(14, 100, 80, align=_C)
+            - Pos(0, 25, 0) * Cylinder(5, 120, align=_C)
+        )
+
+    def test_the_drop_path_really_runs(self):
+        # Precondition: without a dropped position dim there is nothing to inspect.
+        issues = build_drawing(self._part(), title="T", number="N-1").lint()
+        assert [i for i in issues if i.code == "slot_dim_dropped" and "position" in i.message], (
+            "no slot position dim was dropped; the assertion below is vacuous"
+        )
+
+    def test_it_names_the_measurement_it_dropped(self):
+        issues = build_drawing(self._part(), title="T", number="N-1").lint()
+        for issue in issues:
+            if issue.code != "slot_dim_dropped" or "position" not in issue.message:
+                continue
+            assert issue.measurement_ids, (
+                f"{issue.message!r} records no measurement, so the coverage ledger cannot tell "
+                "a dropped slot position from one that was never planned"
+            )
+            assert {str(m.parameter) for m in issue.measurement_ids} == {_SLOT_POSITION}, [
+                str(m.parameter) for m in issue.measurement_ids
+            ]
 
 
 class TestTheReportedFixture:

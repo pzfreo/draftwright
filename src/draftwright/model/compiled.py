@@ -1159,11 +1159,14 @@ def _compile_slot_positions(model: PartModel) -> tuple[list[ApprovedDimension], 
                 # Z-LONG slot (only nist_ctc_02 in the corpus) the Y location dim was minted
                 # claiming `location_slot.length`, a Z extent of 94.1, while drawing 430 (#1219).
                 #
-                # `axis` stays the long axis. For a SlotFeature `frame.axis` IS the long axis —
-                # measured, they are equal for all 25 slots in the fixture corpus — so passing
-                # `f.frame.axis` here to "match the siblings" would be a no-op dressed up as a
-                # fix. The field genuinely means the feature normal elsewhere and the long axis
-                # here; that inconsistency is real, and naming it beats papering over it.
+                # `axis` stays the long axis. For a SlotFeature `frame.axis` IS the long axis,
+                # and structurally so: all three construction sites — `detect.py:344`,
+                # `detect.py:367`, `declare.py:1158` — pass `axis=long_axis` unconditionally,
+                # so passing `f.frame.axis` here to "match the siblings" would be a no-op
+                # dressed up as a fix. (A draft justified this by counting slots in the corpus,
+                # which is both weaker and, at "25", wrong: there are 24.) The field genuinely
+                # means the feature normal elsewhere and the long axis here; that inconsistency
+                # is real, and naming it beats papering over it.
                 discriminator=f.long_axis,
             )
         )
