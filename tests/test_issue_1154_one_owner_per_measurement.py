@@ -141,21 +141,31 @@ def _boss_height(model):
     return boss, param
 
 
+@pytest.fixture(scope="module")
+def x_hub_drawing():
+    """One flush-hub build shared by the read-only critiques below (#656).
+
+    Every consumer only READS the drawing (labels, registry, suppressions); a test
+    that mutates it must build its own.
+    """
+    return build_drawing(_x_hub_plate(), title="T", number="N-1")
+
+
 class TestTheSameTwoFacesAreDimensionedOnce:
-    def test_a_flush_hub_no_longer_states_the_thickness_twice(self):
-        drawing = build_drawing(_x_hub_plate(), title="T", number="N-1")
+    def test_a_flush_hub_no_longer_states_the_thickness_twice(self, x_hub_drawing):
+        drawing = x_hub_drawing
         _assert_the_duplicate_exists(drawing.model())
         labels = _labels(drawing)
         assert labels.count("4.5") == 1, (
             f"the overall X thickness is stated {labels.count('4.5')} times: {labels}"
         )
 
-    def test_the_surviving_owner_is_the_overall_extent(self):
+    def test_the_surviving_owner_is_the_overall_extent(self, x_hub_drawing):
         # Direction matters and is not arbitrary: a part has one overall thickness and it is
         # what a machinist reads first, so the envelope keeps the fact and the feature-local
         # height yields. The converse rule would delete a required envelope dimension
         # whenever some feature happened to grow to full depth.
-        drawing = build_drawing(_x_hub_plate(), title="T", number="N-1")
+        drawing = x_hub_drawing
         _assert_the_duplicate_exists(drawing.model())
         placed = {
             (getattr(measurement.feature, "kind", None), measurement.parameter)
@@ -273,11 +283,11 @@ class TestTheConsolidationIsRecordedAndVerified:
         assert not omission.authored, "a rule-set consolidation is not the author's doing"
         assert "support planes" in omission.reason
 
-    def test_the_audit_read_distinguishes_withheld_from_consolidated(self):
+    def test_the_audit_read_distinguishes_withheld_from_consolidated(self, x_hub_drawing):
         # `Drawing.suppressions()` is the surface a harness or a script actually reads, and
         # "this is not drawn" and "this is drawn over there" are different answers. Reporting
         # a consolidation as a bare omission would read a de-duplication as a gap.
-        drawing = build_drawing(_x_hub_plate(), title="T", number="N-1")
+        drawing = x_hub_drawing
         _assert_the_duplicate_exists(drawing.model())
         row = next(r for r in drawing.suppressions() if r["parameter_id"] == "boss_height.length")
         assert row["authored"] is False

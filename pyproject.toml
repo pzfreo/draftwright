@@ -89,6 +89,7 @@ timeout = 300
 markers = [
     "slow: heavy end-to-end CTC fixture builds (deselected by default)",
     "smoke: curated build-light subset for a fast local check (~30 s)",
+    "unit: pure-logic inner-loop tier — constructs NO OCC geometry (enforced by conftest, #656)",
 ]
 # `SoftDeprecationWarning` marks a surface that is discouraged but SUPPORTED and not going
 # away (#1043). The suite exercises `Sheet.auto_dimensions()` in ~170 places, deliberately —

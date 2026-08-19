@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
 from build123d import Align, Cylinder, Pos, Rotation
 
 from draftwright import build_drawing
@@ -231,24 +232,24 @@ class TestCardinalityIsNotTradedForCleanliness:
         ("nist_ctc_05_asme1_ap242", 16),
     )
 
-    def test_the_dense_fixtures_place_the_same_callouts_as_before(self, tmp_path):
+    # Parametrized per fixture (#656): each dense build is ~60 s, and one test running
+    # them serially set the wall-clock floor for the whole suite under --dist loadscope.
+    @pytest.mark.parametrize(("stem", "expected"), CASES)
+    def test_the_dense_fixtures_place_the_same_callouts_as_before(
+        self, tmp_path, monkeypatch, stem, expected
+    ):
         import json
-        import os
         from pathlib import Path
 
-        for stem, expected in self.CASES:
-            trace = tmp_path / f"{stem}.json"
-            os.environ["DRAFTWRIGHT_TRACE"] = str(trace)
-            try:
-                build_drawing(step_file=str(Path("tests/fixtures") / f"{stem}.stp"))
-                events = json.loads(trace.read_text())["pass_events"]
-            finally:
-                os.environ.pop("DRAFTWRIGHT_TRACE", None)
-            event = next(e for e in events if e.get("label") == "feature_leader_inventory")
-            assert event["objective"]["placed"] == expected, (
-                f"{stem}: the leader floor placed {event['objective']['placed']} callouts, "
-                f"not {expected} — a route preference must never cost a dimension"
-            )
+        trace = tmp_path / f"{stem}.json"
+        monkeypatch.setenv("DRAFTWRIGHT_TRACE", str(trace))
+        build_drawing(step_file=str(Path("tests/fixtures") / f"{stem}.stp"))
+        events = json.loads(trace.read_text())["pass_events"]
+        event = next(e for e in events if e.get("label") == "feature_leader_inventory")
+        assert event["objective"]["placed"] == expected, (
+            f"{stem}: the leader floor placed {event['objective']['placed']} callouts, "
+            f"not {expected} — a route preference must never cost a dimension"
+        )
 
     def test_material_is_never_an_acceptance_test(self):
         # The direct guarantee, read off the code rather than a fixture: the floor's

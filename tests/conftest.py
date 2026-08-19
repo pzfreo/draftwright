@@ -82,3 +82,67 @@ def counting_calls(functions: Mapping[str, Callable[..., object]]):
         yield counts
     finally:
         sys.setprofile(previous)
+
+
+# ── The `unit` tier (#656): pure-logic tests, zero OCC geometry ──────────────────────
+#
+# `uv run pytest -m unit` is the inner loop: it must run in seconds and build nothing.
+# Membership is centralised here so the tier has one place to grow; honesty is enforced
+# by `_unit_tests_build_no_geometry` below — a unit-marked test that constructs any
+# build123d Shape fails, so the marker cannot rot into a mere label. A module moves to
+# this list only if every test in it passes under that enforcement.
+
+_UNIT_MODULES = frozenset(
+    {
+        "test_api_docs.py",
+        "test_architecture_docs.py",
+        "test_carve_free_position_callers.py",
+        "test_counting_calls.py",
+        "test_cross_repository_delivery_protocol.py",
+        "test_deprecation_dates.py",
+        "test_import_boundaries.py",
+        "test_label_provenance.py",
+        "test_layout.py",
+        "test_linting.py",
+        "test_pmi_part21.py",
+        "test_principal_profile_classifier.py",
+        "test_private_test_attr_reads.py",
+        "test_private_test_imports.py",
+        "test_quality_components.py",
+        "test_recogniser_adoption.py",
+        "test_registry.py",
+        "test_two_repository_workflow.py",
+        "test_workflows.py",
+    }
+)
+
+
+def pytest_collection_modifyitems(config, items):
+    import pathlib
+
+    import pytest
+
+    for item in items:
+        if pathlib.Path(str(item.fspath)).name in _UNIT_MODULES:
+            item.add_marker(pytest.mark.unit)
+
+
+import pytest as _pytest  # noqa: E402
+
+
+@_pytest.fixture(autouse=True)
+def _unit_tests_build_no_geometry(request, monkeypatch):
+    """A `-m unit` test that constructs OCC geometry fails here, keeping the tier honest."""
+    if request.node.get_closest_marker("unit") is None:
+        yield
+        return
+    from build123d.topology import shape_core
+
+    def _forbidden(self, *args, **kwargs):
+        raise AssertionError(
+            "this test is in the `unit` tier (conftest._UNIT_MODULES) but constructs "
+            "build123d geometry — move the module out of the tier or make the test pure (#656)"
+        )
+
+    monkeypatch.setattr(shape_core.Shape, "__init__", _forbidden)
+    yield
