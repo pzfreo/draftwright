@@ -215,6 +215,40 @@ jobs:
         # module and left most workers idle (#1108).
         run: uv run pytest tests/ -m slow -n auto --dist load
 
+  test-platform-canary:
+    # One macOS and one Windows leg on every PR, restored at smoke+unit scope: the
+    # curated build-light subset plus the pure-logic tier (~1 min of tests) surfaces
+    # packaging and kernel-resolution breaks off-Linux before merge. The pair covers
+    # both kernel resolutions (3.12 -> build123d 0.10, 3.14 -> 0.11). Deliberately NOT
+    # the full fast tier: non-Linux meters at 10x (macOS) / 2x (Windows), and full
+    # per-PR legs are what exhausted the Actions allowance (see the matrix comment
+    # above) — the full non-Linux surface stays on the weekly sweep and the
+    # `full-matrix` label.
+    if: github.event_name == 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            python-version: "3.14"
+          - os: windows-latest
+            python-version: "3.12"
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: uv sync --group dev
+      - name: Run smoke + unit tiers
+        run: uv run pytest tests/ -m "smoke or unit" -n auto --dist loadscope
+
   ci-ok:
     # The single status check branch protection should require.
     #
@@ -228,7 +262,7 @@ jobs:
     # skips this job, and GitHub counts a skipped required check as satisfied — so a
     # broken test suite would report a green gate.
     if: always()
-    needs: [lint, test, coverage]
+    needs: [lint, test, coverage, test-platform-canary]
     runs-on: ubuntu-latest
     permissions:
       statuses: write # Attach the dispatched maintenance gate to its generated PR head.
@@ -238,10 +272,11 @@ jobs:
           LINT: ${{ needs.lint.result }}
           TEST: ${{ needs.test.result }}
           COVERAGE: ${{ needs.coverage.result }}
+          CANARY: ${{ needs.test-platform-canary.result }}
         run: |
-          echo "lint=$LINT test=$TEST coverage=$COVERAGE"
+          echo "lint=$LINT test=$TEST coverage=$COVERAGE canary=$CANARY"
           failed=0
-          for pair in "lint:$LINT" "test:$TEST" "coverage:$COVERAGE"; do
+          for pair in "lint:$LINT" "test:$TEST" "coverage:$COVERAGE" "canary:$CANARY"; do
             name=${pair%%:*}
             result=${pair#*:}
             # `skipped` is a pass: `test` does not run on push and `coverage` runs only on
