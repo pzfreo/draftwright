@@ -782,8 +782,16 @@ def hole_requirement_outcomes(
     for countersink in recognition.countersinks:
         if attached_countersinks[countersink]:
             attached_countersinks[countersink] -= 1
-        elif any(countersink_matches_hole(countersink, hole) for hole in recognition.holes):
-            unmatched_countersinks.append(countersink)
+            continue
+        # Keep the hole the seat matched, rather than discarding it and re-deriving a position
+        # from the seat itself. `members` is published in `canonical_hole_sites` space, and the
+        # seat's own opening centre is NOT in that space (#1229).
+        seat_hole = next(
+            (hole for hole in recognition.holes if countersink_matches_hole(countersink, hole)),
+            None,
+        )
+        if seat_hole is not None:
+            unmatched_countersinks.append((countersink, seat_hole))
 
     ir_by_key: dict[tuple[str, tuple], list] = defaultdict(list)
     owners_by_exact_member: dict[tuple, list] = defaultdict(list)
@@ -1011,21 +1019,29 @@ def hole_requirement_outcomes(
     # IR/compiler provenance without guessing which face the single slot represents.
     # Keep both of its dimensional facts in the denominator as explicit unverifiable
     # outcomes instead of hiding the standalone recognition inventory as a duplicate.
-    for countersink in unmatched_countersinks:
+    for countersink, seat_hole in unmatched_countersinks:
         at = _point(countersink.location)
+        # `members` too, like the two sites above, which omitted it here — but the seat's own
+        # opening centre is the WRONG value. `members` is published in `canonical_hole_sites`
+        # space (a through hole's coordinate along its own axis is zeroed); a raw world
+        # coordinate is not, so whether it aliased another requirement's key depended on where
+        # the solid happened to sit. Measured on the `_two_face_countersunk_hole` fixture, the
+        # raw seat centre `(0, 0, 0)` collided exactly with the bore's canonical site — the
+        # non-canonical-key defect class `_members` was fixed for in #1223, re-opened inside
+        # the fix for it (#1229 review).
+        #
+        # The seat is physically on `seat_hole`, so its canonical site is both correct and in the
+        # published space: a consumer joining by site is told "this hole carries a second
+        # countersink requirement that cannot be verified", which is the informative answer.
+        #
+        # Scope, honestly: NO consumer reads this today. `_drawing_consumer_outcomes` filters on
+        # `parameter_id == "bore.diameter"` before it ever looks at `members`, so a countersink
+        # outcome could not reach a wrong join with the old value either — the protection came
+        # from a filter, not from the empty tuple. This makes the field correct for the next
+        # consumer rather than fixing a live mis-join, and saying so beats implying otherwise.
+        sites = canonical_hole_sites(seat_hole)
         outcomes.extend(
-            # `members` too, like the two sites above. It was omitted here, so these outcomes
-            # carried the field's `()` default and no site-keyed consumer could reach them —
-            # `canonical_hole_sites` would find no match and fall through to its "unknown"
-            # default, which is the silent join failure that helper exists to prevent, one
-            # branch below where it is enforced (#1229).
-            #
-            # The alternative was an explicit `members=()` saying "deliberately unjoinable".
-            # This is better: the seat HAS a location, and a consumer that can find it and be
-            # told `unverifiable` is strictly better informed than one that cannot find it at
-            # all and infers nothing. Unjoinable to IR PROVENANCE is what `unverifiable`
-            # already says; it does not mean the outcome has no position.
-            HoleRequirementOutcome("hole", at, 1, parameter, "unverifiable", members=(at,))
+            HoleRequirementOutcome("hole", at, 1, parameter, "unverifiable", members=sites)
             for parameter in ("countersink.diameter", "countersink.angle")
         )
     return outcomes

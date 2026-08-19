@@ -7,9 +7,11 @@ axis space from the ledger) got in.
 
 1. `hole_requirement_outcomes` builds `HoleRequirementOutcome` at three sites. Two passed
    `members`; the `unmatched_countersinks` tail did not, so those outcomes carried the `()`
-   default and no site-keyed consumer could reach them — `canonical_hole_sites` would find no
-   match and fall through to its "unknown" default. That is the silent join failure the helper
-   exists to prevent, one branch below where it is enforced.
+   default and could not be joined by site at all. Fixed in `hole_coverage.py`, tested in
+   `test_issue_1143_hole_completeness.py`. The first fix passed the seat's own opening centre —
+   a RAW world coordinate in a field published in `canonical_hole_sites` space, which aliased
+   the bore's own key on the fixture and moved when the part moved. It now carries the canonical
+   site of the hole the seat matched.
 
 2. `_members`' grouped branch decided `through` with `all(...)` over the members while the
    single-record branch decided it per hole. Equivalent in fact, misleading as code — see
@@ -19,71 +21,28 @@ axis space from the ledger) got in.
    showed the filing was wrong — see that module's docstring, and
    `TestTheEvaluationModuleStaysCheapToImport` here.
 
-The first guard is structural rather than behavioural on purpose. The countersink site is
-unreachable through the public API — it needs a part whose recognised countersinks outnumber the
-single `HoleRecord.csink` slot, and a plate countersunk on both faces does not do it (both seats
-are recognised, neither attaches, and `countersink_matches_hole` rejects both). A test that
-cannot reach the branch cannot pin it; a test that reads the source can, and it covers the two
-sites that were already correct plus any site added later.
+Seam 1 is tested where it belongs — `tests/test_issue_1143_hole_completeness.py::
+test_unmatched_second_face_countersink_fails_closed_in_hole_ledger`, which has exercised that
+branch since #1151 and now also asserts the member sites and their space.
+
+I first claimed the branch was unreachable and shipped an AST guard over the construction sites
+instead. That was wrong three ways, and the correction is worth keeping written down: the branch
+is reachable; a fixture and a passing test for it were already in the repo, findable by one grep;
+and the guard was not load-bearing anyway — it checked for the `members` KEYWORD, so it survived
+`members=()`, survived an aliased constructor two lines below, and could be pushed out of range
+by a comment. The behavioural test kills all of those. A structural guard is not a substitute for
+a reachable test; it is what you write when there is genuinely no way in, and I did not check.
 """
 
 from __future__ import annotations
 
 import ast
 import importlib.util
-import inspect
 import subprocess
 import sys
 from pathlib import Path
 
 from b123d_recognisers import HoleSpec
-
-from draftwright.linting import hole_coverage
-
-_SOURCE = Path(inspect.getfile(hole_coverage))
-
-
-class TestEveryOutcomeSiteKeysItsMembers:
-    """The ledger is joined by member site. An outcome with none cannot be joined at all."""
-
-    def _construction_sites(self) -> list[ast.Call]:
-        tree = ast.parse(_SOURCE.read_text())
-        return [
-            node
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Name)
-            and node.func.id == "HoleRequirementOutcome"
-        ]
-
-    def test_the_source_really_contains_several_sites(self):
-        # Precondition. An AST guard that matches nothing is a broken harness reporting success.
-        sites = self._construction_sites()
-        assert len(sites) >= 3, f"found {len(sites)} construction sites; the guard is not looking"
-
-    def test_every_site_passes_members(self):
-        missing = [
-            node.lineno
-            for node in self._construction_sites()
-            if not any(kw.arg == "members" for kw in node.keywords)
-        ]
-        assert not missing, (
-            f"{_SOURCE.name} lines {missing} build a HoleRequirementOutcome without `members`. "
-            "A site-keyed consumer cannot reach it, so it falls through `canonical_hole_sites` "
-            "to an 'unknown' default — the silent join failure that helper exists to prevent "
-            "(#1229). Pass the outcome's own site."
-        )
-
-    def test_the_countersink_tail_keys_its_seat(self):
-        # The site that was wrong, named directly, so a future edit that drops it again fails
-        # here with the reason rather than only on the generic guard above.
-        source = _SOURCE.read_text()
-        tail = source[source.index("for countersink in unmatched_countersinks:") :]
-        call = tail[: tail.index("return outcomes")]
-        assert "members=(at,)" in call, (
-            "the unmatched-countersink outcomes must carry their seat's location; "
-            "'unverifiable' means unjoinable to IR provenance, not position-less"
-        )
 
 
 class TestAGroupCannotMixThroughAndBlind:
@@ -109,25 +68,50 @@ class TestAGroupCannotMixThroughAndBlind:
             "and `_members` must fold over the members again (#1229)"
         )
 
-    def test_every_recognised_group_is_uniform_in_bottom(self):
+    @staticmethod
+    def _mixed_part():
+        """Three THROUGH and three BLIND holes of the same diameter on the same axis.
+
+        The first version of this test used six identical through holes, so `len(bottoms) == 1`
+        held by construction and the assertion could not fail however the recogniser grouped
+        (#1229 review). This part can exhibit the defect: if grouping ever stopped keying on
+        `bottom`, these six would land in one group with two bottoms.
+        """
         from build123d import Align, Box, Cylinder, Pos
 
+        centre = (Align.CENTER, Align.CENTER, Align.CENTER)
+        part = Box(160, 60, 20, align=centre)
+        for x in (-60, -40, -20):
+            part -= Pos(x, 0, 0) * Cylinder(4, 60, align=centre)
+        for x in (20, 40, 60):
+            part -= Pos(x, 0, 5) * Cylinder(4, 12, align=centre)
+        return part
+
+    def test_the_part_really_mixes_through_and_blind(self):
+        # The precondition. Without both kinds present the guard below is the tautology the
+        # first version of it was.
         from draftwright.builder import build_drawing
 
-        centre = (Align.CENTER, Align.CENTER, Align.CENTER)
-        part = Box(120, 80, 12, align=centre)
-        for x, y in ((-40, -20), (0, -20), (40, -20), (-40, 20), (0, 20), (40, 20)):
-            part -= Pos(x, y, 0) * Cylinder(4, 40, align=centre)
-        drawing = build_drawing(part, title="T", number="N-1")
-        recognition = drawing.recognition()
+        recognition = build_drawing(self._mixed_part(), title="T", number="N-1").recognition()
+        assert {HoleSpec.from_hole(h).bottom for h in recognition.holes} >= {"through", "flat"}, (
+            sorted({HoleSpec.from_hole(h).bottom for h in recognition.holes})
+        )
+
+    def test_every_recognised_group_is_uniform_in_bottom(self):
+        from draftwright.builder import build_drawing
+
+        recognition = build_drawing(self._mixed_part(), title="T", number="N-1").recognition()
         groups = list(getattr(recognition, "hole_patterns", ()))
-        assert groups, "no hole pattern recognised; the assertion below is vacuous"
+        assert len(groups) >= 2, (
+            "the mixed part produced fewer than two groups; either grouping no longer splits on "
+            "`bottom` — the thing this guards — or the fixture stopped recognising"
+        )
         checked = 0
         for group in groups:
             bottoms = {HoleSpec.from_hole(h).bottom for h in group.holes}
             checked += len(group.holes)
             assert len(bottoms) == 1, (group, bottoms)
-        assert checked >= 3, f"only {checked} grouped holes examined"
+        assert checked >= 6, f"only {checked} grouped holes examined"
 
 
 class TestTheEvaluationModuleStaysCheapToImport:
@@ -153,11 +137,21 @@ class TestTheEvaluationModuleStaysCheapToImport:
         spec = importlib.util.find_spec("draftwright.evaluation.step_analysis")
         assert spec is not None and spec.origin is not None
         tree = ast.parse(Path(spec.origin).read_text())
+        # BOTH `from x import y` and plain `import x`. Matching only `ImportFrom` left the
+        # test named for this property unable to see the commonest form; a mutation adding
+        # `import draftwright.linting.hole_coverage` was caught only by the subprocess test
+        # beside it (#1229 review).
         offenders = [
             node.lineno
             for node in tree.body
-            if isinstance(node, ast.ImportFrom)
-            and (node.module or "").startswith(("draftwright", "build123d"))
+            if (
+                isinstance(node, ast.ImportFrom)
+                and (node.module or "").startswith(("draftwright", "build123d"))
+            )
+            or (
+                isinstance(node, ast.Import)
+                and any(a.name.startswith(("draftwright", "build123d")) for a in node.names)
+            )
         ]
         assert not offenders, (
             f"module-level engine import at line(s) {offenders}; keep them in function bodies"

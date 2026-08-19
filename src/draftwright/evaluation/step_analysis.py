@@ -25,19 +25,24 @@ than a single case. Two instances are known:
 A new representation route must be admitted here or it registers as a false loss.
 
 **Every draftwright import in this module is deliberately inside a function body** — there are
-no module-level ones at all, which is the #313 lazy-load pattern rather than an accident. It is
-load-bearing and measurable::
+no module-level ones at all (six in-function), which is the #313 lazy-load pattern rather than
+an accident. It is load-bearing: importing this module costs ~0.01 s, and hoisting ANY engine
+import makes it ~2 s, because every one pulls build123d transitively. Measured in one process,
+the cost is essentially all build123d and is paid once::
 
-    import draftwright.evaluation.step_analysis   0.014 s
-    import draftwright.builder                    1.781 s
-    import draftwright.linting.evidence           1.816 s
-    import draftwright.linting.hole_coverage      1.956 s
-    import draftwright.model.compiled             1.397 s
+    build123d                          2.256 s
+    draftwright.linting.hole_coverage  0.046 s   (after build123d)
+    draftwright.model.compiled         0.026 s
+    draftwright.linting.evidence       0.000 s
+    draftwright.builder                0.016 s
 
-Every one of them pulls build123d transitively, so hoisting any turns importing this module
-into a two-second operation for a caller that only wants to read a benchmark case. #1229 filed
-three of them as "unexplained, hoist or justify"; measuring is what showed the filing was wrong
-and this note is the justification it asked for. Keep new engine imports inside the bodies too.
+(An earlier version of this note listed four figures of 1.4-2.0 s, one per module, from four
+separate cold processes — the same one-time cost measured four times and presented as if the
+modules differed. They do not.)
+
+#1229 filed three of these imports as "unexplained, hoist or justify"; measuring is what showed
+the filing was wrong, and this note is the justification it asked for. Keep new engine imports
+inside the bodies too.
 """
 
 from __future__ import annotations

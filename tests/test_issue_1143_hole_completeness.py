@@ -15,7 +15,7 @@ from b123d_recognisers import (
 from build123d import Align, Box, Compound, Cone, Cylinder, Pos, Rot
 
 from draftwright import Sheet, build_drawing
-from draftwright.linting.hole_coverage import hole_requirement_outcomes
+from draftwright.linting.hole_coverage import canonical_hole_sites, hole_requirement_outcomes
 from draftwright.linting.issues import LintIssue
 from draftwright.model.compiled import compile_dimensions
 from draftwright.model.declare import hole as declare_hole
@@ -2317,6 +2317,35 @@ def test_unmatched_second_face_countersink_fails_closed_in_hole_ledger():
     assert [
         issue.code for issue in drawing.lint() if issue.code == "hole_requirement_unverifiable"
     ] == ["hole_requirement_unverifiable"] * 2
+
+    # The ledger publishes `members` in `canonical_hole_sites` space, and these outcomes had
+    # none at all — so the one consumer that joins by site could not reach them (#1229). The
+    # seat is physically on the hole it matched, so its canonical site is the correct key.
+    #
+    # Assert the SPACE, not just presence. The first fix here passed the seat's own opening
+    # centre, which is a raw world coordinate: on this very fixture it happened to equal the
+    # bore's canonical site, and translating the solid pulled the two apart — a key whose
+    # meaning depends on where the part sits, which is the defect `canonical_hole_sites` exists
+    # to prevent (#1229 review).
+    sites = {site for hole in drawing.recognition().holes for site in canonical_hole_sites(hole)}
+    assert sites, "no recognised hole sites; the assertion below is vacuous"
+    for item in unverifiable:
+        assert item.members, f"{item.parameter_id} carries no member site and cannot be joined"
+        assert set(item.members) <= sites, (item.parameter_id, item.members, sites)
+
+
+def test_an_unmatched_countersinks_member_site_does_not_move_with_the_part():
+    """The property the raw opening centre broke: a canonical key is translation-invariant."""
+    from build123d import Pos
+
+    keys = []
+    for dz in (0.0, -6.0):
+        part = _two_face_countersunk_hole()
+        drawing = build_drawing(Pos(0, 0, dz) * part if dz else part, page="A3")
+        unverifiable = [item for item in _outcomes(drawing) if item.state == "unverifiable"]
+        assert unverifiable, f"dz={dz}: the unmatched-countersink tail did not fire"
+        keys.append({member for item in unverifiable for member in item.members})
+    assert keys[0] == keys[1], keys
 
 
 def test_unattached_external_countersink_false_positive_is_not_a_hole_requirement():
