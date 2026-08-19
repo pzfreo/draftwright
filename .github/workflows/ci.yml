@@ -67,23 +67,21 @@ jobs:
         # roughly 234 pull-request CI runs a month that is ~55,000 billed minutes, and it
         # exhausted the account's Actions allowance.
         #
-        # The 2026-08 trim ran pull requests Linux-only on that evidence; the FULL
-        # cross-platform surface (all four non-Linux combinations) still runs in the
-        # weekly sweep, on `workflow_dispatch`, or on any PR carrying the `full-matrix`
-        # label — the one to use for a branch touching packaging or kernel resolution.
-        # The sweep costs ~1,265 billed minutes a month.
+        # So pull requests run the fast tier on Linux only, plus the smoke+unit
+        # `test-platform-canary` legs below (one macOS, one Windows — full tier was
+        # tried on 2026-08-19 and rolled back the same day on cost/latency). The full
+        # cross-platform surface runs in the weekly sweep, on `workflow_dispatch`, or
+        # on any PR carrying the `full-matrix` label — the one to use for a branch
+        # touching packaging or kernel resolution. The sweep costs ~1,265 billed
+        # minutes a month against the ~55,000 the trim saves.
         #
         # One matrix widened by expression rather than a second job: a duplicate job would
         # repeat every step below and the two copies would drift.
-        # Linux PR jobs are additionally split in two shards via pytest-split (#656):
-        # each shard runs half the suite (balanced by the committed .test_durations),
-        # roughly halving their wall-clock at ~1x metering. PR runs also carry one
-        # macOS and one Windows leg at the FULL fast tier — an explicit owner decision
-        # (2026-08-19) accepting the 10x/2x metering the earlier trim avoided; the pair
-        # covers both kernel resolutions (3.12 -> build123d 0.10, 3.14 -> 0.11).
-        # Non-Linux legs carry no `shard` key and run unsharded — sharding them would
-        # double their metered setup cost. The remaining sweep-only legs are the other
-        # two non-Linux combinations.
+        # PR (Linux-only) jobs are additionally split in two shards via pytest-split
+        # (#656): each shard runs half the suite (balanced by the committed
+        # .test_durations), roughly halving the PR wall-clock at ~1x metering. The
+        # full-matrix sweep entries carry no `shard` key and run unsharded — sharding
+        # the 10x-metered macOS jobs would double their setup cost for no billed gain.
         include: ${{ fromJSON(
           (github.event_name == 'pull_request'
             && !contains(github.event.pull_request.labels.*.name, 'full-matrix'))
@@ -94,9 +92,7 @@ jobs:
                {"os":"ubuntu-latest","python-version":"3.12","shard":1},
                {"os":"ubuntu-latest","python-version":"3.12","shard":2},
                {"os":"ubuntu-latest","python-version":"3.14","shard":1},
-               {"os":"ubuntu-latest","python-version":"3.14","shard":2},
-               {"os":"macos-latest","python-version":"3.14"},
-               {"os":"windows-latest","python-version":"3.12"}]'
+               {"os":"ubuntu-latest","python-version":"3.14","shard":2}]'
           || '[{"os":"ubuntu-latest","python-version":"3.10"},
                 {"os":"ubuntu-latest","python-version":"3.11"},
                 {"os":"ubuntu-latest","python-version":"3.12"},
@@ -221,6 +217,40 @@ jobs:
         # module and left most workers idle (#1108).
         run: uv run pytest tests/ -m slow -n auto --dist load
 
+  test-platform-canary:
+    # One macOS and one Windows leg on every PR, restored at smoke+unit scope: the
+    # curated build-light subset plus the pure-logic tier (~1 min of tests) surfaces
+    # packaging and kernel-resolution breaks off-Linux before merge. The pair covers
+    # both kernel resolutions (3.12 -> build123d 0.10, 3.14 -> 0.11). Deliberately NOT
+    # the full fast tier: non-Linux meters at 10x (macOS) / 2x (Windows), and full
+    # per-PR legs are what exhausted the Actions allowance (see the matrix comment
+    # above) — the full non-Linux surface stays on the weekly sweep and the
+    # `full-matrix` label.
+    if: github.event_name == 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            python-version: "3.14"
+          - os: windows-latest
+            python-version: "3.12"
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: uv sync --group dev
+      - name: Run smoke + unit tiers
+        run: uv run pytest tests/ -m "smoke or unit" -n auto --dist loadscope
+
   ci-ok:
     # The single status check branch protection should require.
     #
@@ -234,7 +264,7 @@ jobs:
     # skips this job, and GitHub counts a skipped required check as satisfied — so a
     # broken test suite would report a green gate.
     if: always()
-    needs: [lint, test, coverage]
+    needs: [lint, test, coverage, test-platform-canary]
     runs-on: ubuntu-latest
     permissions:
       statuses: write # Attach the dispatched maintenance gate to its generated PR head.
@@ -244,10 +274,11 @@ jobs:
           LINT: ${{ needs.lint.result }}
           TEST: ${{ needs.test.result }}
           COVERAGE: ${{ needs.coverage.result }}
+          CANARY: ${{ needs.test-platform-canary.result }}
         run: |
-          echo "lint=$LINT test=$TEST coverage=$COVERAGE"
+          echo "lint=$LINT test=$TEST coverage=$COVERAGE canary=$CANARY"
           failed=0
-          for pair in "lint:$LINT" "test:$TEST" "coverage:$COVERAGE"; do
+          for pair in "lint:$LINT" "test:$TEST" "coverage:$COVERAGE" "canary:$CANARY"; do
             name=${pair%%:*}
             result=${pair#*:}
             # `skipped` is a pass: `test` does not run on push and `coverage` runs only on
