@@ -204,47 +204,46 @@ class TestTheSlotPositionIsClaimedOnlyByWhatDrawsIt:
 
 
 class TestADroppedSlotPositionSaysWhichMeasurementItLost:
-    """A property worth pinning, and NOT a guard for anything this change did.
+    """`render_slots` has TWO drop paths, and only one of them named its measurement.
 
-    A review reported that a dropped slot position names no measurement, unlike a dropped width
-    or length. Measured on `main`, it does — the corridor's own drop path supplies
-    `location_slot.length` — so the finding did not reproduce and the `_record_slot_drop` call
-    keeps its original arguments. These tests pass on `main` too.
+    The corridor path (`_far_or_drop`) passes `approved.id` and is already covered by
+    `tests/test_slot_completeness.py::test_a_real_placement_failure_retains_the_dropped_measurement`,
+    which also pins the ledger consequence: emptying `measurement_ids` degrades the outcome from
+    `dropped` to `missing`. The NON-corridor path — the `else` after `_place` fails — passed
+    nothing, and nothing covered it.
 
-    They stay because the property is real and nothing else asserted it: a coverage ledger that
-    cannot tell a dropped measurement from an unplanned one reports `missing` where it should
-    report `dropped`.
+    I reverted this fix once, on the strength of "measured `main`, the record already carries
+    `location_slot.length`". That measurement was of the corridor path: my synthetic part never
+    reached the other one. Instrumenting which line fires shows 12 nameless position drops across
+    `nist_ctc_03` and `nist_ctc_04`, every one from the uncovered branch (#1231 review, finding 1).
+
+    So these use `nist_ctc_04`, which is where the uncovered path actually runs. Slow-tier: CTC
+    builds are slow-tier by policy (#153).
     """
 
-    def _part(self):
-        # Two Z-long slots and a hole, sized so the position dims cannot all be placed — the
-        # drop path has to actually run for this to assert anything.
-        return (
-            Box(160, 70, 80, align=_C)
-            - Pos(-40, 0, 10) * Box(14, 100, 80, align=_C)
-            - Pos(40, 0, 10) * Box(14, 100, 80, align=_C)
-            - Pos(0, 25, 0) * Cylinder(5, 120, align=_C)
-        )
+    FIXTURE = "tests/fixtures/nist_ctc_04_asme1_ap203.stp"
 
-    def test_the_drop_path_really_runs(self):
-        # Precondition: without a dropped position dim there is nothing to inspect.
-        issues = build_drawing(self._part(), title="T", number="N-1").lint()
-        assert [i for i in issues if i.code == "slot_dim_dropped" and "position" in i.message], (
-            "no slot position dim was dropped; the assertion below is vacuous"
-        )
+    @pytest.mark.slow
+    def test_the_uncovered_drop_path_really_runs(self):
+        # Precondition, and specifically that position drops HAPPEN here — the earlier version
+        # of this test asserted only "some drop occurred", which the corridor path satisfies.
+        issues = build_drawing(self.FIXTURE, title="T", number="N-1").lint()
+        drops = [i for i in issues if i.code == "slot_dim_dropped" and "position" in i.message]
+        assert len(drops) >= 5, f"only {len(drops)} position drops; too few to mean anything"
 
-    def test_it_names_the_measurement_it_dropped(self):
-        issues = build_drawing(self._part(), title="T", number="N-1").lint()
-        for issue in issues:
-            if issue.code != "slot_dim_dropped" or "position" not in issue.message:
-                continue
-            assert issue.measurement_ids, (
-                f"{issue.message!r} records no measurement, so the coverage ledger cannot tell "
-                "a dropped slot position from one that was never planned"
-            )
-            assert {str(m.parameter) for m in issue.measurement_ids} == {_SLOT_POSITION}, [
-                str(m.parameter) for m in issue.measurement_ids
-            ]
+    @pytest.mark.slow
+    def test_every_dropped_position_names_the_measurement_it_lost(self):
+        issues = build_drawing(self.FIXTURE, title="T", number="N-1").lint()
+        nameless = [
+            i.message
+            for i in issues
+            if i.code == "slot_dim_dropped" and "position" in i.message and not i.measurement_ids
+        ]
+        assert not nameless, (
+            f"{nameless} record no measurement, so the coverage ledger cannot tell a dropped "
+            "slot position from one that was never planned — it reports `missing` where it "
+            "should report `dropped`."
+        )
 
 
 class TestTheReportedFixture:

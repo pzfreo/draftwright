@@ -535,15 +535,18 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
             ):
                 count += 1
             else:
-                # No `measurement=` here, deliberately, and it was worth checking rather than
-                # "fixing" by symmetry with the width/length drops above. A review reported this
-                # as a dropped slot position that names no measurement; measured on `main`, the
-                # record ALREADY carries `location_slot.length`, because the corridor's own drop
-                # path supplies it. Adding `pos.id` here changed nothing observable — the
-                # mutation removing it again survived the suite — so the line stays as it was
-                # rather than carrying a comment claiming a fix it does not make
-                # (#1231 review, finding 5).
-                _record_slot_drop(ctx, dwg, "position", i, name, s)
+                # `pos.id`, like the width and length drops above. `render_slots` has TWO drop
+                # paths and only the corridor one (`_far_or_drop`, ~100 lines up) passed a
+                # measurement; this one — the non-corridor branch, reached when `_place` fails —
+                # passed none, so a dropped slot position could reach the coverage ledger with
+                # nothing to identify it and degrade from `dropped` to `missing`.
+                #
+                # I reverted this once, having "measured `main`" and found the record already
+                # carried `location_slot.length`. That measurement was of the OTHER call site:
+                # my test part only ever reached the corridor path. Instrumenting which line
+                # fires shows 12 nameless position drops across nist_ctc_03 and nist_ctc_04,
+                # all from here (#1231 review, finding 1).
+                _record_slot_drop(ctx, dwg, "position", i, name, s, pos.id)
         elif s.kind == "pocket" and s.frame.axis != "z":
             # Side-/front-opening pockets need two in-plane coordinates in their
             # end-on view.  The compiler approves one entry PER coordinate, each with its
@@ -568,10 +571,14 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
                     # `pos is None`, which is why passing `pos.id` here raises — and it places
                     # one entry per in-plane coordinate, so `entry` is the measurement being
                     # dropped. It previously passed none, unlike the width/length drops above.
-                    # Honest about the evidence: NO test observes this. Reverting it passes the
-                    # full tier. It is kept because the branch demonstrably executes and naming
-                    # the dropped measurement is correct by construction, not because anything
-                    # measured it (#1231 review, finding 5).
+                    #
+                    # No TEST observes this — reverting it passes the full tier — but the
+                    # product does: 29 `pocket_dim_dropped` records across nist_ctc_01 and both
+                    # nist_ctc_05 fixtures gain a measurement id. An earlier version of this
+                    # comment said it was kept as correct-by-construction "not because anything
+                    # measured it", which had the direction exactly backwards: the change I
+                    # called unobservable fixes 29 records, while the one I reverted as
+                    # non-reproducing was leaving 12 broken (#1231 review, finding 3).
                     _record_slot_drop(ctx, dwg, "position", i, name, s, entry.id)
     return count
 
