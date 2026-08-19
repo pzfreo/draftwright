@@ -9,7 +9,7 @@ import sys
 import tempfile
 from importlib.machinery import SourceFileLoader
 from importlib.util import module_from_spec, spec_from_loader
-from pathlib import Path
+from pathlib import Path, PurePath
 
 import pytest
 
@@ -60,7 +60,8 @@ def test_one_command_candidate_entry_point_delegates_to_package_owned_harness() 
     assert plan["owner"] == "b123d-recognisers"
     assert plan["draftwright"] == str(ROOT.resolve())
     assert plan["command"][-3:] == ["--draftwright", str(ROOT.resolve()), "--plan"]
-    assert "tools/check_downstream.py" in plan["command"][2]
+    # PurePath, not a substring: the emitted path is native (backslashes on Windows).
+    assert PurePath(plan["command"][2]).parts[-2:] == ("tools", "check_downstream.py")
 
 
 def test_maintenance_dispatch_runs_one_coverage_suite_and_never_the_slow_tier() -> None:
