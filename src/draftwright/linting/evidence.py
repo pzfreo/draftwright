@@ -252,10 +252,20 @@ def verify_measurement_claims(registry, plan) -> list[ClaimOutcome]:
        dimensions — confirms both. On a four-hole pattern all eight offsets share the id. The
        multimap is what stops false *mismatches*; this is its cost, and narrowing it needs
        per-member identity, which #883 deliberately leaves open.
-    3. **Reach is bounded by ADR 0010 identity.** An annotation carrying no measurement claim
-       is skipped entirely, and roughly half do — measured, 81 of 170 annotations on
-       ``nist_ctc_02`` carry claims. "N claims, N confirmed" is a statement about the claimed
-       part of the sheet, never the whole sheet.
+    3. **Reach is bounded by ADR 0010 identity**, and that bound is narrower than it looks.
+       An annotation carrying no measurement claim is skipped, and about half do — 81 of 170
+       on ``nist_ctc_02``. But measured across four rich fixtures, exactly ONE skipped
+       annotation renders a number at all, and it is a detail caption whose digits are a
+       scale ratio; the other 174 are centre marks, bolt circles, notes, title blocks and
+       section furniture, which assert no measurement to check. So "N claims, N confirmed"
+       is a statement about every annotation that says a number, not merely about the
+       claimed half.
+
+       An earlier draft of this limit said the unexamined half was a coverage gap. It is
+       not, and overstating a weakness is as much a false claim as overstating a strength —
+       it invites work that is not needed and hides the bound that is real: a NEW family
+       whose annotations state values without threading provenance would be invisible, which
+       is what `TestNoMeasuredAnnotationEscapesUnclaimed` exists to prevent.
     4. **Existence is assumed, not checked.** Claims are read by walking the registry, so an
        approved measurement that NO annotation claims is invisible here. That direction is
        coverage's job, and #1217's ``annotation_missing`` state is deliberately not
