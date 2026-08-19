@@ -536,10 +536,13 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
                 count += 1
             else:
                 # `pos.id`, like the width and length drops above. `render_slots` has TWO drop
-                # paths and only the corridor one (`_far_or_drop`, ~100 lines up) passed a
-                # measurement; this one — the non-corridor branch, reached when `_place` fails —
-                # passed none, so a dropped slot position could reach the coverage ledger with
-                # nothing to identify it and degrade from `dropped` to `missing`.
+                # paths, and for a POSITION drop only the corridor one (`_far_or_drop`, ~100
+                # lines up) named its measurement; this one — the non-corridor branch, reached
+                # when `_place` fails — passed none, so a dropped slot position could reach the
+                # coverage ledger with nothing to identify it and degrade from `dropped` to
+                # `missing`. Scope that precisely: on this same branch the width and length
+                # drops immediately above ALREADY passed `wpd.id`/`lpd.id`. It was the position
+                # drop alone that was anonymous, which is why the asymmetry was easy to miss.
                 #
                 # I reverted this once, having "measured `main`" and found the record already
                 # carried `location_slot.length`. That measurement was of the OTHER call site:
@@ -567,10 +570,16 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
                 if _place(axis, start, end, perp_lo, perp_hi, entry, kind, anchor="lo"):
                     count += 1
                 else:
-                    # `entry.id`: this is the non-Z POCKET branch — reached only when
-                    # `pos is None`, which is why passing `pos.id` here raises — and it places
-                    # one entry per in-plane coordinate, so `entry` is the measurement being
-                    # dropped. It previously passed none, unlike the width/length drops above.
+                    # `entry.id`: this is the non-Z POCKET branch, and it places one entry per
+                    # in-plane coordinate, so `entry` is the measurement being dropped. It
+                    # previously passed none, unlike the width/length drops above.
+                    #
+                    # `pos` is always None here, which is why passing `pos.id` raises — but not
+                    # for the reason an earlier version of this comment gave. The `elif` is
+                    # reached whenever the `if` is false, which includes a slot whose position
+                    # is merely too small to draw. It is None because `_compile_slot_positions`
+                    # emits only for `SlotFeature`, and `PocketFeature` is not a subclass of it
+                    # (#1231 review round 4).
                     #
                     # No TEST observes this — reverting it passes the full tier — but the
                     # product does: 29 `pocket_dim_dropped` records across nist_ctc_01 and both
