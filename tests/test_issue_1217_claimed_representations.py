@@ -263,6 +263,31 @@ class TestEveryOutcomeReachesLint:
         assert [i.code for i in issues] == ["claimed_representation_no_expected_value"]
         assert issues[0].severity == "info"
 
+    def test_every_unconfirmed_state_carries_its_measurement(self):
+        # `measurement` is what lets a consumer join a claim back to its feature — the
+        # benchmark's `_borne_out` reads exactly that. Only the `unreadable` branch had a
+        # test, so dropping it from `unresolved` and `no_expected_value` changed nothing any
+        # test checked, even though the comment justifying the widening names `unresolved`
+        # (#1223 review). Neither state occurs on a real fixture, hence the direct drive.
+        claim = _Claim("bore.diameter")
+        cases = {
+            "unresolved": (SimpleNamespace(label="⌀8"), _plan()),
+            "no_expected_value": (
+                SimpleNamespace(label="20"),
+                _plan(SimpleNamespace(id=claim, value_text="", value=0.0, span=None, axis=None)),
+            ),
+            "unreadable": (
+                SimpleNamespace(),
+                _plan(SimpleNamespace(id=claim, value_text="8", value=8.0, span=None, axis=None)),
+            ),
+        }
+        for state, (annotation, plan) in cases.items():
+            outcomes = verify_measurement_claims(_Registry(annotation, (claim,)), plan)
+            assert [o.state for o in outcomes] == [state], (state, outcomes)
+            assert outcomes[0].measurement is claim, (
+                f"a {state} claim dropped its measurement, so nothing can join it to a feature"
+            )
+
     def test_a_contradicted_claim_is_a_warning_not_an_info(self):
         # Severity is not cosmetic: `claimed_value_absent` is classified as fidelity, and the
         # fidelity score is computed from severity. Demoting it to info leaves the drawing

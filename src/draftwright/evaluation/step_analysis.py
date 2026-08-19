@@ -6,7 +6,10 @@ benchmark case supplies the denominator and tolerances.
 
 The ``drawing_consumer`` boundary is OBSERVED from a real build (#1202) rather than read from
 a capability declaration. Known limit of that approach: it reads the ADR 0010 provenance seam,
-which the registry's measurement provenance carries "as passes are migrated". An un-tagged
+which ``registry.measurement_of`` carries and which is populated one render pass at a time
+(the set of tagged renderers is enumerated by ``tests/test_audit_differential.py``, not by
+prose here — that docstring warns the prose version was wrong when first written). An
+un-tagged
 render pass therefore reads as a genuine omission, and this is a CLASS of limitation rather
 than a single case. Two instances are known:
 
@@ -659,10 +662,14 @@ def _drawing_consumer_outcomes(holes, drawing) -> list[Outcome]:
     which answers the same question. Two implementations of one question drift, and the copy
     was the more generous of the two: it credited holes the ledger declines to join.
 
-    That generosity is a measurable score change, not a refactor. On
-    ``nist_ctc_02``/``nist_ctc_04`` the ledger reports eight holes as ``unverifiable`` —
-    it knows they exist and cannot tie them to a feature without guessing — where the old
-    matcher scored them ``supported``. They now score ``unknown``. Crediting a hole whose
+    That generosity is a measurable score change, not a refactor. Measured base against head
+    over all 16 STEP fixtures, 26 holes move: ``nist_ctc_03`` ap203 and ap242 lose five each
+    (15/15 -> 10 supported + 5 unknown) and ``nist_ctc_04`` ap203 and ap242 lose eight each
+    (54/54 -> 46 + 8). Every one is a hole the ledger reports ``unverifiable`` — it knows they
+    exist and cannot tie them to a feature without guessing — where the old matcher scored
+    them ``supported``. They now score ``unknown``. ``nist_ctc_02`` does not move at all; an
+    earlier version of this paragraph named it and omitted CTC-03, which is the fixture that
+    actually diverges. Crediting a hole whose
     evidence cannot be located is exactly the self-validation #1206 was opened to remove, so
     the lower number is the more honest one.
 
@@ -676,11 +683,16 @@ def _drawing_consumer_outcomes(holes, drawing) -> list[Outcome]:
 
     That does **not** close the turned-part gap, and an earlier draft of this paragraph said
     it did. Measured on ``Cylinder(20,60) - Cylinder(6,70)``, the outcome is ``unsupported``
-    before and after, with a byte-identical annotation set. The cause was never the name: the
-    bore's ``ø12`` is drawn by ``ldr_z0``, which carries no measurement claim at all, so the
-    ledger reports ``bore.diameter`` as ``missing``. That is the #754 debt this module's own
-    docstring already states in full — which the removed sentence contradicted from twenty
-    lines below it.
+    before and after, with a byte-identical annotation set. The cause was never the name:
+    **no annotation on that sheet carries a measurement claim at all** — not ``ldr_z0``
+    (``ø12``), not ``dim_od`` (``ø40``), not ``dim_height`` — while the compiled plan does
+    hold ``hole.bore.diameter`` and ``rotational.od.diameter``. So the rotational render path
+    threads no ADR 0010 provenance, and the ledger reports ``bore.diameter`` as ``missing``.
+
+    That is an annotation-tagging gap, tracked by #1227. It is NOT #754, which closed on
+    2026-07-22 — an earlier draft of this paragraph cited it, which is the fourth instance of
+    the stale citation #951 exists to remove, written inside a sentence correcting a
+    different false claim.
     """
     from draftwright.linting.evidence import verify_measurement_claims
     from draftwright.linting.hole_coverage import canonical_hole_sites, hole_requirement_outcomes

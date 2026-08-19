@@ -129,9 +129,10 @@ class TestTheOutcomeIsReadOffTheDrawing:
         [
             pytest.param("tests/fixtures/nist_ctc_04_asme1_ap203.stp", 8, id="ctc04"),
             # CTC-03 carries a 45-degree bore and is the only fixture whose raw record axis
-            # and spec-rounded axis letter differ — the components tie after rounding and
-            # `max` takes the first. CTC-04 is all principal-axis, so it cannot catch a
-            # canonical-space mismatch.
+            # and spec-rounded axis LETTER differ — the components tie after rounding and
+            # `max` takes the first. CTC-04 has non-principal-axis holes too (eight of its 54
+            # sit on `(0, -0.3746, 0.9272)`, which is why they are `unverifiable`), but its
+            # raw and rounded letters agree, so it cannot expose a lettering mismatch.
             #
             # SLOW-tier: this build timed out at 300 s on ubuntu 3.10 while taking ~40 s on
             # macOS. CTC fixture builds are slow-tier by policy in this repo
@@ -412,7 +413,7 @@ class TestThePointerIsFollowedNotBelieved:
         holes = _recognised(part)
         located = [
             name
-            for name in drawing.registry.names()
+            for name in sorted(drawing.registry.names())
             for measurement in drawing.registry.measurement_of(name)
             if "location" in str(getattr(measurement, "parameter", ""))
         ]
@@ -483,6 +484,33 @@ class TestTheCanonicalSpaceIsTheLedgersOwn:
     the end-to-end case needs a CTC build that belongs in the slow tier — and because whether a
     given solid produces the tie is a floating-point coin flip, which is no basis for a guard.
     """
+
+    def test_the_grouped_branch_letters_from_the_spec_too(self):
+        # `_members` has two branches. The consumer's join goes through the single-record one,
+        # so reverting the GROUPED branch to the raw axis broke nothing any test noticed —
+        # while silently undoing the coordinates `hole_requirement_unverifiable` reports
+        # (#1223 review). Both branches key the same space or neither does.
+        from types import SimpleNamespace
+
+        from draftwright.linting.hole_coverage import canonical_hole_sites
+
+        def _hole(location):
+            return SimpleNamespace(
+                location=location,
+                axis=(0.707106781186547, 0.0, -0.707106781186548),
+                diameter=8.0,
+                depth=None,
+                bottom="through",
+                cbore=None,
+                spotface=None,
+                csink=None,
+            )
+
+        group = SimpleNamespace(holes=[_hole((30.0, 244.0, 141.0)), _hole((43.0, 225.0, 153.0))])
+        sites = canonical_hole_sites(group)
+        assert all(site[0] == 0.0 for site in sites), (
+            f"the grouped branch zeroed along the raw-vector axis, not the spec axis: {sites}"
+        )
 
     def test_the_axis_letter_comes_from_the_rounded_spec(self):
         from types import SimpleNamespace

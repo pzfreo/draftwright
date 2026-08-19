@@ -14,9 +14,16 @@ identifier. Expected and observed facts are matched by family plus authored phys
 
 Format 1 currently proves the `holes` vertical slice. The observer reads released
 `b123d-recognisers` geometry records, builds the drawing, and reads the `drawing_consumer`
-outcome off that build through the ADR 0010 provenance seam — `supported` when the hole's
-size reached the sheet as a callout or a hole-table row, `unsupported` when a feature
-accounts for it and carries neither, `unknown` when no feature accounts for it (#1202). The
+outcome off that build through the ADR 0010 provenance seam.
+
+Since #1217 that outcome comes from the engine's own requirement ledger
+(`linting.hole_coverage.hole_requirement_outcomes`) rather than from a second correspondence
+implementation here, and the ledger is treated as a **pointer, not proof**: `supported` requires
+both that the engine recorded an annotation as carrying the hole's size *and* that the annotation
+renders the value the compiler approved, checked through `linting.evidence`. `unsupported` means
+the requirement was not placed, or the annotation contradicts it. `unknown` means the ledger
+declined to join the hole to a feature without guessing — it scores as a miss, so it is an honest
+label rather than an exemption (#1202, #1206). The
 other three downstream boundaries still come from the independently enforced Draftwright
 capability declaration, which is a claim that a code path exists rather than an
 observation. Adding another family requires its own independently authored fixtures, facts,
