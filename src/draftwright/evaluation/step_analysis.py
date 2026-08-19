@@ -25,8 +25,10 @@ than a single case. Two instances are known:
 A new representation route must be admitted here or it registers as a false loss.
 
 **Every draftwright import in this module is deliberately inside a function body** — there are
-no module-level ones at all — five in-function, plus one `from build123d import import_step` —
-which is the #313 lazy-load pattern rather than an accident. It is load-bearing: importing this module costs ~0.01 s, and hoisting ANY engine import makes it
+no module-level ones at all — eight in function bodies: five `draftwright`, two
+`b123d_recognisers` and one `from build123d import import_step` — which is the #313 lazy-load
+pattern rather than an accident. (`b123d_recognisers` counts: importing it puts build123d in
+`sys.modules`, so it carries the same cost.) It is load-bearing: importing this module costs ~0.01 s, and hoisting ANY engine import makes it
 one to two seconds, because every one pulls build123d transitively. Measured in a single process,
 the cost is essentially all build123d and is paid once — the draftwright modules themselves are
 free once it is loaded::

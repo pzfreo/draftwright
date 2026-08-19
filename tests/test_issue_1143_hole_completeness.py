@@ -2318,72 +2318,44 @@ def test_unmatched_second_face_countersink_fails_closed_in_hole_ledger():
         issue.code for issue in drawing.lint() if issue.code == "hole_requirement_unverifiable"
     ] == ["hole_requirement_unverifiable"] * 2
 
-    # The ledger publishes `members` in `canonical_hole_sites` space, and these outcomes had
-    # none at all — so the one consumer that joins by site could not reach them (#1229). The
-    # seat is physically on the hole it matched, so its canonical site is the correct key.
+    # `members` is EMPTY here, deliberately — the decision #1229 asked for, not an unfilled
+    # field. The tail exists precisely because the seat cannot be attributed to a hole: the
+    # `HoleRecord` waist has one countersink slot and a second seat cannot be joined to IR
+    # provenance without guessing which face it represents.
     #
-    # Assert the SPACE, not just presence. The first fix here passed the seat's own opening
-    # centre, a raw world coordinate. Measured on this fixture that was `(0, 0, 6)` — already a
-    # DIFFERENT key from the bore's `(0, 0, 0)`, so it aliased nothing as authored. Translate the
-    # solid by −6 and the seat centre becomes `(0, 0, 0)` and collides. Which requirement it
-    # aliases depends on where the solid sits, and that is the defect (#1229 review round 2).
-    #
-    # An earlier version of this comment said the collision was present as authored. It was not;
-    # the harness that "measured" it pooled the members of the ATTACHED countersink outcome,
-    # which legitimately carries the bore's site, with the tail's.
-    sites = {site for hole in drawing.recognition().holes for site in canonical_hole_sites(hole)}
-    assert sites, "no recognised hole sites; the assertion below is vacuous"
-    for item in unverifiable:
-        assert item.members, f"{item.parameter_id} carries no member site and cannot be joined"
-        assert set(item.members) <= sites, (item.parameter_id, item.members, sites)
+    # Two attempts to give it a key failed, both plausibly. The seat's own opening centre is a
+    # raw world coordinate in a canonical field — it read `(0, 0, 6)` here and became `(0, 0, 0)`,
+    # colliding with the bore's key, when the solid was translated by −6. Looking up the hole the
+    # seat matched is in the right space, but `countersink_matches_hole` can accept several holes
+    # and choosing among them is the recogniser's question, not a lint module's.
+    assert all(item.members == () for item in unverifiable), [
+        (item.parameter_id, item.members) for item in unverifiable
+    ]
 
 
-def _two_holes_countersunk_on_both_faces():
-    """Two through holes, each countersunk on both faces, 30 mm apart."""
-    part = Box(90, 50, 12)
-    for x in (-15, 15):
-        part -= Pos(x, 0, 0) * Cylinder(3, 12)
-        part -= Pos(x, 0, 4) * Cone(3, 7, 4)
-        part -= Pos(x, 0, -4) * Cone(7, 3, 4)
-    return part
+def test_an_unmatched_countersink_is_still_counted_and_still_unattributable():
+    """The point of `unverifiable`: counted in the denominator, deliberately not joined.
 
-
-def test_an_unmatched_countersink_is_attributed_to_the_hole_it_sits_on():
-    """WHICH hole, not just "a hole in the right space".
-
-    With one hole in the part, `set(members) <= {every hole site}` is satisfied by any hole at
-    all — measured, attributing every seat to `recognition.holes[-1]` survives the entire fast
-    tier. Two holes make the assertion discriminating (#1229 review round 2).
+    Guards against someone "fixing" the empty `members` by inventing an attribution. If the
+    `HoleRecord` waist ever grows a second countersink slot, this seat becomes attributable and
+    the whole tail should go — that is #1229's real remainder, and this test should fail loudly
+    when it happens rather than the tail quietly persisting.
     """
-    drawing = build_drawing(_two_holes_countersunk_on_both_faces(), page="A3")
-    by_site = {
-        site: hole for hole in drawing.recognition().holes for site in canonical_hole_sites(hole)
-    }
-    assert len(by_site) == 2, f"expected two distinct holes, got {sorted(by_site)}"
-
+    drawing = build_drawing(_two_face_countersunk_hole(), page="A3")
     unverifiable = [item for item in _outcomes(drawing) if item.state == "unverifiable"]
-    assert len(unverifiable) == 4, [item.parameter_id for item in unverifiable]
+    assert {item.parameter_id for item in unverifiable} == {
+        "countersink.angle",
+        "countersink.diameter",
+    }
+    assert _completeness(drawing)["unverifiable"] == 2
     for item in unverifiable:
-        # The seat's own x/y identify the hole it sits on; only its axial coordinate differs.
-        expected = next(s for s in by_site if s[:2] == item.source_at[:2])
-        assert item.members == (expected,), (item.parameter_id, item.source_at, item.members)
-
-
-def test_an_unmatched_countersinks_member_site_does_not_move_along_the_hole_axis():
-    """`canonical_hole_sites` zeroes a through hole's coordinate along its OWN axis, so the key
-    is invariant under translation along that axis — and only that one. A lateral offset moves
-    it, correctly, because it identifies a different hole position."""
-    keys = []
-    for dz in (0.0, -6.0):
-        part = _two_face_countersunk_hole()
-        drawing = build_drawing(Pos(0, 0, dz) * part if dz else part, page="A3")
-        unverifiable = [item for item in _outcomes(drawing) if item.state == "unverifiable"]
-        assert unverifiable, f"dz={dz}: the unmatched-countersink tail did not fire"
-        keys.append({member for item in unverifiable for member in item.members})
-    # Without this the assertion below compares two EMPTY sets and passes with `members=()`
-    # — measured: dropping `members` left this test in the passing column (#1229 review round 2).
-    assert keys[0], "no member sites at all; the comparison below would be vacuous"
-    assert keys[0] == keys[1], keys
+        assert item.members == (), (item.parameter_id, item.members)
+        assert item.source_at == (0.0, 0.0, 6.0), item.source_at
+        # `source_at` is the seat's own location and is NOT a canonical key — it is diagnostic
+        # only. That distinction is the whole of #1229 seam 1.
+        assert item.source_at not in {
+            site for hole in drawing.recognition().holes for site in canonical_hole_sites(hole)
+        }
 
 
 def test_unattached_external_countersink_false_positive_is_not_a_hole_requirement():
