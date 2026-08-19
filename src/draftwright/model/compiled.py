@@ -1152,12 +1152,15 @@ def _compile_slot_positions(model: PartModel) -> tuple[list[ApprovedDimension], 
                 kind="length",
                 role=f.LOCATION_STEM,  # the feature owns its name (#966)
                 axis=f.long_axis,
-                # The direction the measurement RUNS, which every sibling location role
-                # states and this one did not: `_compile_off_axis_hole_locations` passes
-                # `discriminator=meas`, a non-Z pocket the same. Without it the entry has the
-                # shape `render_locations` reads as "plan location, either ladder" — so on a
-                # Z-LONG slot (only nist_ctc_02 in the corpus) the Y location dim was minted
-                # claiming `location_slot.length`, a Z extent of 94.1, while drawing 430 (#1219).
+                # The direction the measurement RUNS, which this entry's DIRECTIONAL siblings
+                # state and it did not: `_compile_off_axis_hole_locations` passes
+                # `discriminator=meas`, a non-Z pocket the same. (Not "every sibling" — the
+                # Z-normal pocket ladder above deliberately passes none, and its comment says
+                # why.) That is the stronger framing: `discriminator=None` on a location entry
+                # MEANS "feeds both plan ladders", which is exactly what `render_locations`
+                # acted on — so on a Z-LONG slot (only nist_ctc_02 in the corpus) both ladders
+                # took it, and the Y one minted a dim claiming `location_slot.length`, a Z
+                # extent of 94.1, while drawing 430 (#1219).
                 #
                 # `axis` stays the long axis. For a SlotFeature `frame.axis` IS the long axis,
                 # and structurally so: all three construction sites — `detect.py:344`,
