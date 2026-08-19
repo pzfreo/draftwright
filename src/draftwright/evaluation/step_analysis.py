@@ -6,7 +6,10 @@ benchmark case supplies the denominator and tolerances.
 
 The ``drawing_consumer`` boundary is OBSERVED from a real build (#1202) rather than read from
 a capability declaration. Known limit of that approach: it reads the ADR 0010 provenance seam,
-which ``Drawing.annotations_of`` documents as growing "as passes are migrated". An un-tagged
+which ``registry.measurement_of`` carries and which is populated one render pass at a time
+(the set of tagged renderers is enumerated by ``tests/test_audit_differential.py``, not by
+prose here — that docstring warns the prose version was wrong when first written). An
+un-tagged
 render pass therefore reads as a genuine omission, and this is a CLASS of limitation rather
 than a single case. Two instances are known:
 
@@ -635,165 +638,121 @@ def load_corpus(path: str | Path) -> BenchmarkCorpus:
     return BenchmarkCorpus(corpus_version, _METRIC_VERSION, scope, tuple(cases))
 
 
-#: Position agreement required to call a recognised hole and an IR feature the same hole.
-#: Tiny on purpose: the IR carries the recogniser's own ``hole.location`` verbatim
-#: (``model/detect.py`` builds ``Frame(origin=_xyz(rep.location))``), so agreement is
-#: EXACT on every corpus fixture — worst residual measured at 0.0, including the
-#: side-drilled case whose z is 6.66e-15. An earlier version compared only the in-plane
-#: coordinates, on a guess that the compiler might mint the origin at the far end of the
-#: bore. It does not, and dropping the axis component made two opposed coaxial holes of
-#: equal diameter alias onto one feature, hiding a dropped callout on the second.
-_CORRESPONDENCE_TOLERANCE = 1e-6
-
-
-@dataclass(frozen=True)
-class _Candidate:
-    """One IR feature and the hole positions it can account for."""
-
-    feature: object
-    axis: str
-    diameter: float
-    positions: tuple[tuple[float, ...], ...]
-
-
-def _hole_candidates(drawing) -> list[_Candidate]:
-    """Every IR feature that can account for a recognised hole.
-
-    Patterned holes lower to a ``PatternFeature`` carrying a representative
-    ``HoleFeature`` and the member centres — they are NOT ``HoleFeature`` instances, so
-    matching on that type alone made recognising a pattern (a capability) *lower* the
-    score: four identical holes scored ``unknown`` where the same four at the same
-    positions with distinct diameters scored ``supported``, both fully drawn.
-
-    Dispatch is on the IR's own ``kind`` discriminator, which the engine itself uses,
-    rather than on ``type(f).__name__``.
-    """
-    candidates: list[_Candidate] = []
-    for feature in drawing.model().features:
-        kind = getattr(feature, "kind", None)
-        if kind == "hole":
-            # A grouped ``count×`` callout covers several holes through one feature.
-            positions = feature.members or (feature.frame.origin,)
-            candidates.append(
-                _Candidate(feature, feature.frame.axis, feature.diameter, tuple(positions))
-            )
-        elif kind == "pattern" and getattr(feature.member, "kind", None) == "hole":
-            candidates.append(
-                _Candidate(
-                    feature, feature.frame.axis, feature.member.diameter, tuple(feature.members)
-                )
-            )
-    return candidates
-
-
 #: The compiled requirement that carries a hole's SIZE. A table row documents several
 #: requirements per hole (location, through-ness, …); only this one is the fact
-#: ``drawing_consumer`` asks about.
+#: ``drawing_consumer`` asks about. Crediting the others would mean a hole with a located
+#: row but no diameter counted as consumed.
 _SIZE_REQUIREMENT = "bore.diameter"
 
 
-def _table_represented(drawing) -> list:
-    """Features the engine recorded as carried by a hole TABLE rather than a callout.
-
-    Above ~16 scattered holes the engine withdraws the individual ``hc_*`` callouts and
-    places one table plus balloons, recording the substitution on the table object. Reading
-    only ``hc_`` scored every hole on such a sheet as lost — measured 16 of 16 on a dense
-    plate with no lint issues at all — which inverted the metric: a correct sheet scored
-    worse than the same part with the table forced to fail.
-
-    Read ``covers_hole_representations_by_requirement``. An earlier cut read a
-    ``…_by_feature`` sibling that no caller ever populated — its ``representation_features``
-    argument appeared in the whole tree only at its own definition and its own use — so the
-    read returned nothing on every real drawing while a hand-built stub in the tests made it
-    look correct. The dead field was removed in #1217; this note stays because the lesson is
-    about the stub, not the field.
-
-    Filtered to the SIZE requirement: a table row also documents location and through-ness,
-    and crediting those would mean a hole with a located row but no diameter counted as
-    consumed.
-
-    Safe against a dropped table: the ledger is written only after the table is placed and
-    the balloon-completeness gate passes, and the annotation transaction rolls the table
-    back before that point, so a `table_dropped` sheet carries no entries (verified).
-    """
-    covered = []
-    for _name, annotation in drawing.iter_annotations():
-        for entry in getattr(annotation, "covers_hole_representations_by_requirement", ()):
-            feature, parameter = entry[0], entry[1]
-            if parameter == _SIZE_REQUIREMENT:
-                covered.append(feature)
-    return covered
-
-
-def _consumed(feature, drawing, represented) -> bool:
-    """Did this feature's SIZE reach the sheet, by either sanctioned route?
-
-    Only the callout or the table counts. A hole whose callout was dropped still keeps its
-    centre mark and location dims (measured: ``m_cm0``, ``m_locx0``), so counting any
-    annotation would score a dropped callout as consumed.
-    """
-    if any(name.startswith("hc_") for name in drawing.annotations_of(feature)):
-        return True
-    return any(represented_feature == feature for represented_feature in represented)
-
-
 def _drawing_consumer_outcomes(holes, drawing) -> list[Outcome]:
-    """Per recognised hole: did the DRAWING carry it? — observed, not declared.
+    """Per recognised hole: did the DRAWING carry its size? — observed, not declared.
 
-    ``supported`` its size reached the sheet; ``unsupported`` a feature accounts for the
-    hole and carries neither callout nor table row; ``unknown`` no feature accounts for
-    it, which is a gap in the recognition-record-to-IR correspondence ADR 0017 explicitly
-    does not yet provide.
+    ``supported`` its size reached the sheet **and the annotation carrying it renders that
+    value**; ``unsupported`` the engine accounts for the hole and did not place its size;
+    ``unknown`` nothing can be joined to the hole without guessing.
 
-    Be precise about ``unknown``: :func:`evaluate_case` credits a unit only when the state
-    is ``supported``, so downstream an ``unknown`` scores as a MISS, distinguishable from
-    a dropped callout only in the diagnostic text. It is an honest label, not an exemption
-    — an earlier version of this docstring claimed it was "never scored as either success
-    or failure", which was wrong about the pipeline it feeds.
+    Be precise about ``unknown``: :func:`evaluate_case` credits a unit only when the state is
+    ``supported``, so downstream an ``unknown`` scores as a MISS, distinguishable from a
+    dropped callout only in the diagnostic text. It is an honest label, not an exemption.
 
-    Matching is injective per POSITION: a matched position is consumed, so two opposed
-    coaxial holes of equal diameter cannot both resolve to the first candidate. Grouped
-    features legitimately account for several holes, which is why the position is consumed
-    and not the whole candidate.
+    **One correspondence implementation** (#1206). This used to carry its own — matching
+    recognised holes to IR features by axis, diameter and position, then asking whether any
+    annotation named ``hc_*`` — beside `linting.hole_coverage.hole_requirement_outcomes`,
+    which answers the same question. Two implementations of one question drift, and the copy
+    was the more generous of the two: it credited holes the ledger declines to join.
+
+    That generosity is a measurable score change, not a refactor. Measured base against head
+    over all 16 STEP fixtures, 26 holes move: ``nist_ctc_03`` ap203 and ap242 lose five each
+    (15/15 -> 10 supported + 5 unknown) and ``nist_ctc_04`` ap203 and ap242 lose eight each
+    (54/54 -> 46 + 8). Every one is a hole the ledger reports ``unverifiable`` — it knows they
+    exist and cannot tie them to a feature without guessing — where the old matcher scored
+    them ``supported``. They now score ``unknown``. ``nist_ctc_02`` does not move at all; an
+    earlier version of this paragraph named it and omitted CTC-03, which is the fixture that
+    actually diverges. Crediting a hole whose
+    evidence cannot be located is exactly the self-validation #1206 was opened to remove, so
+    the lower number is the more honest one.
+
+    **The ledger is a pointer, not proof** (@pzfreo's decision on #1206). ``placed`` means the
+    engine recorded an annotation as carrying the requirement; this then follows that pointer
+    through `linting.evidence` and confirms the annotation actually renders the approved
+    value. A claim the drawing does not bear out is ``unsupported``, not ``supported``.
+
+    Name prefixes are gone with the duplicate: provenance does not care what a renderer called
+    its annotation.
+
+    That does **not** close the turned-part gap, and an earlier draft of this paragraph said
+    it did. Measured on ``Cylinder(20,60) - Cylinder(6,70)``, the outcome is ``unsupported``
+    before and after, with a byte-identical annotation set. The cause was never the name:
+    **no annotation on that sheet carries a measurement claim at all** — not ``ldr_z0``
+    (``ø12``), not ``dim_od`` (``ø40``), not ``dim_height`` — while the compiled plan does
+    hold ``hole.bore.diameter`` and ``rotational.od.diameter``. So the rotational render path
+    threads no ADR 0010 provenance, and the ledger reports ``bore.diameter`` as ``missing``.
+
+    That is an annotation-tagging gap, tracked by #1227. It is NOT #754, which closed on
+    2026-07-22 — an earlier draft of this paragraph cited it, which is the fourth instance of
+    the stale citation #951 exists to remove, written inside a sentence correcting a
+    different false claim.
     """
-    # Imported here, not at module level: `_geometry` imports build123d, so a top-level
-    # import would pull the CAD kernel into every consumer of this module — measured, it
-    # took import cost from 0.01 s to 1.27 s and made the lazy `builder` import below buy
-    # nothing at all. An earlier comment claimed that laziness saved the kernel import
-    # while this line was already paying it.
-    from draftwright._geometry import _axis_letter_of
+    from draftwright.linting.evidence import verify_measurement_claims
+    from draftwright.linting.hole_coverage import canonical_hole_sites, hole_requirement_outcomes
+    from draftwright.model.compiled import compile_dimensions
 
-    remaining = [(candidate, list(candidate.positions)) for candidate in _hole_candidates(drawing)]
-    represented = _table_represented(drawing)
+    model = drawing.model()
+    # Recompiled through the public model rather than read off `Drawing._build`: the compiler
+    # is deterministic over the model, so this is the same inventory the build used, and the
+    # state-bus guard keeps `dwg._*` to `drawing.py` alone.
+    plan = compile_dimensions(model)
+    ledger = hole_requirement_outcomes(
+        drawing.recognition(),
+        getattr(model, "features", ()),
+        drawing.registry,
+        plan.diagnostics,
+    )
+    # NOT just `value_absent`. `supported` is meant to mean the annotation carrying the size
+    # renders it, so anything short of `confirmed` fails that: an `unreadable` annotation
+    # draws no text at all, and an `unresolved` one claims a measurement the compiler never
+    # approved (the ADR 0016 Amdt 1 violation). Crediting either was the PR body's own
+    # sentence — "and the annotation carrying it renders that value" — being false of the
+    # code beneath it (#1223 review).
+    unconfirmed = {
+        claim.measurement
+        for claim in verify_measurement_claims(drawing.registry, plan)
+        if claim.state != "confirmed" and claim.measurement is not None
+    }
+
+    def _borne_out(entry) -> bool:
+        """Whether the placement the ledger reports is confirmed by what is drawn."""
+        return not any(
+            getattr(claim, "feature", None) in entry.features
+            and str(getattr(claim, "parameter", "")) == _SIZE_REQUIREMENT
+            for claim in unconfirmed
+        )
+
+    by_position: dict[tuple, Outcome] = {}
+    for entry in ledger:
+        if entry.parameter_id == _SIZE_REQUIREMENT:
+            state: Outcome = "supported" if entry.state == "placed" else "unsupported"
+            if state == "supported" and not _borne_out(entry):
+                state = "unsupported"
+        else:
+            # Non-size parameters contribute no site. An `unverifiable` entry needs no arm
+            # of its own: its holes reach `unknown` through the lookup default below, and a
+            # branch that cannot change an outcome is one a reader trusts wrongly. The
+            # property it looked like it was enforcing — that every `unknown` joins an
+            # `unverifiable` entry — is asserted in the tests, where it can fail.
+            continue
+        for member in entry.members:
+            by_position.setdefault(member, state)
+
+    # `canonical_hole_sites`, not `hole.location`: the ledger keys a THROUGH hole with its
+    # axis coordinate zeroed, so the same bore keys identically whichever face it was measured
+    # from. Keying on the raw location matched nothing for every through hole and reported
+    # four otherwise-perfect corpus units as `unknown`.
     outcomes: list[Outcome] = []
     for hole in holes:
-        axis = _axis_letter_of(hole.axis)
-        target = tuple(float(value) for value in hole.location)
-        for candidate, positions in remaining:
-            if candidate.axis != axis or abs(candidate.diameter - hole.diameter) > 1e-9:
-                continue
-            hit = next(
-                (
-                    position
-                    for position in positions
-                    if all(
-                        abs(a - b) <= _CORRESPONDENCE_TOLERANCE
-                        for a, b in zip(tuple(float(v) for v in position), target, strict=True)
-                    )
-                ),
-                None,
-            )
-            if hit is None:
-                continue
-            positions.remove(hit)
-            outcomes.append(
-                "supported"
-                if _consumed(candidate.feature, drawing, represented)
-                else "unsupported"
-            )
-            break
-        else:
-            outcomes.append("unknown")
+        sites = canonical_hole_sites(hole)
+        outcomes.append(next((by_position[s] for s in sites if s in by_position), "unknown"))
     return outcomes
 
 
