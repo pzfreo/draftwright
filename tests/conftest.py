@@ -9,6 +9,8 @@ import sys
 from collections.abc import Callable, Mapping
 from contextlib import contextmanager
 
+import pytest
+
 
 @contextmanager
 def counting_calls(functions: Mapping[str, Callable[..., object]]):
@@ -88,9 +90,15 @@ def counting_calls(functions: Mapping[str, Callable[..., object]]):
 #
 # `uv run pytest -m unit` is the inner loop: it must run in seconds and build nothing.
 # Membership is centralised here so the tier has one place to grow; honesty is enforced
-# by `_unit_tests_build_no_geometry` below — a unit-marked test that constructs any
-# build123d Shape fails, so the marker cannot rot into a mere label. A module moves to
-# this list only if every test in it passes under that enforcement.
+# by the runtest hooks below — constructing any build123d Shape while a unit-marked
+# test runs fails it, and the patch is installed in `pytest_runtest_setup`, BEFORE
+# fixture setup, so geometry built in a fixture of any scope on behalf of a unit test
+# is intercepted too (a function-scoped autouse fixture missed module-scoped fixtures;
+# caught by the #1226 review's probe). **Known gap** (documented, in the sibling
+# ratchets' style): geometry constructed at module IMPORT time runs during collection,
+# before any runtest hook — none of these modules does that, and an import-time OCC
+# build would also show up as collection slowness. A module moves to this list only if
+# every test in it passes under the enforcement.
 
 _UNIT_MODULES = frozenset(
     {
@@ -116,33 +124,34 @@ _UNIT_MODULES = frozenset(
     }
 )
 
+_SHAPE_INIT = pytest.StashKey()
+
 
 def pytest_collection_modifyitems(config, items):
-    import pathlib
-
-    import pytest
-
     for item in items:
-        if pathlib.Path(str(item.fspath)).name in _UNIT_MODULES:
+        if item.path.name in _UNIT_MODULES:
             item.add_marker(pytest.mark.unit)
 
 
-import pytest as _pytest  # noqa: E402
+def _forbidden_shape_init(self, *args, **kwargs):
+    raise AssertionError(
+        "this test is in the `unit` tier (conftest._UNIT_MODULES) but constructs "
+        "build123d geometry — move the module out of the tier or make the test pure (#656)"
+    )
 
 
-@_pytest.fixture(autouse=True)
-def _unit_tests_build_no_geometry(request, monkeypatch):
-    """A `-m unit` test that constructs OCC geometry fails here, keeping the tier honest."""
-    if request.node.get_closest_marker("unit") is None:
-        yield
+def pytest_runtest_setup(item):
+    if item.get_closest_marker("unit") is None:
         return
     from build123d.topology import shape_core
 
-    def _forbidden(self, *args, **kwargs):
-        raise AssertionError(
-            "this test is in the `unit` tier (conftest._UNIT_MODULES) but constructs "
-            "build123d geometry — move the module out of the tier or make the test pure (#656)"
-        )
+    item.stash[_SHAPE_INIT] = shape_core.Shape.__init__
+    shape_core.Shape.__init__ = _forbidden_shape_init
 
-    monkeypatch.setattr(shape_core.Shape, "__init__", _forbidden)
-    yield
+
+def pytest_runtest_teardown(item, nextitem):
+    original = item.stash.get(_SHAPE_INIT, None)
+    if original is not None:
+        from build123d.topology import shape_core
+
+        shape_core.Shape.__init__ = original

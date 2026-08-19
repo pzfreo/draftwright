@@ -142,13 +142,20 @@ def _boss_height(model):
 
 
 @pytest.fixture(scope="module")
-def x_hub_drawing():
+def x_hub_build():
     """One flush-hub build shared by the read-only critiques below (#656).
 
-    Every consumer only READS the drawing (labels, registry, suppressions); a test
-    that mutates it must build its own.
+    Returns (part, drawing) so a consumer needing the solid gets the SAME object the
+    drawing was built from. Every consumer only READS the drawing (labels, registry,
+    suppressions, coverage lint); a test that mutates it must build its own.
     """
-    return build_drawing(_x_hub_plate(), title="T", number="N-1")
+    part = _x_hub_plate()
+    return part, build_drawing(part, title="T", number="N-1")
+
+
+@pytest.fixture
+def x_hub_drawing(x_hub_build):
+    return x_hub_build[1]
 
 
 class TestTheSameTwoFacesAreDimensionedOnce:
@@ -300,15 +307,16 @@ class TestTheConsolidationIsRecordedAndVerified:
         # first cut asserted (#1154 review). Say the real thing instead.
         assert [r["parameter_id"] for r in drawing.suppressions()] == ["boss_height.length"]
 
-    def test_coverage_accepts_a_consolidated_height_only_while_its_owner_is_placed(self):
+    def test_coverage_accepts_a_consolidated_height_only_while_its_owner_is_placed(
+        self, x_hub_build
+    ):
         # `boss_height_missing` exists to demand the axial extent. A consolidation satisfies
         # it because the fact is on the sheet — but ONLY on that condition, so the check
         # verifies the owner landed rather than trusting the compiler's intent. Consolidating
         # onto a dimension the placer then drops is a missing measurement.
         from draftwright.linting.coverage import lint_boss_height_coverage
 
-        part = _x_hub_plate()
-        drawing = build_drawing(part, title="T", number="N-1")
+        part, drawing = x_hub_build
         model = drawing.model()
         features = model.features
         # Recompiled through the public model rather than read off `Drawing._build`: the

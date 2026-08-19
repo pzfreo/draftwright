@@ -49,6 +49,16 @@ def _probe(dwg, *, offset):
     )
 
 
+@pytest.fixture(scope="module")
+def thin_neck_drawing():
+    """One thin-neck build shared by the read-only probe critiques below (#1226 review).
+
+    Every consumer synthesises its own probe and only READS the drawing (views,
+    material fields, lint); a test that mutates build state must build its own.
+    """
+    return build_drawing(_thin_neck(), number="X")
+
+
 def _silhouette_issues(dwg, items, *, with_field=True):
     return [
         issue
@@ -62,41 +72,41 @@ def _silhouette_issues(dwg, items, *, with_field=True):
 
 
 class TestTheCheckNeedsTheField:
-    def test_a_shaft_re_entering_the_body_is_reported(self):
-        dwg = build_drawing(_thin_neck(), number="X")
+    def test_a_shaft_re_entering_the_body_is_reported(self, thin_neck_drawing):
+        dwg = thin_neck_drawing
         assert _silhouette_issues(dwg, [*dwg.items, _probe(dwg, offset=4.0)])
 
-    def test_a_single_traversal_stays_clean(self):
+    def test_a_single_traversal_stays_clean(self, thin_neck_drawing):
         # Same part, same direction, straight through the neck: one traversal out, which
         # is what every correct callout does. Mutation — charging the first traversal —
         # flags this and condemns the whole sheet.
-        dwg = build_drawing(_thin_neck(), number="X")
+        dwg = thin_neck_drawing
         assert _silhouette_issues(dwg, [*dwg.items, _probe(dwg, offset=0.0)]) == []
 
-    def test_without_a_field_the_check_reports_nothing(self):
+    def test_without_a_field_the_check_reports_nothing(self, thin_neck_drawing):
         # Deliberate: no material knowledge means no claim. Mutation — restoring an
         # outline-crossing fallback — makes this non-empty, and reintroduces exactly
         # the second opinion the shared field exists to remove.
-        dwg = build_drawing(_thin_neck(), number="X")
+        dwg = thin_neck_drawing
         probe = _probe(dwg, offset=4.0)
         assert _silhouette_issues(dwg, [*dwg.items, probe], with_field=False) == []
 
-    def test_the_message_carries_the_measured_depth(self):
+    def test_the_message_carries_the_measured_depth(self, thin_neck_drawing):
         # The notice is a magnitude, not a flag, so a reader can rank two of them. The
         # probe crosses two 10 mm flanges, so the second traversal is the 10 mm one.
-        dwg = build_drawing(_thin_neck(), number="X")
+        dwg = thin_neck_drawing
         issues = _silhouette_issues(dwg, [*dwg.items, _probe(dwg, offset=4.0)])
         assert "10.0 mm back through view" in issues[0].message
 
 
 class TestExemptionsTheFilledFieldRemoves:
-    def test_covers_diameters_is_no_longer_a_blanket_escape(self):
+    def test_covers_diameters_is_no_longer_a_blanket_escape(self, thin_neck_drawing):
         # The outline form exempted bore callouts wholesale, because a shaft leaving a
         # bore crosses two circles and read as a cut. That exemption also hid genuine
         # re-entries — on the #881 flange it hid a callout spending 27.6 mm of its 49 mm
         # shaft inside the body. Under the filled field the exit costs nothing by itself,
         # so the flag can be set and a real cut still reports.
-        dwg = build_drawing(_thin_neck(), number="X")
+        dwg = thin_neck_drawing
         probe = _probe(dwg, offset=4.0)
         probe.covers_diameters = (30.0,)
         assert _silhouette_issues(dwg, [*dwg.items, probe])
