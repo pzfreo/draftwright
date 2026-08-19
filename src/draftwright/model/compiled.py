@@ -69,6 +69,7 @@ from draftwright.model.ir import (
 from draftwright.model.planner import (
     _AUTHORED_OMISSION,
     DimensionId,
+    _decorated,
     authored_location_omitted,
     location_datum,
     plan_dimensions,
@@ -933,6 +934,17 @@ def _compile_overall_height(
         identity = _envelope_from_bbox(bb)
     env_ref = FeatureRef(env) if env is not None else None
     x, y = float(bb.max.X), float(bb.min.Y)
+    # An authored `envelope().tolerance(...)` on the height, through the one owner
+    # (`_decorated`) rather than read off `model.decorations` here — a second reader is how
+    # a decorated parameter and an undecorated one came to look interchangeable (#1154).
+    # A part with no `EnvelopeFeature` has nothing to key a decoration on, and #876 already
+    # says declaring `.envelope()` is how the overall height becomes nameable, so `None` here
+    # is the right answer rather than a gap (#1215).
+    height_tol = None
+    if env is not None:
+        height_param = next((pm for pm in env.parameters() if pm.role == "height"), None)
+        if height_param is not None:
+            height_tol = _decorated(model, env, height_param).tolerance
     ladder = ApprovedLadder(
         "overall_height",
         (
@@ -942,6 +954,7 @@ def _compile_overall_height(
                 value=value,
                 span=((x, y, float(bb.min.Z)), (x, y, float(bb.max.Z))),
                 ref=env_ref,
+                tolerance=height_tol,
                 rendered_label=_fmt(value),
             ),
         ),

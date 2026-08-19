@@ -3226,6 +3226,17 @@ def render_plates(dwg, plan, a, *, ctx) -> int:
     return n
 
 
+def _env_label(approved, draft) -> str:
+    """The string an envelope extent's Dimension will RENDER, tolerance included.
+
+    `Dimension` formats its own tolerance and leaves `label` untouched, so the annotation's
+    `label` attribute stays the bare value while the sheet shows the suffix. Anything measuring
+    the drawn width — the corridor footprint — needs this, and `_tol_suffix` is documented as
+    matching helpers' `_format_label` byte for byte, same precision rounding included (#1215).
+    """
+    return f"{approved.value_text}{_tol_suffix(approved.tolerance, draft)}"
+
+
 def render_envelope(dwg, plan, a, *, ctx) -> int:
     """Overall width (plan, below) + depth (side, below) envelope dims via the IR,
     registered into the same below-strip corridor as feature/location/GD&T/PMI candidates.
@@ -3273,16 +3284,28 @@ def render_envelope(dwg, plan, a, *, ctx) -> int:
             "plan",
             _SLOT_DIM_WIDTH,
             abs(x1 - x0),
-            lambda pos, _p1=p1, _p2=p2, _w=witness, _v=width.value_text: _dim(
+            lambda pos, _p1=p1, _p2=p2, _w=witness, _v=width.value_text, _t=width.tolerance: _dim(
                 (_p1[0], _w, 0),
                 (_p2[0], _w, 0),
                 "below",
                 _w - pos,
                 dwg.draft,
                 label=_v,
+                tolerance=_t,
             ),
-            footprint=lambda pos, _p1=p1, _p2=p2, _w=witness, _v=width.value_text: dim_footprint(
-                (_p1[0], _w, 0), (_p2[0], _w, 0), "below", _w - pos, dwg.draft, _v
+            # The footprint must measure the string the Dimension will RENDER, not the bare
+            # value: helpers' `_format_label` appends the same suffix `_tol_suffix` builds, so
+            # a toleranced envelope dim is wider than `value_text` and the corridor would
+            # otherwise reserve too little (#1215).
+            #
+            # Honest about the evidence: NO test observes this. Reverting it to `value_text`
+            # passes the suite, and on a sparse part every annotation's bounding box is
+            # byte-identical with and without a tolerance — the extra width only tips a
+            # fit/no-fit decision on a strip already close to full, which I could not construct
+            # reliably. It is kept because a footprint that does not model the ink is wrong by
+            # construction, not because anything measured it.
+            footprint=lambda pos, _p1=p1, _p2=p2, _w=witness, _v=_env_label(width, dwg.draft): (
+                dim_footprint((_p1[0], _w, 0), (_p2[0], _w, 0), "below", _w - pos, dwg.draft, _v)
             ),
             measurement=width.id,
         )
@@ -3298,16 +3321,17 @@ def render_envelope(dwg, plan, a, *, ctx) -> int:
             "side",
             _SLOT_DIM_DEPTH,
             abs(y1 - y0),
-            lambda pos, _p1=p1, _p2=p2, _w=witness, _v=depth.value_text: _dim(
+            lambda pos, _p1=p1, _p2=p2, _w=witness, _v=depth.value_text, _t=depth.tolerance: _dim(
                 (_p1[0], _w, 0),
                 (_p2[0], _w, 0),
                 "below",
                 _w - pos,
                 dwg.draft,
                 label=_v,
+                tolerance=_t,
             ),
-            footprint=lambda pos, _p1=p1, _p2=p2, _w=witness, _v=depth.value_text: dim_footprint(
-                (_p1[0], _w, 0), (_p2[0], _w, 0), "below", _w - pos, dwg.draft, _v
+            footprint=lambda pos, _p1=p1, _p2=p2, _w=witness, _v=_env_label(depth, dwg.draft): (
+                dim_footprint((_p1[0], _w, 0), (_p2[0], _w, 0), "below", _w - pos, dwg.draft, _v)
             ),
             measurement=depth.id,
         )
@@ -4050,18 +4074,42 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
             )
         )
 
+    # An authored `envelope().tolerance(..., on="height")` reaches the sheet here. The rung
+    # carries it and `Dimension` formats its own, exactly as the width/depth extents do in
+    # `render_envelope` — the two paths have to agree, and they used to differ only because
+    # this one dropped the field on the floor (#1215). Keyed by name because only the overall
+    # rung has one; a step rung's tolerance is a separate question.
+    _tolerances = {"dim_height": overall.rungs[0].tolerance} if overall is not None else {}
+
     names = [c[0] for c in chain]
     solved: dict[str, float] = {}
     for k, (name, zbase, ztop, label, _tsize, drop_msg, mid, per_unit) in enumerate(chain):
 
-        def _build(pos, name=name, zbase=zbase, ztop=ztop, label=label, k=k, per_unit=per_unit):
+        def _build(
+            pos,
+            name=name,
+            zbase=zbase,
+            ztop=ztop,
+            label=label,
+            k=k,
+            per_unit=per_unit,
+            _tol=_tolerances.get(name),
+        ):
             base = edge2
             for pn in reversed(names[:k]):  # nearest already-built predecessor's line
                 if pn in solved:
                     base = solved[pn]
                     break
             solved[name] = pos
-            dim = _dim((base, zbase, 0), (base, ztop, 0), "right", pos - base, draft, label=label)
+            dim = _dim(
+                (base, zbase, 0),
+                (base, ztop, 0),
+                "right",
+                pos - base,
+                draft,
+                label=label,
+                tolerance=_tol,
+            )
             if per_unit is not None:
                 # What this dimension's `N× v` label actually measures. Lint reads it in
                 # preference to parsing the label, because `N× v` is drawn under two
@@ -4070,7 +4118,16 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
                 dim._dw_label_value = per_unit
             return dim
 
-        def _foot(pos, zbase=zbase, ztop=ztop, label=label, k=k):
+        # The footprint measures the RENDERED string, so it carries the same suffix the
+        # Dimension will draw — otherwise a toleranced overall height reserves the width of the
+        # bare value and the corridor packs the strip too tightly (#1215).
+        def _foot(
+            pos,
+            zbase=zbase,
+            ztop=ztop,
+            label=label + _tol_suffix(_tolerances.get(name), draft),
+            k=k,
+        ):
             # Predecessor-aware prediction (#689 review): the conservative edge-anchored
             # witness can falsely exhaust the strip when an inner obstacle sits in the
             # already-traversed region. Use the same solved map the build chain uses.
