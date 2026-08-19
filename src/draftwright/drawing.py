@@ -992,7 +992,12 @@ class Drawing:
             slot: strip slot depth (mm); the perpendicular space reserved per dim.
             feature: optional source IR feature to attribute this dim to, so
                 :meth:`drop` / :meth:`annotations_of` can find it (#398).
-            **kwargs: forwarded to ``Dimension`` (e.g. ``label=``, ``tolerance=``).
+            **kwargs: forwarded to ``Dimension`` (e.g. ``label=``). NOT ``tolerance=``:
+                this method injects a ``label`` when none is given, and helpers do
+                ``rendered = label if label is not None else …``, so an explicit label
+                DISCARDS the tolerance and it never reaches the sheet. Compose the suffix
+                into the label instead — ``_tol_suffix`` is what the renderers use
+                (#1234 review, verified: ``tolerance=(0.1, 0.2)`` renders a bare ``90``).
 
         Deprecated for normal editable scripts: prefer :meth:`dimension` for
         feature-backed linear dimensions and :meth:`locate` for feature-backed

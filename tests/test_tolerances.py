@@ -319,9 +319,21 @@ class TestSheetTolerance:
     def _dias(self, dwg):
         return {n: dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_dia")}
 
-    def _steplen_tol(self, dwg, name):
-        o = dwg.get_annotation(name)
-        return o._dw_spec.kwargs.get("tolerance")
+    def _steplen_label(self, dwg, name):
+        """The step-length dim's rendered LABEL.
+
+        This used to read `_dw_spec.kwargs["tolerance"]` — the constructor argument. helpers do
+        `rendered = label if label is not None else ...`, so an explicit label DISCARDS
+        `tolerance=`, and these dims always pass one. Four tests here therefore asserted a
+        tolerance that never reached the sheet, including one named
+        `test_step_length_tolerance_reaches_dimension` (#1234 review round 2).
+        """
+        return str(getattr(dwg.get_annotation(name), "label", ""))
+
+    def _steplen_labels(self, dwg):
+        return {
+            self._steplen_label(dwg, n) for n in dwg.annotations() if n.startswith("m_steplen")
+        }
 
     def test_boss_diameter_tolerance_renders_on_leader(self):
         shaft = self._stepped_shaft()
@@ -345,8 +357,7 @@ class TestSheetTolerance:
         s.step(diameter=8, length=20, at=(0, 0, 0), axis="x").tolerance(0.0, 0.2)
         s.step(diameter=12, length=10, at=(15, 0, 0), axis="x")
         dwg = s.build()
-        tols = {self._steplen_tol(dwg, n) for n in dwg.annotations() if n.startswith("m_steplen")}
-        assert (0.0, 0.2) in tols
+        assert "20 +0.2 -0.0" in self._steplen_labels(dwg), self._steplen_labels(dwg)
 
     @staticmethod
     def _pocket_part():
@@ -414,9 +425,7 @@ class TestSheetTolerance:
         dwg = s.build()
         # the bare .tolerance() went to the length dim; the OD leader stays plain
         assert all("±" not in lbl and "+" not in lbl for lbl in self._dias(dwg).values())
-        assert 0.1 in {
-            self._steplen_tol(dwg, n) for n in dwg.annotations() if n.startswith("m_steplen")
-        }
+        assert "20 ±0.1" in self._steplen_labels(dwg), self._steplen_labels(dwg)
 
     def test_step_on_diameter_tolerances_the_od(self):
         shaft = self._stepped_shaft()
@@ -436,7 +445,7 @@ class TestSheetTolerance:
         dwg = s.build()
         assert all("±" not in lbl and "+" not in lbl for lbl in self._dias(dwg).values())
         assert all(
-            self._steplen_tol(dwg, n) is None
+            "±" not in self._steplen_label(dwg, n) and "+" not in self._steplen_label(dwg, n)
             for n in dwg.annotations()
             if n.startswith("m_steplen")
         )

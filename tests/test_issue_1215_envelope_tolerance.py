@@ -72,6 +72,21 @@ class TestTheDecorationReachesAllThreeExtents:
         for axis in _AXES:
             assert _label(drawing, _ANNOTATION[axis]) == _BARE[axis], axis
 
+    def test_a_bare_tolerance_folds_onto_every_extent(self):
+        """`envelope().tolerance(0.05)` with no `on=` — the kind-keyed fallback in `_decorated`.
+
+        Untested until now, and the PR's central architectural argument rests on it: sourcing
+        the decoration through `_decorated` rather than reading `model.decorations` here. A
+        mutation dropping the kind-keyed lookup silently loses the ± on the HEIGHT alone and
+        passed the entire fast tier, because every other test passes `on=` (#1234 review r2).
+        """
+        sheet = Sheet(Box(30, 20, 10))
+        sheet.envelope().tolerance(0.05)
+        sheet.auto_dimensions()
+        drawing = sheet.build()
+        for axis in _AXES:
+            assert _label(drawing, _ANNOTATION[axis]) == f"{_BARE[axis]} ±0.1", axis
+
     def test_a_limit_pair_prints_both_limits(self):
         assert _label(_built("height", 0.1, 0.2), "dim_height") == "10 +0.2 -0.1"
 
@@ -88,16 +103,19 @@ class TestTheTwoPathsAgree:
         assert set(suffixes.values()) == {"±0.1"}, suffixes
 
 
-class TestTheTolerandeReachesTheInk:
+class TestTheToleranceReachesTheInk:
     """Labels are metadata. This is what the reader sees."""
 
-    def test_the_tolerance_reaches_the_exported_ink(self, tmp_path):
+    @pytest.mark.parametrize("axis", _AXES)
+    def test_the_tolerance_reaches_the_exported_ink(self, axis, tmp_path):
+        # All three axes, not just width: the HEIGHT is the path with two code changes
+        # (compiler rung + ladder renderer) and had no ink assertion at all (#1234 review r2).
         import re
 
         def measured(tolerance):
-            drawing = _built("width") if tolerance else _built(axis=None)
-            annotation = drawing.registry.named("m_env_width")
-            out = tmp_path / f"o{int(bool(tolerance))}.svg"
+            drawing = _built(axis) if tolerance else _built(axis=None)
+            annotation = drawing.registry.named(_ANNOTATION[axis])
+            out = tmp_path / f"{axis}{int(bool(tolerance))}.svg"
             drawing.export(str(out))
             paths = len(re.findall(r"<path", out.read_text()))
             return len(annotation.faces()), paths
@@ -106,6 +124,58 @@ class TestTheTolerandeReachesTheInk:
         tol_faces, tol_paths = measured(True)
         assert tol_faces > bare_faces, (bare_faces, tol_faces)
         assert tol_paths > bare_paths, (bare_paths, tol_paths)
+
+
+class TestTheCostOnACrowdedSheet:
+    """A longer label can overlap the view, and on this fixture it does. Pinned, not hidden.
+
+    `Sheet(Box(30, 20, 10)).envelope().tolerance(0.05, on="height")` — the fixture these tests
+    build — goes from an `info` to a `warning`:
+
+        before: view_annotation_inside_extents (info)
+        after : view_annotation_overlap (warning)  "line-work overlaps label of '10 ±0.1'"
+
+    The height dim is `side="right"`, so its label is ROTATED and the suffix grows it along the
+    dimension line — in Y, not into the reserved strip depth. Measured, `label_bbox` goes
+    y 73.36-76.64 -> 68.85-81.15 while the annotation's own `bounding_box()` is unchanged, which
+    is why a bbox comparison misses it. The corridor solve does not model a rotated label's
+    along-line growth, and `repair()` does not clear it.
+
+    That is a real cost of rendering the tolerance, and the lint is right to report it — the
+    label does overlap. It is pinned here so the next person sees a decision rather than a
+    surprise; fixing it means teaching the corridor about rotated labels, which is not this
+    change (#1234 review r2).
+    """
+
+    def test_the_toleranced_height_overlaps_the_view_on_this_fixture(self):
+        codes = {issue.code for issue in _built("height").lint()}
+        assert "view_annotation_overlap" in codes, codes
+
+    def test_the_untoleranced_fixture_does_not(self):
+        # The precondition: without this the assertion above could be pinning a pre-existing
+        # warning that has nothing to do with the tolerance.
+        codes = {issue.code for issue in _built(axis=None).lint()}
+        assert "view_annotation_overlap" not in codes, codes
+
+    def test_a_shorter_suffix_does_not_trip_it(self):
+        # It is length, not the presence of a suffix: a fit class renders `10 h6` and fits.
+        from draftwright.builder import build_drawing
+        from draftwright.fits import fit_class
+
+        sheet = Sheet(Box(30, 20, 10))
+        sheet.envelope()
+        sheet.auto_dimensions()
+        model = sheet.build().model()
+        envelope = next(f for f in model.features if f.kind == "envelope")
+        drawing = build_drawing(
+            Box(30, 20, 10),
+            model=model,
+            decorations={(envelope, "length", "height"): fit_class("h6", 10.0, "class")},
+            title="T",
+            number="N-1",
+        )
+        assert _label(drawing, "dim_height") == "10 h6"
+        assert "view_annotation_overlap" not in {issue.code for issue in drawing.lint()}
 
 
 class TestAFitClassRendersToo:
@@ -141,12 +211,16 @@ class TestAFitClassRendersToo:
     def test_the_ink_path_would_have_raised_on_it(self):
         # Why the label route is not merely a preference. If the tolerance were handed to the
         # Dimension instead, this is what the reader would get.
+        #
+        # `_number_with_units` is the INK path — the branch helpers take when `label is None`.
+        # An earlier version of this test asserted the same thing about `_format_label`, which
+        # is the lint-parity approximation; both raise, so the claim held, but the test did not
+        # test what its own comment said (#1234 review r2).
         import pytest as _pytest
-        from build123d_drafting.helpers import _format_label
 
         from draftwright.builder import build_drawing
         from draftwright.fits import fit_class
 
         draft = build_drawing(Box(30, 20, 10), title="T", number="N-1").draft
         with _pytest.raises(TypeError):
-            _format_label(30.0, draft, fit_class("h6", 30.0, "class"))
+            draft._number_with_units(30.0, fit_class("h6", 30.0, "class"))

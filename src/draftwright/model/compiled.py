@@ -955,6 +955,14 @@ def _compile_overall_height(
                 span=((x, y, float(bb.min.Z)), (x, y, float(bb.max.Z))),
                 ref=env_ref,
                 tolerance=height_tol,
+                # `rendered_label` is the BARE value while `tolerance` is set beside it, so for
+                # a toleranced rung this field is not the "complete compiler-owned label" its
+                # own docstring promises — the renderer composes the suffix. It has to:
+                # `_tol_suffix` lives in `_core` at rank 1 and this module is rank 0, so the
+                # compiler cannot build the string. Today the overall-height rung has exactly
+                # one consumer (`render_height_ladder`), which does compose it; a second
+                # consumer trusting the docstring would silently drop the tolerance
+                # (#1234 review, F8/finding 6).
                 rendered_label=_fmt(value),
             ),
         ),

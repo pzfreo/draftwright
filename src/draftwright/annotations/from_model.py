@@ -3242,6 +3242,12 @@ def _env_label(approved, draft) -> str:
 
     `_tol_suffix` also renders a `FitClass`, which the ink path's `_number_with_units` raises
     on — so composing the label is the only route that satisfies #1215's fit-class line.
+
+    One consequence worth naming: every `_dim` call site in this package passes a label, so
+    helpers' own `_number_with_units` formatting is unreachable. That is why the sheet is
+    internally consistent on limit-pair ORDER — `_tol_suffix` renders `+upper -lower` for an
+    envelope extent and a hole callout alike, while `_number_with_units` would render the
+    opposite. The consistency is real but it rests on that unreachability (#1234 review r2).
     """
     return f"{approved.value_text}{_tol_suffix(approved.tolerance, draft)}"
 
@@ -3301,17 +3307,16 @@ def render_envelope(dwg, plan, a, *, ctx) -> int:
                 dwg.draft,
                 label=_v,
             ),
-            # The footprint must measure the string the Dimension will RENDER, not the bare
-            # value: helpers' `_format_label` appends the same suffix `_tol_suffix` builds, so
-            # a toleranced envelope dim is wider than `value_text` and the corridor would
-            # otherwise reserve too little (#1215).
+            # The footprint measures the string the Dimension will RENDER, because a footprint
+            # that does not model the ink is wrong by construction. That is the whole
+            # justification — no test observes it, and two earlier versions of this comment
+            # invented a failure mode that does not occur.
             #
-            # Honest about the evidence: NO test observes this. Reverting it to `value_text`
-            # passes the suite, and on a sparse part every annotation's bounding box is
-            # byte-identical with and without a tolerance — the extra width only tips a
-            # fit/no-fit decision on a strip already close to full, which I could not construct
-            # reliably. It is kept because a footprint that does not model the ink is wrong by
-            # construction, not because anything measured it.
+            # Measured: `dim_footprint` is span-dominated, so for these extents the hull is
+            # IDENTICAL with and without the suffix. It differs only inside the outside-arrow
+            # flip regime (span ~8-20 mm), and there the toleranced footprint reserves LESS in
+            # the strip-depth direction, not more — the opposite of "reserves too little"
+            # (#1234 review r2).
             footprint=lambda pos, _p1=p1, _p2=p2, _w=witness, _v=_env_label(width, dwg.draft): (
                 dim_footprint((_p1[0], _w, 0), (_p2[0], _w, 0), "below", _w - pos, dwg.draft, _v)
             ),
@@ -3417,7 +3422,17 @@ def _draw_step_chain(
     gap = draft.font_size + 4 * draft.pad_around_text
     horizontal = abs(segs[0].pb[0] - segs[0].pa[0]) >= abs(segs[0].pb[1] - segs[0].pa[1])
     vals = [seg.value for seg in segs]
-    labels = [seg.label if seg.label is not None else _fmt(seg.value) for seg in segs]
+    # The suffix rides the LABEL, for the reason `_env_label` documents: helpers discard
+    # `tolerance=` whenever an explicit label is given, and one always is here. This site
+    # passed `tolerance=seg.tolerance` to `_dim` and rendered nothing — the same defect #1215
+    # fixed for the envelope, ninety lines away, with four tests asserting the discarded kwarg.
+    # The file already contradicted itself: `label_widths` below sizes the staggering decision
+    # with `_fmt(seg.value) + _tol_suffix(...)`, i.e. it measured a string this line refused to
+    # draw (#1234 review round 2).
+    labels = [
+        seg.label if seg.label is not None else _fmt(seg.value) + _tol_suffix(seg.tolerance, draft)
+        for seg in segs
+    ]
     mean_v = sum(vals) / len(vals)
     if (
         allow_collapse
@@ -3509,7 +3524,6 @@ def _draw_step_chain(
                         dist,
                         draft,
                         label=labels[i],
-                        tolerance=seg.tolerance,
                     ),
                     seg.measurements,
                 )
@@ -4125,8 +4139,8 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
             return dim
 
         # The footprint measures the RENDERED string, so it carries the same suffix the
-        # Dimension will draw — otherwise a toleranced overall height reserves the width of the
-        # bare value and the corridor packs the strip too tightly (#1215).
+        # Dimension draws. Correctness, not a measured failure mode — see the note in
+        # `render_envelope`; the invented "packs the strip too tightly" claim is withdrawn.
         def _foot(
             pos,
             zbase=zbase,
