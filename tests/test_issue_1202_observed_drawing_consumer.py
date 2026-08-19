@@ -127,13 +127,23 @@ class TestTheOutcomeIsReadOffTheDrawing:
     @pytest.mark.parametrize(
         ("fixture", "expected"),
         [
-            ("tests/fixtures/nist_ctc_04_asme1_ap203.stp", 8),
-            # CTC-03 carries a 45-degree bore, and it is the ONLY fixture where the raw
-            # record axis and the spec's rounded axis letter differ — the components tie
-            # after rounding and `max` takes the first. CTC-04 is all principal-axis, so it
-            # cannot catch a canonical-space mismatch (#1223 review: the F3 fix survived its
-            # mutation until this case was added).
-            ("tests/fixtures/nist_ctc_03_asme1_ap203.stp", 5),
+            pytest.param("tests/fixtures/nist_ctc_04_asme1_ap203.stp", 8, id="ctc04"),
+            # CTC-03 carries a 45-degree bore and is the only fixture whose raw record axis
+            # and spec-rounded axis letter differ — the components tie after rounding and
+            # `max` takes the first. CTC-04 is all principal-axis, so it cannot catch a
+            # canonical-space mismatch.
+            #
+            # SLOW-tier: this build timed out at 300 s on ubuntu 3.10 while taking ~40 s on
+            # macOS. CTC fixture builds are slow-tier by policy in this repo
+            # (`test_e2e_standards.py`), and putting one in the fast tier was the mistake, not
+            # the timeout. `TestTheCanonicalSpaceIsTheLedgersOwn` below pins the same property
+            # in milliseconds, so the fast tier keeps a guard.
+            pytest.param(
+                "tests/fixtures/nist_ctc_03_asme1_ap203.stp",
+                5,
+                id="ctc03",
+                marks=pytest.mark.slow,
+            ),
         ],
     )
     def test_a_hole_the_ledger_cannot_join_is_unknown(self, fixture, expected):
@@ -461,6 +471,46 @@ class TestThePointerIsFollowedNotBelieved:
         assert _drawing_consumer_outcomes(holes, drawing).count("supported") < len(holes), (
             "an annotation drawing no text at all was credited as carrying the size"
         )
+
+
+class TestTheCanonicalSpaceIsTheLedgersOwn:
+    """`canonical_hole_sites` must key in the same space `HoleRequirementOutcome.members` is
+    published in, and the producer letters the axis from `HoleSpec`'s 6-dp-rounded vector.
+
+    Deriving it from the raw record vector instead put the consumer in a different space
+    whenever rounding changed which component wins: CTC-03's 45-degree bore rounds to an exact
+    tie, `max` takes the first, and five holes then had no ledger member at all. Direct, because
+    the end-to-end case needs a CTC build that belongs in the slow tier — and because whether a
+    given solid produces the tie is a floating-point coin flip, which is no basis for a guard.
+    """
+
+    def test_the_axis_letter_comes_from_the_rounded_spec(self):
+        from types import SimpleNamespace
+
+        from b123d_recognisers import HoleSpec
+
+        from draftwright.linting.hole_coverage import canonical_hole_sites
+
+        # Raw components differ in the last bit — `max` picks z. Rounded to 6 dp they tie, and
+        # `max` picks x. A through hole's site is zeroed along the SPEC axis, so the two
+        # readings put the same bore in different places.
+        record = SimpleNamespace(
+            location=(30.0, 244.0, 141.0),
+            axis=(0.707106781186547, 0.0, -0.707106781186548),
+            diameter=8.0,
+            depth=None,
+            bottom="through",
+            cbore=None,
+            spotface=None,
+            csink=None,
+        )
+        spec_axis = HoleSpec.from_hole(record).axis
+        assert spec_axis == (0.707107, 0.0, -0.707107), spec_axis
+        site = canonical_hole_sites(record)[0]
+        assert site[0] == 0.0, (
+            f"the site was zeroed along the raw-vector axis, not the spec axis: {site}"
+        )
+        assert site[2] == 141.0, f"the spec axis component was zeroed instead: {site}"
 
 
 class TestTheCorpusScoreMovesWithTheDrawing:
