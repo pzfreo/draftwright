@@ -283,9 +283,9 @@ class TestDiameterColumnOccupancy:
     # (anchor, dia, feature, tolerance, thread) — feature=None (unit test of placement; #412
     # added the tag); tolerance=None (untoleranced — a P2a ± field, #28); thread=None (#859)
     _ITEMS = [
-        ((10.0, 0.0, 8.0), 12.0, None, None, None),
-        ((10.0, 0.0, 24.0), 8.0, None, None, None),
-    ]  # two Z-turned ø steps
+        ((10.0, 0.0, 8.0), 12.0, None, None, None, ()),
+        ((10.0, 0.0, 24.0), 8.0, None, None, None, ()),
+    ]  # two Z-turned ø steps; empty mids — this seam test is about occupancy, not provenance
 
     def _ctx(self):
         from draftwright.annotations._common import PlacementContext

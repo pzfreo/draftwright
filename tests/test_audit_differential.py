@@ -725,9 +725,12 @@ def test_every_direct_placement_records_identity_or_says_why_not():
         ("sections.py", "_place_cutting_plane"): "final cutting-plane layout furniture",
         ("sections.py", "_render_detail"): "detail-view geometry, caption and circle",
         # -- the direct-placing rotational group (#754) -----------------------------
-        ("from_model.py", "render_rotational"): "direct-placing rotational group (#754)",
-        ("from_model.py", "_diameter_row_below"): "direct-placing rotational group (#754)",
-        ("from_model.py", "_diameter_column_left"): "direct-placing rotational group (#754)",
+        # `_diameter_row_below`, `_diameter_column_left` and the `dim_od` placements in
+        # `render_rotational` USED to sit here. They now thread the compiled claim, so the
+        # exemption is stale and deleted rather than left to cover a case it no longer
+        # describes (#1227). `render_rotational` still places centre lines, which are not
+        # measurements — that is the only reason it remains.
+        ("from_model.py", "render_rotational"): "centre lines are not measurements",
         # -- identity arrives by another route --------------------------------------
         ("from_model.py", "_reroute_crossing_diameters"): "reapplies the saved identity",
         ("sections.py", "_resolve_details"): "reapplies the saved identity",

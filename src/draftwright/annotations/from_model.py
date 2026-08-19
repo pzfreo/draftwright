@@ -988,7 +988,7 @@ def _place_what_fits(specs, axis: int, min_gap: float, lo: float, hi: float):
     """Fit as many ø specs as the strip ``[lo, hi]`` holds at ``min_gap`` spacing,
     dropping the SMALLEST-diameter spec first when the full set overflows — so the
     significant ODs survive and only the finest bands fall to ``feature_not_dimensioned``,
-    never the whole row/column (#298). ``specs`` = ``[(tip, dia, label, feat), ...]``;
+    never the whole row/column (#298). ``specs`` = ``[(tip, dia, label, feat, mids), ...]``;
     ``axis`` selects the strip coordinate of ``tip`` (0 = page-x for the row-below, 1 =
     page-y for the column-left). Returns ``(survivors_in_strip_order, positions)`` —
     ``([], [])`` if not even one fits. A part whose full row already fits keeps every
@@ -1031,15 +1031,15 @@ def _diameter_row_below(dwg, items, start: int = 0, trace=None, *, ctx) -> int:
         if ev is not None:
             ev["items"].extend(
                 {"label": f"ø{_fmt(d)}", "outcome": "dropped", "reason": "no_room_below"}
-                for _, d, _, _, _ in items
+                for _, d, _, _, _, _ in items
             )
         return 0
     specs = []  # (tip_page, dia, label, feature), tip on the step's bottom silhouette,
-    for anchor, dia, feat, dtol, thr in items:  # centred along the feature's length (not a corner)
+    for anchor, dia, feat, dtol, thr, mids in items:  # centred along the feature's length
         ax, ay, az = anchor
         tip = dwg.at("front", ax, ay, az - dia / 2)
         label = f"ø{_fmt(dia)}{_tol_suffix(dtol, draft)}" + (f" {thr}" if thr else "")  # #859
-        specs.append((tip, dia, label, feat))
+        specs.append((tip, dia, label, feat, mids))
     # Real measured width, not the per-char estimate: helpers >=0.14 label boxes are
     # honest about the rendered string, so an underestimated min_gap here surfaces as a
     # visible annotation_overlap between adjacent labels (hypothesis tier).
@@ -1051,7 +1051,7 @@ def _diameter_row_below(dwg, items, start: int = 0, trace=None, *, ctx) -> int:
                 getattr(draft, "font_path", DEFAULT_FONT_PATH),
                 getattr(draft, "font", "Arial"),
             )[0]
-            for _, _, label, _ in specs
+            for _, _, label, _, _ in specs
         )
         / 2
     )
@@ -1106,12 +1106,13 @@ def _diameter_row_below(dwg, items, start: int = 0, trace=None, *, ctx) -> int:
             for s in specs
             if id(s) not in kept
         )
-    for i, ((tip, dia, label, feat), lx) in enumerate(zip(survivors, xs, strict=True)):
+    for i, ((tip, dia, label, feat, mids), lx) in enumerate(zip(survivors, xs, strict=True)):
         ctx.place(
             Leader(tip=(tip[0], tip[1], 0), elbow=(lx, label_y, 0), label=label, draft=draft),
             f"m_dia_x{start + i}",
             view="front",
             feature=feat,
+            measurement=mids,
         )
         if ev is not None:
             ev["items"].append(
@@ -1146,7 +1147,7 @@ def _diameter_column_left(dwg, items, start: int = 0, trace=None, *, ctx) -> int
             getattr(draft, "font_path", DEFAULT_FONT_PATH),
             getattr(draft, "font", "Arial"),
         )[0]
-        for _, dia, _, dtol, thr in items
+        for _, dia, _, dtol, thr, _ in items
     )
     elbow_x = fx0 - (draft.font_size + 2 * draft.pad_around_text)
     # A left-directed leader hangs its label a shelf-length PAST the elbow, so the label's left
@@ -1157,15 +1158,15 @@ def _diameter_column_left(dwg, items, start: int = 0, trace=None, *, ctx) -> int
         if ev is not None:
             ev["items"].extend(
                 {"label": f"ø{_fmt(d)}", "outcome": "dropped", "reason": "no_room_left"}
-                for _, d, _, _, _ in items
+                for _, d, _, _, _, _ in items
             )
         return 0
     specs = []  # (tip_page, dia, label, feature), tip on the step's left silhouette,
-    for anchor, dia, feat, dtol, thr in items:  # centred along the feature's length (not a corner)
+    for anchor, dia, feat, dtol, thr, mids in items:  # centred along the feature's length
         ax, ay, az = anchor
         tip = dwg.at("front", ax - dia / 2, ay, az)
         label = f"ø{_fmt(dia)}{_tol_suffix(dtol, draft)}" + (f" {thr}" if thr else "")  # #859
-        specs.append((tip, dia, label, feat))
+        specs.append((tip, dia, label, feat, mids))
     half_h = draft.font_size / 2 + draft.pad_around_text
     min_gap = 2 * half_h
     # Place what fits; drop the smallest ø first, never the whole column (#298).
@@ -1183,7 +1184,7 @@ def _diameter_column_left(dwg, items, start: int = 0, trace=None, *, ctx) -> int
         )
     occupied = strip_obstacles(dwg, view="front", crossable=CROSSABLE_TYPES)
     placed = 0
-    for i, ((tip, dia, label, feat), ly) in enumerate(zip(survivors, ys, strict=True)):
+    for i, ((tip, dia, label, feat, mids), ly) in enumerate(zip(survivors, ys, strict=True)):
         ldr = Leader(tip=(tip[0], tip[1], 0), elbow=(elbow_x, ly, 0), label=label, draft=draft)
         if _box_hits(_anno_box(ldr), occupied):
             if ev is not None:
@@ -1191,7 +1192,7 @@ def _diameter_column_left(dwg, items, start: int = 0, trace=None, *, ctx) -> int
                     {"label": label, "outcome": "dropped", "reason": "label_occupied"}
                 )
             continue  # would overprint a bore leader / existing callout — drop just this one
-        ctx.place(ldr, f"m_dia_z{start + i}", view="front", feature=feat)
+        ctx.place(ldr, f"m_dia_z{start + i}", view="front", feature=feat, measurement=mids)
         if ev is not None:
             ev["items"].append(
                 {
@@ -1299,6 +1300,11 @@ def render_diameters(dwg, plan, a, tol: float = 0.15, *, ctx, only=None) -> int:
             entry[3] = dtol
 
     def _items(buckets):
+        # The trailing element is the ADR 0010 claim: one ø callout stands for every step
+        # sharing this diameter, so it draws each of their diameter dims (#1002). It is the
+        # same derivation the m_dia_y branch below already made; the row/column placers
+        # threaded nothing, so every X- and Z-turned ø callout reached the sheet unclaimed
+        # and no verifier could see it (#1227).
         return [
             (
                 _diameter_step_anchor(a, gs),
@@ -1306,6 +1312,7 @@ def render_diameters(dwg, plan, a, tol: float = 0.15, *, ctx, only=None) -> int:
                 next(iter(refs)) if len(refs) == 1 else None,
                 t,
                 thr,
+                tuple(pd.id for gp in gs for pd in gp.dims if pd.kind == "diameter"),
             )
             for a, d, refs, t, thr, gs in buckets.values()
         ]
@@ -4293,6 +4300,7 @@ def render_rotational(dwg, plan, a, *, ctx) -> int:
                 ),
                 "dim_od",
                 view="front",
+                measurement=od_dim.id,
             )
             n += 1
         ctx.place(
@@ -4351,6 +4359,7 @@ def render_rotational(dwg, plan, a, *, ctx) -> int:
                         ),
                         f"ldr_z{i}",
                         view="front",
+                        measurement=dim.id,
                     )
                     n += 1
                 dropped = [
@@ -4389,6 +4398,7 @@ def render_rotational(dwg, plan, a, *, ctx) -> int:
                 ),
                 "dim_od",
                 view="front",
+                measurement=od_dim.id,
             )
             n += 1
         ctx.place(
@@ -4424,6 +4434,7 @@ def render_rotational(dwg, plan, a, *, ctx) -> int:
                 ),
                 "dim_od",
                 view="side",
+                measurement=od_dim.id,
             )
             n += 1
         ctx.place(
