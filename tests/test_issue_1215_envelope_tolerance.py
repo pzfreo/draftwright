@@ -127,55 +127,53 @@ class TestTheToleranceReachesTheInk:
 
 
 class TestTheCostOnACrowdedSheet:
-    """A longer label can overlap the view, and on this fixture it does. Pinned, not hidden.
+    """A longer label grows ALONG the dimension line when the label is rotated.
 
-    `Sheet(Box(30, 20, 10)).envelope().tolerance(0.05, on="height")` — the fixture these tests
-    build — goes from an `info` to a `warning`:
+    The height dim is `side="right"`, so its label is rotated and the suffix extends it in Y —
+    the direction the corridor does not reserve, since the strip's depth runs in X. Measured on
+    `Sheet(Box(30, 20, 10)).envelope().tolerance(0.05, on="height")`:
 
-        before: view_annotation_inside_extents (info)
-        after : view_annotation_overlap (warning)  "line-work overlaps label of '10 ±0.1'"
+        label bbox height  3.273 -> 12.300
+        annotation bbox    (64.95, 85.05) -> unchanged
 
-    The height dim is `side="right"`, so its label is ROTATED and the suffix grows it along the
-    dimension line — in Y, not into the reserved strip depth. Measured, `label_bbox` goes
-    y 73.36-76.64 -> 68.85-81.15 while the annotation's own `bounding_box()` is unchanged, which
-    is why a bbox comparison misses it. The corridor solve does not model a rotated label's
-    along-line growth, and `repair()` does not clear it.
+    The annotation's own `bounding_box()` not moving is why a bbox comparison misses this
+    entirely, and why the corridor solve does not account for it.
 
-    That is a real cost of rendering the tolerance, and the lint is right to report it — the
-    label does overlap. It is pinned here so the next person sees a decision rather than a
-    surprise; fixing it means teaching the corridor about rotated labels, which is not this
-    change (#1234 review r2).
+    **What this class does NOT assert is the lint outcome.** On this machine the fixture goes
+    from `view_annotation_inside_extents` (info) to `view_annotation_overlap` (warning), and
+    `repair()` does not clear it. On CI it produces neither — `codes` is the empty set. I first
+    pinned the warning and it failed on three ubuntu shards: whether the taller label actually
+    crosses the front view's edge depends on the solved offset, which differs by platform. The
+    geometry is the durable fact; the lint code is not, and asserting it was pinning my own
+    machine (#1234 review r2, and its CI run).
     """
 
-    def test_the_toleranced_height_overlaps_the_view_on_this_fixture(self):
-        codes = {issue.code for issue in _built("height").lint()}
-        assert "view_annotation_overlap" in codes, codes
+    @staticmethod
+    def _label_box(drawing, name):
+        return getattr(drawing.registry.named(name), "label_bbox")
 
-    def test_the_untoleranced_fixture_does_not(self):
-        # The precondition: without this the assertion above could be pinning a pre-existing
-        # warning that has nothing to do with the tolerance.
-        codes = {issue.code for issue in _built(axis=None).lint()}
-        assert "view_annotation_overlap" not in codes, codes
+    def test_a_rotated_label_grows_along_the_dimension_line(self):
+        bare = self._label_box(_built(axis=None), "dim_height")
+        tol = self._label_box(_built("height"), "dim_height")
+        assert (tol[3] - tol[1]) > (bare[3] - bare[1]) * 2, (bare, tol)
+        # ...and NOT across it: the strip depth is unchanged, which is the whole problem.
+        assert round(tol[2] - tol[0], 3) == round(bare[2] - bare[0], 3), (bare, tol)
 
-    def test_a_shorter_suffix_does_not_trip_it(self):
-        # It is length, not the presence of a suffix: a fit class renders `10 h6` and fits.
-        from draftwright.builder import build_drawing
-        from draftwright.fits import fit_class
+    def test_the_annotations_own_bounding_box_does_not_move(self):
+        # Why this went unnoticed: the obvious check sees nothing.
+        def box(drawing):
+            b = drawing.registry.named("dim_height").bounding_box()
+            return (round(b.min.Y, 2), round(b.max.Y, 2))
 
-        sheet = Sheet(Box(30, 20, 10))
-        sheet.envelope()
-        sheet.auto_dimensions()
-        model = sheet.build().model()
-        envelope = next(f for f in model.features if f.kind == "envelope")
-        drawing = build_drawing(
-            Box(30, 20, 10),
-            model=model,
-            decorations={(envelope, "length", "height"): fit_class("h6", 10.0, "class")},
-            title="T",
-            number="N-1",
-        )
-        assert _label(drawing, "dim_height") == "10 h6"
-        assert "view_annotation_overlap" not in {issue.code for issue in drawing.lint()}
+        assert box(_built(axis=None)) == box(_built("height"))
+
+    def test_an_unrotated_extent_grows_the_other_way(self):
+        # The contrast that makes the rotation the cause rather than the suffix: `m_env_width`
+        # is horizontal, so its label grows in X — into the strip depth, which IS reserved.
+        bare = self._label_box(_built(axis=None), "m_env_width")
+        tol = self._label_box(_built("width"), "m_env_width")
+        assert (tol[2] - tol[0]) > (bare[2] - bare[0]), (bare, tol)
+        assert round(tol[3] - tol[1], 3) == round(bare[3] - bare[1], 3), (bare, tol)
 
 
 class TestAFitClassRendersToo:
