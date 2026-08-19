@@ -244,6 +244,7 @@ class TestCardinalityIsNotTradedForCleanliness:
 
     # Parametrized per fixture (#656): each dense build is ~60 s, and one test running
     # them serially set the wall-clock floor for the whole suite under --dist loadscope.
+    @pytest.mark.slow  # >=30 s inherent dense build; post-merge tier (#656)
     @pytest.mark.parametrize(("stem", "expected"), CASES)
     def test_the_dense_fixtures_place_the_same_callouts_as_before(
         self, tmp_path, monkeypatch, stem, expected

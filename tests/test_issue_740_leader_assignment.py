@@ -356,6 +356,7 @@ def _groove_leader_evidence(drawing):
     return names, lengths, measurements
 
 
+@pytest.mark.slow  # >=30 s inherent dense build; post-merge tier (#656)
 def test_public_render_is_crossing_free_and_pair_budget_is_legacy_floor(monkeypatch, tmp_path):
     part, model = _crowded_declared_grooves()
     joint = build_drawing(part, model=model, page="A4")
@@ -575,6 +576,7 @@ def test_trace_identifies_a_joint_conflict_between_fixed_clear_candidates(tmp_pa
     )
 
 
+@pytest.mark.slow  # >=30 s inherent dense build; post-merge tier (#656)
 def test_bounded_legacy_fallback_preserves_drop_diagnostic(monkeypatch, tmp_path):
     shaft = Cylinder(10, 60)
     grooves = [
@@ -614,6 +616,7 @@ def test_bounded_legacy_fallback_preserves_drop_diagnostic(monkeypatch, tmp_path
     assert len(issues[0].measurement_ids) == 2
 
 
+@pytest.mark.slow  # >=30 s inherent dense build; post-merge tier (#656)
 def test_state_budget_replays_the_producer_legacy_floor(monkeypatch, tmp_path):
     shaft = Cylinder(10, 60)
     grooves = [

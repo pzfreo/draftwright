@@ -98,8 +98,14 @@ def _declared_flat_drawing(*, suppress: bool = False):
     return sheet.build()
 
 
-def test_a_placed_engine_callout_satisfies_the_recognised_requirement():
-    dwg = build_drawing(_double_d())
+@pytest.fixture(scope="module")
+def double_d_dwg():
+    """One double-D build shared by read-only critiques (#656). Mutating tests build their own."""
+    return build_drawing(_double_d())
+
+
+def test_a_placed_engine_callout_satisfies_the_recognised_requirement(double_d_dwg):
+    dwg = double_d_dwg
     name = _flat_callout(dwg)
     assert len(dwg.measurement_keys(name)) == 2, (
         "a double-D callout must retain both compiler measurement ids; otherwise a clean "
@@ -192,13 +198,13 @@ def test_stock_identity_defines_requirement_cardinality_without_page_matching():
     )
 
 
-def test_direction_is_a_load_bearing_part_of_slanted_requirement_identity():
+def test_direction_is_a_load_bearing_part_of_slanted_requirement_identity(double_d_dwg):
     """Two directions through one perpendicular foot are different stock lines.
 
     This deliberately holds axis letter, line coordinates, span and A/F equal. Removing
     direction from the key collapses the two physical requirements into one and must fail.
     """
-    drawing = build_drawing(_double_d())
+    drawing = double_d_dwg
     recognition = drawing.recognition()
     assert recognition is not None
     directions = ((1.0, 0.0, 1.0), (1.0, 0.0, -1.0))
@@ -247,8 +253,8 @@ def test_authored_omission_is_suppressed_not_missing():
     assert completeness["audited_score"] == 0.0
 
 
-def test_a_planner_omission_is_not_authored_suppression():
-    dwg = build_drawing(_double_d())
+def test_a_planner_omission_is_not_authored_suppression(double_d_dwg):
+    dwg = double_d_dwg
     recognition = dwg.recognition()
     assert recognition is not None
     features = dwg.model().features
@@ -323,8 +329,8 @@ def test_requirement_identity_without_source_record_correspondence_is_unverifiab
     assert _flat_codes(dwg) == ["flat_requirement_unverifiable"]
 
 
-def test_automatic_and_declared_paths_agree_when_provenance_is_complete():
-    automatic = build_drawing(_double_d())
+def test_automatic_and_declared_paths_agree_when_provenance_is_complete(double_d_dwg):
+    automatic = double_d_dwg
     declared = _declared_flat_drawing()
 
     assert _flat_callout(automatic)

@@ -220,6 +220,7 @@ _PARTS = st.one_of(
 # Generous timeout: on a failure Hypothesis shrinks (many extra builds at ~3-6 s each), and
 # the repo-wide 300 s pytest timeout would otherwise interrupt shrinking and replace the
 # minimized counterexample with an opaque timeout (#664 review).
+@pytest.mark.slow  # >=30 s inherent dense build; post-merge tier (#656)
 @pytest.mark.timeout(1200)
 @given(part=_PARTS)
 @_LAYOUT_SETTINGS

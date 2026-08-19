@@ -100,6 +100,17 @@ def _feature_leader_names(drawing):
     ]
 
 
+@pytest.fixture(scope="module")
+def inked_box_dwg():
+    """One fixed-ink box build shared by read-only critiques (#656). Mutating tests build their own."""
+    return build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+
+
+@pytest.fixture(scope="module")
+def tiny_box_dwg():
+    return build_drawing(Box(10, 10, 2), page="A4", auto_dims=False)
+
+
 def test_public_narrow_part_uses_one_cross_pass_inventory(tmp_path):
     part, model = _narrow_cross_pass_part()
     trace_path = tmp_path / "cross-pass.json"
@@ -274,8 +285,8 @@ def test_near_clear_witness_is_not_falsely_classified_by_strip_padding():
     assert not any("3× ⌀8 THRU" in message for message in issues)
 
 
-def test_unrelated_center_furniture_is_fixed_ink_but_own_mark_is_not():
-    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+def test_unrelated_center_furniture_is_fixed_ink_but_own_mark_is_not(inked_box_dwg):
+    drawing = inked_box_dwg
     bounds = drawing.view_bounds("front")
     assert bounds is not None
     tip = (bounds[2], (bounds[1] + bounds[3]) / 2.0)
@@ -333,8 +344,8 @@ def test_unrelated_center_furniture_is_fixed_ink_but_own_mark_is_not():
     assert not any(issue.code == "feature_leader_crossing" for issue in drawing.lint())
 
 
-def test_circular_center_furniture_keeps_its_empty_interior_available():
-    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+def test_circular_center_furniture_keeps_its_empty_interior_available(inked_box_dwg):
+    drawing = inked_box_dwg
     ctx = PlacementContext(
         registry=drawing.registry,
         coverage=drawing.coverage,
@@ -415,8 +426,8 @@ def test_circular_center_furniture_keeps_its_empty_interior_available():
     assert drawing.get_annotation("interior_leader").segments[0][1] == elbow
 
 
-def test_shifted_dimension_keeps_rendered_arrowheads_in_fixed_ink():
-    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+def test_shifted_dimension_keeps_rendered_arrowheads_in_fixed_ink(inked_box_dwg):
+    drawing = inked_box_dwg
     ctx = PlacementContext(
         registry=drawing.registry,
         coverage=drawing.coverage,
@@ -472,8 +483,8 @@ def test_shifted_dimension_keeps_rendered_arrowheads_in_fixed_ink():
     assert len([component for component in basic_components if ":arrow:" in component.name]) == 2
 
 
-def test_filled_datum_face_is_part_of_the_fixed_ink_inventory():
-    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+def test_filled_datum_face_is_part_of_the_fixed_ink_inventory(inked_box_dwg):
+    drawing = inked_box_dwg
     datum = DatumFeature("A", draft=drawing.draft, filled=True)
 
     components = _annotation_fixed_ink(drawing, "datum_test", datum)
@@ -500,8 +511,8 @@ def test_filled_datum_face_is_part_of_the_fixed_ink_inventory():
     assert blockers[0].startswith("datum_test:ink:")
 
 
-def test_ownerless_section_centerline_at_the_tip_is_not_a_global_axis_exemption():
-    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+def test_ownerless_section_centerline_at_the_tip_is_not_a_global_axis_exemption(inked_box_dwg):
+    drawing = inked_box_dwg
     bounds = drawing.view_bounds("front")
     assert bounds is not None
     tip = (bounds[2], (bounds[1] + bounds[3]) / 2.0)
@@ -1390,8 +1401,8 @@ def test_live_context_without_shared_inventory_keeps_immediate_path():
         {"label_bbox": (0.0, 0.0, 1.0, 1.0)},
     ],
 )
-def test_zero_component_budget_stops_before_each_fixed_metadata_source(metadata):
-    drawing = build_drawing(Box(10, 10, 2), page="A4", auto_dims=False)
+def test_zero_component_budget_stops_before_each_fixed_metadata_source(metadata, tiny_box_dwg):
+    drawing = tiny_box_dwg
     face_calls = 0
 
     def faces():
@@ -1450,8 +1461,8 @@ def test_zero_component_budget_stops_before_rendered_face_lowering():
         (1.0, 1.0, 1.0, 2.0),
     ],
 )
-def test_failed_residual_and_bad_box_cannot_certify_partial_fixed_ink(box_values):
-    drawing = build_drawing(Box(10, 10, 2), page="A4", auto_dims=False)
+def test_failed_residual_and_bad_box_cannot_certify_partial_fixed_ink(box_values, tiny_box_dwg):
+    drawing = tiny_box_dwg
 
     def faces():
         raise RuntimeError("rendered geometry unavailable")
@@ -1492,8 +1503,8 @@ def test_failed_residual_and_bad_box_cannot_certify_partial_fixed_ink(box_values
     assert conservative[-1].box == (0.0, 0.0, drawing.page_w, drawing.page_h)
 
 
-def test_empty_face_inventory_uses_only_conservative_geometry_fallback():
-    drawing = build_drawing(Box(10, 10, 2), page="A4", auto_dims=False)
+def test_empty_face_inventory_uses_only_conservative_geometry_fallback(tiny_box_dwg):
+    drawing = tiny_box_dwg
     bbox_calls = 0
     rendered_box = Box(4, 3, 1).bounding_box()
 
@@ -1523,8 +1534,8 @@ def test_empty_face_inventory_uses_only_conservative_geometry_fallback():
     assert bbox_calls == 1
 
 
-def test_empty_faces_accept_an_explicit_complete_fixed_ink_footprint():
-    drawing = build_drawing(Box(10, 10, 2), page="A4", auto_dims=False)
+def test_empty_faces_accept_an_explicit_complete_fixed_ink_footprint(tiny_box_dwg):
+    drawing = tiny_box_dwg
     polygon = ((0.0, 0.0), (2.0, 0.0), (2.0, 1.0), (0.0, 1.0))
     annotation = SimpleNamespace(
         segments=(),
@@ -1546,8 +1557,10 @@ def test_empty_faces_accept_an_explicit_complete_fixed_ink_footprint():
 
 
 @pytest.mark.parametrize("raising_attribute", ["segments", "fixed_ink_polygons", "label_bbox"])
-def test_raising_fixed_metadata_uses_the_unavailable_inventory_contract(raising_attribute):
-    drawing = build_drawing(Box(10, 10, 2), page="A4", auto_dims=False)
+def test_raising_fixed_metadata_uses_the_unavailable_inventory_contract(
+    raising_attribute, tiny_box_dwg
+):
+    drawing = tiny_box_dwg
 
     class RaisingMetadata:
         segments = ()
@@ -1574,8 +1587,8 @@ def test_raising_fixed_metadata_uses_the_unavailable_inventory_contract(raising_
 
 
 @pytest.mark.parametrize("coordinate", [float("nan"), float("inf"), -float("inf")])
-def test_nonfinite_fixed_segments_use_the_unavailable_inventory_contract(coordinate):
-    drawing = build_drawing(Box(10, 10, 2), page="A4", auto_dims=False)
+def test_nonfinite_fixed_segments_use_the_unavailable_inventory_contract(coordinate, tiny_box_dwg):
+    drawing = tiny_box_dwg
     annotation = SimpleNamespace(
         segments=(((coordinate, 0.0), (1.0, 0.0)),),
         fixed_ink_polygons=(),
@@ -1604,8 +1617,8 @@ def test_nonfinite_fixed_segments_use_the_unavailable_inventory_contract(coordin
         ((0.0, 0.0), (float("nan"), 0.0), (0.0, 1.0)),
     ],
 )
-def test_malformed_fixed_polygons_use_the_unavailable_inventory_contract(polygon):
-    drawing = build_drawing(Box(10, 10, 2), page="A4", auto_dims=False)
+def test_malformed_fixed_polygons_use_the_unavailable_inventory_contract(polygon, tiny_box_dwg):
+    drawing = tiny_box_dwg
     annotation = SimpleNamespace(
         segments=(),
         fixed_ink_polygons=(polygon,),
@@ -1626,8 +1639,8 @@ def test_malformed_fixed_polygons_use_the_unavailable_inventory_contract(polygon
     assert conservative[-1].box == (0.0, 0.0, drawing.page_w, drawing.page_h)
 
 
-def test_malformed_rendered_triangles_use_the_unavailable_inventory_contract():
-    drawing = build_drawing(Box(10, 10, 2), page="A4", auto_dims=False)
+def test_malformed_rendered_triangles_use_the_unavailable_inventory_contract(tiny_box_dwg):
+    drawing = tiny_box_dwg
     rendered_box = Box(4, 3, 1).bounding_box()
 
     class MalformedFace:
@@ -2087,8 +2100,8 @@ def test_future_section_cannot_veto_a_required_leader_but_title_is_hard(monkeypa
     assert any(issue.code == "callout_dropped" for issue in drawing.registry.issues)
 
 
-def test_rendered_title_keeps_the_whole_mandatory_band_hard():
-    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+def test_rendered_title_keeps_the_whole_mandatory_band_hard(inked_box_dwg):
+    drawing = inked_box_dwg
     title = drawing.get_annotation("title_block")
     title_box = title.bounding_box()
     bounds = drawing.view_bounds("front")

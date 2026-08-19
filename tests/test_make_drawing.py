@@ -100,6 +100,32 @@ def dwg_box_60_40_20():
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture(scope="module")
+def plain_box_dwg():
+    """One plain-box build shared by read-only critiques (#656). Mutating tests build their own."""
+    return build_drawing(Box(60, 40, 20))
+
+
+@pytest.fixture(scope="module")
+def small_box_dwg():
+    return build_drawing(Box(30, 20, 10))
+
+
+@pytest.fixture(scope="module")
+def holed_plate_dwg():
+    return build_drawing(_holed_plate())
+
+
+@pytest.fixture(scope="module")
+def multi_hole_dwg():
+    return build_drawing(_multi_hole_plate())
+
+
+@pytest.fixture(scope="module")
+def x_shaft_dwg():
+    return build_drawing(_x_stepped_shaft())
+
+
 class TestFmt:
     def test_integer_value(self):
         assert _fmt(36.0) == "36"
@@ -2357,14 +2383,12 @@ class TestDynamicCorridors:
             x_size, y_size, z_size, scale, page_w, page_h, tb
         )
 
-    def test_gap_fv_sv_equals_dim_pad_for_flat_part(self):
+    def test_gap_fv_sv_equals_dim_pad_for_flat_part(self, plain_box_dwg):
         # A plain box (no step faces) → sv_left - fv_right == _DIM_PAD.
-        from build123d import Box
 
-        from draftwright import build_drawing
         from draftwright._core import _DIM_PAD
 
-        a = build_drawing(Box(60, 40, 20))._analysis
+        a = plain_box_dwg._analysis
         assert len(a.step_zs) == 0
         sv_left = a.SV_X - a.sv_hw
         fv_right = a.FV_X + a.fv_hw
@@ -2444,14 +2468,12 @@ class TestTwoPassLayout:
             f"gap_fv_sv={actual_gap:.1f} mm must be >= bore_depth={bore_depth:.1f} mm"
         )
 
-    def test_plain_box_gap_unchanged(self):
+    def test_plain_box_gap_unchanged(self, plain_box_dwg):
         # A box with no holes: bore callout depth = 0 → gap_fv_sv stays _DIM_PAD.
-        from build123d import Box
 
-        from draftwright import build_drawing
         from draftwright._core import _DIM_PAD
 
-        d = build_drawing(Box(60, 40, 20))
+        d = plain_box_dwg
         sv_left = d.view_bounds("side")[0]
         fv_right = d.view_bounds("front")[2]
         assert sv_left - fv_right == pytest.approx(_DIM_PAD, abs=0.1)
@@ -3638,8 +3660,8 @@ def test_clear_annotations_keeps_title_block():
 
 
 @pytest.mark.timeout(60)
-def test_clear_annotations_keep_custom_and_unnamed_removed():
-    dwg = build_drawing(Box(30, 20, 10))
+def test_clear_annotations_keep_custom_and_unnamed_removed(small_box_dwg):
+    dwg = small_box_dwg
     keep_me = dwg._add(
         Leader(tip=dwg.at("front", 0, 0, 0), elbow=(5, 5, 0), label="K", draft=dwg.draft), "ldr_k"
     )
@@ -3726,11 +3748,11 @@ def test_iso_view_grow_capped_at_max():
 
 
 @pytest.mark.timeout(60)
-def test_iso_stays_within_page_bounds():
+def test_iso_stays_within_page_bounds(small_box_dwg):
     # Whether scaled up or not, the iso must always lie within the page margin.
     from draftwright._core import _iso_bbox
 
-    dwg = build_drawing(Box(30, 20, 10))
+    dwg = small_box_dwg
     x0, y0, x1, y1 = _iso_bbox(dwg)
     margin = 10
     assert x0 >= margin - 0.5
@@ -3820,8 +3842,8 @@ def test_drawing_add_replaces_reused_name():
 
 
 @pytest.mark.timeout(60)
-def test_drawing_at_maps_world_to_page():
-    dwg = build_drawing(Box(30, 20, 10))
+def test_drawing_at_maps_world_to_page(small_box_dwg):
+    dwg = small_box_dwg
     cx, cy, cz = dwg.centroid
     base = dwg.at("front", cx, cy, cz)
     # Front view: world +X → page +X, world +Z → page +Y.
@@ -6056,8 +6078,8 @@ class TestDetailView:
             if name.startswith("dim_detail_a_step")
         ] == ["38"]
 
-    def test_plain_part_gets_no_detail_view(self):
-        dwg = build_drawing(Box(60, 40, 20))
+    def test_plain_part_gets_no_detail_view(self, plain_box_dwg):
+        dwg = plain_box_dwg
         assert "detail_a" not in dwg.views
         assert "detail_caption" not in dwg.annotations()
         assert not any(n.startswith("dim_detail") for n in dwg.annotations())
@@ -6345,8 +6367,8 @@ def _model_signature(m):
 class TestModel:
     """#397: dwg.model() exposes the detected ADR-0008 PartModel as the read surface."""
 
-    def test_model_exposes_detected_features(self):
-        m = build_drawing(_holed_plate()).model()
+    def test_model_exposes_detected_features(self, holed_plate_dwg):
+        m = holed_plate_dwg.model()
         assert m is not None
         assert m.orientation is None  # prismatic plate
         kinds = {f.kind for f in m.features}
@@ -6406,10 +6428,10 @@ class TestFeatureEdits:
     locations, callouts and diameters thread `feature` in follow-up PRs. annotations_of()
     returns exactly the covered set, so drop() is transparent about what it removes."""
 
-    def test_annotations_of_returns_a_features_centermarks_and_locations(self):
+    def test_annotations_of_returns_a_features_centermarks_and_locations(self, holed_plate_dwg):
         # A hole owns its centre mark(s), location dims (#398c, corridor-placed
         # m_locx/m_locy), and its ⌀ callout (#408, hc_).
-        dwg = build_drawing(_holed_plate())
+        dwg = holed_plate_dwg
         hole = next(f for f in dwg.model().features if f.kind == "hole")
         owned = dwg.annotations_of(hole)
         assert any(n.startswith("m_cm") for n in owned), "hole should own its centre mark(s)"
@@ -7587,11 +7609,11 @@ class TestFeatureEdits:
         removed = set(dwg.drop(pat))
         assert removed == set(owned)
 
-    def test_balloon_is_owned_by_its_hole(self):
+    def test_balloon_is_owned_by_its_hole(self, holed_plate_dwg):
         # #408 C: a balloon (which carries a recognition hole) attributes to the IR feature.
         from draftwright.annotations._common import PlacementContext
 
-        dwg = build_drawing(_holed_plate())
+        dwg = holed_plate_dwg
         a = dwg._analysis
         hole_obj = a.holes[0]
         # the attribution index lives on the run ctx (#639/#699); build one to query it
@@ -7726,10 +7748,10 @@ class TestFeatureEdits:
         if env is not None:
             assert dwg.drop(env) == []
 
-    def test_manual_add_records_feature_provenance(self):
+    def test_manual_add_records_feature_provenance(self, holed_plate_dwg):
         from build123d_drafting import CenterMark
 
-        dwg = build_drawing(_holed_plate())
+        dwg = holed_plate_dwg
         hole = next(f for f in dwg.model().features if f.kind == "hole")
         dwg._add(CenterMark((0, 0, 0), 3.0, dwg.draft), "my_mark", view="plan", feature=hole)
         assert "my_mark" in dwg.annotations_of(hole)
@@ -7769,23 +7791,23 @@ class TestFeatures:
         assert f.type == "hole"
         assert f.count == 1
 
-    def test_z_axis_holes_appear_in_plan_view(self):
-        dwg = build_drawing(_holed_plate())
+    def test_z_axis_holes_appear_in_plan_view(self, holed_plate_dwg):
+        dwg = holed_plate_dwg
         feats = dwg.features("plan")
         assert len(feats) == 2  # ø10 group (×4) + ø6 group (×1)
         diams = {f.diameter for f in feats}
         assert diams == {10.0, 6.0}
 
-    def test_through_and_blind_correctly_classified(self):
-        dwg = build_drawing(_holed_plate())
+    def test_through_and_blind_correctly_classified(self, holed_plate_dwg):
+        dwg = holed_plate_dwg
         feats = {f.diameter: f for f in dwg.features("plan")}
         assert feats[10.0].through is True
         assert feats[10.0].depth is None
         assert feats[6.0].through is False
         assert feats[6.0].depth == 10.0
 
-    def test_count_groups_identical_holes(self):
-        dwg = build_drawing(_holed_plate())
+    def test_count_groups_identical_holes(self, holed_plate_dwg):
+        dwg = holed_plate_dwg
         feats = {f.diameter: f for f in dwg.features("plan")}
         assert feats[10.0].count == 4
         assert feats[6.0].count == 1
@@ -7806,8 +7828,8 @@ class TestFeatures:
         six = sorted(f.count for f in dwg.features("plan") if f.diameter == 6.0)
         assert six == [2, 6]  # two ø6 groups, not one merged count-8
 
-    def test_page_pos_is_in_plan_view_coordinate_range(self):
-        dwg = build_drawing(_holed_plate())
+    def test_page_pos_is_in_plan_view_coordinate_range(self, holed_plate_dwg):
+        dwg = holed_plate_dwg
         a = dwg._analysis
         feats = dwg.features("plan")
         for f in feats:
@@ -7816,9 +7838,9 @@ class TestFeatures:
             assert abs(px - a.PV_X) <= a.x_size / 2 * a.SCALE + 5
             assert abs(py - a.PV_Y) <= a.y_size / 2 * a.SCALE + 5
 
-    def test_z_axis_holes_absent_from_front_view(self):
+    def test_z_axis_holes_absent_from_front_view(self, holed_plate_dwg):
         # The holed plate has only Z-axis holes — none should appear in front
-        dwg = build_drawing(_holed_plate())
+        dwg = holed_plate_dwg
         assert dwg.features("front") == []
 
     def test_unknown_view_returns_empty(self):
@@ -8546,10 +8568,12 @@ class TestLintSuggestions:
         assert "place_dim" in sug
         assert "dim_width" in sug
 
-    def test_dim_inside_part_suggestion_prefers_dimension_with_place_dim_fallback(self):
+    def test_dim_inside_part_suggestion_prefers_dimension_with_place_dim_fallback(
+        self, plain_box_dwg
+    ):
         from draftwright.linting import LintIssue, _suggest_fix
 
-        dwg = build_drawing(Box(60, 40, 20))
+        dwg = plain_box_dwg
         issue = LintIssue(
             severity="warning",
             message="Dim 'dim_height': annotation bbox overlaps part outline by 40%",
@@ -8562,12 +8586,12 @@ class TestLintSuggestions:
         assert "place_dim" in sug
         assert "dim_height" in sug
 
-    def test_plate_thickness_dropped_suggestion_authors_a_thickness_dim(self):
+    def test_plate_thickness_dropped_suggestion_authors_a_thickness_dim(self, plain_box_dwg):
         # #641 gap 4: assert the snippet CONTENT, not just its presence — a dropped plate
         # thickness must point at a feature-backed thickness dim, not a raw-coordinate hack.
         from draftwright.linting import LintIssue, _suggest_fix
 
-        dwg = build_drawing(Box(60, 40, 20))
+        dwg = plain_box_dwg
         issue = LintIssue(
             severity="warning",
             message="plate thickness 5.0 dropped",
@@ -8579,11 +8603,11 @@ class TestLintSuggestions:
         assert 'role="thickness"' in sug
         assert "pin=True" in sug
 
-    def test_chamfer_dropped_suggestion_mentions_detail_view(self):
+    def test_chamfer_dropped_suggestion_mentions_detail_view(self, plain_box_dwg):
         # #641 gap 4: a dropped chamfer leader should steer the user to an enlarged detail view.
         from draftwright.linting import LintIssue, _suggest_fix
 
-        dwg = build_drawing(Box(60, 40, 20))
+        dwg = plain_box_dwg
         issue = LintIssue(
             severity="warning", message="chamfer callout dropped", code="chamfer_dropped"
         )
@@ -8591,12 +8615,12 @@ class TestLintSuggestions:
         assert sug is not None
         assert "detail_view=True" in sug
 
-    def test_step_position_dropped_suggestion_mentions_detail_view(self):
+    def test_step_position_dropped_suggestion_mentions_detail_view(self, plain_box_dwg):
         # #641 gap 4: a dropped shoulder position rebuilds as a set, so the fix is to free strip
         # room / use a detail view — NOT to author one shoulder by hand.
         from draftwright.linting import LintIssue, _suggest_fix
 
-        dwg = build_drawing(Box(60, 40, 20))
+        dwg = plain_box_dwg
         issue = LintIssue(
             severity="warning", message="step position dropped", code="step_position_dropped"
         )
@@ -8604,10 +8628,10 @@ class TestLintSuggestions:
         assert sug is not None
         assert "detail_view=True" in sug
 
-    def test_unknown_code_has_no_suggestion(self):
+    def test_unknown_code_has_no_suggestion(self, plain_box_dwg):
         from draftwright.linting import LintIssue, _suggest_fix
 
-        dwg = build_drawing(Box(60, 40, 20))
+        dwg = plain_box_dwg
         issue = LintIssue(severity="info", message="something", code="some_unhandled_code")
         assert _suggest_fix(issue, dwg) is None
 
@@ -8624,12 +8648,12 @@ class TestLintSuggestions:
         assert issues[0].suggestion is not None
         assert "dwg.callout(" in issues[0].suggestion
 
-    def test_feature_count_mismatch_suggestion_sets_count(self):
+    def test_feature_count_mismatch_suggestion_sets_count(self, plain_box_dwg):
         # The leading number is `need`; diameter digits (even fractional) must
         # not interfere with the parse.
         from draftwright.linting import LintIssue, _suggest_fix
 
-        dwg = build_drawing(Box(60, 40, 20))
+        dwg = plain_box_dwg
         issue = LintIssue(
             severity="warning",
             message="4 ø8.5 features on the part but callouts account for 1",
@@ -8660,7 +8684,7 @@ class TestRepair:
         assert dwg.get_annotation("ov2")._dw_spec.distance == 8
         assert [i for i in dwg.lint() if i.code == "annotation_overlap"]
 
-    def test_repair_dim_inside_part_flips_side(self):
+    def test_repair_dim_inside_part_flips_side(self, plain_box_dwg):
         # dim_inside_part is dormant in the multi-view sheet (lint passes no
         # part_bbox), so drive the repair directly: a wrong-side dim flips to
         # the opposite side and keeps its name binding.
@@ -8668,7 +8692,7 @@ class TestRepair:
         from draftwright.linting import LintIssue
         from draftwright.repair import _repair_dim_inside_part
 
-        dwg = build_drawing(Box(60, 40, 20))
+        dwg = plain_box_dwg
         dim = dwg._add(_dim((0, 0, 0), (40, 0, 0), "above", 8, dwg.draft, label="INSIDE"), "x")
         assert dim._dw_spec.side == "above"
 
@@ -8838,8 +8862,8 @@ class TestPin:
 class TestAnnotationsQuery:
     """#27: introspect existing annotations by name and type."""
 
-    def test_annotations_maps_name_to_type(self):
-        dwg = build_drawing(Box(60, 40, 20))
+    def test_annotations_maps_name_to_type(self, plain_box_dwg):
+        dwg = plain_box_dwg
         anns = dwg.annotations()
         # A dict keyed by the names actually registered, valued by class name.
         assert isinstance(anns, dict)
@@ -8849,28 +8873,28 @@ class TestAnnotationsQuery:
         for name, type_name in anns.items():
             assert type(dwg.get_annotation(name)).__name__ == type_name
 
-    def test_annotations_omits_unnamed(self):
+    def test_annotations_omits_unnamed(self, plain_box_dwg):
         from draftwright._core import _dim
 
-        dwg = build_drawing(Box(60, 40, 20))
+        dwg = plain_box_dwg
         before = dict(dwg.annotations())
         dwg._add(_dim((0, 0, 0), (40, 0, 0), "above", 8, dwg.draft, label="U"))  # no name
         # Unnamed annotation lands in items but not in the name→type map.
         assert dwg.annotations() == before
         assert len(dwg.items) == len(before) + 1
 
-    def test_annotations_reflects_add_and_membership(self):
+    def test_annotations_reflects_add_and_membership(self, plain_box_dwg):
         from draftwright._core import _dim
 
-        dwg = build_drawing(Box(60, 40, 20))
+        dwg = plain_box_dwg
         assert "q_dim" not in dwg.annotations()
         dwg._add(_dim((0, 0, 0), (40, 0, 0), "above", 8, dwg.draft, label="Q"), "q_dim")
         assert dwg.annotations()["q_dim"] == "Dimension"
 
-    def test_get_annotation_returns_object_or_none(self):
+    def test_get_annotation_returns_object_or_none(self, plain_box_dwg):
         from draftwright._core import _dim
 
-        dwg = build_drawing(Box(60, 40, 20))
+        dwg = plain_box_dwg
         obj = dwg._add(_dim((0, 0, 0), (40, 0, 0), "above", 8, dwg.draft, label="G"), "g")
         assert dwg.get_annotation("g") is obj
         assert dwg.get_annotation("does_not_exist") is None
@@ -9633,23 +9657,23 @@ class TestTurnedDiameters:
         assert dwg.view_of("centerline_side") == "side"
         assert dwg.view_of("centerline_plan") == "plan"
 
-    def test_each_external_diameter_gets_a_callout(self):
-        dwg = build_drawing(_x_stepped_shaft())
+    def test_each_external_diameter_gets_a_callout(self, x_shaft_dwg):
+        dwg = x_shaft_dwg
         labels = {o.label for n, o in dwg.iter_annotations() if n.startswith("m_dia")}
         assert "ø30" in labels
         assert "ø16" in labels
 
-    def test_no_feature_not_dimensioned_left(self):
+    def test_no_feature_not_dimensioned_left(self, x_shaft_dwg):
         # The whole point: the external diameters no longer lint as uncovered.
-        dwg = build_drawing(_x_stepped_shaft())
+        dwg = x_shaft_dwg
         codes = dwg.lint_summary()["by_code"]
         assert codes.get("feature_not_dimensioned", 0) == 0
 
-    def test_callouts_are_leaders_on_the_constraint_solver(self):
+    def test_callouts_are_leaders_on_the_constraint_solver(self, x_shaft_dwg):
         # Placed via _solve_strip_ys (ADR 0003 layer-2), so two distinct
         # diameters never share an x and never collide: label xs are min_gap
         # apart and inside the front view's page bounds.
-        dwg = build_drawing(_x_stepped_shaft())
+        dwg = x_shaft_dwg
         leaders = [o for n, o in dwg.iter_annotations() if n.startswith("m_dia")]
         assert len(leaders) >= 2
         xs = sorted(ldr.elbow[0] for ldr in leaders)
@@ -9727,12 +9751,12 @@ class TestTurnedDiameters:
         undim = {i.message.split()[2] for i in dwg.lint() if i.code == "feature_not_dimensioned"}
         assert "ø6" in undim  # only the finest band falls to honest lint
 
-    def test_leader_tip_on_the_edge_centred_on_the_feature_length(self):
+    def test_leader_tip_on_the_edge_centred_on_the_feature_length(self, x_shaft_dwg):
         # The ø leader lands on the step's silhouette EDGE — a full radius off the
         # turning axis, not on it (an arrow floating on the centre line reads
         # wrong) — and is CENTRED along the feature's length, not at a step
         # corner (a boss/free-end anchor would otherwise put it on an end face).
-        dwg = build_drawing(_x_stepped_shaft())
+        dwg = x_shaft_dwg
         fb = dwg.view_bounds("front")
         axis_y = (fb[1] + fb[3]) / 2
         by_dia = {
@@ -10020,8 +10044,8 @@ class TestTurnedLengths:
     """Axial step-length chain for X-axis turned parts (the drive-screw gap:
     every diameter dimensioned, no shoulder locatable)."""
 
-    def test_each_step_length_is_dimensioned(self):
-        dwg = build_drawing(_x_stepped_shaft())  # ø30 l40 then ø16 l30
+    def test_each_step_length_is_dimensioned(self, x_shaft_dwg):
+        dwg = x_shaft_dwg  # ø30 l40 then ø16 l30
         labels = {o.label for n, o in dwg.iter_annotations() if n.startswith("m_steplen")}
         assert labels == {"40", "30"}
 
@@ -10044,14 +10068,14 @@ class TestTurnedLengths:
         recorded = {mid for name in names for mid in dwg.registry.measurement_of(name)}
         assert recorded == _compiled_step_length_ids(dwg)
 
-    def test_overall_width_suppressed_for_turned_part(self):
+    def test_overall_width_suppressed_for_turned_part(self, x_shaft_dwg):
         # The complete chain conveys the overall length, so the envelope width dim
         # is dropped — no double dimensioning (ISO 129).
-        dwg = build_drawing(_x_stepped_shaft())
+        dwg = x_shaft_dwg
         assert "m_env_width" not in dwg.annotations()
 
-    def test_turned_part_lints_clean(self):
-        dwg = build_drawing(_x_stepped_shaft())
+    def test_turned_part_lints_clean(self, x_shaft_dwg):
+        dwg = x_shaft_dwg
         codes = dwg.lint_summary()["by_code"]
         assert codes.get("axial_length_missing", 0) == 0
         assert codes.get("annotation_overlap", 0) == 0
@@ -10853,11 +10877,11 @@ class TestHoleTable:
         dxf = _p["dxf"]
         assert Path(svg).stat().st_size > 0 and Path(dxf).stat().st_size > 0
 
-    def test_table_geometry_is_deterministic(self):
+    def test_table_geometry_is_deterministic(self, plain_box_dwg):
         from draftwright._core import _build_table
 
         rows = [("TAG", "⌀", "QTY"), ("A", "ø10", "2")]
-        a = build_drawing(Box(60, 40, 20)).draft
+        a = plain_box_dwg.draft
         assert _build_table(rows, a).table_size == _build_table(rows, a).table_size
 
     def test_generic_add_table_places_arbitrary_rows(self):
@@ -11052,9 +11076,9 @@ class TestEscalation:
         assert "location_ref_dropped" not in warns
         assert "feature_count_mismatch" not in warns
 
-    def test_sparse_part_is_not_tabulated(self):
+    def test_sparse_part_is_not_tabulated(self, multi_hole_dwg):
         # A sparse plate dimensions every hole individually — no table, unchanged.
-        dwg = build_drawing(_multi_hole_plate())
+        dwg = multi_hole_dwg
         assert "hole_table_plan" not in dwg.annotations()
         assert not any(n.startswith("balloon_") for n in dwg.annotations())
         assert any(n.startswith("hc_plan") for n in dwg.annotations())
@@ -11182,11 +11206,11 @@ class TestPatternGroupBalloon:
         assert guarded_issue in dwg.registry.issues
         assert "balloon_dropped" in {finding.code for finding in dwg.registry.issues}
 
-    def test_multiple_dropped_patterns_get_distinct_non_overlapping_balloons(self):
+    def test_multiple_dropped_patterns_get_distinct_non_overlapping_balloons(self, multi_hole_dwg):
         from draftwright.annotations._common import Escalation, PlacementContext
         from draftwright.annotations.orchestrator import _maybe_tabulate_holes
 
-        dwg = build_drawing(_multi_hole_plate())
+        dwg = multi_hole_dwg
         feats = [
             self._fake_pattern(count=4, diameter=3.0, origin=(-15.0, -8.0, 0.0)),
             self._fake_pattern(count=6, diameter=5.0, origin=(15.0, 8.0, 0.0)),
@@ -11212,13 +11236,13 @@ class TestPatternGroupBalloon:
         )
         assert not overlaps
 
-    def test_unresolved_pattern_in_other_view_keeps_the_drop_lint(self):
+    def test_unresolved_pattern_in_other_view_keeps_the_drop_lint(self, multi_hole_dwg):
         # A pattern drop the resolver does not cover (a non-plan view) must not
         # have its callout_dropped warning silently cleared.
         from draftwright.annotations._common import Escalation, PlacementContext
         from draftwright.annotations.orchestrator import _maybe_tabulate_holes
 
-        dwg = build_drawing(_multi_hole_plate())
+        dwg = multi_hole_dwg
         feat = self._fake_pattern(count=3, diameter=4.0)
         ctx = PlacementContext(
             registry=dwg.registry,
@@ -11255,14 +11279,14 @@ class TestDraftwrightAttribution:
         assert _attribution_author(None) == "draftwright"
         assert _attribution_author("   ") == "draftwright"
 
-    def test_link_rect_sits_over_the_drawn_by_cell(self):
+    def test_link_rect_sits_over_the_drawn_by_cell(self, plain_box_dwg):
         # The hyperlink rect must cover the "drawn by" cell of the *rendered*
         # title block: bottom row (half the two-row block height), from the
         # drawn-by cell's left edge to the block's right edge. The left edge is
         # derived from the block's public cell bbox (#139); everything is asserted
         # against the placed block's bounding box so it catches drift if the rect
         # or the upstream TitleBlock layout ever diverge.
-        dwg = build_drawing(Box(60, 40, 20))
+        dwg = plain_box_dwg
         tb = dwg.get_annotation("title_block")
         # The rect rides the title-block annotation (#699 slice d), not the drawing.
         x0, y0, x1, y1 = tb.draftwright_link_rect

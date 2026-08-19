@@ -947,6 +947,7 @@ class TestEmit:
             round(c, 3) for c in det.frame.origin
         )
 
+    @pytest.mark.slow  # >=30 s inherent dense build; post-merge tier (#656)
     @pytest.mark.skipif(not _PMI_AVAILABLE, reason="OCP GDT support not available")
     def test_ap242_script_keeps_side_hole_z_location_on_side_ladder(self, tmp_path):
         py = generate_sheet_script(str(AP242_CTC01), out=str(tmp_path / "ctc01"), pmi="annotate")

@@ -18,6 +18,7 @@ import re
 from dataclasses import dataclass
 from types import SimpleNamespace
 
+import pytest
 from build123d import Align, Box, Cylinder, Pos
 
 from draftwright.builder import build_drawing
@@ -44,11 +45,17 @@ def _verified(drawing):
     return verify_measurement_claims(drawing.registry, compile_dimensions(drawing.model()))
 
 
+@pytest.fixture(scope="module")
+def two_hole_dwg():
+    """One two-hole-plate build shared by the read-only claim critiques (#656)."""
+    return build_drawing(_two_hole_plate(), title="T", number="N-1")
+
+
 class TestTheDrawingBearsOutItsOwnClaims:
-    def test_every_claim_on_an_ordinary_drawing_is_confirmed(self):
+    def test_every_claim_on_an_ordinary_drawing_is_confirmed(self, two_hole_dwg):
         # The baseline the rest depends on. If a correct drawing cannot pass its own
         # verification, every finding below is noise.
-        outcomes = _verified(build_drawing(_two_hole_plate(), title="T", number="N-1"))
+        outcomes = _verified(two_hole_dwg)
         assert outcomes, "no claims were checked, so nothing here proves anything"
         assert {o.state for o in outcomes} == {"confirmed"}, [
             (o.annotation, o.parameter_id, o.state, o.expected, o.rendered)
@@ -89,10 +96,10 @@ class TestTheDrawingBearsOutItsOwnClaims:
         states = [o.state for o in _verified(drawing) if o.annotation == name]
         assert states == ["value_absent"], "a digit-substring match was accepted as proof"
 
-    def test_a_claim_on_an_uncompiled_measurement_is_reported(self):
+    def test_a_claim_on_an_uncompiled_measurement_is_reported(self, two_hole_dwg):
         # A renderer emitting content the compiler never approved is an ADR 0016 Amdt 1
         # violation. The verifier sees it because it resolves claims against the plan.
-        drawing = build_drawing(_two_hole_plate(), title="T", number="N-1")
+        drawing = two_hole_dwg
         plan = compile_dimensions(drawing.model())
         empty = SimpleNamespace(groups=(), ladders=(), locations=())
         states = {o.state for o in verify_measurement_claims(drawing.registry, empty)}
@@ -189,8 +196,8 @@ class TestTheDeadFieldIsGone:
 
 
 class TestLintSurfacesIt:
-    def test_an_ordinary_drawing_reports_nothing(self):
-        drawing = build_drawing(_two_hole_plate(), title="T", number="N-1")
+    def test_an_ordinary_drawing_reports_nothing(self, two_hole_dwg):
+        drawing = two_hole_dwg
         assert not [i for i in drawing.lint() if i.code.startswith("claimed_")], (
             "a correct drawing reported a claim defect"
         )

@@ -82,6 +82,7 @@ class TestTheExactSolveNowReachesDenseParts:
     """Before #1188 every fixture with 12+ leader jobs fell back to the greedy floor,
     so Amendment 2's guarantees applied nowhere they were needed."""
 
+    @pytest.mark.slow  # >=30 s inherent dense build; post-merge tier (#656)
     def test_a_dense_fixture_reaches_the_exact_solve(self, tmp_path):
         trace = tmp_path / "ctc03.json"
         os.environ["DRAFTWRIGHT_TRACE"] = str(trace)

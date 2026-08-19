@@ -183,6 +183,7 @@ class TestTheCountsDoNotMoveWithTheGrouping:
                 f"scale must not lose the findings of a group"
             )
 
+    @pytest.mark.slow  # >=30 s inherent dense build; post-merge tier (#656)
     def test_a_real_multi_group_part_keeps_its_leader_findings(self):
         # `leader_crosses_silhouette` is annotation-dependent, and the synthetic fixture
         # produces none, so only a real part covers it. CTC-05 has two genuine scale groups

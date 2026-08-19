@@ -127,6 +127,12 @@ def _pattern_proxy(pattern, *, parameters, location_stem="location_slot_pattern"
     return SimpleNamespace(**values)
 
 
+@pytest.fixture(scope="module")
+def slot_grid_dwg():
+    """One slot-grid build shared by read-only critiques (#656). Mutating tests build their own."""
+    return build_drawing(_slot_grid())
+
+
 def test_removing_an_off_centre_slots_location_is_detected():
     """The recogniser centroid and IR frame differ on the transverse axis by design.
 
@@ -456,8 +462,8 @@ def test_stale_declared_geometry_is_unverifiable_without_a_nearest_match():
     assert outcomes[0].state == "unverifiable"
 
 
-def test_duplicate_ir_candidates_are_unverifiable_not_merged():
-    dwg = build_drawing(_slot_grid())
+def test_duplicate_ir_candidates_are_unverifiable_not_merged(slot_grid_dwg):
+    dwg = slot_grid_dwg
     pattern = next(feature for feature in dwg.model().features if feature.kind == "slot_pattern")
     outcomes = slot_requirement_outcomes(
         dwg.recognition(),
@@ -483,8 +489,8 @@ def test_zero_declared_linear_direction_is_unverifiable():
     ]
 
 
-def test_missing_pattern_location_vocabulary_is_unverifiable():
-    dwg = build_drawing(_slot_grid())
+def test_missing_pattern_location_vocabulary_is_unverifiable(slot_grid_dwg):
+    dwg = slot_grid_dwg
     pattern = next(feature for feature in dwg.model().features if feature.kind == "slot_pattern")
     proxy = _pattern_proxy(pattern, parameters=pattern.parameters, location_stem=None)
 
@@ -494,8 +500,8 @@ def test_missing_pattern_location_vocabulary_is_unverifiable():
     ]
 
 
-def test_incomplete_pattern_measurement_vocabulary_is_unverifiable():
-    dwg = build_drawing(_slot_grid())
+def test_incomplete_pattern_measurement_vocabulary_is_unverifiable(slot_grid_dwg):
+    dwg = slot_grid_dwg
     pattern = next(feature for feature in dwg.model().features if feature.kind == "slot_pattern")
     proxy = _pattern_proxy(pattern, parameters=lambda: pattern.parameters()[:-1])
 
