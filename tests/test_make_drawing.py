@@ -117,11 +117,6 @@ def holed_plate_dwg():
 
 
 @pytest.fixture(scope="module")
-def multi_hole_dwg():
-    return build_drawing(_multi_hole_plate())
-
-
-@pytest.fixture(scope="module")
 def x_shaft_dwg():
     return build_drawing(_x_stepped_shaft())
 
@@ -3660,8 +3655,8 @@ def test_clear_annotations_keeps_title_block():
 
 
 @pytest.mark.timeout(60)
-def test_clear_annotations_keep_custom_and_unnamed_removed(small_box_dwg):
-    dwg = small_box_dwg
+def test_clear_annotations_keep_custom_and_unnamed_removed():
+    dwg = build_drawing(Box(30, 20, 10))
     keep_me = dwg._add(
         Leader(tip=dwg.at("front", 0, 0, 0), elbow=(5, 5, 0), label="K", draft=dwg.draft), "ldr_k"
     )
@@ -7609,11 +7604,11 @@ class TestFeatureEdits:
         removed = set(dwg.drop(pat))
         assert removed == set(owned)
 
-    def test_balloon_is_owned_by_its_hole(self, holed_plate_dwg):
+    def test_balloon_is_owned_by_its_hole(self):
         # #408 C: a balloon (which carries a recognition hole) attributes to the IR feature.
         from draftwright.annotations._common import PlacementContext
 
-        dwg = holed_plate_dwg
+        dwg = build_drawing(_holed_plate())
         a = dwg._analysis
         hole_obj = a.holes[0]
         # the attribution index lives on the run ctx (#639/#699); build one to query it
@@ -7748,10 +7743,10 @@ class TestFeatureEdits:
         if env is not None:
             assert dwg.drop(env) == []
 
-    def test_manual_add_records_feature_provenance(self, holed_plate_dwg):
+    def test_manual_add_records_feature_provenance(self):
         from build123d_drafting import CenterMark
 
-        dwg = holed_plate_dwg
+        dwg = build_drawing(_holed_plate())
         hole = next(f for f in dwg.model().features if f.kind == "hole")
         dwg._add(CenterMark((0, 0, 0), 3.0, dwg.draft), "my_mark", view="plan", feature=hole)
         assert "my_mark" in dwg.annotations_of(hole)
@@ -8684,7 +8679,7 @@ class TestRepair:
         assert dwg.get_annotation("ov2")._dw_spec.distance == 8
         assert [i for i in dwg.lint() if i.code == "annotation_overlap"]
 
-    def test_repair_dim_inside_part_flips_side(self, plain_box_dwg):
+    def test_repair_dim_inside_part_flips_side(self):
         # dim_inside_part is dormant in the multi-view sheet (lint passes no
         # part_bbox), so drive the repair directly: a wrong-side dim flips to
         # the opposite side and keeps its name binding.
@@ -8692,7 +8687,7 @@ class TestRepair:
         from draftwright.linting import LintIssue
         from draftwright.repair import _repair_dim_inside_part
 
-        dwg = plain_box_dwg
+        dwg = build_drawing(Box(60, 40, 20))
         dim = dwg._add(_dim((0, 0, 0), (40, 0, 0), "above", 8, dwg.draft, label="INSIDE"), "x")
         assert dim._dw_spec.side == "above"
 
@@ -8862,8 +8857,8 @@ class TestPin:
 class TestAnnotationsQuery:
     """#27: introspect existing annotations by name and type."""
 
-    def test_annotations_maps_name_to_type(self, plain_box_dwg):
-        dwg = plain_box_dwg
+    def test_annotations_maps_name_to_type(self):
+        dwg = build_drawing(Box(60, 40, 20))
         anns = dwg.annotations()
         # A dict keyed by the names actually registered, valued by class name.
         assert isinstance(anns, dict)
@@ -8873,28 +8868,28 @@ class TestAnnotationsQuery:
         for name, type_name in anns.items():
             assert type(dwg.get_annotation(name)).__name__ == type_name
 
-    def test_annotations_omits_unnamed(self, plain_box_dwg):
+    def test_annotations_omits_unnamed(self):
         from draftwright._core import _dim
 
-        dwg = plain_box_dwg
+        dwg = build_drawing(Box(60, 40, 20))
         before = dict(dwg.annotations())
         dwg._add(_dim((0, 0, 0), (40, 0, 0), "above", 8, dwg.draft, label="U"))  # no name
         # Unnamed annotation lands in items but not in the name→type map.
         assert dwg.annotations() == before
         assert len(dwg.items) == len(before) + 1
 
-    def test_annotations_reflects_add_and_membership(self, plain_box_dwg):
+    def test_annotations_reflects_add_and_membership(self):
         from draftwright._core import _dim
 
-        dwg = plain_box_dwg
+        dwg = build_drawing(Box(60, 40, 20))
         assert "q_dim" not in dwg.annotations()
         dwg._add(_dim((0, 0, 0), (40, 0, 0), "above", 8, dwg.draft, label="Q"), "q_dim")
         assert dwg.annotations()["q_dim"] == "Dimension"
 
-    def test_get_annotation_returns_object_or_none(self, plain_box_dwg):
+    def test_get_annotation_returns_object_or_none(self):
         from draftwright._core import _dim
 
-        dwg = plain_box_dwg
+        dwg = build_drawing(Box(60, 40, 20))
         obj = dwg._add(_dim((0, 0, 0), (40, 0, 0), "above", 8, dwg.draft, label="G"), "g")
         assert dwg.get_annotation("g") is obj
         assert dwg.get_annotation("does_not_exist") is None
@@ -11076,9 +11071,9 @@ class TestEscalation:
         assert "location_ref_dropped" not in warns
         assert "feature_count_mismatch" not in warns
 
-    def test_sparse_part_is_not_tabulated(self, multi_hole_dwg):
+    def test_sparse_part_is_not_tabulated(self):
         # A sparse plate dimensions every hole individually — no table, unchanged.
-        dwg = multi_hole_dwg
+        dwg = build_drawing(_multi_hole_plate())
         assert "hole_table_plan" not in dwg.annotations()
         assert not any(n.startswith("balloon_") for n in dwg.annotations())
         assert any(n.startswith("hc_plan") for n in dwg.annotations())
@@ -11206,11 +11201,11 @@ class TestPatternGroupBalloon:
         assert guarded_issue in dwg.registry.issues
         assert "balloon_dropped" in {finding.code for finding in dwg.registry.issues}
 
-    def test_multiple_dropped_patterns_get_distinct_non_overlapping_balloons(self, multi_hole_dwg):
+    def test_multiple_dropped_patterns_get_distinct_non_overlapping_balloons(self):
         from draftwright.annotations._common import Escalation, PlacementContext
         from draftwright.annotations.orchestrator import _maybe_tabulate_holes
 
-        dwg = multi_hole_dwg
+        dwg = build_drawing(_multi_hole_plate())
         feats = [
             self._fake_pattern(count=4, diameter=3.0, origin=(-15.0, -8.0, 0.0)),
             self._fake_pattern(count=6, diameter=5.0, origin=(15.0, 8.0, 0.0)),
@@ -11236,13 +11231,13 @@ class TestPatternGroupBalloon:
         )
         assert not overlaps
 
-    def test_unresolved_pattern_in_other_view_keeps_the_drop_lint(self, multi_hole_dwg):
+    def test_unresolved_pattern_in_other_view_keeps_the_drop_lint(self):
         # A pattern drop the resolver does not cover (a non-plan view) must not
         # have its callout_dropped warning silently cleared.
         from draftwright.annotations._common import Escalation, PlacementContext
         from draftwright.annotations.orchestrator import _maybe_tabulate_holes
 
-        dwg = multi_hole_dwg
+        dwg = build_drawing(_multi_hole_plate())
         feat = self._fake_pattern(count=3, diameter=4.0)
         ctx = PlacementContext(
             registry=dwg.registry,
