@@ -315,6 +315,25 @@ class TestEveryOutcomeReachesLint:
         plan = SimpleNamespace(groups=(), ladders=(SimpleNamespace(rungs=(rung,)),), locations=())
         assert compiled_values(plan) == {"rung": (rung,)}
 
+    def test_contingency_fallbacks_are_part_of_the_expected_set(self):
+        # The fourth branch, added for #1230, and it had the same hole as the ladders one: the
+        # only thing catching it was an unrelated parametrized case in `test_sheet_emit`.
+        #
+        # A contingency is a ladder the compiler approved and HELD, released by the build when
+        # the primary does not fit. `drawing._lint` verifies against a freshly compiled plan
+        # that has no record of the release, so a claim on a released fallback read as
+        # "the compiler did not approve this" about something it demonstrably did.
+        from draftwright.linting.evidence import compiled_values
+
+        rung = SimpleNamespace(id="fallback", value_text="40", value=40.0, span=None, axis=None)
+        plan = SimpleNamespace(
+            groups=(),
+            ladders=(),
+            locations=(),
+            contingencies=(SimpleNamespace(fallback=SimpleNamespace(rungs=(rung,))),),
+        )
+        assert compiled_values(plan) == {"fallback": (rung,)}
+
 
 class TestTheAcceptanceSetIsNarrowedWhereItCanBe:
     def test_a_repeat_count_cannot_confirm_a_diameter(self):

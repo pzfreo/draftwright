@@ -54,10 +54,18 @@ _UNCONFIRMED_CLAIMS: set[tuple[str, str, str]] = set()
 #:     placement decision rather than a property of the part: the renderer groups steps whose
 #:     projected length falls below `2 * draft.arrow_length`, so the grouping moves with page
 #:     scale and font size. ADR 0016 cannot be satisfied by emitting it from the planner.
-#:   * Not drawing it fails `test_subfloor_head_gets_detail_view`, which pins the block as
-#:     deliberate: it LOCATES the head on the main view while DETAIL A breaks it down, "with
-#:     axial coverage satisfied across the two views". Measured, removing it leaves grm03
-#:     reporting `axial_length_missing` — a real coverage gap traded for a provenance one.
+#:   * Not drawing it leaves grm03 reporting `axial_length_missing` — a real coverage gap
+#:     traded for a provenance one. `test_subfloor_head_gets_detail_view` also fails, though
+#:     that test pins the block's PRESENCE, not its value: drawing it with an empty label passes
+#:     it. The load-bearing constraint is `lint_axial_coverage`; an earlier version of this note
+#:     presented the two as independent reasons and they are one (#1233 review).
+#:
+#: Be honest about the second bullet too: "the compiler cannot authorise it" overstates. The
+#: compiler could approve one candidate per contiguous step run — `hhi - hlo` IS a property of
+#: the part — and let the renderer select the one matching the grouping it chose, which is
+#: ADR 0014's collect-then-solve shape used everywhere else in this engine. What is true is
+#: that the SELECTION is placement-dependent, not that the aggregate is unapprovable. Whether
+#: that is worth building is a maintainer's call, which is why #1230 stays open for it.
 #:
 #: Registered with the reason rather than fixed badly. Pinned exactly, per part and name, so a
 #: second occurrence fails rather than being absorbed.

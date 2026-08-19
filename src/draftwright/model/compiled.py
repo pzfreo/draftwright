@@ -56,7 +56,6 @@ from draftwright._geometry import _fmt
 from draftwright.model.ir import (
     EnvelopeFeature,
     Feature,
-    Frame,
     HoleFeature,
     PartModel,
     PatternFeature,
@@ -619,8 +618,16 @@ class RenderableDimensionPlan:
             # boundary #946 is about: this is the right side of it.
             #
             # `ref is None` is the model-level case: the overall height of a part with no
-            # envelope feature belongs to the part, not to any feature, and says so rather
-            # than having one invented for it.
+            # envelope feature belongs to the part, not to any feature.
+            #
+            # Note the deliberate asymmetry with `id`, since the two now disagree. #1230 gives
+            # that rung a `DimensionId` whose feature IS a bounding-box envelope, minted for
+            # identity so the annotation can claim something; `ref` stays None, because a
+            # FeatureRef is what a script addresses and there is no such feature to address.
+            # Identity and addressability are different questions here, and this is the one
+            # place where the answers differ — worth stating rather than leaving the reader to
+            # find a comment that says no feature is ever invented, eight lines from where one
+            # is (#1233 review).
             if lad.kind not in _LADDER_ROLE:
                 continue
             out.append(AddressableIntent(lad.ref, _LADDER_ROLE[lad.kind]))
@@ -875,13 +882,21 @@ def _compile_overall_height(
     # A model with no `EnvelopeFeature` still gets an identity for its overall height, from a
     # bounding-box envelope minted here. Without it `_dim_id` returns None, the rung carries no
     # id, and `render_height_ladder` — which already threads `measurement=mid` correctly — has
-    # nothing to thread: `dim_height` reached every such sheet printing a real number that no
-    # compiled entry claimed. That is an ADR 0016 Amdt 1 breach in the one direction the ADR
-    # cares about, and it is a PLAN-content gap, so it cannot be closed at the renderer (#1230).
+    # nothing to thread, so `dim_height` reached the sheet claiming nothing and the verifier was
+    # blind to it. A PLAN-content gap, not closable at the renderer (#1230).
+    #
+    # Be exact about which ADR: this is **ADR 0010 provenance / ADR 0016 identity**, NOT an
+    # ADR 0016 Amdt 1 breach, which an earlier version of this comment asserted three times.
+    # Amendment 1 is about renderers emitting content the plan does not contain. The plan DID
+    # contain this: the rung existed with the right value, and `from_model` builds the label
+    # from the compiler's own `rendered_label`. Nothing was renderer-derived. What was missing
+    # was the identity, so nothing could claim it (#1233 review).
     #
     # The discriminator is having no envelope feature, NOT being rotational: `grm03` is neither
-    # rotational nor enveloped and escaped, while `if_step_flat_across_cylinder` is rotational,
-    # HAS an envelope, and never did.
+    # rotational nor enveloped and escaped. (`if_step_flat_across_cylinder` was cited as the
+    # other half of that contrast and does not earn it — it is rotational and enveloped, but its
+    # overall-height ladder is None and it draws no `dim_height` at all, so it discriminates
+    # nothing. The mechanism is the evidence: `_dim_id` returns None iff the feature is None.)
     #
     # Minted from the bbox rather than added to `model.features`: this feature names the
     # measurement, it is not a new recognised feature, and `DimensionId` compares features
@@ -889,14 +904,17 @@ def _compile_overall_height(
     # identity model needs. The value is unchanged; only its identity is new.
     identity = env
     if identity is None:
-        identity = EnvelopeFeature(
-            frame=Frame(origin=(0.0, 0.0, 0.0), axis="z"),
-            width=float(bb.size.X),
-            height=float(bb.size.Z),
-            depth=float(bb.size.Y),
-            bbox_min=(float(bb.min.X), float(bb.min.Y), float(bb.min.Z)),
-            bbox_max=(float(bb.max.X), float(bb.max.Y), float(bb.max.Z)),
-        )
+        # Through `_envelope_from_bbox`, the one shared constructor — NOT hand-rolled here.
+        # The first version of this hardcoded `Frame(origin=(0, 0, 0))`, which is the bbox
+        # centre only for a part centred on the origin. That is #976's signature, and this
+        # would have been its FIFTH instance: `sheet_emit` already paid for it once, and its
+        # own comment calls the hand-rolled version "the fourth instance of #977's signature".
+        # Measured, the literal made the direct and mirrored paths mint UNEQUAL ids for the
+        # same measurement on an off-centre part — breaking exactly the ADR 0011 round trip
+        # `mirror_model` exists for (#1233 review).
+        from draftwright.model.declare import _envelope_from_bbox
+
+        identity = _envelope_from_bbox(bb)
     env_ref = FeatureRef(env) if env is not None else None
     x, y = float(bb.max.X), float(bb.min.Y)
     ladder = ApprovedLadder(

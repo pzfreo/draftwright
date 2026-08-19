@@ -9862,7 +9862,6 @@ class TestDiameterStepAnchor:
         # (axial mid 30, radial y=20), not a hybrid that takes the axial from the
         # long step and the radial from the bucket's first (short) step — which
         # would land the arrow off the selected step's silhouette.
-        from types import SimpleNamespace
 
         from draftwright.annotations.from_model import _diameter_step_anchor
         from draftwright.model.compiled import compile_dimensions
@@ -9871,14 +9870,15 @@ class TestDiameterStepAnchor:
 
         short = self._step("x", (0.0, 0.0, 0.0), -2.5, 2.5)  # len 5, centre x=0
         long = self._step("x", (30.0, 20.0, 0.0), 20.0, 40.0)  # len 20, centre x=30, y=20
-        # A full bbox, not just the fields one caller happens to read: `_compile_overall_height`
-        # now mints a bounding-box envelope for the height's identity (#1230) and reads X and Y
-        # too. A stub that models only today's reads breaks on any honest extension.
-        bbox = SimpleNamespace(
-            size=SimpleNamespace(X=80.0, Y=30.0, Z=20.0),
-            max=SimpleNamespace(X=40.0, Y=15.0, Z=20.0),
-            min=SimpleNamespace(X=-40.0, Y=0.0, Z=0.0),
-        )
+        # A real BoundBox, not a namespace modelling whichever fields one caller happens to
+        # read. `_compile_overall_height` now mints the height's identity from the bbox (#1230)
+        # via `_envelope_from_bbox`, which calls `center()`. Two successive stub versions broke
+        # here — the first lacked X and Y, the second added them but asserted an impossible
+        # geometry (`size.Y=30` with `max.Y-min.Y=15`) and still had no `center()`. A stub of a
+        # value type should be the value type (#1233 review).
+        from build123d import Box, Location
+
+        bbox = (Location((0, 7.5, 10)) * Box(80, 15, 20)).bounding_box()
         model = PartModel(bbox=bbox, orientation="x", features=[short, long])
         groups = plan_dimensions(model)
         plan = compile_dimensions(model, groups=groups)
