@@ -34,33 +34,35 @@ _C = (Align.CENTER, Align.CENTER, Align.CENTER)
 #: so a second such case has to be argued rather than absorbed.
 _NON_MEASURING_ANNOTATIONS = ("detail_caption",)
 
-#: Annotations that render a real measured value carrying no compiled identity to thread — the
-#: `ctx.place` seam cannot fix these because there is no id to pass. All three are #1230:
-#:
-#:   * `m_steplen0` on grm03 — a synthetic step head-block drawing the SUM of two steps
-#:     (0.5 + 2.0 = 2.5). No plan entry holds 2.5, and claiming the two members would be a
-#:     false claim: the annotation does not draw either of them.
-#:   * `dim_height` on grm03 and on the bored tube — measured, `plan.ladder("overall_height")`
-#:     yields a rung with `id=None` whenever the model has NO `EnvelopeFeature`, and a rung
-#:     carrying an `EnvelopeFeature` id when it has one (`compiled.py` builds the id from that
-#:     feature, and `_dim_id` returns None for a missing one). "Rotational" is the wrong rule
-#:     and an earlier draft used it: grm03 is not rotational — it recognises as four steps, a
-#:     boss and a hole with no envelope — while `if_step_flat_across_cylinder` IS rotational,
-#:     HAS an envelope, and does not escape. Deciding what the rung means where there is no
-#:     envelope is a modelling call, not a threading edit (#1225 review, finding 7).
-#:
-#: Pinned exactly, per part and name, so a fourth occurrence fails rather than being absorbed —
-#: this register is a defect ledger, not an exemption list, and it should shrink to nothing.
-#: Empty, and that is the point. It held one entry — `m_locy7` on nist_ctc_02 claiming
-#: `location_slot.length` (94.1) while rendering 430.0 — until #1219 was fixed, at which point
-#: the entry had to go. Kept as an empty set rather than deleted so the next such defect is
-#: registered with an issue number instead of the assertion below being softened.
+#: Claims the drawing does NOT bear out. Empty, and that is the point: it held one entry —
+#: `m_locy7` on nist_ctc_02 claiming `location_slot.length` (94.1) while rendering 430.0 — until
+#: #1219 was fixed, at which point the entry had to go. Kept as an empty set rather than deleted
+#: so the next such defect is registered with an issue number instead of the assertion below
+#: being softened.
 _UNCONFIRMED_CLAIMS: set[tuple[str, str, str]] = set()
 
+#: Annotations that render a real measured value carrying no compiled identity to thread — the
+#: `ctx.place` seam cannot fix these because there is no id to pass. ONE entry now: the two
+#: `dim_height` entries were deleted when #1230 gave the overall-height rung an identity minted
+#: from the bounding box, so a part with no `EnvelopeFeature` has something true to claim.
+#:
+#: What remains is `m_steplen0` on grm03 — the synthetic step head-block, drawing the SUM of two
+#: steps (0.5 + 2.0 = 2.5). It resists a fix in BOTH directions, which is why it stays:
+#:
+#:   * Claiming the two members would be a FALSE claim — the annotation draws neither 0.5 nor 2.0.
+#:   * The compiler cannot authorise the aggregate, because WHICH steps form a head block is a
+#:     placement decision rather than a property of the part: the renderer groups steps whose
+#:     projected length falls below `2 * draft.arrow_length`, so the grouping moves with page
+#:     scale and font size. ADR 0016 cannot be satisfied by emitting it from the planner.
+#:   * Not drawing it fails `test_subfloor_head_gets_detail_view`, which pins the block as
+#:     deliberate: it LOCATES the head on the main view while DETAIL A breaks it down, "with
+#:     axial coverage satisfied across the two views". Measured, removing it leaves grm03
+#:     reporting `axial_length_missing` — a real coverage gap traded for a provenance one.
+#:
+#: Registered with the reason rather than fixed badly. Pinned exactly, per part and name, so a
+#: second occurrence fails rather than being absorbed.
 _UNPLANNED_VALUES = {
     ("grm03_thumbwheel_drive_screw.step", "m_steplen0"),
-    ("grm03_thumbwheel_drive_screw.step", "dim_height"),
-    ("bored tube", "dim_height"),
 }
 
 

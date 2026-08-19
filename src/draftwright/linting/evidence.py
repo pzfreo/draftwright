@@ -172,6 +172,19 @@ def compiled_values(plan) -> dict:
             values[approved.id].append(approved)
     for approved in getattr(plan, "locations", ()):
         values[approved.id].append(approved)
+    # Contingency FALLBACKS count as approved. A contingency is a ladder the compiler approved
+    # and held, to be released by the build if the primary does not fit — `orchestrator.py`
+    # releases `step_length`'s on a turned part whose step chain cannot tile the height. The
+    # renderer then legitimately draws that rung and claims its id.
+    #
+    # This function is handed a FRESHLY compiled plan (`drawing.py`'s `_lint` calls
+    # `compile_dimensions(model)`), which has no record of what the build released — so a claim
+    # on a released fallback read as `unresolved`, i.e. "the compiler did not approve this",
+    # about a measurement the compiler demonstrably did approve. Latent until #1230 gave the
+    # overall-height rung an identity: with `id=None` the rung made no claim and nothing asked.
+    for contingency in getattr(plan, "contingencies", ()):
+        for approved in getattr(contingency.fallback, "rungs", ()):
+            values[approved.id].append(approved)
     return {key: tuple(entries) for key, entries in values.items()}
 
 

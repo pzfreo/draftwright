@@ -9871,10 +9871,13 @@ class TestDiameterStepAnchor:
 
         short = self._step("x", (0.0, 0.0, 0.0), -2.5, 2.5)  # len 5, centre x=0
         long = self._step("x", (30.0, 20.0, 0.0), 20.0, 40.0)  # len 20, centre x=30, y=20
+        # A full bbox, not just the fields one caller happens to read: `_compile_overall_height`
+        # now mints a bounding-box envelope for the height's identity (#1230) and reads X and Y
+        # too. A stub that models only today's reads breaks on any honest extension.
         bbox = SimpleNamespace(
-            size=SimpleNamespace(Z=20.0),
-            max=SimpleNamespace(X=40.0, Z=20.0),
-            min=SimpleNamespace(Y=0.0, Z=0.0),
+            size=SimpleNamespace(X=80.0, Y=30.0, Z=20.0),
+            max=SimpleNamespace(X=40.0, Y=15.0, Z=20.0),
+            min=SimpleNamespace(X=-40.0, Y=0.0, Z=0.0),
         )
         model = PartModel(bbox=bbox, orientation="x", features=[short, long])
         groups = plan_dimensions(model)

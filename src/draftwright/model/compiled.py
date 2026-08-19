@@ -56,6 +56,7 @@ from draftwright._geometry import _fmt
 from draftwright.model.ir import (
     EnvelopeFeature,
     Feature,
+    Frame,
     HoleFeature,
     PartModel,
     PatternFeature,
@@ -871,13 +872,38 @@ def _compile_overall_height(
             ],
         )
     value = float(env.height) if env is not None else float(bb.size.Z)
+    # A model with no `EnvelopeFeature` still gets an identity for its overall height, from a
+    # bounding-box envelope minted here. Without it `_dim_id` returns None, the rung carries no
+    # id, and `render_height_ladder` — which already threads `measurement=mid` correctly — has
+    # nothing to thread: `dim_height` reached every such sheet printing a real number that no
+    # compiled entry claimed. That is an ADR 0016 Amdt 1 breach in the one direction the ADR
+    # cares about, and it is a PLAN-content gap, so it cannot be closed at the renderer (#1230).
+    #
+    # The discriminator is having no envelope feature, NOT being rotational: `grm03` is neither
+    # rotational nor enveloped and escaped, while `if_step_flat_across_cylinder` is rotational,
+    # HAS an envelope, and never did.
+    #
+    # Minted from the bbox rather than added to `model.features`: this feature names the
+    # measurement, it is not a new recognised feature, and `DimensionId` compares features
+    # STRUCTURALLY — so re-planning the same part yields an equal id, which is the stability the
+    # identity model needs. The value is unchanged; only its identity is new.
+    identity = env
+    if identity is None:
+        identity = EnvelopeFeature(
+            frame=Frame(origin=(0.0, 0.0, 0.0), axis="z"),
+            width=float(bb.size.X),
+            height=float(bb.size.Z),
+            depth=float(bb.size.Y),
+            bbox_min=(float(bb.min.X), float(bb.min.Y), float(bb.min.Z)),
+            bbox_max=(float(bb.max.X), float(bb.max.Y), float(bb.max.Z)),
+        )
     env_ref = FeatureRef(env) if env is not None else None
     x, y = float(bb.max.X), float(bb.min.Y)
     ladder = ApprovedLadder(
         "overall_height",
         (
             ApprovedDimension(
-                id=_dim_id(env, "height.length"),
+                id=_dim_id(identity, "height.length"),
                 value_text=_fmt(value),
                 value=value,
                 span=((x, y, float(bb.min.Z)), (x, y, float(bb.max.Z))),
