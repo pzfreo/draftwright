@@ -3227,12 +3227,21 @@ def render_plates(dwg, plan, a, *, ctx) -> int:
 
 
 def _env_label(approved, draft) -> str:
-    """The string an envelope extent's Dimension will RENDER, tolerance included.
+    """An envelope extent's label, authored tolerance included (#1215).
 
-    `Dimension` formats its own tolerance and leaves `label` untouched, so the annotation's
-    `label` attribute stays the bare value while the sheet shows the suffix. Anything measuring
-    the drawn width — the corridor footprint — needs this, and `_tol_suffix` is documented as
-    matching helpers' `_format_label` byte for byte, same precision rounding included (#1215).
+    Composed here, exactly as `render_boss_heights` and the plate-thickness and channel-width
+    dims already do — `pd.value_text + _tol_suffix(pd.tolerance, draft)`.
+
+    NOT passed as `Dimension(tolerance=...)`, which is what the first version of this fix did
+    and why it rendered nothing: helpers' `Dimension` does
+    `rendered = label if label is not None else draft._number_with_units(measured, tolerance)`,
+    so an explicit label DISCARDS the tolerance. Every dimension here passes a label, because
+    the compiler owns the value text. Measured then: `label`, glyph count and label width were
+    byte-identical with and without a tolerance, and the exported SVG had the same 115 paths
+    (#1234 review).
+
+    `_tol_suffix` also renders a `FitClass`, which the ink path's `_number_with_units` raises
+    on — so composing the label is the only route that satisfies #1215's fit-class line.
     """
     return f"{approved.value_text}{_tol_suffix(approved.tolerance, draft)}"
 
@@ -3284,14 +3293,13 @@ def render_envelope(dwg, plan, a, *, ctx) -> int:
             "plan",
             _SLOT_DIM_WIDTH,
             abs(x1 - x0),
-            lambda pos, _p1=p1, _p2=p2, _w=witness, _v=width.value_text, _t=width.tolerance: _dim(
+            lambda pos, _p1=p1, _p2=p2, _w=witness, _v=_env_label(width, dwg.draft): _dim(
                 (_p1[0], _w, 0),
                 (_p2[0], _w, 0),
                 "below",
                 _w - pos,
                 dwg.draft,
                 label=_v,
-                tolerance=_t,
             ),
             # The footprint must measure the string the Dimension will RENDER, not the bare
             # value: helpers' `_format_label` appends the same suffix `_tol_suffix` builds, so
@@ -3321,14 +3329,13 @@ def render_envelope(dwg, plan, a, *, ctx) -> int:
             "side",
             _SLOT_DIM_DEPTH,
             abs(y1 - y0),
-            lambda pos, _p1=p1, _p2=p2, _w=witness, _v=depth.value_text, _t=depth.tolerance: _dim(
+            lambda pos, _p1=p1, _p2=p2, _w=witness, _v=_env_label(depth, dwg.draft): _dim(
                 (_p1[0], _w, 0),
                 (_p2[0], _w, 0),
                 "below",
                 _w - pos,
                 dwg.draft,
                 label=_v,
-                tolerance=_t,
             ),
             footprint=lambda pos, _p1=p1, _p2=p2, _w=witness, _v=_env_label(depth, dwg.draft): (
                 dim_footprint((_p1[0], _w, 0), (_p2[0], _w, 0), "below", _w - pos, dwg.draft, _v)
@@ -4074,11 +4081,11 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
             )
         )
 
-    # An authored `envelope().tolerance(..., on="height")` reaches the sheet here. The rung
-    # carries it and `Dimension` formats its own, exactly as the width/depth extents do in
-    # `render_envelope` — the two paths have to agree, and they used to differ only because
-    # this one dropped the field on the floor (#1215). Keyed by name because only the overall
-    # rung has one; a step rung's tolerance is a separate question.
+    # An authored `envelope().tolerance(..., on="height")` reaches the sheet here, composed into
+    # the LABEL like every other toleranced Dimension in this module. Passing it as
+    # `Dimension(tolerance=...)` renders nothing, because an explicit label discards it — see
+    # `_env_label` (#1215, #1234 review). Keyed by name because only the overall rung has one;
+    # a step rung's tolerance is a separate question.
     _tolerances = {"dim_height": overall.rungs[0].tolerance} if overall is not None else {}
 
     names = [c[0] for c in chain]
@@ -4107,8 +4114,7 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
                 "right",
                 pos - base,
                 draft,
-                label=label,
-                tolerance=_tol,
+                label=label + _tol_suffix(_tol, draft),
             )
             if per_unit is not None:
                 # What this dimension's `N× v` label actually measures. Lint reads it in

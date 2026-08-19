@@ -1,27 +1,26 @@
 """#1215 — an authored envelope tolerance must render, on all three extents.
 
-`sheet.envelope().tolerance(0.05, on="height")` recorded the decoration on the model and it was
-never printed. Measured before the fix, on all three axes:
+`sheet.envelope().tolerance(0.05, on="height")` recorded the decoration and never printed it:
 
     tolerance on height  -> {'dim_height': '10', 'm_env_depth': '20', 'm_env_width': '30'}
     tolerance on width   -> {'dim_height': '10', 'm_env_depth': '20', 'm_env_width': '30'}
     tolerance on depth   -> {'dim_height': '10', 'm_env_depth': '20', 'm_env_width': '30'}
 
-Two independent drops, which is why the issue says the two renderers need the same answer:
+Two independent drops: `render_envelope` composed its width/depth labels from `value_text` alone,
+and `_compile_overall_height` built the ladder rung with no tolerance, so the height had nothing
+to render even once its renderer asked.
 
-* `render_envelope` built width/depth labels from `value_text` and passed no `tolerance=`;
-* `_compile_overall_height` built the ladder rung with no tolerance at all, so the height had
-  nothing to pass even if the renderer had asked.
+**These tests assert the LABEL, and that is the whole point.** The first version of this fix
+passed `Dimension(tolerance=...)` and asserted on the constructor argument via `_dw_spec`. That
+renders nothing — helpers do
+`rendered = label if label is not None else draft._number_with_units(measured, tolerance)`, so an
+explicit label DISCARDS the tolerance, and every dimension here passes one because the compiler
+owns the value text. The tests passed, the sheet was unchanged, and one of them asserted
+`"±" not in label` — codifying the defect as intended behaviour, passing on unfixed code and
+failing on a working fix (#1234 review).
 
-**Where the assertions look, and why.** `Dimension` formats its own tolerance and leaves `label`
-alone — measured, a `Dimension(label="30", tolerance=0.02)` still reports `label == "30"`. So the
-tolerance is NOT visible on the annotation's label, and a test reading `label` would pass against
-completely unfixed code. These read the `tolerance` the Dimension was constructed with, via the
-`_dw_spec` the repair loop already records.
-
-The suffix is `_tol_suffix`'s, which is documented as matching helpers' `_format_label` byte for
-byte — verified in `test_the_suffix_matches_what_the_helper_renders` rather than assumed, because
-the footprint depends on it.
+`test_the_tolerance_reaches_the_exported_ink` is the backstop: labels are metadata, and glyph
+count is what the reader sees.
 """
 
 from __future__ import annotations
@@ -29,117 +28,125 @@ from __future__ import annotations
 import pytest
 from build123d import Box
 
-from draftwright._core import _tol_suffix
 from draftwright.sheet import Sheet
 
 _AXES = ("width", "depth", "height")
 _ANNOTATION = {"width": "m_env_width", "depth": "m_env_depth", "height": "dim_height"}
+_BARE = {"width": "30", "depth": "20", "height": "10"}
 
 
-def _built(axis, tolerance=0.05):
+def _built(axis=None, lo=0.05, hi=None):
     sheet = Sheet(Box(30, 20, 10))
-    sheet.envelope().tolerance(tolerance, on=axis)
+    params = sheet.envelope()
+    if axis is not None:
+        params.tolerance(lo, hi, on=axis) if hi is not None else params.tolerance(lo, on=axis)
     sheet.auto_dimensions()
     return sheet.build()
 
 
-def _tolerance_of(drawing, name):
-    spec = getattr(drawing.registry.named(name), "_dw_spec", None)
-    assert spec is not None, f"{name} was not built through `_dim`, so it records no spec"
-    return spec.kwargs.get("tolerance")
+def _label(drawing, name):
+    assert name in drawing.registry.names(), f"{name} absent; nothing to assert about"
+    return str(getattr(drawing.registry.named(name), "label", None))
 
 
 class TestTheDecorationReachesAllThreeExtents:
     @pytest.mark.parametrize("axis", _AXES)
-    def test_the_decorated_extent_renders_its_tolerance(self, axis):
-        drawing = _built(axis)
-        assert _tolerance_of(drawing, _ANNOTATION[axis]) == 0.05
+    def test_the_decorated_extent_prints_its_tolerance(self, axis):
+        assert _label(_built(axis), _ANNOTATION[axis]) == f"{_BARE[axis]} ±0.1"
 
     @pytest.mark.parametrize("axis", _AXES)
-    def test_the_other_two_extents_are_untouched(self, axis):
-        # The decoration is per-parameter. Without this a fix that tolerances every extent
-        # would pass the test above on all three.
+    def test_the_other_two_extents_stay_bare(self, axis):
+        # The decoration is per-parameter: a fix that tolerances every extent passes the test
+        # above on all three.
         drawing = _built(axis)
         for other in _AXES:
-            if other == axis:
-                continue
-            assert _tolerance_of(drawing, _ANNOTATION[other]) is None, other
+            if other != axis:
+                assert _label(drawing, _ANNOTATION[other]) == _BARE[other], other
 
-    def test_an_undecorated_envelope_stays_bare(self):
-        # The precondition for both assertions above: they mean nothing if a plain envelope
-        # already carried a tolerance from somewhere.
-        #
-        # `envelope()` is still called — declaring the envelope is what puts the width and
-        # depth extents on the sheet at all. Measured, a bare `Sheet(Box(...)).auto_dimensions()`
-        # draws only `dim_height`; asserting over `_ANNOTATION` on that build fails looking up
-        # an annotation that does not exist, which is a broken precondition, not a passing one.
-        sheet = Sheet(Box(30, 20, 10))
-        sheet.envelope()
-        sheet.auto_dimensions()
-        drawing = sheet.build()
-        for name in _ANNOTATION.values():
-            assert name in drawing.registry.names(), f"{name} absent; nothing to assert about"
-            assert _tolerance_of(drawing, name) is None, name
+    def test_an_undecorated_envelope_prints_no_tolerance(self):
+        # The precondition. `envelope()` is still called — declaring it is what puts the width
+        # and depth extents on the sheet at all; a bare `Sheet(Box(...)).auto_dimensions()`
+        # registers only `dim_height`, and asserting over `_ANNOTATION` there fails looking up
+        # an annotation that does not exist.
+        drawing = _built(axis=None)
+        for axis in _AXES:
+            assert _label(drawing, _ANNOTATION[axis]) == _BARE[axis], axis
 
-    def test_a_limit_pair_survives_as_a_pair(self):
-        # `_tol_value` keeps `(lower, upper)`; the renderers must not coerce it to a float.
-        drawing = _built("height", tolerance=None)
-        sheet = Sheet(Box(30, 20, 10))
-        sheet.envelope().tolerance(0.1, 0.2, on="height")
-        sheet.auto_dimensions()
-        drawing = sheet.build()
-        assert _tolerance_of(drawing, "dim_height") == (0.1, 0.2)
+    def test_a_limit_pair_prints_both_limits(self):
+        assert _label(_built("height", 0.1, 0.2), "dim_height") == "10 +0.2 -0.1"
 
 
 class TestTheTwoPathsAgree:
-    """#1215's second acceptance line: the ladder path and the ordinary envelope path.
+    """#1215's second acceptance line. The height rides `render_height_ladder`; width and depth
+    ride `render_envelope`. They took the decoration from different places and neither printed
+    it, so "they agree" was satisfied vacuously until both did."""
 
-    The height rides `render_height_ladder`, width and depth ride `render_envelope`. They took
-    the decoration from different places and only one of them looked.
+    def test_every_extent_prints_the_same_suffix_for_the_same_tolerance(self):
+        suffixes = {
+            axis: _label(_built(axis), _ANNOTATION[axis]).split(" ", 1)[1] for axis in _AXES
+        }
+        assert set(suffixes.values()) == {"±0.1"}, suffixes
+
+
+class TestTheTolerandeReachesTheInk:
+    """Labels are metadata. This is what the reader sees."""
+
+    def test_the_tolerance_reaches_the_exported_ink(self, tmp_path):
+        import re
+
+        def measured(tolerance):
+            drawing = _built("width") if tolerance else _built(axis=None)
+            annotation = drawing.registry.named("m_env_width")
+            out = tmp_path / f"o{int(bool(tolerance))}.svg"
+            drawing.export(str(out))
+            paths = len(re.findall(r"<path", out.read_text()))
+            return len(annotation.faces()), paths
+
+        bare_faces, bare_paths = measured(False)
+        tol_faces, tol_paths = measured(True)
+        assert tol_faces > bare_faces, (bare_faces, tol_faces)
+        assert tol_paths > bare_paths, (bare_paths, tol_paths)
+
+
+class TestAFitClassRendersToo:
+    """#1215's third acceptance line, which I first asserted was unreachable. It is not.
+
+    `build_drawing(decorations=...)` is public (ADR 0011's public-IR input) and `_Params`
+    forwards unknown attributes to the `Sheet`, so `not hasattr(handle, "fit")` proved only that
+    `Sheet` has no `fit` verb at all — not that an envelope cannot take one (#1234 review).
+
+    It also matters which mechanism renders it: `_tol_suffix` handles `FitClass`, while the ink
+    path's `_number_with_units` raises `TypeError: 'FitClass' object is not subscriptable`. So
+    composing the label is the only route that satisfies this line at all.
     """
 
-    def test_both_paths_carry_the_same_kind_of_value(self):
-        for axis in _AXES:
-            assert _tolerance_of(_built(axis), _ANNOTATION[axis]) == 0.05, axis
+    def test_a_fit_class_on_an_envelope_extent_renders_its_code(self):
+        from draftwright.builder import build_drawing
+        from draftwright.fits import fit_class
 
-    def test_the_label_itself_stays_bare_on_both_paths(self):
-        # Stated because it is surprising, and because it is why these tests read `_dw_spec`:
-        # `Dimension` renders the tolerance without touching `label`. A test asserting on the
-        # label would pass against unfixed code.
-        for axis in _AXES:
-            drawing = _built(axis)
-            label = str(getattr(drawing.registry.named(_ANNOTATION[axis]), "label", None))
-            assert "±" not in label, (axis, label)
+        sheet = Sheet(Box(30, 20, 10))
+        sheet.envelope()
+        sheet.auto_dimensions()
+        model = sheet.build().model()
+        envelope = next(f for f in model.features if f.kind == "envelope")
+        drawing = build_drawing(
+            Box(30, 20, 10),
+            model=model,
+            decorations={(envelope, "length", "width"): fit_class("h6", 30.0, "class")},
+            title="T",
+            number="N-1",
+        )
+        assert _label(drawing, "m_env_width") == "30 h6"
 
-
-class TestTheFootprintMeasuresWhatIsDrawn:
-    def test_the_suffix_matches_what_the_helper_renders(self):
-        """The corridor reserves space using `_tol_suffix`; the sheet draws helpers'
-        `_format_label`. If they disagree a toleranced extent reserves the wrong width."""
+    def test_the_ink_path_would_have_raised_on_it(self):
+        # Why the label route is not merely a preference. If the tolerance were handed to the
+        # Dimension instead, this is what the reader would get.
+        import pytest as _pytest
         from build123d_drafting.helpers import _format_label
 
         from draftwright.builder import build_drawing
+        from draftwright.fits import fit_class
 
         draft = build_drawing(Box(30, 20, 10), title="T", number="N-1").draft
-        for tolerance in (0.05, 0.5, (0.1, 0.2)):
-            expected = _format_label(30.0, draft, tolerance)
-            ours = f"{round(30.0, draft.decimal_precision):.{draft.decimal_precision}f}"
-            assert ours + _tol_suffix(tolerance, draft) == expected, tolerance
-
-
-class TestWhatThisDoesNotCover:
-    def test_an_envelope_cannot_take_a_fit_class(self):
-        """#1215's third acceptance line asks for `FitClass` rendering. It is unreachable.
-
-        `_Params` — the envelope handle — has no `fit()`, and `_Dim.fit` is diametral by
-        design ("a fit is diametral"), reading `self._sheet._features[self._i].diameter`. An
-        envelope's parameters are width/height/depth and it has no diameter, so no `FitClass`
-        can key onto one. `_tol_suffix` handles `FitClass` already, so the day an envelope
-        grows a diametral parameter the suffix is ready; nothing else here is.
-
-        Asserted rather than left as prose, so this stops being true loudly.
-        """
-        sheet = Sheet(Box(30, 20, 10))
-        handle = sheet.envelope()
-        assert not hasattr(handle, "fit"), "an envelope grew fit(); #1215's third line is now live"
-        assert "diameter" not in {p.role for p in sheet.features[0].parameters()}
+        with _pytest.raises(TypeError):
+            _format_label(30.0, draft, fit_class("h6", 30.0, "class"))

@@ -561,13 +561,24 @@ class TestTheToleranceRuleIsAsymmetric:
         # author who toleranced the OVERALL THICKNESS got the duplicate `8` back — #1154's own
         # defect, re-opened by its fix (review r2). A tolerance on the owner is the same
         # requirement on the same two faces; it does not make them two facts.
-        assert self._z_hub_labels(on_envelope=True) == ["8"]
+        #
+        # The label gained its ± in #1215; the RULE is untouched. What this test guards is the
+        # COUNT — one label, not two — and that is unchanged.
+        assert self._z_hub_labels(on_envelope=True) == ["8 ±0.1"]
 
     def test_equal_tolerances_on_both_sides_still_keep_both(self):
         # The r2 correction then went one step too far and admitted "equal tolerances", on
-        # the premise that the receiving extent states the same requirement. Measured, an
-        # envelope decoration is not rendered on ANY axis while `render_boss_heights` appends
-        # `_tol_suffix`, so an identically toleranced boss height lost its ± anyway — the
-        # exact silent loss the tolerance rule was added to stop, re-created by the fix for
-        # its own over-correction (review r3). The rule is about the yielder alone.
-        assert self._z_hub_labels(on_boss=True, on_envelope=True) == ["8", "8 ±0.1"]
+        # the premise that the receiving extent states the same requirement.
+        #
+        # That premise was false when this was written, for a reason #1215 has since removed:
+        # an envelope decoration was not rendered on ANY axis, so an identically toleranced
+        # boss height lost its ± when consolidated away — the silent loss the tolerance rule
+        # exists to stop, re-created by the fix for its own over-correction (review r3).
+        #
+        # Now both extents state their tolerance, so the yielded fact would no longer be lost.
+        # The rule still refuses, and deliberately: #1154's own comment says the refusal must
+        # not DEPEND on the receiving extent being able to state a tolerance, so nothing here
+        # changes just because it now can. #1215's last acceptance line proposes revisiting
+        # whether transferring beats refusing; that is a separate decision, and this test keeps
+        # guarding the count either way.
+        assert self._z_hub_labels(on_boss=True, on_envelope=True) == ["8 ±0.1", "8 ±0.1"]
