@@ -741,6 +741,20 @@ def _compile_step_ladders(model: PartModel, marked) -> tuple[list[ApprovedLadder
         )
         return ((x, y, step.base), (x, y, z)), bounds
 
+    # An authored `.tolerance(...)` on a step level, through the one owner. The PLAIN ladder
+    # rungs carry it; the `N× rise` representative below deliberately does not, because a ±
+    # on a collapsed representative would claim it of every level (#28 / P2a).
+    #
+    # The seventh site of #1215's discard, and the last: a bare `.tolerance()` on a step level
+    # reached `model.decorations` and was dropped here, so `dim_step_0` printed `14` where the
+    # author wrote `14 ±0.05`. `sheet.py` promises a bare tolerance "folds onto every parameter
+    # of that kind" (#1234 review r5).
+    step_height_param = next((pm for pm in step.parameters() if pm.role == "step_height"), None)
+    step_tol = (
+        _decorated(model, step, step_height_param).tolerance
+        if step_height_param is not None
+        else None
+    )
     heights = []
     for z in sorted(step.levels):
         span, support_bounds = _height_evidence(z)
@@ -749,6 +763,7 @@ def _compile_step_ladders(model: PartModel, marked) -> tuple[list[ApprovedLadder
                 id=_dim_id(step, "step_height.length"),
                 value_text=_fmt(z - step.base),
                 value=z - step.base,
+                tolerance=step_tol,
                 span=span,
                 ref=step_ref,
                 rendered_label=_fmt(z - step.base),

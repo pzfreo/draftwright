@@ -4026,6 +4026,11 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
                 "representative step-height dimension dropped (front-view right strip full)",
                 rep.id,
                 rep.value,
+                # NO tolerance, deliberately. `N× rise` states one value for the whole run, so
+                # a ± here would claim the author's tolerance of every level at once — the same
+                # rule the turned-step collapse follows (#28 / P2a). The plain rungs below each
+                # state their own measurement and do carry it (#1234 review r5).
+                None,
             )
         )
     elif rungs:
@@ -4078,6 +4083,7 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
                     "step-height dimension dropped (front-view right strip full)",
                     rung.id,
                     None,  # no `N×` prefix: the label states the span itself
+                    rung.tolerance,
                 )
             )
 
@@ -4093,19 +4099,24 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
                 "overall height dimension dropped (front-view right strip full)",
                 height.id,
                 None,  # no `N×` prefix
+                height.tolerance,
             )
         )
 
-    # An authored `envelope().tolerance(..., on="height")` reaches the sheet here, composed into
-    # the LABEL like every other toleranced Dimension in this module. Passing it as
-    # `Dimension(tolerance=...)` renders nothing, because an explicit label discards it — see
-    # `_env_label` (#1215, #1234 review). Keyed by name because only the overall rung has one;
-    # a step rung's tolerance is a separate question.
-    _tolerances = {"dim_height": overall.rungs[0].tolerance} if overall is not None else {}
+    # Authored tolerances reach the sheet here, composed into the LABEL like every other
+    # toleranced Dimension in this module. Passing one as `Dimension(tolerance=...)` renders
+    # nothing, because an explicit label discards it — see `_env_label` (#1215).
+    #
+    # Keyed per rung, not just the overall height. An earlier version said "a step rung's
+    # tolerance is a separate question"; it is only separate for the `N× rise` REPRESENTATIVE,
+    # where a ± would claim the tolerance of every level. A plain ladder's rungs each state
+    # their own measurement, and `.tolerance()` on a step level was being dropped exactly as
+    # the envelope's was (#1234 review r5).
+    _tolerances = {c[0]: c[8] for c in chain}
 
     names = [c[0] for c in chain]
     solved: dict[str, float] = {}
-    for k, (name, zbase, ztop, label, _tsize, drop_msg, mid, per_unit) in enumerate(chain):
+    for k, (name, zbase, ztop, label, _tsize, drop_msg, mid, per_unit, _rt) in enumerate(chain):
 
         def _build(
             pos,

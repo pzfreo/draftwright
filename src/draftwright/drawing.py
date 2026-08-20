@@ -1079,7 +1079,11 @@ class Drawing:
         # `tolerance=`: the tolerance stayed in kwargs and `Dimension` discarded it, which is
         # the very thing being fixed, surviving in one branch (#1234 review r4).
         tolerance = kwargs.pop("tolerance", None)
-        if "label" not in kwargs:
+        # `.get(...) is None`, not `not in`: an explicit `label=None` is helpers' documented
+        # "auto", and testing membership composed the suffix onto the literal `None`, so the
+        # sheet printed the string "None". A public API made to print garbage by the fix for a
+        # public API that printed nothing (#1234 review r5).
+        if kwargs.get("label") is None:
             page_len = math.hypot(p2[0] - p1[0], p2[1] - p1[1])
             kwargs["label"] = _fmt(page_len / self.scale)
         kwargs["label"] = f"{kwargs['label']}{_tol_suffix(tolerance, draft)}"
@@ -1262,7 +1266,7 @@ class Drawing:
         # first-class corridor candidate, so it was the going-forward surface that lost the
         # requirement (#1234 review r4).
         tolerance = dim_kwargs.pop("tolerance", None)
-        if "label" not in dim_kwargs:
+        if dim_kwargs.get("label") is None:  # `None` is "auto"; see `_place_dim` (#1234 r5)
             page_len = math.hypot(p2[0] - p1[0], p2[1] - p1[1])
             dim_kwargs["label"] = _fmt(page_len / self.scale)
         dim_kwargs["label"] = f"{dim_kwargs['label']}{_tol_suffix(tolerance, self.draft)}"

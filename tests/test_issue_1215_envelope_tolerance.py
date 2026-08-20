@@ -238,6 +238,46 @@ class TestTheSuffixDoesNotBreakLabelIdentity:
         assert _overall_height_name(drawing, self._analysis_for(drawing)) == "dim_height"
 
 
+class TestTheGeneralisedFallbackMatchesToo:
+    """`_overall_height_name` has TWO branches and only the canonical one was covered.
+
+    Reverting the fallback's match to exact string equality passed the entire fast tier —
+    the r4 commit and its test docstring both claimed the break was fixed "in BOTH the
+    canonical branch and the generalised fallback", and the second half was prose. That is the
+    failure mode this PR's own commit messages indict twice, recurring a third time inside the
+    fix for it (#1234 review r5).
+
+    Removing `dim_height` forces the fallback, which searches envelope-attributed annotations
+    for a portrait-shaped one whose label states the height.
+    """
+
+    def test_the_fallback_finds_a_toleranced_height_under_another_name(self):
+        from draftwright.annotations.sections import _overall_height_name
+
+        drawing = _built("height")
+        assert _label(drawing, "dim_height") == "10 ±0.1"
+        envelope = next(f for f in drawing.model().features if f.kind == "envelope")
+        drawing.remove("dim_height")
+        assert "dim_height" not in drawing.registry.names()
+
+        drawing.place_dim(
+            (98, 70, 0),
+            (98, 80, 0),
+            "right",
+            "front",
+            drawing.draft,
+            name="dim_length7",
+            feature=envelope,
+            label="10",
+            tolerance=0.05,
+        )
+        assert str(drawing.get_annotation("dim_length7").label) == "10 ±0.1"
+        found = _overall_height_name(
+            drawing, TestTheSuffixDoesNotBreakLabelIdentity._analysis_for(drawing)
+        )
+        assert found == "dim_length7", found
+
+
 class TestAFitClassRendersToo:
     """#1215's third acceptance line, which I first asserted was unreachable. It is not.
 

@@ -514,6 +514,75 @@ class TestSheetTolerance:
             )
         assert str(dwg.get_annotation("tst").label) == "80 +0.2 -0.1"
 
+    @staticmethod
+    def _staircase():
+        from build123d import Box, Pos
+
+        return (
+            Box(120, 60, 15)
+            + Pos(-20, 0, 15) * Box(80, 60, 15)
+            + Pos(-40, 0, 30) * Box(40, 60, 15)
+        )
+
+    def test_a_step_level_tolerance_renders_on_every_rung(self):
+        """The seventh site of #1215's discard, and the last one the sweep found.
+
+        `sheet.py` promises a bare `.tolerance(...)` "folds onto every parameter of that kind";
+        a step level's rungs dropped it, so `dim_step_0` printed `15` where the author wrote
+        `15 ±0.05`. The compiler built the rungs with no tolerance and the renderer keyed its
+        suffix map to `dim_height` alone (#1234 review r5).
+        """
+        from draftwright.sheet import Sheet as _S
+
+        for tol, expected in ((None, {"15", "30"}), (0.05, {"15 ±0.1", "30 ±0.1"})):
+            sheet = _S(self._staircase(), title="T", number="N")
+            handle = sheet.step_level(self._staircase())
+            if tol is not None:
+                handle.tolerance(tol)
+            sheet.auto_dimensions()
+            dwg = sheet.build()
+            labels = {
+                str(dwg.get_annotation(n).label)
+                for n in dwg.annotations()
+                if n.startswith("dim_step_")
+            }
+            assert labels == expected, (tol, labels)
+
+    def test_the_representative_step_rung_carries_no_tolerance(self):
+        """`N× rise` states ONE value for the whole run, so a ± would claim the author's
+        tolerance of every level at once — the same rule the turned-step collapse follows."""
+        from build123d import Box, Pos
+
+        from draftwright.sheet import Sheet as _S
+
+        def uniform():
+            part = Box(120, 60, 10)
+            for i in range(1, 4):
+                part += Pos(-10 * i, 0, 10 * i) * Box(120 - 20 * i, 60, 10)
+            return part
+
+        sheet = _S(uniform(), title="T", number="N")
+        sheet.step_level(uniform()).tolerance(0.05)
+        sheet.auto_dimensions()
+        dwg = sheet.build()
+        rep = [n for n in dwg.annotations() if n.startswith("dim_step_typ")]
+        assert rep, sorted(dwg.annotations())
+        for name in rep:
+            label = str(dwg.get_annotation(name).label)
+            assert "×" in label and "±" not in label and "+" not in label, label
+
+    def test_an_explicit_none_label_still_means_auto(self):
+        """`label=None` is helpers' documented "auto". Composing the suffix onto whatever was
+        in `kwargs` printed the literal string `None` on the sheet — a public API made to print
+        garbage by the fix for a public API that printed nothing (#1234 review r5)."""
+        from build123d import Box
+
+        from draftwright.builder import build_drawing
+
+        dwg = build_drawing(Box(90, 60, 20), title="T", number="N-1")
+        dwg.place_dim((10, 10, 0), (60, 10, 0), "below", "plan", dwg.draft, name="u0", label=None)
+        assert str(dwg.get_annotation("u0").label) == "50"
+
     def test_step_on_diameter_tolerances_the_od(self):
         shaft = self._stepped_shaft()
         s = Sheet(shaft).auto_dimensions()
