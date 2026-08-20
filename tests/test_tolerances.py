@@ -583,6 +583,26 @@ class TestSheetTolerance:
         dwg.place_dim((10, 10, 0), (60, 10, 0), "below", "plan", dwg.draft, name="u0", label=None)
         assert str(dwg.get_annotation("u0").label) == "50"
 
+    @pytest.mark.parametrize("extra", [{"pin": True}, {"priority": 5.0}])
+    def test_a_deferred_none_label_still_means_auto(self, extra):
+        """The deferred half of the `label=None` fix, which had nothing holding it.
+
+        Reverting only `_queue_dimension_intent` to `"label" not in dim_kwargs` passed the
+        entire fast tier — the commit said "both sites now test `kwargs.get("label") is None`",
+        and the code did while only one was tested (#1234 review r6).
+        """
+        from build123d import Box
+
+        from draftwright.builder import build_drawing
+
+        dwg = build_drawing(Box(80, 50, 20), auto_dims=False, title="T", number="N-1")
+        envelope = next(f for f in dwg.model().features if f.kind == "envelope")
+        with dwg.deferred():
+            dwg.dimension(
+                envelope, "length", role="width", side="below", name="tst", label=None, **extra
+            )
+        assert str(dwg.get_annotation("tst").label) == "80"
+
     def test_step_on_diameter_tolerances_the_od(self):
         shaft = self._stepped_shaft()
         s = Sheet(shaft).auto_dimensions()

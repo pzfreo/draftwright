@@ -872,13 +872,14 @@ def _overall_height_name(dwg, a: Analysis) -> str | None:
     height_label = _fmt(a.z_size)
 
     def _is_height(obj) -> bool:
-        label = getattr(obj, "label", None)
-        if label is None:
-            return False
+        # No `is None` guard: a missing label stringifies to "None", which cannot equal a
+        # formatted number, so that branch had no outcome of its own — only an uncoverable
+        # partial, which codecov correctly flagged (#1234 review r6).
+        #
         # The suffix is appended, so the value is the leading token. `_tol_suffix` emits
         # " ±t", " +hi -lo" and a fit class's " h6" — all space-separated — and a bare label
         # has no space, so splitting once is exact for every form.
-        return str(label).split(" ", 1)[0] == height_label
+        return str(getattr(obj, "label", None)).split(" ", 1)[0] == height_label
 
     # The auto pass names the overall height `dim_height`; subject it to the SAME
     # demotion-safety guards as the generalised names (user review, #661): never
