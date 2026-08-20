@@ -42,6 +42,7 @@ from draftwright._core import (
     _largest_empty_rect,
     _legible_steps,
     _log,
+    _tol_suffix,
 )
 from draftwright._geometry import _leader_ink_polygons, _stroke_polygon
 from draftwright.annotations._common import carve_free_segments, strip_obstacles
@@ -1035,7 +1036,14 @@ def _request_prismatic_detail(dwg, a: Analysis, *, ctx, plan) -> None:
         placed = 0
         for i, z in enumerate(det_kept):
             rung = rung_by_level[z]
-            label = rung.final_label  # the compiler's label, not a second derivation
+            # The compiler's label plus its tolerance — NOT a second derivation of the value.
+            # Before #1215 the tolerance was dropped everywhere, so the sheet was at least
+            # self-consistent. Composing it on the main view alone made a toleranced staircase
+            # contradict itself: the levels the legibility gate moved here are dimensioned ONLY
+            # in the detail, so three of five authored ± requirements vanished while two showed
+            # — a machinist reads the bare ones as falling under the general block
+            # (#1234 review r6).
+            label = rung.final_label + _tol_suffix(rung.tolerance, dwg.draft)
             try:
                 if has_level_supports:
                     source_x = source_x_by_z[z]

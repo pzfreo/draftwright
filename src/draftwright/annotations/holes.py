@@ -1214,7 +1214,7 @@ def _add_furniture(
             members[0],
             members[-1],
             len(members),
-            pitch.value_text,
+            pitch.value_text + _tol_suffix(pitch.tolerance, dwg.draft),
             to_page,
             f"dim_pitch_{view}{j}",
             feature=feat,
@@ -1394,7 +1394,7 @@ def _add_grid_pitch_dims(
             members[lo],
             members[hi],
             n,
-            pitch.value_text,
+            pitch.value_text + _tol_suffix(pitch.tolerance, dwg.draft),
             to_page,
             f"{name_prefix}_{view}{j}_{sub}",
             feature=feature,
@@ -1470,6 +1470,11 @@ def _place_pitch_dim(
         side, reach = max(cands, key=lambda c: c[0][0] * pref[0] + c[0][1] * pref[1])
     fallback_sides = [(side, reach)] + [c for c in cands if c[0] != side]
 
+    # `pitch_text` arrives already carrying its authored tolerance (composed at the call
+    # sites), because an explicit label discards a forwarded `tolerance=` — #1215's mechanism.
+    # A uniform array's ± applies to each identical gap, so `4× 20 ±0.05` is coherent; that is
+    # unlike the STEP representative, whose levels merely fall within 10% of each other, where
+    # a ± would claim the tolerance of values that differ (#1234 review r6).
     label = f"{n - 1}× {pitch_text}"
 
     def _make(off, side_vec=side, label_offset_x=0.0):
@@ -1744,7 +1749,7 @@ def render_pocket_patterns(dwg, plan, a, *, ctx, only=None) -> int:
                 members[0],
                 members[-1],
                 len(members),
-                pitch.value_text,
+                pitch.value_text + _tol_suffix(pitch.tolerance, dwg.draft),
                 to_page,
                 f"dim_pocketpat_pitch_{view}{i}",
                 feature=g.ref,
@@ -1863,7 +1868,7 @@ def render_slot_patterns(dwg, plan, a, *, ctx, only=None) -> int:
                 members[0],
                 members[-1],
                 len(members),
-                pitch.value_text,
+                pitch.value_text + _tol_suffix(pitch.tolerance, dwg.draft),
                 to_page,
                 f"dim_slotpat_pitch_{view}{i}",
                 feature=g.ref,

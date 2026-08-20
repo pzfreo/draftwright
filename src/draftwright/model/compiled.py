@@ -815,6 +815,15 @@ def _compile_step_ladders(model: PartModel, marked) -> tuple[list[ApprovedLadder
         hi[_di[axis]] = pos
         return (tuple(lo), tuple(hi))
 
+    # Shoulders carry their authored tolerance too. Without this the SAME `DimensionId` sat in
+    # `plan.groups` with a tolerance (via `_compile_groups`) and in `plan.ladders` without one,
+    # and `evidence.compiled_values` merges both into one multimap — a one-owner violation of
+    # the same shape as #1154, five lines below where #1215 added the height rungs'
+    # (#1234 review r6).
+    shoulder_param = next((pm for pm in step.parameters() if pm.role == "step_position"), None)
+    shoulder_tol = (
+        _decorated(model, step, shoulder_param).tolerance if shoulder_param is not None else None
+    )
     shoulders = [
         ApprovedDimension(
             id=_dim_id(step, "step_position.length"),
@@ -823,6 +832,7 @@ def _compile_step_ladders(model: PartModel, marked) -> tuple[list[ApprovedLadder
             span=_shoulder_span(axis, pos),
             ref=step_ref,
             axis=axis,
+            tolerance=shoulder_tol,
             rendered_label=_fmt(abs(pos - step.datum[_di[axis]])),
         )
         for axis, pos in sorted(step.shoulders)

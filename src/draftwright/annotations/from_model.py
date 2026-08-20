@@ -4217,7 +4217,10 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
     for i, rung in enumerate(short_rungs):
         name = f"dim_step_{i}"
         zbase, ztop = _zspan(rung)
-        label = rung.final_label
+        # Same composition as the main chain: this is the SHORT-RISE escape, solved in the left
+        # strip because external arrows would swamp the right one. It is the same measurement
+        # by another route, and it dropped the tolerance (#1234 review r6).
+        label = rung.final_label + _tol_suffix(rung.tolerance, draft)
 
         def _build_left(pos, zbase=zbase, ztop=ztop, label=label):
             return _dim(
@@ -4336,7 +4339,11 @@ def render_step_positions(dwg, plan, frame, *, ctx) -> int:
         edge = p1[1]
         name = f"dim_shoulder_{axis}{i}"
 
-        def _build(pos, p1=p1, p2=p2, edge=edge, label=rung.final_label, direction=direction):
+        # The compiler's label plus its tolerance — a shoulder states a position the author can
+        # tolerance like any other (#1234 review r6).
+        shoulder_label = rung.final_label + _tol_suffix(rung.tolerance, draft)
+
+        def _build(pos, p1=p1, p2=p2, edge=edge, label=shoulder_label, direction=direction):
             return _dim(
                 (p1[0], edge, 0),
                 (p2[0], edge, 0),
