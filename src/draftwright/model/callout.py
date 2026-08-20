@@ -339,6 +339,22 @@ def hole_callout_spec(group: DimensionGroup) -> dict | None:
         return None
     _refuse_headless_callout(group)  # every segment, not just the head — see the docstring
     cbore_dia, cbore_depth = _recess(group)
+    # The recess and countersink terms carry their own authored tolerances. Only the bore's
+    # was threaded, so `s.hole(...).cbore(...).tolerance(0.05)` — which `_decorated` folds onto
+    # EVERY parameter of that kind — printed `⌀8 ±0.1 THRU ⌴ ⌀14`: one ± shown, one silently
+    # gone, and a machinist reads the bare ⌀14 as falling under the general block
+    # (#1215, #1234 review r7).
+    #
+    # Through `_recess_plan` rather than a second lookup, so the tolerance comes from the SAME
+    # segment that won the counterbore/spotface precedence — resolving them independently is
+    # the #920 defect that paired one role's ⌀ with the other's depth.
+    recess_dia_pd, recess_depth_pd = _recess_plan(group)
+    csink_dia_pd = _planned(group, "diameter", "countersink")
+    csink_angle_pd = _planned(group, "angle", "countersink")
+
+    def _tol_of(planned):
+        return planned.param.tolerance if planned is not None else None
+
     bore_pd = _planned(group, "diameter", "bore")
     bore = _first(group, "diameter", "bore")
     if bore is None:
@@ -373,6 +389,11 @@ def hole_callout_spec(group: DimensionGroup) -> dict | None:
         "csink_angle": _first(group, "angle", "countersink"),
         "suffix": suffix,
         "tolerance": bore_tol,  # P2a: ± on the bore ⌀, baked into the callout string below
+        # ...and one per remaining term, baked in the same way (#1234 review r7).
+        "cbore_dia_tol": _tol_of(recess_dia_pd),
+        "cbore_depth_tol": _tol_of(recess_depth_pd),
+        "csink_dia_tol": _tol_of(csink_dia_pd),
+        "csink_angle_tol": _tol_of(csink_angle_pd),
         # Exact compiler identities printed by this compound callout. Count and THRU are
         # non-dimensional facts carried separately as structured callout coverage; neither
         # rendered text nor an invented dimensional identity certifies them.

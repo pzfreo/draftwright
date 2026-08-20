@@ -271,26 +271,40 @@ def _est_planned_bore_callout_width(
         token_w.append(
             _text_width(f"{_fmt(bore)}{_tol_suffix(spec['tolerance'], draft)}", font_size)
         )
+
+        # Every term's tolerance, not just the bore's. The estimator has to measure the string
+        # the callout will DRAW: reserving the bare width of a toleranced recess made the
+        # placement check reject a callout the reservation said would fit, and the whole
+        # annotation was dropped with `callout_dropped: no room beside the view` — a wrong
+        # drawing produced from a right one (#1234 review r7).
+        def _term(value, tol_key):
+            return _text_width(f"{_fmt(value)}{_tol_suffix(spec.get(tol_key), draft)}", font_size)
+
         if spec["through"]:
             token_w.append(_text_width("THRU", font_size))
         elif depth is not None:
             token_w.append(sym_w)  # depth symbol
-            token_w.append(_text_width(_fmt(depth), font_size))
+            token_w.append(_term(depth, "depth_tol"))
         if cbore_dia is not None:
             token_w.append(sym_w)  # counterbore/spotface symbol
             token_w.append(sym_w)  # ⌀
-            token_w.append(_text_width(_fmt(cbore_dia), font_size))
+            token_w.append(_term(cbore_dia, "cbore_dia_tol"))
             if cbore_depth is not None:
                 token_w.append(sym_w)  # depth symbol
-                token_w.append(_text_width(_fmt(cbore_depth), font_size))
+                token_w.append(_term(cbore_depth, "cbore_depth_tol"))
         csink_dia = spec["csink_dia"]
         if csink_dia is not None:
             token_w.append(sym_w)  # countersink symbol
             token_w.append(sym_w)  # ⌀
-            token_w.append(_text_width(_fmt(csink_dia), font_size))
+            token_w.append(_term(csink_dia, "csink_dia_tol"))
             csink_angle = spec["csink_angle"]
             if csink_angle is not None:
-                token_w.append(_text_width(f"× {_fmt(csink_angle)}°", font_size))
+                token_w.append(
+                    _text_width(
+                        f"× {_fmt(csink_angle)}{_tol_suffix(spec.get('csink_angle_tol'), draft)}°",
+                        font_size,
+                    )
+                )
         if suffix is not None:
             token_w.append(_text_width(suffix, font_size))
 

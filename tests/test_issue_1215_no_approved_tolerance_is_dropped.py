@@ -23,15 +23,19 @@ precisely than the author wrote it — silently, which is the whole failure mode
 
 from __future__ import annotations
 
-import re
-
 import pytest
-from build123d import Box, Cylinder, Pos, Rot
+from build123d import Axis, Box, Cylinder, Pos, Rot
 
+from draftwright._core import _tol_suffix
 from draftwright.builder import build_drawing
 from draftwright.model.compiled import compile_dimensions
 
 _TOL = 0.05
+
+#: The draft the suffix is formatted against. `_tol_suffix` rounds to `decimal_precision`, so
+#: the expected text must come from the same draft the renderer used — a different precision
+#: would make the comparison a guess again.
+_DRAFT = build_drawing(Box(20, 20, 20), title="T", number="N").draft
 
 
 def _staircase():
@@ -78,6 +82,35 @@ def _short_first_rise():
     return part.part
 
 
+def _counterbored_plate():
+    """A counterbored through hole: the compound callout, whose recess terms are separate
+    parameters. Only the BORE's tolerance was threaded, so `⌀8 ±0.1 THRU ⌴ ⌀14` showed one ±
+    and silently lost the other (#1234 review r7)."""
+    from build123d import Cone
+
+    part = Box(140, 60, 12)
+    # Counterbored.
+    part -= Pos(-35, 0, 0) * Cylinder(4, 40)
+    part -= Pos(-35, 0, 3) * Cylinder(7, 6)
+    # Countersunk — the csink terms are separate parameters again, and a fixture without one
+    # leaves `csink_dia_tol` / `csink_angle_tol` unswept. This cone geometry is the one
+    # `tests/test_issue_1143_hole_completeness.py` uses; my first attempt built a cone the
+    # recogniser did not see as a countersink at all, so the sweep silently covered nothing.
+    part -= Pos(35, 0, 0) * Cylinder(3, 40)
+    part -= Pos(35, 0, 4) * Cone(3, 7, 4)
+    return part
+
+
+def _chamfered_block():
+    """Chamfers label as `C3` and fillets as `4× R5` — letters then digits, which the guard's
+    second predicate matched as if it were a fit class. Deleting the chamfer renderer's suffix
+    left the authored ± off the sheet with the guard green (#1234 review r7)."""
+    from build123d import chamfer
+
+    part = Box(60, 40, 20)
+    return chamfer(part.edges().filter_by(Axis.Z), 3)
+
+
 def _plate_with_holes():
     return Box(90, 60, 12) - Pos(-25, 12, 0) * Cylinder(4, 40) - Pos(25, -12, 0) * Cylinder(4, 40)
 
@@ -88,6 +121,8 @@ _PARTS = {
     "linear_pattern": _linear_pattern,
     "short_first_rise": _short_first_rise,
     "turned_shaft": _turned_shaft,
+    "chamfered_block": _chamfered_block,
+    "counterbored_plate": _counterbored_plate,
     "plate_with_holes": _plate_with_holes,
 }
 
@@ -111,19 +146,23 @@ def _approved_with_tolerance(plan):
     return approved
 
 
-#: The three shapes `_tol_suffix` emits: " ±t", " +hi -lo", and a fit class's " h6".
-_TOLERANCE_SHAPE = re.compile(r"±|[+-]\d|\b[A-Za-z]+\d+$")
+def _renders(label: str, approved) -> bool:
+    """Does this label carry the suffix the COMPILER says this measurement has?
 
+    Not a pattern match on the rendered string. Two earlier predicates were guessed and both
+    reported green over a live drop:
 
-def _renders_a_tolerance(label: str) -> bool:
-    """Does this label carry a tolerance SUFFIX?
+    * "contains a space" — every collapsed `4× 20` label has one, so the pattern-pitch site
+      was invisible;
+    * a regex for the three `_tol_suffix` shapes — its fit-class alternative (letters then
+      digits) matches `C3` on every chamfer and `4× R5` on every fillet, so deleting the
+      chamfer renderer's suffix left the authored ± off the sheet with the guard still green
+      (#1234 review r6, r7).
 
-    Not "does it contain a space" — that was the first version, and it made the guard blind to
-    the pattern-pitch site, because a collapsed `4× 20` label already has one. A predicate that
-    accepts the very labels most likely to hide a drop is worse than no predicate: it reports
-    green while the sweep covers nothing (#1234 review r6).
+    The plan already holds the tolerance, so the expected text is computable exactly. Comparing
+    to the compiler rather than to a guess is also the ADR 0016 Amdt 1 shape.
     """
-    return bool(_TOLERANCE_SHAPE.search(label.strip()))
+    return _tol_suffix(approved.tolerance, _DRAFT) in label
 
 
 def _drops(part_name, feature, param):
@@ -149,8 +188,16 @@ def _drops(part_name, feature, param):
         if not claimed or name in _DELIBERATELY_BARE:
             continue
         label = str(getattr(drawing.registry.named(name), "label", "") or "")
-        if any(mid in approved for mid in claimed) and not _renders_a_tolerance(label):
-            dropped.append(f"{part_name}/{feature.kind}.{param.role}: {name}={label!r}")
+        # PER ID, not "does it render some tolerance". One annotation can claim several
+        # approved-toleranced ids — a compound hole callout does — and rendering the suffix
+        # for one of them satisfied the whole check, hiding the others (#1234 review r7).
+        for mid in claimed:
+            got = approved.get(mid)
+            if got is not None and not _renders(label, got):
+                want = _tol_suffix(got.tolerance, _DRAFT)
+                dropped.append(
+                    f"{part_name}/{feature.kind}.{param.role}: {name}={label!r} want{want!r}"
+                )
     return dropped
 
 

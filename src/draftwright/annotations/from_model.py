@@ -138,11 +138,20 @@ def callout_from_spec(spec, draft, count) -> HoleCallout | None:
         # diameter carrying tolerance/fit text, "8 ±0.05"); no tolerance → empty suffix.
         dia += _tol_suffix(spec.get("tolerance"), draft)
 
-    depth = f(spec["depth"])
-    cbore_dia = f(spec["cbore_dia"])
-    cbore_depth = f(spec["cbore_depth"])
-    csink_dia = f(spec.get("csink_dia"))
-    csink_angle = f(spec.get("csink_angle"))
+    def ft(value, key):
+        """A formatted term with its own authored tolerance baked in.
+
+        Every term of a compound callout can be toleranced, not just the bore. `.get()`
+        because hand-built specs in tests omit the keys (#1234 review r7).
+        """
+        text = f(value)
+        return None if text is None else text + _tol_suffix(spec.get(key), draft)
+
+    depth = ft(spec["depth"], "depth_tol")
+    cbore_dia = ft(spec["cbore_dia"], "cbore_dia_tol")
+    cbore_depth = ft(spec["cbore_depth"], "cbore_depth_tol")
+    csink_dia = ft(spec.get("csink_dia"), "csink_dia_tol")
+    csink_angle = ft(spec.get("csink_angle"), "csink_angle_tol")
     suffix = spec["suffix"]
     callout = HoleCallout(
         dia,
