@@ -486,6 +486,34 @@ class TestSheetTolerance:
         )
         assert str(dwg.get_annotation("u0").label) == "CUSTOM ±0.1"
 
+    @pytest.mark.parametrize("extra", [{}, {"pin": True}, {"priority": 5.0}])
+    def test_a_deferred_dimension_renders_its_tolerance(self, extra):
+        """The corridor route — `_queue_dimension_intent`, the deferred twin of `_place_dim`.
+
+        It injects a label of its own, so it discarded the tolerance the same way. Fixing only
+        the live path made the SAME public call diverge: `80 +0.2 -0.1` immediately, a bare `80`
+        the moment the author added `pin=True` — ADR 0012's first-class corridor candidate, so
+        the going-forward surface was the one losing the requirement. #1215 introduced that
+        divergence; before it, neither path rendered anything (#1234 review r4).
+        """
+        from build123d import Box
+
+        from draftwright.builder import build_drawing
+
+        dwg = build_drawing(Box(80, 50, 20), auto_dims=False, title="T", number="N-1")
+        envelope = next(f for f in dwg.model().features if f.kind == "envelope")
+        with dwg.deferred():
+            dwg.dimension(
+                envelope,
+                "length",
+                role="width",
+                side="below",
+                name="tst",
+                tolerance=(0.1, 0.2),
+                **extra,
+            )
+        assert str(dwg.get_annotation("tst").label) == "80 +0.2 -0.1"
+
     def test_step_on_diameter_tolerances_the_od(self):
         shaft = self._stepped_shaft()
         s = Sheet(shaft).auto_dimensions()

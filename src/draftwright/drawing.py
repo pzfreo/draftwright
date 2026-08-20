@@ -1254,9 +1254,18 @@ class Drawing:
             for k, v in it.kwargs.items()
             if k not in {"param", "role", "side", "view", "name", "pin", "priority", "slot"}
         }
+        # The same composition as `_place_dim`, and for the same reason: this is the DEFERRED
+        # twin of that function, so a tolerance reaching it must go into the label or helpers
+        # discard it. Without this the identical public call rendered `80 +0.2 -0.1` live and a
+        # bare `80` the moment the author added `pin=True` or `priority=` — a divergence #1215
+        # INTRODUCED, since before it neither path rendered anything. `pin=True` is ADR 0012's
+        # first-class corridor candidate, so it was the going-forward surface that lost the
+        # requirement (#1234 review r4).
+        tolerance = dim_kwargs.pop("tolerance", None)
         if "label" not in dim_kwargs:
             page_len = math.hypot(p2[0] - p1[0], p2[1] - p1[1])
             dim_kwargs["label"] = _fmt(page_len / self.scale)
+        dim_kwargs["label"] = f"{dim_kwargs['label']}{_tol_suffix(tolerance, self.draft)}"
         slot = it.kwargs.get("slot", 8.0)
         axis = "y" if side in ("above", "below") else "x"
         ax = 1 if axis == "y" else 0
@@ -1341,7 +1350,9 @@ class Drawing:
         ``"side"``) where the span projects non-degenerate — a length along the turning
         axis vanishes in its end-on view, so the view follows the geometry. Pass ``view=``
         to force one of those three (a non-orthographic view foreshortens the span and is
-        rejected). ``side`` defaults to ``"above"``; ``kwargs`` forward to the dimension.
+        rejected). ``side`` defaults to ``"above"``; ``kwargs`` forward to the dimension —
+        except ``tolerance=``, which is folded into the label (see :meth:`place_dim`),
+        because helpers discard a forwarded tolerance whenever a label is present.
         In deferred mode, ``pin=True`` anchors the dimension at its natural slot coordinate
         inside the shared corridor solve, and ``priority=`` controls over-capacity survival.
         Live placement still uses the single-position escape hatch and pins only the placed

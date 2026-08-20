@@ -182,6 +182,62 @@ class TestTheCostOnACrowdedSheet:
         assert round(tol[3] - tol[1], 3) == round(bare[3] - bare[1], 3), (bare, tol)
 
 
+class TestTheSuffixDoesNotBreakLabelIdentity:
+    """`_overall_height_name` matched `dim_height` by exact string equality against a re-derived
+    numeric label. Composing a suffix into that label broke it — in BOTH the canonical branch
+    and the generalised fallback — so a toleranced part silently stopped finding its own height
+    dim.
+
+    The consequence is quiet by design: the caller treats `None` as "no demotion, the safe
+    outcome", so a crowded part would drop its detail view instead of demoting the height, with
+    nothing red. That is why this is asserted directly rather than through a build — I could not
+    construct a part that reaches the #661 demotion retry, and neither could the review
+    (#1234 review r4). The mechanism is what is pinned.
+    """
+
+    @staticmethod
+    def _analysis_for(drawing):
+        """The only field `_overall_height_name` reads off the analysis is `z_size`.
+
+        Built from the public model rather than reaching for `drawing._analysis`: #741's guard
+        budgets test-side reads of `Drawing` privates and this would have added two, which is
+        reach-through where the public surface already answers the question.
+        """
+        from types import SimpleNamespace
+
+        return SimpleNamespace(z_size=drawing.model().bbox.size.Z)
+
+    def test_the_height_dim_is_still_found_when_it_carries_a_tolerance(self):
+        from draftwright.annotations.sections import _overall_height_name
+
+        for axis, expected in ((None, "10"), ("height", "10 ±0.1")):
+            drawing = _built(axis) if axis else _built(axis=None)
+            assert _label(drawing, "dim_height") == expected, axis
+            found = _overall_height_name(drawing, self._analysis_for(drawing))
+            assert found == "dim_height", (axis, found)
+
+    def test_a_fit_class_suffix_is_matched_too(self):
+        # The other suffix form `_tol_suffix` emits: a class code, not a ± pair.
+        from draftwright.annotations.sections import _overall_height_name
+        from draftwright.builder import build_drawing
+        from draftwright.fits import fit_class
+
+        sheet = Sheet(Box(30, 20, 10))
+        sheet.envelope()
+        sheet.auto_dimensions()
+        model = sheet.build().model()
+        envelope = next(f for f in model.features if f.kind == "envelope")
+        drawing = build_drawing(
+            Box(30, 20, 10),
+            model=model,
+            decorations={(envelope, "length", "height"): fit_class("h6", 10.0, "class")},
+            title="T",
+            number="N-1",
+        )
+        assert _label(drawing, "dim_height") == "10 h6"
+        assert _overall_height_name(drawing, self._analysis_for(drawing)) == "dim_height"
+
+
 class TestAFitClassRendersToo:
     """#1215's third acceptance line, which I first asserted was unreachable. It is not.
 

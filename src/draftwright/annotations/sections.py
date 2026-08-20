@@ -862,7 +862,23 @@ def _overall_height_name(dwg, a: Analysis) -> str | None:
     **unambiguous**: zero or several surviving candidates (e.g. a hand-authored
     twin of the height dim, or a square part whose depth label equals its height)
     return ``None``, and the caller simply proceeds without a demotion retry."""
+    # Compare the VALUE, not the whole label. An authored `envelope().tolerance(..., on=
+    # "height")` composes a suffix into `dim_height`'s label (#1215), so `'10'` becomes
+    # `'10 ±0.1'` and an exact-equality match against a re-derived numeric silently found
+    # nothing — in both the canonical branch and the generalised fallback. The failure is
+    # quiet by design ("no demotion, the safe outcome"), so a toleranced part would simply
+    # stop retrying and drop its detail view instead (#1234 review r4).
     height_label = _fmt(a.z_size)
+
+    def _is_height(obj) -> bool:
+        label = getattr(obj, "label", None)
+        if label is None:
+            return False
+        # The suffix is appended, so the value is the leading token. `_tol_suffix` emits
+        # " ±t", " +hi -lo" and a fit class's " h6" — all space-separated — and a bare label
+        # has no space, so splitting once is exact for every form.
+        return str(label).split(" ", 1)[0] == height_label
+
     # The auto pass names the overall height `dim_height`; subject it to the SAME
     # demotion-safety guards as the generalised names (user review, #661): never
     # demote a PINNED dim (a pin is the user's "this stays put", ADR 0012), and
@@ -874,7 +890,7 @@ def _overall_height_name(dwg, a: Analysis) -> str | None:
     if (
         canonical is not None
         and not dwg.registry.is_pinned("dim_height")
-        and getattr(canonical, "label", None) == height_label
+        and _is_height(canonical)
     ):
         return "dim_height"
     candidates = []
@@ -884,7 +900,7 @@ def _overall_height_name(dwg, a: Analysis) -> str | None:
         for name, obj in dwg.annotations_of(feat).items():
             if dwg.registry.is_pinned(name):
                 continue
-            if getattr(obj, "label", None) != height_label:
+            if not _is_height(obj):
                 continue
             box = _anno_box(obj)
             if box is not None and (box[3] - box[1]) > (box[2] - box[0]):
