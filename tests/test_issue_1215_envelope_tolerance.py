@@ -168,8 +168,14 @@ class TestTheCostOnACrowdedSheet:
         assert box(_built(axis=None)) == box(_built("height"))
 
     def test_an_unrotated_extent_grows_the_other_way(self):
-        # The contrast that makes the rotation the cause rather than the suffix: `m_env_width`
-        # is horizontal, so its label grows in X — into the strip depth, which IS reserved.
+        # The contrast that makes the ROTATION the cause rather than the suffix: `m_env_width`
+        # is horizontal, so its label grows in X while the height's grows in Y. Both grow along
+        # their own dimension line, and neither growth is into the reserved slot depth — an
+        # earlier version of this comment claimed X "IS reserved", which is false: `_queue`
+        # registers the envelope extents with `axis="y"`, so their reserved depth runs in Y.
+        # The lint fires for the height and not the width for a POSITIONAL reason — the height
+        # label sits inside the front view's extents, the width label in open space below the
+        # plan (#1234 review r3).
         bare = self._label_box(_built(axis=None), "m_env_width")
         tol = self._label_box(_built("width"), "m_env_width")
         assert (tol[2] - tol[0]) > (bare[2] - bare[0]), (bare, tol)

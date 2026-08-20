@@ -940,11 +940,14 @@ def _compile_overall_height(
     # A part with no `EnvelopeFeature` has nothing to key a decoration on, and #876 already
     # says declaring `.envelope()` is how the overall height becomes nameable, so `None` here
     # is the right answer rather than a gap (#1215).
+    # `next()` with no default, deliberately: `EnvelopeFeature.parameters()` always returns a
+    # `height` role, so a guard for its absence is a branch no test can take — and one that
+    # would silently drop an authored tolerance if the contract ever changed. Raising is the
+    # honest failure.
     height_tol = None
     if env is not None:
-        height_param = next((pm for pm in env.parameters() if pm.role == "height"), None)
-        if height_param is not None:
-            height_tol = _decorated(model, env, height_param).tolerance
+        height_param = next(pm for pm in env.parameters() if pm.role == "height")
+        height_tol = _decorated(model, env, height_param).tolerance
     ladder = ApprovedLadder(
         "overall_height",
         (

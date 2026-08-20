@@ -324,8 +324,9 @@ class TestSheetTolerance:
 
         This used to read `_dw_spec.kwargs["tolerance"]` — the constructor argument. helpers do
         `rendered = label if label is not None else ...`, so an explicit label DISCARDS
-        `tolerance=`, and these dims always pass one. Four tests here therefore asserted a
-        tolerance that never reached the sheet, including one named
+        `tolerance=`, and these dims always pass one. Three tests here read it — two asserting
+        a value, one asserting its absence — so a tolerance that never reached the sheet was
+        guarded as if it had, including one named
         `test_step_length_tolerance_reaches_dimension` (#1234 review round 2).
         """
         return str(getattr(dwg.get_annotation(name), "label", ""))
@@ -425,7 +426,33 @@ class TestSheetTolerance:
         dwg = s.build()
         # the bare .tolerance() went to the length dim; the OD leader stays plain
         assert all("±" not in lbl and "+" not in lbl for lbl in self._dias(dwg).values())
-        assert "20 ±0.1" in self._steplen_labels(dwg), self._steplen_labels(dwg)
+        labels = self._steplen_labels(dwg)
+        assert "20 ±0.1" in labels, labels
+        # PER-PARAMETER. A mutation taking the first non-None tolerance in the chain gave the
+        # UNDECORATED rung `10 ±0.1` too — a requirement the author never wrote — and passed the
+        # entire fast tier. The commit that introduced this fix asserted per-parameter behaviour
+        # in prose with nothing behind it (#1234 review r3).
+        assert "10" in labels, labels
+
+    def test_a_uniform_run_collapses_without_a_tolerance(self):
+        """`N× v` carries no ±, and now something says so.
+
+        A per-step tolerance on N collapsed equal steps would be a false claim: the label
+        states one representative value for the whole run. `_draw_step_chain` says exactly that
+        in a comment, and a mutation appending the suffix to the collapse label passed the whole
+        fast tier — the invariant was prose only (#1234 review r3).
+        """
+        from build123d import Cylinder, Rot
+
+        shaft = Rot(0, 90, 0) * Cylinder(4, 40)
+        s = Sheet(shaft).auto_dimensions()
+        for i in range(4):
+            s.step(diameter=8, length=10, at=(i * 10, 0, 0), axis="x").tolerance(0.1)
+        dwg = s.build()
+        collapsed = [lbl for lbl in self._steplen_labels(dwg) if "×" in lbl]
+        assert collapsed, self._steplen_labels(dwg)
+        for label in collapsed:
+            assert "±" not in label and "+" not in label, label
 
     def test_step_on_diameter_tolerances_the_od(self):
         shaft = self._stepped_shaft()

@@ -3425,7 +3425,8 @@ def _draw_step_chain(
     # The suffix rides the LABEL, for the reason `_env_label` documents: helpers discard
     # `tolerance=` whenever an explicit label is given, and one always is here. This site
     # passed `tolerance=seg.tolerance` to `_dim` and rendered nothing — the same defect #1215
-    # fixed for the envelope, ninety lines away, with four tests asserting the discarded kwarg.
+    # fixed for the envelope, ninety lines away, with three tests reading the discarded kwarg
+    # (two asserting a value, one asserting its absence).
     # The file already contradicted itself: `label_widths` below sizes the staggering decision
     # with `_fmt(seg.value) + _tol_suffix(...)`, i.e. it measured a string this line refused to
     # draw (#1234 review round 2).
