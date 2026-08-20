@@ -454,6 +454,38 @@ class TestSheetTolerance:
         for label in collapsed:
             assert "±" not in label and "+" not in label, label
 
+    def test_the_public_dimension_verbs_render_a_tolerance(self):
+        """Both verbs that route through `_place_dim`, and both label branches.
+
+        `Drawing.dimension` is the PREFERRED verb and discarded `tolerance=` outright — only
+        the deprecated `place_dim` got a caveat first. And composing the suffix solely in the
+        inject branch left a caller passing BOTH `label=` and `tolerance=` with the same silent
+        discard: the defect surviving in one branch of its own fix (#1234 review r3, r4).
+        """
+        from build123d import Box
+
+        from draftwright.builder import build_drawing
+
+        dwg = build_drawing(Box(90, 60, 20), title="T", number="N-1")
+        envelope = next(f for f in dwg.model().features if f.kind == "envelope")
+
+        injected = dwg.dimension(
+            envelope, "length", role="width", side="above", tolerance=(0.1, 0.2)
+        )
+        assert str(dwg.get_annotation(injected).label) == "90 +0.2 -0.1"
+
+        dwg.place_dim(
+            (10, 10, 0),
+            (60, 10, 0),
+            "below",
+            "plan",
+            dwg.draft,
+            name="u0",
+            label="CUSTOM",
+            tolerance=0.05,
+        )
+        assert str(dwg.get_annotation("u0").label) == "CUSTOM ±0.1"
+
     def test_step_on_diameter_tolerances_the_od(self):
         shaft = self._stepped_shaft()
         s = Sheet(shaft).auto_dimensions()

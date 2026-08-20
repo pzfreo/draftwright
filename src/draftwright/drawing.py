@@ -994,10 +994,10 @@ class Drawing:
             feature: optional source IR feature to attribute this dim to, so
                 :meth:`drop` / :meth:`annotations_of` can find it (#398).
             **kwargs: forwarded to ``Dimension`` (e.g. ``label=``). ``tolerance=`` is
-                folded into the injected label rather than forwarded, because helpers do
-                ``rendered = label if label is not None else …`` — an explicit label
-                DISCARDS a forwarded tolerance, and this method always supplies one. Pass
-                your own ``label=`` and the tolerance is yours to compose (#1234).
+                folded into the label rather than forwarded — your own ``label=`` included —
+                because helpers do ``rendered = label if label is not None else …``, so an
+                explicit label DISCARDS a forwarded tolerance and a label is always
+                present here (#1234).
 
         Deprecated for normal editable scripts: prefer :meth:`dimension` for
         feature-backed linear dimensions and :meth:`locate` for feature-backed
@@ -1067,17 +1067,22 @@ class Drawing:
         # no label is given, which is scale-too-big at non-1:1 scales. Supply the
         # real-world length (page distance ÷ drawing scale) unless the caller set
         # an explicit label.
+        # The suffix goes into the LABEL, and it has to. Injecting a label is exactly what makes
+        # `tolerance=` unreachable: helpers do
+        # `rendered = label if label is not None else …`, so an explicit label discards it.
+        # Both public verbs that reach here — the deprecated `place_dim` and the preferred
+        # `dimension` — documented `tolerance=` as forwarded while it silently vanished
+        # (#1234 review r3). Composing it here closes both.
+        #
+        # Popped UNCONDITIONALLY, and composed onto whichever label is used. Doing it only in
+        # the inject branch left the defect alive for a caller passing BOTH `label=` and
+        # `tolerance=`: the tolerance stayed in kwargs and `Dimension` discarded it, which is
+        # the very thing being fixed, surviving in one branch (#1234 review r4).
+        tolerance = kwargs.pop("tolerance", None)
         if "label" not in kwargs:
             page_len = math.hypot(p2[0] - p1[0], p2[1] - p1[1])
-            # The suffix goes into the LABEL, and it has to. Injecting a label is exactly what
-            # makes `tolerance=` unreachable: helpers do
-            # `rendered = label if label is not None else …`, so an explicit label discards it.
-            # Both public verbs that reach here — the deprecated `place_dim` and the preferred
-            # `dimension` — documented `tolerance=` as forwarded while it silently vanished
-            # (#1234 review r3). Composing it here closes both.
-            kwargs["label"] = _fmt(page_len / self.scale) + _tol_suffix(
-                kwargs.pop("tolerance", None), draft
-            )
+            kwargs["label"] = _fmt(page_len / self.scale)
+        kwargs["label"] = f"{kwargs['label']}{_tol_suffix(tolerance, draft)}"
         return self._add(
             _dim(p1, p2, side, max(dist, 4.0), draft, **kwargs), name, feature=feature
         )
