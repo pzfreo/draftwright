@@ -1202,6 +1202,20 @@ def _complete_automatic_plan(drawing: Drawing, build) -> Drawing:
     # itself complete. Same rule as the arrangement gate: a candidate may not lose something
     # the incumbent kept.
     baseline_placed = _placed_requirements(drawing)
+    # What the incumbent already reports, and what it already lost. A candidate must improve
+    # on the second without adding to the first.
+    #
+    # Coverage alone is NOT enough, and believing it was shipped a regression: authored and
+    # PMI dimensions do not thread `measurement_ids` through `registry.measurement_of`, so
+    # `_placed_requirements` is EMPTY on both sides for the whole ADR 0011 declared surface
+    # and `frozenset() >= frozenset()` waves everything through. Measured on a `Sheet` with
+    # six authored dimensions: the search walked past 1:5 (five of six placed) to 1:10, where
+    # the dimensions had gone DEGENERATE rather than dropped — so nothing looked like a
+    # placement failure — and returned a sheet carrying a title block and nothing else,
+    # status `fallback`. The docstring on `_placed_requirements` claimed its blind spot could
+    # only make this stricter; the blind spot applies to both operands, so it cannot.
+    baseline_errors = {i.code for i in drawing.lint(physical=False) if i.severity == "error"}
+    baseline_blocker_ids = frozenset(map(_blocker_identity, blockers))
 
     if not _blocks_all_smaller_scales(blockers):
         for candidate in (item for item in _SCALES if item < chosen):
@@ -1215,19 +1229,44 @@ def _complete_automatic_plan(drawing: Drawing, build) -> Drawing:
                     attempts.append(_scale_attempt(candidate, "render_floor", error=str(exc)))
                     break
                 raise
+            # A candidate may not INTRODUCE a fault the incumbent did not have. Same rule the
+            # ADR 0018 arrangement gate applies, and the one that actually catches the
+            # degenerate-shrink case above, where the loss never takes the form of a blocker.
+            introduced = {
+                i.code for i in fallback.lint(physical=False) if i.severity == "error"
+            } - baseline_errors
+            if introduced:
+                attempts.append(_scale_attempt(candidate, "introduces_errors"))
+                break
+
             candidate_blockers = _automatic_blockers(fallback)
+            candidate_blocker_ids = frozenset(map(_blocker_identity, candidate_blockers))
             if candidate_blockers:
+                if not candidate_blocker_ids < baseline_blocker_ids:
+                    # Shrinking the drawing is not helping this loss, and `_SCALES` descends.
+                    # Measured over the whole fast tier: 2286 completeness passes, 396 extra
+                    # compiles, and every one of the 7 successes was found on the FIRST
+                    # candidate — while the 86 incompletes ran the ladder 5-15 deep, 53 of
+                    # them to the rendering floor at scales like 1:500.
+                    attempts.append(
+                        _scale_attempt(candidate, "no_improvement", candidate_blockers)
+                    )
+                    break
                 attempts.append(_scale_attempt(candidate, "incomplete", candidate_blockers))
                 continue
             if not _placed_requirements(fallback) >= baseline_placed:
-                # STOP, not skip. `_SCALES` is descending, and coverage only falls as the
-                # drawing shrinks — once a candidate starts dropping requirements out of the
-                # plan rather than failing to place them, every smaller one does too. Without
-                # this the case study built ten times to learn nothing, and the fast tier paid
-                # 40% for it.
+                # Stop rather than skip. Coverage is NOT strictly monotone in scale — measured
+                # on the `pocketed` golden it goes 9, 9, 9, 8, 9, 7 — so this is a bounded
+                # search heuristic, not an exact rule. No case was found where continuing
+                # changes the outcome, and mutating this `break` to `continue` left the
+                # relevant suites green, so it is unpinned by design rather than by oversight.
                 attempts.append(_scale_attempt(candidate, "loses_coverage"))
                 break
             attempts.append(_scale_attempt(candidate, "complete"))
+            # The ADR 0018 arrangement record belongs to the part, not to the scale attempt
+            # that happened to win. Without this the fallback returns the constructor default
+            # and a rejected alternative arrangement vanishes from the record (ADR 0018 §6).
+            fallback.arrangement_decision = drawing.arrangement_decision
             fallback.scale_decision = _scale_decision(
                 policy="automatic",
                 requested=None,
@@ -1241,7 +1280,9 @@ def _complete_automatic_plan(drawing: Drawing, build) -> Drawing:
                 f"the automatically chosen scale {chosen:g} dropped required annotation "
                 f"outcomes; using complete scale {fallback.scale:g}",
                 ScaleCompletenessWarning,
-                stacklevel=2,
+                # 3, not 2: these are raised from a helper `build_drawing` calls, so 2 blames
+                # `builder.py` itself. Verified against the explicit path's attribution.
+                stacklevel=3,
             )
             return fallback
 
@@ -1274,7 +1315,7 @@ def _complete_automatic_plan(drawing: Drawing, build) -> Drawing:
         f"no standard scale preserves every required annotation ({codes}); returning the "
         f"incomplete drawing — see Drawing.scale_decision",
         ScaleCompletenessWarning,
-        stacklevel=2,
+        stacklevel=3,
     )
     return drawing
 
@@ -1553,7 +1594,12 @@ def build_drawing(
             effective=drawing.scale,
             status="automatic",
         )
-        return _complete_automatic_plan(drawing, lambda sc: _build(sc, views=_views))
+        # The rebuild carries BOTH decisions the attempt was made under — `_build`'s own
+        # contract. It carried `views` and not `arrangements`, so a smaller-scale candidate
+        # was free to resolve a different arrangement than the one the gate above approved.
+        return _complete_automatic_plan(
+            drawing, lambda sc: _build(sc, (built_arrangement,), _views)
+        )
 
     requested_scale = float(scale)
 

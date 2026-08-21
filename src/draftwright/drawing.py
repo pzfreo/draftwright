@@ -446,8 +446,10 @@ class Drawing:
             including the requested/effective scales and any required placement blockers.
         arrangement_decision: JSON-friendly record of how the sheet arrangement was resolved
             (#1130) — ``chosen`` names the arrangement the sheet was composed under, and
-            ``attempts`` lists each one built, in order, with the required placement blockers
-            that rejected it. One entry means one compile.
+            ``attempts`` lists each arrangement built, in order, with the required placement
+            blockers that rejected it. It is NOT a compile count: the #1250 completeness pass
+            and the measure-and-repack loop also build, so a drawing with two arrangement
+            attempts may have assembled many more times.
         section_decision: JSON-friendly record of the section A-A outcome (#1190) —
             ``status`` is ``"placed"``, ``"skipped"``, ``"not_warranted"``, or
             ``"not_evaluated"`` when the section pass never ran (``auto_dims=False``),
@@ -502,9 +504,11 @@ class Drawing:
         # Public, JSON-friendly record of how the sheet ARRANGEMENT was resolved — ADR 0018
         # §5's fourth dimension and §6's "infeasibility is a first-class result" (#1130).
         # Always present for the same reason as `section_decision`: a caller must not have to
-        # infer from a log line whether an alternative was tried and rejected. `attempts` is
-        # also the honest compile count, since proving an alternative preserves every
-        # requirement costs a real build (ADR 0014 Amdt 3 — measure, do not predict).
+        # infer from a log line whether an alternative was tried and rejected. Each attempt
+        # IS a real build — proving an alternative preserves every requirement cannot be
+        # predicted (ADR 0014 Amdt 3) — but the converse does not hold: this is not a count of
+        # the drawing's compiles, because the #1250 completeness pass and the repack loop
+        # build too. Measured: 2 arrangement attempts against 8 assemblies (#1250 review).
         self.arrangement_decision = {
             "chosen": "columns",
             "attempts": ({"arrangement": "columns", "status": "chosen", "blockers": ()},),

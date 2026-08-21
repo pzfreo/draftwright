@@ -1872,7 +1872,7 @@ class Sheet:
         )
 
         def place_declared_tables(dwg):
-            """Place authored sheet furniture before explicit-scale completeness is decided."""
+            """Place authored sheet furniture before scale completeness is decided (explicit or automatic)."""
             used = set(dwg.annotations())
             for table_index, table in enumerate(self._tables):
                 name = table["name"]

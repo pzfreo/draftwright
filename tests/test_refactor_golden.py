@@ -48,7 +48,7 @@ nothing, which is exactly the refactor case the gate was created for:
 
     DRAFTWRIGHT_GOLDEN_EXACT=1 uv run pytest tests/test_refactor_golden.py
 
-#1250 re-baselined `grooved_shaft`, `grid_plate` and `scattered_plate`: both carry a required placement failure
+#1250 re-baselined `grooved_shaft`, `grid_plate` and `scattered_plate`: each carries a required placement failure
 that was reported below error severity, so the automatic path returned them as successes. The
 build now records a `plan_incomplete` error summarising the loss. Checked against this
 corpus's own standard before re-recording — annotations identical, labels identical, page
