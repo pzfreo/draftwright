@@ -1068,6 +1068,10 @@ class ChamferFeature:
     leg1: float
     leg2: float
     angle: float
+    # A conical edge treatment on a turned profile reads with the shaft axis in-plane. The
+    # same ``axis`` field is the bevel-edge direction for a prismatic chamfer, so this semantic
+    # discriminator is required for faithful view selection and Sheet round-trip (#1276).
+    turned: bool = False
     kind: ClassVar[str] = "chamfer"
 
     def parameters(self) -> list[DimParameter]:
@@ -1088,6 +1092,9 @@ class FilletFeature:
     frame: Frame
     axis: str
     radius: float
+    # Toroidal turned rounds read in shaft profile; cylindrical prismatic blends read end-on.
+    # See the dual ``axis`` contract in the class docstring and #1276.
+    turned: bool = False
     kind: ClassVar[str] = "fillet"
 
     def parameters(self) -> list[DimParameter]:

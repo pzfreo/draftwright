@@ -51,7 +51,8 @@ def test_dim_handle_note():
     s = Sheet(part).auto_dimensions()
     s.diameter(Pos(30, 0, 0) * Cylinder(8, 20)).note("KNURL 0.8 STRAIGHT")
     nt = next(f for f in s.features if f.kind == "note")
-    assert nt.text == "KNURL 0.8 STRAIGHT" and nt.view == "plan"
+    assert nt.text == "KNURL 0.8 STRAIGHT" and nt.view == "front"
+    assert nt.frame.origin == (38.0, 0.0, 0.0)  # cylindrical surface, not its axis at x=30
 
 
 def test_slot_and_pocket_handle_note():
@@ -95,7 +96,8 @@ def test_dim_handle_knurl():
     s = Sheet(part).auto_dimensions()
     s.diameter(Pos(30, 0, 0) * Cylinder(8, 20)).knurl("0.8")
     nt = next(f for f in s.features if f.kind == "note")
-    assert nt.text == "KNURL 0.8 STRAIGHT" and nt.view == "plan"
+    assert nt.text == "KNURL 0.8 STRAIGHT" and nt.view == "front"
+    assert nt.frame.origin == (38.0, 0.0, 0.0)
 
     s2 = Sheet(part).auto_dimensions()
     s2.diameter(Pos(30, 0, 0) * Cylinder(8, 20)).knurl("0.5", "DIAMOND")

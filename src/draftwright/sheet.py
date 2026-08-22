@@ -1332,7 +1332,8 @@ class Sheet:
         """Declare a chamfer (bevelled edge) — ``sheet.chamfer(bevel_face)`` reads axis, legs
         and a point on the bevel off the oblique chamfer face, or explicit
         ``sheet.chamfer(axis="z", leg=6, at=(x, y, z))``. ``leg`` = equal-leg 45° (``C{leg}``);
-        ``leg1``/``leg2`` = asymmetric."""
+        ``leg1``/``leg2`` = asymmetric. ``turned=True`` declares that ``axis`` is the shaft
+        axis and selects its profile view; generated Sheet programs preserve this flag."""
         self._features.append(_chamfer(obj, **kw))
         return _Params(self, len(self._features) - 1)
 
@@ -1340,7 +1341,8 @@ class Sheet:
         """Declare a fillet (rounded edge) — ``sheet.fillet(round_face)`` reads axis, radius
         and a point on the round off the cylindrical blend face, or explicit
         ``sheet.fillet(axis="z", radius=3, at=(x, y, z))``. Called out ``R{radius}`` (grouped
-        ``n× R`` for equal radii)."""
+        ``n× R`` for equal radii). ``turned=True`` declares that ``axis`` is the shaft axis
+        and selects its profile view; generated Sheet programs preserve this flag."""
         self._features.append(_fillet(obj, **kw))
         return _Params(self, len(self._features) - 1)
 

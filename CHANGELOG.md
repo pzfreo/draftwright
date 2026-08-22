@@ -17,6 +17,12 @@
 
 ### Fixed
 
+- Turned chamfer and fillet leaders now read in a shaft profile view and land on their physical
+  edge-treatment sites instead of collapsing axial stations in the end view. Cylindrical
+  feature notes, knurl callouts, and surface finishes likewise derive a model-space surface
+  target rather than pointing at the shaft axis; all continue through the shared placement
+  solves, with X/Y/Z parity and declared Sheet round-trip (#1276).
+
 - Toroidal fillets returned for turned parts by the shared recognition inventory now lower into
   the existing one-feature-per-round IR and render through the common leader solve. Equal radii
   share one `n× R` callout carrying every physical fillet's measurement provenance, and emitted

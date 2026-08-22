@@ -270,8 +270,8 @@ _FACTS: dict[str, tuple[str, ...]] = {
     # toleranced today. That is an IR gap, recorded in the ADR inventory rather than closed
     # here: making the angle addressable adds a parameter to every chamfer's plan, which
     # changes output, and a migration that claims byte-identity is the wrong place for it.
-    "chamfer": ("frame", "axis", "leg2", "angle"),
-    "fillet": ("frame", "axis"),
+    "chamfer": ("frame", "axis", "leg2", "angle", "turned"),
+    "fillet": ("frame", "axis", "turned"),
     # These are STRUCTURE, not measurements: together they say which piece of stock a flat
     # belongs to, so the renderer can tell one double-D's two faces from independent aligned
     # or slanted regions (#1013/#1036). The drawing prints none of them.

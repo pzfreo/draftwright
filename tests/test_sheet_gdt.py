@@ -50,7 +50,8 @@ def test_dim_handle_finish():
     s = Sheet(part).auto_dimensions()
     s.diameter(Pos(30, 0, 0) * Cylinder(8, 20)).finish("3.2")
     fin = next(f for f in s.features if f.kind == "finish")
-    assert fin.ra == "3.2" and fin.view == "plan"
+    assert fin.ra == "3.2" and fin.view == "front"
+    assert fin.frame.origin == (38.0, 0.0, 0.0)
 
 
 def test_view_side_overrides_win():

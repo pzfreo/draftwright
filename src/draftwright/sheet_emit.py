@@ -711,12 +711,17 @@ def _feature_line(
                 parts.append(f"angle={_n(f.angle)}")
         return f"sheet.slot_pattern({_member_slot_str(f.member)}, " + ", ".join(parts) + ")"
     if k == "chamfer":
+        turned = ", turned=True" if f.turned else ""
         return (
             f'sheet.chamfer(axis="{f.axis}", leg1={_n(f.leg1)}, leg2={_n(f.leg2)}, '
-            f"angle={_n(f.angle)}, at={_pt(f.frame.origin)})"
+            f"angle={_n(f.angle)}, at={_pt(f.frame.origin)}{turned})"
         )
     if k == "fillet":
-        return f'sheet.fillet(axis="{f.axis}", radius={_n(f.radius)}, at={_pt(f.frame.origin)})'
+        turned = ", turned=True" if f.turned else ""
+        return (
+            f'sheet.fillet(axis="{f.axis}", radius={_n(f.radius)}, '
+            f"at={_pt(f.frame.origin)}{turned})"
+        )
     if k == "flat":
         # `axis_line`/`stock_span` are the stock identity (#1013). Emitted ALWAYS, not only
         # when non-default: they are what stops two same-sized flats on separate stock

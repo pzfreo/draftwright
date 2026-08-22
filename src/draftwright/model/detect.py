@@ -329,8 +329,9 @@ class ConvContext:
 
     A converter is a pure function of ``(record, ctx)``; ``bbox`` supplies the
     part's centre/extents for the off-axis frame coords and ``orientation`` the
-    turning axis a :class:`StepFeature` span is laid along (``None`` off the
-    turned branch, where no converter reads it)."""
+    turning axis a :class:`StepFeature` span is laid along. Edge-treatment converters also
+    use it to preserve the package's turned-profile classification as semantic presentation
+    state; no converter re-inspects the solid (``None`` off the turned branch)."""
 
     bbox: Any  # build123d BoundBox (kept untyped so detect stays build123d-import-light)
     orientation: str | None
@@ -615,13 +616,17 @@ def _convert_chamfer(ch: Chamfer, ctx: ConvContext) -> ChamferFeature:
         leg1=ch.leg1,
         leg2=ch.leg2,
         angle=ch.angle,
+        turned=ctx.orientation == ch.axis,
     )
 
 
 def _convert_fillet(fl: Fillet, ctx: ConvContext) -> FilletFeature:
     at = fl.at
     return FilletFeature(
-        frame=Frame((at[0], at[1], at[2]), fl.axis), axis=fl.axis, radius=fl.radius
+        frame=Frame((at[0], at[1], at[2]), fl.axis),
+        axis=fl.axis,
+        radius=fl.radius,
+        turned=ctx.orientation == fl.axis,
     )
 
 
@@ -790,7 +795,10 @@ def build_part_model(
     # emitted here; the turned/boss branch below reads the same `prof`.
     if prof is _UNSET:
         prof = TurnedProfile.from_steps(recognise_turned_steps(part, cyls=cyls))
-    orientation = prof.axis if prof is not None else None
+    # ``rotational`` is the classification fallback for a single-diameter turned body whose
+    # step profile is absent. It is already supplied by the one analysis orchestration, so
+    # carrying its axis into conversion is not a geometry rescan (#1276 / ADR 0017).
+    orientation = prof.axis if prof is not None else (rotational[2] if rotational else None)
     ctx = ConvContext(bbox=bbox, orientation=orientation)
 
     if channels is None:

@@ -2214,8 +2214,9 @@ def render_chamfers(dwg, plan, a, *, ctx, only=None) -> int:
     is bound explicitly by ``(role, kind)``, never positionally. Only the C-vs-leg×angle
     *form* discriminators (``leg2``/``angle``) read off the feature. For prismatic chamfers,
     ``g.view`` follows the bevel-edge axis and ``_END_ON`` preserves the established
-    z→plan / x→side / y→front map. A turned conical record instead carries the shaft axis;
-    choosing its profile view and edge anchor is the separate routing correction in #1276.
+    z→plan / x→side / y→front map. A turned conical feature instead carries the shaft axis
+    plus ``turned=True``; the planner selects ``_PROFILE`` and this renderer keeps the physical
+    edge anchor while the shared leader solve chooses its page position (#1276).
     Grouping stays renderer-side: the IR remains one semantic feature per physical chamfer
     (ADR 0013), while the annotation registry records all N measurement identities
     (ADR 0017 / #1002)."""
@@ -2354,9 +2355,10 @@ def render_fillets(dwg, plan, a, *, ctx, only=None) -> int:
     tolerances differ — or only some carry one — the collapsed label states NONE of them
     (:func:`_collapsed_tolerance`), because one ``n×`` mark would claim that band of every
     member. For prismatic fillets, ``g.view`` follows the rounded-edge axis and ``_END_ON``
-    preserves the established z→plan / x→side / y→front map. A turned toroidal record instead
-    carries the shaft axis; choosing its profile view and edge anchor is the separate routing
-    correction in #1276. Grouping stays renderer-side: the IR remains one semantic feature per
+    preserves the established z→plan / x→side / y→front map. A turned toroidal feature instead
+    carries the shaft axis plus ``turned=True``; the planner selects ``_PROFILE`` and this
+    renderer keeps the physical edge anchor while the shared leader solve chooses its page
+    position (#1276). Grouping stays renderer-side: the IR remains one semantic feature per
     physical fillet (ADR 0013), while the annotation registry records all N measurement
     identities (ADR 0017 / #1002)."""
     draft = dwg.draft

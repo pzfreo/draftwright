@@ -30,10 +30,12 @@ from dataclasses import dataclass, replace
 
 from draftwright._geometry import _EDGE_ON, _END_ON, HoleRef
 from draftwright.model.ir import (
+    ChamferFeature,
     ChannelFeature,
     Datum,
     DimParameter,
     Feature,
+    FilletFeature,
     FlatFeature,
     HoleFeature,
     PadFeature,
@@ -331,6 +333,8 @@ def _preferred_group_view(feature: Feature) -> str:
     its geometric profile ("side"); no step render pipeline consumes Y today
     (`render_diameters` buckets x/z only).
     """
+    if isinstance(feature, ChamferFeature | FilletFeature) and feature.turned:
+        return _PROFILE.get(feature.frame.axis, "front")
     if isinstance(feature, FlatFeature):
         return _END_ON.get(feature.presentation_axis, "plan")
     if isinstance(feature, StepLevelFeature):

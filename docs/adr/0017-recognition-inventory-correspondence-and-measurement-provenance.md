@@ -98,9 +98,10 @@ records in `RecognitionResult`. Plates and angled prismatic steps remain classif
 This widens the shared geometry inventory; it does not move drafting policy into the package.
 Draftwright's separate record-to-IR, Sheet emission, placement, provenance, and completeness
 work landed one family at a time: #1254 consumes turned chamfers and #1281 consumes turned
-fillets. Profile-view routing for turned edge-treatment leaders remains Draftwright policy and
-is tracked separately by #1276. The ownership rule is unchanged: consumers reuse the aggregate
-records and must not rescan the solid when they add support.
+fillets. Profile-view routing for turned edge-treatment leaders remains Draftwright policy:
+#1276 carries that presentation state through IR and emitted Sheet declarations, then lets the
+shared placement solve choose the page position. The ownership rule is unchanged: consumers
+reuse the aggregate records and must not rescan the solid when they add support.
 
 ## Accepted Contract
 
