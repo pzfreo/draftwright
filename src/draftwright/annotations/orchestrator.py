@@ -387,7 +387,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     ctx.model_declared = dwg.model_declared
     # Plan the dimensions ONCE and thread the groups to every renderer that reads them
     # (was recomputed per renderer, #275). One rule set over DimParameters, literally.
-    _groups = plan_dimensions(_model)
+    _groups = plan_dimensions(_model, planned_views=a.planned_views)
     # ONE compiled plan, shared by every migrated consumer (#923 review round 4).
     # Compiling per stage ran the compiler three times and, worse, let the direct
     # ladder, the shoulders and the detail escalation each hold a separately

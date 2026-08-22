@@ -717,7 +717,10 @@ def _analyse(
             cyls=shared_cyls,
         )
     )
-    sizing_groups = plan_dimensions(sizing_model)
+    # ADR 0018 Phase 5.5: prove the chosen principal set can carry every approved
+    # dimension before scale selection or projection.  A reduced view set is therefore a
+    # re-plan, not the fixed three-view plan rendered into fewer views.
+    sizing_groups = plan_dimensions(sizing_model, planned_views=_views)
     bore_callout_width = _est_planned_bore_callout_width(
         sizing_groups, _draft_est, font_size=_FONT_SIZE, pad_around_text=_pad_around_text
     )

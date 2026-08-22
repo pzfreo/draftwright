@@ -634,12 +634,13 @@ def _location_candidate(
     footprint=None,
     location_coverage=(),
     hole_requirements=(),
+    placement_side="above",
 ):
     """A :class:`CorridorCandidate` for a datum-referenced hole/pattern location dim.
     Location dims outrank a coincident slot-position line in dedup (#345) and form the
-    outer, datum-distance-ordered run of the ladder (#346). Force-kept (policy B): a plan-X
-    / side-Y location has no alternate view, so a corridor block keeps it rather than drops
-    it; only a physically full strip drops (``location_ref_dropped`` → hole-table escalate)."""
+    outer, datum-distance-ordered run of the ladder (#346). After view planning has assigned
+    the member to plan/side, it is force-kept within that view (policy B); only a physically
+    full strip drops (``location_ref_dropped`` → hole-table escalate)."""
 
     def _placed(nm):
         # Only loose HoleFeatures have rows in the automatic scattered-hole table.
@@ -653,10 +654,11 @@ def _location_candidate(
 
     def _drop(nm):
         edge = "plan view" if view == "plan" else "side view"
+        where = "beside" if placement_side in {"left", "right"} else placement_side
         ctx.record_issue(
             "warning",
             "location_ref_dropped",
-            f"{nm} not placed (no room above the {edge})",
+            f"{nm} not placed (no room {where} the {edge})",
             measurement=measurement,
             hole_requirements=hole_requirements,
         )
@@ -682,8 +684,9 @@ def _location_candidate(
 def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
     """Baseline X/Y hole-location dims from the compiled plan (#238). The compiler decides
     the content (`plan.locations`: which refs survived, from which datum); this renderer owns
-    the layout (Amendment 4) — X dims tier above the plan view, Y dims above the side
-    view, nearest-datum-first, legibility-gated, allocated from the existing strips;
+    the layout (Amendment 4) — X dims tier above the plan view; Y dims prefer above side
+    and re-home vertically beside plan when side is not selected; both remain
+    nearest-datum-first, legibility-gated, allocated from the existing strips;
     a ref with no room is dropped as `location_ref_dropped`. Replaces the engine's
     `_add_location_dims`. Returns the count placed.
 
@@ -884,9 +887,14 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
             ),
         )
 
-    # --- Y locations: tier above the side view (which maps world-Y horizontally) ---
+    # --- Y locations: above side, or vertically beside plan when side is absent ---
+    #
+    # Both are the same face-on Z-feature location requirement. The fixed topology preferred
+    # side because Y runs horizontally there; ADR 0018 reduced view sets must not retain side
+    # solely for that presentation choice, so plan's vertical Y axis is the fallback.
+    side_planned = "side" in dwg.views
     SX, SZ = a.proj.side_x, a.proj.side_z
-    side_top = SZ(a.bb.max.Z)
+    side_top = SZ(a.bb.max.Z) if side_planned else 0.0
     iso_x0, iso_y0, _, _ = _iso_bbox(dwg)
     y_refs: list = []
     for r in refs:
@@ -925,13 +933,19 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                 (feature, parameter) for ref in dropped_y for feature, parameter, _point in ref[5]
             ),
         )
-        ctx.escalations.append(Escalation("location", "side", None, "illegible"))
+        ctx.escalations.append(
+            Escalation("location", "side" if side_planned else "plan", None, "illegible")
+        )
     _kept_y_set = set(_kept_y)
     y_refs = [r for r in y_refs if r[1] not in _y_drawable or r[1] in _kept_y_set]
     # Cap the side-above strip below the iso view so Y-location dims never run under it
     # (the carve respects outer_limit); the dim_pitch_side dims are obstacles the carve
     # avoids structurally, retiring the old manual allocate(10.0) reservation + cursor.
-    if y_refs and any(SX(ry) + 10 > iso_x0 - 4 for _, ry, _feat, _pin, _mids, _facts in y_refs):
+    if (
+        side_planned
+        and y_refs
+        and any(SX(ry) + 10 > iso_x0 - 4 for _, ry, _feat, _pin, _mids, _facts in y_refs)
+    ):
         a.sv_zones.above.outer_limit = min(a.sv_zones.above.outer_limit, iso_y0 - 4)
     for i, (rx, ry, feat, pin_ref, mids, location_facts) in enumerate(
         sorted(y_refs, key=lambda r: abs(r[1] - datum_y))
@@ -944,27 +958,47 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
         _yfeat = None if _shared_y else feat
         # Every collapsed feature-level location; the structured facts carry Y (see X above).
         _ymid = tuple(mids)
+        if side_planned:
+            view, direction, strip, stack = "side", "above", a.sv_zones.above, "y"
+            edge = side_top
+            pa = (SX(datum_y), edge, 0)
+            pb = (SX(ry), edge, 0)
+            span_key = (round(pa[0], 1), round(pb[0], 1))
+        else:
+            view, stack = "plan", "x"
+            if a.pv_zones.right is not None:
+                direction, strip = "right", a.pv_zones.right
+                edge = PX(a.bb.max.X)
+            else:
+                direction, strip = "left", a.pv_zones.left
+                edge = PX(a.bb.min.X)
+            pa = (edge, PY(datum_y), 0)
+            pb = (edge, PY(ry), 0)
+            span_key = (round(pa[1], 1), round(pb[1], 1))
+        label = _fmt(ry - datum_y)
         register_corridor(
             ctx,
-            ("side", "above"),
-            a.sv_zones.above,
-            "side",
-            "y",
+            (view, direction),
+            strip,
+            view,
+            stack,
             tier,
             _location_candidate(
                 dwg,
                 ctx,
                 _loc_name("m_locy", i),
-                view="side",
-                span_key=(round(SX(datum_y), 1), round(SX(ry), 1)),
+                view=view,
+                span_key=span_key,
                 distance=abs(ry - datum_y),
-                build=lambda pos, _ry=ry: _dim(
-                    (SX(datum_y), SZ(a.bb.max.Z), 0),
-                    (SX(_ry), SZ(a.bb.max.Z), 0),
-                    "above",
-                    pos - side_top,
-                    draft,
-                    label=_fmt(_ry - datum_y),
+                build=lambda pos, _pa=pa, _pb=pb, _direction=direction, _edge=edge, _label=label: (
+                    _dim(
+                        _pa,
+                        _pb,
+                        _direction,
+                        abs(pos - _edge),
+                        draft,
+                        label=_label,
+                    )
                 ),
                 feature=_yfeat,
                 measurement=_ymid,
@@ -972,14 +1006,17 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                 hole_requirements=tuple(
                     (feature, parameter) for feature, parameter, _point in location_facts
                 ),
+                placement_side=direction,
                 pinned=pin_ref,
-                footprint=lambda pos, _ry=ry: dim_footprint(
-                    (SX(datum_y), SZ(a.bb.max.Z), 0),
-                    (SX(_ry), SZ(a.bb.max.Z), 0),
-                    "above",
-                    pos - side_top,
-                    draft,
-                    _fmt(_ry - datum_y),
+                footprint=lambda pos, _pa=pa, _pb=pb, _direction=direction, _edge=edge, _label=label: (
+                    dim_footprint(
+                        _pa,
+                        _pb,
+                        _direction,
+                        abs(pos - _edge),
+                        draft,
+                        _label,
+                    )
                 ),
             ),
         )

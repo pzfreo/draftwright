@@ -426,7 +426,17 @@ def test_classifier_is_binding_aware_and_context_correct(tmp_path):
 
 # ── model/ IR-waist guards (original #584 WP2 — kept; add the relative-import rejection) ──
 
-_MODEL_MAY_IMPORT = {"_geometry", "fits", "fonts", "layout", "model", "recognition"}
+_MODEL_MAY_IMPORT = {
+    "_geometry",
+    "fits",
+    "fonts",
+    "layout",
+    "model",
+    "recognition",
+    # ADR 0018: the dimension planner resolves requirement ownership against the selected
+    # semantic view set.  `view_plan` is a rank-0, drawing-independent leaf.
+    "view_plan",
+}
 
 
 def _draftwright_imports(path: Path) -> tuple[set[str], list[str]]:

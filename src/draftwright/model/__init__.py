@@ -98,6 +98,7 @@ from draftwright.model.planner import (
     plan_dimensions,
     plan_sections,
 )
+from draftwright.view_plan import UncoveredViewRequirement, ViewPlanIncomplete
 
 __all__ = [
     "AuthoredDimension",
@@ -117,6 +118,8 @@ __all__ = [
     "AddressableDimension",
     "DimensionGroup",
     "DimensionId",
+    "UncoveredViewRequirement",
+    "ViewPlanIncomplete",
     "Feature",
     "Frame",
     "HoleFeature",

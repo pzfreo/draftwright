@@ -33,6 +33,52 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any
 
+
+@dataclass(frozen=True)
+class UncoveredViewRequirement:
+    """One semantic requirement no selected principal view can carry.
+
+    ``identity`` is deliberately opaque here.  The view-planning leaf must not import the
+    model waist, while the planner supplies an ADR 0016 ``DimensionId`` at the boundary.
+    ``label`` is only the human-readable rendering of that identity; callers must use
+    ``identity`` for correspondence and never parse the label.
+    """
+
+    identity: Any
+    label: str
+    preferred_view: str
+    eligible_views: tuple[str, ...]
+    reason: str
+
+
+class ViewPlanIncomplete(ValueError):
+    """The selected principal views cannot carry every approved requirement.
+
+    Raised by the dimension planner before projection.  This is a user/actionable planning
+    result, unlike ``Drawing.ViewNotPlanned``: the latter remains the internal invariant for
+    code that tries to project into a view after this check has succeeded.
+    """
+
+    def __init__(self, planned, uncovered, *, source: str = "selected") -> None:
+        self.planned = tuple(planned)
+        self.uncovered = tuple(uncovered)
+        self.source = source
+        noun = "dimension" if len(self.uncovered) == 1 else "dimensions"
+        lines = [
+            f"{len(self.uncovered)} approved {noun} cannot be shown by the {source} "
+            f"view set {self.planned!r}:"
+        ]
+        for requirement in self.uncovered:
+            eligible = ", ".join(f"`{view}`" for view in requirement.eligible_views)
+            add = (
+                f"add {eligible}"
+                if len(requirement.eligible_views) == 1
+                else f"add one of {eligible}"
+            )
+            lines.append(f"  {requirement.label}  {requirement.reason} — {add}")
+        super().__init__("\n".join(lines))
+
+
 #: The model axes a principal view projects onto the page, as ``(page_x, page_y)``.
 #: Third-angle front shows model x across and z up; the plan shows x across and y up; the side
 #: shows y across and z up. Held here rather than inferred from the camera because

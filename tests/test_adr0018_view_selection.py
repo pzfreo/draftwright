@@ -23,9 +23,8 @@ import math
 import pytest
 from build123d import Box, Cylinder, Pos, Rot
 
-from draftwright import build_drawing
+from draftwright import ViewPlanIncomplete, build_drawing
 from draftwright.compose import _layout_geometry
-from draftwright.drawing import ViewNotPlanned
 from draftwright.view_plan import VIEW_AXES, VIEWS_SHOWING, views_showing
 
 ALL_THREE = ("front", "plan", "side")
@@ -168,9 +167,71 @@ class TestTheAsymmetricCounterexample:
     """Same box, same single hole, different axis — opposite verdicts."""
 
     def test_a_view_the_features_need_is_refused(self):
-        with pytest.raises(ViewNotPlanned) as caught:
+        with pytest.raises(ViewPlanIncomplete) as caught:
             build_drawing(_z_hole(), _views=("front", "side"))
-        assert caught.value.view == "plan"
+        assert caught.value.planned == ("front", "side")
+        assert {item.identity.parameter for item in caught.value.uncovered} == {
+            "bore.diameter",
+            "location.location",
+        }
+        assert all(item.preferred_view == "plan" for item in caught.value.uncovered)
+        assert "hole_1.bore.diameter" in str(caught.value)
+        assert "add `plan`" in str(caught.value)
+
+    def test_an_authored_location_names_its_constraint_before_projection(self):
+        from draftwright.model import Datum, Frame, HoleFeature, PartModel
+        from draftwright.model.ir import RequestedDimension
+
+        part = _z_hole()
+        bbox = part.bounding_box()
+        hole = HoleFeature(Frame((20.0, 15.0, 12.5), "z"), 8.0, depth=None, through=True)
+        model = PartModel(
+            bbox=bbox,
+            orientation="prismatic",
+            features=[hole],
+            datums=[Datum("datum_xy", "point", (bbox.min.X, bbox.min.Y, bbox.min.Z))],
+            authored_dimensions=(RequestedDimension(hole, "location"),),
+        )
+
+        with pytest.raises(ViewPlanIncomplete) as caught:
+            build_drawing(part, model=model, _views=("front", "side"))
+
+        assert [item.identity.parameter for item in caught.value.uncovered] == [
+            "location.location"
+        ]
+        assert "hole_1.location" in str(caught.value)
+        assert "bore.diameter" not in str(caught.value), "the authored omission stays omitted"
+
+        drawing = build_drawing(part, model=model, _views=("front", "plan"))
+        y_names = [name for name in drawing.annotations() if name.startswith("m_locy")]
+        assert y_names, "the approved Y member must re-home rather than disappear"
+        assert {drawing.view_of(name) for name in y_names} == {"plan"}
+
+    def test_the_adrs_two_requirement_diagnostic_is_executable(self):
+        from dataclasses import replace
+
+        from draftwright.model.ir import RequestedDimension
+
+        part = _z_hole()
+        detected = build_drawing(part).model()
+        assert detected is not None
+        envelope = next(feature for feature in detected.features if feature.kind == "envelope")
+        hole = next(feature for feature in detected.features if feature.kind == "hole")
+        model = replace(
+            detected,
+            authored_dimensions=(
+                RequestedDimension(envelope, "depth.length"),
+                RequestedDimension(hole, "location"),
+            ),
+        )
+
+        with pytest.raises(ViewPlanIncomplete) as caught:
+            build_drawing(part, model=model, _views=("front",))
+
+        assert [(item.label, item.preferred_view) for item in caught.value.uncovered] == [
+            ("envelope.depth.length", "side"),
+            ("hole_1.location", "plan"),
+        ]
 
     def test_the_same_view_is_droppable_when_the_feature_turns(self):
         # The asymmetry: identical geometry apart from the hole's axis. Dropping plan is
@@ -183,9 +244,37 @@ class TestTheAsymmetricCounterexample:
     def test_dropping_the_view_the_x_hole_needs_is_refused_in_turn(self):
         # The other half of the asymmetry, so neither result is an accident of which view
         # happens to be named: for this part SIDE is the necessary one.
-        with pytest.raises(ViewNotPlanned) as caught:
+        with pytest.raises(ViewPlanIncomplete) as caught:
             build_drawing(_x_hole(), _views=("front", "plan"))
-        assert caught.value.view == "side"
+        assert caught.value.planned == ("front", "plan")
+        # Collected, not first-failure-only: the same missing side view strands both the
+        # asymmetric bore and the mandatory overall depth, and neither may be discarded.
+        assert {item.identity.parameter for item in caught.value.uncovered} == {
+            "bore.diameter",
+            "depth.length",
+            "location_off_axis.y",
+            "location_off_axis.z",
+        }
+        assert all(item.preferred_view == "side" for item in caught.value.uncovered)
+
+    def test_an_authored_off_axis_location_is_checked_at_the_same_boundary(self):
+        from draftwright.model import Frame, HoleFeature, PartModel
+        from draftwright.model.ir import RequestedDimension
+
+        part = _x_hole()
+        hole = HoleFeature(Frame((45.0, 30.0, 12.5), "x"), 10.0, depth=None, through=True)
+        model = PartModel(
+            bbox=part.bounding_box(),
+            orientation="prismatic",
+            features=[hole],
+            authored_dimensions=(RequestedDimension(hole, "location"),),
+        )
+        with pytest.raises(ViewPlanIncomplete) as caught:
+            build_drawing(part, model=model, _views=("front", "plan"))
+        assert {item.identity.parameter for item in caught.value.uncovered} == {
+            "location_off_axis.y",
+            "location_off_axis.z",
+        }
 
 
 class TestAnExtentMovesOrIsReported:
@@ -195,14 +284,110 @@ class TestAnExtentMovesOrIsReported:
         assert "m_env_width" in drawing.annotations()
         assert "m_env_depth" in drawing.annotations()
 
-    def test_an_extent_no_planned_view_can_show_is_reported_not_dropped(self):
+    def test_the_planner_record_itself_re_homes_instead_of_only_the_renderer(self):
+        from draftwright.model.planner import plan_dimensions
+
+        model = build_drawing(Box(90, 60, 25)).model()
+        assert model is not None
+        envelope = next(
+            group
+            for group in plan_dimensions(model, planned_views=("front", "side"))
+            if group.feature.kind == "envelope"
+        )
+        assert envelope.view == "front"
+
+    def test_the_compiler_cannot_silently_replan_against_the_fixed_topology(self):
+        from draftwright.model.compiled import compile_dimensions
+
+        model = build_drawing(_z_hole()).model()
+        assert model is not None
+        with pytest.raises(ViewPlanIncomplete) as caught:
+            compile_dimensions(model, planned_views=("front", "side"))
+        assert {item.identity.parameter for item in caught.value.uncovered} >= {
+            "bore.diameter",
+            "location.location",
+        }
+
+    @pytest.mark.parametrize(
+        ("shoulder", "views", "missing"),
+        [(("x", 30.0), ("front", "side"), "plan"), (("y", 20.0), ("front", "plan"), "side")],
+    )
+    def test_a_correlated_step_position_keeps_each_directional_member(
+        self, shoulder, views, missing
+    ):
+        from draftwright.model import Frame, PartModel, StepLevelFeature
+        from draftwright.model.planner import plan_dimensions
+
+        model = PartModel(
+            bbox=Box(90, 60, 25).bounding_box(),
+            orientation="prismatic",
+            features=[
+                StepLevelFeature(
+                    Frame((0.0, 0.0, 0.0), "z"),
+                    base=0.0,
+                    levels=(10.0,),
+                    shoulders=(shoulder,),
+                )
+            ],
+        )
+        with pytest.raises(ViewPlanIncomplete) as caught:
+            plan_dimensions(model, planned_views=views)
+        position = next(
+            item
+            for item in caught.value.uncovered
+            if item.identity.parameter == "step_position.length"
+        )
+        assert position.preferred_view == missing
+
+    def test_an_extent_no_planned_view_can_show_is_rejected_before_projection(self):
         # Depth reads horizontally ONLY in side. Without it the extent cannot be drawn, and
         # ADR 0016 Amdt 6 says it must be reported against its measurement rather than
-        # disappear — which is also the signal a requirement gate weighs.
-        drawing = build_drawing(Box(90, 60, 25), _views=("front", "plan"))
-        assert "m_env_depth" not in drawing.annotations()
-        assert "overall_dim_withheld" in _lint(drawing)
-        assert "m_env_width" in drawing.annotations(), "the width must still be drawn"
+        # disappear. Phase 5.5 moves that feasibility decision above projection, so a
+        # plausible-looking incomplete drawing is no longer returned.
+        with pytest.raises(ViewPlanIncomplete) as caught:
+            build_drawing(Box(90, 60, 25), _views=("front", "plan"))
+        assert [item.identity.parameter for item in caught.value.uncovered] == ["depth.length"]
+        assert "envelope.depth.length" in str(caught.value)
+
+    def test_a_width_diagnostic_lists_both_semantically_eligible_views(self):
+        from draftwright.model.planner import plan_dimensions
+
+        model = build_drawing(Box(90, 60, 25)).model()
+        assert model is not None
+        with pytest.raises(ViewPlanIncomplete) as caught:
+            plan_dimensions(model, planned_views=("side",))
+        width = next(
+            item for item in caught.value.uncovered if item.identity.parameter == "width.length"
+        )
+        assert width.eligible_views == ("plan", "front")
+        assert "add one of `plan`, `front`" in str(caught.value)
+
+    def test_an_authored_slot_position_uses_the_slot_plane_not_its_long_axis(self):
+        from draftwright.model import Frame, PartModel, SlotFeature
+        from draftwright.model.ir import RequestedDimension
+        from draftwright.model.planner import plan_dimensions
+
+        slot = SlotFeature(
+            Frame((30.0, 20.0, 10.0), "x"),
+            width_axis="y",
+            long_axis="x",
+            width=8.0,
+            length=30.0,
+            w_center=20.0,
+            lo=15.0,
+            hi=45.0,
+        )
+        model = PartModel(
+            bbox=Box(60, 40, 20).bounding_box(),
+            orientation="prismatic",
+            features=[slot],
+            authored_dimensions=(RequestedDimension(slot, "location"),),
+        )
+        with pytest.raises(ViewPlanIncomplete) as caught:
+            plan_dimensions(model, planned_views=("front", "side"))
+        assert [
+            (item.identity.parameter, item.preferred_view) for item in caught.value.uncovered
+        ] == [("location_slot.length", "plan")]
 
 
 class TestTheDecisionSurvivesEveryRebuild:
@@ -272,8 +457,10 @@ class TestTheCaseStudy:
         # This part is the cheapest thing that reaches that code with the front view gone:
         # it needs enough diameters for the row to be attempted at all, and the parts small
         # enough to be fast return early on an empty item list. The distinction the
-        # assertion draws is TypeError (crashed inside a pass) vs ViewNotPlanned (refused,
-        # naming the view) — a view set must be REFUSABLE for a gate to weigh it.
-        with pytest.raises(ViewNotPlanned) as caught:
+        # assertion draws is TypeError (crashed inside a pass) vs a pre-projection planning
+        # refusal naming the semantic requirements — a view set must be refusable for a gate
+        # to weigh it.
+        with pytest.raises(ViewPlanIncomplete) as caught:
             build_drawing(self._plate(), _views=("plan", "side"))
-        assert caught.value.view == "front"
+        assert caught.value.uncovered
+        assert all(item.preferred_view == "front" for item in caught.value.uncovered)

@@ -4,7 +4,9 @@
   (2026-08-21) for the authored surface. Delivery is phased through #1130. What exists:
   `ViewSpec`, `ResolvedViewPlan` and `ViewCoverage` (`view_plan.py`); the layout choice as a
   candidate over scale x sheet x **arrangement**, with §5's first hard gate applied by real
-  compile; and a chosen view set that is buildable, refusable and reclaims the paper it frees.
+  compile; a view-set-aware dimension plan that re-homes eligible requirements or raises
+  `ViewPlanIncomplete` before projection; and a chosen view set that is buildable, refusable
+  and reclaims the paper it frees.
   What does not: `ViewConstraints` and the `Sheet` verbs, automatic view SELECTION (nothing
   drops a view on its own — the case study reaches its A2 target and costs six annotations, so
   a gate weighing it refuses), and any planning of sections or details. `_views` is an engine
@@ -100,10 +102,10 @@ An authored view set can be wrong in a way an authored dimension set cannot: omi
 dimension omits one thing, but omitting a *view* can strand dimensions the compiler assigned
 to it. The surface must therefore say so, at the earliest moment that can.
 
-Today it says so at the worst one. A `Sheet` user whose views cannot carry their dimensions
-gets `ViewNotPlanned` raised from inside `render_centermarks` — an exception naming the view
-but not their line, not the dimension that needed it, and not what to add. That is an internal
-invariant escaping to a user.
+Before the Phase 5.5 planner boundary, it said so at the worst one. A caller whose views could
+not carry their dimensions got `ViewNotPlanned` raised from inside `render_centermarks` — an
+exception naming the view but not their line, not the dimension that needed it, and not what
+to add. That is an internal invariant escaping to a user.
 
 **Three moments, and the rule is to fail at the earliest one that can give a complete answer.**
 
@@ -153,16 +155,18 @@ plausible-looking incomplete drawing is worse than a visible failure, and on §6
 authored constraints are never silently relaxed. A `permissive` opt-in may return the
 incomplete drawing, and must warn.
 
-**Consequence for `ViewNotPlanned`.** Once the pre-projection check exists, that exception is
-unreachable from the public API — it becomes an internal invariant. A user who sees one has
-found a hole in the check, and that is the bug, not the drawing.
+**Consequence for `ViewNotPlanned`.** The pre-projection check now makes that exception
+unreachable for a selected set whose approved dimensional requirements were planned. It is an
+internal invariant: a user who sees one has found a hole in the check, and that is the bug, not
+the drawing. The authored view verbs and their source-line provenance remain #1260; Phase 5.5
+provides the compiler result they consume.
 
-**This is gated on the compiler, not the DSL.** The check asks "which view does this
-dimension need, given this view set", which is `planner._group_view` — still hardwired to the
-fixed topology, so it cannot answer for a set it was not told about. Until it takes the
-planned view set, the earliest a user can find out remains a render pass tripping over a
-missing view. That is the same prerequisite the rest of this amendment has, and it is the
-reason to take it first.
+**This is gated on the compiler, not the DSL.** The check asks "which view does this dimension
+need, given this view set". Phase 5.5 delivered that prerequisite: `planner._group_view` takes
+the planned principal set, the planner retains ADR 0016 identity while collecting uncovered
+requirements, and analysis runs the check before scale selection or projection. The DSL in
+#1260 supplies authored `ViewConstraints` and source-line provenance to this boundary; it does
+not reimplement the feasibility decision.
 
 ### Sections and details are views, and their verbs are reshaped
 

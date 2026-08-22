@@ -1344,7 +1344,7 @@ def _compile_groups(planned) -> tuple[list[ApprovedGroup], list[Omission]]:
 
 
 def compile_dimensions(
-    model: PartModel, *, include_overall: bool = True, groups=None
+    model: PartModel, *, include_overall: bool = True, groups=None, planned_views=None
 ) -> RenderableDimensionPlan:
     """Compile *model* into the dimensions that will be drawn, and the ones that will not.
 
@@ -1354,8 +1354,16 @@ def compile_dimensions(
     *groups* accepts a `plan_dimensions` result the caller already has, so the engine's
     plan-once invariant holds through the migration instead of the compiler quietly
     re-planning behind it (#923 review).
+
+    *planned_views* is the ADR 0018 pre-projection constraint used only when the compiler
+    must plan for itself.  Callers supplying *groups* have already resolved that constraint;
+    the exact model/groups identity check below prevents substituting another plan.
     """
-    planned = tuple(groups) if groups is not None else tuple(plan_dimensions(model))
+    planned = (
+        tuple(groups)
+        if groups is not None
+        else tuple(plan_dimensions(model, planned_views=planned_views))
+    )
     if groups is not None:
         model_feature_ids = {id(feature) for feature in model.features}
         foreign = [g.feature for g in planned if id(g.feature) not in model_feature_ids]

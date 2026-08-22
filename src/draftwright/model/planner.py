@@ -46,6 +46,12 @@ from draftwright.model.ir import (
     Point,
     SlotFeature,
     SlotPatternFeature,
+    StepLevelFeature,
+)
+from draftwright.view_plan import (
+    UncoveredViewRequirement,
+    ViewPlanIncomplete,
+    views_showing,
 )
 
 #: The `reason` marking a measurement the AUTHORED set left out — the author's own
@@ -285,11 +291,27 @@ class DimensionGroup:
 _PROFILE = _EDGE_ON
 
 
-def _group_view(feature: Feature) -> str:
-    """The single view a feature's callout lands on — derived from the feature's
-    axis, never hardcoded, so X and Z are handled by the same rule (parity). A
-    diameter callout (hole / boss) reads on the view where the cylinder is end-on
-    (z→plan, x→side, y→front). A turned step is the opposite case (#731): its
+def _plane_normal(feature) -> str:
+    """Principal axis normal to a feature's width/length presentation plane."""
+    return next(axis for axis in "xyz" if axis not in (feature.width_axis, feature.long_axis))
+
+
+def _preferred_group_view(feature: Feature) -> str:
+    """The single view a feature's compound dimensional group lands on.
+
+    Derived from feature semantics rather than a renderer literal, so X/Y/Z variants are
+    handled by one rule.  A diameter callout (hole / boss) reads face-on; a turned step,
+    groove, rotational body or plate thickness reads in profile; planar slot/pocket groups
+    read normal to their defining plane.
+
+    Historically this only distinguished flats and steps and otherwise used ``frame.axis``:
+    that made the planner claim a slot belonged to the view down its *long* axis and a pocket
+    belonged to the view down its *length*, while their renderers quietly used the opening
+    normal.  A fixed-topology sheet hid the disagreement; a reduced set cannot.
+
+    The turned-step detail remains worth stating. A diameter callout (hole / boss)
+    reads on the view where the cylinder is end-on (z→plan, x→side, y→front). A
+    turned step is the opposite case (#731): its
     length + OD read where the turning axis lies IN-PLANE — `_PROFILE`, not
     `_END_ON` — which derives to "front" for both X- and Z-turned steps because
     the front view is the x–z plane. That matches the renderers per axis:
@@ -297,12 +319,37 @@ def _group_view(feature: Feature) -> str:
     above, Z → vertical right) and `render_diameters` hangs its ø row/column off
     the front view (X → row below, Z → column left). A Y-axis step derives to
     its geometric profile ("side"); no step render pipeline consumes Y today
-    (`render_diameters` buckets x/z only)."""
+    (`render_diameters` buckets x/z only).
+    """
     if isinstance(feature, FlatFeature):
         return _END_ON.get(feature.presentation_axis, "plan")
-    if feature.kind == "step":
+    if isinstance(feature, StepLevelFeature):
+        return "front"
+    if feature.kind in {"step", "groove", "rotational", "plate"}:
         return _PROFILE.get(feature.frame.axis, "front")
+    if isinstance(feature, SlotFeature | PadFeature):
+        return _END_ON[_plane_normal(feature)]
+    if isinstance(feature, PocketFeature):
+        return _END_ON[feature.depth_axis]
+    if isinstance(feature, ChannelFeature):
+        return _END_ON[feature.long_axis]
     return _END_ON.get(feature.frame.axis, "plan")
+
+
+def _group_view(feature: Feature, planned_views=None) -> str | None:
+    """Resolve a feature group's semantic home against *planned_views*.
+
+    ``None`` is an uncovered planning result, never permission to drop the group.  The
+    envelope is the first genuinely re-homeable group: its width can move from plan to
+    front.  Feature callouts that require a face-on/profile presentation remain single-view
+    until their alternate renderers land in #1261.
+    """
+    preferred = _preferred_group_view(feature)
+    if planned_views is None or preferred in set(planned_views):
+        return preferred
+    if feature.kind == "envelope":
+        return views_showing("x", planned_views, horizontal=True)
+    return None
 
 
 _PLANE_TOL = 1e-6
@@ -966,7 +1013,204 @@ def _check_authored_targets(model: PartModel) -> None:
             )
 
 
-def plan_dimensions(model: PartModel) -> list[DimensionGroup]:
+def _feature_labels(model: PartModel) -> dict[int, str]:
+    """Human labels for diagnostics; semantic correspondence still uses ``DimensionId``."""
+    totals: dict[str, int] = {}
+    for feature in model.features:
+        totals[feature.kind] = totals.get(feature.kind, 0) + 1
+    seen: dict[str, int] = {}
+    labels = {}
+    for feature in model.features:
+        seen[feature.kind] = seen.get(feature.kind, 0) + 1
+        labels[id(feature)] = (
+            feature.kind
+            if totals[feature.kind] == 1 and feature.kind == "envelope"
+            else f"{feature.kind}_{seen[feature.kind]}"
+        )
+    return labels
+
+
+def _parameter_view_preferences(feature: Feature, pd: PlannedDimension) -> tuple[str, ...]:
+    """Preference-ordered principal views that can carry one planned parameter.
+
+    This is intentionally conservative: it lists views for which a renderer exists today.
+    #1261 widens these sets as displaced callouts gain alternate renderers.  Claiming a
+    merely geometric view before the compiler can render the requirement there would turn
+    an early proof into a late ``ViewNotPlanned`` or, worse, a silent omission.
+    """
+    role = pd.param.role
+    kind = feature.kind
+    axis = feature.frame.axis
+    if kind == "envelope":
+        if role == "width":
+            return ("plan", "front")
+        if role == "depth":
+            return ("side",)
+        if role == "height":
+            return ("front",)
+    if role in {"boss_height", "stock_length"}:
+        return (_PROFILE.get(axis, "front"),)
+    if kind == "step_level" and role == "step_height":
+        return ("front",)
+    if kind in {"step", "groove", "rotational", "plate"}:
+        return (_PROFILE.get(axis, "front"),)
+    if isinstance(feature, SlotFeature | PadFeature):
+        return (_END_ON[_plane_normal(feature)],)
+    if isinstance(feature, PocketFeature):
+        return (_END_ON[feature.depth_axis],)
+    if kind in {"pocket_pattern", "slot_pattern"}:
+        return (_END_ON[axis],)
+    if isinstance(feature, ChannelFeature):
+        return (_END_ON[feature.long_axis],)
+    return (_preferred_group_view(feature),)
+
+
+def _view_reason(preferences: tuple[str, ...]) -> str:
+    if len(preferences) == 1:
+        return f"reads only in `{preferences[0]}`"
+    return "reads in " + " or ".join(f"`{view}`" for view in preferences)
+
+
+def _uncovered_group_requirements(
+    model: PartModel, groups: list[DimensionGroup], planned_views
+) -> list[UncoveredViewRequirement]:
+    """Approved group dimensions with no renderer in the selected principal set."""
+    planned = set(planned_views)
+    labels = _feature_labels(model)
+    uncovered: list[UncoveredViewRequirement] = []
+    for group in groups:
+        for unit in group.units:
+            approved = [pd for pd in unit.members if not pd.suppressed]
+            if not approved:
+                continue
+            if isinstance(group.feature, StepLevelFeature) and unit.id == "step_position.length":
+                # One correlated ADR 0016 unit, but its X and Y shoulder members route to
+                # plan and side respectively.  Their axis is structural feature evidence;
+                # DimParameter deliberately has no discriminator because the whole ladder
+                # is addressed as one unit.
+                for axis, view in (("x", "plan"), ("y", "side")):
+                    if view in planned or not any(
+                        shoulder_axis == axis for shoulder_axis, _ in group.feature.shoulders
+                    ):
+                        continue
+                    identity = DimensionId(group.feature, unit.id)
+                    uncovered.append(
+                        UncoveredViewRequirement(
+                            identity=identity,
+                            label=f"{labels[id(group.feature)]}.{unit.id}.{axis}",
+                            preferred_view=view,
+                            eligible_views=(view,),
+                            reason=f"reads only in `{view}`",
+                        )
+                    )
+                continue
+            # A correlated unit is one ADR 0016 identity.  Every member must be renderable;
+            # report the unit once at the first unmet member rather than inflate the count.
+            for pd in approved:
+                preferences = _parameter_view_preferences(group.feature, pd)
+                if planned.intersection(preferences):
+                    continue
+                identity = DimensionId(group.feature, unit.id)
+                uncovered.append(
+                    UncoveredViewRequirement(
+                        identity=identity,
+                        label=f"{labels[id(group.feature)]}.{unit.id}",
+                        preferred_view=preferences[0],
+                        eligible_views=preferences,
+                        reason=_view_reason(preferences),
+                    )
+                )
+                break
+    return uncovered
+
+
+def _uncovered_location_requirements(
+    model: PartModel, planned_views
+) -> list[UncoveredViewRequirement]:
+    """Approved datum locations whose current semantic renderer has no selected view.
+
+    Location identity is feature-level today (ADR 0016 / #883), while X and Y are distinct
+    observable members.  The two records therefore retain the same ``DimensionId`` and use
+    an ``.x``/``.y`` diagnostic suffix; correspondence never depends on that suffix.
+    """
+    planned = set(planned_views)
+    labels = _feature_labels(model)
+    uncovered: list[UncoveredViewRequirement] = []
+    seen: set[tuple[int, str, str]] = set()
+    for pd in plan_locations(model):
+        feature = pd.feature
+        if pd.suppressed or feature is None or pd.param.span is None:
+            continue
+        start, end = pd.param.span
+        requirements: list[tuple[str, str]] = []
+        if isinstance(feature, PocketFeature) and feature.frame.axis != "z":
+            requirements.append(("position", _END_ON[feature.depth_axis]))
+        elif feature.frame.axis == "z":
+            # Both in-plane ordinates read in the feature's face-on plan view.  With the
+            # fixed topology the Y member preferred side because it could use a horizontal
+            # above-strip; when side is absent the renderer re-homes that member vertically
+            # beside plan.  One semantic identity therefore requires one view, as ADR 0018's
+            # executable diagnostic specifies.
+            if any(abs(end[index] - start[index]) > _PLANE_TOL for index in (0, 1)):
+                requirements.append(("position", "plan"))
+        else:
+            requirements.append(("position", _END_ON[feature.frame.axis]))
+        identity = DimensionId(feature, pd.param.parameter_id)
+        for component, view in requirements:
+            key = (id(feature), component, view)
+            if view in planned or key in seen:
+                continue
+            seen.add(key)
+            suffix = "" if component == "position" else f".{component}"
+            parameter_label = (
+                LOCATION_ROLE if pd.param.kind == "location" else pd.param.parameter_id
+            )
+            uncovered.append(
+                UncoveredViewRequirement(
+                    identity=identity,
+                    label=f"{labels[id(feature)]}.{parameter_label}{suffix}",
+                    preferred_view=view,
+                    eligible_views=(view,),
+                    reason=f"reads only in `{view}`",
+                )
+            )
+
+    # Bounding-box locations are compiled outside `plan_locations`, but they are still
+    # dimensions and obey the same authored `location` intent.  Side-drilled holes place
+    # both in-plane offsets in their end-on circle view; a slot places its near-end offset
+    # in the view normal to its width/length plane.
+    for feature in model.features:
+        if location_datum(feature) != "bbox" or authored_location_omitted(model, feature):
+            continue
+        parameters: tuple[str, ...]
+        if isinstance(feature, HoleFeature):
+            view = _END_ON[feature.frame.axis]
+            measured = "y" if feature.frame.axis == "x" else "x"
+            parameters = (
+                f"{feature.LOCATION_OFF_AXIS_STEM}.{measured}",
+                f"{feature.LOCATION_OFF_AXIS_STEM}.z",
+            )
+        elif isinstance(feature, SlotFeature):
+            view = _END_ON[_plane_normal(feature)]
+            parameters = (f"{feature.LOCATION_STEM}.length",)
+        else:
+            continue
+        if view in planned:
+            continue
+        for parameter in parameters:
+            uncovered.append(
+                UncoveredViewRequirement(
+                    identity=DimensionId(feature, parameter),
+                    label=f"{labels[id(feature)]}.{parameter}",
+                    preferred_view=view,
+                    eligible_views=(view,),
+                    reason=f"reads only in `{view}`",
+                )
+            )
+    return uncovered
+
+
+def plan_dimensions(model: PartModel, *, planned_views=None) -> list[DimensionGroup]:
     """Plan each feature's parameters into one `DimensionGroup` (anchor + single
     view + planned dims, each carrying its render intent — convention, model-level
     suppression, datum). No cross- or within-feature value de-duplication."""
@@ -1023,13 +1267,22 @@ def plan_dimensions(model: PartModel) -> list[DimensionGroup]:
                 )
             )
         if dims:
+            selected_view = _group_view(feature, planned_views)
             groups.append(
                 DimensionGroup(
                     feature=feature,
-                    view=_group_view(feature),
+                    # Preserve a total internal record while collecting every uncovered
+                    # identity below.  The exception prevents this preferred fallback from
+                    # crossing the planner boundary when it is not actually selected.
+                    view=selected_view or _preferred_group_view(feature),
                     units=_addressable(feature, dims),
                 )
             )
+    if planned_views is not None:
+        uncovered = _uncovered_group_requirements(model, groups, planned_views)
+        uncovered.extend(_uncovered_location_requirements(model, planned_views))
+        if uncovered:
+            raise ViewPlanIncomplete(planned_views, uncovered)
     return groups
 
 

@@ -51,7 +51,7 @@ _FMT_BUDGET: dict[str, tuple[int, str]] = {
     # which dims exist, so an entry per axis would approve a mark whose existence the
     # renderer decides. Splitting it means moving that grouping into the compiler. Every
     # other family (off-axis holes, non-Z pockets, slots) is already per-axis.
-    "from_model.render_locations": (4, "Z ladder groups across features before deduping"),
+    "from_model.render_locations": (3, "Z ladder groups across features before deduping"),
     "holes.add_feature_location": (2, "the live verb onto that same Z ladder"),
     # --- The turned step chain composes its labels while collapsing repeat runs, so the
     # text is decided by the collapse rather than per approved entry.
