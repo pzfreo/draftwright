@@ -57,9 +57,10 @@ def test_the_compiler_omits_a_shoulder_coincident_with_its_datum(axis):
 
 @pytest.mark.parametrize("axis", ["x", "y"])
 def test_the_real_build_reports_the_omission_without_constructing_a_border(axis):
-    part, _step, model = _declared_step(axis)
+    part, step, _model = _declared_step(axis)
 
-    drawing = build_drawing(part, model=model)
+    # Exercise the issue's exact public reproducer shape, not only a prebuilt PartModel.
+    drawing = build_drawing(part, model=[step])
 
     assert not [name for name in drawing.annotations() if name.startswith("dim_shoulder")]
     suppression = next(
