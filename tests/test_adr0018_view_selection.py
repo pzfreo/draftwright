@@ -389,6 +389,106 @@ class TestAnExtentMovesOrIsReported:
             (item.identity.parameter, item.preferred_view) for item in caught.value.uncovered
         ] == [("location_slot.length", "plan")]
 
+    def test_every_renderer_supported_feature_family_has_semantic_view_ownership(self):
+        """Mutation guard for the conservative ownership table, including uncommon IR arms."""
+        from types import SimpleNamespace
+
+        from draftwright.model import ChannelFeature, Frame, PadFeature, PocketFeature, SlotFeature
+        from draftwright.model.ir import DimParameter
+        from draftwright.model.planner import PlannedDimension, _parameter_view_preferences
+
+        def preferences(feature, role):
+            planned = PlannedDimension(DimParameter("length", role, 1.0), "linear")
+            return _parameter_view_preferences(feature, planned)
+
+        planar = dict(
+            frame=Frame((0.0, 0.0, 0.0), "z"),
+            width_axis="y",
+            long_axis="x",
+            width=8.0,
+            length=30.0,
+            w_center=20.0,
+            lo=15.0,
+            hi=45.0,
+        )
+        cases = [
+            (
+                SimpleNamespace(kind="boss", frame=Frame((0.0, 0.0, 0.0), "x")),
+                "boss_height",
+                ("front",),
+            ),
+            (SimpleNamespace(kind="step", frame=Frame((0.0, 0.0, 0.0), "y")), "step", ("side",)),
+            (SlotFeature(**planar), "slot_width", ("plan",)),
+            (PadFeature(**planar, z0=0.0, z1=5.0), "pad_width", ("plan",)),
+            (
+                PocketFeature(
+                    Frame((0.0, 0.0, 0.0), "x"),
+                    width_axis="y",
+                    long_axis="z",
+                    width=8.0,
+                    length=30.0,
+                    depth=5.0,
+                    w_center=20.0,
+                    lo=15.0,
+                    hi=45.0,
+                ),
+                "pocket_depth",
+                ("side",),
+            ),
+            (
+                SimpleNamespace(kind="pocket_pattern", frame=Frame((0.0, 0.0, 0.0), "z")),
+                "pitch",
+                ("plan",),
+            ),
+            (
+                ChannelFeature(
+                    Frame((0.0, 0.0, 0.0), "z"),
+                    width_axis="x",
+                    long_axis="y",
+                    width=8.0,
+                    w_center=20.0,
+                    lo=0.0,
+                    hi=30.0,
+                    d_lo=0.0,
+                    d_hi=5.0,
+                ),
+                "channel_width",
+                ("front",),
+            ),
+        ]
+        assert [preferences(feature, role) for feature, role, _expected in cases] == [
+            expected for _feature, _role, expected in cases
+        ]
+
+    def test_an_off_axis_pocket_location_uses_its_opening_normal(self):
+        from draftwright.model import Datum, Frame, PartModel, PocketFeature
+        from draftwright.model.ir import RequestedDimension
+        from draftwright.model.planner import plan_dimensions
+
+        pocket = PocketFeature(
+            Frame((30.0, 20.0, 10.0), "x"),
+            width_axis="y",
+            long_axis="z",
+            width=8.0,
+            length=20.0,
+            depth=5.0,
+            w_center=20.0,
+            lo=0.0,
+            hi=20.0,
+        )
+        model = PartModel(
+            bbox=Box(60, 40, 20).bounding_box(),
+            orientation="prismatic",
+            features=[pocket],
+            datums=[Datum("datum_xy", "point", (0.0, 0.0, 0.0))],
+            authored_dimensions=(RequestedDimension(pocket, "location"),),
+        )
+        with pytest.raises(ViewPlanIncomplete) as caught:
+            plan_dimensions(model, planned_views=("front", "plan"))
+        assert [
+            (item.identity.parameter, item.preferred_view) for item in caught.value.uncovered
+        ] == [("location_pocket.location", "side")]
+
 
 class TestTheDecisionSurvivesEveryRebuild:
     def test_a_rebuild_does_not_revert_the_view_set(self):
