@@ -4,6 +4,11 @@
 
 ### Changed
 
+- Advance the bounded cross-repository canary window from `b123d-recognisers` 0.3.0 to the exact
+  0.3.1 candidate line. Package PR #149 changes recess-recognition behaviour without changing
+  Draftwright's consumed record schemas; production remains pinned to the reviewed 0.2.9 artifact
+  until the normal immutable dependency-update workflow runs.
+
 - Accept the additive Chamfer and Fillet schema-2 recognizer contract alongside schema 1 ahead of
   the `b123d-recognisers` 0.3.0 cutover; all other record schemas remain fail-closed at version 1
   (#1276).

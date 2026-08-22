@@ -23,8 +23,11 @@ _PACKAGE_VERSION = "0.2.9"
 # The only package identity the cross-repository canary may substitute for the exact production
 # pin.  Passing a candidate is explicit at the validator call site; normal imports and released
 # checks never consult environment state and therefore remain locked to ``_PACKAGE_VERSION``.
-# ``scripts/update-recogniser-dependency`` disables this window when 0.3.0 becomes the pin.
-_CANDIDATE_PACKAGE_VERSION: str | None = "0.3.0"
+# The 0.3.0 artifact has shipped while Draftwright remains deliberately pinned to 0.2.9. Package
+# PR #149 is the first 0.3.1 candidate and changes recognition behaviour without changing the
+# capability schema consumed here. Keep the canary window exact rather than accepting the whole
+# 0.3 line. ``scripts/update-recogniser-dependency`` disables it at the eventual pin cutover.
+_CANDIDATE_PACKAGE_VERSION: str | None = "0.3.1"
 _BOUNDARIES = (
     "ir_adapter",
     "dsl_declaration",

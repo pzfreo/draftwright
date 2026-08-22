@@ -407,7 +407,7 @@ def test_schema_format_fails_closed() -> None:
 
 
 def test_only_chamfer_and_fillet_use_the_declared_additive_schema_2_state() -> None:
-    """The 0.3.0 transition is dual-readable before cutover and schema-2-only afterward.
+    """The 0.3 transition is dual-readable before cutover and schema-2-only afterward.
 
     Package PR #151 adds one optional ``turned`` field to these two records. The existing
     converters consume only the unchanged schema-1 fields, so accepting schema 2 before the
