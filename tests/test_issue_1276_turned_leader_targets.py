@@ -169,8 +169,8 @@ def test_declared_turned_chamfer_has_xyz_profile_parity(axis, view):
 @pytest.mark.parametrize(
     ("axis", "view", "surface_site"),
     [
-        ("x", "front", (0.0, 0.0, 5.0)),
-        ("y", "side", (0.0, 0.0, 5.0)),
+        ("x", "front", (0.0, 0.0, -5.0)),
+        ("y", "side", (0.0, 0.0, -5.0)),
         ("z", "front", (5.0, 0.0, 0.0)),
     ],
 )
@@ -221,8 +221,8 @@ def test_turned_edge_surface_note_keeps_its_physical_site_and_validates_override
 @pytest.mark.parametrize(
     ("axis", "view", "floor_site"),
     [
-        ("x", "front", (0.0, 0.0, 8.0)),
-        ("y", "side", (0.0, 0.0, 8.0)),
+        ("x", "front", (0.0, 0.0, -8.0)),
+        ("y", "side", (0.0, 0.0, -8.0)),
         ("z", "front", (8.0, 0.0, 0.0)),
     ],
 )
@@ -251,3 +251,23 @@ def test_sheet_knurl_leader_lands_on_the_cylindrical_surface():
     codes = {issue.code for issue in drawing.lint()}
     assert "gdt_dropped" not in codes
     assert "feature_leader_crossing" not in codes
+
+
+@pytest.mark.parametrize(
+    ("factory", "prefix"),
+    [(chamfer, "m_chamfer"), (fillet, "m_fillet")],
+)
+def test_mixed_turned_and_prismatic_groups_offer_candidates_only_in_their_own_view(
+    factory, prefix
+):
+    kwargs = {"leg": 1} if factory is chamfer else {"radius": 1}
+    features = [
+        factory(axis="z", at=(-10, -10, 0), turned=False, **kwargs),
+        factory(axis="z", at=(10, 0, 5), turned=True, **kwargs),
+    ]
+    drawing = build_drawing(Box(40, 40, 20), model=features, number="MIX")
+    name = next(name for name in drawing.annotations() if name.startswith(prefix))
+    leader = drawing.get_annotation(name)
+
+    assert drawing.view_of(name) == "front"
+    assert leader.tip[:2] == pytest.approx(drawing.at("front", *features[1].frame.origin)[:2])

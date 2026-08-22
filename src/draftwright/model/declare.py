@@ -1858,6 +1858,8 @@ _EDGE_ON_VIEW = _EDGE_ON
 _FEATURE_SIDE = {"plan": "above", "front": "below", "side": "below"}
 # The model-space axis a view stacks its above/below strips along (its vertical).
 _VERTICAL_MODEL_AXIS = {"plan": 1, "front": 2, "side": 2}
+# The model-space axis a view lays out left/right along (its horizontal).
+_HORIZONTAL_MODEL_AXIS = {"plan": 0, "front": 0, "side": 1}
 _VALID_SIDES = ("above", "below", "left", "right")
 
 
@@ -1924,6 +1926,7 @@ def _surface_target(ref, part=None, *, view=None, side=None) -> tuple[str, str, 
     This is semantic geometry at the IR boundary, not annotation placement: the returned site
     still enters the common GD&T corridor solve, which alone chooses page coordinates (#1276).
     """
+    surface_diameter = None
     if isinstance(ref, BossFeature | StepFeature | RotationalFeature):
         axis = _norm_axis(ref.frame.axis)
         d_view = _EDGE_ON_VIEW[axis]
@@ -1939,9 +1942,8 @@ def _surface_target(ref, part=None, *, view=None, side=None) -> tuple[str, str, 
         # The profile plane contains the shaft axis and one principal radial direction.
         # Choosing its positive side gives a deterministic point on the cylindrical surface;
         # the corridor solve remains free to place the label on any sanctioned tier.
-        radial_axis = _radial_axis_in_view(axis, v)
-        site["xyz".index(radial_axis)] += diameter / 2
         d_site = (site[0], site[1], site[2])
+        surface_diameter = diameter
     elif isinstance(ref, GrooveFeature):
         axis = _norm_axis(ref.frame.axis)
         d_view = _EDGE_ON_VIEW[axis]
@@ -1949,9 +1951,8 @@ def _surface_target(ref, part=None, *, view=None, side=None) -> tuple[str, str, 
         if v not in ("plan", "front", "side"):
             raise ValueError(f"view must be 'plan'/'front'/'side' (got {v!r})")
         site = list(ref.frame.origin)
-        radial_axis = _radial_axis_in_view(axis, v)
-        site["xyz".index(radial_axis)] += ref.diameter / 2
         d_site = (site[0], site[1], site[2])
+        surface_diameter = ref.diameter
     elif isinstance(ref, ChamferFeature | FilletFeature) and ref.turned:
         axis = _norm_axis(ref.frame.axis)
         d_view = _EDGE_ON_VIEW[axis]
@@ -1966,6 +1967,17 @@ def _surface_target(ref, part=None, *, view=None, side=None) -> tuple[str, str, 
     s = side or d_side
     if s not in _VALID_SIDES:
         raise ValueError(f"side must be one of {_VALID_SIDES} (got {s!r})")
+    if surface_diameter is not None:
+        radial_axis = _radial_axis_in_view(axis, v)
+        radial_i = "xyz".index(radial_axis)
+        sign = 1.0
+        if radial_i == _VERTICAL_MODEL_AXIS[v] and s in ("above", "below"):
+            sign = 1.0 if s == "above" else -1.0
+        elif radial_i == _HORIZONTAL_MODEL_AXIS[v] and s in ("left", "right"):
+            sign = 1.0 if s == "right" else -1.0
+        site = list(d_site)
+        site[radial_i] += sign * surface_diameter / 2
+        d_site = (site[0], site[1], site[2])
     return v, s, d_site, axis
 
 

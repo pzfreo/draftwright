@@ -2267,11 +2267,15 @@ def render_chamfers(dwg, plan, a, *, ctx, only=None) -> int:
             if not members:
                 continue
         # A grouped label may count identical chamfers on several axes. Point its leader at
-        # one coherent visible set: the most populous axis, with deterministic tie-breaking.
-        by_axis: dict[str, list] = {}
+        # one coherent visible set: the most populous axis/view pair, with deterministic
+        # tie-breaking. Turned and prismatic treatments can share an axis but not a view.
+        by_presentation: dict[tuple[str, str], list] = {}
         for gp in members:
-            by_axis.setdefault(gp[0].facts.axis, []).append(gp)
-        axis, visible = min(by_axis.items(), key=lambda item: (-len(item[1]), item[0]))
+            key = (gp[0].facts.axis, gp[0].view)
+            by_presentation.setdefault(key, []).append(gp)
+        (axis, _view), visible = min(
+            by_presentation.items(), key=lambda item: (-len(item[1]), item[0])
+        )
         ordered = sorted(visible, key=lambda gp: gp[0].facts.frame.origin)
         representative, representative_pd = ordered[0]
         ch = representative.facts
@@ -2397,14 +2401,17 @@ def render_fillets(dwg, plan, a, *, ctx, only=None) -> int:
             members = [gp for gp in members if gp[0].ref in only]
             if not members:
                 continue
-        # Point the leader at one coherent visible set. Members on other edge axes still
+        # Point the leader at one coherent visible set. Members on other edge axes/views still
         # contribute to the printed count and semantic measurements, but mixing their 3-D
         # origins into this view could point at unrelated projected corners. Prefer the
-        # axis with the most members; ties are deterministic.
-        by_axis: dict[str, list] = {}
+        # axis/view pair with the most members; ties are deterministic.
+        by_presentation: dict[tuple[str, str], list] = {}
         for gp in members:
-            by_axis.setdefault(gp[0].facts.axis, []).append(gp)
-        axis, visible = min(by_axis.items(), key=lambda item: (-len(item[1]), item[0]))
+            key = (gp[0].facts.axis, gp[0].view)
+            by_presentation.setdefault(key, []).append(gp)
+        (axis, _view), visible = min(
+            by_presentation.items(), key=lambda item: (-len(item[1]), item[0])
+        )
         ordered = sorted(visible, key=lambda gp: gp[0].facts.frame.origin)
         view = ordered[0][0].view
         vb = dwg.view_bounds(view)
