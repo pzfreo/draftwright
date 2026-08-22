@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import warnings
+from types import SimpleNamespace
 
 import pytest
 from build123d import Box, Cylinder
@@ -11,7 +12,11 @@ from build123d import Box, Cylinder
 import draftwright.builder as builder_mod
 import draftwright.projection as projection_mod
 from draftwright import Sheet, SoftDeprecationWarning, ViewConstraints
+from draftwright.analysis import _apply_principal_view_pins
+from draftwright.builder import _validate_authored_view_layout
+from draftwright.model import plan_sections
 from draftwright.view_plan import (
+    ConstraintSource,
     ResolvedViewPlan,
     ViewPin,
     ViewRelation,
@@ -145,6 +150,8 @@ class TestSourceCoherence:
             sheet.view("front")
         with pytest.raises(ValueError, match="relative to itself"):
             ViewRelation("front", "above", "front")
+        with pytest.raises(ValueError, match="unknown view relation"):
+            ViewRelation("front", "diagonal", "plan")
         with pytest.raises(ValueError, match="non-negative"):
             ViewRelation("front", "above", "plan", gap=-1)
         with pytest.raises(ValueError, match="finite page coordinates"):
@@ -155,6 +162,8 @@ class TestSourceCoherence:
             ViewSpec("front", "principal", scale_factor=2)
         with pytest.raises(ValueError, match="principal_source"):
             ViewConstraints(principal_source="guess")
+        assert ViewConstraints().is_empty
+        assert not ViewConstraints(principal_source="automatic").is_empty
 
     def test_view_source_and_target_conflicts_fail_at_the_second_verb(self):
         automatic = _sheet()
@@ -253,6 +262,24 @@ class TestBuildEffects:
             "section_bb",
         }
         assert not [issue for issue in drawing.lint() if issue.severity != "info"]
+
+    def test_feature_section_targets_and_parent_rows_are_hard_constraints(self):
+        through = _sheet()
+        hole = through.hole(diameter=6, at=(0, 0, 0), axis="z")
+        through.section_view("A", through=hole)
+        assert "section_aa" in through.build().views
+
+        outside = _sheet()
+        remote_hole = outside.hole(diameter=6, at=(0, 1000, 0), axis="z")
+        outside.section_view("A", through=remote_hole)
+        with pytest.raises(ValueError, match="outside the part interior"):
+            outside.build()
+
+        parentless = _sheet()
+        parentless.view("plan")
+        parentless.section_view("A", at=0)
+        with pytest.raises(ValueError, match="needs front or side as its parent row"):
+            parentless.build()
 
     def test_a_feature_targeted_detail_uses_its_authored_name_and_scale(self):
         part = Box(50, 30, 10) - Cylinder(3, 20)
@@ -361,6 +388,70 @@ class TestBuildEffects:
         detail.detail_view("A", around=hole).scale(100)
         with pytest.raises(ValueError, match="authored detail.*not relaxed"):
             detail.build()
+
+
+class TestDefensiveTypedBoundaries:
+    def test_pin_lowering_rejects_unsupported_and_absent_views(self):
+        def geometry():
+            return SimpleNamespace(
+                FV_X=40.0,
+                FV_Y=40.0,
+                PV_X=40.0,
+                PV_Y=80.0,
+                SV_X=80.0,
+                SV_Y=40.0,
+            )
+
+        for source in (ConstraintSource("test.py", 1), None):
+            constraints = ViewConstraints(pins=(ViewPin("iso", (10, 10), source),))
+            with pytest.raises(ValueError, match="principal orthographic"):
+                _apply_principal_view_pins(
+                    geometry(),
+                    constraints,
+                    scale=1,
+                    centre=(0, 0, 0),
+                    page=(297, 210),
+                    margin=10,
+                    views=("front",),
+                )
+
+        absent = ViewConstraints(pins=(ViewPin("front", (10, 10)),))
+        with pytest.raises(ValueError, match="absent view"):
+            _apply_principal_view_pins(
+                geometry(),
+                absent,
+                scale=1,
+                centre=(0, 0, 0),
+                page=(297, 210),
+                margin=10,
+                views=("plan",),
+            )
+
+    def test_resolved_layout_validation_rejects_absent_views_and_moved_pins(self):
+        bounds = {"front": (20, 20, 40, 40), "plan": (20, 50, 40, 70)}
+        drawing = SimpleNamespace(
+            view_plan=SimpleNamespace(placements={}),
+            views=bounds,
+            view_bounds=bounds.__getitem__,
+            at=lambda *_args: (1.0, 0.0, 0.0),
+        )
+
+        missing = ViewConstraints(relations=(ViewRelation("front", "above", "side"),))
+        with pytest.raises(ValueError, match="absent view"):
+            _validate_authored_view_layout(drawing, missing)
+
+        absent_pin = ViewConstraints(pins=(ViewPin("side", (0, 0)),))
+        with pytest.raises(ValueError, match="pin names absent view"):
+            _validate_authored_view_layout(drawing, absent_pin)
+
+        for source in (ConstraintSource("test.py", 2), None):
+            moved = ViewConstraints(pins=(ViewPin("front", (0, 0), source),))
+            with pytest.raises(ValueError, match="pin.*infeasible"):
+                _validate_authored_view_layout(drawing, moved)
+
+    def test_auto_section_suppression_reaches_the_planner_boundary(self):
+        model = SimpleNamespace(decorations={"auto_sections": False}, features=[])
+        assert plan_sections(model, set()) is None
 
 
 class TestLegacyDerivedVerbs:
