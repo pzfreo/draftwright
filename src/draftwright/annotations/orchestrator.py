@@ -91,6 +91,7 @@ from draftwright.annotations.sections import (
     feature_hole_keys,
 )
 from draftwright.model import (
+    DimensionId,
     Frame,
     HoleFeature,
     PatternFeature,
@@ -393,6 +394,21 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # ladder, the shoulders and the detail escalation each hold a separately
     # derived decision — three chances to disagree about one drawing.
     _compiled = compile_dimensions(_model, groups=_groups)
+    for omission in _compiled.diagnostics:
+        if omission.code != "step_position_coincident_with_datum":
+            continue
+        measurement = (
+            DimensionId(omission.feature, omission.parameter_id)
+            if omission.feature is not None
+            else None
+        )
+        ctx.record_issue(
+            "info",
+            "step_position_coincident_with_datum",
+            omission.reason,
+            measurement=measurement,
+            outcome_stage="validation",
+        )
     # Placement may release compiler-approved alternatives. Keep that runtime selection
     # separate from the immutable base plan consumed by every ordinary stage.
     _runtime_plan = _compiled

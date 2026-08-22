@@ -66,14 +66,13 @@ PartModel
   → compile_dimensions()            # one place: rules, requests, authored sets
       → RenderableDimensionPlan     # APPROVED entries only
       → diagnostics                 # what was omitted, and why
-  → renderers consume approved entries (diagnostics: see below — no consumer yet)
+  → renderers consume approved entries; audit/lint consume diagnostics
 ```
 
 - `ApprovedDimension` has **no `suppressed` field**. There is nothing to forget.
-- Withheld measurements leave through `diagnostics`. **Nothing consumes them yet** — the
-  consumer is `linting/coverage.py` and it arrives with #921, whose authored sets are the
-  first omissions coverage must tell apart from a measurement simply missed. Until then
-  every omission is a planner rule the lint layer already knows by other means.
+- Withheld measurements leave through `diagnostics`. The builder retains them as
+  `Drawing.suppressions()`, coverage consumes their family outcomes, and selected validation
+  omissions additionally surface through lint. They never enter a renderer.
 - The feature a dimension came from travels as an **opaque `FeatureRef`**: identity and
   category, no measurement. Carrying the `Feature` itself would have left the bypass one
   attribute access away — `.feature.levels` rebuilds exactly what the compiler withheld.
@@ -83,6 +82,11 @@ PartModel
 - Correlated sets (a step-height ladder, a shoulder chain) arrive as explicit
   `ApprovedLadder` groups, so a renderer never rebuilds one from a feature. This preserves
   the tier-3 identity rule — the set is approved or omitted whole, never half a staircase.
+  A datum-coincident shoulder is the validation exception, not a partial authored decision:
+  it measures no distance and cannot form border geometry, so the compiler removes that
+  non-measurement before the correlated set forms, retains every non-degenerate sibling under
+  the same tier-3 identity, and emits `step_position_coincident_with_datum` through both the
+  omission ledger and lint. A renderer never receives identical endpoints.
 - Spans travel in **part space**; the renderer projects them. That is the split in one line:
   the compiler says "this measurement, this value, between these two points"; the renderer
   says which view, which strip, which side, and what happens when it does not fit.

@@ -70,6 +70,7 @@ from draftwright.model.planner import (
     _AUTHORED_OMISSION,
     DimensionId,
     _decorated,
+    _is_zero_step_position,
     authored_location_omitted,
     location_datum,
     plan_dimensions,
@@ -170,8 +171,8 @@ class ApprovedDimension:
     discriminator: str | None = None
     tolerance: object | None = None
     #: Structural direction needed when a span cannot encode it. In particular, a
-    #: shoulder coincident with its datum has a zero-length span in every coordinate;
-    #: deriving X/Y from "the varying coordinate" is then impossible.
+    #: shoulder rung retains X/Y explicitly rather than asking a renderer to infer semantic
+    #: direction from projected coordinates.
     axis: str | None = None
     #: A complete compiler-owned label for correlated marks whose wording is itself a
     #: content decision (for example ``"4× 10"``). Ordinary group dimensions leave this
@@ -432,6 +433,11 @@ class Omission:
     #: Completeness lint requires this owner to have actually landed; a consolidation
     #: onto a dimension the placer then drops is a missing measurement, not a covered one.
     conveyed_by: DimensionId | None = None
+    #: Stable lint code when this compiler decision should also be visible through
+    #: ``Drawing.lint()``. Most ordinary suppression rules remain audit-only and leave this
+    #: unset; a datum-coincident shoulder sets it because otherwise the validation decision
+    #: that prevented invalid border geometry would be invisible to the drawing caller.
+    code: str | None = None
 
     @property
     def authored(self) -> bool:
@@ -526,8 +532,9 @@ class RenderableDimensionPlan:
     chain (the first migrated slice). Renderers not yet migrated keep consuming
     `plan_dimensions` directly, and the migration is finished when none do.
 
-    :attr:`diagnostics` is produced but not yet consumed — see the module docstring. It is
-    an output with a named owner and a date, not a claim about today's behaviour.
+    :attr:`diagnostics` is retained by the builder as the drawing's suppression ledger;
+    coverage consumes its family outcomes, and selected validation omissions also surface
+    through lint. It stays separate from approved content so no renderer can see it.
     """
 
     groups: tuple[ApprovedGroup, ...] = ()
@@ -807,9 +814,8 @@ def _compile_step_ladders(model: PartModel, marked) -> tuple[list[ApprovedLadder
 
         Carried rather than left ``None`` so consumers never go back to the feature for the
         station: the detail crop needs the X positions to frame the crowded band, and
-        `render_step_positions` will need both ends when it migrates. The varying
-        coordinate usually shows which axis it runs along. It cannot do so for a shoulder
-        coincident with its datum, so the approved entry also carries the explicit axis."""
+        `render_step_positions` needs both ends. The approved entry also carries the explicit
+        axis because direction is semantic content, not something projection should infer."""
         lo = list(step.datum)
         hi = list(step.datum)
         hi[_di[axis]] = pos
@@ -824,19 +830,35 @@ def _compile_step_ladders(model: PartModel, marked) -> tuple[list[ApprovedLadder
     shoulder_tol = (
         _decorated(model, step, shoulder_param).tolerance if shoulder_param is not None else None
     )
-    shoulders = [
-        ApprovedDimension(
-            id=_dim_id(step, "step_position.length"),
-            value_text=_fmt(abs(pos - step.datum[_di[axis]])),
-            value=abs(pos - step.datum[_di[axis]]),
-            span=_shoulder_span(axis, pos),
-            ref=step_ref,
-            axis=axis,
-            tolerance=shoulder_tol,
-            rendered_label=_fmt(abs(pos - step.datum[_di[axis]])),
+    shoulders: list[ApprovedDimension] = []
+    degenerate_shoulders: list[Omission] = []
+    for axis, pos in sorted(step.shoulders):
+        datum = step.datum[_di[axis]]
+        value = abs(pos - datum)
+        if _is_zero_step_position(value):
+            degenerate_shoulders.append(
+                Omission(
+                    step,
+                    "step_position.length",
+                    0.0,
+                    f"{axis.upper()} shoulder at {_fmt(pos)} is coincident with its datum "
+                    f"{_fmt(datum)}; zero-length step positions are omitted before rendering",
+                    code="step_position_coincident_with_datum",
+                )
+            )
+            continue
+        shoulders.append(
+            ApprovedDimension(
+                id=_dim_id(step, "step_position.length"),
+                value_text=_fmt(value),
+                value=value,
+                span=_shoulder_span(axis, pos),
+                ref=step_ref,
+                axis=axis,
+                tolerance=shoulder_tol,
+                rendered_label=_fmt(value),
+            )
         )
-        for axis, pos in sorted(step.shoulders)
-    ]
     pos_marks = [
         (pid, v, why)
         for (fid, pid), (v, why) in marked.items()
@@ -846,6 +868,8 @@ def _compile_step_ladders(model: PartModel, marked) -> tuple[list[ApprovedLadder
         approved.append(ApprovedLadder("step_position", tuple(shoulders), ref=step_ref))
     else:
         omissions += [Omission(step, pid, v, why) for pid, v, why in pos_marks]
+    if not pos_marks:
+        omissions += degenerate_shoulders
     return approved, omissions
 
 
@@ -1329,6 +1353,15 @@ def _compile_groups(planned) -> tuple[list[ApprovedGroup], list[Omission]]:
             )
             for pd in g.dims
             if not pd.suppressed
+            # A datum-coincident shoulder is not a zero-valued dimension the general group
+            # may keep after the dedicated ladder rejected its identical endpoints. It is
+            # validation-pruned before either compiled representation forms; the ladder
+            # compiler owns the axis-specific omission diagnostic.
+            and not (
+                isinstance(g.feature, StepLevelFeature)
+                and pd.param.role == "step_position"
+                and _is_zero_step_position(pd.param.value)
+            )
         )
         out.append(
             ApprovedGroup(

@@ -271,6 +271,7 @@ _UNSCORED_CODES = frozenset(
         "step_dim_withheld",
         "pattern_pitch_tolerance_withheld",
         "pocket_not_located",
+        "step_position_coincident_with_datum",
         # Neither confirmed nor refuted: the annotation renders no readable text, or the
         # compiler approved the measurement with no displayable value. Reported so an
         # unverifiable claim is visible rather than counted as a pass — but it is evidence

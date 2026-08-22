@@ -285,8 +285,8 @@ class TestTheRendererCannotSeeContent:
             for rung in ladder.rungs:
                 assert rung.id is not None, f"{ladder.kind} rung lost its DimensionId"
 
-    def test_zero_length_shoulder_keeps_its_explicit_axis(self):
-        """A degenerate datum→shoulder span cannot reveal whether it is X or Y."""
+    def test_zero_length_shoulder_is_an_explicit_compiler_omission(self):
+        """A datum-coincident shoulder never becomes invalid renderer geometry (#924)."""
         from draftwright.model.ir import Frame, PartModel, StepLevelFeature
 
         part = Box(90, 60, 30)
@@ -302,11 +302,11 @@ class TestTheRendererCannotSeeContent:
             orientation=None,
             features=[step],
         )
-        ladder = compile_dimensions(model).ladder("step_position")
-        assert ladder is not None
-        assert len(ladder.rungs) == 1
-        assert ladder.rungs[0].span[0] == ladder.rungs[0].span[1]
-        assert ladder.rungs[0].axis == "x"
+        plan = compile_dimensions(model)
+        assert plan.ladder("step_position") is None
+        omitted = [o for o in plan.diagnostics if o.parameter_id == "step_position.length"]
+        assert len(omitted) == 1
+        assert omitted[0].code == "step_position_coincident_with_datum"
 
     def test_the_layout_frame_carries_no_part_geometry(self):
         from draftwright._core import LayoutFrame

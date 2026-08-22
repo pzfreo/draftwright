@@ -59,6 +59,16 @@ from draftwright.view_plan import (
 #: sets it, and re-exported by `model/compiled.py` so the two cannot drift.
 _AUTHORED_OMISSION = "not in the authored dimension set"
 
+
+def _is_zero_step_position(value: float) -> bool:
+    """Whether a shoulder measures no distance from its datum.
+
+    This validation is exact: every nonzero declared measurement remains approved and keeps
+    its directional-view requirement, however small its value.
+    """
+    return float(value) == 0.0
+
+
 # How each (role, kind) is drawn. Defaults keep the table small.
 _CONVENTION = {
     ("step", "length"): "chain",
@@ -1090,7 +1100,11 @@ def _uncovered_group_requirements(
                 # is addressed as one unit.
                 for axis, view in (("x", "plan"), ("y", "side")):
                     if view in planned or not any(
-                        shoulder_axis == axis for shoulder_axis, _ in group.feature.shoulders
+                        shoulder_axis == axis
+                        and not _is_zero_step_position(
+                            position - group.feature.datum["xyz".index(shoulder_axis)]
+                        )
+                        for shoulder_axis, position in group.feature.shoulders
                     ):
                         continue
                     identity = DimensionId(group.feature, unit.id)
