@@ -38,9 +38,7 @@ def grm03_drawing():
 
 
 def test_a_supplied_turned_chamfer_lowers_without_rescanning(monkeypatch):
-    record = Chamfer(
-        axis="z", leg1=0.3, leg2=0.3, angle=45.0, at=(0.0, 0.0, 19.85), turned=True
-    )
+    record = Chamfer(axis="z", leg1=0.3, leg2=0.3, angle=45.0, at=(0.0, 0.0, 19.85), turned=True)
 
     def unexpected_rescan(_part):
         raise AssertionError("the consumer rescanned instead of lowering the supplied inventory")
@@ -80,9 +78,7 @@ def test_a_supplied_parallel_chamfer_is_not_guessed_to_be_turned():
 
 
 def test_standalone_rotational_detection_applies_the_aggregate_chamfer_filter(monkeypatch):
-    record = Chamfer(
-        axis="z", leg1=0.3, leg2=0.3, angle=45.0, at=(-4.7, 0.0, 10.0), turned=True
-    )
+    record = Chamfer(axis="z", leg1=0.3, leg2=0.3, angle=45.0, at=(-4.7, 0.0, 10.0), turned=True)
     seen = {}
 
     def filtered(_part, **kwargs):

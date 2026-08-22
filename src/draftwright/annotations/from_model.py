@@ -1726,9 +1726,7 @@ def _corner_candidates(dwg, view, vb, members, reach, *, provenances=None, cylin
         yield (tip, elbow, owner)
 
 
-def _corner_escape_candidates(
-    dwg, view, vb, members, reach, *, provenances=None, cylinders=None
-):
+def _corner_escape_candidates(dwg, view, vb, members, reach, *, provenances=None, cylinders=None):
     """Corner leaders plus silhouette-outward horizontal/vertical escapes.
 
     The diagonal remains the stable first choice.  The two axis-aligned rays
@@ -5746,9 +5744,7 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
             and isinstance(item.origin, ChamferFeature | FilletFeature)
             and item.origin.turned
         ):
-            o = _turned_profile_site(
-                item.origin.frame.origin, item.origin.axis, item.view, a.cyls
-            )
+            o = _turned_profile_site(item.origin.frame.origin, item.origin.axis, item.view, a.cyls)
         px, py = hproj(o[hi]), vproj(o[vi])
         horizontal = item.side in ("above", "below")  # frame stacks along y
         axis = "y" if horizontal else "x"

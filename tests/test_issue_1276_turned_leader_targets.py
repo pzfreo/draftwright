@@ -108,8 +108,10 @@ def test_detected_parallel_shafts_rotate_about_their_own_axes_not_the_part_bbox(
 
     assert len(features) == 4
     assert all(
-        min(abs(((feature.frame.origin[0] - cx) ** 2 + feature.frame.origin[2] ** 2) ** 0.5 - 9.5)
-            for cx in (-30.0, 50.0))
+        min(
+            abs(((feature.frame.origin[0] - cx) ** 2 + feature.frame.origin[2] ** 2) ** 0.5 - 9.5)
+            for cx in (-30.0, 50.0)
+        )
         < 1e-6
         for feature in features
     )
@@ -164,7 +166,9 @@ def test_partial_od_site_is_not_redirected_to_a_remote_complete_shaft():
     feature = next(item for item in reference.model().features if item.kind == "chamfer")
     remote = Pos(0, 100, 0) * Cylinder(10, 40)
 
-    drawing = build_drawing(Compound(children=[primary, remote]), model=[feature], number="PARTIAL")
+    drawing = build_drawing(
+        Compound(children=[primary, remote]), model=[feature], number="PARTIAL"
+    )
     name = next(name for name in drawing.annotations() if name.startswith("m_chamfer"))
     leader = drawing.get_annotation(name)
 
