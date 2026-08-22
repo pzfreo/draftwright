@@ -188,6 +188,20 @@ class DimParameter:
         return f"{base}.{self.discriminator}" if self.discriminator else base
 
 
+@dataclass(frozen=True)
+class ToleranceDecoration:
+    """A tolerance aspect plus the external requirement it came from.
+
+    Ordinary declared tolerances remain plain numbers/tuples.  Imported requirements use
+    this wrapper so AP242 provenance survives the concept-lowering and generated-Sheet seams
+    without changing the renderer-facing :attr:`DimParameter.tolerance` value type.
+    """
+
+    value: float | tuple[float, float] | FitClass
+    source: str
+    source_ids: tuple[str, ...] = ()
+
+
 def display(p: DimParameter) -> str:
     """A font-safe text form of a parameter (uses only glyphs the pinned font has;
     GD&T symbols are the renderer's job). For debug and tests, not output."""
@@ -1330,6 +1344,10 @@ class AuthoredDimension:
     # Appended to preserve positional construction of the original IR record.
     lower_bound: float | None = None
     upper_bound: float | None = None
+    # A supported source dimension remains materialised only when it cannot safely enrich a
+    # canonical geometry feature.  The reason is structured and round-trips, rather than
+    # disappearing into a log line or an emitter-only comment (#1116).
+    lowering_blockers: tuple[str, ...] = ()
     kind: ClassVar[str] = "authored_dimension"
 
     @property
@@ -1523,8 +1541,10 @@ class PartModel:
     features: list[Feature] = field(default_factory=list)
     datums: list[Datum] = field(default_factory=list)
     # Authored aspects the frozen features can't carry (ADR 0011 §4). P2a uses it for
-    # per-dimension tolerances: ``{(feature, ParamKind) -> float | (lo, hi)}``. The
-    # planner consults it to set ``DimParameter.tolerance``; empty on a detected model.
+    # per-dimension tolerances: ``{(feature, ParamKind) -> float | (lo, hi)}``. Imported
+    # requirements wrap that value in :class:`ToleranceDecoration` so source identities
+    # survive without widening renderer tolerance types (#1116). The planner consults this
+    # map to set ``DimParameter.tolerance``; otherwise empty on a detected model.
     decorations: dict = field(default_factory=dict)
     # Caller-requested augmenting measurements (ADR 0016 / #872) — the planner's
     # *intent input*. Kept distinct from `decorations` on purpose: a decoration enriches

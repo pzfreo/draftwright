@@ -25,6 +25,18 @@ def _source_category_counts(report: PmiExtractionReport) -> dict[str, int]:
     return dict(sorted(Counter(source.category for source in report.sources).items()))
 
 
+def _decorated_source_features(decorations) -> list[tuple[object, tuple[str, ...]]]:
+    """Imported requirement provenance carried by canonical feature decorations (#1116)."""
+    out = []
+    for key, value in (decorations or {}).items():
+        if not isinstance(key, tuple) or not key:
+            continue
+        source_ids = _source_ids(value)
+        if source_ids:
+            out.append((key[0], source_ids))
+    return out
+
+
 def lint_pmi_ignored(
     report: PmiExtractionReport | None, mode: str, *, defaulted: bool
 ) -> list[LintIssue]:
@@ -56,7 +68,12 @@ def lint_pmi_ignored(
 
 
 def pmi_stage_summary(
-    report: PmiExtractionReport | None, features, registry, mode: str
+    report: PmiExtractionReport | None,
+    features,
+    registry,
+    mode: str,
+    *,
+    decorations=None,
 ) -> dict[str, object] | None:
     """Derive source-to-render stage counts from the canonical report, IR, and registry.
 
@@ -73,13 +90,30 @@ def pmi_stage_summary(
         for feature in features
         if set(_source_ids(feature)) & extracted and getattr(feature, "kind", None) != "pmi"
     ]
+    decorated = _decorated_source_features(decorations)
+    lowered_features.extend(
+        feature for feature, source_ids in decorated if set(source_ids) & extracted
+    )
     lowered = {source_id for feature in lowered_features for source_id in _source_ids(feature)}
+    lowered.update(
+        source_id
+        for _feature, source_ids in decorated
+        for source_id in source_ids
+        if source_id in extracted
+    )
     rendered = {
         source_id
         for feature in lowered_features
         for source_id in _source_ids(feature)
         if registry.names_for_feature(_registry_subject(feature))
     }
+    rendered.update(
+        source_id
+        for feature, source_ids in decorated
+        if registry.names_for_feature(_registry_subject(feature))
+        for source_id in source_ids
+        if source_id in extracted
+    )
     dropped = {
         source_id
         for issue in registry.issues
@@ -134,7 +168,9 @@ def lint_pmi_extraction(report: PmiExtractionReport | None, mode: str) -> list[L
     return issues
 
 
-def lint_pmi_lowering(report: PmiExtractionReport | None, features, mode: str) -> list[LintIssue]:
+def lint_pmi_lowering(
+    report: PmiExtractionReport | None, features, mode: str, *, decorations=None
+) -> list[LintIssue]:
     """Report extracted AP242 requirements that did not reach concept-shaped IR."""
     if report is None or mode == "off":
         return []
@@ -143,6 +179,9 @@ def lint_pmi_lowering(report: PmiExtractionReport | None, features, mode: str) -
     by_source: dict[str, list[object]] = {}
     for feature in features:
         for source_id in _source_ids(feature):
+            by_source.setdefault(source_id, []).append(feature)
+    for feature, source_ids in _decorated_source_features(decorations):
+        for source_id in source_ids:
             by_source.setdefault(source_id, []).append(feature)
 
     issues = []
@@ -184,7 +223,7 @@ _EXPLAINED_OMISSION_CODES = frozenset(
 )
 
 
-def lint_pmi_rendering(features, registry, mode: str) -> list[LintIssue]:
+def lint_pmi_rendering(features, registry, mode: str, *, decorations=None) -> list[LintIssue]:
     """Report source-bearing typed PMI that produced no annotation or placement drop.
 
     ADR 0010's registry is the existing annotation-to-feature provenance owner. A placement
@@ -199,6 +238,9 @@ def lint_pmi_rendering(features, registry, mode: str) -> list[LintIssue]:
         if getattr(feature, "kind", None) != "pmi":
             for source_id in _source_ids(feature):
                 by_source.setdefault(source_id, []).append(feature)
+    for feature, source_ids in _decorated_source_features(decorations):
+        for source_id in source_ids:
+            by_source.setdefault(source_id, []).append(feature)
 
     dropped = {
         source_id

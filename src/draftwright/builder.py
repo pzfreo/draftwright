@@ -423,14 +423,23 @@ def _assemble(
         # annotations detection would (render_pmi reads them off the model, gated on a.pmi_mode)
         # so a re-run reproduces the PMI dims (#472). Gated on the caller not having declared
         # imported authored annotations, so an explicit set wins.
-        if a.pmi_mode == "annotate" and not any(
-            f.kind in ("authored_dimension", "pmi")
-            or (f.kind == "control_frame" and bool(getattr(f, "source_id", "")))
-            for f in pm.features
+        if (
+            a.pmi_mode == "annotate"
+            and not any(
+                f.kind in ("authored_dimension", "pmi")
+                or (f.kind == "control_frame" and bool(getattr(f, "source_id", "")))
+                for f in pm.features
+            )
+            and not any(
+                getattr(value, "source", "") == "ap242_pmi" and getattr(value, "source_ids", ())
+                for value in pm.decorations.values()
+            )
         ):
             pmi_feats = build_pmi_features(a.pmi, a.part.bounding_box())
             if pmi_feats:
-                pm = replace(pm, features=[*pm.features, *pmi_feats])
+                from draftwright.model.pmi_lowering import lower_ap242_hole_tolerances
+
+                pm = lower_ap242_hole_tolerances(replace(pm, features=[*pm.features, *pmi_feats]))
     # ADR 0005 §2 (#639): the ONE build-context attachment — analysis + finished model
     # in a single typed BuildState; the compat properties on Drawing read through it.
     dwg._build.analysis = a

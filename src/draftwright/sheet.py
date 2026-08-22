@@ -98,7 +98,7 @@ from draftwright.model.declare import (
 )
 from draftwright.model.declare import read_bore_step as _read_bore_step
 from draftwright.model.declare import read_countersink as _read_countersink
-from draftwright.model.ir import RequestedDimension
+from draftwright.model.ir import RequestedDimension, ToleranceDecoration
 from draftwright.model.planner import LOCATION_ROLE as _LOCATION_ROLE
 from draftwright.model.planner import location_role as _location_role
 
@@ -142,6 +142,20 @@ def _tol_value(lo, hi):
     an ``(lower, upper)`` limit pair. The pair renders ``+upper -lower`` (helpers'
     convention), so ``.tolerance(0.0, 0.1)`` → ``+0.1 -0.0`` — both magnitudes positive."""
     return lo if hi is None else (lo, hi)
+
+
+def _tolerance_decoration(lo, hi, *, source, source_ids):
+    """Keep ordinary Sheet tolerances source-free; preserve imported provenance explicitly."""
+    value = _tol_value(lo, hi)
+    ids = tuple(dict.fromkeys(str(source_id) for source_id in source_ids if source_id))
+    if source is None:
+        if ids:
+            raise ValueError("tolerance() source_ids require source=")
+        return value
+    source = str(source).strip()
+    if not source:
+        raise ValueError("tolerance() source must be a non-empty string")
+    return ToleranceDecoration(value=value, source=source, source_ids=ids)
 
 
 class _FeatureView(MutableSequence):
@@ -315,10 +329,20 @@ class _Hole(_Nameable):
         """A blind hole *d* mm deep — adds a depth callout."""
         return self._set(through=False, depth=d)
 
-    def tolerance(self, lo: float, hi: float | None = None) -> _Hole:
+    def tolerance(
+        self,
+        lo: float,
+        hi: float | None = None,
+        *,
+        source: str | None = None,
+        source_ids: tuple[str, ...] = (),
+    ) -> _Hole:
         """A ± tolerance on the bore ⌀: symmetric ``.tolerance(0.05)`` (→ ``±0.05``) or a
-        limit pair ``.tolerance(0.0, 0.1)`` (→ ``+0.1 -0.0``)."""
-        self._sheet._tolerances[(self._token, "diameter")] = _tol_value(lo, hi)
+        limit pair ``.tolerance(0.0, 0.1)`` (→ ``+0.1 -0.0``). Generated import scripts use
+        ``source`` / ``source_ids`` to retain external requirement provenance."""
+        self._sheet._tolerances[(self._token, "diameter")] = _tolerance_decoration(
+            lo, hi, source=source, source_ids=source_ids
+        )
         return self
 
     def fit(self, code: str, *, show: str = "class") -> _Hole:
@@ -416,11 +440,22 @@ class _Dim(_Nameable):
         """See :attr:`_Hole._i` — token-resolved, not stored (#908)."""
         return self._sheet._index_of_token(self._token)
 
-    def tolerance(self, lo: float, hi: float | None = None, *, on: str | None = None) -> _Dim:
+    def tolerance(
+        self,
+        lo: float,
+        hi: float | None = None,
+        *,
+        on: str | None = None,
+        source: str | None = None,
+        source_ids: tuple[str, ...] = (),
+    ) -> _Dim:
         """A ± tolerance on this dimension: symmetric ``.tolerance(0.05)`` (→ ``±0.05``) or a
         limit pair ``.tolerance(0.0, 0.1)`` (→ ``+0.1 -0.0``). ``on`` picks the parameter for
-        a multi-dim feature — a step's ``"length"`` (default) vs its ``"diameter"`` (OD)."""
-        self._sheet._tolerances[(self._token, on or self._kind)] = _tol_value(lo, hi)
+        a multi-dim feature — a step's ``"length"`` (default) vs its ``"diameter"`` (OD).
+        ``source`` / ``source_ids`` retain provenance on generated imported requirements."""
+        self._sheet._tolerances[(self._token, on or self._kind)] = _tolerance_decoration(
+            lo, hi, source=source, source_ids=source_ids
+        )
         return self
 
     def fit(self, code: str, *, show: str = "class") -> _Dim:
@@ -537,12 +572,21 @@ class _Params(_Nameable):
             if p.kind != "location"
         }
 
-    def tolerance(self, lo: float, hi: float | None = None, *, on: str | None = None) -> _Params:
+    def tolerance(
+        self,
+        lo: float,
+        hi: float | None = None,
+        *,
+        on: str | None = None,
+        source: str | None = None,
+        source_ids: tuple[str, ...] = (),
+    ) -> _Params:
         """A ± tolerance: symmetric ``.tolerance(0.05)`` (→ ``±0.05``) or a limit pair
         ``.tolerance(0.0, 0.1)`` (→ ``+0.1 -0.0``). ``on`` targets ONE parameter by role
         (``on="depth"`` on a pocket → a role-keyed decoration); omit ``on`` to tolerance
-        every parameter of the feature alike (the kind-keyed form)."""
-        val = _tol_value(lo, hi)
+        every parameter of the feature alike (the kind-keyed form). ``source`` /
+        ``source_ids`` retain provenance on generated imported requirements."""
+        val = _tolerance_decoration(lo, hi, source=source, source_ids=source_ids)
         roles = self._roles()
         if not roles:
             # A feature with no dimensioned parameters has nothing to tolerance, and
@@ -949,6 +993,7 @@ class Sheet:
         source: str = "sheet",
         source_kind: str | None = None,
         source_id: str = "",
+        lowering_blockers: tuple[str, ...] = (),
     ) -> _Params:
         """Declare a drafting dimension from explicit **measured** values.
 
@@ -965,7 +1010,8 @@ class Sheet:
         ``lower_bound`` and ``upper_bound`` are the mutually exclusive alternative to
         ``upper_tol``/``lower_tol`` for a limit range. ``source_id`` is the external record
         identity retained by generated imported-PMI scripts; hand-authored dimensions normally
-        leave it blank.
+        leave it blank. ``lowering_blockers`` carries the explicit reason a supported imported
+        requirement could not safely enrich a canonical feature parameter.
         Delegates to :func:`draftwright.model.declare.measured_dimension` (#704), so
         ``build_drawing(model=…)`` callers can author the same feature without the façade.
         """
@@ -986,6 +1032,7 @@ class Sheet:
                 source=source,
                 source_kind=source_kind,
                 source_id=source_id,
+                lowering_blockers=lowering_blockers,
             )
         )
         # A handle like every other declaration verb (#922). A measured dimension carries its

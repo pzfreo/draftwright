@@ -249,6 +249,7 @@ def build_pmi_features(
                     ref_pts=tuple(r.ref_pts),
                     source_kind=r.kind,
                     source_id=r.source_id,
+                    lowering_blockers=r.lowering_blockers,
                 )
             )
             continue
@@ -759,6 +760,7 @@ def build_part_model(
     face_levels=None,
     rotational=None,
     pmi=None,
+    lower_pmi: bool = True,
     cyls=None,
 ) -> PartModel:
     """Run the detectors and assemble the :class:`PartModel` IR for *part*.
@@ -777,7 +779,9 @@ def build_part_model(
     ``cyls`` is a precomputed ``analyse_cylinders(part)`` result threaded into every
     cylinder-substrate recogniser called here (holes/bosses/turned/grooves/flats), so
     the solid is scanned once per build (#703); omitted, each recogniser scans for
-    itself."""
+    itself. ``lower_pmi=False`` retains extracted PMI as materialised/report-only IR;
+    annotate mode uses the default and correlates supported requirements onto canonical
+    feature parameters (#1116)."""
     bbox = part.bounding_box()
     features: list[Feature] = []
 
@@ -1084,7 +1088,13 @@ def build_part_model(
     # in the plan view), per inspection practice. Hole location dims measure from
     # it (#238); a human/LLM pass can re-anchor.
     datums = [Datum(id="datum_xy", kind="point", at=(bbox.min.X, bbox.min.Y, bbox.min.Z))]
-    return PartModel(bbox=bbox, orientation=orientation, features=features, datums=datums)
+    model = PartModel(bbox=bbox, orientation=orientation, features=features, datums=datums)
+    # Correlation runs after the complete geometry + PMI inventories exist, at the shared IR
+    # waist.  Direct drawings and emitted scripts therefore consume the same lowered model
+    # instead of the emitter inventing a second ownership decision (#1116).
+    from draftwright.model.pmi_lowering import lower_ap242_hole_tolerances
+
+    return lower_ap242_hole_tolerances(model) if lower_pmi else model
 
 
 def _is_round(bbox, bosses, tol: float = 0.5) -> bool:

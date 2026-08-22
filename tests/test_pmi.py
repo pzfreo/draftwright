@@ -997,27 +997,47 @@ class TestBuildDrawingPmi:
         }
 
     def test_pmi_annotate_adds_dims(self, ctc01_annotated):
-        """pmi='annotate' adds at least one pmi_ dimension to the drawing."""
-        pmi_names = [n for n in ctc01_annotated.annotations() if n.startswith("pmi_")]
-        assert len(pmi_names) >= 1, f"expected ≥1 pmi_ annotation, got {pmi_names}"
+        """Supported hole PMI renders through canonical bore callouts, not duplicate pmi_ dims."""
+        from draftwright.model.ir import ToleranceDecoration
+
+        requirements = [
+            (key[0], value)
+            for key, value in ctc01_annotated.model().decorations.items()
+            if isinstance(value, ToleranceDecoration)
+        ]
+        assert {source_id for _owner, value in requirements for source_id in value.source_ids} == {
+            "dimension:0:1:4:21",
+            "dimension:0:1:4:22",
+            "dimension:0:1:4:23",
+            "dimension:0:1:4:24",
+            "dimension:0:1:4:25",
+            "dimension:0:1:4:26",
+            "dimension:0:1:4:29",
+        }
+        assert all(ctc01_annotated.registry.names_for_feature(owner) for owner, _ in requirements)
+        assert not [name for name in ctc01_annotated.annotations() if name.startswith("pmi_")]
 
     def test_pmi_annotate_renders_each_nist_range_requirement_with_both_limits(
         self, ctc01_annotated
     ):
-        from draftwright.model import AuthoredDimension
+        from draftwright.model.ir import ToleranceDecoration
 
         source_ids = {"dimension:0:1:4:25", "dimension:0:1:4:26"}
-        features = {
-            feature.source_id: feature
-            for feature in ctc01_annotated.model().features
-            if isinstance(feature, AuthoredDimension) and feature.source_id in source_ids
-        }
+        requirements = [
+            (key[0], value)
+            for key, value in ctc01_annotated.model().decorations.items()
+            if isinstance(value, ToleranceDecoration) and set(value.source_ids) == source_ids
+        ]
         annotations = dict(ctc01_annotated.iter_annotations())
 
-        assert set(features) == source_ids
-        for feature in features.values():
-            (name,) = ctc01_annotated.registry.names_for_feature(feature)
-            assert annotations[name].label == "ø34.8 - ø35.2"
+        assert len(requirements) == 1
+        owner, requirement = requirements[0]
+        assert owner.diameter == 35.0 and owner.count == 2
+        assert requirement.value == 0.2  # 34.8 / 35.2 retained as -0.2 / +0.2
+        assert any(
+            annotations[name].label == "2× ⌀35 ±0.2 THRU"
+            for name in ctc01_annotated.registry.names_for_feature(owner)
+        )
 
     def test_pmi_annotate_reports_each_incomplete_source_record(self, ctc01_annotated):
         issues = [issue for issue in ctc01_annotated.lint() if issue.code == "pmi_not_extracted"]
@@ -1115,8 +1135,9 @@ class TestBuildDrawingPmi:
         # `dimension:0:1:4:17` is an ANGULAR dimension (label '60 ±0.5'). It used to render
         # through the linear path, producing an annotation whose label states an angle and
         # whose geometry states a length — the #1177 defect, present in a real NIST AP242
-        # fixture. It is now refused by category and reported instead, so the eight authored
-        # records partition into six rendered, one dropped for placement, and one refused.
+        # fixture. It remains materialised and is refused by category. The seven diameter
+        # records are consumed once as canonical hole decorations (#1116), so they no longer
+        # appear in this authored-feature inventory or compete in the PMI placement pass.
         refused = {
             source_id
             for issue in ctc01_annotated.registry.issues
@@ -1126,9 +1147,9 @@ class TestBuildDrawingPmi:
         angular = {
             feature.source_id for feature in authored if feature.dimension_kind == "angular"
         }
-        assert len(authored) == 8
-        assert len(rendered) == 6
-        assert len(dropped) == 1
+        assert len(authored) == 1
+        assert len(rendered) == 0
+        assert len(dropped) == 0
         assert refused == angular, (
             f"category refusals {refused} do not match the angular records {angular}"
         )
@@ -1141,10 +1162,10 @@ class TestBuildDrawingPmi:
             "by_category": {"datum": 11, "dimension": 21, "geometric_tolerance": 6},
             "extracted": 29,
             "lowered": 25,
-            # 24 before #1177: the angular dimension was counted as rendered while what
-            # reached the sheet was a LINEAR annotation asserting a length for an angle.
-            "rendered": 23,
-            "dropped": 1,
+            # Seven diameter sources now ride canonical bore owners. The angular record is
+            # still explicitly refused and the four raw location records remain unlowered.
+            "rendered": 24,
+            "dropped": 0,
         }
 
     def test_a_deleted_render_dispatch_is_reported_by_source_identity(self, monkeypatch):
@@ -1280,13 +1301,31 @@ class TestDeclaredModelPmi:
         declared = build_drawing(
             str(CTC01), out=str(tmp_path / "d"), title="P", model=[], pmi="annotate"
         )
-        auto_pmi = {n for n in auto.annotations() if n.startswith("pmi_")}
-        decl_pmi = {n for n in declared.annotations() if n.startswith("pmi_")}
-        assert auto_pmi
-        # The declared path has fewer auto-generated dimensions competing for strip capacity,
-        # so it may place extra authored PMI. The #472 invariant is no loss: every PMI dim the
-        # detected path placed must also be reproduced by the declared path.
-        assert auto_pmi <= decl_pmi
+
+        def source_ids(drawing):
+            ids = {
+                source_id
+                for feature in drawing.model().features
+                for source_id in (
+                    tuple(getattr(feature, "source_ids", ()))
+                    or (
+                        (getattr(feature, "source_id", ""),)
+                        if getattr(feature, "source_id", "")
+                        else ()
+                    )
+                )
+            }
+            ids.update(
+                source_id
+                for value in drawing.model().decorations.values()
+                for source_id in getattr(value, "source_ids", ())
+            )
+            return ids
+
+        # With geometry features available the automatic path correlates hole requirements;
+        # an empty declared model cannot, so it keeps them materialised. Both still account for
+        # every extracted source identity — #472's no-loss invariant.
+        assert source_ids(auto) == source_ids(declared)
 
     def test_declared_model_pmi_off_stays_clean(self, tmp_path):
         # the synthesis is gated on pmi_mode == 'annotate' — a declared build without PMI stays 0

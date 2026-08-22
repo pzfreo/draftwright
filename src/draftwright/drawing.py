@@ -3410,11 +3410,13 @@ class Drawing:
                 self._analysis.pmi_report,
                 getattr(self._part_model, "features", ()),
                 self._analysis.pmi_mode,
+                decorations=getattr(self._part_model, "decorations", {}),
             )
             issues += lint_pmi_rendering(
                 getattr(self._part_model, "features", ()),
                 self._registry,
                 self._analysis.pmi_mode,
+                decorations=getattr(self._part_model, "decorations", {}),
             )
         issues += list(self._registry.issues)
         # Attach a ready-to-paste fix snippet where one is computable (#29).
@@ -3465,6 +3467,7 @@ class Drawing:
                 getattr(self._part_model, "features", ()),
                 self._registry,
                 self._analysis.pmi_mode,
+                decorations=getattr(self._part_model, "decorations", {}),
             )
             if self._analysis is not None
             else None

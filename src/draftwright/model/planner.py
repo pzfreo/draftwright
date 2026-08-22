@@ -479,6 +479,13 @@ def _decorated(model: PartModel, feature: Feature, param: DimParameter) -> DimPa
     tol = model.decorations.get((feature, param.kind, param.role))
     if tol is None:
         tol = model.decorations.get((feature, param.kind))
+    # Imported AP242 provenance belongs to the authored aspect, not to geometry and not to
+    # the renderer's tolerance algebra.  Unwrap it at the planner waist so every downstream
+    # label/render path continues to see the established float/tuple/FitClass contract.
+    from draftwright.model.ir import ToleranceDecoration
+
+    if isinstance(tol, ToleranceDecoration):
+        tol = tol.value
     return param if tol is None else replace(param, tolerance=tol)
 
 

@@ -87,6 +87,7 @@ from draftwright.model.ir import (
     SlotPatternFeature,
     StepFeature,
     StepLevelFeature,
+    ToleranceDecoration,
     display,
 )
 from draftwright.model.planner import (
@@ -141,6 +142,7 @@ __all__ = [
     "PolygonalBossFeature",
     "PolygonalStockFeature",
     "StepLevelFeature",
+    "ToleranceDecoration",
     "measured_dimension",
     "build_part_model",
     "build_pmi_features",

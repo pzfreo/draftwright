@@ -1975,6 +1975,7 @@ def measured_dimension(
     source: str = "sheet",
     source_kind: str | None = None,
     source_id: str = "",
+    lowering_blockers: tuple[str, ...] = (),
 ) -> AuthoredDimension:
     """A pre-authored drafting dimension from explicit measured values — the IR constructor
     behind :meth:`Sheet.measured_dimension` (#704: extracted so ``build_drawing(model=…)``
@@ -1983,7 +1984,8 @@ def measured_dimension(
     ``at`` (the ``ref_bbox`` centre, else the ``ref_pts`` centroid) when not given.
     ``lower_bound`` and ``upper_bound`` carry a limit range and must be supplied together; they
     are mutually exclusive with deviation tolerances. ``source_id`` preserves an external
-    record identity; ordinary Sheet declarations leave it blank."""
+    record identity; ordinary Sheet declarations leave it blank. ``lowering_blockers`` retains
+    why an imported requirement could not safely enrich a canonical feature parameter."""
     _require_positive(value=value)
     dim_kind = str(kind).lower()
     if dim_kind not in AUTHORED_DIMENSION_KINDS:
@@ -2036,4 +2038,5 @@ def measured_dimension(
         source=source,
         source_kind=source_kind or dim_kind,
         source_id=str(source_id),
+        lowering_blockers=tuple(str(reason) for reason in lowering_blockers),
     )

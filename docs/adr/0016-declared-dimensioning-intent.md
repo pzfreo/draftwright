@@ -838,7 +838,8 @@ constraining planner internals that are still moving. The gaps are known and fin
 | Correlated sets, per member | `step_height` / `step_position` ladders and rotational bores are one `AddressableDimension` holding N members | **One** line per set; suppress the set, not a member |
 | Location dimensions, per member | Addressable per FEATURE since #925 (`dimension(hole, "location")`); whether a patterned hole's position splits per member is **#883** | **One** line per feature |
 | Inter-feature spans and angles | No `(feature, role)` form — needs `RelationDimensionId`, whose selector spelling is still open | Comment floor until the relation selector lands |
-| Imported AP242 PMI | Materialized: carries `ref_pts` / `ref_bbox` / `at`, so there is nothing to reference | `sheet.measured_dimension(...)` — still one editable line |
+| Supported AP242 feature enrichment with no proven canonical owner | Materialized: its source geometry cannot safely identify a feature parameter | `sheet.measured_dimension(...)`, carrying a structured lowering blocker |
+| Supported AP242 feature enrichment that proves a canonical parameter | Referential enrichment: the source geometry uniquely identifies the feature/member and parameter | The feature line's aspect, e.g. `hole.tolerance(..., source="ap242_pmi", source_ids=...)` |
 | Low-level furniture | Centre marks, section arrows, hatching, the NTS caption carry no editable intent | Engine-automatic, by decision |
 | Anything the emitter cannot re-solve | The fidelity floor `emit_sheet_script` already holds for features | Self-describing comment |
 
@@ -1094,10 +1095,18 @@ second with the single-source-of-truth of the first — over the identified set,
   the drawing's placed annotations, so a solver-dropped dimension keeps its line. What it
   promises is a mirror of round-trippable, semantically identified planner intent, not of
   every mark — the gaps are tabulated in "What the mirror does and does not cover".
-- **Imported AP242 PMI stays materialized.** It carries `ref_pts` / `ref_bbox` / `at` and
-  has no referential form, so it emits as `sheet.measured_dimension(...)` — still one
-  editable line, so the intent-mirror property holds; the two verbs stay distinct precisely
-  because one references and the other restates.
+- **Imported AP242 PMI is materialized only when it has no proven canonical owner**
+  *(Amendment 4, #1116, 2026-08-22).* A supported source requirement whose nominal,
+  orientation and reference geometry identify exactly one canonical feature parameter is
+  consumed once as that parameter's authored aspect — for example
+  `hole.tolerance(..., source="ap242_pmi", source_ids=(...))`. Count-groups split only where
+  member requirements differ; a recognised pattern accepts only pattern-wide enrichment, so
+  its membership is not destroyed to force a match. Unmatched, ambiguous, conflicting and
+  unsupported correlations remain `sheet.measured_dimension(...)` and carry a structured
+  reason. This narrows the former blanket materialization rule: `ref_pts` / `ref_bbox` are
+  correlation evidence when sufficient, not proof that the source must own a second drafting
+  dimension. The planner still owns the one rendered parameter and the placement solve still
+  owns its coordinates.
 - **A duplicate/redundancy lint code joins `linting/structural.py`** — the third protection
   layer; nothing reports redundant dimensioning today.
 - **`--style imperative` retires once the declarative mirror reaches its coverage**, leaving

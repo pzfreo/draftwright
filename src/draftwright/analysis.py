@@ -714,6 +714,7 @@ def _analyse(
             face_levels=list(recognition.step_levels) if recognition else None,
             rotational=(od_diam, _bores, od_axis) if is_rotational else None,
             pmi=pmi_records,
+            lower_pmi=pmi_mode == "annotate",
             cyls=shared_cyls,
         )
     )

@@ -37,6 +37,7 @@ from pathlib import Path
 from build123d import Shape
 
 from draftwright.builder import detect_part_model
+from draftwright.model.ir import ToleranceDecoration
 
 
 @dataclass(frozen=True)
@@ -365,6 +366,8 @@ def _measured_dimension_line(f) -> str:
         kw.append(f"source_kind={f.source_kind!r}")
     if f.source_id:
         kw.append(f"source_id={f.source_id!r}")
+    if getattr(f, "lowering_blockers", ()):
+        kw.append(f"lowering_blockers={f.lowering_blockers!r}")
     # `measured_dimension` since #873 — a generated script must not emit the transitional
     # overload, or every regenerated AP242 script would arrive pre-deprecated.
     return "sheet.measured_dimension(" + ", ".join(kw) + ")"
@@ -1217,7 +1220,10 @@ def _dimension_block(model, names: dict[int, str], synthesised_envelope=None) ->
 
 
 def _feature_block(
-    features, part_envelope=None, object_refs: Mapping[int, str] | None = None
+    features,
+    part_envelope=None,
+    object_refs: Mapping[int, str] | None = None,
+    decorations: Mapping | None = None,
 ) -> tuple[list[str], dict[int, str]]:
     """The emitted feature lines plus ``{id(feature): binding}`` for the names they bind.
 
@@ -1263,6 +1269,21 @@ def _feature_block(
                 line = _feature_line(f, part_envelope, object_ref=object_ref)
             else:
                 line = _feature_line(f, part_envelope)
+            requirement = (decorations or {}).get((f, "diameter", "bore"))
+            if requirement is None:
+                requirement = (decorations or {}).get((f, "diameter"))
+            if isinstance(requirement, ToleranceDecoration):
+                value = requirement.value
+                args = (
+                    f"{_authored_n(value[0])}, {_authored_n(value[1])}"
+                    if isinstance(value, tuple)
+                    else _authored_n(value)
+                )
+                provenance = f", source={requirement.source!r}"
+                if requirement.source_ids:
+                    provenance += f", source_ids={requirement.source_ids!r}"
+                on = ', on="bore"' if f.kind == "pattern" else ""
+                line += f".tolerance({args}{on}{provenance})"
             name = _binding(f, line, counts)
             if name is not None:
                 names[id(f)] = name
@@ -1415,7 +1436,7 @@ def emit_sheet_script(
 
     object_refs = _object_references(model.features, source_part, object_candidates)
     feature_lines, _names = _feature_block(
-        model.features, _envelope_from_bbox(model.bbox), object_refs
+        model.features, _envelope_from_bbox(model.bbox), object_refs, model.decorations
     )
     # Narrowed to what the BODY actually names. The set above is derived from feature kinds,
     # which over-imports the moment a kind stops emitting a constructor: since #976 a
