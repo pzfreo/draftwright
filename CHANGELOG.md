@@ -13,6 +13,11 @@
 
 ### Fixed
 
+- Toroidal fillets returned for turned parts by the shared recognition inventory now lower into
+  the existing one-feature-per-round IR and render through the common leader solve. Equal radii
+  share one `n× R` callout carrying every physical fillet's measurement provenance, and emitted
+  Sheet programs preserve the full inventory without rescanning geometry (#1281).
+
 - Turned chamfers returned by the shared recognition inventory now lower into the same
   one-feature-per-edge-treatment IR as prismatic chamfers. Equal specifications render as one
   `n×` callout carrying every member's measurement provenance; different chamfer forms do not

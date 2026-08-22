@@ -2339,7 +2339,7 @@ def _fillet_label(radius_text, count) -> str:
 
 
 def render_fillets(dwg, plan, a, *, ctx, only=None) -> int:
-    """Fillet radius callouts (#561): a leader from an external edge fillet to its
+    """Fillet radius callouts (#561/#1281): a leader from an external edge fillet to its
     ``R{radius}`` label — the arc analog of :func:`render_chamfers`. Equal-radius fillets
     share ONE ``n× R`` callout (#561 acceptance), placed in the view normal to a
     representative rounded edge, led diagonally out of the corner into clear margin, and
@@ -2353,10 +2353,12 @@ def render_fillets(dwg, plan, a, *, ctx, only=None) -> int:
     explicitly out of scope for this migration (#698). Where grouped members' authored
     tolerances differ — or only some carry one — the collapsed label states NONE of them
     (:func:`_collapsed_tolerance`), because one ``n×`` mark would claim that band of every
-    member. ``g.view`` is safe: a FilletFeature's frame
-    axis IS its edge axis (both ``detect.py`` and ``declare.fillet`` build
-    ``Frame(…, axis)``), and ``_END_ON`` matches the pass's old z→plan / x→side /
-    y→front map exactly."""
+    member. For prismatic fillets, ``g.view`` follows the rounded-edge axis and ``_END_ON``
+    preserves the established z→plan / x→side / y→front map. A turned toroidal record instead
+    carries the shaft axis; choosing its profile view and edge anchor is the separate routing
+    correction in #1276. Grouping stays renderer-side: the IR remains one semantic feature per
+    physical fillet (ADR 0013), while the annotation registry records all N measurement
+    identities (ADR 0017 / #1002)."""
     draft = dwg.draft
     reach = _leader_callout_reach(draft)
     collapse: dict = {}

@@ -1080,9 +1080,10 @@ class ChamferFeature:
 @dataclass(frozen=True)
 class FilletFeature:
     """A rounded (filleted) edge (#561), called out ``R{radius}`` (grouped ``n× R{radius}``
-    for equal radii). ``axis`` is the rounded edge's direction; ``radius`` is the fillet
-    radius, recovered from the cylinder geometry — not estimated from the rendered view
-    (#561 acceptance). The arc analog of :class:`ChamferFeature`."""
+    for equal radii). For a prismatic cylindrical blend, ``axis`` is the rounded edge's
+    direction; for a turned toroidal fillet, it is the shaft's rotational axis. ``radius`` is
+    recovered from the blend geometry — not estimated from the rendered view (#561/#1281
+    acceptance). The arc analog of :class:`ChamferFeature`."""
 
     frame: Frame
     axis: str

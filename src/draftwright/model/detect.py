@@ -1050,11 +1050,12 @@ def build_part_model(
     for ch in recognise_chamfers(part) if chamfers is None else chamfers:
         features.append(convert(ch, ctx))
 
-    if rotational is None:
-        # Fillets (#561) — called out R{radius} (grouped n× at render). The package also
-        # recognises toroidal turned rounds; their legacy consumer gate is tracked by #1281.
-        for fl in recognise_fillets(part) if fillets is None else fillets:
-            features.append(convert(fl, ctx))
+    # Fillets (#561/#1281) — called out R{radius} (grouped n× at render). The package
+    # recognises both cylindrical prismatic blends and toroidal turned rounds; both lower
+    # through the same converter and IR. An injected aggregate inventory is consumed directly,
+    # without a sibling rescan.
+    for fl in recognise_fillets(part) if fillets is None else fillets:
+        features.append(convert(fl, ctx))
 
     # Machined flats on round stock (#148b) — a planar face truncating a cylinder,
     # called out by its across-flats size. Detected UNCONDITIONALLY (not gated by the

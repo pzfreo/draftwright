@@ -95,12 +95,12 @@ Those two families therefore no longer share the rotational applicability gate: 
 orchestration runs them for both prismatic and turned solids and carries their immutable
 records in `RecognitionResult`. Plates and angled prismatic steps remain classification-gated.
 
-This widens the shared geometry inventory; it does not move drafting policy into the package
-or claim that the consumer already renders every returned record. Draftwright's separate
-record-to-IR, Sheet emission, placement, provenance, and completeness work lands one family at
-a time: #1254 covers turned chamfers and #1281 tracks turned fillets. The ownership rule is
-unchanged: consumers reuse the aggregate records and must not rescan the solid when they add
-support.
+This widens the shared geometry inventory; it does not move drafting policy into the package.
+Draftwright's separate record-to-IR, Sheet emission, placement, provenance, and completeness
+work landed one family at a time: #1254 consumes turned chamfers and #1281 consumes turned
+fillets. Profile-view routing for turned edge-treatment leaders remains Draftwright policy and
+is tracked separately by #1276. The ownership rule is unchanged: consumers reuse the aggregate
+records and must not rescan the solid when they add support.
 
 ## Accepted Contract
 
