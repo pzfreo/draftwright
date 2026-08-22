@@ -1056,11 +1056,12 @@ class ExternalSpurGearFeature:
 @dataclass(frozen=True)
 class ChamferFeature:
     """A chamfered (bevelled) edge (#560), called out ``C{leg}`` for an equal-leg 45°
-    chamfer or ``{leg} × {angle}°`` otherwise. ``axis`` is the chamfered edge's direction;
-    ``leg1``/``leg2`` are the cut depths into the two adjacent faces (equal for 45°);
+    chamfer or ``{leg} × {angle}°`` otherwise. For a prismatic chamfer, ``axis`` is the
+    chamfered edge's direction; for a turned conical chamfer, it is the shaft's rotational
+    axis. ``leg1``/``leg2`` are the cut depths into the two adjacent faces (equal for 45°);
     ``angle`` is the chamfer angle (degrees). The recogniser recovers both legs from the
     geometry, so an asymmetric chamfer is distinguished from an equal-leg one — the size
-    is not estimated from the rendered view (#560 acceptance)."""
+    is not estimated from the rendered view (#560/#1254 acceptance)."""
 
     frame: Frame
     axis: str

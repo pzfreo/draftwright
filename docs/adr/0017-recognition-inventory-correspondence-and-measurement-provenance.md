@@ -97,9 +97,10 @@ records in `RecognitionResult`. Plates and angled prismatic steps remain classif
 
 This widens the shared geometry inventory; it does not move drafting policy into the package
 or claim that the consumer already renders every returned record. Draftwright's separate
-record-to-IR, Sheet emission, placement, provenance, and completeness work is tracked by
-#1254 and #1281. The ownership rule is unchanged: consumers reuse the aggregate records and
-must not rescan the solid when they add support.
+record-to-IR, Sheet emission, placement, provenance, and completeness work lands one family at
+a time: #1254 covers turned chamfers and #1281 tracks turned fillets. The ownership rule is
+unchanged: consumers reuse the aggregate records and must not rescan the solid when they add
+support.
 
 ## Accepted Contract
 

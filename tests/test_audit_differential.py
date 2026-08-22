@@ -618,18 +618,19 @@ def test_a_real_build_records_identity_for_the_machined_feature_callouts():
     four-item exception set. Source scans alone would not have caught that — the keyword was
     simply absent from a path nothing scanned — so this reads a real build's output.
 
-    The fillet case is the important one: four equal fillets collapse to ONE `4× R5` callout,
-    so the annotation genuinely draws four measurements. That is the one-to-many relationship
-    ADR 0016 requires the channel to carry (#886), exercised end to end rather than asserted
-    on the registry in isolation.
+    Four equal chamfers and four equal fillets each collapse to one callout, so each annotation
+    genuinely draws four measurements. Those are the one-to-many relationships ADR 0016
+    requires the channel to carry (#886), exercised end to end rather than asserted on the
+    registry in isolation.
     """
     from build123d import Axis, Box, Mode, chamfer, fillet
 
     part = Box(60, 40, 20)
     chamfered = build_drawing(chamfer(part.edges().filter_by(Axis.Z), 3))
     keys = chamfered.measurement_keys("m_chamfer_z0")
-    assert [k["parameter_id"] for k in keys] == ["chamfer.length"]
-    assert keys[0]["feature"].startswith("chamfer@")
+    assert len(keys) == 4, "one grouped callout, four collapsed members"
+    assert {k["parameter_id"] for k in keys} == {"chamfer.length"}
+    assert len({k["feature"] for k in keys}) == 4, "four distinct chamfers, not one repeated"
 
     filleted = build_drawing(fillet(part.edges().filter_by(Axis.Z), 5))
     grouped = filleted.measurement_keys("m_fillet_z0")

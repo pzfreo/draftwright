@@ -1044,13 +1044,13 @@ def build_part_model(
                 )
             )
 
-    # Chamfers (#560) — called out C{leg} / {leg}×{angle}°. b123d-recognisers 0.2.9
-    # recognises both oblique planar and conical turned forms, but this legacy consumer gate
-    # still discards the latter until #1254 lowers them into the same IR.
-    if rotational is None:
-        for ch in recognise_chamfers(part) if chamfers is None else chamfers:
-            features.append(convert(ch, ctx))
+    # Chamfers (#560/#1254) — called out C{leg} / {leg}×{angle}°. The package recognises
+    # both oblique planar and conical turned forms; both lower through the same converter and
+    # IR. An injected aggregate inventory is consumed directly, without a sibling rescan.
+    for ch in recognise_chamfers(part) if chamfers is None else chamfers:
+        features.append(convert(ch, ctx))
 
+    if rotational is None:
         # Fillets (#561) — called out R{radius} (grouped n× at render). The package also
         # recognises toroidal turned rounds; their legacy consumer gate is tracked by #1281.
         for fl in recognise_fillets(part) if fillets is None else fillets:

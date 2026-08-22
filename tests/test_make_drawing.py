@@ -623,8 +623,7 @@ class TestChamferCallout:
         dwg = build_drawing(Box(40, 30, 12), number="X")
         assert not [n for n in dwg.annotations() if n.startswith("m_chamfer")]
 
-    def test_turned_part_has_no_chamfer_feature(self):
-        # A turned part's chamfers are conical (not oblique planar) — none recognised.
+    def test_plain_cylinder_without_an_edge_break_has_no_chamfer_feature(self):
         dwg = build_drawing(Cylinder(20, 10), number="X")
         assert not [f for f in dwg.model().features if f.kind == "chamfer"]
 

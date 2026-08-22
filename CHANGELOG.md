@@ -13,6 +13,12 @@
 
 ### Fixed
 
+- Turned chamfers returned by the shared recognition inventory now lower into the same
+  one-feature-per-edge-treatment IR as prismatic chamfers. Equal specifications render as one
+  `n×` callout carrying every member's measurement provenance; different chamfer forms do not
+  collapse merely because their first legs match, and distinct tolerances split into truthful
+  requirements instead of being lost or applied to untoleranced siblings (#1254).
+
 - Recogniser dependency automation now starts a fresh `Unreleased` section when the previous
   Draftwright release has finalized the changelog, so a published recogniser can enter through
   the documented immutable update workflow instead of failing before it opens a PR (#1279).

@@ -2202,51 +2202,86 @@ def _leader_callout_pass(
 
 
 def render_chamfers(dwg, plan, a, *, ctx, only=None) -> int:
-    """Chamfer callouts (#560): a leader from each recognised chamfer face to its
-    ``C{leg}`` / ``{leg}×{angle}°`` label, in the view normal to the chamfered edge (a Z
-    edge reads in the plan, an X edge in the side, a Y edge in the front). The leader runs
-    diagonally OUT of the corner the chamfer sits on into clear margin, and is dropped
-    (lint, not silently) if it would overprint placed geometry. Returns the count placed.
+    """Chamfer callouts (#560/#1254): a leader from each distinct chamfer specification to
+    its ``C{leg}`` / ``{leg}×{angle}°`` label. Equal specifications share one ``n×`` callout,
+    as fillets do; one placed annotation carries every collapsed member's measurement
+    identity. The leader runs diagonally out of a representative visible corner into clear
+    margin and is dropped (lint, not silently) if it would overprint placed geometry.
 
     Planner-fed (#724 / #698): the leg VALUE + its tolerance come from the planner's
     ``DimParameter`` (as in ``render_boss_diameters``), never raw geometry — formatting
     ``ch.leg1`` directly dropped an authored chamfer tolerance (the #629 class). The dim
     is bound explicitly by ``(role, kind)``, never positionally. Only the C-vs-leg×angle
-    *form* discriminators (``leg2``/``angle``) read off the feature;
-    ``g.view`` is safe because a ChamferFeature's frame axis IS its edge axis
-    (both ``detect.py`` and ``declare.chamfer`` build ``Frame(…, ch.axis)``), and
-    ``_END_ON`` matches the pass's old z→plan / x→side / y→front map exactly."""
+    *form* discriminators (``leg2``/``angle``) read off the feature. For prismatic chamfers,
+    ``g.view`` follows the bevel-edge axis and ``_END_ON`` preserves the established
+    z→plan / x→side / y→front map. A turned conical record instead carries the shaft axis;
+    choosing its profile view and edge anchor is the separate routing correction in #1276.
+    Grouping stays renderer-side: the IR remains one semantic feature per physical chamfer
+    (ADR 0013), while the annotation registry records all N measurement identities
+    (ADR 0017 / #1002)."""
     draft = dwg.draft
     reach = _leader_callout_reach(draft)
-    chamfer_groups = list(plan.of_kind("chamfer"))
-    jobs = []
-    for i, g in enumerate(
-        sorted(chamfer_groups, key=lambda g: (g.facts.axis, g.facts.frame.origin))
-    ):
-        ch = g.facts
-        if only is not None and g.ref not in only:
-            continue  # #426 Ph2b subset (finalize): skip in place — i stays the model index
-        # Bind the intended planned dim EXPLICITLY by (role, kind), never dims[0]
-        # (#724 review): the pattern the remaining #698 migrations copy must not
-        # silently grab the wrong dimension on a multi-parameter kind.
+    collapse: dict = {}
+    for g in plan.of_kind("chamfer"):
         pd = next(
             (d for d in g.dims if (d.role, d.kind) == ("chamfer", "length")),
             None,
         )
         if pd is None:
             continue
-        view = g.view
+        ch = g.facts
+        # Equal printed values are not enough: two chamfers with the same first leg but a
+        # different second leg/angle state different manufacturing requirements.
+        # A tolerance is part of the rendered requirement. Splitting by its rendered suffix
+        # lets one authored member keep its precision without claiming that band for otherwise
+        # identical untoleranced siblings. Values that print identically may safely share ink.
+        spec = (
+            round(pd.value, 3),
+            round(ch.leg2, 3),
+            round(ch.angle, 2),
+            _tol_suffix(pd.tolerance, draft),
+        )
+        collapse.setdefault(spec, []).append((g, pd))
+
+    jobs = []
+    for gi, (_spec, members) in enumerate(sorted(collapse.items())):
+        if only is not None:
+            # Filter after enumerating the full collapse so a surviving group keeps the same
+            # public annotation name during deferred/subset finalization (#811 precedent).
+            members = [gp for gp in members if gp[0].ref in only]
+            if not members:
+                continue
+        # A grouped label may count identical chamfers on several axes. Point its leader at
+        # one coherent visible set: the most populous axis, with deterministic tie-breaking.
+        by_axis: dict[str, list] = {}
+        for gp in members:
+            by_axis.setdefault(gp[0].facts.axis, []).append(gp)
+        axis, visible = min(by_axis.items(), key=lambda item: (-len(item[1]), item[0]))
+        ordered = sorted(visible, key=lambda gp: gp[0].facts.frame.origin)
+        representative, representative_pd = ordered[0]
+        ch = representative.facts
+        view = representative.view
         vb = dwg.view_bounds(view)
         if vb is None:
             continue
+        label = _chamfer_label(representative_pd.value_text, representative_pd.value, ch)
+        if len(members) > 1:
+            label = f"{len(members)}× {label}"
         jobs.append(
             (
-                f"m_chamfer_{ch.axis}{i}",
+                f"m_chamfer_{axis}{gi}",
                 view,
                 vb,
-                _chamfer_label(pd.value_text, pd.value, ch) + _tol_suffix(pd.tolerance, draft),
-                _corner_escape_candidates(dwg, view, vb, [ch], reach, provenances=[g.ref]),
-                (pd.id,),
+                label + _tol_suffix(representative_pd.tolerance, draft),
+                _corner_escape_candidates(
+                    dwg,
+                    view,
+                    vb,
+                    [g.facts for g, _ in ordered],
+                    reach,
+                    provenances=[g.ref for g, _ in ordered],
+                ),
+                tuple(pd.id for _, pd in members),
             )
         )
     return _leader_callout_pass(

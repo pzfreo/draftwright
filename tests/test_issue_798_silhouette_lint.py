@@ -230,16 +230,20 @@ class TestCardinalityIsNotTradedForCleanliness:
     risk is second-order — placement is sequential, so a re-chosen winner is a
     different obstacle for later jobs, and one of those could fail to place.
 
-    Measured across every fixture that reaches the floor, the placed count is
-    unchanged (134 before and after). These fixtures pin that per part, so a future
-    change that does start trading callouts for tidiness fails here and names the
-    part, rather than being noticed on a drawing.
+    Measured across every fixture that reaches the floor, the placed count is unchanged by
+    the route preference. These fixtures pin that per part, so a future change that does start
+    trading callouts for tidiness fails here and names the part, rather than being noticed on a
+    drawing. The integer is deliberately annotation cardinality, not physical-feature
+    cardinality: #1254 collapses CTC-04's eight equal chamfers into one truthful ``8× C5``
+    annotation carrying all eight measurement identities, so that inventory has seven fewer
+    jobs without losing seven requirements. The grouped-provenance invariant is asserted
+    separately in ``test_issue_1254_turned_chamfers.py`` and ``test_audit_differential.py``.
     """
 
     # (fixture stem, feature-leader callouts the floor must keep placing)
     CASES = (
-        ("nist_ctc_04_asme1_ap203", 15),
-        ("nist_ctc_05_asme1_ap242", 16),
+        ("nist_ctc_04_asme1_ap203", 11),
+        ("nist_ctc_05_asme1_ap242", 18),
     )
 
     # Parametrized per fixture (#656): each dense build is ~60 s, and one test running

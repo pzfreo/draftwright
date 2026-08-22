@@ -705,6 +705,40 @@ class TestChamferTolerance:
         ]
         assert labels == ["7 × 45°"], labels  # planned 7 ≠ leg2 12 → leg×angle form
 
+    @staticmethod
+    def _two_chamfers_with_tolerances(first, second):
+        plate = Box(90, 60, 20)
+        es = plate.edges().filter_by(Axis.Z).sort_by(lambda e: e.center().X + e.center().Y)
+        part = b3d_chamfer([es[0], es[-1]], 8)
+        ch_pp = chamfer(axis="z", leg=8, at=(41, 26, 0))
+        ch_mm = chamfer(axis="z", leg=8, at=(-41, -26, 0))
+        return build_drawing(
+            part,
+            model=[ch_pp, ch_mm],
+            decorations={(ch_pp, "length"): first, (ch_mm, "length"): second},
+            number="X",
+        )
+
+    def test_different_tolerances_split_into_truthful_requirements(self):
+        dwg = self._two_chamfers_with_tolerances(0.1, 0.5)
+        labels = [
+            dwg.get_annotation(name).label
+            for name in dwg.annotations()
+            if name.startswith("m_chamfer")
+        ]
+        assert labels == ["C8 ±0.1", "C8 ±0.5"], labels
+        assert not [issue for issue in dwg.lint() if issue.code == "collapsed_tolerance_withheld"]
+
+    def test_collapse_with_one_shared_tolerance_states_it(self):
+        dwg = self._two_chamfers_with_tolerances(0.1, 0.1)
+        labels = [
+            dwg.get_annotation(name).label
+            for name in dwg.annotations()
+            if name.startswith("m_chamfer")
+        ]
+        assert labels == ["2× C8 ±0.1"], labels
+        assert not [issue for issue in dwg.lint() if issue.code == "collapsed_tolerance_withheld"]
+
 
 class TestFilletTolerance:
     """#725 (the #629 class, latent): a fillet's authored tolerance must render on the

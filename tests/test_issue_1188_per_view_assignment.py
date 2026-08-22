@@ -10,14 +10,14 @@ faster.
 from __future__ import annotations
 
 import json
-import os
-from pathlib import Path
 
 import pytest
+from build123d import Box
 
 from draftwright import build_drawing
 from draftwright.annotations.leaders import _assign_by_view
 from draftwright.layout import _assign_leader_candidates
+from draftwright.model import fillet
 
 
 class TestItIsADecompositionNotAnApproximation:
@@ -82,17 +82,25 @@ class TestTheExactSolveNowReachesDenseParts:
     """Before #1188 every fixture with 12+ leader jobs fell back to the greedy floor,
     so Amendment 2's guarantees applied nowhere they were needed."""
 
-    @pytest.mark.slow  # >=30 s inherent dense build; post-merge tier (#656)
     def test_a_dense_fixture_reaches_the_exact_solve(self, tmp_path):
-        trace = tmp_path / "ctc03.json"
-        os.environ["DRAFTWRIGHT_TRACE"] = str(trace)
-        try:
-            build_drawing(step_file=str(Path("tests/fixtures") / "nist_ctc_03_asme1_ap242.stp"))
-            events = json.loads(trace.read_text())["pass_events"]
-        finally:
-            os.environ.pop("DRAFTWRIGHT_TRACE", None)
+        # Four distinct requirements in each orthographic view. Distinct radii deliberately
+        # prevent the renderer's truthful n× collapse: this fixture is about a 12-JOB solve,
+        # while physical dense fixtures are free to become less redundant (#1254).
+        points_by_axis = {
+            "z": ((-50, -40, 0), (-50, 40, 0), (50, -40, 0), (50, 40, 0)),
+            "x": ((0, -40, -30), (0, -40, 30), (0, 40, -30), (0, 40, 30)),
+            "y": ((-50, 0, -30), (-50, 0, 30), (50, 0, -30), (50, 0, 30)),
+        }
+        features = []
+        for axis, points in points_by_axis.items():
+            for point in points:
+                features.append(fillet(axis=axis, radius=1 + len(features), at=point))
+
+        trace = tmp_path / "three-view-inventory.json"
+        build_drawing(Box(100, 80, 60), model=features, trace=trace, page="A2")
+        events = json.loads(trace.read_text())["pass_events"]
         event = next(e for e in events if e.get("label") == "feature_leader_inventory")
-        assert event["inventory_jobs"] >= 12, "fixture no longer exercises a dense inventory"
+        assert event["inventory_jobs"] == 12, "fixture no longer exercises a dense inventory"
         assert event["assignment"] == "joint", (
             f"a {event['inventory_jobs']}-job inventory fell back to "
             f"{event['assignment']!r} — the exact solve must reach dense parts"
