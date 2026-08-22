@@ -13,6 +13,34 @@ from pathlib import Path
 _VERSION = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
 
 
+def _close_schema_transition(contract: Path, target: str) -> None:
+    """Narrow the one reviewed dual-schema window when its stable release is adopted."""
+    text = contract.read_text(encoding="utf-8")
+    active = re.search(
+        r'^_CANDIDATE_PACKAGE_VERSION: str \| None = "([^"]+)"$', text, re.MULTILINE
+    )
+    if active is None:
+        return
+    transition_parts = tuple(int(part) for part in active.group(1).split("."))
+    target_parts = tuple(int(part) for part in target.split("."))
+    if target_parts < transition_parts:
+        return
+    replacements = {
+        f'_CANDIDATE_PACKAGE_VERSION: str | None = "{active.group(1)}"': (
+            "_CANDIDATE_PACKAGE_VERSION: str | None = None"
+        ),
+        '("chamfers", "Chamfer"): (1, 2),': '("chamfers", "Chamfer"): (2,),',
+        '("fillets", "Fillet"): (1, 2),': '("fillets", "Fillet"): (2,),',
+    }
+    for before, after in replacements.items():
+        if text.count(before) != 1:
+            raise RuntimeError(
+                f"cannot close recogniser {target} schema transition: expected one {before!r}"
+            )
+        text = text.replace(before, after)
+    contract.write_text(text, encoding="utf-8")
+
+
 def _replace_once(path: Path, before: str, after: str) -> None:
     text = path.read_text(encoding="utf-8")
     if text.count(before) != 1:
@@ -179,6 +207,7 @@ def main() -> int:
                 f'_PACKAGE_VERSION = "{current}"',
                 f'_PACKAGE_VERSION = "{args.version}"',
             )
+        _close_schema_transition(contract, args.version)
         subprocess.run(
             ["uv", "lock", "--upgrade-package", "b123d-recognisers"], cwd=root, check=True
         )

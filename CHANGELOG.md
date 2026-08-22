@@ -4,6 +4,10 @@
 
 ### Changed
 
+- Accept the additive Chamfer and Fillet schema-2 recognizer contract alongside schema 1 ahead of
+  the `b123d-recognisers` 0.3.0 cutover; all other record schemas remain fail-closed at version 1
+  (#1276).
+
 - Updated the exact `b123d-recognisers` production lock from 0.2.6 to 0.2.9.
   The immutable PyPI wheel/sdist hashes and capability-manifest digest `805876905d548fd0ef1301e2cf24427a86d34bc2e592b8d2d0cb43db94e1d3bd` are
   recorded in `.github/recogniser-release.json`; focused compatibility evidence and the

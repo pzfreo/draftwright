@@ -20,6 +20,11 @@ from b123d_recognisers import capability_manifest
 CONSUMER_CAPABILITY_FORMAT = "draftwright-recogniser-capabilities"
 CONSUMER_CAPABILITY_FORMAT_VERSION = 1
 _PACKAGE_VERSION = "0.2.9"
+# The only package identity the cross-repository canary may substitute for the exact production
+# pin.  Passing a candidate is explicit at the validator call site; normal imports and released
+# checks never consult environment state and therefore remain locked to ``_PACKAGE_VERSION``.
+# ``scripts/update-recogniser-dependency`` disables this window when 0.3.0 becomes the pin.
+_CANDIDATE_PACKAGE_VERSION: str | None = "0.3.0"
 _BOUNDARIES = (
     "ir_adapter",
     "dsl_declaration",
@@ -106,6 +111,19 @@ _FAMILIES: dict[str, _FamilySpec] = {
     ),
 }
 
+# ADR 0017 permits a consumer to land dual-readable schema support before the provider publishes
+# an additive record change. This is deliberately record-specific: accepting every future schema
+# would turn the fail-closed join into an open version range. Package PR #151 adds only optional
+# ``turned`` fields; the existing adapters remain valid while #1276 adopts those fields.
+_RECORD_SCHEMA_VERSIONS: dict[tuple[str, str], tuple[int, ...]] = {
+    ("chamfers", "Chamfer"): (1, 2),
+    ("fillets", "Fillet"): (1, 2),
+}
+
+
+def _record_schema_versions(family_id: str, names: tuple[str, ...]) -> dict[str, list[int]]:
+    return {name: list(_RECORD_SCHEMA_VERSIONS.get((family_id, name), (1,))) for name in names}
+
 
 def _supported(implementation: str, evidence: str) -> dict[str, Any]:
     return {"state": "supported", "implementation": implementation, "evidence": [evidence]}
@@ -131,7 +149,7 @@ def _family_declaration(family_id: str, spec: _FamilySpec) -> dict[str, Any]:
         )
     return {
         "id": family_id,
-        "record_schemas": {name: 1 for name in spec.records},
+        "record_schemas": _record_schema_versions(family_id, spec.records),
         "disposition": "supported",
         "ir_adapter": _supported(
             f"draftwright.model.detect.{spec.ir}", "tests/test_detect_registry.py"
@@ -173,7 +191,9 @@ def _geometry_only_declaration() -> dict[str, Any]:
     }
     return {
         "id": "repeating-radial-profiles",
-        "record_schemas": {"RepeatingRadialProfile": 1},
+        "record_schemas": _record_schema_versions(
+            "repeating-radial-profiles", ("RepeatingRadialProfile",)
+        ),
         "disposition": "geometry-only",
         "rationale": rationale,
         "package_evidence": ["tests/golden/repeating_radial_profile/expected.json"],
@@ -239,7 +259,7 @@ def _unsupported_declaration(family_id: str) -> dict[str, Any]:
     unsupported = {"state": "unsupported", "rationale": rationale}
     return {
         "id": family_id,
-        "record_schemas": {name: 1 for name in records},
+        "record_schemas": _record_schema_versions(family_id, records),
         "disposition": "unsupported",
         "rationale": rationale,
         "tracking": tracking,
@@ -388,8 +408,15 @@ def validate_recogniser_capabilities(
     *,
     package: object | None = None,
     source_root: Path | None = None,
+    candidate_version: str | None = None,
 ) -> None:
-    """Fail closed when installed package truth and Draftwright policy do not exactly join."""
+    """Fail closed when installed package truth and Draftwright policy do not exactly join.
+
+    ``candidate_version`` is the explicit two-checkout-canary seam.  It changes only the package
+    identity expected from ``package``; the checked-in production declaration stays pinned to
+    :data:`_PACKAGE_VERSION`.  The value must be an exact prerelease/stable spelling on the one
+    reviewed transition release, so it cannot become an open dependency interval.
+    """
     current = consumer_capability_declaration() if declaration is None else declaration
     manifest = capability_manifest(format_version=1) if package is None else package
     if not isinstance(current, dict) or set(current) != {
@@ -433,11 +460,36 @@ def validate_recogniser_capabilities(
         or manifest.get("format_version") != 1
     ):
         raise RecogniserCapabilityError("installed recogniser manifest format is unsupported")
+    expected_package_version = _PACKAGE_VERSION
+    if candidate_version is not None:
+        candidate_pattern = (
+            None
+            if _CANDIDATE_PACKAGE_VERSION is None
+            else re.compile(
+                rf"{re.escape(_CANDIDATE_PACKAGE_VERSION)}"
+                r"(?:(?:a|b|rc)\d+|\.dev\d+)?"
+            )
+        )
+        if (
+            type(candidate_version) is not str
+            or candidate_pattern is None
+            or candidate_pattern.fullmatch(candidate_version) is None
+        ):
+            raise RecogniserCapabilityError(
+                f"candidate package version {candidate_version!r} is outside the reviewed "
+                f"{_CANDIDATE_PACKAGE_VERSION!r} transition"
+            )
+        expected_package_version = candidate_version
     package_info = manifest.get("package")
-    if not isinstance(package_info, dict) or package_info.get("version") != _PACKAGE_VERSION:
+    if (
+        not isinstance(package_info, dict)
+        or package_info.get("name") != "b123d-recognisers"
+        or package_info.get("version") != expected_package_version
+    ):
         raise RecogniserCapabilityError(
-            f"installed package version {getattr(package_info, 'get', lambda _key: None)('version')!r} "
-            f"does not satisfy =={_PACKAGE_VERSION}; update the pin and declaration together"
+            f"installed package identity {package_info!r} does not satisfy "
+            f"b123d-recognisers=={expected_package_version}; update the pin and declaration "
+            "together"
         )
     package_families = manifest.get("families")
     families = current["families"]
@@ -513,10 +565,30 @@ def validate_recogniser_capabilities(
             if isinstance(records, list)
             else {}
         )
-        if family["record_schemas"] != actual_schemas:
+        accepted_schemas = family["record_schemas"]
+        valid_schema_declaration = (
+            isinstance(accepted_schemas, dict)
+            and set(accepted_schemas) == set(actual_schemas)
+            and all(
+                isinstance(versions, list)
+                and versions
+                and all(type(version) is int and version > 0 for version in versions)
+                and versions == sorted(set(versions))
+                for versions in accepted_schemas.values()
+            )
+        )
+        valid_actual_schemas = all(
+            type(version) is int and version > 0 for version in actual_schemas.values()
+        )
+        incompatible = (
+            not valid_schema_declaration
+            or not valid_actual_schemas
+            or any(actual_schemas[name] not in accepted_schemas[name] for name in actual_schemas)
+        )
+        if incompatible:
             raise RecogniserCapabilityError(
                 f"family {family_id!r} record schema mismatch; expected {actual_schemas!r}, "
-                f"declared {family['record_schemas']!r}; update the adapter and pin deliberately"
+                f"accepted {accepted_schemas!r}; update the adapter and pin deliberately"
             )
         disposition = family["disposition"]
         if disposition not in {"deferred", "geometry-only", "supported", "unsupported"}:

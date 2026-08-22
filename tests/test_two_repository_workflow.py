@@ -201,6 +201,41 @@ def test_dependency_updater_starts_the_next_unreleased_section_after_a_release()
         assert updated.index("0.2.6 to 0.2.8") < updated.index("## v0.4.9")
 
 
+@pytest.mark.parametrize("target", ("0.3.0", "0.3.1", "1.0.0"))
+def test_dependency_updater_closes_an_adopted_schema_transition(
+    tmp_path: Path, target: str
+) -> None:
+    loader = SourceFileLoader(
+        "draftwright_recogniser_schema_transition_update",
+        str(ROOT / "scripts/update-recogniser-dependency"),
+    )
+    spec = spec_from_loader(loader.name, loader)
+    assert spec is not None
+    module = module_from_spec(spec)
+    loader.exec_module(module)
+    contract = tmp_path / "recogniser_contract.py"
+    contract.write_text(
+        '_CANDIDATE_PACKAGE_VERSION: str | None = "0.3.0"\n'
+        "_RECORD_SCHEMA_VERSIONS = {\n"
+        '    ("chamfers", "Chamfer"): (1, 2),\n'
+        '    ("fillets", "Fillet"): (1, 2),\n'
+        "}\n",
+        encoding="utf-8",
+    )
+
+    module._close_schema_transition(contract, "0.2.10")
+    assert '("chamfers", "Chamfer"): (1, 2)' in contract.read_text(encoding="utf-8")
+
+    module._close_schema_transition(contract, target)
+    narrowed = contract.read_text(encoding="utf-8")
+    assert "_CANDIDATE_PACKAGE_VERSION: str | None = None" in narrowed
+    assert '("chamfers", "Chamfer"): (2,)' in narrowed
+    assert '("fillets", "Fillet"): (2,)' in narrowed
+
+    module._close_schema_transition(contract, "0.3.0")
+    assert contract.read_text(encoding="utf-8") == narrowed
+
+
 @pytest.mark.parametrize(
     ("mutation", "message"),
     [

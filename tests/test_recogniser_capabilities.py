@@ -8,6 +8,7 @@ import dataclasses
 import importlib.metadata
 import inspect
 import json
+import os
 import typing
 from pathlib import Path
 
@@ -36,6 +37,17 @@ ROOT = Path(__file__).parents[1]
 PINNED_VERSION = json.loads(
     (ROOT / ".github/recogniser-release.json").read_text(encoding="utf-8")
 )["version"]
+CANDIDATE_VERSION = os.environ.get("DRAFTWRIGHT_RECOGNISER_CANDIDATE_VERSION")
+EXPECTED_PACKAGE_VERSION = CANDIDATE_VERSION or PINNED_VERSION
+
+
+def _validate(*args, **kwargs) -> None:
+    """Run the same contract under the explicitly selected two-checkout candidate, if any."""
+    validate_recogniser_capabilities(
+        *args,
+        **kwargs,
+        candidate_version=CANDIDATE_VERSION,
+    )
 
 
 def test_installed_wheel_layout_validates_portable_contract_without_source_evidence(
@@ -44,7 +56,7 @@ def test_installed_wheel_layout_validates_portable_contract_without_source_evide
     installed_module = tmp_path / "lib/python/site-packages/draftwright/recogniser_contract.py"
     monkeypatch.setattr(contract_module, "__file__", str(installed_module))
 
-    validate_recogniser_capabilities()
+    _validate()
 
 
 @pytest.mark.parametrize("reference", [None, "", "/tmp/evidence.py", "../evidence.py"])
@@ -107,14 +119,17 @@ def _emitter_literal_kinds() -> set[str]:
     return kinds
 
 
-def test_installed_released_package_contract_validates_without_a_sibling_checkout() -> None:
+def test_installed_package_contract_validates_without_a_sibling_checkout() -> None:
     distribution = importlib.metadata.distribution("b123d-recognisers")
-    assert distribution.version == PINNED_VERSION
-    assert distribution.read_text("direct_url.json") is None
+    assert distribution.version == EXPECTED_PACKAGE_VERSION
+    if CANDIDATE_VERSION is None:
+        assert distribution.read_text("direct_url.json") is None
+    else:
+        assert distribution.read_text("direct_url.json") is not None
     package_path = Path(inspect.getfile(recognition)).resolve()
     assert package_path.is_relative_to(ROOT / ".venv")
 
-    validate_recogniser_capabilities()
+    _validate()
     package = recognition.capability_manifest(format_version=1)
     declaration = consumer_capability_declaration()
     # 25 since 0.2.6 added angled-steps, passages and prismatic-pockets (#1244). A literal,
@@ -293,7 +308,7 @@ def _supported(value: dict) -> dict:
             "stale=",
         ),
         (
-            lambda value: _supported(value)["record_schemas"].update({"BossRecord": 99}),
+            lambda value: _supported(value)["record_schemas"].update({"BossRecord": [99]}),
             "record schema mismatch",
         ),
         (
@@ -320,7 +335,7 @@ def test_consumer_declaration_fails_closed_on_stale_or_malformed_claims(
     declaration = consumer_capability_declaration()
     mutate(declaration)
     with pytest.raises(RecogniserCapabilityError, match=message):
-        validate_recogniser_capabilities(declaration)
+        _validate(declaration)
 
 
 def test_a_package_family_we_have_not_declared_yet_does_not_fail_the_join() -> None:
@@ -338,7 +353,7 @@ def test_a_package_family_we_have_not_declared_yet_does_not_fail_the_join() -> N
     package["families"].append(copy.deepcopy(package["families"][0]))
     package["families"][-1]["id"] = "future-thread"
 
-    validate_recogniser_capabilities(package=package)
+    _validate(package=package)
 
     # `in`, not equality: any family the installed package has genuinely grown since the
     # last declaration is legitimately pending too, and this test is not about those.
@@ -367,7 +382,7 @@ def test_family_declarations_must_be_unique_and_sorted(mutate) -> None:
     mutate(declaration["families"])
 
     with pytest.raises(RecogniserCapabilityError, match="unique and sorted"):
-        validate_recogniser_capabilities(declaration)
+        _validate(declaration)
 
 
 def test_pending_declarations_reject_a_malformed_manifest() -> None:
@@ -388,7 +403,97 @@ def test_schema_format_fails_closed() -> None:
     package = recognition.capability_manifest()
     package["format_version"] = 2
     with pytest.raises(RecogniserCapabilityError, match="manifest format"):
-        validate_recogniser_capabilities(package=package)
+        _validate(package=package)
+
+
+def test_only_chamfer_and_fillet_use_the_declared_additive_schema_2_state() -> None:
+    """The 0.3.0 transition is dual-readable before cutover and schema-2-only afterward.
+
+    Package PR #151 adds one optional ``turned`` field to these two records. The existing
+    converters consume only the unchanged schema-1 fields, so accepting schema 2 before the
+    dependency cutover is compatible. The dependency updater closes the window to schema 2;
+    schema 3 remains unknown in both states and must fail closed.
+    """
+    declaration = consumer_capability_declaration()
+    families = _families(declaration)
+    transition_open = contract_module._CANDIDATE_PACKAGE_VERSION is not None
+    expected_transition_schemas = [1, 2] if transition_open else [2]
+    assert families["chamfers"]["record_schemas"] == {"Chamfer": expected_transition_schemas}
+    assert families["fillets"]["record_schemas"] == {"Fillet": expected_transition_schemas}
+    assert all(
+        versions == [1]
+        for family_id, family in families.items()
+        if family_id not in {"chamfers", "fillets"}
+        for versions in family["record_schemas"].values()
+    )
+
+    package = recognition.capability_manifest()
+    package_families = _families(package)
+    package_families["chamfers"]["records"][0]["schema_version"] = 2
+    package_families["fillets"]["records"][0]["schema_version"] = 2
+    _validate(declaration, package=package)
+
+    package_families["chamfers"]["records"][0]["schema_version"] = 3
+    with pytest.raises(RecogniserCapabilityError, match="record schema mismatch"):
+        _validate(declaration, package=package)
+
+
+def test_candidate_validation_changes_only_the_explicit_reviewed_package_identity() -> None:
+    package = recognition.capability_manifest()
+    transition = contract_module._CANDIDATE_PACKAGE_VERSION
+    if transition is not None:
+        candidate = f"{transition}.dev0"
+        package["package"]["version"] = candidate
+        package_families = _families(package)
+        package_families["chamfers"]["records"][0]["schema_version"] = 2
+        package_families["fillets"]["records"][0]["schema_version"] = 2
+        validate_recogniser_capabilities(package=package, candidate_version=candidate)
+
+        with pytest.raises(
+            RecogniserCapabilityError,
+            match=rf"b123d-recognisers=={PINNED_VERSION}",
+        ):
+            validate_recogniser_capabilities(package=package)
+
+    with pytest.raises(RecogniserCapabilityError, match="outside the reviewed"):
+        validate_recogniser_capabilities(package=package, candidate_version="99.99.99")
+
+    package = recognition.capability_manifest()
+    package["package"]["name"] = "lookalike"
+    with pytest.raises(RecogniserCapabilityError, match="package identity"):
+        _validate(package=package)
+
+
+def test_removing_schema_2_from_the_transition_guard_rejects_the_candidate() -> None:
+    """Mutation guard: schema-2 compatibility depends on the explicit declaration."""
+    declaration = consumer_capability_declaration()
+    _families(declaration)["chamfers"]["record_schemas"]["Chamfer"] = [1]
+    package = recognition.capability_manifest()
+    _families(package)["chamfers"]["records"][0]["schema_version"] = 2
+
+    with pytest.raises(RecogniserCapabilityError, match="record schema mismatch"):
+        _validate(declaration, package=package)
+
+
+@pytest.mark.parametrize(
+    "versions",
+    [1, [], [1, 1], [True], [1, "2"], [[1]], [1, None]],
+)
+def test_record_schema_acceptance_lists_fail_closed_when_malformed(versions: object) -> None:
+    declaration = consumer_capability_declaration()
+    _families(declaration)["bosses"]["record_schemas"]["BossRecord"] = versions
+
+    with pytest.raises(RecogniserCapabilityError, match="record schema mismatch"):
+        _validate(declaration)
+
+
+@pytest.mark.parametrize("version", [0, True, 2.0, "2"])
+def test_provider_record_schema_versions_must_be_positive_integers(version: object) -> None:
+    package = recognition.capability_manifest()
+    _families(package)["chamfers"]["records"][0]["schema_version"] = version
+
+    with pytest.raises(RecogniserCapabilityError, match="record schema mismatch"):
+        _validate(package=package)
 
 
 def test_geometry_only_cannot_acquire_invented_drafting_semantics() -> None:
@@ -396,14 +501,14 @@ def test_geometry_only_cannot_acquire_invented_drafting_semantics() -> None:
     family = _families(declaration)["repeating-radial-profiles"]
     family["ir_adapter"] = copy.deepcopy(_families(declaration)["bosses"]["ir_adapter"])
     with pytest.raises(RecogniserCapabilityError, match="invents ir_adapter semantics"):
-        validate_recogniser_capabilities(declaration)
+        _validate(declaration)
 
 
 def test_state_transition_requires_version_release_notes_and_compatibility_evidence() -> None:
     declaration = consumer_capability_declaration()
     declaration["transitions"] = [{"family": "bosses", "from": "deferred", "to": "supported"}]
     with pytest.raises(RecogniserCapabilityError, match="transition lacks"):
-        validate_recogniser_capabilities(declaration)
+        _validate(declaration)
 
     declaration["transitions"] = [
         {
@@ -416,7 +521,7 @@ def test_state_transition_requires_version_release_notes_and_compatibility_evide
             "version": "0.4.7",
         }
     ]
-    validate_recogniser_capabilities(declaration)
+    _validate(declaration)
 
 
 @pytest.mark.parametrize(
@@ -479,7 +584,7 @@ def test_state_transition_requires_version_release_notes_and_compatibility_evide
         ),
         (
             lambda _declaration, package: package["package"].update({"version": "99.99.99"}),
-            f"does not satisfy =={PINNED_VERSION}",
+            f"does not satisfy b123d-recognisers=={EXPECTED_PACKAGE_VERSION}",
         ),
         (
             lambda _declaration, package: package.update({"families": {}}),
@@ -544,7 +649,7 @@ def test_every_malformed_consumer_contract_fails_at_its_own_boundary(mutate, mes
     package = recognition.capability_manifest()
     mutate(declaration, package)
     with pytest.raises(RecogniserCapabilityError, match=message):
-        validate_recogniser_capabilities(declaration, package=package)
+        _validate(declaration, package=package)
 
 
 def _transition() -> dict[str, object]:
@@ -588,14 +693,14 @@ def test_each_unevidenced_transition_shape_fails_closed(field: str, value: objec
     transition[field] = value
     declaration["transitions"] = [transition]
     with pytest.raises(RecogniserCapabilityError, match="transition lacks"):
-        validate_recogniser_capabilities(declaration)
+        _validate(declaration)
 
 
 def test_transition_keys_must_be_unique() -> None:
     declaration = consumer_capability_declaration()
     declaration["transitions"] = [_transition(), _transition()]
     with pytest.raises(RecogniserCapabilityError, match="unique and sorted"):
-        validate_recogniser_capabilities(declaration)
+        _validate(declaration)
 
 
 def test_deferred_family_cannot_claim_supported_downstream_semantics() -> None:
@@ -611,7 +716,7 @@ def test_deferred_family_cannot_claim_supported_downstream_semantics() -> None:
         }
     )
     with pytest.raises(RecogniserCapabilityError, match="claims supported downstream semantics"):
-        validate_recogniser_capabilities(declaration)
+        _validate(declaration)
 
     for boundary in (
         "ir_adapter",
@@ -625,7 +730,7 @@ def test_deferred_family_cannot_claim_supported_downstream_semantics() -> None:
             "rationale": "Consumer support is deliberately scheduled later.",
             "tracking": "https://github.com/pzfreo/draftwright/issues/1169",
         }
-    validate_recogniser_capabilities(declaration)
+    _validate(declaration)
 
 
 def test_documentation_names_each_failure_and_contributor_repair_action() -> None:

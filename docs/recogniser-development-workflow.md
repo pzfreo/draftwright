@@ -23,7 +23,10 @@ The package's hosted downstream canary runs the same wheel harness against the r
 Draftwright `main`. Its job summary records that SHA, so a failure is reproducible even if `main`
 moves later. This is deliberately a narrow contract canary, not another full Draftwright matrix.
 The package matrix proves geometry/platform behavior; Draftwright's own PR and release gates prove
-consumer/platform behavior.
+consumer/platform behavior. For an approved schema transition, the harness passes the wheel's exact
+version as `candidate_version=` to the consumer validator via the focused test seam. That explicit
+argument may match only the single reviewed transition release; normal validation never reads an
+environment override and remains on the exact production pin.
 
 ## Compatibility and landing order
 
@@ -38,12 +41,19 @@ manifest drift, or a non-registry installation. An open version interval is not 
 ### Additive package change
 
 1. Freeze independent package fixtures, negative cases, goldens, schema, and performance evidence.
-2. Land the package change while released Draftwright remains on its exact previous pin.
-3. Publish an `X.Y.ZrcN` only when consumer validation genuinely needs a prerelease; otherwise
+2. If an existing record's schema increments, first land a Draftwright declaration that accepts
+   exactly the installed and candidate schemas while retaining the previous exact dependency pin.
+   The package canary must then pass against that committed compatibility point. An additive family
+   or behavior change whose existing schemas remain valid needs no preparatory consumer PR.
+3. Land the package change while released Draftwright remains on its exact previous pin.
+4. Publish an `X.Y.ZrcN` only when consumer validation genuinely needs a prerelease; otherwise
    publish the audited stable patch directly.
-4. Add Draftwright policy/support against the candidate wheel, then publish the stable package
-   patch and dispatch **Bump recogniser dependency** with that version.
-5. Merge the generated Draftwright PR only after its exact hashes, manifest, focused join tests,
+5. Add Draftwright policy/support against the candidate wheel, then publish the stable package
+   version and dispatch **Bump recogniser dependency** with that version. Narrow any temporary
+   dual-schema declaration to the released schema in that PR. The dependency updater performs and
+   tests this narrowing when its target matches the reviewed transition release; it also disables
+   the candidate-version seam so the compatibility window cannot remain open after cutover.
+6. Merge the generated Draftwright PR only after its exact hashes, manifest, focused join tests,
    canonical coverage run, Codecov checks, and `ci-ok` are green.
 
 ### Breaking package change
