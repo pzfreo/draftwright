@@ -40,7 +40,7 @@ def rounded_shaft_drawing():
 
 
 def test_a_supplied_turned_fillet_lowers_without_rescanning(monkeypatch):
-    record = Fillet(axis="z", radius=0.8, at=(-4.8, 0.0, 19.8))
+    record = Fillet(axis="z", radius=0.8, at=(-4.8, 0.0, 19.8), turned=True)
 
     def unexpected_rescan(_part):
         raise AssertionError("the consumer rescanned instead of lowering the supplied inventory")
@@ -58,6 +58,18 @@ def test_a_supplied_turned_fillet_lowers_without_rescanning(monkeypatch):
         for feature in model.features
         if feature.kind == "fillet"
     ] == [("z", 0.8, (-4.8, 0.0, 19.8), True)]
+
+
+def test_a_supplied_parallel_fillet_is_not_guessed_to_be_turned():
+    record = Fillet(axis="z", radius=0.8, at=(4.8, 0.0, 10.0))
+    model = build_part_model(
+        Cylinder(5, 20),
+        chamfers=(),
+        fillets=(record,),
+        rotational=(10.0, (), "z"),
+    )
+    feature = next(feature for feature in model.features if feature.kind == "fillet")
+    assert not feature.turned
 
 
 def test_rounded_shaft_renders_one_requirement_with_all_four_identities(

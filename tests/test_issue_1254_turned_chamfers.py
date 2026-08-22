@@ -38,7 +38,9 @@ def grm03_drawing():
 
 
 def test_a_supplied_turned_chamfer_lowers_without_rescanning(monkeypatch):
-    record = Chamfer(axis="z", leg1=0.3, leg2=0.3, angle=45.0, at=(0.0, 0.0, 19.85))
+    record = Chamfer(
+        axis="z", leg1=0.3, leg2=0.3, angle=45.0, at=(0.0, 0.0, 19.85), turned=True
+    )
 
     def unexpected_rescan(_part):
         raise AssertionError("the consumer rescanned instead of lowering the supplied inventory")
@@ -63,6 +65,39 @@ def test_a_supplied_turned_chamfer_lowers_without_rescanning(monkeypatch):
         for feature in model.features
         if feature.kind == "chamfer"
     ] == [("z", 0.3, 0.3, 45.0, (0.0, 0.0, 19.85), True)]
+
+
+def test_a_supplied_parallel_chamfer_is_not_guessed_to_be_turned():
+    record = Chamfer(axis="z", leg1=0.3, leg2=0.3, angle=45.0, at=(4.7, 0.0, 10.0))
+    model = build_part_model(
+        Cylinder(5, 20),
+        chamfers=(record,),
+        fillets=(),
+        rotational=(10.0, (), "z"),
+    )
+    feature = next(feature for feature in model.features if feature.kind == "chamfer")
+    assert not feature.turned
+
+
+def test_standalone_rotational_detection_applies_the_aggregate_chamfer_filter(monkeypatch):
+    record = Chamfer(
+        axis="z", leg1=0.3, leg2=0.3, angle=45.0, at=(-4.7, 0.0, 10.0), turned=True
+    )
+    seen = {}
+
+    def filtered(_part, **kwargs):
+        seen.update(kwargs)
+        return (record,)
+
+    monkeypatch.setattr(detect_module, "recognise_chamfers", filtered)
+    model = build_part_model(
+        Cylinder(5, 20),
+        fillets=(),
+        rotational=(10.0, (), "z"),
+    )
+    feature = next(feature for feature in model.features if feature.kind == "chamfer")
+    assert seen["include_planar"] is False
+    assert feature.turned
 
 
 def test_grm03_renders_two_requirements_with_all_three_measurement_identities(grm03_drawing):

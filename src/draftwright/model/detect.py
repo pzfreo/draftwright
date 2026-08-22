@@ -75,7 +75,13 @@ from b123d_recognisers import (
     recognise_turned_steps,
 )
 
-from draftwright._geometry import _axis_letter, _is_principal_axis, _xyz
+from draftwright._geometry import (
+    _EDGE_ON,
+    _axis_letter,
+    _canonical_profile_site,
+    _is_principal_axis,
+    _xyz,
+)
 from draftwright.model.declare import control_frame, datum
 from draftwright.model.ir import (
     AUTHORED_DIMENSION_KINDS,
@@ -329,9 +335,9 @@ class ConvContext:
 
     A converter is a pure function of ``(record, ctx)``; ``bbox`` supplies the
     part's centre/extents for the off-axis frame coords and ``orientation`` the
-    turning axis a :class:`StepFeature` span is laid along. Edge-treatment converters also
-    use it to preserve the package's turned-profile classification as semantic presentation
-    state; no converter re-inspects the solid (``None`` off the turned branch)."""
+    turning axis a :class:`StepFeature` span is laid along. Edge-treatment records carry their
+    own package-owned ``turned`` discriminator; converters never infer surface type from an axis
+    coincidence or re-inspect the solid."""
 
     bbox: Any  # build123d BoundBox (kept untyped so detect stays build123d-import-light)
     orientation: str | None
@@ -610,23 +616,27 @@ def _convert_plate(pl: Plate, ctx: ConvContext) -> PlateFeature:
 
 def _convert_chamfer(ch: Chamfer, ctx: ConvContext) -> ChamferFeature:
     at = ch.at
+    if ch.turned:
+        at = _canonical_profile_site(at, _xyz(ctx.bbox.center()), ch.axis, _EDGE_ON[ch.axis])
     return ChamferFeature(
         frame=Frame((at[0], at[1], at[2]), ch.axis),
         axis=ch.axis,
         leg1=ch.leg1,
         leg2=ch.leg2,
         angle=ch.angle,
-        turned=ctx.orientation == ch.axis,
+        turned=ch.turned,
     )
 
 
 def _convert_fillet(fl: Fillet, ctx: ConvContext) -> FilletFeature:
     at = fl.at
+    if fl.turned:
+        at = _canonical_profile_site(at, _xyz(ctx.bbox.center()), fl.axis, _EDGE_ON[fl.axis])
     return FilletFeature(
         frame=Frame((at[0], at[1], at[2]), fl.axis),
         axis=fl.axis,
         radius=fl.radius,
-        turned=ctx.orientation == fl.axis,
+        turned=fl.turned,
     )
 
 
@@ -799,6 +809,20 @@ def build_part_model(
     # step profile is absent. It is already supplied by the one analysis orchestration, so
     # carrying its axis into conversion is not a geometry rescan (#1276 / ADR 0017).
     orientation = prof.axis if prof is not None else (rotational[2] if rotational else None)
+    # Standalone detection applies the same surface-family gate as RecognitionResult. Supplied
+    # records carry the recogniser's explicit surface-family discriminator themselves.
+    if chamfers is None:
+        chamfers = recognise_chamfers(
+            part,
+            cyls=cyls,
+            include_planar=orientation is None,
+        )
+    if fillets is None:
+        fillets = recognise_fillets(
+            part,
+            cyls=cyls,
+            include_cylindrical=orientation is None,
+        )
     ctx = ConvContext(bbox=bbox, orientation=orientation)
 
     if channels is None:
@@ -1055,14 +1079,14 @@ def build_part_model(
     # Chamfers (#560/#1254) — called out C{leg} / {leg}×{angle}°. The package recognises
     # both oblique planar and conical turned forms; both lower through the same converter and
     # IR. An injected aggregate inventory is consumed directly, without a sibling rescan.
-    for ch in recognise_chamfers(part) if chamfers is None else chamfers:
+    for ch in chamfers:
         features.append(convert(ch, ctx))
 
     # Fillets (#561/#1281) — called out R{radius} (grouped n× at render). The package
     # recognises both cylindrical prismatic blends and toroidal turned rounds; both lower
     # through the same converter and IR. An injected aggregate inventory is consumed directly,
     # without a sibling rescan.
-    for fl in recognise_fillets(part) if fillets is None else fillets:
+    for fl in fillets:
         features.append(convert(fl, ctx))
 
     # Machined flats on round stock (#148b) — a planar face truncating a cylinder,

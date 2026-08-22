@@ -4,7 +4,8 @@ import warnings
 from pathlib import Path
 
 import pytest
-from build123d import Box, Cylinder, GeomType, Pos, import_step
+from build123d import Box, Cylinder, GeomType, Pos, Rotation, import_step
+from build123d import chamfer as b3d_chamfer
 from build123d import fillet as b3d_fillet
 
 from draftwright import build_drawing
@@ -26,6 +27,12 @@ def _rounded_shaft():
     shaft = Pos(0, 0, 20) * Cylinder(15, 40) + Pos(0, 0, 55) * Cylinder(8, 30)
     circular_edges = [edge for edge in shaft.edges() if edge.geom_type == GeomType.CIRCLE]
     return b3d_fillet(circular_edges, 0.8)
+
+
+def _chamfered_shaft():
+    shaft = Cylinder(10, 40)
+    circular_edges = [edge for edge in shaft.edges() if edge.geom_type == GeomType.CIRCLE]
+    return b3d_chamfer(circular_edges, 1)
 
 
 def test_grm03_chamfers_read_in_profile_and_land_on_distinct_edge_sites():
@@ -64,6 +71,33 @@ def test_rounded_shaft_fillets_read_in_profile_and_keep_the_physical_site():
 
 
 @pytest.mark.parametrize(
+    ("part", "kind", "prefix"),
+    [
+        (Rotation(90, 0, 0) * _chamfered_shaft(), "chamfer", "m_chamfer"),
+        (Rotation(90, 0, 0) * _rounded_shaft(), "fillet", "m_fillet"),
+    ],
+)
+def test_y_turned_recognised_sites_rotate_onto_the_visible_side_profile(part, kind, prefix):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        drawing = build_drawing(part, number="Y")
+
+    features = [feature for feature in drawing.model().features if feature.kind == kind]
+    name = next(name for name in drawing.annotations() if name.startswith(prefix))
+    leader = drawing.get_annotation(name)
+    center = part.bounding_box().center()
+    axis_site = drawing.at("side", center.X, center.Y, center.Z)[:2]
+
+    assert features and all(feature.turned and feature.axis == "y" for feature in features)
+    assert drawing.view_of(name) == "side"
+    assert any(
+        leader.tip[:2] == pytest.approx(drawing.at("side", *feature.frame.origin)[:2])
+        for feature in features
+    )
+    assert leader.tip[:2] != pytest.approx(axis_site)
+
+
+@pytest.mark.parametrize(
     ("axis", "view"),
     [("x", "front"), ("y", "side"), ("z", "front")],
 )
@@ -93,6 +127,23 @@ def test_cylindrical_notes_have_xyz_profile_parity(axis, view, surface_site):
     assert target.view == view
     assert target.frame.origin == surface_site
     assert target.frame.origin != feature.frame.origin
+
+
+@pytest.mark.parametrize(
+    ("axis", "view", "surface_site", "side"),
+    [
+        ("z", "side", (0.0, 5.0, 0.0), "below"),
+        ("x", "plan", (0.0, 5.0, 0.0), "above"),
+    ],
+)
+def test_cylindrical_view_overrides_choose_a_radial_axis_visible_in_that_view(
+    axis, view, surface_site, side
+):
+    feature = boss(diameter=10, height=20, at=(0, 0, 0), axis=axis)
+    target = note("POLISH", feature, Box(80, 60, 40), view=view)
+    assert target.view == view
+    assert target.side == side
+    assert target.frame.origin == surface_site
 
 
 def test_unbounded_cylindrical_note_offsets_from_its_declared_axis_site():

@@ -36,6 +36,49 @@ _END_ON = {"x": "side", "y": "front", "z": "plan"}
 # resolving it. Same reasoning as above: route through it, never re-spell it (#1130).
 _EDGE_ON = {"x": "front", "y": "side", "z": "front"}
 
+# Model axes retained by each orthographic projection.  Besides documenting the projection
+# convention once, this lets surface-bound annotations choose a radial direction that the
+# requested view can actually show (#1276).
+_VIEW_AXES = {"plan": ("x", "y"), "front": ("x", "z"), "side": ("y", "z")}
+
+
+def _radial_axis_in_view(axis: str, view: str) -> str:
+    """Return a principal radial axis visible in *view* for a shaft along *axis*.
+
+    Profile views contain the shaft axis and exactly one radial axis.  A caller may also
+    explicitly choose the face-on view, where both projected axes are radial; the first is a
+    deterministic, equally physical surface direction.
+    """
+    try:
+        return next(candidate for candidate in _VIEW_AXES[view] if candidate != axis)
+    except (KeyError, StopIteration) as e:
+        raise ValueError(f"no radial axis for shaft axis {axis!r} in view {view!r}") from e
+
+
+def _canonical_profile_site(site, centre, axis: str, view: str) -> tuple[float, float, float]:
+    """Rotate a turned surface *site* about its shaft onto the selected profile plane.
+
+    Conical and toroidal recognisers may return any circumferential point on the same physical
+    edge treatment.  Orthographic projection can discard that point's sole radial component
+    (notably an X-offset site viewed in the Y-Z side view).  Preserve its axial station and
+    radial distance while rotating it to the radial axis visible in *view*.
+    """
+    values = [float(value) for value in site]
+    centre_values = [float(value) for value in centre]
+    axis_i = "xyz".index(axis)
+    radial = [i for i in (0, 1, 2) if i != axis_i]
+    visible_i = "xyz".index(_radial_axis_in_view(axis, view))
+    if visible_i not in radial:
+        raise ValueError(f"view {view!r} is not a profile view of axis {axis!r}")
+    hidden_i = next(i for i in radial if i != visible_i)
+    visible_delta = values[visible_i] - centre_values[visible_i]
+    hidden_delta = values[hidden_i] - centre_values[hidden_i]
+    radius = math.hypot(visible_delta, hidden_delta)
+    direction = visible_delta if abs(visible_delta) > 1e-12 else hidden_delta
+    values[visible_i] = centre_values[visible_i] + math.copysign(radius, direction or 1.0)
+    values[hidden_i] = centre_values[hidden_i]
+    return (values[0], values[1], values[2])
+
 
 def _xyz(loc) -> tuple[float, float, float]:
     """A build123d ``Vector`` (has ``.X/.Y/.Z``) or an ``(x, y, z)`` sequence → an

@@ -29,7 +29,13 @@ from __future__ import annotations
 import math
 import warnings
 
-from draftwright._geometry import _EDGE_ON, _END_ON, _solids_body, plane_axes
+from draftwright._geometry import (
+    _EDGE_ON,
+    _END_ON,
+    _radial_axis_in_view,
+    _solids_body,
+    plane_axes,
+)
 from draftwright.model.ir import (
     AUTHORED_DIMENSION_KINDS,
     AuthoredDimension,
@@ -1921,6 +1927,9 @@ def _surface_target(ref, part=None, *, view=None, side=None) -> tuple[str, str, 
     if isinstance(ref, BossFeature | StepFeature | RotationalFeature):
         axis = _norm_axis(ref.frame.axis)
         d_view = _EDGE_ON_VIEW[axis]
+        v = view or d_view
+        if v not in ("plan", "front", "side"):
+            raise ValueError(f"view must be 'plan'/'front'/'side' (got {v!r})")
         diameter = ref.od if isinstance(ref, RotationalFeature) else ref.diameter
         span = getattr(ref, "span", None)
         if span is not None:
@@ -1930,27 +1939,31 @@ def _surface_target(ref, part=None, *, view=None, side=None) -> tuple[str, str, 
         # The profile plane contains the shaft axis and one principal radial direction.
         # Choosing its positive side gives a deterministic point on the cylindrical surface;
         # the corridor solve remains free to place the label on any sanctioned tier.
-        radial_axis = {"x": "z", "y": "z", "z": "x"}[axis]
+        radial_axis = _radial_axis_in_view(axis, v)
         site["xyz".index(radial_axis)] += diameter / 2
         d_site = (site[0], site[1], site[2])
     elif isinstance(ref, GrooveFeature):
         axis = _norm_axis(ref.frame.axis)
         d_view = _EDGE_ON_VIEW[axis]
+        v = view or d_view
+        if v not in ("plan", "front", "side"):
+            raise ValueError(f"view must be 'plan'/'front'/'side' (got {v!r})")
         site = list(ref.frame.origin)
-        radial_axis = {"x": "z", "y": "z", "z": "x"}[axis]
+        radial_axis = _radial_axis_in_view(axis, v)
         site["xyz".index(radial_axis)] += ref.diameter / 2
         d_site = (site[0], site[1], site[2])
     elif isinstance(ref, ChamferFeature | FilletFeature) and ref.turned:
         axis = _norm_axis(ref.frame.axis)
         d_view = _EDGE_ON_VIEW[axis]
+        v = view or d_view
         d_site = ref.frame.origin
     else:
         return gdt_target(ref, part, view=view, side=side)
 
-    d_side = _FEATURE_SIDE[d_view]
-    v, s = view or d_view, side or d_side
     if v not in ("plan", "front", "side"):
         raise ValueError(f"view must be 'plan'/'front'/'side' (got {v!r})")
+    d_side = _FEATURE_SIDE[v]
+    s = side or d_side
     if s not in _VALID_SIDES:
         raise ValueError(f"side must be one of {_VALID_SIDES} (got {s!r})")
     return v, s, d_site, axis
