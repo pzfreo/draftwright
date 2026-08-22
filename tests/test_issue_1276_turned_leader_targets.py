@@ -1,5 +1,6 @@
 """#1276: turned edge treatments and cylindrical notes target profile surfaces."""
 
+import math
 import warnings
 from pathlib import Path
 
@@ -115,6 +116,60 @@ def test_detected_parallel_shafts_rotate_about_their_own_axes_not_the_part_bbox(
     assert vb[0] <= leader.tip[0] <= vb[2]
     assert vb[1] <= leader.tip[1] <= vb[3]
     assert leader.tip[1] != pytest.approx((vb[1] + vb[3]) / 2)
+
+
+def test_turned_site_ignores_radially_matching_cylinder_at_a_remote_axial_station():
+    primary = _chamfered_shaft()
+    reference = build_drawing(primary, number="REF")
+    feature = next(item for item in reference.model().features if item.kind == "chamfer")
+    x, y, _z = feature.frame.origin
+
+    # Its radius makes the remote cylinder an exact radial match for the chamfer site.  The
+    # owning shaft is inset by the chamfer and therefore loses if matching ignores axial span.
+    remote_axis_y = 40.0
+    misleading_radius = math.hypot(x, y - remote_axis_y)
+    remote = Pos(0, remote_axis_y, 100) * Cylinder(misleading_radius, 10)
+    drawing = build_drawing(Compound(children=[primary, remote]), model=[feature], number="AXIAL")
+    name = next(name for name in drawing.annotations() if name.startswith("m_chamfer"))
+    leader = drawing.get_annotation(name)
+
+    assert drawing.view_of(name) == "front"
+    assert leader.tip[:2] == pytest.approx(drawing.at("front", *feature.frame.origin)[:2])
+
+
+def test_turned_site_ignores_partial_cylindrical_blend_that_is_not_a_shaft():
+    primary = _chamfered_shaft()
+    reference = build_drawing(primary, number="REF")
+    feature = next(item for item in reference.model().features if item.kind == "chamfer")
+
+    block = Box(4, 4, 2)
+    vertical = next(edge for edge in block.edges() if edge.bounding_box().size.Z > 1.9)
+    # This quarter-cylinder's local axis is exactly one radius from the feature site and at
+    # the same axial station, so an unfiltered cylinder inventory prefers it over the chamfer-
+    # inset OD.  It is blend geometry, not a shaft substrate.
+    blend = Pos(-8.5, 2, -19.5) * b3d_fillet([vertical], 1)
+    drawing = build_drawing(Compound(children=[primary, blend]), model=[feature], number="BLEND")
+    name = next(name for name in drawing.annotations() if name.startswith("m_chamfer"))
+    leader = drawing.get_annotation(name)
+
+    assert drawing.view_of(name) == "front"
+    assert leader.tip[:2] == pytest.approx(drawing.at("front", *feature.frame.origin)[:2])
+
+
+def test_partial_od_site_is_not_redirected_to_a_remote_complete_shaft():
+    half_shaft = Cylinder(10, 40) & (Pos(-10, 0, 0) * Box(20, 10, 40))
+    circles = [edge for edge in half_shaft.edges() if edge.geom_type == GeomType.CIRCLE]
+    primary = b3d_chamfer(circles, 1)
+    reference = build_drawing(primary, number="REF")
+    feature = next(item for item in reference.model().features if item.kind == "chamfer")
+    remote = Pos(0, 100, 0) * Cylinder(10, 40)
+
+    drawing = build_drawing(Compound(children=[primary, remote]), model=[feature], number="PARTIAL")
+    name = next(name for name in drawing.annotations() if name.startswith("m_chamfer"))
+    leader = drawing.get_annotation(name)
+
+    assert drawing.view_of(name) == "front"
+    assert leader.tip[:2] == pytest.approx(drawing.at("front", *feature.frame.origin)[:2])
 
 
 @pytest.mark.parametrize(

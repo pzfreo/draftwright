@@ -15,6 +15,7 @@ import logging
 import math
 from dataclasses import dataclass
 
+from b123d_recognisers import full_cylinders
 from build123d import Compound
 
 _log = logging.getLogger(__name__)
@@ -84,8 +85,10 @@ def _turned_profile_site(site, axis: str, view: str, cylinders) -> tuple[float, 
     """Return *site* rotated onto *view* about its nearest external shaft axis.
 
     A part may contain several parallel shafts, so the part bounding-box centre is not an
-    axis. Rank the shared cylinder substrate by how closely the site lies on each cylinder's
-    surface, then rotate about that cylinder's own ``axis_xyz``.
+    axis. Rank the shared cylinder substrate by the site's distance from each finite cylinder
+    patch (radial surface gap plus axial-span gap), then rotate about that cylinder's own
+    ``axis_xyz``.  The finite span matters for compounds: an unrelated cylinder at a remote
+    axial station can coincidentally have the exact radial distance (#1276 review).
     When no matching external cylinder exists, preserve the physical site: inventing an axis
     would be worse than retaining a possibly edge-on circumferential anchor.
     """
@@ -93,7 +96,11 @@ def _turned_profile_site(site, axis: str, view: str, cylinders) -> tuple[float, 
     axis_i = "xyz".index(axis)
     radial = tuple(i for i in (0, 1, 2) if i != axis_i)
     candidates = []
-    for cylinder in (item for group in cylinders for item in group):
+    # ``analyse_cylinders`` is deliberately a complete face inventory: longitudinal blends
+    # and slot caps are cylindrical too.  Only its public substrate filter proves which
+    # records collectively describe a shaft, including an OD split by a keyway/slot.
+    substrates = (full_cylinders(list(group)) for group in cylinders)
+    for cylinder in (item for group in substrates for item in group):
         if not cylinder.get("external") or cylinder.get("axis") != axis:
             continue
         centre = tuple(float(value) for value in cylinder["axis_xyz"])
@@ -102,9 +109,31 @@ def _turned_profile_site(site, axis: str, view: str, cylinders) -> tuple[float, 
             values[radial[1]] - centre[radial[1]],
         )
         surface_gap = abs(radial_distance - float(cylinder["diameter"]) / 2)
+        direction = tuple(float(value) for value in cylinder["dir_xyz"])
+        axial_station = sum(value * component for value, component in zip(values, direction))
+        s_lo = float(cylinder["s_lo"])
+        s_hi = float(cylinder["s_hi"])
+        axial_gap = max(s_lo - axial_station, 0.0, axial_station - s_hi)
+        patch_distance = math.hypot(surface_gap, axial_gap)
+        # A complete cylinder elsewhere in a compound is not evidence for this feature.  If
+        # the recogniser's physical point is more than one radius from the finite patch, keep
+        # that point rather than rotating it around an invented remote axis.  This also keeps
+        # a chamfer on a partial OD (for example a D-shaft) safe when ``full_cylinders`` quite
+        # correctly declines to call the partial wall a complete shaft substrate.
+        radius = float(cylinder["diameter"]) / 2
+        if patch_distance > radius:
+            continue
         candidates.append(
             (
-                (surface_gap, radial_distance, centre[radial[0]], centre[radial[1]]),
+                (
+                    patch_distance,
+                    axial_gap,
+                    surface_gap,
+                    radial_distance,
+                    int(cylinder["solid_idx"]),
+                    centre[radial[0]],
+                    centre[radial[1]],
+                ),
                 centre,
             )
         )
