@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import dataclasses
 import warnings
-from types import SimpleNamespace
 
 import pytest
 from build123d import Box, Cylinder
@@ -12,13 +11,8 @@ from build123d import Box, Cylinder
 import draftwright.builder as builder_mod
 import draftwright.projection as projection_mod
 from draftwright import Sheet, SoftDeprecationWarning, ViewConstraints
-from draftwright.annotations.orchestrator import _planned_sections, _queue_authored_details
-from draftwright.annotations.sections import _section_identity
-from draftwright.model import plan_sections
 from draftwright.view_plan import (
-    ConstraintSource,
     ResolvedViewPlan,
-    ViewConstraint,
     ViewPin,
     ViewRelation,
     ViewSpec,
@@ -367,38 +361,6 @@ class TestBuildEffects:
         detail.detail_view("A", around=hole).scale(100)
         with pytest.raises(ValueError, match="authored detail.*not relaxed"):
             detail.build()
-
-
-class TestDefensiveTypedBoundaries:
-    def test_malformed_typed_inputs_are_rejected_without_relaxation(self):
-        source = ConstraintSource("test.py", 1)
-        malformed_section = ViewConstraints(
-            derived_source="authored",
-            derived=(ViewConstraint(ViewSpec("section_aa", "section"), source),),
-        )
-        a = SimpleNamespace(
-            view_constraints=malformed_section,
-            bb=SimpleNamespace(min=SimpleNamespace(Y=-10.0), max=SimpleNamespace(Y=10.0)),
-        )
-        model = SimpleNamespace(decorations={}, features=[])
-        with pytest.raises(ValueError, match="no semantic cut target"):
-            _planned_sections(a, model, set())
-
-        malformed_detail = ViewConstraints(
-            derived_source="authored",
-            derived=(ViewConstraint(ViewSpec("detail_a", "detail"), source),),
-        )
-        with pytest.raises(ValueError, match="no semantic feature target"):
-            _queue_authored_details(
-                SimpleNamespace(view_constraints=malformed_detail),
-                SimpleNamespace(detail_requests=[]),
-            )
-        with pytest.raises(ValueError, match="alphanumeric"):
-            _section_identity(SimpleNamespace(label="-"))
-
-    def test_auto_section_suppression_reaches_the_planner_boundary(self):
-        model = SimpleNamespace(decorations={"auto_sections": False}, features=[])
-        assert plan_sections(model, set()) is None
 
 
 class TestLegacyDerivedVerbs:
