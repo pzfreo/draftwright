@@ -59,7 +59,7 @@ exit. The extraction epic is the tracker; private historical submodules were not
 | Surface | Use instead | Deprecated in | Removed in |
 |---|---|---|---|
 | `Drawing.add()` | the placement verbs (`callout` / `dimension` / `note` / `add_table`) | 0.3.8 (#817) | 0.5.0 |
-| `Drawing.add_view()` | the section verb; the raw projector is private | 0.3.8 (#817) | 0.5.0 |
+| `Drawing.add_view()` | `Sheet.section_view()` / `detail_view()` (or their `add_` forms); the raw projector is private | 0.3.8 (#817) | 0.5.0 |
 | `Drawing.clear_annotations()` | the feature-scoped verbs (`drop` / `remove`) | 0.3.8 (#817) | 0.5.0 |
 | `Drawing.set_view_coordinates()` | — (engine plumbing, now private) | 0.3.8 (#817) | 0.5.0 |
 | `Drawing.drop_view_coordinates()` | — (engine plumbing, now private) | 0.3.8 (#817) | 0.5.0 |
@@ -69,6 +69,8 @@ exit. The extraction epic is the tracker; private historical submodules were not
 | `Drawing.export(svg=, dxf=)` keywords | `export(out, formats=[...])` → `{format: path}` | 0.3.1 (warns since 0.4.0) | 0.5.0 |
 | `Drawing.export()` with `formats` omitted **or `None`** → `(svg, dxf)` tuple | `export(out, formats=[...])` → `{format: path}` | 0.3.1 (warns since 0.4.0) | 0.5.0 — **see below** |
 | `Drawing.place_dim()` | `dimension(feature, param, pin=True)` / `locate(…, pin=True)` | **0.2.12** (0.3.8 added the PEP 702 shim) | gated on #707, target 0.6.0 |
+| `Sheet.section()` | `add_section_view("A", through=feature)` or `add_section_view("A", at=y)` | 0.4.10 (#1260) | 0.6.0 |
+| `Sheet.detail()` | `add_detail_view("A", around=feature)` | 0.4.10 (#1260) | 0.6.0 |
 
 ### The legacy `export` shapes warn from 0.4.0 — and why that needed `make_drawing` moved first
 

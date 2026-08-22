@@ -1315,6 +1315,8 @@ class SectionPlan:
     infrastructure that consumes this (ADR 0008 Amendment 4 / #207)."""
 
     cut_y: float
+    label: str = "A"
+    source: object | None = None
 
 
 def plan_sections(model: PartModel, feature_keys: set[HoleRef]) -> SectionPlan | None:
@@ -1334,6 +1336,8 @@ def plan_sections(model: PartModel, feature_keys: set[HoleRef]) -> SectionPlan |
     requested = model.decorations.get("section")
     if requested is not None:
         return SectionPlan(cut_y=float(requested))
+    if model.decorations.get("auto_sections") is False:
+        return None
     qual_ys: list[float] = []
     for f in model.features:
         if not isinstance(f, HoleFeature | PatternFeature) or f.frame.axis != "z":

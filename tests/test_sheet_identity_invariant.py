@@ -55,7 +55,7 @@ _SRC = Path(__file__).resolve().parent.parent / "src" / "draftwright" / "sheet.p
 #: what makes a new kind of handle impossible to add unnoticed (#963). If it ever gains state
 #: or is returned by a verb, it needs a scenario in `_SCENARIOS` like the rest.
 _HANDLE_CLASSES = frozenset(
-    {"_Hole", "_Dim", "_Params", "_Control", "DimensionIntent", "_Nameable"}
+    {"_Hole", "_Dim", "_Params", "_Control", "_View", "DimensionIntent", "_Nameable"}
 )
 
 
@@ -85,6 +85,12 @@ def _canonical(model) -> tuple:
     decorations = sorted((repr(k), repr(v)) for k, v in getattr(model, "decorations", {}).items())
     requested = sorted(repr(r) for r in getattr(model, "requested_dimensions", ()))
     return (features, decorations, requested)
+
+
+def _canonical_sheet(sheet) -> tuple:
+    """The model plus authored view input, whose feature targets materialise separately."""
+
+    return (_canonical(sheet.model()), sheet.view_constraints)
 
 
 # --------------------------------------------------------------------------------------------
@@ -181,6 +187,35 @@ def _scn_add_dimension(s):
     return a, lambda a: s.add_dimension(a, "bore.diameter")
 
 
+def _scn_view(s):
+    """A retained whole-view handle carries a view name, never a feature position."""
+
+    s._auto_dimensions = None
+    s.authored_dimensions()
+    s.hole(diameter=10, at=(-25, 0, 20), axis="z").depth(12)
+    s.hole(diameter=6, at=(25, 0, 20), axis="z").depth(8)
+    view = s.view("front")
+    return view, lambda view: view.pin((100, 80))
+
+
+def _scn_section_view(s):
+    """The complete derived set stores a feature token until constraints materialise."""
+
+    s._auto_dimensions = None
+    s.authored_dimensions()
+    a = s.hole(diameter=10, at=(-25, -18, 20), axis="z").depth(12)
+    s.hole(diameter=6, at=(25, 18, 20), axis="z").depth(8)
+    return a, lambda a: s.section_view("A", through=a)
+
+
+def _scn_add_section_view(s):
+    """The automatic-derived augmentation has the same identity contract."""
+
+    a = s.hole(diameter=10, at=(-25, -18, 20), axis="z").depth(12)
+    s.hole(diameter=6, at=(25, 18, 20), axis="z").depth(8)
+    return a, lambda a: s.add_section_view("A", through=a)
+
+
 #: verb name -> (prepare, drive). The ratchet below asserts this covers every handle-returning
 #: verb, so a new one cannot ship without an author deciding what it does across a reorder.
 _SCENARIOS = {
@@ -190,6 +225,7 @@ _SCENARIOS = {
     "step": _scn_step,
     "envelope": _scn_envelope,
     "control": _scn_control,
+    "view": _scn_view,
     "add_dimension": _scn_add_dimension,
     # Verbs that return `Sheet` but retain a feature reference. Not handle-returning, so the
     # verb ratchet cannot see them — the state-field ratchet below is what makes them mandatory.
@@ -197,6 +233,8 @@ _SCENARIOS = {
     "datum": _scn_datum,
     "note": _scn_note,
     "dimension": _scn_dimension,
+    "section_view": _scn_section_view,
+    "add_section_view": _scn_add_section_view,
 }
 
 #: Verbs that hand back a `_Params` by exactly the same route `envelope` does — declare the
@@ -318,7 +356,7 @@ class TestRetainedBuilders:
         )
         drive2(obj2)
 
-        assert _canonical(mutated.model()) == _canonical(baseline.model()), (
+        assert _canonical_sheet(mutated) == _canonical_sheet(baseline), (
             f"{verb}() retained an object that did not survive `{mutation}` — the mutation "
             "moved its target and the object followed the position instead of the feature"
         )
@@ -339,7 +377,7 @@ def test_a_mutation_between_declaration_and_build_is_invisible(verb):
     mutated.features.reverse()
     assert _order(mutated) != before, "the mutation must actually reorder, or this asserts nothing"
 
-    assert _canonical(mutated.model()) == _canonical(baseline.model())
+    assert _canonical_sheet(mutated) == _canonical_sheet(baseline)
 
 
 @pytest.mark.parametrize("verb", sorted(_SCENARIOS))
@@ -349,9 +387,9 @@ def test_materialisation_is_idempotent(verb):
     s = _sheet()
     obj, drive = _SCENARIOS[verb](s)
     drive(obj)
-    first = _canonical(s.model())
-    assert _canonical(s.model()) == first
-    assert _canonical(s.model()) == first
+    first = _canonical_sheet(s)
+    assert _canonical_sheet(s) == first
+    assert _canonical_sheet(s) == first
 
 
 class TestDeliberateInvalidation:
@@ -618,7 +656,15 @@ def _handle_returning_verbs() -> set[str]:
 #: `Sheet` state that stores a reference to a declared feature. Each must be reached by at least
 #: one scenario, proven at runtime below rather than asserted by eye.
 _STATE_CARRYING_FEATURE_REFS = frozenset(
-    {"_tolerances", "_gdt_src", "_section", "_added_dimensions", "_authored"}
+    {
+        "_tolerances",
+        "_gdt_src",
+        "_section",
+        "_added_dimensions",
+        "_authored",
+        "_derived_views",
+        "_added_derived_views",
+    }
 )
 
 #: `Sheet` state that stores no feature reference, so a reorder cannot affect it.
@@ -635,6 +681,14 @@ _STATE_WITHOUT_FEATURE_REFS = frozenset(
         # for the same reason (#933). The set's MEMBERS live in `_authored`, which is
         # classified as reference-carrying and has its own scenario.
         "_authored_source",
+        "_principal_view_source",
+        "_derived_view_source",
+        "_principal_view_source_at",
+        "_derived_view_source_at",
+        "_principal_views",
+        "_added_principal_views",
+        "_view_relations",
+        "_view_pins",
     }
 )
 

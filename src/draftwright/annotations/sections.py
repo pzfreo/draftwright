@@ -53,6 +53,33 @@ from draftwright.projection import project_view_geometry
 _DETAIL_LETTERS = "ABCDEFGH"
 
 
+def _section_identity(section) -> tuple[str, str, str]:
+    """``(label, view_name, annotation_prefix)``; preserve A–A's historic names."""
+
+    label = str(getattr(section, "label", "A")).strip().upper()
+    if not label or not label.isalnum():
+        raise ValueError(f"section label must be alphanumeric, got {label!r}")
+    if label == "A":
+        return label, "section_aa", "section"
+    slug = label.lower()
+    return label, f"section_{slug}{slug}", f"section_{slug}"
+
+
+def _section_annotation_names(section, *, reservation=False) -> tuple[str, ...]:
+    _label, _view, prefix = _section_identity(section)
+    line = f"{prefix}_line_reservation" if reservation else f"{prefix}_line"
+    letter = _label.lower()
+    return (
+        line,
+        f"{prefix}_arrow_left",
+        f"{prefix}_arrow_right",
+        f"{prefix}_wing_left",
+        f"{prefix}_wing_right",
+        f"{prefix}_{letter}_left",
+        f"{prefix}_{letter}_right",
+    )
+
+
 def feature_hole_keys(model, a: Analysis) -> set[HoleRef]:
     """The :class:`HoleRef` position keys of the part's feature holes — the membership
     set the callout/furniture passes and ``plan_sections`` gate on (#420).
@@ -209,6 +236,12 @@ def _add_section_view(dwg, a: Analysis, section, *, ctx):
     the plan view, and filled with ISO 128-50 45° hatching on the cut face.
     """
     y_star = section.cut_y
+    label, view_name, prefix = _section_identity(section)
+    if "plan" not in dwg.views:
+        raise ValueError(
+            f"section {label}–{label} from {section.source} needs the plan view to carry its "
+            "cutting-plane line; add view('plan')"
+        )
 
     # room check: same row as the front/side views, to the right — past any
     # side-view callout labels already placed there.
@@ -216,10 +249,12 @@ def _add_section_view(dwg, a: Analysis, section, *, ctx):
     # have enough room for the "SECTION A–A" caption and arrows.
     half_w = max(a.x_size * a.SCALE / 2, 12.0)
     half_h = a.z_size * a.SCALE / 2
-    side_vis, side_hid = dwg.views["side"]
-    side_right = side_vis.bounding_box().max.X
-    if side_hid:
-        side_right = max(side_right, side_hid.bounding_box().max.X)
+    row_views = [name for name in ("front", "side") if name in dwg.views]
+    if not row_views:
+        raise ValueError(
+            f"section {label}–{label} from {section.source} needs front or side as its parent row"
+        )
+    side_right = max(dwg.view_bounds(name)[2] for name in row_views)
     row_y0 = a.FV_Y - half_h - 10
     row_y1 = a.FV_Y + half_h + 6
     iso_x0, iso_y0, _, _ = _iso_bbox(dwg)
@@ -247,6 +282,7 @@ def _add_section_view(dwg, a: Analysis, section, *, ctx):
             "no_room",
             f"no free segment right of the side view wide enough for the "
             f"{2 * half_w:.1f} mm section within x<={right_limit:.1f}",
+            section=section,
         )
         return
     # The section's row dips into the title-block band only when its CAPTION does —
@@ -269,6 +305,7 @@ def _add_section_view(dwg, a: Analysis, section, *, ctx):
             "would collide with the title block; the caption sits at "
             f"y={a.FV_Y - half_h - 7:.1f} and the title block reaches "
             f"y={_TB_CLEAR + _TB_H:.1f} out to x={tb_left:.1f}",
+            section=section,
         )
         return
     pos_x = usable[0][0] + half_w
@@ -279,7 +316,7 @@ def _add_section_view(dwg, a: Analysis, section, *, ctx):
     # never let a failed boolean abort the whole drawing
     solids = a.part.solids()
     if not solids:
-        _skip_section(dwg, ctx, "no_solids", "no solid bodies to cut")
+        _skip_section(dwg, ctx, "no_solids", "no solid bodies to cut", section=section)
         return
     body = solids[0] if len(solids) == 1 else Compound(children=list(solids))
     try:
@@ -287,10 +324,10 @@ def _add_section_view(dwg, a: Analysis, section, *, ctx):
         # (Standard_DomainError) on some cast geometry — see _fuzzy_cut / #20.
         keep_behind = _fuzzy_cut(body, Pos(a.cx, y_star - big / 2, a.cz) * Box(big, big, big))
     except Exception as exc:  # noqa: BLE001 — OCC booleans raise broadly
-        _skip_section(dwg, ctx, "cut_failed", f"cut failed: {exc}")
+        _skip_section(dwg, ctx, "cut_failed", f"cut failed: {exc}", section=section)
         return
     if keep_behind is None:
-        _skip_section(dwg, ctx, "cut_empty", "boolean cut produced no solid")
+        _skip_section(dwg, ctx, "cut_empty", "boolean cut produced no solid", section=section)
         return
     # Resolve the final cutting-plane ink before committing the section view.
     # Optional section furniture yields if a required landed feature leader
@@ -309,18 +346,10 @@ def _add_section_view(dwg, a: Analysis, section, *, ctx):
                 ext_x0 = min(ext_x0, cb.min.X)
                 ext_x1 = max(ext_x1, cb.max.X)
     x0, x1 = ext_x0 - 4, ext_x1 + 4
-    section_names = (
-        "section_line",
-        "section_arrow_left",
-        "section_arrow_right",
-        "section_wing_left",
-        "section_wing_right",
-        "section_a_left",
-        "section_a_right",
-    )
-    _clear_section_reservation(dwg)
+    section_names = _section_annotation_names(section)
+    _clear_section_reservation(dwg, section)
 
-    _place_cutting_plane(dwg, y_page, x0, x1, ctx=ctx)
+    _place_cutting_plane(dwg, y_page, x0, x1, section=section, ctx=ctx)
     conflicts = feature_leader_fixed_conflicts(dwg, section_names)
     if conflicts:
         # The cut row is semantically fixed, but its end symbols may extend
@@ -347,8 +376,8 @@ def _add_section_view(dwg, a: Analysis, section, *, ctx):
             and repaired_x1 <= a.PAGE_W - a.margin - page_clearance
         )
         if repair_is_bounded:
-            _clear_section_reservation(dwg)
-            _place_cutting_plane(dwg, y_page, repaired_x0, repaired_x1, ctx=ctx)
+            _clear_section_reservation(dwg, section)
+            _place_cutting_plane(dwg, y_page, repaired_x0, repaired_x1, section=section, ctx=ctx)
             conflicts = feature_leader_fixed_conflicts(dwg, section_names)
     if conflicts:
         _skip_section(
@@ -357,15 +386,18 @@ def _add_section_view(dwg, a: Analysis, section, *, ctx):
             "leader_conflict",
             "final cutting-plane ink crosses required feature leaders: "
             + ", ".join(f"{leader}/{component}" for leader, component in conflicts),
+            section=section,
         )
         return
 
     camera = (dwg.look_at[0], dwg.look_at[1] - dwg.dist, dwg.look_at[2])
-    dwg._add_view("section_aa", keep_behind, camera, (0, 0, 1), (pos_x, a.FV_Y))
-    dwg.record_section_decision("placed", detail=f"placed at x={pos_x:.1f}")
+    dwg._add_view(view_name, keep_behind, camera, (0, 0, 1), (pos_x, a.FV_Y))
+    dwg.record_section_decision(
+        "placed", detail=f"section {label}–{label} placed at x={pos_x:.1f}"
+    )
     ctx.place(
-        Note("SECTION A–A", (pos_x, a.FV_Y - half_h - 7), dwg.draft),
-        "section_caption",
+        Note(f"SECTION {label}–{label}", (pos_x, a.FV_Y - half_h - 7), dwg.draft),
+        f"{prefix}_caption",
     )
 
     # ISO 128-50: 45° hatching on the cut face, in page coordinates. The section
@@ -384,24 +416,26 @@ def _add_section_view(dwg, a: Analysis, section, *, ctx):
     if hatch_edges:
         hatch = Compound(children=hatch_edges)
         hatch.is_section_hatch = True  # exempt from view_annotation_overlap lint
-        ctx.place(hatch, "section_hatch")
+        ctx.place(hatch, f"{prefix}_hatch")
 
 
-def _place_cutting_plane(dwg, y_page, x0, x1, *, ctx):
+def _place_cutting_plane(dwg, y_page, x0, x1, *, section, ctx):
     """Place one complete, unmeasured cutting-plane furniture candidate."""
 
-    ctx.place(Centerline((x0, y_page, 0), (x1, y_page, 0)), "section_line")
-    _add_cutting_plane_arrows(dwg, y_page, x0, x1, ctx=ctx)
-    _add_section_letters(dwg, y_page, x0, x1, ctx=ctx)
+    _label, _view, prefix = _section_identity(section)
+    ctx.place(Centerline((x0, y_page, 0), (x1, y_page, 0)), f"{prefix}_line")
+    _add_cutting_plane_arrows(dwg, y_page, x0, x1, section=section, ctx=ctx)
+    _add_section_letters(dwg, y_page, x0, x1, section=section, ctx=ctx)
 
 
-def _add_cutting_plane_arrows(dwg, y_page, x0, x1, *, ctx):
+def _add_cutting_plane_arrows(dwg, y_page, x0, x1, *, section, ctx):
     """ISO 128-44 cutting-plane end indicators at ``(x0, y_page)``/``(x1, y_page)`` —
     thick wing stubs with solid filled arrowheads pointing in the viewing direction
     (−Y). Named ``section_arrow_{left,right}``/``section_wing_{left,right}``, shared
     between the early row reservation (:func:`_reserve_section_row`) and the final
     section render (:func:`_add_section_view`, ADR 0009 P5 strand 3)."""
     arrow_sz = dwg.draft.arrow_length
+    _label, _view, prefix = _section_identity(section)
     wing_h = 2.5 * arrow_sz  # perpendicular stub length
     for x_end, side in ((x0, "left"), (x1, "right")):
         tip_y = y_page - wing_h
@@ -416,7 +450,7 @@ def _add_cutting_plane_arrows(dwg, y_page, x0, x1, *, ctx):
             arrow_length=arrow_sz,
             line_width=0.0,
         )[-1:]
-        ctx.place(arrow, f"section_arrow_{side}")
+        ctx.place(arrow, f"{prefix}_arrow_{side}")
         shaft_end_y = tip_y + arrow_sz
         wing_segment = ((x_end, y_page), (x_end, shaft_end_y))
         wing = Compound(
@@ -425,11 +459,11 @@ def _add_cutting_plane_arrows(dwg, y_page, x0, x1, *, ctx):
         wing.fixed_ink_polygons = (_stroke_polygon(*wing_segment, dwg.draft.line_width),)
         ctx.place(
             wing,
-            f"section_wing_{side}",
+            f"{prefix}_wing_{side}",
         )
 
 
-def _add_section_letters(dwg, y_page, x0, x1, *, ctx):
+def _add_section_letters(dwg, y_page, x0, x1, *, section, ctx):
     """The 'A' identification letters above the cutting-plane line ends, clear of
     any callout leaders. Named ``section_a_{left,right}`` — shared between the
     early row reservation and the final section render, same as
@@ -437,8 +471,10 @@ def _add_section_letters(dwg, y_page, x0, x1, *, ctx):
     footprint can land on the letters just as easily as on the arrows, so both
     need to be visible to the plan-view callout carve before it places."""
     lift = dwg.draft.font_size * 1.4
-    ctx.place(Note("A", (x0 - 3, y_page + lift), dwg.draft), "section_a_left")
-    ctx.place(Note("A", (x1 + 3, y_page + lift), dwg.draft), "section_a_right")
+    label, _view, prefix = _section_identity(section)
+    slug = label.lower()
+    ctx.place(Note(label, (x0 - 3, y_page + lift), dwg.draft), f"{prefix}_{slug}_left")
+    ctx.place(Note(label, (x1 + 3, y_page + lift), dwg.draft), f"{prefix}_{slug}_right")
 
 
 def _segments_clearing_title_block(fitting, half_w, *, shares_title_row, tb_left):
@@ -458,7 +494,9 @@ def _segments_clearing_title_block(fitting, half_w, *, shares_title_row, tb_left
     return [(lo, hi) for lo, hi in fitting if lo + 2 * half_w <= tb_left - 4]
 
 
-def _skip_section(dwg, ctx, reason: str, detail: str, *, severity: str = "warning") -> None:
+def _skip_section(
+    dwg, ctx, reason: str, detail: str, *, section=None, severity: str = "warning"
+) -> None:
     """Abandon section A–A, recording the outcome the same way on every path (#1190).
 
     The one exit for a warranted-but-unplaced section. Before this, each skip logged
@@ -491,32 +529,31 @@ def _skip_section(dwg, ctx, reason: str, detail: str, *, severity: str = "warnin
     *unexplained*, and a caller reading `section_decision` at 2.5 now sees
     ``skipped/no_room`` rather than an unaccountable absence.
     """
-    _log.warning("Section A–A skipped (%s)", detail)
-    dwg.record_section_decision("skipped", reason=reason, detail=detail)
+    label, _view, _prefix = _section_identity(section)
+    if label == "A":
+        _log.warning("Section A–A skipped (%s)", detail)
+    else:
+        _log.warning("Section %s–%s skipped (%s)", label, label, detail)
+    dwg.record_section_decision(
+        "skipped", reason=reason, detail=f"section {label}–{label}: {detail}"
+    )
     ctx.record_issue(
         severity,
         "section_dropped",
-        f"section A–A not placed ({detail})",
+        f"section {label}–{label} not placed ({detail})",
         outcome_stage="validation",
     )
-    _clear_section_reservation(dwg)
+    _clear_section_reservation(dwg, section)
 
 
-def _clear_section_reservation(dwg) -> None:
+def _clear_section_reservation(dwg, section=None) -> None:
     """Remove the placeholder :func:`_reserve_section_row` may have added, if
     present (idempotent — a no-op once :func:`_add_section_view` has already
     replaced it, or if no section ever triggered)."""
     existing = dwg.annotations()
-    for name in (
-        "section_line",
-        "section_line_reservation",
-        "section_arrow_left",
-        "section_arrow_right",
-        "section_wing_left",
-        "section_wing_right",
-        "section_a_left",
-        "section_a_right",
-    ):
+    final = _section_annotation_names(section)
+    reserved = _section_annotation_names(section, reservation=True)
+    for name in dict.fromkeys((*final, *reserved)):
         if name in existing:
             dwg.remove(name)
 
@@ -553,26 +590,19 @@ def _reserve_section_row(dwg, a: Analysis, section, *, ctx) -> None:
     PX, PY = a.proj.plan_x, a.proj.plan_y
     y_page = PY(section.cut_y)
     x0, x1 = PX(a.bb.min.X) - 4, PX(a.bb.max.X) + 4
+    _label, _view, prefix = _section_identity(section)
     ctx.place(
         Centerline((x0, y_page, 0), (x1, y_page, 0)),
-        "section_line_reservation",
+        f"{prefix}_line_reservation",
     )
-    _add_cutting_plane_arrows(dwg, y_page, x0, x1, ctx=ctx)
-    _add_section_letters(dwg, y_page, x0, x1, ctx=ctx)
+    _add_cutting_plane_arrows(dwg, y_page, x0, x1, section=section, ctx=ctx)
+    _add_section_letters(dwg, y_page, x0, x1, section=section, ctx=ctx)
     # These are provisional geometry rather than final annotation objects. The
     # row is hard future ink for clear alternatives; if a required leader must
     # retain its producer floor across it under Policy B, the optional section
     # yields. Otherwise the final pass replaces the same names with ordinary,
     # non-provisional annotations without re-solving around late leaders.
-    for name in (
-        "section_line_reservation",
-        "section_arrow_left",
-        "section_arrow_right",
-        "section_wing_left",
-        "section_wing_right",
-        "section_a_left",
-        "section_a_right",
-    ):
+    for name in _section_annotation_names(section, reservation=True):
         annotation = dwg.get_annotation(name)
         annotation.is_provisional_layout_reservation = True
 
@@ -590,15 +620,25 @@ def _render_detail(
     placed. Mirrors :func:`_add_section_view`'s skip-with-log discipline."""
     # Detail scale: smallest standard multiple in [2, 5, 10] of sheet scale that
     # makes the region legible (>= the requested scale), always >= 2x.
-    detail_scale = a.SCALE * 2
-    for factor in (2, 5, 10):
-        detail_scale = a.SCALE * factor
-        if detail_scale >= req.scale_needed:
-            break
-
-    min_detail_scale = max(req.scale_needed, a.SCALE * 1.2 + 1e-6)
+    if req.scale_factor is not None:
+        detail_scale = a.SCALE * req.scale_factor
+        min_detail_scale = detail_scale
+    else:
+        detail_scale = a.SCALE * 2
+        for factor in (2, 5, 10):
+            detail_scale = a.SCALE * factor
+            if detail_scale >= req.scale_needed:
+                break
+        min_detail_scale = max(req.scale_needed, a.SCALE * 1.2 + 1e-6)
     if not math.isfinite(min_detail_scale):
         _log.info("Detail %s skipped (non-finite scale required)", letter)
+        return False
+    if req.source_view not in dwg.views:
+        if req.keep_without_annotations:
+            raise ValueError(
+                f"authored detail {letter!r} from {req.source} needs parent view "
+                f"{req.source_view!r}; add that principal view"
+            )
         return False
 
     # Crop to the band along req.axis (two fuzzy cuts). Solids only — a mixed
@@ -642,8 +682,12 @@ def _render_detail(
     # the iso helper's square-default optimum can reject a wide, short detail even
     # when a different empty rectangle fits it (#915).
     cb = cropped.bounding_box()
-    view_w = cb.max.Y - cb.min.Y if req.source_view == "side" else cb.max.X - cb.min.X
-    view_h = cb.max.Z - cb.min.Z
+    if req.source_view == "side":
+        view_w, view_h = cb.max.Y - cb.min.Y, cb.max.Z - cb.min.Z
+    elif req.source_view == "plan":
+        view_w, view_h = cb.max.X - cb.min.X, cb.max.Y - cb.min.Y
+    else:
+        view_w, view_h = cb.max.X - cb.min.X, cb.max.Z - cb.min.Z
     cap_h = 8.0
 
     def _pads(s):  # annotation bands may depend on the scale (the prismatic ladder)
@@ -684,7 +728,11 @@ def _render_detail(
     # whole sheet scale skipped 3:1 on a 2:1 sheet (4→2), even when 3:1 both fit
     # and exceeded the requested legibility scale (#897).
     fit_step = a.SCALE * 0.5
-    while detail_scale - fit_step >= min_detail_scale and not _fits(detail_scale):
+    while (
+        req.scale_factor is None
+        and detail_scale - fit_step >= min_detail_scale
+        and not _fits(detail_scale)
+    ):
         detail_scale -= fit_step
     if not _fits(detail_scale) and detail_scale > min_detail_scale:
         detail_scale = min_detail_scale
@@ -705,11 +753,11 @@ def _render_detail(
     dcz = (cb.min.Z + cb.max.Z) / 2
     la = (dcx * detail_scale, dcy * detail_scale, dcz * detail_scale)
     dist_d = a.bbox_max * detail_scale + 100
-    camera = (
-        (la[0] + dist_d, la[1], la[2])
-        if req.source_view == "side"
-        else (la[0], la[1] - dist_d, la[2])
-    )
+    camera, up = {
+        "side": ((la[0] + dist_d, la[1], la[2]), (0, 0, 1)),
+        "plan": ((la[0], la[1], la[2] + dist_d), (0, 1, 0)),
+        "front": ((la[0], la[1] - dist_d, la[2]), (0, 0, 1)),
+    }[req.source_view]
     # Project the cropped band front-on into a SCRATCH (no Drawing mutation) at the detail scale —
     # project_view_geometry takes the scale directly, so its coordinates ARE the detail's (the old
     # _add_view + override existed only because _add_view hard-codes the sheet scale). Trying the
@@ -718,7 +766,7 @@ def _render_detail(
     try:
         band_s = cropped.scale(detail_scale)
         placed, placed_hid, coords = project_view_geometry(
-            detail_scale, view_name, band_s, camera, (0, 0, 1), (DX, DY), look_at=la, scaled=True
+            detail_scale, view_name, band_s, camera, up, (DX, DY), look_at=la, scaled=True
         )
     except Exception as exc:  # noqa: BLE001 — projection raises broadly on cast geometry
         _log.warning("Detail %s skipped (projection failed: %s)", letter, exc)
@@ -732,7 +780,8 @@ def _render_detail(
     # place-then-drop). The main view always locates the head/block inline, so lint reports any
     # un-located interior.
     dwg.views[view_name] = (placed, placed_hid)
-    if not req.redraw(dwg, view_name, coords, detail_scale):
+    redrawn = req.redraw(dwg, view_name, coords, detail_scale)
+    if not redrawn and not req.keep_without_annotations:
         dwg.views.pop(view_name, None)
         _log.info("Detail %s skipped (no legible dims at the detail scale)", letter)
         return False
@@ -743,6 +792,17 @@ def _render_detail(
         zlo = req.cross_lo if req.cross_lo is not None else a.bb.min.Z
         zhi = req.cross_hi if req.cross_hi is not None else a.bb.max.Z
         corners = [dwg.at("side", a.bb.max.X, y, z) for y in (req.lo, req.hi) for z in (zlo, zhi)]
+        mx0, mx1 = min(p[0] for p in corners), max(p[0] for p in corners)
+        my0, my1 = min(p[1] for p in corners), max(p[1] for p in corners)
+    elif req.source_view == "plan":
+        corners = [
+            dwg.at("plan", x, y, a.bb.max.Z)
+            for x in (req.lo, req.hi)
+            for y in (
+                req.cross_lo if req.cross_lo is not None else a.bb.min.Y,
+                req.cross_hi if req.cross_hi is not None else a.bb.max.Y,
+            )
+        ]
         mx0, mx1 = min(p[0] for p in corners), max(p[0] for p in corners)
         my0, my1 = min(p[1] for p in corners), max(p[1] for p in corners)
     else:
@@ -790,13 +850,19 @@ def _resolve_details(dwg, a: Analysis, *, ctx) -> None:
     the queue."""
     reqs = list(ctx.detail_requests)
     ctx.detail_requests = []
-    n_placed = 0  # letters advance only on a successful placement — no A/B gaps (#307 review)
+    reserved = {req.label for req in reqs if req.label is not None}
+    if len(reserved) != sum(req.label is not None for req in reqs):
+        raise ValueError("authored detail labels must be unique")
+    used: set[str] = set()
     for req in reqs:
-        if n_placed >= len(_DETAIL_LETTERS):
+        letter = req.label or next(
+            (candidate for candidate in _DETAIL_LETTERS if candidate not in reserved | used), None
+        )
+        if letter is None:
             _log.info("detail request '%s' dropped: detail letters A–H exhausted", req.kind)
             continue
-        letter = _DETAIL_LETTERS[n_placed]
-        placed = _render_detail(dwg, a, req, f"detail_{letter.lower()}", letter, ctx=ctx)
+        view_name = req.view_name or f"detail_{letter.lower()}"
+        placed = _render_detail(dwg, a, req, view_name, letter, ctx=ctx)
         hname = (
             _overall_height_name(dwg, a) if not placed and req.kind == "prismatic-steps" else None
         )
@@ -809,7 +875,7 @@ def _resolve_details(dwg, a: Analysis, *, ctx) -> None:
             # explicit and logged) and retry the detail once.
             ident = dwg.registry.identity_of(hname)
             hobj = dwg.remove(hname)
-            placed = _render_detail(dwg, a, req, f"detail_{letter.lower()}", letter, ctx=ctx)
+            placed = _render_detail(dwg, a, req, view_name, letter, ctx=ctx)
             if placed:
                 _log.warning(
                     "%s demoted: the requested crowded-step detail view takes its room", hname
@@ -826,7 +892,12 @@ def _resolve_details(dwg, a: Analysis, *, ctx) -> None:
                 ctx.place(hobj, hname)
                 dwg.registry.reapply(hname, ident)
         if placed:
-            n_placed += 1
+            used.add(letter)
+        elif req.keep_without_annotations:
+            raise ValueError(
+                f"authored detail {letter!r} from {req.source} is infeasible on this sheet; "
+                "its target, scale, or whole-view footprint was not relaxed"
+            )
         elif req.kind == "prismatic-steps":
             # (#630) The prismatic-steps request is queued when detail recovery is enabled
             # (_request_prismatic_detail's gate), so a bail-out here means the requested

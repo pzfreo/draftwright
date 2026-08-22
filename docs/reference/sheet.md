@@ -10,6 +10,42 @@ with an underscore.
     options:
       filters: public
 
+### Authored views and layout
+
+View declarations are semantic constraints. They name projections, relationships and whole-view
+anchors; the layout solve owns the resulting page positions. Authored views must be paired with
+authored dimensions so a deliberately omitted view cannot strand planner-selected annotations:
+
+```python
+s = Sheet(part).authored_dimensions().authored_views()
+front = s.view("front")
+plan = s.view("plan").above(front, gap=4).align_x(front)
+s.view("iso").scale(0.75)
+
+section = s.section_view("A", through=hole)
+detail = s.detail_view("B", around=hole).scale(2)
+dwg = s.build()
+```
+
+`view(...)`, `section_view(...)` and `detail_view(...)` define complete authored sets;
+omission suppresses a view. `add_view(...)`, `add_section_view(...)` and
+`add_detail_view(...)` augment an explicitly selected `auto_views()` source. `row(...)` and
+`column(...)` are shorthand for whole-view relations. A principal-view handle's `pin((x, y))`
+anchors its projection origin in page millimetres; it never positions an annotation.
+
+Principal orthographic views share the sheet scale and reject `.scale(...)`. Detail and
+isometric handles may carry an independent positive factor. Infeasible relations, scales and
+pins raise with their declaration source; unsupported pins on derived or pictorial views are
+refused at declaration and constraints are never silently relaxed. The immutable authored
+snapshot is available as `sheet.view_constraints`, while `drawing.view_plan` is the distinct
+resolved result.
+
+## View handle
+
+::: draftwright.sheet._View
+    options:
+      filters: public
+
 ## Hole handle
 
 ::: draftwright.sheet._Hole

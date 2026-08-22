@@ -1,22 +1,42 @@
 # ADR 0018 — Requirement-driven view planning and editable sheet layout
 
-- **Status:** **Accepted** (2026-08-16), **partially implemented** — see Amendment 1
-  (2026-08-21) for the authored surface. Delivery is phased through #1130. What exists:
-  `ViewSpec`, `ResolvedViewPlan` and `ViewCoverage` (`view_plan.py`); the layout choice as a
-  candidate over scale x sheet x **arrangement**, with §5's first hard gate applied by real
-  compile; a view-set-aware dimension plan that re-homes eligible requirements or raises
-  `ViewPlanIncomplete` before projection; and a chosen view set that is buildable, refusable
-  and reclaims the paper it frees.
-  What does not: `ViewConstraints` and the `Sheet` verbs, automatic view SELECTION (nothing
-  drops a view on its own — the case study reaches its A2 target and costs six annotations, so
-  a gate weighing it refuses), and any planning of sections or details. `_views` is an engine
-  seam, not a public option.
+- **Status:** **Accepted** (2026-08-16), **partially implemented** — see Amendments 1 and 2.
+  Delivery is phased through #1130. What exists: `ViewSpec`, `ViewConstraints`,
+  `ResolvedViewPlan` and `ViewCoverage` (`view_plan.py`); the public `Sheet` authored/augmenting
+  principal, section and detail verbs; relational whole-view constraints and principal
+  projection-origin pins; exact detail/isometric factors with unequal principal scales refused; the layout choice
+  as a candidate over scale x sheet x **arrangement**, with §5's first hard gate applied by real
+  compile; and a view-set-aware dimension plan that re-homes eligible requirements or raises
+  `ViewPlanIncomplete` before projection. A chosen authored view set is buildable, refusable and
+  reclaims the paper it frees.
+  What does not: automatic view SELECTION (nothing drops a view on its own — the case study
+  reaches its A2 target and costs six annotations, so a gate weighing it refuses), or resolved
+  view-plan script emission. `_views` remains an engine seam, not a public option.
   The "Required evidence before acceptance" list below is retained verbatim as the
   **delivery gate** each slice is measured against — accepting the direction does not
   waive it, and automatic semantic view selection lands only once those invariants are
   guarded.
 - **Date:** 2026-08-11 (proposed), 2026-08-16 (accepted)
 - **Deciders:** Paul Fremantle (pzfreo)
+
+## Amendment 2 — typed `ViewConstraints` and the `Sheet` view verbs ship (2026-08-22)
+
+Phase 2 (#1260) delivers Amendment 1's authored surface. `Sheet.view_constraints` is an
+immutable authored request, deliberately distinct from the immutable `ResolvedViewPlan` on the
+built drawing. `view`/`section_view`/`detail_view` author complete sets; their `add_` forms
+augment an explicit `auto_views()` source. View handles declare whole-view relations, pins and
+eligible independent scale factors without exposing feature-annotation coordinates.
+
+Authored principal removal replans requirement coverage before projection. Contradictory or
+unsupported layout relationships, infeasible pins and infeasible exact scales fail with the
+source line and are never relaxed. Named feature-targeted sections and details participate in
+the same resolved plan and layout reservation. The legacy `Sheet.section()` and
+`Sheet.detail()` switches are deprecated for removal in 0.6.0; they remain compatibility shims
+onto the same engine during that window.
+
+This amendment does not claim automatic semantic view selection or resolved-plan script
+emission. Those remain later delivery slices and continue to be governed by the evidence gates
+below.
 
 ## Amendment 1 — the authored surface mirrors the dimension model, and bans one combination (2026-08-21)
 

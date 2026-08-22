@@ -44,7 +44,7 @@ from draftwright._core import (
     _tb_width,
 )
 from draftwright._warnings import ScaleCompletenessWarning
-from draftwright.analysis import Analysis, _analyse
+from draftwright.analysis import Analysis, _analyse, _apply_principal_view_pins
 from draftwright.annotations._common import (
     SolveTrace,
     annotation_ink_obstacles,
@@ -75,16 +75,98 @@ from draftwright.model import (
     build_pmi_features,
 )
 from draftwright.projection import (
+    _bbox_within,
     _fit_iso_view,
     _project_iso,
 )
-from draftwright.view_plan import ARRANGEMENTS, resolve_from_analysis
+from draftwright.view_plan import ARRANGEMENTS, ViewConstraints, resolve_from_analysis
 
 # A view centre must move by more than this (mm) for the measure-and-repack
 # pass to re-assemble.  Below it, the estimate already matched the measured
 # footprint and pass 1 stands (the common, non-ballooned case).
 _REPACK_TOL = 0.75
 _REPACK_MAX_ITER = 3
+
+
+def _validate_authored_view_layout(dwg: Drawing, constraints) -> None:
+    """Apply the hard, non-relaxing half of ADR 0018's authored layout contract.
+
+    Current arrangements remain the planner's candidates; this validator accepts one only
+    when it satisfies every relation/pin.  A constraint that would require a candidate the
+    engine cannot yet generate is therefore an explicit infeasibility, never inert metadata.
+    """
+
+    if not isinstance(constraints, ViewConstraints):
+        return
+
+    def bounds(name: str):
+        placement = dwg.view_plan.placements.get(name)
+        if placement is not None:
+            return placement.bounds
+        if name in dwg.views:
+            return dwg.view_bounds(name)
+        raise ValueError(f"authored layout names absent view {name!r}")
+
+    for relation in constraints.relations:
+        sb = bounds(relation.subject)
+        rb = bounds(relation.reference)
+        gap = relation.gap or 0.0
+        checks = {
+            "left_of": sb[2] + gap <= rb[0] + 1e-6,
+            "right_of": sb[0] + 1e-6 >= rb[2] + gap,
+            "above": sb[1] + 1e-6 >= rb[3] + gap,
+            "below": sb[3] + gap <= rb[1] + 1e-6,
+            "align_x": abs((sb[0] + sb[2]) - (rb[0] + rb[2])) <= 1e-6,
+            "align_y": abs((sb[1] + sb[3]) - (rb[1] + rb[3])) <= 1e-6,
+        }
+        if not checks[relation.relation]:
+            where = f" at {relation.source}" if relation.source is not None else ""
+            raise ValueError(
+                f"authored view constraint{where} is infeasible: {relation.subject!r} "
+                f"must be {relation.relation} {relation.reference!r}"
+                + (f" with gap {gap:g} mm" if relation.gap is not None else "")
+            )
+
+    for pin in constraints.pins:
+        if pin.view not in dwg.views:
+            raise ValueError(f"authored view pin names absent view {pin.view!r}")
+        actual = dwg.at(pin.view, 0.0, 0.0, 0.0)
+        if max(abs(actual[i] - pin.at[i]) for i in range(2)) > 0.05:
+            where = f" at {pin.source}" if pin.source is not None else ""
+            raise ValueError(
+                f"authored whole-view pin{where} is infeasible: {pin.view!r} projection "
+                f"origin resolved to ({actual[0]:.3f}, {actual[1]:.3f}) mm, not "
+                f"({pin.at[0]:.3f}, {pin.at[1]:.3f}) mm; the pin was not moved or relaxed"
+            )
+
+
+def _settle_iso_view(dwg: Drawing, a: Analysis, *, obstacles=()):
+    """Finish the iso without relaxing an authored per-view scale."""
+
+    if a.planned_iso_scale is None:
+        return _fit_iso_view(dwg, a, obstacles=obstacles)
+
+    bb = _iso_bbox(dwg)
+    region = (
+        a.iso_left_limit,
+        a.iso_bottom_limit,
+        a.iso_right_limit,
+        a.iso_top_limit,
+    )
+    if not _bbox_within(bb, region):
+        source = None
+        constraints = a.view_constraints
+        if isinstance(constraints, ViewConstraints):
+            for item in (*constraints.principals, *constraints.added_principals):
+                if item.spec.name == "iso" and item.spec.scale_factor is not None:
+                    source = item.source
+                    break
+        where = f" at {source}" if source is not None else ""
+        raise ValueError(
+            f"authored iso scale{where} is infeasible in its composed view zone; "
+            "the requested scale was not reduced"
+        )
+    return bb
 
 
 def _cross_view_overlaps(dwg, a) -> int:
@@ -465,10 +547,9 @@ def _assemble(
     # ADR 0018: the views this drawing has, and where they go, come from ONE resolved plan
     # instead of three hardcoded calls whose cameras, page fields and layout meaning were
     # spread across this function, `Analysis` and `compose.choose_scale`'s docstring. The plan
-    # still describes exactly the third-angle front/plan/side set the engine has always built —
-    # this slice is representation, not selection — but it is now a value that a later slice can
-    # vary, and the projection convention is stated where the views are named rather than
-    # implied by three camera literals.
+    # describes the selected subset of the conventional third-angle set. The projection
+    # convention is stated where the views are named rather than implied by three camera
+    # literals.
     #
     # Cameras are attached here because they need the scaled part's centre and the projection
     # distance, which the plan deliberately knows nothing about: a `ViewSpec` is a request in
@@ -483,7 +564,11 @@ def _assemble(
         camera, up = _CAMERAS[spec.name]
         place = view_plan.placements[spec.name]
         dwg._add_view(spec.name, part_s, camera, up, (place.cx, place.cy), scaled=True)
-    _project_iso(dwg, a, a.SCALE, shape_s=part_s)
+    if a.planned_iso:
+        if a.planned_iso_scale is None:
+            _project_iso(dwg, a, a.SCALE, shape_s=part_s)
+        else:
+            _project_iso(dwg, a, a.SCALE * a.planned_iso_scale)
 
     _diagnostics = None  # the audit ledger; filled once at the end of this function (#996)
     if auto_dims:
@@ -508,42 +593,48 @@ def _assemble(
         # altogether — no growth, no NTS caption, fast tier green. It also broke script/CLI
         # parity, since the `auto_dims=False` branch below computes its obstacles before the
         # frame is added and so kept growing (#1240 review r2).
-        _nts_bb = _fit_iso_view(dwg, a, obstacles=annotation_ink_obstacles(dwg))
-        _ix0, _iy0, _, _iy1 = _iso_bbox(dwg)
-        _final_iso_x_lim = _ix0 - 4
-        a.fv_zones.right.outer_limit = min(_fv_ol, _final_iso_x_lim)
-        a.pv_zones.right.outer_limit = min(_pv_ol, _final_iso_x_lim)
-        # Only re-cap the SV right strip when the iso shares its y-range (see the
-        # matching guard in _auto_annotate); otherwise restore its full width.
-        if (a.SV_Y - a.fv_hh) < _iy1 and _iy0 < (a.SV_Y + a.fv_hh):
-            a.sv_zones.right.outer_limit = min(_sv_ol, _final_iso_x_lim)
-        else:
-            a.sv_zones.right.outer_limit = _sv_ol
-        # Mirror for the ABOVE strips (#1240): restore, then re-cap below the FINAL iso only
-        # where the fitted iso horizontally overlaps that view — the transposition of the
-        # right-strip re-cap above, for the same customer (deferred edits place through these
-        # strips after the build).
-        _ix1 = _iso_bbox(dwg)[2]
-        _iso_y_lim = _iy0 - 4
-        for _strip, _x0, _x1 in (
-            (a.pv_zones.above, a.PV_X - a.fv_hw, a.PV_X + a.fv_hw),
-            (a.sv_zones.above, a.SV_X - a.sv_hw, a.SV_X + a.sv_hw),
-        ):
-            # TIGHTEN ONLY — no restore-from-snapshot, unlike the right strips above. Their
-            # snapshot exists to give back space `_auto_annotate` took against a transient,
-            # possibly-overflowing iso; the above strips have no such pre-existing
-            # over-tightening to undo, and restoring would DISCARD the `m_locy` approach-buffer
-            # clamp (`from_model`), which is a different constraint that must survive
-            # (#1240 review F4). Same anchor guard as the initial clamp: an iso x-overlapping
-            # the view from BELOW must not push the limit beneath the anchor and kill the strip.
-            if _x0 < _ix1 and _ix0 < _x1 and _iso_y_lim > _strip.anchor:
-                _strip.outer_limit = min(_strip.outer_limit, _iso_y_lim)
+        _nts_bb = None
+        if a.planned_iso:
+            _nts_bb = _settle_iso_view(dwg, a, obstacles=annotation_ink_obstacles(dwg))
+            _ix0, _iy0, _, _iy1 = _iso_bbox(dwg)
+            _final_iso_x_lim = _ix0 - 4
+            a.fv_zones.right.outer_limit = min(_fv_ol, _final_iso_x_lim)
+            a.pv_zones.right.outer_limit = min(_pv_ol, _final_iso_x_lim)
+            # Only re-cap the SV right strip when the iso shares its y-range (see the
+            # matching guard in _auto_annotate); otherwise restore its full width.
+            if (a.SV_Y - a.fv_hh) < _iy1 and _iy0 < (a.SV_Y + a.fv_hh):
+                a.sv_zones.right.outer_limit = min(_sv_ol, _final_iso_x_lim)
+            else:
+                a.sv_zones.right.outer_limit = _sv_ol
+            # Mirror for the ABOVE strips (#1240): restore, then re-cap below the FINAL iso only
+            # where the fitted iso horizontally overlaps that view — the transposition of the
+            # right-strip re-cap above, for the same customer (deferred edits place through these
+            # strips after the build).
+            _ix1 = _iso_bbox(dwg)[2]
+            _iso_y_lim = _iy0 - 4
+            for _strip, _x0, _x1 in (
+                (a.pv_zones.above, a.PV_X - a.fv_hw, a.PV_X + a.fv_hw),
+                (a.sv_zones.above, a.SV_X - a.sv_hw, a.SV_X + a.sv_hw),
+            ):
+                # TIGHTEN ONLY — no restore-from-snapshot, unlike the right strips above. Their
+                # snapshot exists to give back space `_auto_annotate` took against a transient,
+                # possibly-overflowing iso; the above strips have no such pre-existing
+                # over-tightening to undo, and restoring would DISCARD the `m_locy` approach-buffer
+                # clamp (`from_model`), which is a different constraint that must survive
+                # (#1240 review F4). Same anchor guard as the initial clamp: an iso x-overlapping
+                # the view from BELOW must not push the limit beneath the anchor and kill the strip.
+                if _x0 < _ix1 and _ix0 < _x1 and _iso_y_lim > _strip.anchor:
+                    _strip.outer_limit = min(_strip.outer_limit, _iso_y_lim)
     else:
         # Fit + label the iso as the auto path does (annotate defaults True): the NTS
         # note is sheet furniture — like the title block below — that states the iso is
         # not to scale. Suppressing it here silently diverged the emitted-script drawing
         # (auto_dims=False) from the direct CLI, which always labels it (script↔CLI parity).
-        _nts_bb = _fit_iso_view(dwg, a, obstacles=annotation_ink_obstacles(dwg))
+        _nts_bb = (
+            _settle_iso_view(dwg, a, obstacles=annotation_ink_obstacles(dwg))
+            if a.planned_iso
+            else None
+        )
         _add_title_block(dwg, a)
         if a.frame:  # sheet border (#767) — auto path adds it via the orchestrator
             _add_sheet_frame(dwg, a)
@@ -648,7 +739,7 @@ def _repack(
 
     def _geom(cand):
         s, pw, ph, tb = cand
-        return _layout_geometry(
+        geometry = _layout_geometry(
             a.x_size,
             a.y_size,
             a.z_size,
@@ -680,7 +771,19 @@ def _repack(
             # assertion cannot be met by a constant.
             arrangement=a.arrangement,
             views=a.planned_views,
+            include_iso=a.planned_iso,
+            iso_scale_factor=a.planned_iso_scale,
         )
+        _apply_principal_view_pins(
+            geometry,
+            a.view_constraints,
+            scale=s,
+            centre=(a.cx, a.cy, a.cz),
+            page=(pw, ph),
+            margin=a.margin,
+            views=a.planned_views,
+        )
+        return geometry
 
     candidates = _repack_candidates(a, scale, page)
     auto_search = scale is None and page is None
@@ -893,6 +996,8 @@ def _build_drawing_once(
     _critique_recognition=None,
     _arrangements: tuple[str, ...] | None = None,
     _views: tuple[str, ...] | None = None,
+    _include_iso: bool = True,
+    _view_constraints=None,
     _required_tables=(),
 ) -> Drawing:
     """Build a customisable 4-view :class:`Drawing` without exporting it.
@@ -997,6 +1102,8 @@ def _build_drawing_once(
         _required_tables=_required_tables,
         _arrangements=_arrangements,
         _views=_views,
+        _include_iso=_include_iso,
+        _view_constraints=_view_constraints,
     )
 
     # Pass 1: place + annotate from the estimated layout, then measure the real
@@ -1372,6 +1479,8 @@ def build_drawing(
     _post_build: Callable[[Drawing], Drawing] | None = None,
     _required_tables=(),
     _views: tuple[str, ...] | None = None,
+    _include_iso: bool = True,
+    _view_constraints=None,
 ) -> Drawing:
     """Build a drawing, protecting required annotations under an explicit scale.
 
@@ -1415,6 +1524,8 @@ def build_drawing(
         projection=projection,
         zones=zones,
         _required_tables=_required_tables,
+        _include_iso=_include_iso,
+        _view_constraints=_view_constraints,
     )
     analysis_base = None
     critique_recognition = None
@@ -1462,7 +1573,10 @@ def build_drawing(
             _critique_recognition=critique_recognition,
             _arrangements=arrangements,
             _views=views,
+            _include_iso=_include_iso,
+            _view_constraints=_view_constraints,
         )
+        _validate_authored_view_layout(built, _view_constraints)
         return _post_build(built) if _post_build is not None else built
 
     def scale_blockers_for(built: Drawing) -> tuple[dict, ...]:

@@ -16,6 +16,7 @@ measure-and-repack pass (`_repack`, coupled to `_assemble`) stays in the builder
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass
 from types import SimpleNamespace
 
@@ -465,12 +466,14 @@ def _fits(
     n_steps: int = 0,
     strips: StripDepths | None = None,
     pack_iso_2d: bool = False,
-    section: bool = False,
+    section: int | bool = False,
     table_sizes=(),
     required_tables=(),
     margin: float = _MARGIN,
     arrangement: str = "columns",
     views: tuple[str, ...] | None = None,
+    include_iso: bool = True,
+    iso_scale_factor: float | None = None,
 ) -> bool:
     """True if the composed 4-view footprint fits the page at this scale.
 
@@ -496,6 +499,8 @@ def _fits(
         margin=margin,
         arrangement=arrangement,
         views=views,
+        include_iso=include_iso,
+        iso_scale_factor=iso_scale_factor,
     )
     return bool(g.fits if pack_iso_2d else g.auto_fits)
 
@@ -510,10 +515,12 @@ def _bisect_fit_scale(
     n_steps,
     strips,
     pack_iso_2d,
-    section=False,
+    section: int | bool = False,
     table_sizes=(),
     required_tables=(),
     margin=_MARGIN,
+    include_iso: bool = True,
+    iso_scale_factor: float | None = None,
 ):
     """Largest scale at which the 4-view layout fits ``(pw, ph)``, found by bisection —
     the layout is monotone in scale (a smaller scale never fits worse). Used only as the
@@ -539,6 +546,8 @@ def _bisect_fit_scale(
             table_sizes=table_sizes,
             required_tables=required_tables,
             margin=margin,
+            include_iso=include_iso,
+            iso_scale_factor=iso_scale_factor,
         ):
             lo = mid
         else:
@@ -554,12 +563,14 @@ def choose_scale(
     scale=None,
     page=None,
     strips: StripDepths | None = None,
-    section: bool = False,
+    section: int | bool = False,
     table_sizes=(),
     required_tables=(),
     margin: float = _MARGIN,
     arrangements: tuple[str, ...] | None = None,
     views: tuple[str, ...] | None = None,
+    include_iso: bool = True,
+    iso_scale_factor: float | None = None,
 ) -> tuple:
     """Return (SCALE, PAGE_W, PAGE_H, TB_W) for a 4-view layout.
 
@@ -599,6 +610,8 @@ def choose_scale(
             table_sizes=table_sizes,
             required_tables=required_tables,
             margin=margin,
+            include_iso=include_iso,
+            iso_scale_factor=iso_scale_factor,
         ):
             _log.warning(
                 "Requested scale %s on %s page may not fit the 4-view layout", scale, page
@@ -646,6 +659,8 @@ def choose_scale(
             margin=margin,
             arrangement=candidate.arrangement,
             views=views,
+            include_iso=include_iso,
+            iso_scale_factor=iso_scale_factor,
         )
 
     def _candidate(cand, arrangement):
@@ -725,6 +740,8 @@ def choose_scale(
             table_sizes=table_sizes,
             required_tables=required_tables,
             margin=margin,
+            include_iso=include_iso,
+            iso_scale_factor=iso_scale_factor,
         )
         if s is not None:
             _log.warning(
@@ -838,7 +855,7 @@ def _compose_view_blocks(
     strips: StripDepths | None,
     n_steps: int = 0,
     *,
-    section: bool = False,
+    section: int | bool = False,
 ) -> dict[str, ViewBlock]:
     """Compose estimated orthographic view footprints (#112).
 
@@ -900,13 +917,15 @@ def _layout_geometry(
     strips,
     n_steps=0,
     blocks=None,
-    section: bool = False,
+    section: int | bool = False,
     table_sizes=(),
     required_tables=(),
     warn_no_iso=True,
     margin: float = _MARGIN,
     arrangement: str = "columns",
     views: tuple[str, ...] | None = None,
+    include_iso: bool = True,
+    iso_scale_factor: float | None = None,
 ):
     """Compute the 4-view layout geometry for a part at a given scale/page.
 
@@ -999,7 +1018,10 @@ def _layout_geometry(
     total_h = 2 * margin + max(column_h, side_h)
     y_offset = max(0.0, (page_h - total_h) / 2)
 
-    section_right_band = (sv.right + 10.0 + 2 * section_hw + DIM_PAD) if section else 0.0
+    section_count = int(section)
+    section_right_band = (
+        sv.right + section_count * (10.0 + 2 * section_hw + DIM_PAD) if section_count else 0.0
+    )
     # The orthographic band: everything in the row that is NOT the isometric. Split out
     # because the ARRANGEMENT is exactly the question of where the iso goes relative to
     # it (ADR 0018 §5's fourth dimension), and both arrangements share this part.
@@ -1010,7 +1032,12 @@ def _layout_geometry(
         + (y_size * scale if has_side else 0.0)
         + max(2 * DIM_PAD, (sv.right + DIM_PAD) if has_side else 0.0, section_right_band)
     )
-    iso_row_budget = bbox_max * scale * _ISO_WIDTH_BUDGET
+    iso_exact = iso_scale_factor is not None
+    iso_factor = iso_scale_factor if iso_scale_factor is not None else 1.0
+    iso_natural = (
+        bbox_max * scale * (math.sqrt(2.0) * iso_factor if iso_exact else _ISO_WIDTH_BUDGET)
+    )
+    iso_row_budget = iso_natural if include_iso else 0.0
     # Does the orthographic band clear the title-block column vertically? Needed before the
     # arrangement choice, since it decides whether the tb width is part of the row at all.
     # (Recomputed below as `_auto_clears_tb` for the auto-fit verdict; same expression.)
@@ -1120,7 +1147,8 @@ def _layout_geometry(
             *([_padded_box(SV_X, SV_Y, sv_hw, fv_hh)] if has_side else []),
             title_block.footprint(tb_cx, tb_cy),
         ]
-    if section:
+    section_blocks = []
+    if section_count:
         section_block = ViewBlock(
             section_hw,
             section_hh,
@@ -1129,7 +1157,10 @@ def _layout_geometry(
             bottom=DIM_PAD + _FONT_SIZE + 4.0,
             left=DIM_PAD,
         )
-        obstacles.append(section_block.footprint(SECTION_X, SECTION_Y))
+        for index in range(section_count):
+            section_x = SECTION_X + index * (2 * section_hw + DIM_PAD)
+            section_blocks.append(section_block.footprint(section_x, SECTION_Y))
+        obstacles.extend(section_blocks)
     # Authored Sheet tables are required fixed-size furniture, not alternative fallback shapes.
     # Place their estimated footprints before allocating the iso so page selection can grow the
     # sheet while preserving the requested scale (#1146). Each placement becomes an obstacle for
@@ -1168,8 +1199,7 @@ def _layout_geometry(
         *([pv.footprint(PV_X, PV_Y)] if has_plan else []),
         *([sv.footprint(SV_X, SV_Y)] if has_side else []),
     ]
-    if section:
-        _view_boxes.append(section_block.footprint(SECTION_X, SECTION_Y))
+    _view_boxes.extend(section_blocks)
     cx0 = min(b[0] for b in _view_boxes)
     cy0 = min(b[1] for b in _view_boxes)
     cx1 = max(b[2] for b in _view_boxes)
@@ -1182,7 +1212,8 @@ def _layout_geometry(
     _auto_row_w = total_content_w + 2 * margin + (0.0 if _auto_clears_tb else tb_w)
     auto_row_fits = _auto_row_w <= page_w + _tol
     iso_fit = min(iso_right - iso_left, iso_top - iso_bottom)
-    iso_fits = iso_valid and iso_fit >= _ISO_MIN_FIT_FRAC * bbox_max * scale * _ISO_WIDTH_BUDGET
+    iso_min_fit = iso_natural if iso_exact else _ISO_MIN_FIT_FRAC * iso_natural
+    iso_fits = (not include_iso) or (iso_valid and iso_fit >= iso_min_fit)
     # Tables are late furniture and must reserve against the same composed view
     # footprints the fit model validates, not the iso's byte-identity padded-box
     # obstacles. Otherwise a table can be accepted in space already reserved for
@@ -1193,9 +1224,8 @@ def _layout_geometry(
         *([sv.footprint(SV_X, SV_Y)] if has_side else []),
         title_block.footprint(tb_cx, tb_cy),
     ]
-    if section:
-        table_obstacles.append(section_block.footprint(SECTION_X, SECTION_Y))
-    if iso_valid:
+    table_obstacles.extend(section_blocks)
+    if include_iso and iso_valid:
         table_obstacles.append((iso_left, iso_bottom, iso_right, iso_top))
     table_obstacles.extend(required_table_boxes)
     table_fits = not table_sizes or any(
@@ -1245,7 +1275,7 @@ def _layout_geometry(
         iso_fit=iso_fit,
         iso_fits=iso_fits,
         table_fits=table_fits,
-        iso_natural=bbox_max * scale * _ISO_WIDTH_BUDGET,
+        iso_natural=iso_natural,
         auto_views_bottom=_auto_views_bottom,
         auto_clears_tb=_auto_clears_tb,
         auto_row_fits=auto_row_fits,

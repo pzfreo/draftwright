@@ -2664,17 +2664,19 @@ class Drawing:
                 from draftwright.projection import _fit_iso_view, _project_iso
 
                 # Mirror the auto pass's iso ordering (#661): there, details resolve
-                # while the iso still stands at sheet scale (it is fitted into its
+                # while the ordinary iso still stands at sheet scale (it is fitted into its
                 # zone only after _auto_annotate returns), so the free-rectangle
                 # search is not blocked by the grown iso. The finalize path inherits
                 # the already-fitted iso from the build — re-project it at sheet
-                # scale for the resolve, then refit it into its zone (deterministic:
+                # scale for the resolve, then refit it into its zone. An authored iso
+                # scale is hard, so it is reprojected and retained at that exact factor.
+                # The ordinary refit is deterministic:
                 # same zone + geometry reproduce the build's fit; the #647 snapshot
                 # covers views/_coords, so a raise mid-stage rolls the iso back too).
                 if "iso" in self.views:
-                    _project_iso(self, a, a.SCALE)
+                    _project_iso(self, a, a.SCALE * (a.planned_iso_scale or 1.0))
                 _resolve_details(self, a, ctx=ctx)
-                if "iso" in self.views:
+                if "iso" in self.views and a.planned_iso_scale is None:
                     # Obstacles as on the build path (#1240) — inert today, since a details
                     # refit disables the grow branch, but the call must not drift from the
                     # builder's shape or the next grow-path change silently loses the cap.

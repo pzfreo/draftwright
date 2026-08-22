@@ -811,8 +811,8 @@ class DetailRequest:
                       footprint that depends on the chosen scale (the prismatic
                       ladder reserves one rung per *legible-at-that-scale* step, so it
                       shrinks with the scale during the fit). Overrides ``pad_top``.
-        source_view:  orthographic direction to preserve in the detail (``"front"``
-                      or ``"side"``). The latter is used for Y-turned axial profiles.
+        source_view:  orthographic direction to preserve in the detail (``"front"``,
+                      ``"plan"`` or ``"side"``).
         crop_lo/crop_hi: optional crop bounds along ``axis`` when the projected
                       detail must include context outside the marked feature band.
                       Prismatic absolute-height details use this to retain their
@@ -830,13 +830,23 @@ class DetailRequest:
     redraw: Callable[..., int]
     pad_top: float = 0.0
     pads: Callable[[float], tuple[float, float]] | None = None
-    source_view: Literal["front", "side"] = "front"
+    source_view: Literal["front", "plan", "side"] = "front"
     crop_lo: float | None = None
     crop_hi: float | None = None
     cross_axis: Literal["x", "y", "z"] | None = None
     cross_lo: float | None = None
     cross_hi: float | None = None
     kind: str = "detail"
+    #: Authored detail identity/label. ``None`` lets the automatic resolver assign A-H.
+    view_name: str | None = None
+    label: str | None = None
+    #: Exact authored multiple of sheet scale; automatic requests keep ``None`` and use the
+    #: legibility-derived preferred series.
+    scale_factor: float | None = None
+    #: An authored orientation crop is defining geometry even when it carries no redrawn
+    #: dimension. Automatic recovery details retain the historical "no dimension, no view" gate.
+    keep_without_annotations: bool = False
+    source: object | None = None
 
 
 @dataclass(frozen=True)
@@ -1028,7 +1038,7 @@ class Analysis:
     step_zs: list[float]
     layout_strips: StripDepths
     layout_n_steps: int
-    layout_section: bool
+    layout_section: int
     layout_table_sizes: tuple[tuple[float, float], ...]
     layout_required_tables: tuple[tuple[tuple[float, float], str], ...]
     sv_right: float
@@ -1110,6 +1120,15 @@ class Analysis:
     #: layout must reserve space for exactly the views the builder creates, or dropping one
     #: costs its annotations without reclaiming its paper.
     planned_views: tuple[str, ...] | None = None
+    #: Whether the orientation isometric participates in this authored plan. It is separate
+    #: from ``planned_views`` because that tuple is the principal set consumed by the
+    #: requirement compiler.
+    planned_iso: bool = True
+    #: ``None`` lets the orientation iso auto-fit; a number is an authored exact factor.
+    planned_iso_scale: float | None = None
+    #: Immutable ADR 0018 authored input, retained for the resolver/diagnostics without making
+    #: this low-level module depend on the view-planning leaf at runtime.
+    view_constraints: object | None = None
 
     @property
     def pmi(self) -> list:
@@ -1296,6 +1315,11 @@ def _add_zone_grid(dwg, a: Analysis):
 
 def _iso_bbox(dwg):
     """(min_x, min_y, max_x, max_y) of the placed iso view, hidden lines included."""
+    if "iso" not in dwg.views:
+        # A deliberately omitted orientation view contributes no obstacle. Infinity makes
+        # every existing iso-clearance comparison a no-op without teaching annotation passes
+        # a second page-edge convention.
+        return (math.inf, math.inf, math.inf, math.inf)
     return dwg.view_bounds("iso")
 
 

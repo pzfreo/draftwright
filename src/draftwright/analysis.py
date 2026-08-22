@@ -55,7 +55,7 @@ from draftwright.compose import (
 from draftwright.model import build_part_model
 from draftwright.model.ir import Datum, PartModel, StepFeature, StepLevelFeature
 from draftwright.model.planner import plan_dimensions
-from draftwright.view_plan import arrangement_of
+from draftwright.view_plan import ViewConstraints, arrangement_of
 
 _log = logging.getLogger(__name__)
 
@@ -66,6 +66,118 @@ _SQUARENESS_TOL = 0.05
 _OD_FILL_MIN = 0.8
 _OD_AXIS_TOL = 0.05
 _ScalePick = tuple[float, float, float, float]
+
+
+def _apply_principal_view_pins(
+    geometry,
+    constraints,
+    *,
+    scale: float,
+    centre: tuple[float, float, float],
+    page: tuple[float, float],
+    margin: float,
+    views: tuple[str, ...] | None,
+) -> None:
+    """Translate the conventional orthographic group to satisfy authored origin pins.
+
+    Third-angle front/plan/side relationships are hard constraints.  Their layout therefore
+    has two translational degrees of freedom, not six independent coordinates: pinning any one
+    projection origin translates the complete group, and multiple pins must imply the same
+    translation.  This runs before projection/zones, so every annotation strip follows the
+    resolved view blocks.
+    """
+
+    if not isinstance(constraints, ViewConstraints) or not constraints.pins:
+        return
+    planned = set(views or ("front", "plan", "side"))
+    centres = {
+        "front": (geometry.FV_X, geometry.FV_Y),
+        "plan": (geometry.PV_X, geometry.PV_Y),
+        "side": (geometry.SV_X, geometry.SV_Y),
+    }
+    cx, cy, cz = centre
+    projected_centre = {
+        "front": (cx * scale, cz * scale),
+        "plan": (cx * scale, cy * scale),
+        "side": (cy * scale, cz * scale),
+    }
+    translations = []
+    for pin in constraints.pins:
+        if pin.view not in centres:
+            where = f" at {pin.source}" if pin.source is not None else ""
+            raise ValueError(
+                f"whole-view pin{where} targets {pin.view!r}; this slice can anchor principal "
+                "orthographic projection origins only"
+            )
+        if pin.view not in planned:
+            raise ValueError(f"whole-view pin targets absent view {pin.view!r}")
+        centre_at_pin = (
+            pin.at[0] + projected_centre[pin.view][0],
+            pin.at[1] + projected_centre[pin.view][1],
+        )
+        current = centres[pin.view]
+        translations.append((centre_at_pin[0] - current[0], centre_at_pin[1] - current[1], pin))
+    dx, dy, first = translations[0]
+    for other_dx, other_dy, pin in translations[1:]:
+        if max(abs(other_dx - dx), abs(other_dy - dy)) > 0.05:
+            raise ValueError(
+                f"whole-view pins at {first.source} and {pin.source} contradict the fixed "
+                "third-angle relationships; they imply different group translations"
+            )
+
+    geometry.FV_X += dx
+    geometry.FV_Y += dy
+    geometry.PV_X += dx
+    geometry.PV_Y += dy
+    geometry.SV_X += dx
+    geometry.SV_Y += dy
+    geometry.sv_right += dx
+    geometry.sv_right_wall += dx
+    # Geometry bounds are the minimum pre-projection feasibility gate. Annotation bands use
+    # the shifted anchors below and remain subject to the ordinary completeness/lint gates.
+    extents = {
+        "front": (geometry.FV_X, geometry.FV_Y, geometry.fv_hw, geometry.fv_hh),
+        "plan": (geometry.PV_X, geometry.PV_Y, geometry.fv_hw, geometry.pv_hh),
+        "side": (geometry.SV_X, geometry.SV_Y, geometry.sv_hw, geometry.fv_hh),
+    }
+    page_w, page_h = page
+    for name in planned:
+        x, y, hw, hh = extents[name]
+        if (
+            x - hw < margin
+            or x + hw > page_w - margin
+            or y - hh < margin
+            or y + hh > page_h - margin
+        ):
+            pin = translations[0][2]
+            raise ValueError(
+                f"whole-view pin at {pin.source} is infeasible: translating the conventional "
+                f"view group puts {name!r} outside the drawable page; the anchor was not relaxed"
+            )
+
+
+def _planned_section_count(model, constraints, *, is_rotational=False, cx=0.0, cy=0.0) -> int:
+    """Number of section blocks the outer compose pass must reserve."""
+
+    automatic = int(_will_section(model, is_rotational=is_rotational, cx=cx, cy=cy))
+    if not isinstance(constraints, ViewConstraints):
+        return automatic
+    requested = (
+        constraints.derived
+        if constraints.derived_source == "authored"
+        else constraints.added_derived
+    )
+    authored = sum(item.spec.kind == "section" for item in requested)
+    return authored if constraints.derived_source == "authored" else automatic + authored
+
+
+def _planned_iso_scale(constraints) -> float | None:
+    if not isinstance(constraints, ViewConstraints):
+        return None
+    for item in (*constraints.principals, *constraints.added_principals):
+        if item.spec.name == "iso" and item.spec.scale_factor is not None:
+            return item.spec.scale_factor
+    return None
 
 
 def _sizing_bores(z_cyls, z_diams, od_diam, cx, cy) -> list:
@@ -96,6 +208,8 @@ def _will_section(model, *, is_rotational=False, cx=0.0, cy=0.0) -> bool:
     # hole gate qualifies — a blind pocket's floor/depth section has no driving Z hole.
     if getattr(model, "decorations", {}).get("section") is not None:
         return True
+    if getattr(model, "decorations", {}).get("auto_sections") is False:
+        return False
     features = getattr(model, "features", model)
 
     def feature_member(pt) -> bool:
@@ -447,6 +561,9 @@ def _validate_explicit_scale(
     layout_required_tables=(),
     margin=_MARGIN,
     warn_advisory: bool = True,
+    views: tuple[str, ...] | None = None,
+    include_iso: bool = True,
+    iso_scale_factor: float | None = None,
 ) -> None:
     """Enforce the two scale floors when the caller pinned an explicit *scale* (#489, #590 split
     of :func:`_analyse`). An explicit scale is the user's call — honour it, subject to:
@@ -483,6 +600,9 @@ def _validate_explicit_scale(
         table_sizes=layout_table_sizes,
         required_tables=layout_required_tables,
         margin=margin,
+        views=views,
+        include_iso=include_iso,
+        iso_scale_factor=iso_scale_factor,
     )
     # Warn only when omitting the scale would truly give a legible fit (auto scale itself is
     # legible) but the requested scale is below the floor. A part illegible at every
@@ -523,6 +643,8 @@ def _analyse(
     _required_tables=(),
     _arrangements: tuple[str, ...] | None = None,
     _views: tuple[str, ...] | None = None,
+    _include_iso: bool = True,
+    _view_constraints=None,
 ) -> Analysis:
     """Load STEP or use a build123d Shape, analyse geometry, compute layout.
 
@@ -725,11 +847,21 @@ def _analyse(
     bore_callout_width = _est_planned_bore_callout_width(
         sizing_groups, _draft_est, font_size=_FONT_SIZE, pad_around_text=_pad_around_text
     )
-    layout_section = _will_section(sizing_model, is_rotational=is_rotational, cx=cx, cy=cy)
+    section_count = _planned_section_count(
+        sizing_model,
+        _view_constraints,
+        is_rotational=is_rotational,
+        cx=cx,
+        cy=cy,
+    )
+    # Preserve the long-standing public diagnostic shape for the common zero/one case while
+    # carrying an integer only when authored constraints genuinely reserve multiple sections.
+    layout_section = section_count if section_count > 1 else bool(section_count)
     layout_table_sizes = _est_hole_table_sizes(
         sizing_model, bb, font_size=_FONT_SIZE, pad_around_text=_pad_around_text
     )
     layout_required_tables = tuple(_required_tables)
+    planned_iso_scale = _planned_iso_scale(_view_constraints)
 
     # Choose scale/page, iterating so the reserved step corridor matches the
     # number of steps the legibility gate will actually place (#1) — not the raw
@@ -762,6 +894,8 @@ def _analyse(
             margin=margin,
             arrangements=_arrangements,
             views=_views,
+            include_iso=_include_iso,
+            iso_scale_factor=planned_iso_scale,
         )
 
     scale_pick, strips_i, n_for_sizing = _converge_step_sizing(
@@ -790,6 +924,9 @@ def _analyse(
         layout_required_tables,
         margin=margin,
         warn_advisory=_reuse is None,
+        views=_views,
+        include_iso=_include_iso,
+        iso_scale_factor=planned_iso_scale,
     )
     DIM_PAD = _DIM_PAD
     # margin was computed up front (_content_margin(frame)) so scale selection already saw it.
@@ -821,6 +958,17 @@ def _analyse(
         required_tables=layout_required_tables,
         margin=margin,
         arrangement=ARRANGEMENT,
+        views=_views,
+        include_iso=_include_iso,
+        iso_scale_factor=planned_iso_scale,
+    )
+    _apply_principal_view_pins(
+        _g,
+        _view_constraints,
+        scale=SCALE,
+        centre=(cx, cy, cz),
+        page=(PAGE_W, PAGE_H),
+        margin=margin,
         views=_views,
     )
     fv_hw = _g.fv_hw
@@ -871,6 +1019,9 @@ def _analyse(
     return Analysis(
         arrangement=ARRANGEMENT,
         planned_views=_views,
+        planned_iso=_include_iso,
+        planned_iso_scale=planned_iso_scale,
+        view_constraints=_view_constraints,
         part=part,
         recognition=recognition,
         bb=bb,

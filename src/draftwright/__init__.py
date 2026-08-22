@@ -37,6 +37,8 @@ _LAZY = {
     "extract_pmi_report": "draftwright.pmi",
     "choose_scale": "draftwright.compose",
     "ViewPlanIncomplete": "draftwright.view_plan",
+    "ViewConstraints": "draftwright.view_plan",
+    "ViewSpec": "draftwright.view_plan",
     # A warning category users are told to filter must be importable without reaching into a
     # private module (#1043 review) — and without paying for the CAD kernel. It lives in the
     # dependency-free `_warnings` leaf for that second reason: defined in `_core` it cost ~6 s
@@ -92,7 +94,7 @@ if TYPE_CHECKING:  # static analysers / IDEs — no runtime import, no kernel co
         extract_pmi_report,
     )
     from draftwright.sheet import Sheet
-    from draftwright.view_plan import ViewPlanIncomplete
+    from draftwright.view_plan import ViewConstraints, ViewPlanIncomplete, ViewSpec
 
 
 def __dir__():
@@ -113,6 +115,8 @@ __all__ = [
     "ScaleIncompatibilityError",
     "ScaleCompletenessWarning",
     "ViewPlanIncomplete",
+    "ViewConstraints",
+    "ViewSpec",
     "build_drawing",
     "choose_scale",
     "extract_pmi",

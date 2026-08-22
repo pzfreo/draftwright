@@ -16,10 +16,12 @@ bore set, side-drilled locations, the hole table) + the section/PMI passes.
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import Literal
 
 from draftwright._core import (
     _TABULATE_MIN_HOLES,
     Analysis,
+    DetailRequest,
     HoleRef,
     _add_projection_symbol,
     _add_sheet_frame,
@@ -96,12 +98,126 @@ from draftwright.model import (
     HoleFeature,
     PatternFeature,
     RotationalFeature,
+    SectionPlan,
     build_part_model,
     plan_dimensions,
     plan_sections,
 )
 from draftwright.model.compiled import compile_dimensions, resolve_feature
 from draftwright.repair import reconcile_witness_labels
+from draftwright.view_plan import ViewConstraints
+
+
+def _planned_sections(a, model, feature_keys) -> tuple[SectionPlan, ...]:
+    """Combine the automatic section candidate with ADR 0018 authored/add requests."""
+
+    constraints = a.view_constraints
+    if not isinstance(constraints, ViewConstraints):
+        automatic = plan_sections(model, feature_keys)
+        return (automatic,) if automatic is not None else ()
+
+    requested = (
+        constraints.derived
+        if constraints.derived_source == "authored"
+        else constraints.added_derived
+    )
+    section_requests = [item for item in requested if item.spec.kind == "section"]
+    plans = []
+    for item in section_requests:
+        target = item.spec.target
+        if not (isinstance(target, tuple) and len(target) == 2):
+            raise ValueError(f"section {item.spec.name!r} has no semantic cut target")
+        if target[0] == "at":
+            cut_y = float(target[1])
+        elif target[0] == "feature":
+            cut_y = float(target[1].frame.origin[1])
+        else:
+            raise ValueError(f"section {item.spec.name!r} has unknown target {target!r}")
+        if not a.bb.min.Y < cut_y < a.bb.max.Y:
+            raise ValueError(
+                f"section {item.spec.name!r} from {item.source} cuts at y={cut_y:g}, outside "
+                f"the part interior ({a.bb.min.Y:g}, {a.bb.max.Y:g})"
+            )
+        slug = item.spec.name.removeprefix("section_")
+        label = slug[0].upper() if len(set(slug)) == 1 else slug.upper()
+        plans.append(SectionPlan(cut_y, label=label, source=item.source))
+
+    if constraints.derived_source != "authored":
+        automatic = plan_sections(model, feature_keys)
+        if automatic is not None:
+            used = {plan.label for plan in plans}
+            auto_label = next((letter for letter in "ABCDEFGH" if letter not in used), None)
+            if auto_label is None:
+                raise ValueError(
+                    "automatic section cannot be named: authored labels A-H are exhausted"
+                )
+            plans.insert(0, SectionPlan(automatic.cut_y, label=auto_label))
+    return tuple(plans)
+
+
+def _queue_authored_details(a, ctx) -> None:
+    """Lower semantic ``detail_view(..., around=feature)`` constraints to crop requests."""
+
+    constraints = a.view_constraints
+    if not isinstance(constraints, ViewConstraints):
+        return
+    requested = (
+        constraints.derived
+        if constraints.derived_source == "authored"
+        else constraints.added_derived
+    )
+    for item in requested:
+        if item.spec.kind != "detail":
+            continue
+        target = item.spec.target
+        if not (isinstance(target, tuple) and len(target) == 2 and target[0] == "feature"):
+            raise ValueError(f"detail {item.spec.name!r} has no semantic feature target")
+        feature = target[1]
+        origin = feature.frame.origin
+        axis = feature.frame.axis
+        view_for_axis: dict[
+            str,
+            tuple[
+                Literal["front", "plan", "side"],
+                tuple[Literal["x", "y", "z"], Literal["x", "y", "z"]],
+            ],
+        ] = {
+            "z": ("plan", ("x", "y")),
+            "x": ("side", ("y", "z")),
+            "y": ("front", ("x", "z")),
+        }
+        source_view, crop_axes = view_for_axis[axis]
+        sizes = [
+            abs(float(value))
+            for name in ("diameter", "width", "length", "height", "depth", "radius")
+            if (value := getattr(feature, name, None)) is not None
+            and isinstance(value, (int, float))
+        ]
+        half = max(3.0, (max(sizes) if sizes else 6.0) * 0.75)
+        first, second = crop_axes
+        fi, si = "xyz".index(first), "xyz".index(second)
+        label = item.spec.name.removeprefix("detail_").upper()
+        factor = item.spec.scale_factor or 2.0
+        ctx.detail_requests.append(
+            DetailRequest(
+                axis=first,
+                lo=origin[fi] - half,
+                hi=origin[fi] + half,
+                scale_needed=a.SCALE * factor,
+                redraw=lambda *_args: 0,
+                source_view=source_view,
+                cross_axis=second,
+                cross_lo=origin[si] - half,
+                cross_hi=origin[si] + half,
+                kind="authored-feature",
+                view_name=item.spec.name,
+                label=label,
+                scale_factor=factor,
+                keep_without_annotations=True,
+                source=item.source,
+            )
+        )
+
 
 # ── the ONE auto-pass stage sequence (#699 slice b) ──────────────────────────
 # The canonical order of the annotation stages. `_auto_annotate` executes it, and
@@ -441,7 +557,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # Decide the section trigger + cut-plane row now (pure function of _model/
     # feature_keys, no placement dependency); the "reserve_section" stage reserves
     # its row and the "section" stage renders it.
-    _section = plan_sections(_model, feature_keys)
+    _sections = _planned_sections(a, _model, feature_keys)
 
     # ── the stage thunks, run in _PASS_SEQUENCE order (#699 slice b) ─────────
     def _s_rotational():
@@ -467,7 +583,8 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # than pay that cost or drop it (holes.py); the `bracket` fixture's known
         # hc_plan0/section_arrow_right overlap (tests/test_layout_cleanliness.py)
         # is exactly this accepted case.
-        _reserve_section_row(dwg, a, _section, ctx=ctx)
+        for section in _sections:
+            _reserve_section_row(dwg, a, section, ctx=ctx)
 
     def _s_hole_callouts():
         # Any hole/pattern member (declared holes render even where detection missed them).
@@ -667,8 +784,9 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # its full strip_obstacles room check can see side callouts, envelope dims,
         # slots, GD&T/PMI, and drained ladder outputs as one occupancy set. Details
         # still render after it and avoid the section view.
-        if _section is not None:
-            _add_section_view(dwg, a, _section, ctx=ctx)
+        if _sections:
+            for section in _sections:
+                _add_section_view(dwg, a, section, ctx=ctx)
         else:
             # Recorded, not left at the initial `not_evaluated`: the planner DID run and
             # found no counterbore/spotface/blind Z-hole, which is a different fact from
@@ -682,6 +800,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # Resolve every queued enlarged-detail request (#307) — prismatic step bands and
         # crowded turned heads alike — through the one generic detailer, now that all
         # views and main-view annotations are placed (so the detail avoids them).
+        _queue_authored_details(a, ctx)
         _resolve_details(dwg, a, ctx=ctx)
 
     def _s_title_block():

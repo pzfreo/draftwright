@@ -1,4 +1,4 @@
-"""The views a drawing has, and where they sit — ADR 0018's representation slice.
+"""The views a drawing requests and resolves — ADR 0018's planning value vocabulary.
 
 Until now nothing owned the question *which views should exist*. The four orthographic views
 were named at one site in `builder` with hardcoded cameras, their page positions came from
@@ -14,20 +14,18 @@ vocabulary, distinct request and result states"), and it is a split rather than 
 object because a resolved plan that can be edited in place is indistinguishable from a request,
 which is how a layout comes to be silently relaxed.
 
-**This slice changes no behaviour.** It describes the fixed front/plan/side/iso topology the
-engine already builds, and the golden placement snapshots are the gate. Semantic view SELECTION
-— dropping a view because nothing needs it, which is what the thin rotational plate in
-`tests/test_issue_1130_view_planning_evidence.py` is waiting for — comes only once the
-lifecycle, projection-convention and requirement-coverage invariants in ADR 0018's evidence list
-are guarded. A representation nobody can yet vary is the point of the first slice: everything
-above it stops reading the topology out of scattered fields, so the later change has one place
-to happen.
+`ViewConstraints` is the immutable authored request and `ResolvedViewPlan` the immutable result.
+The Sheet surface can vary and constrain the selected views; automatic semantic view selection
+— dropping a view because nothing needs it — remains a later planning slice. Keeping those two
+states distinct prevents a resolved snapshot from being edited in place and mistaken for a
+constraint the planner must honour.
 
 Rank 0: this is a leaf. It describes views; it cannot reach the code that draws them.
 """
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -96,9 +94,10 @@ _PRINCIPAL_PAGE_AXES = {
 class ViewSpec:
     """One view a drawing should contain, in model terms.
 
-    Deliberately says nothing about the page: no position, no size, no scale. A spec is what a
-    planner decides and a user may edit; where it lands is the resolver's answer, and mixing the
-    two is what ADR 0018 §1 separates. `camera` and `up` are the projection request as
+    Deliberately says nothing about page position or size. A spec is what a planner decides and a
+    user may edit; where it lands is the resolver's answer, and mixing the two is what ADR 0018
+    §1 separates. Detail and pictorial specs may request an independent semantic scale factor;
+    principal views instead share the drawing scale. `camera` and `up` are the projection request as
     `Drawing._add_view` already expresses it — a direction from the part and an up vector —
     while `page_axes` states which model extents the view's block spans, which is the fact
     layout arithmetic needs and cameras only imply.
@@ -114,13 +113,135 @@ class ViewSpec:
     camera: tuple[float, float, float] | None = None
     up: tuple[float, float, float] | None = None
     page_axes: tuple[str, str] | None = None
+    #: Semantic feature/cut target for a derived view. Opaque here so this leaf does not
+    #: depend on the model IR; Sheet materialises its stable feature token before building.
+    target: Any = None
+    #: Independent scale factor for a detail or orientation view. Principal views share the
+    #: sheet scale and therefore reject this field.
+    scale_factor: float | None = None
 
     def __post_init__(self) -> None:
         if self.kind not in _KINDS:
             raise ValueError(f"unknown view kind {self.kind!r}; expected one of {sorted(_KINDS)}")
+        if self.scale_factor is not None:
+            if self.kind not in {"detail", "pictorial"}:
+                raise ValueError(
+                    "independent scale is only valid for detail or pictorial views; "
+                    "principal orthographic views share the drawing scale"
+                )
+            if not math.isfinite(self.scale_factor) or self.scale_factor <= 0:
+                raise ValueError(
+                    f"view scale factor must be finite and positive, got {self.scale_factor!r}"
+                )
 
 
 _KINDS = frozenset({"principal", "pictorial", "section", "detail"})
+
+
+@dataclass(frozen=True)
+class ConstraintSource:
+    """The user-code line that authored one pre-projection constraint."""
+
+    filename: str
+    lineno: int
+
+    def __str__(self) -> str:
+        return f"{self.filename}:{self.lineno}"
+
+
+@dataclass(frozen=True)
+class ViewConstraint:
+    """One requested view plus the line that requested it.
+
+    ``target`` is deliberately opaque at this rank.  A section/detail may target a Sheet
+    feature identity, but the view-planning leaf must not import the feature IR merely to
+    retain that semantic reference.
+    """
+
+    spec: ViewSpec
+    source: ConstraintSource | None = None
+
+
+_RELATIONS = frozenset({"left_of", "right_of", "above", "below", "align_x", "align_y"})
+
+
+@dataclass(frozen=True)
+class ViewRelation:
+    """A relational constraint between two complete view blocks."""
+
+    subject: str
+    relation: str
+    reference: str
+    gap: float | None = None
+    source: ConstraintSource | None = None
+
+    def __post_init__(self) -> None:
+        if self.relation not in _RELATIONS:
+            raise ValueError(
+                f"unknown view relation {self.relation!r}; expected one of {sorted(_RELATIONS)}"
+            )
+        if self.subject == self.reference:
+            raise ValueError("a view cannot be positioned relative to itself")
+        if self.gap is not None and (not math.isfinite(self.gap) or self.gap < 0):
+            raise ValueError(
+                f"view relation gap must be finite and non-negative, got {self.gap!r}"
+            )
+
+
+@dataclass(frozen=True)
+class ViewPin:
+    """An authored projection-origin pin for a whole view block, in page mm."""
+
+    view: str
+    at: tuple[float, float]
+    source: ConstraintSource | None = None
+
+    def __post_init__(self) -> None:
+        if len(self.at) != 2 or not all(math.isfinite(value) for value in self.at):
+            raise ValueError(f"view pin needs two finite page coordinates, got {self.at!r}")
+
+
+@dataclass(frozen=True)
+class ViewConstraints:
+    """Immutable authored input to view planning (ADR 0018).
+
+    This is intentionally not a partly-resolved :class:`ResolvedViewPlan`.  It records the
+    two independent source choices from Amendment 1 (principal/orientation views and derived
+    views), automatic augmentations, whole-block relations, and projection-origin pins.  A
+    ``None`` source means the legacy-compatible automatic default was not explicitly authored.
+    """
+
+    principal_source: str | None = None
+    principal_source_location: ConstraintSource | None = None
+    principals: tuple[ViewConstraint, ...] = ()
+    added_principals: tuple[ViewConstraint, ...] = ()
+    derived_source: str | None = None
+    derived_source_location: ConstraintSource | None = None
+    derived: tuple[ViewConstraint, ...] = ()
+    added_derived: tuple[ViewConstraint, ...] = ()
+    relations: tuple[ViewRelation, ...] = ()
+    pins: tuple[ViewPin, ...] = ()
+
+    def __post_init__(self) -> None:
+        for field_name in ("principal_source", "derived_source"):
+            value = getattr(self, field_name)
+            if value not in (None, "automatic", "authored"):
+                raise ValueError(f"{field_name} must be None, 'automatic', or 'authored'")
+
+    @property
+    def is_empty(self) -> bool:
+        return not any(
+            (
+                self.principal_source,
+                self.principals,
+                self.added_principals,
+                self.derived_source,
+                self.derived,
+                self.added_derived,
+                self.relations,
+                self.pins,
+            )
+        )
 
 
 @dataclass(frozen=True)
@@ -232,7 +353,36 @@ def resolve_from_analysis(analysis) -> ResolvedViewPlan:
     wanted = getattr(analysis, "planned_views", None)
     if wanted is not None:
         principals = tuple(spec for spec in principals if spec.name in set(wanted))
-    specs = principals + (ViewSpec(name="iso", kind="pictorial"),)
+        placements = {name: place for name, place in placements.items() if name in set(wanted)}
+    constraints = getattr(analysis, "view_constraints", None)
+    requested_by_name = {}
+    if isinstance(constraints, ViewConstraints):
+        requested_by_name = {
+            item.spec.name: item.spec
+            for item in (*constraints.principals, *constraints.added_principals)
+        }
+        principals = tuple(
+            ViewSpec(
+                name=spec.name,
+                kind=spec.kind,
+                camera=spec.camera,
+                up=spec.up,
+                page_axes=spec.page_axes,
+                target=requested_by_name.get(spec.name, spec).target,
+                scale_factor=requested_by_name.get(spec.name, spec).scale_factor,
+            )
+            for spec in principals
+        )
+    specs = principals
+    if getattr(analysis, "planned_iso", True):
+        specs += (requested_by_name.get("iso", ViewSpec(name="iso", kind="pictorial")),)
+    if isinstance(constraints, ViewConstraints):
+        requested_derived = (
+            constraints.derived
+            if constraints.derived_source == "authored"
+            else constraints.added_derived
+        )
+        specs += tuple(item.spec for item in requested_derived)
     return ResolvedViewPlan(
         specs=specs,
         placements=placements,
