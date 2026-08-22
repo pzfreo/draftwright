@@ -80,6 +80,40 @@ def _canonical_profile_site(site, centre, axis: str, view: str) -> tuple[float, 
     return (values[0], values[1], values[2])
 
 
+def _turned_profile_site(site, axis: str, view: str, cylinders) -> tuple[float, float, float]:
+    """Return *site* rotated onto *view* about its nearest external shaft axis.
+
+    A part may contain several parallel shafts, so the part bounding-box centre is not an
+    axis. Rank the shared cylinder substrate by how closely the site lies on each cylinder's
+    surface, then rotate about that cylinder's own ``axis_xyz``.
+    When no matching external cylinder exists, preserve the physical site: inventing an axis
+    would be worse than retaining a possibly edge-on circumferential anchor.
+    """
+    values = (float(site[0]), float(site[1]), float(site[2]))
+    axis_i = "xyz".index(axis)
+    radial = tuple(i for i in (0, 1, 2) if i != axis_i)
+    candidates = []
+    for cylinder in (item for group in cylinders for item in group):
+        if not cylinder.get("external") or cylinder.get("axis") != axis:
+            continue
+        centre = tuple(float(value) for value in cylinder["axis_xyz"])
+        radial_distance = math.hypot(
+            values[radial[0]] - centre[radial[0]],
+            values[radial[1]] - centre[radial[1]],
+        )
+        surface_gap = abs(radial_distance - float(cylinder["diameter"]) / 2)
+        candidates.append(
+            (
+                (surface_gap, radial_distance, centre[radial[0]], centre[radial[1]]),
+                centre,
+            )
+        )
+    if not candidates:
+        return values
+    _score, centre = min(candidates, key=lambda candidate: candidate[0])
+    return _canonical_profile_site(values, centre, axis, view)
+
+
 def _xyz(loc) -> tuple[float, float, float]:
     """A build123d ``Vector`` (has ``.X/.Y/.Z``) or an ``(x, y, z)`` sequence → an
     ``(x, y, z)`` float tuple. Shared by the detectors and the lint coverage checks

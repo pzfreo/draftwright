@@ -61,6 +61,7 @@ from draftwright._core import (
     _title_block_box,
     _tol_suffix,
 )
+from draftwright._geometry import _turned_profile_site
 from draftwright.annotations._common import (
     CROSSABLE_TYPES,
     PRIORITY,
@@ -109,6 +110,8 @@ from draftwright.model.callout import hole_callout_spec as hole_callout_spec
 from draftwright.model.compiled import FeatureRef, resolve_feature
 from draftwright.model.ir import (
     AUTHORED_DIMENSION_KINDS,
+    ChamferFeature,
+    FilletFeature,
     HoleFeature,
     PatternFeature,
     PocketFeature,
@@ -1703,7 +1706,7 @@ def _label_lands_clear(ldr, obstacles, silhouette, page, *, geom_clear=False) ->
     )
 
 
-def _corner_candidates(dwg, view, vb, members, reach, *, provenances=None):
+def _corner_candidates(dwg, view, vb, members, reach, *, provenances=None, cylinders=None):
     """Lead candidates for a corner-sitting feature (chamfer/fillet/flat): from each member's
     projected origin, a diagonal from the view centre out through the corner, *reach* beyond
     the tip — a corner clears the silhouette this way. Yields ``(tip, elbow, member)`` in the
@@ -1713,14 +1716,19 @@ def _corner_candidates(dwg, view, vb, members, reach, *, provenances=None):
     cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
     owners = provenances if provenances is not None else members
     for m, owner in zip(members, owners):
-        tip = dwg.at(view, *m.frame.origin)
+        site = m.frame.origin
+        if cylinders is not None and getattr(m, "turned", False):
+            site = _turned_profile_site(site, m.axis, view, cylinders)
+        tip = dwg.at(view, *site)
         dx, dy = tip[0] - cx, tip[1] - cy
         d = math.hypot(dx, dy) or 1.0
         elbow = (tip[0] + dx / d * reach, tip[1] + dy / d * reach, 0)
         yield (tip, elbow, owner)
 
 
-def _corner_escape_candidates(dwg, view, vb, members, reach, *, provenances=None):
+def _corner_escape_candidates(
+    dwg, view, vb, members, reach, *, provenances=None, cylinders=None
+):
     """Corner leaders plus silhouette-outward horizontal/vertical escapes.
 
     The diagonal remains the stable first choice.  The two axis-aligned rays
@@ -1730,11 +1738,16 @@ def _corner_escape_candidates(dwg, view, vb, members, reach, *, provenances=None
 
     members = list(members)
     owners = list(provenances if provenances is not None else members)
-    yield from _corner_candidates(dwg, view, vb, members, reach, provenances=owners)
+    yield from _corner_candidates(
+        dwg, view, vb, members, reach, provenances=owners, cylinders=cylinders
+    )
     x0, y0, x1, y1 = vb
     cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
     for member, owner in zip(members, owners, strict=True):
-        tip = dwg.at(view, *member.frame.origin)
+        site = member.frame.origin
+        if cylinders is not None and getattr(member, "turned", False):
+            site = _turned_profile_site(site, member.axis, view, cylinders)
+        tip = dwg.at(view, *site)
         # Two axis escapes only. Widening this fan to five directions was measured
         # (#1187): it does find clear routes, but the extra candidates push dense parts
         # back over the per-view candidate budget and out of the exact solve, which cost
@@ -2215,8 +2228,9 @@ def render_chamfers(dwg, plan, a, *, ctx, only=None) -> int:
     *form* discriminators (``leg2``/``angle``) read off the feature. For prismatic chamfers,
     ``g.view`` follows the bevel-edge axis and ``_END_ON`` preserves the established
     z→plan / x→side / y→front map. A turned conical feature instead carries the shaft axis
-    plus ``turned=True``; the planner selects ``_PROFILE`` and this renderer keeps the physical
-    edge anchor while the shared leader solve chooses its page position (#1276).
+    plus ``turned=True``; the planner selects ``_PROFILE`` and this renderer rotates the
+    physical edge anchor about its actual shaft axis onto that view while the shared leader
+    solve chooses its page position (#1276).
     Grouping stays renderer-side: the IR remains one semantic feature per physical chamfer
     (ADR 0013), while the annotation registry records all N measurement identities
     (ADR 0017 / #1002)."""
@@ -2281,6 +2295,7 @@ def render_chamfers(dwg, plan, a, *, ctx, only=None) -> int:
                     [g.facts for g, _ in ordered],
                     reach,
                     provenances=[g.ref for g, _ in ordered],
+                    cylinders=a.cyls,
                 ),
                 tuple(pd.id for _, pd in members),
             )
@@ -2357,8 +2372,9 @@ def render_fillets(dwg, plan, a, *, ctx, only=None) -> int:
     member. For prismatic fillets, ``g.view`` follows the rounded-edge axis and ``_END_ON``
     preserves the established z→plan / x→side / y→front map. A turned toroidal feature instead
     carries the shaft axis plus ``turned=True``; the planner selects ``_PROFILE`` and this
-    renderer keeps the physical edge anchor while the shared leader solve chooses its page
-    position (#1276). Grouping stays renderer-side: the IR remains one semantic feature per
+    renderer rotates the physical edge anchor about its actual shaft axis onto that view while
+    the shared leader solve chooses its page position (#1276). Grouping stays renderer-side:
+    the IR remains one semantic feature per
     physical fillet (ADR 0013), while the annotation registry records all N measurement
     identities (ADR 0017 / #1002)."""
     draft = dwg.draft
@@ -2408,6 +2424,7 @@ def render_fillets(dwg, plan, a, *, ctx, only=None) -> int:
                     [g.facts for g, _ in ordered],
                     reach,
                     provenances=[g.ref for g, _ in ordered],
+                    cylinders=a.cyls,
                 ),
                 # One `n× R` callout stands for EVERY collapsed member, so it draws all of
                 # their radii — the tuple storage exists for exactly this (#1002).
@@ -5717,6 +5734,14 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
         zones, hproj, vproj, hi, vi = vk
         strip = getattr(zones, item.side)
         o = item.frame.origin
+        if (
+            item.kind in ("finish", "note")
+            and isinstance(item.origin, ChamferFeature | FilletFeature)
+            and item.origin.turned
+        ):
+            o = _turned_profile_site(
+                item.origin.frame.origin, item.origin.axis, item.view, a.cyls
+            )
         px, py = hproj(o[hi]), vproj(o[vi])
         horizontal = item.side in ("above", "below")  # frame stacks along y
         axis = "y" if horizontal else "x"

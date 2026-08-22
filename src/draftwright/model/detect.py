@@ -76,9 +76,7 @@ from b123d_recognisers import (
 )
 
 from draftwright._geometry import (
-    _EDGE_ON,
     _axis_letter,
-    _canonical_profile_site,
     _is_principal_axis,
     _xyz,
 )
@@ -615,11 +613,8 @@ def _convert_plate(pl: Plate, ctx: ConvContext) -> PlateFeature:
 
 
 def _convert_chamfer(ch: Chamfer, ctx: ConvContext) -> ChamferFeature:
-    at = ch.at
-    if ch.turned:
-        at = _canonical_profile_site(at, _xyz(ctx.bbox.center()), ch.axis, _EDGE_ON[ch.axis])
     return ChamferFeature(
-        frame=Frame((at[0], at[1], at[2]), ch.axis),
+        frame=Frame((ch.at[0], ch.at[1], ch.at[2]), ch.axis),
         axis=ch.axis,
         leg1=ch.leg1,
         leg2=ch.leg2,
@@ -629,11 +624,8 @@ def _convert_chamfer(ch: Chamfer, ctx: ConvContext) -> ChamferFeature:
 
 
 def _convert_fillet(fl: Fillet, ctx: ConvContext) -> FilletFeature:
-    at = fl.at
-    if fl.turned:
-        at = _canonical_profile_site(at, _xyz(ctx.bbox.center()), fl.axis, _EDGE_ON[fl.axis])
     return FilletFeature(
-        frame=Frame((at[0], at[1], at[2]), fl.axis),
+        frame=Frame((fl.at[0], fl.at[1], fl.at[2]), fl.axis),
         axis=fl.axis,
         radius=fl.radius,
         turned=fl.turned,

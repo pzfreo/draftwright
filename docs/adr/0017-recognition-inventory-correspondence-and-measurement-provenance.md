@@ -104,11 +104,12 @@ shared placement solve choose the page position. The ownership rule is unchanged
 reuse the aggregate records and must not rescan the solid when they add support.
 
 Because the package records intentionally share one type across planar/conical chamfers and
-cylindrical/toroidal fillets, the aggregate classification is carried beside an injected
-inventory as ``turned_edge_treatments=True``. Standalone model detection applies the same
-rotational family filters itself. Draftwright never guesses the surface subtype from a matching
-axis letter; after classification it may rotate a circumferential anchor about the shaft onto
-the selected profile plane, preserving its axial station and radius.
+cylindrical/toroidal fillets, schema-2 records carry the surface-family discriminator on each
+record as ``turned``. Standalone model detection applies the same rotational family filters
+itself. Draftwright never guesses the surface subtype from a matching axis letter; for a turned
+record it may rotate the physical circumferential anchor about the nearest external-cylinder
+axis from the shared substrate onto the selected profile plane, preserving its axial station
+and radius.
 
 ## Accepted Contract
 

@@ -4,12 +4,12 @@ import warnings
 from pathlib import Path
 
 import pytest
-from build123d import Box, Cylinder, GeomType, Pos, Rotation, import_step
+from build123d import Box, Compound, Cylinder, GeomType, Pos, Rotation, import_step
 from build123d import chamfer as b3d_chamfer
 from build123d import fillet as b3d_fillet
 
 from draftwright import build_drawing
-from draftwright.model import boss, chamfer, groove, note
+from draftwright.model import boss, chamfer, fillet, finish, groove, note
 from draftwright.sheet import Sheet
 
 GRM03 = Path(__file__).parent / "fixtures" / "grm03_thumbwheel_drive_screw.step"
@@ -90,11 +90,64 @@ def test_y_turned_recognised_sites_rotate_onto_the_visible_side_profile(part, ki
 
     assert features and all(feature.turned and feature.axis == "y" for feature in features)
     assert drawing.view_of(name) == "side"
-    assert any(
-        leader.tip[:2] == pytest.approx(drawing.at("side", *feature.frame.origin)[:2])
+    assert leader.tip[:2] != pytest.approx(axis_site)
+
+
+def test_detected_parallel_shafts_rotate_about_their_own_axes_not_the_part_bbox():
+    shaft = Rotation(90, 0, 0) * _chamfered_shaft()
+    part = Compound(children=[Pos(-30, 0, 0) * shaft, Pos(50, 0, 0) * shaft])
+    drawing = build_drawing(part, number="Y2")
+    features = [feature for feature in drawing.model().features if feature.kind == "chamfer"]
+    leader = next(
+        drawing.get_annotation(name)
+        for name in drawing.annotations()
+        if name.startswith("m_chamfer")
+    )
+    vb = drawing.view_bounds("side")
+
+    assert len(features) == 4
+    assert all(
+        min(abs(((feature.frame.origin[0] - cx) ** 2 + feature.frame.origin[2] ** 2) ** 0.5 - 9.5)
+            for cx in (-30.0, 50.0))
+        < 1e-6
         for feature in features
     )
-    assert leader.tip[:2] != pytest.approx(axis_site)
+    assert vb[0] <= leader.tip[0] <= vb[2]
+    assert vb[1] <= leader.tip[1] <= vb[3]
+    assert leader.tip[1] != pytest.approx((vb[1] + vb[3]) / 2)
+
+
+@pytest.mark.parametrize(
+    ("feature", "prefix"),
+    [
+        (chamfer(axis="z", leg=1, at=(0, 9.5, 20), turned=True), "m_chamfer"),
+        (fillet(axis="z", radius=1, at=(0, 9.5, 20), turned=True), "m_fillet"),
+    ],
+)
+def test_declared_turned_edge_leader_rotates_off_the_axis_in_profile(feature, prefix):
+    drawing = build_drawing(Cylinder(10, 40), model=[feature], number="Z")
+    name = next(name for name in drawing.annotations() if name.startswith(prefix))
+    leader = drawing.get_annotation(name)
+
+    assert drawing.view_of(name) == "front"
+    assert leader.tip[:2] == pytest.approx(drawing.at("front", 9.5, 0, 20)[:2])
+    assert leader.tip[:2] != pytest.approx(drawing.at("front", 0, 0, 20)[:2])
+
+
+@pytest.mark.parametrize("aspect", [note, finish])
+def test_turned_surface_aspect_view_override_recanonicalises_for_that_view(aspect):
+    feature = chamfer(axis="z", leg=1, at=(9.5, 0, 20), turned=True)
+    target = (
+        aspect("BREAK EDGE", feature, Cylinder(10, 40), view="side")
+        if aspect is note
+        else aspect("3.2", feature, Cylinder(10, 40), view="side")
+    )
+    drawing = build_drawing(Cylinder(10, 40), model=[feature, target], number="Z")
+    leader = drawing.get_annotation("m_gdt0")
+
+    assert target.frame.origin == (9.5, 0, 20)
+    assert leader.tip[:2] == pytest.approx(drawing.at("side", 0, 9.5, 20)[:2])
+    assert leader.tip[:2] != pytest.approx(drawing.at("side", 0, 0, 20)[:2])
 
 
 @pytest.mark.parametrize(
