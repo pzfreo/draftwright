@@ -19,12 +19,12 @@ from b123d_recognisers import capability_manifest
 
 CONSUMER_CAPABILITY_FORMAT = "draftwright-recogniser-capabilities"
 CONSUMER_CAPABILITY_FORMAT_VERSION = 1
-_PACKAGE_VERSION = "0.2.9"
+_PACKAGE_VERSION = "0.3.0"
 # The only package identity the cross-repository canary may substitute for the exact production
 # pin.  Passing a candidate is explicit at the validator call site; normal imports and released
 # checks never consult environment state and therefore remain locked to ``_PACKAGE_VERSION``.
 # ``scripts/update-recogniser-dependency`` disables this window when 0.3.0 becomes the pin.
-_CANDIDATE_PACKAGE_VERSION: str | None = "0.3.0"
+_CANDIDATE_PACKAGE_VERSION: str | None = None
 _BOUNDARIES = (
     "ir_adapter",
     "dsl_declaration",
@@ -116,8 +116,8 @@ _FAMILIES: dict[str, _FamilySpec] = {
 # would turn the fail-closed join into an open version range. Package PR #151 adds only optional
 # ``turned`` fields; the existing adapters remain valid while #1276 adopts those fields.
 _RECORD_SCHEMA_VERSIONS: dict[tuple[str, str], tuple[int, ...]] = {
-    ("chamfers", "Chamfer"): (1, 2),
-    ("fillets", "Fillet"): (1, 2),
+    ("chamfers", "Chamfer"): (2,),
+    ("fillets", "Fillet"): (2,),
 }
 
 

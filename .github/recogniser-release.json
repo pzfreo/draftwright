@@ -1,10 +1,10 @@
 {
   "artifacts": {
-    "b123d_recognisers-0.2.9-py3-none-any.whl": "25371388617b9c22d593e0503030bed7f043e74d2d42d0b6cce29e31549587d4",
-    "b123d_recognisers-0.2.9.tar.gz": "92beab725b805a95929c885981770514b970e84cb033093d6504a97c6f8855be"
+    "b123d_recognisers-0.3.0-py3-none-any.whl": "132a53da25ec6887bef5553cbddd487969ae0c1a1e28be942d8f4e11f1f5c094",
+    "b123d_recognisers-0.3.0.tar.gz": "673fd1d2bf5fb516181a22cc3c762ca5db140fab51131b6c63b4824dbbc2ddf7"
   },
-  "capability_manifest_sha256": "805876905d548fd0ef1301e2cf24427a86d34bc2e592b8d2d0cb43db94e1d3bd",
+  "capability_manifest_sha256": "6645def94cbabaca7b9676fdb029b02e467266d1f020ea536e903b7d86b52685",
   "distribution": "b123d-recognisers",
   "index": "https://pypi.org/simple",
-  "version": "0.2.9"
+  "version": "0.3.0"
 }
