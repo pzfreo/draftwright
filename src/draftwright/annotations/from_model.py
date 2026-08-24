@@ -1900,6 +1900,10 @@ def _label_lands_clear(ldr, obstacles, silhouette, page, *, geom_clear=False) ->
     )
 
 
+# Kept as the producer binding patched by the pre-drain Policy-B mutation guard.
+_analytical_label_lands_clear = analytical_leader_lands_clear
+
+
 def _corner_candidates(dwg, view, vb, members, reach, *, provenances=None, cylinders=None):
     """Lead candidates for a corner-sitting feature (chamfer/fillet/flat): from each member's
     projected origin, a diagonal from the view centre out through the corner, *reach* beyond
@@ -2162,7 +2166,7 @@ def _leader_callout_pass(
                 _label=label,
             ):
                 if candidate.annotation is None:
-                    return analytical_leader_lands_clear(
+                    return _analytical_label_lands_clear(
                         candidate,
                         obstacles,
                         _vb,
