@@ -47,6 +47,7 @@ _LEGIBILITY_CODES = frozenset(
     {
         "annotation_out_of_bounds",
         "annotation_overlap",
+        "annotation_ink_overlap",
         "detail_unplaceable",
         "dim_inside_part",
         "feature_leader_crossing",

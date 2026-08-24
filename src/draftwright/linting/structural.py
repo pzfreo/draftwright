@@ -23,8 +23,12 @@ from draftwright._geometry import (
     _segment_clips_box,
     material_reentry_span,
 )
+from draftwright.linting.ink_overlap import worst_shared_place
 from draftwright.linting.issues import LintIssue, _IssueAggregation
 from draftwright.projection import _MATERIAL_PAGE_TOLERANCE
+
+#: Ceiling on ink booleans per sheet — see the pairwise overlap loop.
+MAX_INK_BOOLEANS = 250
 
 #: The shared visible-stroke floor. Imported rather than restated so the critique cannot
 #: drift from the router that solves against the same field (#798).
@@ -381,6 +385,13 @@ def lint_drawing(
     # #701: the check body runs unguarded — the fragile duck-typed reads happened
     # above (boxes) or inside the callee; a bug here must fail loudly, not silently
     # disable the check forever.
+    # Booleans performed for the ink check below, across the whole sheet. Only
+    # pairs whose full boxes touch and whose labels already cleared each other
+    # spend one, so a normal sheet is nowhere near this — GRM-03 spends ten.
+    # A count rather than a deadline: the same drawing has to lint the same way
+    # twice, and a wall-clock budget makes the answer depend on the machine.
+    ink_budget = MAX_INK_BOOLEANS
+
     for i, item_a in enumerate(items):
         for j in range(i + 1, len(items)):
             item_b = items[j]
@@ -427,6 +438,47 @@ def lint_drawing(
                             f"increase dim offset to separate them"
                         ),
                         code="annotation_overlap",
+                    )
+                )
+                continue
+
+            # The label boxes clear each other, which does not mean the ink
+            # does: a dimension line, an arrowhead or a leader drawn over a
+            # label is not a label, and the test above cannot see it (#1321).
+            #
+            # Only reached for pairs the label test cleared, and gated on the
+            # full boxes touching first, because the boolean costs far more
+            # than the comparison and almost every pair is disjoint. The budget
+            # bounds a pathological sheet: this loop is already O(n²), and #161
+            # records what that cost on an 83-hole part.
+            if ink_budget <= 0:
+                continue
+            full_a = _ann_box(item_a, box_cache)
+            full_b = _ann_box(item_b, box_cache)
+            if full_a is None or full_b is None:
+                continue
+            if not (
+                min(full_a[2], full_b[2]) > max(full_a[0], full_b[0])
+                and min(full_a[3], full_b[3]) > max(full_a[1], full_b[1])
+            ):
+                continue
+            ink_budget -= 1
+            worst = worst_shared_place(item_a, item_b)
+            if worst is not None:
+                la = getattr(item_a, "label", None) or _item_label(item_a) or "?"
+                lb = getattr(item_b, "label", None) or _item_label(item_b) or "?"
+                issues.append(
+                    LintIssue(
+                        severity="warning",
+                        message=(
+                            f"'{la}' and '{lb}' are drawn over each other: "
+                            f"{worst.area:.2f} mm² of ink shared across "
+                            f"{worst.width:.1f}×{worst.height:.1f} mm. The labels "
+                            "clear each other, so this is line-work, an arrowhead "
+                            "or a leader over a label — move what is drawn, not "
+                            "just the text"
+                        ),
+                        code="annotation_ink_overlap",
                     )
                 )
 
