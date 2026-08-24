@@ -19,7 +19,7 @@ from draftwright.layout import _assign_leader_candidates
 from draftwright.model import FilletFeature, Frame, GrooveFeature, PartModel, pocket
 
 
-def test_joint_assignment_is_scoped_to_the_six_post_drain_adapters():
+def test_late_joint_assignment_stays_scoped_to_the_six_post_drain_adapters():
     root = Path(__file__).parents[1] / "src" / "draftwright" / "annotations"
 
     def call_sites(filename):
@@ -27,7 +27,10 @@ def test_joint_assignment_is_scoped_to_the_six_post_drain_adapters():
         sites = set()
         for function in (node for node in tree.body if isinstance(node, ast.FunctionDef)):
             for call in (node for node in ast.walk(function) if isinstance(node, ast.Call)):
-                if not isinstance(call.func, ast.Name) or call.func.id != "_leader_callout_pass":
+                if (
+                    not isinstance(call.func, ast.Name)
+                    or call.func.id != "place_machined_leader_jobs"
+                ):
                     continue
                 keyword = next((kw.value for kw in call.keywords if kw.arg == "joint"), None)
                 sites.add(
@@ -61,7 +64,7 @@ def test_pre_drain_pattern_keeps_legacy_greedy_semantics(monkeypatch):
     # The joint solve is reached through the per-view decomposition since #1188; that
     # wrapper is the one call site, so it is what a pre-drain pattern must never enter.
     monkeypatch.setattr(
-        "draftwright.annotations.from_model._assign_by_view",
+        "draftwright.annotations.leaders._assign_by_view",
         forbidden_joint_solve,
     )
     member = pocket(
@@ -85,13 +88,10 @@ def test_pre_drain_pattern_keeps_legacy_greedy_semantics(monkeypatch):
     assert [name for name in drawing.annotations() if name.startswith("dim_pocketpat_pitch")]
 
 
-def test_pre_drain_y_diameter_keeps_the_policy_b_fallback_tail(monkeypatch):
-    """A clear ray blocked by fixed ink must not erase later obstructed fallbacks.
+def test_pre_drain_y_diameter_uses_the_shared_analytical_producer_floor(monkeypatch, tmp_path):
+    """The pre-drain semantic stage shares measurement but still emits immediately."""
+    from draftwright.annotations import from_model
 
-    #890 ranks projected-hole-clear rays first, but its pre-drain greedy pass keeps the
-    obstructed Policy-B tail. Filtering that tail for #740's joint tier made this real
-    diameter disappear before it could populate structured/downstream coverage.
-    """
     locations = ((18, 0), (-18, 0), (0, 18), (0, -18))
     part = Cylinder(21, 4)
     for x, y in locations:
@@ -108,55 +108,38 @@ def test_pre_drain_y_diameter_keeps_the_policy_b_fallback_tail(monkeypatch):
         part -= Pos(x, y, 0) * Cylinder(2, 10)
     part = part.rotate(Axis.X, 90)
 
-    def is_diagonal(tip, elbow):
-        return (
-            abs(float(elbow[0]) - float(tip[0])) > 1e-6
-            and abs(float(elbow[1]) - float(tip[1])) > 1e-6
-        )
+    constructed = []
+    real_leader = from_model.Leader
 
-    def controlled_clearance(candidate, _circles):
-        return 1.0 if is_diagonal(candidate[0], candidate[1]) else -1.0
-
-    def analytical_clear_ray_is_occupied(
-        candidate, obstacles, silhouette, page, *, label, geom_clear=False
-    ):
-        if label == "ø25":
-            # Model fixed inventory that blocks every preferred clear ray while one
-            # hole-obstructed Policy-B ray remains usable.
-            return not is_diagonal(candidate.tip, candidate.elbow)
-        return True
-
-    def clear_ray_is_occupied(leader, obstacles, silhouette, page, *, geom_clear=False):
+    def counted_leader(*args, **kwargs):
+        leader = real_leader(*args, **kwargs)
         if str(leader.label) == "ø25":
-            return not is_diagonal(leader.tip, leader.elbow)
-        return True
+            constructed.append(leader)
+        return leader
 
-    monkeypatch.setattr(
-        "draftwright.annotations.from_model._leader_hole_clearance",
-        controlled_clearance,
+    monkeypatch.setattr(from_model, "Leader", counted_leader)
+    trace_path = tmp_path / "y-diameter.json"
+    drawing = build_drawing(
+        part,
+        page="A4",
+        scale=1.0,
+        scale_policy="permissive",
+        trace=trace_path,
     )
-    monkeypatch.setattr(
-        "draftwright.annotations.from_model._analytical_label_lands_clear",
-        analytical_clear_ray_is_occupied,
-    )
-    monkeypatch.setattr(
-        "draftwright.annotations.from_model._label_lands_clear",
-        clear_ray_is_occupied,
-    )
-    # Force the measured-work guard's producer floor; the expanded analytical
-    # allowance otherwise admits this small inventory to the exact solve.
-    monkeypatch.setattr(
-        "draftwright.annotations.leaders._FEATURE_LEADER_MAX_MEASURE_WORK",
-        0,
-    )
-
-    drawing = build_drawing(part, page="A4", scale=1.0, scale_policy="permissive")
 
     diameter = drawing.get_annotation("m_dia_y0")
     assert diameter.label == "ø25"
-    assert not is_diagonal(diameter.tip, diameter.elbow)
+    assert constructed == [diameter], "only the selected analytical survivor builds OCC"
     assert diameter.covers_diameters == (25.0,)
     assert drawing.measurement_keys("m_dia_y0")
+    trace = json.loads(trace_path.read_text(encoding="utf-8"))
+    event = next(
+        item for item in trace["pass_events"] if item["label"] == "Y-axis step diameter_callouts"
+    )
+    assert event["assignment"] == "greedy_stage_boundary"
+    assert any(
+        item["name"] == "m_dia_y0" and item["outcome"] == "placed" for item in event["items"]
+    )
     assert not [
         issue
         for issue in drawing.lint()

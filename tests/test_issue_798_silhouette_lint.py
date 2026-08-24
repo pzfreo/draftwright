@@ -274,7 +274,7 @@ class TestCardinalityIsNotTradedForCleanliness:
 
         from draftwright.annotations import leaders
 
-        source = inspect.getsource(leaders.drain_feature_leaders)
+        source = inspect.getsource(leaders.place_feature_leader_jobs)
         accept = source.index("accepted = not hard_blockers")
         units = source.index("units = _material_units(candidate, field)")
         assert accept < units, "material must not participate in the acceptance decision"

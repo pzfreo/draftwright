@@ -28,7 +28,7 @@ unification remains separate work (#1166).
 
 **Amendment 2 (2026-08-15, #1166) — compatible same-view feature leaders
 share one late inventory.** Automatic and deferred sparse ordinary side/plan
-hole callouts and the five post-drain machined-feature leader families no longer
+hole callouts and the six post-drain machined-feature leader families no longer
 commit in separate local passes. They collect semantic jobs into
 `PlacementContext.feature_leaders`; the one `"feature_leaders"` stage after the
 corridor drain and before section/detail composition lowers them through
@@ -189,7 +189,7 @@ downstream furniture and table semantics. Recorded so it is not re-derived.
 
 The material term reaches every placer that weighs routing, not only the shared
 inventory: the within-pass assignment and the legacy first-clear scope in
-`_leader_callout_pass` take the same preference through the same
+`place_machined_leader_jobs` takes the same preference through the same
 `material_penalty_units`, so boss diameters and the machined families cannot drift from
 the critique either (#1187). The pre-drain diameter and grouped pattern consumers keep
 their pure legacy selection, as Amendment 1 requires.
@@ -247,8 +247,17 @@ by ordinary holes. The generic pass measures each distinct label once through th
 cached renderer-faithful `_text_size`; candidate exploration constructs no OCC
 `Leader`. Only a selected survivor is materialised, and its rendered label and ink
 must match the analytical candidate before commit. A mismatch remains a
-validation-stage failure and replays the canonical producer tail. This extends the
-one shared solve; it does not introduce another placement mechanism.
+validation-stage failure and replays the canonical producer tail. The six
+post-drain adapters enter the canonical late exact inventory. Y-axis diameters,
+boss diameters and polygonal boss/stock callouts still emit at their pre-drain
+semantic stage because their winners feed downstream passes. A finished-sheet
+single-feature `Drawing.callout()` likewise has no pending late inventory to join.
+Those immediate consumers invoke the same `FeatureLeaderJob` measurement,
+materialisation and rendered-validation machinery through its lazy first-clear
+producer floor. Thus every listed family uses one placement implementation while
+the established compatibility boundary continues to decide whether a job
+participates in late exact assignment or its immediate producer floor. No second
+placement mechanism or new candidate lane is introduced.
 
 The old 512-candidate cap treated every candidate as equally expensive. Measurement
 on the #1308 corpus showed an OCC candidate at about 14.8 ms and an analytical one
@@ -373,7 +382,7 @@ exactly the space other principals needed.
 
 Compatible automatic/deferred feature leaders are likewise
 **collect → assign → emit** (#740/#1166). The side/plan hole renderer and the
-five `_leader_callout_pass` adapters register rich `FeatureLeaderJob`s in
+six `place_machined_leader_jobs` adapters register rich `FeatureLeaderJob`s in
 `annotations/leaders.py`; the canonical late stage lowers analytical ordinary-
 hole alternatives and bounded rendered machined-feature alternatives against
 the completed fixed inventory, derives conflicts from exact leader ink plus

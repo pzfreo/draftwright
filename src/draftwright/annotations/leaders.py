@@ -1186,6 +1186,20 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
         return 0
     jobs = list(pending)
     pending.clear()
+    return place_feature_leader_jobs(dwg, analysis, ctx, jobs)
+
+
+def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False) -> int:
+    """Solve explicit jobs now through the shared analytical leader machinery.
+
+    Pre-drain semantic consumers use ``producer_floor=True`` to retain their
+    established first-clear ordering without postponing their winners to the
+    canonical late inventory.  Candidate measurement and survivor validation
+    remain the same shared path; only the assignment tier is fixed to the lazy
+    producer floor.
+    """
+
+    jobs = list(jobs)
     if not jobs:
         return 0
 
@@ -1400,6 +1414,13 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
         therefore expose the accepted crossing through structured lint rather
         than looking clean merely because the trace recorder was disabled.
         """
+
+        if producer_floor:
+            # Immediate pre-drain consumers retain their historical diagnostic
+            # contract as well as their selection order. Their later semantic
+            # passes already diagnose the resulting drawing; this late-inventory
+            # Policy-B finding was never part of the immediate producer floor.
+            return
 
         unverified = "fixed_probe_budget" in blockers
         crossed = tuple(
@@ -1819,6 +1840,9 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
             cost=total_cost,
         )
         return placed_count
+
+    if producer_floor:
+        return greedy("greedy_stage_boundary")
 
     if len(jobs) > _LEADER_ASSIGN_MAX_JOBS:
         return greedy("greedy_job_budget")

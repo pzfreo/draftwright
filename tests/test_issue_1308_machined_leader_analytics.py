@@ -1,11 +1,15 @@
 """Output contract for analytical machined-feature leaders (#1308)."""
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from build123d import Box, Cylinder, Pos
+from build123d_drafting.helpers import Draft
 
 from draftwright import build_drawing
+from draftwright.annotations import from_model
 from draftwright.annotations._common import analytical_leader_lands_clear
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -126,8 +130,79 @@ def test_analytical_producer_floor_matches_label_and_full_geometry_clearance():
     )
 
 
+def test_shared_machined_adapter_fails_closed_with_provenance(monkeypatch):
+    issues = []
+    ctx = SimpleNamespace(
+        feature_leaders=[],
+        record_issue=lambda *args, **kwargs: issues.append((args, kwargs)),
+    )
+    drawing = SimpleNamespace(draft=Draft())
+    feature = object()
+    monkeypatch.setattr(
+        "draftwright.annotations.from_model._text_size",
+        lambda *_args, **_kwargs: (0.0, 0.0),
+    )
+
+    placed = from_model.place_machined_leader_jobs(
+        drawing,
+        None,
+        [("probe", "plan", (0.0, 0.0, 1.0, 1.0), "R1", [((2, 2), (2, 2), feature)], ())],
+        noun="probe",
+        drop_code="probe_dropped",
+        ctx=ctx,
+        joint=True,
+        source_ids_by_name={"probe": ("feature:1",)},
+    )
+
+    assert placed == 0
+    (job,) = ctx.feature_leaders
+    assert list(job.candidates) == [((2, 2), (2, 2), feature)]
+    assert job.analytical_geometry((2, 2), (2, 2), feature) is None
+    assert job.on_drop is not None
+    job.on_drop("geometry_validation")
+    job.on_drop("no_clear_room")
+    assert [args[:3] for args, _kwargs in issues] == [
+        (
+            "warning",
+            "probe_dropped",
+            "probe callout R1 not placed (rendered geometry validation failed)",
+        ),
+        ("warning", "probe_dropped", "probe callout R1 not placed (no clear room)"),
+    ]
+    assert [kwargs["source"] for _args, kwargs in issues] == [
+        ("feature:1",),
+        ("feature:1",),
+    ]
+
+
 @pytest.mark.parametrize("fixture", tuple(EXPECTED))
-def test_analytical_machined_leaders_preserve_the_occ_measured_drawing(fixture):
+def test_analytical_machined_leaders_preserve_the_occ_measured_drawing(fixture, monkeypatch):
+    immediate_jobs = []
+    constructed_polygonal = []
+    place_feature_leader_jobs = from_model.place_feature_leader_jobs
+    real_leader = from_model.Leader
+
+    def capture_immediate(drawing, analysis, ctx, jobs, *, producer_floor=False):
+        jobs = list(jobs)
+        if producer_floor:
+            immediate_jobs.extend(jobs)
+        return place_feature_leader_jobs(
+            drawing,
+            analysis,
+            ctx,
+            jobs,
+            producer_floor=producer_floor,
+        )
+
+    monkeypatch.setattr(from_model, "place_feature_leader_jobs", capture_immediate)
+
+    def counted_leader(*args, **kwargs):
+        leader = real_leader(*args, **kwargs)
+        if str(leader.label).startswith("HEX "):
+            constructed_polygonal.append(leader)
+        return leader
+
+    monkeypatch.setattr(from_model, "Leader", counted_leader)
     drawing = build_drawing(FIXTURES / fixture)
     actual = {}
     for name, annotation in drawing.iter_annotations():
@@ -140,3 +215,33 @@ def test_analytical_machined_leaders_preserve_the_occ_measured_drawing(fixture):
     expected_annotations, expected_lint = EXPECTED[fixture]
     assert actual == expected_annotations
     assert drawing.lint_summary()["by_code"] == expected_lint
+    if fixture == "nist_ctc_01_asme1_ap242.stp":
+        polygonal_jobs = [job for job in immediate_jobs if job.name == "m_polygonal_boss_z0"]
+        assert polygonal_jobs
+        assert all(job.analytical_geometry is not None for job in polygonal_jobs)
+        assert len(constructed_polygonal) == len(polygonal_jobs), (
+            "each page-layout assembly builds only its selected polygonal survivor"
+        )
+        assert constructed_polygonal[-1] is drawing.get_annotation("m_polygonal_boss_z0")
+
+
+def test_pre_drain_boss_diameter_builds_only_its_analytical_survivor(monkeypatch, tmp_path):
+    part = Box(90, 64, 38) + Pos(0, 0, 24) * Cylinder(14, 10)
+    real_leader = from_model.Leader
+    constructed = []
+
+    def counted_leader(*args, **kwargs):
+        leader = real_leader(*args, **kwargs)
+        if str(leader.label) == "ø28":
+            constructed.append(leader)
+        return leader
+
+    monkeypatch.setattr(from_model, "Leader", counted_leader)
+    trace_path = tmp_path / "boss.json"
+    drawing = build_drawing(part, trace=trace_path)
+
+    boss = drawing.get_annotation("m_bossdia_z0")
+    assert constructed == [boss], "only the selected analytical survivor builds OCC"
+    trace = json.loads(trace_path.read_text(encoding="utf-8"))
+    event = next(item for item in trace["pass_events"] if item["label"] == "boss_callouts")
+    assert event["assignment"] == "greedy_stage_boundary"

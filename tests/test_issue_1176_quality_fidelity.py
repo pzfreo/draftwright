@@ -499,7 +499,11 @@ _PRODUCERS = {"LintIssue": 3, "record_issue": 1, "_record_build_issue": 1}
 #: producer calls alone. Only the two entry points are listed: the forwarding layers
 #: (`_render_polygonal_prisms` among them) are DISCOVERED by resolving to a fixed point, so a
 #: new one is followed rather than needing to be remembered here.
-_STAGED_RECORDERS = {"_leader_callout_pass", "FeatureLeaderJob"}
+_STAGED_RECORDERS = {
+    "_leader_callout_pass",  # historical mutation probes below
+    "place_machined_leader_jobs",
+    "FeatureLeaderJob",
+}
 
 
 def _is_forwarded_parameter(expr, tree, node) -> bool:
