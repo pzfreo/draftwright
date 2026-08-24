@@ -117,10 +117,17 @@ def test_pre_drain_y_diameter_keeps_the_policy_b_fallback_tail(monkeypatch):
     def controlled_clearance(candidate, _circles):
         return 1.0 if is_diagonal(candidate[0], candidate[1]) else -1.0
 
-    def clear_ray_is_occupied(leader, obstacles, silhouette, page, *, geom_clear=False):
-        if str(leader.label) == "ø25":
+    def analytical_clear_ray_is_occupied(
+        candidate, obstacles, silhouette, page, *, label, geom_clear=False
+    ):
+        if label == "ø25":
             # Model fixed inventory that blocks every preferred clear ray while one
             # hole-obstructed Policy-B ray remains usable.
+            return not is_diagonal(candidate.tip, candidate.elbow)
+        return True
+
+    def clear_ray_is_occupied(leader, obstacles, silhouette, page, *, geom_clear=False):
+        if str(leader.label) == "ø25":
             return not is_diagonal(leader.tip, leader.elbow)
         return True
 
@@ -129,8 +136,18 @@ def test_pre_drain_y_diameter_keeps_the_policy_b_fallback_tail(monkeypatch):
         controlled_clearance,
     )
     monkeypatch.setattr(
+        "draftwright.annotations.from_model._analytical_label_lands_clear",
+        analytical_clear_ray_is_occupied,
+    )
+    monkeypatch.setattr(
         "draftwright.annotations.from_model._label_lands_clear",
         clear_ray_is_occupied,
+    )
+    # Force the measured-work guard's producer floor; the expanded analytical
+    # allowance otherwise admits this small inventory to the exact solve.
+    monkeypatch.setattr(
+        "draftwright.annotations.leaders._FEATURE_LEADER_MAX_MEASURE_WORK",
+        0,
     )
 
     drawing = build_drawing(part, page="A4", scale=1.0, scale_policy="permissive")
@@ -437,6 +454,7 @@ def test_grouped_job_candidate_budget_precedes_occ_construction(monkeypatch, tmp
         return Leader(*args, **kwargs)
 
     monkeypatch.setattr("draftwright.annotations.from_model.Leader", counted_leader)
+    monkeypatch.setattr("draftwright.annotations.leaders._FEATURE_LEADER_MAX_MEASURE_WORK", 512)
     trace_path = tmp_path / "candidate-budget.json"
     drawing = build_drawing(
         shaft,
@@ -454,6 +472,8 @@ def test_grouped_job_candidate_budget_precedes_occ_construction(monkeypatch, tmp
     assert len(drawing.measurement_keys("m_fillet_z0")) == 257
     assert event["assignment"] == "greedy_candidate_budget"
     assert event["optimal"] is False
+    assert event["joint_measurement_work"] > 512
+    assert event["joint_measurement_work_limit_per_view"] == 512
 
 
 def test_grouped_job_at_candidate_budget_still_uses_joint_assignment(monkeypatch, tmp_path):
@@ -466,7 +486,7 @@ def test_grouped_job_at_candidate_budget_still_uses_joint_assignment(monkeypatch
         created += 1
         return Leader(*args, **kwargs)
 
-    monkeypatch.setattr("draftwright.annotations.leaders._FEATURE_LEADER_MAX_CANDIDATES", 54)
+    monkeypatch.setattr("draftwright.annotations.leaders._FEATURE_LEADER_MAX_MEASURE_WORK", 54)
     monkeypatch.setattr("draftwright.annotations.from_model.Leader", counted_leader)
     trace_path = tmp_path / "candidate-budget-boundary.json"
     drawing = build_drawing(
@@ -479,15 +499,19 @@ def test_grouped_job_at_candidate_budget_still_uses_joint_assignment(monkeypatch
     trace = json.loads(trace_path.read_text(encoding="utf-8"))
     event = next(item for item in trace["pass_events"] if item["label"] == "fillet_callouts")
 
-    assert created == 54
+    # All 54 analytical alternatives are measured, but OCC is materialised only for
+    # the selected survivor.
+    assert created == 1
     assert drawing.get_annotation("m_fillet_z0").label == "2× R1"
     assert event["assignment"] == "joint"
     assert event["optimal"] is True
+    assert event["joint_measurement_work"] == 54
+    assert event["joint_measurement_work_limit_per_view"] == 54
 
 
 def test_candidate_budget_is_global_across_jobs(monkeypatch, tmp_path):
     part, model = _crowded_declared_grooves()
-    monkeypatch.setattr("draftwright.annotations.leaders._FEATURE_LEADER_MAX_CANDIDATES", 16)
+    monkeypatch.setattr("draftwright.annotations.leaders._FEATURE_LEADER_MAX_MEASURE_WORK", 16)
     trace_path = tmp_path / "global-candidate-budget.json"
 
     drawing = build_drawing(
@@ -504,6 +528,7 @@ def test_candidate_budget_is_global_across_jobs(monkeypatch, tmp_path):
 
     assert event["assignment"] == "greedy_candidate_budget"
     assert event["optimal"] is False
+    assert event["joint_measurement_work"] > 16
     assert [item["candidates_tried"] for item in event["items"]] == [1, 4, 1]
     assert len([name for name in drawing.annotations() if name.startswith("m_groove")]) == 3
 
@@ -514,7 +539,7 @@ def test_candidate_budget_fallback_restores_consumed_prefix_and_lazy_tail(monkey
         FilletFeature(Frame(origin, "z"), "z", 1.0)
         for origin in ((-1000.0, 0.0, 10.0), (-900.0, 0.0, 10.0), (10.0, 0.0, 10.0))
     ]
-    monkeypatch.setattr("draftwright.annotations.leaders._FEATURE_LEADER_MAX_CANDIDATES", 2)
+    monkeypatch.setattr("draftwright.annotations.leaders._FEATURE_LEADER_MAX_MEASURE_WORK", 2)
     trace_path = tmp_path / "candidate-budget-tail.json"
 
     drawing = build_drawing(
@@ -531,6 +556,7 @@ def test_candidate_budget_fallback_restores_consumed_prefix_and_lazy_tail(monkey
     (item,) = event["items"]
 
     assert event["assignment"] == "greedy_candidate_budget"
+    assert event["joint_measurement_work"] > 2
     assert item["candidates_tried"] == 3
     assert item["candidate"] == 2  # the untouched generator tail, after two invalid members
     assert drawing.get_annotation("m_fillet_z0").label == "3× R1"

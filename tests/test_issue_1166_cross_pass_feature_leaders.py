@@ -961,6 +961,62 @@ def test_selected_occ_survivor_validates_arrow_shaft_and_shelf_ink():
     )
 
 
+def test_machined_leader_wrong_analytical_ink_fails_the_rendered_survivor_gate(
+    monkeypatch,
+):
+    import draftwright.annotations.leaders as leaders
+
+    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+    bounds = drawing.view_bounds("front")
+    assert bounds is not None
+    tip = (bounds[2], (bounds[1] + bounds[3]) / 2.0)
+    elbow = (tip[0] + 15.0, tip[1])
+
+    def build(tip, elbow, _feature):
+        return Leader(tip=(*tip, 0), elbow=(*elbow, 0), label="R1", draft=drawing.draft)
+
+    probe = build(tip, elbow, None)
+    ctx = PlacementContext(
+        registry=drawing.registry,
+        coverage=drawing.coverage,
+        items=drawing.items,
+        part_model=drawing.model(),
+        feature_leaders=[],
+    )
+    collect_feature_leader(
+        ctx,
+        FeatureLeaderJob(
+            name="m_fillet0",
+            view="front",
+            silhouette=bounds,
+            label="R1",
+            candidates=((tip, elbow, None),),
+            build=build,
+            analytical_geometry=lambda *_args: (probe.label_bbox, probe.segments),
+            measurement=(),
+            noun="fillet",
+            drop_code="fillet_dropped",
+        ),
+    )
+    # Deliberately under-predict the shaft/arrow ink while keeping label and segment
+    # metadata exact. _geometry_matches therefore passes; rendered-face validation must
+    # be the gate that rejects the selected OCC survivor.
+    monkeypatch.setattr(leaders, "_leader_ink_polygons", lambda *_args, **_kwargs: ())
+    title = drawing.get_annotation("title_block").bounding_box()
+    analysis = SimpleNamespace(
+        margin=10.0,
+        PAGE_W=drawing.page_w,
+        PAGE_H=drawing.page_h,
+        TB_W=title.size.X,
+    )
+
+    assert drain_feature_leaders(drawing, analysis, ctx) == 0
+    assert "m_fillet0" not in drawing.annotations()
+    issue = next(issue for issue in drawing.lint() if issue.code == "fillet_dropped")
+    assert issue.outcome_stage == "validation"
+    assert "rendered geometry validation failed" in issue.message
+
+
 def test_continuous_face_coverage_accepts_multi_shape_cut_results():
     """build123d 0.10 returns a ShapeList where 0.11 returns one shape."""
 
@@ -1266,7 +1322,7 @@ def test_candidate_measurement_failure_is_truthful_and_does_not_abort(
 ):
     if fixed_budget is not None:
         monkeypatch.setattr(
-            "draftwright.annotations.leaders._FEATURE_LEADER_MAX_FIXED_PROBES",
+            "draftwright.annotations.leaders._FEATURE_LEADER_MAX_FIXED_WORK",
             fixed_budget,
         )
     trace_path = tmp_path / "candidate-construction.json"
@@ -1779,7 +1835,7 @@ def test_cross_pass_candidate_budget_precedes_collect_all_geometry(monkeypatch, 
         measured += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(leaders, "_FEATURE_LEADER_MAX_CANDIDATES", 1)
+    monkeypatch.setattr(leaders, "_FEATURE_LEADER_MAX_MEASURE_WORK", 1)
     monkeypatch.setattr(leaders, "_measure", counted)
     trace_path = tmp_path / "bounded-cross-pass.json"
 
@@ -1792,6 +1848,8 @@ def test_cross_pass_candidate_budget_precedes_collect_all_geometry(monkeypatch, 
 
     assert event["assignment"] == "greedy_candidate_budget"
     assert event["optimal"] is False
+    assert event["joint_measurement_work"] > 1
+    assert event["joint_measurement_work_limit_per_view"] == 1
     assert measured < 50  # an uncapped collect-all measures 78 alternatives here
     assert set(_feature_leader_names(drawing)) == {
         "hc_side0",
@@ -1823,7 +1881,7 @@ def test_fixed_obstacle_probe_budget_precedes_joint_geometry(monkeypatch, tmp_pa
         lowerings += 1
         return original_lower(*args, **kwargs)
 
-    monkeypatch.setattr(leaders, "_FEATURE_LEADER_MAX_FIXED_PROBES", 0)
+    monkeypatch.setattr(leaders, "_FEATURE_LEADER_MAX_FIXED_WORK", 0)
     monkeypatch.setattr(leaders, "_candidate_hits_component", counted)
     monkeypatch.setattr(leaders, "_annotation_fixed_ink", counted_lower)
     trace_path = tmp_path / "bounded-fixed-probes.json"
@@ -1839,6 +1897,7 @@ def test_fixed_obstacle_probe_budget_precedes_joint_geometry(monkeypatch, tmp_pa
     assert event["optimal"] is False
     assert event["fixed_probes"] == 0
     assert event["fixed_probe_bound"] > 0
+    assert event["fixed_work_limit"] == 0
     assert probes == 0
     assert lowerings == 0
     assert set(_feature_leader_names(drawing)) == {
@@ -1861,7 +1920,7 @@ def test_fixed_probe_product_budget_replays_the_exact_producer_floor(monkeypatch
 
     part, model = _narrow_cross_pass_part()
     monkeypatch.setattr(
-        "draftwright.annotations.leaders._FEATURE_LEADER_MAX_FIXED_PROBES",
+        "draftwright.annotations.leaders._FEATURE_LEADER_MAX_FIXED_WORK",
         75,
     )
     trace_path = tmp_path / "bounded-fixed-probe-product.json"
@@ -1876,6 +1935,7 @@ def test_fixed_probe_product_budget_replays_the_exact_producer_floor(monkeypatch
     assert event["assignment"] == "greedy_fixed_probe_budget"
     assert event["optimal"] is False
     assert event["fixed_probe_bound"] > 75 >= event["fixed_probes"]
+    assert event["fixed_work_limit"] == 75
     assert event["pair_probes"] == 0
     assert event["objective"]["placed"] == 4
     assert set(_feature_leader_names(drawing)) == {
@@ -1897,7 +1957,7 @@ def test_fixed_probe_product_budget_replays_the_exact_producer_floor(monkeypatch
 @pytest.mark.parametrize("hard_boundary", ("page", "silhouette", "title"))
 def test_resource_fallback_never_bypasses_hard_boundaries(monkeypatch, tmp_path, hard_boundary):
     monkeypatch.setattr(
-        "draftwright.annotations.leaders._FEATURE_LEADER_MAX_FIXED_PROBES",
+        "draftwright.annotations.leaders._FEATURE_LEADER_MAX_FIXED_WORK",
         0,
     )
     trace_path = tmp_path / f"hard-{hard_boundary}.json"
@@ -1989,7 +2049,7 @@ def test_candidate_budget_preserves_the_exact_pre_joint_hole_floor(monkeypatch):
     assert not [issue for issue in joint.registry.issues if issue.code == "callout_dropped"]
 
     monkeypatch.setattr(
-        "draftwright.annotations.leaders._FEATURE_LEADER_MAX_CANDIDATES",
+        "draftwright.annotations.leaders._FEATURE_LEADER_MAX_MEASURE_WORK",
         1,
     )
     with pytest.warns(ScaleCompletenessWarning):
@@ -2036,7 +2096,7 @@ def test_future_section_cannot_veto_a_required_leader_but_title_is_hard(monkeypa
     # Exercise the producer fallback, not only the normal joint solve: optional
     # future furniture must not become a veto when a resource guard fires.
     monkeypatch.setattr(
-        "draftwright.annotations.leaders._FEATURE_LEADER_MAX_CANDIDATES",
+        "draftwright.annotations.leaders._FEATURE_LEADER_MAX_MEASURE_WORK",
         0,
     )
 
@@ -2104,7 +2164,7 @@ def test_future_section_cannot_veto_a_required_leader_but_title_is_hard(monkeypa
         ),
     )
     monkeypatch.setattr(
-        "draftwright.annotations.leaders._FEATURE_LEADER_MAX_CANDIDATES",
+        "draftwright.annotations.leaders._FEATURE_LEADER_MAX_MEASURE_WORK",
         0,
     )
     assert drain_feature_leaders(drawing, analysis, ctx) == 0

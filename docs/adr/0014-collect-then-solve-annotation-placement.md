@@ -93,7 +93,7 @@ selected OCC `Leader`; the rendered survivor is checked against that geometry
 before it is committed.
 
 The inventory is bounded before candidate OCC construction by job and
-expanded-candidate caps. Fixed rendered ink is itself component-bounded while
+measured candidate-work caps. Fixed rendered ink is itself component-bounded while
 it is lowered, cached once across joint/fallback use, and then guarded by the
 candidate×fixed-obstacle probe cap. Quadratic candidate geometry has a separate
 pair cap, and the exact solve retains its existing state cap. A cap
@@ -237,6 +237,35 @@ The rule this ADR now records:
 This is a placement-layer instance of the same discipline ADR 0001 applies to solvers:
 the bound has to be explainable, and "the estimate said it might be expensive" is not an
 explanation a user can act on.
+
+**Amendment 5 (2026-08-24, #1308) — machined-feature leaders use the existing
+analytical tier, and candidate budgets buy measured work.** The shared
+`FeatureLeaderJob` seam now lowers the plain-text label box, shaft and shelf for
+chamfer, fillet, flat, pocket, groove, boss, polygonal boss/stock and Y-axis step
+diameter callouts through the same `leader_callout_geometry` contract already used
+by ordinary holes. The generic pass measures each distinct label once through the
+cached renderer-faithful `_text_size`; candidate exploration constructs no OCC
+`Leader`. Only a selected survivor is materialised, and its rendered label and ink
+must match the analytical candidate before commit. A mismatch remains a
+validation-stage failure and replays the canonical producer tail. This extends the
+one shared solve; it does not introduce another placement mechanism.
+
+The old 512-candidate cap treated every candidate as equally expensive. Measurement
+on the #1308 corpus showed an OCC candidate at about 14.8 ms and an analytical one
+at about 0.1 ms. The joint-inventory guard is therefore denominated in 0.1 ms work
+units: analytical measurement costs one, OCC measurement costs 150, and the
+per-view allowance is 76,800 units. That preserves the former worst-case allowance
+of 512 OCC probes while allowing the cheap tier to explore more alternatives for
+the same measured-work ceiling. Trace records the projected joint work by view and
+the per-view limit, so a fallback states the capability it lost. Fixed-ink inventory
+components and candidate×component tests remain directly counted work (one unit per
+component/probe) under their 100,000-unit cap; they were renamed as work rather than
+relaxed. Pair and search-state guards retain their own direct-operation units.
+
+This does not supersede ADR 0014: the collect → solve → emit decision and all prior
+compatibility boundaries remain current. The change completes the analytical tier
+described by Amendment 2 and applies Amendment 4's budget rule to the now-observed
+two-tier cost model.
 
 ## Context (short — the full story is 0009's)
 

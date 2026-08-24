@@ -79,6 +79,7 @@ from draftwright.annotations._common import (
     carve_free_position,
     dim_footprint,
     full_strip_message,
+    leader_callout_geometry,
     place_strip_candidates,
     register_corridor,
     strip_free_span,
@@ -1898,6 +1899,37 @@ def _label_lands_clear(ldr, obstacles, silhouette, page, *, geom_clear=False) ->
     )
 
 
+def _analytical_label_lands_clear(
+    candidate,
+    obstacles,
+    silhouette,
+    page,
+    *,
+    label,
+    geom_clear=False,
+) -> bool:
+    """Analytical equivalent of :func:`_label_lands_clear` for an unbuilt leader."""
+    label_box = candidate.label_box
+    if not label or label_box is None:
+        return False
+    check_box = label_box
+    if geom_clear:
+        xs = [label_box[0], label_box[2]]
+        ys = [label_box[1], label_box[3]]
+        for polygon in candidate.ink_polygons:
+            xs.extend(point[0] for point in polygon)
+            ys.extend(point[1] for point in polygon)
+        check_box = (min(xs), min(ys), max(xs), max(ys))
+    return not (
+        _box_hits(check_box, obstacles)
+        or _box_hits(label_box, [silhouette])
+        or label_box[0] < page[0]
+        or label_box[1] < page[1]
+        or label_box[2] > page[2]
+        or label_box[3] > page[3]
+    )
+
+
 def _corner_candidates(dwg, view, vb, members, reach, *, provenances=None, cylinders=None):
     """Lead candidates for a corner-sitting feature (chamfer/fillet/flat): from each member's
     projected origin, a diagonal from the view centre out through the corner, *reach* beyond
@@ -2128,6 +2160,28 @@ def _leader_callout_pass(
                     draft=dwg.draft,
                 )
 
+            label_width, label_height = _text_size(
+                str(label),
+                float(dwg.draft.font_size),
+                getattr(dwg.draft, "font_path", DEFAULT_FONT_PATH),
+                getattr(dwg.draft, "font", "Arial"),
+            )
+            label_box = (
+                (0.0, 0.0, label_width, label_height)
+                if label_width > 0.0 and label_height > 0.0
+                else None
+            )
+
+            def _analytical_geometry(tip, elbow, _feature, *, _label_box=label_box):
+                if _label_box is None:
+                    return None
+                return leader_callout_geometry(
+                    tip,
+                    elbow,
+                    dwg.draft,
+                    callout_box=_label_box,
+                )
+
             def _fallback_accept(
                 candidate,
                 obstacles,
@@ -2135,7 +2189,17 @@ def _leader_callout_pass(
                 *,
                 _vb=vb,
                 _geom_clear=geom_clear,
+                _label=label,
             ):
+                if candidate.annotation is None:
+                    return _analytical_label_lands_clear(
+                        candidate,
+                        obstacles,
+                        _vb,
+                        page,
+                        label=_label,
+                        geom_clear=_geom_clear,
+                    )
                 return _label_lands_clear(
                     candidate.annotation,
                     obstacles,
@@ -2169,6 +2233,7 @@ def _leader_callout_pass(
                     label=label,
                     candidates=_lane_candidates(),
                     build=_build,
+                    analytical_geometry=_analytical_geometry,
                     measurement=tuple(measurement),
                     noun=noun,
                     drop_code=drop_code,
