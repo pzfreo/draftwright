@@ -6,8 +6,15 @@ which legitimately overlap for stacked dimensions, so comparing them cries wolf.
 
 The cost of the choice is that anything drawn over a label which is not itself a
 label goes unreported — a dimension line, an arrowhead, a leader. On GRM-03,
-`annotation_overlap` fires zero times while three pairs share ink a reader can
-see (#1321).
+`annotation_overlap` fires zero times while ink a reader can see is shared
+anyway (#1321).
+
+On GRM-03 that gap is real but smaller than it first looked: the largest place
+where ink lands on a label is 0.2755 mm² across 1.31 x 1.96 mm — an arrowhead
+driven through the `5` of `0.5`. A 9.0 x 5.0 mm, 0.94 mm² collision reported for
+this part elsewhere belongs to a different drawing of it (an AI-authored sheet in
+the sibling application), not to the drawing this engine builds; it is recorded
+here because it was briefly used to calibrate the floor below.
 
 Annotations are build123d sketches, so the ink itself is available. Measuring it
 takes care, and both obvious approaches are wrong:
@@ -56,20 +63,47 @@ MIN_INK_MM2 = 0.001
 #: to ink instead of to label boxes.
 MIN_REGION_MM = 0.5
 
-#: Enough shared ink in one place to matter, expressed as what it means: a
-#: 0.1 mm stroke crossing a label for three millimetres.
+#: Enough shared ink in one place to matter. The floor `b123d-drafting-helpers`'
+#: sibling application ships, kept rather than raised, because every candidate it
+#: admits on this repository's fixtures was rendered and judged a real defect.
 #:
-#: A place can have width and height, land squarely on a label, and still be a
-#: graze — an arrowhead tip clipping one character of a pocket callout shares
-#: 0.13 mm² and the character stays perfectly readable. The cases worth
-#: reporting are an order up: 0.94 mm² for a dimension line through a label,
-#: 1.45 mm² for two arrowheads merged into one blob.
+#: An earlier revision of this module set 0.3 — "a 0.1 mm stroke crossing a label
+#: for three millimetres" — on three measured cases. That figure does not survive
+#: measurement:
 #:
-#: Calibrated against those three, which is worth saying rather than implying.
-#: The defence against that being tuning is that it is also a statement about
-#: the geometry — below this, the shared ink is shorter than a character is
-#: wide.
-MIN_COLLISION_MM2 = 0.3
+#: * At 0.3 the check reports **nothing** on any of the 23 STEP fixtures in
+#:   ``tests/fixtures`` (11 ``*.step`` + 12 ``*.stp``, all built through
+#:   ``build_drawing``). Its only positive anywhere was one programmatic fixture.
+#: * One of the three anchors — "0.94 mm² for a dimension line through a label,
+#:   GRM-03" — does not exist on the drawing this engine produces for GRM-03,
+#:   whose largest on-label place is 0.2755 mm² across 1.31 x 1.96 mm. That
+#:   measurement came from a sibling application's AI-authored sheet of the same
+#:   part, which is a different drawing.
+#: * The remaining "graze" anchor was the argument for the raise. Rendered at
+#:   600 dpi it is an arrowhead sitting on the `x` of `50 x 120 x 5 DEEP` — the
+#:   same defect the blatant cases show, smaller, not a different kind.
+#:
+#: Every place at or above this floor on the corpus, each one rendered and looked
+#: at rather than inferred:
+#:
+#: =========  ==========================  ================================
+#: area mm²   fixture / pair              what the render shows
+#: =========  ==========================  ================================
+#: 0.2755     grm03 `0.5` x `2`           arrowhead driven through the `5`
+#: 0.2124     ctc-02 ap203 hole table     dimension line struck through a
+#:                                        table row, arrowhead on the `1`
+#: 0.1828     ctc-02 ap242 hole table     line through the row, arrowhead
+#:                                        covering the `⌀`
+#: 0.1312     issue_915 pocket callout    arrowhead on the `x` of the
+#:                                        callout
+#: 0.0944     ctc-02 ap203 hole table     arrowhead on the `⌀`, extension
+#:                                        line down through `22` below
+#: =========  ==========================  ================================
+#:
+#: So this is not a tuned number: it is the sibling's value, retained because
+#: nothing between it and 1.45 mm² was found that a draughtsman would accept.
+#: Raising it again needs a rendered case it wrongly reports, not an estimate.
+MIN_COLLISION_MM2 = 0.05
 
 #: How close two pieces of shared ink have to be to count as one place. The
 #: crossings of a line through text sit about a millimetre apart; two collinear

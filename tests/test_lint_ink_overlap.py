@@ -273,39 +273,60 @@ class TestInkMustLandOnALabel:
         )
 
 
-class TestAGrazeIsNotACollision:
-    """A place can have width and height, land squarely on a label, and still be
-    nothing a reader would notice.
+class TestHowMuchInkIsEnough:
+    """The floor is the sibling application's 0.05, and it is there because every
+    candidate it admits on this repository's fixtures was rendered and judged.
 
-    Measured on the #915 dense fixture: an arrowhead tip clipping one character
-    of `'50 × 120 × 5 DEEP'` shares 0.13 mm² across 1.2 x 1.3 mm, and the
-    character stays perfectly readable. The cases worth reporting are an order
-    up — 0.94 mm² for a dimension line through a label, 1.45 mm² for two
-    arrowheads merged into one blob.
+    An earlier revision set 0.3, which reported nothing on any of the 23 STEP
+    fixtures in ``tests/fixtures``. Its "graze" anchor — an arrowhead clipping one
+    character of ``'50 × 120 × 5 DEEP'`` at 0.13 mm² — renders as an arrowhead
+    sitting on the ``×`` of the callout: the same defect as the blatant cases,
+    smaller. Its "reported" anchor of 0.94 mm² on GRM-03 does not exist on the
+    drawing this engine produces, whose largest on-label place is 0.2755 mm².
     """
 
-    def test_an_arrowhead_clipping_one_character_is_not_reported(self):
+    def test_the_smallest_rendered_defect_is_reported(self):
+        # ctc-02 ap203: an arrowhead on the `⌀` of a hole-table row, with an
+        # extension line running down through the `22` below it. 0.0944 mm²
+        # across 4.11 x 0.87 mm — the smallest place on the corpus that a render
+        # shows to be a real collision, so the floor must sit under it.
+        worst = worst_shared_place(
+            _Annotation([_Face(0.0944, _Box(20.0, 10.0, 24.11, 10.87))]),
+            _Annotation([]),
+            keep_clear=(_ANYWHERE, None),
+        )
+        assert worst is not None
+        assert worst.area == pytest.approx(0.0944)
+
+    def test_the_arrowhead_on_a_callout_character_is_reported(self):
+        # issue_915, the case the 0.3 floor was raised to exclude. Rendered, it
+        # is an arrowhead on the `×` of `50 × 120 × 5 DEEP`.
+        worst = worst_shared_place(
+            _Annotation([_Face(0.1312, _Box(20.0, 10.0, 21.2, 11.27))]),
+            _Annotation([]),
+            keep_clear=(_ANYWHERE, None),
+        )
+        assert worst is not None
+        assert worst.area == pytest.approx(0.1312)
+
+    def test_ink_below_the_floor_is_still_nothing(self):
+        # Under MIN_COLLISION_MM2 a place with width and height on a label is
+        # still not reported — the shape test alone never was the whole rule.
         assert (
             worst_shared_place(
-                _Annotation([_Face(0.13, _Box(20.0, 10.0, 21.2, 11.3))]),
+                _Annotation([_Face(0.04, _Box(20.0, 10.0, 21.0, 11.0))]),
                 _Annotation([]),
                 keep_clear=(_ANYWHERE, None),
             )
             is None
         )
 
-    def test_a_line_crossing_a_label_is_reported(self):
-        worst = worst_shared_place(
-            _Annotation([_Face(0.94, _Box(20.0, 10.0, 29.0, 15.0))]),
-            _Annotation([]),
-            keep_clear=(_ANYWHERE, None),
-        )
-        assert worst is not None
-        assert worst.area == pytest.approx(0.94)
-
-    def test_the_floor_is_a_stroke_crossing_a_label(self):
-        # 0.1 mm of stroke width by three millimetres of crossing. Stated as a
-        # relationship so a change to either is deliberate.
+    def test_the_floor_is_the_sibling_value_not_a_tuned_one(self):
+        # Pinned so that raising it is a deliberate act needing a rendered case
+        # it wrongly reports — which is what the 0.3 revision lacked.
         from draftwright.linting.ink_overlap import MIN_COLLISION_MM2
 
-        assert MIN_COLLISION_MM2 == pytest.approx(0.1 * 3.0)
+        assert MIN_COLLISION_MM2 == pytest.approx(0.05)
+        assert MIN_COLLISION_MM2 < 0.0944, (
+            "the floor must sit under the smallest place a render showed to be real"
+        )

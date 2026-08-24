@@ -385,12 +385,26 @@ def lint_drawing(
     # #701: the check body runs unguarded — the fragile duck-typed reads happened
     # above (boxes) or inside the callee; a bug here must fail loudly, not silently
     # disable the check forever.
-    # Booleans performed for the ink check below, across the whole sheet. Only
+    # Booleans performed for the ink check below, per call of this function. Only
     # pairs whose full boxes touch and whose labels already cleared each other
-    # spend one, so a normal sheet is nowhere near this — GRM-03 spends ten.
+    # spend one. Measured through ``build_drawing`` over the 23 STEP fixtures in
+    # ``tests/fixtures`` (11 ``*.step`` + 12 ``*.stp``): GRM-03 spends 6, but the
+    # NIST CTC parts are not near that — CTC-02 and CTC-04 exhaust the ceiling in
+    # both protocols, and CTC-05/CTC-01/CTC-03 spend 124–162.
+    #
+    # This is a per-call budget and a build runs lint 3–7 times (repair re-lints),
+    # so a saturating sheet spends up to 3 x MAX_INK_BOOLEANS across one build,
+    # not MAX_INK_BOOLEANS. Making it a per-build budget needs state this function
+    # does not own (ADR 0005) and is deliberately left alone.
+    #
     # A count rather than a deadline: the same drawing has to lint the same way
     # twice, and a wall-clock budget makes the answer depend on the machine.
+    #
+    # Exhausting it stops the check part-way, so it is reported rather than
+    # silent — a sheet that lints clean because the budget ran out must not read
+    # as a sheet with no collisions.
     ink_budget = MAX_INK_BOOLEANS
+    ink_pairs_skipped = 0
 
     for i, item_a in enumerate(items):
         for j in range(i + 1, len(items)):
@@ -452,6 +466,7 @@ def lint_drawing(
             # bounds a pathological sheet: this loop is already O(n²), and #161
             # records what that cost on an 83-hole part.
             if ink_budget <= 0:
+                ink_pairs_skipped += 1
                 continue
             full_a = _ann_box(item_a, box_cache)
             full_b = _ann_box(item_b, box_cache)
@@ -489,6 +504,23 @@ def lint_drawing(
                         code="annotation_ink_overlap",
                     )
                 )
+
+    # A truncated check is not a clean one. #1321's budget bounds a pathological
+    # sheet, and on the NIST CTC parts it is reached in practice, so the sheets
+    # where it matters most are exactly the ones it stops checking. Saying so is
+    # the difference between "no collisions" and "stopped looking".
+    if ink_pairs_skipped:
+        issues.append(
+            LintIssue(
+                severity="warning",
+                message=(
+                    f"ink-overlap check stopped after {MAX_INK_BOOLEANS} comparisons "
+                    f"with {ink_pairs_skipped} pair(s) unchecked — this sheet may hold "
+                    "annotation_ink_overlap defects that were never measured"
+                ),
+                code="annotation_ink_overlap_truncated",
+            )
+        )
 
     # Page-bounds check — annotations must stay within the drawable area.
     # (#701: unguarded — _ann_box absorbs the fragile measure; the rest is arithmetic.)
