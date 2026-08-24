@@ -463,7 +463,15 @@ def lint_drawing(
             ):
                 continue
             ink_budget -= 1
-            worst = worst_shared_place(item_a, item_b)
+            # Only ink that lands on a label. The gap this closes is line-work
+            # drawn *over a label*; an arrowhead meeting another dimension's
+            # witness line is ordinary drafting and shares a region with real
+            # width and height, so shape alone reports correct drawings.
+            worst = worst_shared_place(
+                item_a,
+                item_b,
+                keep_clear=(boxes[i], boxes[j]),
+            )
             if worst is not None:
                 la = getattr(item_a, "label", None) or _item_label(item_a) or "?"
                 lb = getattr(item_b, "label", None) or _item_label(item_b) or "?"

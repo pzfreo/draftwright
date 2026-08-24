@@ -42,6 +42,11 @@ class _Shape:
         return self._faces
 
 
+#: A label extent covering the whole page, so a test that is about the *shape*
+#: of the shared ink is not also testing where the label happens to be.
+_ANYWHERE = (-1e6, -1e6, 1e6, 1e6)
+
+
 class _Annotation:
     """Intersects to a fixed set of faces, as a real sketch does."""
 
@@ -160,6 +165,7 @@ class TestWhatCountsAsACollision:
         worst = worst_shared_place(
             _Annotation([_Face(0.9, _Box(20.0, 10.0, 22.0, 12.0))]),
             _Annotation([]),
+            keep_clear=(_ANYWHERE, None),
         )
         assert worst is not None
         assert worst.width == 2.0 and worst.height == 2.0
@@ -176,7 +182,9 @@ class TestWhatCountsAsACollision:
             and (f._box.max.Y - f._box.min.Y) > MIN_REGION_MM
             for f in faces
         )
-        worst = worst_shared_place(_Annotation(faces), _Annotation([]))
+        worst = worst_shared_place(
+            _Annotation(faces), _Annotation([]), keep_clear=(_ANYWHERE, None)
+        )
         assert worst is not None
         assert worst.width == pytest.approx(2.1)
 
@@ -198,6 +206,7 @@ class TestWhatCountsAsACollision:
                 ]
             ),
             _Annotation([]),
+            keep_clear=(_ANYWHERE, None),
         )
         assert worst is not None
         assert worst.box == (90.0, 90.0, 93.0, 93.0)
@@ -208,3 +217,57 @@ class TestPlace:
         place = Place(area=1.0, box=(1.0, 2.0, 4.0, 6.0))
         assert place.width == 3.0
         assert place.height == 4.0
+
+
+class TestInkMustLandOnALabel:
+    """Shape alone reports correct drawings.
+
+    An arrowhead meeting another dimension's witness line shares a region with
+    real width and height — measured at 13.9 x 4.0 mm on the #916 pocket
+    fixture, which the engine's own tests assert lints clean. What is not
+    ordinary is ink landing on a *label*, which is the gap `annotation_overlap`
+    leaves by comparing label boxes only to each other.
+    """
+
+    def test_a_square_region_clear_of_both_labels_is_not_reported(self):
+        faces = [_Face(3.56, _Box(30.0, 113.0, 43.9, 117.0))]
+        assert (
+            worst_shared_place(
+                _Annotation(faces),
+                _Annotation([]),
+                keep_clear=((0.0, 0.0, 10.0, 10.0), (200.0, 200.0, 210.0, 210.0)),
+            )
+            is None
+        )
+
+    def test_the_same_region_over_a_label_is_reported(self):
+        faces = [_Face(3.56, _Box(30.0, 113.0, 43.9, 117.0))]
+        worst = worst_shared_place(
+            _Annotation(faces),
+            _Annotation([]),
+            keep_clear=((32.0, 114.0, 40.0, 116.0), None),
+        )
+        assert worst is not None
+        assert worst.area == pytest.approx(3.56)
+
+    def test_either_label_is_enough(self):
+        faces = [_Face(3.56, _Box(30.0, 113.0, 43.9, 117.0))]
+        assert (
+            worst_shared_place(
+                _Annotation(faces),
+                _Annotation([]),
+                keep_clear=(None, (32.0, 114.0, 40.0, 116.0)),
+            )
+            is not None
+        )
+
+    def test_no_labels_at_all_falls_back_to_shape(self):
+        # An item with no label has no keep-clear box; the caller passes what it
+        # has, and an empty tuple means "do not filter".
+        assert (
+            worst_shared_place(
+                _Annotation([_Face(0.9, _Box(20.0, 10.0, 22.0, 12.0))]),
+                _Annotation([]),
+            )
+            is not None
+        )

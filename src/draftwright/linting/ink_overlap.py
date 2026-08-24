@@ -159,17 +159,41 @@ def places_where_ink_meets(result) -> list[Place]:
     return [Place(area=area, box=box) for area, box in groups]
 
 
-def worst_shared_place(item_a, item_b) -> Place | None:
-    """The worst place two annotations put ink in the same spot, if any.
+def _touches(box: tuple[float, float, float, float], keep_clear) -> bool:
+    """Whether a place lands on either annotation's label."""
+    for label in keep_clear:
+        if label is None:
+            continue
+        if min(box[2], label[2]) > max(box[0], label[0]) and min(box[3], label[3]) > max(
+            box[1], label[1]
+        ):
+            return True
+    return False
 
-    ``None`` when they share no ink, or share it only where lines meet. Callers
-    should reject on bounding boxes first: the boolean costs far more than the
-    comparison and almost every pair is disjoint.
+
+def worst_shared_place(item_a, item_b, *, keep_clear=()) -> Place | None:
+    """The worst place two annotations put ink over a label, if any.
+
+    ``None`` when they share no ink, share it only where lines meet, or share it
+    somewhere no label is. Callers should reject on bounding boxes first: the
+    boolean costs far more than the comparison and almost every pair is
+    disjoint.
+
+    ``keep_clear`` is the two label extents. Shape alone is not enough: an
+    arrowhead meeting another dimension's witness line shares a region with real
+    width and height — measured at 13.9 x 4.0 mm on the #916 pocket fixture —
+    and is ordinary, correct drafting. What is not ordinary is ink landing on a
+    label, which is the gap ``annotation_overlap`` leaves by comparing label
+    boxes to each other and to nothing else.
     """
     places = places_where_ink_meets(item_a.intersect(item_b))
     if not places or sum(place.area for place in places) < MIN_INK_MM2:
         return None
-    collisions = [place for place in places if place.is_a_collision()]
+    collisions = [
+        place
+        for place in places
+        if place.is_a_collision() and (not keep_clear or _touches(place.box, keep_clear))
+    ]
     if not collisions:
         return None
     return max(collisions, key=lambda place: place.area)
