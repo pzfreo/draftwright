@@ -107,9 +107,7 @@ def test_analytical_producer_floor_matches_label_and_full_geometry_clearance():
     silhouette = (20.0, 20.0, 30.0, 30.0)
     shaft_obstacle = ((5.5, 5.5, 6.5, 6.5),)
 
-    assert analytical_leader_lands_clear(
-        candidate, shaft_obstacle, silhouette, page, label="R1"
-    )
+    assert analytical_leader_lands_clear(candidate, shaft_obstacle, silhouette, page, label="R1")
     assert not analytical_leader_lands_clear(
         candidate,
         shaft_obstacle,
