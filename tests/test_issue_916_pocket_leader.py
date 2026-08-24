@@ -70,15 +70,32 @@ def test_pocket_rim_tip_is_axis_independent(rotation):
     # clears the page's dimensioning floor depends on which view it lands in: of the
     # orientations here only `x-depth` reports it. This test is about the leader's tip, so it
     # asserts the leader draws nothing wrong rather than pinning an orientation-dependent set.
-    # The `y-depth` orientation draws '50' 3.3 mm through the label '35'
-    # (#1321/#1332), measured and rendered. This test is about the leader tip, so it
-    # excludes that the way it already excludes `step_dim_withheld`; the unrotated
-    # fixture above still asserts a wholly clean sheet.
-    assert [
-        issue.code
+    # The `y-depth` orientation crosses a pair of location dimensions over each
+    # other's labels (#1321/#1332) — '50' 3.3 mm through '35', and '35' 3.2 mm back
+    # through '50'. Two obscured labels, two defects; rendered at 600 dpi and
+    # confirmed. Named rather than filtered by code, so this sheet cannot quietly
+    # accumulate a third crossing. `z-depth` and `x-depth` carry none, and the
+    # unrotated fixture above still asserts a wholly clean sheet.
+    known = {("50", "35"), ("35", "50")} if pocket.depth_axis == "y" else set()
+    unexpected = [
+        issue
         for issue in dwg.lint()
-        if issue.code not in {"step_dim_withheld", "annotation_ink_overlap"}
-    ] == []
+        if issue.code != "step_dim_withheld"
+        and not (
+            issue.code == "annotation_ink_overlap"
+            and any(
+                f"'{crosser}' draws" in issue.message
+                and f"through the label '{crossed}'" in issue.message
+                for crosser, crossed in known
+            )
+        )
+    ]
+    assert [issue.code for issue in unexpected] == []
+    # The precondition: without it the filter above would be vacuous on a build
+    # that stopped producing the pair.
+    assert len([i for i in dwg.lint() if i.code == "annotation_ink_overlap"]) == len(known), (
+        "the known crossings for this orientation changed; the filter is now wrong"
+    )
 
 
 @pytest.mark.parametrize("axis", ["long", "width"], ids=["long-axis", "width-axis"])

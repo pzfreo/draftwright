@@ -14,9 +14,16 @@ from draftwright.linting.ink_overlap import (
     MIN_CROSSING_MM,
     Crossing,
     crossing_length,
+    label_crossings,
     length_inside,
-    worst_label_crossing,
+    segments_of,
 )
+
+
+def measure(item, box):
+    """`crossing_length` over an item, the way `structural.py` reaches it."""
+    return crossing_length(segments_of(item), box)
+
 
 #: A 10 x 4 mm label box, big enough that a crossing's length is obvious by eye.
 BOX = (10.0, 10.0, 20.0, 14.0)
@@ -70,20 +77,44 @@ class TestLengthInside:
 
 
 class TestCrossingLength:
-    def test_separate_segments_add_up(self):
+    def test_the_longest_single_stroke_wins_over_the_total(self):
+        """Not the sum. `MIN_CROSSING_MM` guards against corner-clipping, and
+        summing defeats it: several strokes each grazing a corner would add up to
+        a reported "line through the text" with nothing over a character."""
         item = _Annotation([((0.0, 11.0), (13.0, 11.0)), ((17.0, 13.0), (40.0, 13.0))])
-        assert crossing_length(item, BOX) == pytest.approx(6.0)
+        assert measure(item, BOX) == pytest.approx(3.0)
+
+    def test_several_corner_clips_do_not_add_up_to_a_crossing(self):
+        # Three strokes clipping a corner by 0.15 mm each: 0.45 mm summed, which
+        # would clear the floor. None of them is a stroke through a digit.
+        clips = _Annotation(
+            [
+                ((9.9, 10.05), (10.15, 10.05)),
+                ((9.9, 10.10), (10.15, 10.10)),
+                ((9.9, 10.15), (10.15, 10.15)),
+            ]
+        )
+        assert measure(clips, BOX) < MIN_CROSSING_MM
+
+    def test_a_three_coordinate_point_is_rejected_rather_than_raising(self):
+        """A `build123d.Vector` yields THREE coordinates under `tuple()`.
+
+        Such a point survives unpacking into `(start, end)` and then raises inside
+        `length_inside` — out of `crossing_length`, out of `lint_drawing`, killing
+        the run for every other check too.
+        """
+        assert measure(_Annotation([((0.0, 12.0, 0.0), (30.0, 12.0, 0.0))]), BOX) == 0.0
 
     def test_an_annotation_with_no_segments_crosses_nothing(self):
-        assert crossing_length(_Annotation([]), BOX) == 0.0
+        assert measure(_Annotation([]), BOX) == 0.0
 
     def test_a_missing_label_box_cannot_be_crossed(self):
         item = _Annotation([((0.0, 12.0), (30.0, 12.0))])
-        assert crossing_length(item, None) == 0.0
+        assert measure(item, None) == 0.0
 
     def test_an_item_without_a_segment_list_contributes_nothing(self):
         # Duck-typed items (ADR 0005) must not kill lint.
-        assert crossing_length(object(), BOX) == 0.0
+        assert measure(object(), BOX) == 0.0
 
     def test_an_item_whose_segments_raise_contributes_nothing(self):
         class Hostile:
@@ -91,43 +122,53 @@ class TestCrossingLength:
             def segments(self):
                 raise RuntimeError("boom")
 
-        assert crossing_length(Hostile(), BOX) == 0.0
+        assert measure(Hostile(), BOX) == 0.0
 
     def test_an_item_whose_segments_are_not_point_pairs_contributes_nothing(self):
         # A raising *getter* is the easy case. An attribute that is present but
         # the wrong shape has to be caught by the same guard, or it escapes
         # `lint_drawing` — the silent-vs-loud failure #701 is about.
-        assert crossing_length(_Annotation(["not a segment"]), BOX) == 0.0
+        assert measure(_Annotation(["not a segment"]), BOX) == 0.0
 
     def test_an_item_whose_segments_raise_while_iterating_contributes_nothing(self):
         def exploding():
             yield ((0.0, 12.0), (30.0, 12.0))
             raise RuntimeError("boom")
 
-        assert crossing_length(_Annotation(exploding()), BOX) == 0.0
+        assert measure(_Annotation(exploding()), BOX) == 0.0
 
 
-class TestWorstLabelCrossing:
+class TestLabelCrossings:
     def test_line_work_through_a_label_is_reported(self):
         crosser = _Annotation([((0.0, 12.0), (30.0, 12.0))], label="16.5")
         crossed = _Annotation([], label="⌀2.4 THRU")
-        worst = worst_label_crossing(crosser, crossed, label_a=None, label_b=BOX)
-        assert worst is not None
-        assert worst.length == pytest.approx(10.0)
-        assert worst.crosses_b is True
+        (found,) = label_crossings(
+            segments_of(crosser), segments_of(crossed), label_a=None, label_b=BOX
+        )
+        assert found.length == pytest.approx(10.0)
+        assert found.crosses_b is True
 
-    def test_the_worse_of_the_two_directions_wins(self):
+    def test_both_directions_are_reported_worst_first(self):
+        """Two obscured labels are two defects.
+
+        Reporting only the worse of them hid one, and hid it from the #1147
+        ledger too, which keys on the label being crossed.
+        """
         far = (100.0, 100.0, 110.0, 104.0)
         a = _Annotation([((0.0, 12.0), (13.0, 12.0))], label="a")  # 3 mm into b
         b = _Annotation([((90.0, 102.0), (108.0, 102.0))], label="b")  # 8 mm into a
-        worst = worst_label_crossing(a, b, label_a=far, label_b=BOX)
-        assert worst is not None
-        assert worst.length == pytest.approx(8.0)
-        assert worst.crosses_b is False
+        found = label_crossings(segments_of(a), segments_of(b), label_a=far, label_b=BOX)
+        assert [round(c.length, 3) for c in found] == [8.0, 3.0]
+        assert [c.crosses_b for c in found] == [False, True]
 
     def test_a_pair_that_does_not_reach_either_label_is_not_reported(self):
         a = _Annotation([((0.0, 30.0), (30.0, 30.0))], label="a")
-        assert worst_label_crossing(a, _Annotation([]), label_a=None, label_b=BOX) is None
+        assert (
+            label_crossings(
+                segments_of(a), segments_of(_Annotation([])), label_a=None, label_b=BOX
+            )
+            == []
+        )
 
     def test_a_label_less_annotation_cannot_be_crossed(self):
         """It must NOT fall back to the annotation's full extent.
@@ -137,7 +178,15 @@ class TestWorstLabelCrossing:
         exact false positive `annotation_overlap` compares label boxes to avoid.
         """
         crosser = _Annotation([((0.0, 12.0), (30.0, 12.0))], label="a")
-        assert worst_label_crossing(crosser, _Annotation([]), label_a=None, label_b=None) is None
+        assert (
+            label_crossings(
+                segments_of(crosser),
+                segments_of(_Annotation([])),
+                label_a=None,
+                label_b=None,
+            )
+            == []
+        )
 
 
 class TestWhatIsNotADefect:
@@ -149,7 +198,7 @@ class TestWhatIsNotADefect:
         # Extension lines run away from their own text, so nothing enters the
         # label box: zero, not "a small number below a floor".
         stacked = _Annotation([((10.0, 0.0), (10.0, 9.0)), ((20.0, 0.0), (20.0, 9.0))])
-        assert crossing_length(stacked, BOX) == 0.0
+        assert measure(stacked, BOX) == 0.0
 
     def test_an_arrowhead_meeting_a_witness_line_scores_zero(self):
         """#916: 13.9 x 4.0 mm of shared region, 3.56 mm² of ink, and ordinary
@@ -162,11 +211,11 @@ class TestWhatIsNotADefect:
         entirely, which is what the first version of this test did.
         """
         witness = _Annotation([((0.0, 9.99), (30.0, 9.99))])
-        assert crossing_length(witness, BOX) == 0.0
+        assert measure(witness, BOX) == 0.0
         # The precondition: nudge it inside and the same segment is measured, so
         # the zero above is the box's doing rather than the fixture's.
         inside = _Annotation([((0.0, 10.01), (30.0, 10.01))])
-        assert crossing_length(inside, BOX) == pytest.approx(10.0)
+        assert measure(inside, BOX) == pytest.approx(10.0)
 
 
 class TestTheFloor:
@@ -178,7 +227,7 @@ class TestTheFloor:
     def test_the_floor_still_excludes_a_corner_clip(self):
         # A hair of line in the corner of a box is not a stroke through a digit.
         clip = _Annotation([((9.9, 9.9), (10.1, 10.1))])
-        assert crossing_length(clip, BOX) < MIN_CROSSING_MM
+        assert measure(clip, BOX) < MIN_CROSSING_MM
 
     def test_a_crossing_at_the_floor_is_reportable(self):
         assert Crossing(length=MIN_CROSSING_MM, label_box=BOX, crosses_b=True).is_reportable()

@@ -23,7 +23,7 @@ from draftwright._geometry import (
     _segment_clips_box,
     material_reentry_span,
 )
-from draftwright.linting.ink_overlap import worst_label_crossing
+from draftwright.linting.ink_overlap import label_crossings, segments_of
 from draftwright.linting.issues import LintIssue, _IssueAggregation
 from draftwright.projection import _MATERIAL_PAGE_TOLERANCE
 
@@ -366,6 +366,19 @@ def lint_drawing(
             return lb
         return _ann_box(item, box_cache)
 
+    # Text extents and located line-work, computed ONCE per item. #161 removed
+    # exactly this recomputation from the pair loop below ("previously recomputed
+    # for both items of every pair (O(n²): ~200 s on an 83-hole part)"), and the
+    # #1321 check reintroduced it: `_label_bbox` per pair plus `segments`, a
+    # property that rebuilds its list from the annotation's location on every
+    # read. Measured on `nist_ctc_02_asme1_ap203` (162 annotations) that cost
+    # +32% of lint time, and a build lints 3-7 times.
+    label_boxes: list = []
+    ink_segments: list = []
+    for item in items:
+        label_boxes.append(_label_bbox(item, warned_label_bbox))
+        ink_segments.append(segments_of(item))
+
     boxes: list = []
     for item in items:
         # The sheet frame (#767) spans the page by design; a None box excludes it from every
@@ -438,19 +451,19 @@ def lint_drawing(
             # shaft drawn across a label is not a label, and the test above
             # cannot see it (#1321).
             #
-            # Arithmetic on the annotations' own segments — no CAD boolean, so
-            # there is nothing to budget and both supported build123d releases
-            # answer identically. `la_box`/`lb_box` are TEXT extents here: an
-            # annotation whose label_bbox is absent contributes `None` and
-            # cannot be crossed, because falling back to its full extent would
-            # report every dimension whose line-work reaches a neighbour's arm.
-            crossing = worst_label_crossing(
-                item_a,
-                item_b,
-                label_a=_label_bbox(item_a, warned_label_bbox),
-                label_b=_label_bbox(item_b, warned_label_bbox),
-            )
-            if crossing is not None:
+            # Arithmetic on the annotations' own located segments — no CAD
+            # boolean, so there is nothing to budget and both supported build123d
+            # releases answer identically. The extents are the ones computed once
+            # above; `label_boxes` holds TEXT extents, so an annotation without a
+            # label_bbox contributes `None` and cannot be crossed. Falling back to
+            # its full extent would report every dimension whose line-work reaches
+            # a neighbour's arm.
+            for crossing in label_crossings(
+                ink_segments[i],
+                ink_segments[j],
+                label_a=label_boxes[i],
+                label_b=label_boxes[j],
+            ):
                 crosser, crossed = (item_a, item_b) if crossing.crosses_b else (item_b, item_a)
                 lc = getattr(crosser, "label", None) or _item_label(crosser) or "?"
                 lx = getattr(crossed, "label", None) or _item_label(crossed) or "?"

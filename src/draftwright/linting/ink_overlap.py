@@ -33,9 +33,15 @@ annotation's own spec, not from a boolean, so both kernels see the same numbers.
 
 **It cost a boolean per pair.** Measured across the 23 STEP fixtures in
 `tests/fixtures`, that was +79% build time (264.6s -> 473.9s) and it exhausted
-its own 250-comparison ceiling on four of them. This is arithmetic on a handful
-of segments and costs nothing measurable, so the ceiling — and the truncation
-report the ceiling needed — are gone.
+its own 250-comparison ceiling on four of them. This is arithmetic, so the
+ceiling — and the truncation report the ceiling needed — are gone.
+
+It is arithmetic, but it is not free, and the first version of this said it "costs
+nothing measurable" while recomputing `label_bbox` and the `segments` property
+inside the O(n²) pair loop. On `nist_ctc_02_asme1_ap203` (162 annotations) that
+measured `lint()` at 0.772 s against 0.576 s with both hoisted to one pass per
+item — the same recomputation #161 removed from the loop beside it. Callers pass
+segments in for that reason.
 
 ## What it does not cover
 
@@ -46,9 +52,12 @@ about terminator geometry rather than anything a label box can answer. The
 flange case happens to be caught anyway — the dimension line runs 0.85 mm into
 the neighbouring label on its way — but that is luck, not coverage.
 
-`leader_line_through_text` covers the specific case of a leader shaft through
-text and predates this; the two overlap and #1332 records the question of
-whether it is now redundant.
+`leader_line_through_text` is **not** the same check and is not made redundant by
+this one. `_lint_leader` tests an item's own elbow against its own `label_bbox` —
+a leader running through the text it is itself labelling. This runs only over
+`i < j` pairs and never compares an item with itself, so the two cannot fire on
+the same defect: that one covers a leader over its own text, this one covers
+another annotation's line-work over it.
 
 ## A finding this check makes that repair currently cannot act on
 
@@ -61,10 +70,18 @@ horizontal dimension-line segment ``(179.24, 119.0)-(183.29, 119.0)`` entering a
 label box centred on the same ``y = 119.0``. Sliding the label along that line
 cannot clear a stroke running down it.
 
-So a subset of what this reports is, today, permanent: detected and unactionable
-through the existing repair path. That is a real gap rather than a defect in
-either piece — which of the two rules should win is a decision for #1333, and
-#1334 removes the question by not placing the label there in the first place.
+`reconcile_witness_labels` skips diagonal strokes too — ``if min(sdx, sdy) > 0.1:
+continue`` — so a leader shaft crossing a neighbour's label is a second such
+class. Leaders do reach here: on the flange,
+`'4× ⌀4 THRU EQ SP ON ø50.9 BC'` appears as a crosser.
+
+So two subsets of what this reports are, today, permanent: detected and
+unactionable through the existing repair path. That is a real gap rather than a
+defect in either piece, and the two checks having *different* predicates —
+transverse-only, diagonal-skipped, parallel-exempt there against any-direction
+here — is itself worth resolving into one shared predicate rather than two
+copies. Which rule wins is a decision for #1333; #1334 removes the question by
+not placing the label there in the first place.
 """
 
 from __future__ import annotations
@@ -127,7 +144,7 @@ class Crossing:
         return self.length >= MIN_CROSSING_MM
 
 
-def _segments_of(item) -> tuple:
+def segments_of(item) -> tuple:
     """An annotation's line-work as ``((x0, y0), (x1, y1))`` pairs, or ``()``.
 
     ``segments``, not ``_segments_local``. The private one is the un-located
@@ -149,7 +166,19 @@ def _segments_of(item) -> tuple:
         segments = getattr(item, "segments", None)
         if not segments:
             return ()
-        return tuple((tuple(a), tuple(b)) for a, b in segments)
+        kept = []
+        for segment in segments:
+            start, end = segment
+            start, end = tuple(start), tuple(end)
+            # Length 2 exactly. A `build123d.Vector` yields THREE coordinates under
+            # `tuple()`, and a 3-tuple survives the unpacking above only to raise
+            # inside `length_inside` — out of `crossing_length`, out of
+            # `lint_drawing`, killing the whole run. Duck-typed items reach here
+            # (ADR 0005), so the shape is checked rather than assumed.
+            if len(start) != 2 or len(end) != 2:
+                return ()
+            kept.append((start, end))
+        return tuple(kept)
     except Exception:  # noqa: BLE001 — duck-typed items may misbehave
         return ()
 
@@ -192,33 +221,55 @@ def length_inside(segment, box) -> float:
     return float((t1 - t0) * (dx * dx + dy * dy) ** 0.5)
 
 
-def crossing_length(item, label_box) -> float:
-    """Total line-work of *item* running through *label_box*."""
+def crossing_length(segments, label_box) -> float:
+    """The longest single stroke of *item* running through *label_box*.
+
+    The longest, not the total. ``MIN_CROSSING_MM`` is justified as a guard
+    against corner-clipping, and summing defeats it: a callout with a shaft, an
+    elbow and a shelf each clipping a corner by 0.15 mm totals 0.45 mm of
+    "crossing" while nothing is drawn over a character. What the check claims in
+    its message — that a line is drawn through the text — is a statement about one
+    stroke, so one stroke is what is measured.
+
+    Takes the segments rather than the annotation so the caller can compute them
+    once per item. `segments` is a property that rebuilds its list from the
+    annotation's location on every read, and this is called inside an O(n²) loop
+    (#161).
+    """
     if label_box is None:
         return 0.0
-    return sum(length_inside(segment, label_box) for segment in _segments_of(item))
+    return max(
+        (length_inside(segment, label_box) for segment in segments),
+        default=0.0,
+    )
 
 
-def worst_label_crossing(item_a, item_b, *, label_a=None, label_b=None) -> Crossing | None:
-    """The worse of the two directions, or ``None`` if neither is reportable.
+def label_crossings(segments_a, segments_b, *, label_a=None, label_b=None) -> list[Crossing]:
+    """Every reportable crossing between the pair, worst first.
+
+    Both directions, not the worse of them. A crosses B's label *and* B crosses
+    A's is two obscured labels and therefore two defects; returning one hid the
+    other, and hid it from the #1147 ledger too, which keys on the label being
+    crossed.
 
     *label_a* and *label_b* are the two **text** extents. A label-less annotation
     passes ``None`` and simply cannot be crossed — it must not fall back to the
     annotation's full extent, which spans its witness lines and would report
     every dimension whose line-work reaches a neighbour's arm.
     """
-    into_b = crossing_length(item_a, label_b)
-    into_a = crossing_length(item_b, label_a)
-    if into_b >= into_a:
-        best = Crossing(
-            length=into_b,
+    found = [
+        Crossing(
+            length=crossing_length(segments_a, label_b),
             label_box=tuple(label_b) if label_b else None,
             crosses_b=True,
-        )
-    else:
-        best = Crossing(
-            length=into_a,
+        ),
+        Crossing(
+            length=crossing_length(segments_b, label_a),
             label_box=tuple(label_a) if label_a else None,
             crosses_b=False,
-        )
-    return best if best.is_reportable() else None
+        ),
+    ]
+    return sorted(
+        (crossing for crossing in found if crossing.is_reportable()),
+        key=lambda crossing: -crossing.length,
+    )
