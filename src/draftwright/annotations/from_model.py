@@ -75,6 +75,7 @@ from draftwright.annotations._common import (
     _same_location_ordinate,
     _with_hole_center_coverage,
     _with_hole_location_coverage,
+    analytical_leader_lands_clear,
     annotation_obstacle_boxes,
     carve_free_position,
     dim_footprint,
@@ -1899,37 +1900,6 @@ def _label_lands_clear(ldr, obstacles, silhouette, page, *, geom_clear=False) ->
     )
 
 
-def _analytical_label_lands_clear(
-    candidate,
-    obstacles,
-    silhouette,
-    page,
-    *,
-    label,
-    geom_clear=False,
-) -> bool:
-    """Analytical equivalent of :func:`_label_lands_clear` for an unbuilt leader."""
-    label_box = candidate.label_box
-    if not label or label_box is None:
-        return False
-    check_box = label_box
-    if geom_clear:
-        xs = [label_box[0], label_box[2]]
-        ys = [label_box[1], label_box[3]]
-        for polygon in candidate.ink_polygons:
-            xs.extend(point[0] for point in polygon)
-            ys.extend(point[1] for point in polygon)
-        check_box = (min(xs), min(ys), max(xs), max(ys))
-    return not (
-        _box_hits(check_box, obstacles)
-        or _box_hits(label_box, [silhouette])
-        or label_box[0] < page[0]
-        or label_box[1] < page[1]
-        or label_box[2] > page[2]
-        or label_box[3] > page[3]
-    )
-
-
 def _corner_candidates(dwg, view, vb, members, reach, *, provenances=None, cylinders=None):
     """Lead candidates for a corner-sitting feature (chamfer/fillet/flat): from each member's
     projected origin, a diagonal from the view centre out through the corner, *reach* beyond
@@ -2192,7 +2162,7 @@ def _leader_callout_pass(
                 _label=label,
             ):
                 if candidate.annotation is None:
-                    return _analytical_label_lands_clear(
+                    return analytical_leader_lands_clear(
                         candidate,
                         obstacles,
                         _vb,

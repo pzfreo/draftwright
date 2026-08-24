@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from draftwright import build_drawing
-from draftwright.annotations.from_model import _analytical_label_lands_clear
+from draftwright.annotations._common import analytical_leader_lands_clear
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -107,8 +107,10 @@ def test_analytical_producer_floor_matches_label_and_full_geometry_clearance():
     silhouette = (20.0, 20.0, 30.0, 30.0)
     shaft_obstacle = ((5.5, 5.5, 6.5, 6.5),)
 
-    assert _analytical_label_lands_clear(candidate, shaft_obstacle, silhouette, page, label="R1")
-    assert not _analytical_label_lands_clear(
+    assert analytical_leader_lands_clear(
+        candidate, shaft_obstacle, silhouette, page, label="R1"
+    )
+    assert not analytical_leader_lands_clear(
         candidate,
         shaft_obstacle,
         silhouette,
@@ -116,8 +118,8 @@ def test_analytical_producer_floor_matches_label_and_full_geometry_clearance():
         label="R1",
         geom_clear=True,
     )
-    assert not _analytical_label_lands_clear(candidate, (), silhouette, page, label="")
-    assert not _analytical_label_lands_clear(
+    assert not analytical_leader_lands_clear(candidate, (), silhouette, page, label="")
+    assert not analytical_leader_lands_clear(
         SimpleNamespace(label_box=None, ink_polygons=()),
         (),
         silhouette,

@@ -830,6 +830,37 @@ def leader_callout_geometry(tip, elbow, draft, *, text_side="auto", callout_box=
     return label_box, segments
 
 
+def analytical_leader_lands_clear(
+    candidate,
+    obstacles,
+    silhouette,
+    page,
+    *,
+    label,
+    geom_clear=False,
+) -> bool:
+    """Apply the producer's label/full-ink clearance floor to an unbuilt leader."""
+    label_box = candidate.label_box
+    if not label or label_box is None:
+        return False
+    check_box = label_box
+    if geom_clear:
+        xs = [label_box[0], label_box[2]]
+        ys = [label_box[1], label_box[3]]
+        for polygon in candidate.ink_polygons:
+            xs.extend(point[0] for point in polygon)
+            ys.extend(point[1] for point in polygon)
+        check_box = (min(xs), min(ys), max(xs), max(ys))
+    return not (
+        _box_hits(check_box, obstacles)
+        or _box_hits(label_box, [silhouette])
+        or label_box[0] < page[0]
+        or label_box[1] < page[1]
+        or label_box[2] > page[2]
+        or label_box[3] > page[3]
+    )
+
+
 def leader_footprint(tip, elbow, draft, *, text_side="auto", callout_box=None):
     """Analytical page-mm AABB ``(x0, y0, x1, y1)`` of the :class:`Leader` that
     ``Leader(tip, elbow, label="", draft, text_side=…, callout=…)`` would build —
