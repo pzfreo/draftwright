@@ -100,6 +100,22 @@ def repair_drawing(dwg, max_iter: int = 3):
             break
         if len(dwg.lint(physical=False)) > len(before):
             # The repairs net-worsened the sheet — undo this pass and stop.
+            #
+            # Note what this counts: EVERY placement issue, while `_REPAIRABLE_CODES`
+            # holds one. So every other code — `annotation_overlap`,
+            # `leader_crosses_silhouette`, `label_centerline_overlap`, and since #1321
+            # `annotation_ink_overlap` — can vote a repair down but never vote one up,
+            # because no repair here can reduce them. A flip that corrects a
+            # `dim_inside_part` while moving its dimension line across a neighbour's
+            # label nets +1 and is undone, leaving the wrong-side dimension in place.
+            #
+            # Measured before assuming: instrumenting `_repair_dim_inside_part` over
+            # the 23 STEP fixtures in `tests/fixtures` records **zero** flips, so
+            # nothing in that corpus reaches this comparison at all and no sheet is
+            # affected today. The asymmetry is pre-existing and structural rather than
+            # anything #1321 introduced — it acquires a new member with every lint
+            # code added — and it dissolves once #1333 makes these codes repairable,
+            # at which point the loop can improve what it is being judged on.
             dwg.items[:] = snap_annotations
             dwg.registry.restore(snap_registry)
             break

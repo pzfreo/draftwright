@@ -360,8 +360,11 @@ def lint_drawing(
     # item's box exactly once up front and index into it instead (#161); the
     # result is identical. Centre lines are compared via _centerline_extent, not
     # this box, so they don't need one.
-    def _label_box(item):
-        lb = _label_bbox(item, warned_label_bbox)
+    def _label_box(item, index):
+        # `label_boxes[index]`, not a second `_label_bbox(item, ...)` call: this
+        # loop and the one above ran it once each per item, which is the
+        # recomputation the note above cites #161 for.
+        lb = label_boxes[index]
         if lb is not None:
             return lb
         return _ann_box(item, box_cache)
@@ -379,8 +382,16 @@ def lint_drawing(
         label_boxes.append(_label_bbox(item, warned_label_bbox))
         ink_segments.append(segments_of(item))
 
+    # The sheet's own sense of how tall a label is, so a box far taller than that
+    # can be recognised as the bounding box of a *rotated* label rather than a
+    # tight fit around text — see `ink_overlap.MAX_TIGHT_LABEL_HEIGHT`. A median
+    # rather than a mean: one 10 mm rotated box among a dozen 2 mm ones must not
+    # drag the reference up.
+    _heights = sorted(box[3] - box[1] for box in label_boxes if box and len(box) == 4)
+    median_label_height = _heights[len(_heights) // 2] if _heights else None
+
     boxes: list = []
-    for item in items:
+    for index, item in enumerate(items):
         # The sheet frame (#767) spans the page by design; a None box excludes it from every
         # pairwise overlap (like a centerline), so it doesn't "overlap" every annotation.
         if (
@@ -390,7 +401,7 @@ def lint_drawing(
         ):
             boxes.append(None)
             continue
-        boxes.append(_label_box(item))
+        boxes.append(_label_box(item, index))
 
     # #701: the check body runs unguarded — the fragile duck-typed reads happened
     # above (boxes) or inside the callee; a bug here must fail loudly, not silently
@@ -433,13 +444,34 @@ def lint_drawing(
             if ox > 0.5 and oy > 0.5:
                 la = getattr(item_a, "label", "?")
                 lb = getattr(item_b, "label", "?")
+                # If the same pair ALSO draws line-work through one of those
+                # labels, moving the text is not the whole remedy — #1321 exists
+                # to say so. Only one code is emitted for the pair (the ink check
+                # below is skipped), so the surviving message has to carry both
+                # facts rather than send the reader after `label_offset_x` alone.
+                also_crosses = any(
+                    label_crossings(
+                        ink_segments[i],
+                        ink_segments[j],
+                        label_a=label_boxes[i],
+                        label_b=label_boxes[j],
+                        median_label_height=median_label_height,
+                    )
+                )
+                remedy = (
+                    "use label_offset_x or increase dim offset to separate them"
+                    if not also_crosses
+                    else (
+                        "line-work is drawn through one of these labels as well, so "
+                        "separating the text is not enough — move what is drawn "
+                        "(#1321)"
+                    )
+                )
                 issues.append(
                     LintIssue(
                         severity="warning",
                         message=(
-                            f"labels '{la}' and '{lb}' overlap by "
-                            f"{ox:.1f}×{oy:.1f} mm — use label_offset_x or "
-                            f"increase dim offset to separate them"
+                            f"labels '{la}' and '{lb}' overlap by {ox:.1f}×{oy:.1f} mm — {remedy}"
                         ),
                         code="annotation_overlap",
                     )
@@ -463,6 +495,7 @@ def lint_drawing(
                 ink_segments[j],
                 label_a=label_boxes[i],
                 label_b=label_boxes[j],
+                median_label_height=median_label_height,
             ):
                 crosser, crossed = (item_a, item_b) if crossing.crosses_b else (item_b, item_a)
                 lc = getattr(crosser, "label", None) or _item_label(crosser) or "?"

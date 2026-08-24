@@ -11194,10 +11194,8 @@ class TestEscalation:
         # sheet grows so the X-location dims + grouped spec-callouts fit — so this
         # moderately-dense plate no longer escalates to a per-hole table + balloon
         # ring (the worse representation for a dense varying-diameter field). It
-        # group-and-types instead: spec-group callouts (5× ⌀…) + location dims.
-        # No longer lint clean: #1321/#1332 reports '10' drawing 10.2 mm of
-        # line-work through the label '2× 14.1', which this sheet genuinely
-        # carries. The table/balloon escalation path remains for parts too
+        # group-and-types instead: spec-group callouts (5× ⌀…) + location dims,
+        # lint clean. The table/balloon escalation path remains for parts too
         # dense to fit even that — covered by the CTC-02 slow-tier test.
         dwg = dense_plate_dwg
         ann = dwg.annotations()
@@ -11211,17 +11209,15 @@ class TestEscalation:
             # The #1250 summary of that same drop, at error severity so `passed` cannot be
             # true over a sheet the engine would refuse if it were requested explicitly.
             "plan_incomplete",
-            # '10' draws 10.2 mm of line-work through the label '2x 14.1'. #1321/#1332: this drawing genuinely carries it (measured; this particular
-            # fixture was not rendered, but it is the same family as those that were).
-            # Stage 3 (#1334) is what stops it being placed; until then the honest
-            # assertion is that it is here, not that the sheet is clean.
-            "annotation_ink_overlap",
         }
-        # `annotation_ink_overlap` names a pair of labels rather than a measurement,
-        # so it carries no measurement_ids; this assertion is about the drop codes.
-        assert all(
-            issue.measurement_ids for issue in warnings if issue.code != "annotation_ink_overlap"
-        )
+        assert all(issue.measurement_ids for issue in warnings)
+        # No `annotation_ink_overlap` here, and that is a *limitation* rather than a
+        # clean sheet: six location dims do cross `'2× 14.1'`, but that label is drawn
+        # on a diagonal and its `label_bbox` is the 10.197 × 10.197 mm bounding box of a
+        # rotated rectangle, not a fit around the glyphs. #1332 declines to report a
+        # length it cannot measure against the real text — see
+        # `ink_overlap.MAX_TIGHT_LABEL_HEIGHT`.
+        assert not [i for i in dwg.lint() if i.code == "annotation_ink_overlap"]
 
     def test_escalation_clears_density_lint(self, dense_plate_dwg):
         # No callout_dropped / location_ref_dropped / count-mismatch warnings

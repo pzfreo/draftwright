@@ -86,7 +86,36 @@ not placing the label there in the first place.
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
+
+#: The tallest a label box may be and still be treated as a tight fit around its
+#: text, as a multiple of the sheet's own median label height.
+#:
+#: `label_bbox` is an **axis-aligned** box around a label that may be drawn at an
+#: angle, so for a rotated label it is the bounding box of a rotated rectangle and
+#: is much larger than the glyphs. Measured on `_dense_plate`: `'2× 14.1'` — a
+#: 7-character label about 2.2 mm tall — has a label box of
+#: **10.197 x 10.197 mm**, a square, because it is drawn on a diagonal.
+#:
+#: Clipping against that box would report a stroke as crossing 10.2 mm of text
+#: when it crosses about 3 mm of it, and would report a 0.4 mm corner graze as
+#: 10.2 mm — defeating `MIN_CROSSING_MM` by a factor of 25 exactly where the
+#: docstring claims "the region of interest is one label box".
+#:
+#: The true rectangle is not recoverable here. `_label_bbox_local` is already an
+#: axis-aligned bake of it, and the angle is in neither `_init_rot` nor the
+#: annotation's location — on that fixture both are zero, because the rotation was
+#: applied before the box reached the annotation. Rather than report a number this
+#: check cannot stand behind, a label whose box is too tall to be a tight fit is
+#: treated as **not crossable**, and the gap is recorded: diagonal labels are not
+#: covered until `build123d-drafting-helpers` exposes the rect or its angle.
+#:
+#: The multiple is generous because a legitimately taller label — a second font
+#: size, a stacked tolerance — must stay covered. On `_dense_plate` the label
+#: heights are 2.166 (x12), 2.67 (x9), 3.252 and 2.694, against the rotated
+#: 10.197; a 2x median cuts only the rotated one.
+MAX_TIGHT_LABEL_HEIGHT = 2.0
 
 #: How far another annotation's line-work may run through a label's text box
 #: before it is reported, in millimetres.
@@ -176,6 +205,17 @@ def segments_of(item) -> tuple:
             # `lint_drawing`, killing the whole run. Duck-typed items reach here
             # (ADR 0005), so the shape is checked rather than assumed.
             if len(start) != 2 or len(end) != 2:
+                # Discards this item's line-work entirely, so say so. `_label_bbox`
+                # twenty lines away in `structural.py` warns once per item for the
+                # same reason (#701: a check that silently skips an item can
+                # silently disable itself). If `segments` ever started yielding
+                # `Vector`s, every item would contribute nothing and this check
+                # would become a no-op that reported a clean sheet.
+                warnings.warn(
+                    f"{type(item).__name__} segments are not 2D point pairs; its "
+                    "line-work is excluded from annotation_ink_overlap",
+                    stacklevel=2,
+                )
                 return ()
             kept.append((start, end))
         return tuple(kept)
@@ -236,7 +276,12 @@ def crossing_length(segments, label_box) -> float:
     annotation's location on every read, and this is called inside an O(n²) loop
     (#161).
     """
-    if label_box is None:
+    if not label_box or len(label_box) != 4:
+        # Not just `is None`. A duck-typed item (ADR 0005) may hand back `()`, a
+        # 2-tuple or a `BoundBox`, and indexing one of those raises out of
+        # `crossing_length`, out of `lint_drawing`, killing every other check —
+        # the same failure the point-shape guard above exists to prevent, and the
+        # call site is deliberately unguarded (#701).
         return 0.0
     return max(
         (length_inside(segment, label_box) for segment in segments),
@@ -244,7 +289,28 @@ def crossing_length(segments, label_box) -> float:
     )
 
 
-def label_crossings(segments_a, segments_b, *, label_a=None, label_b=None) -> list[Crossing]:
+def is_tight(label_box, median_label_height) -> bool:
+    """Whether *label_box* is a tight fit around its text, so clipping is honest.
+
+    See :data:`MAX_TIGHT_LABEL_HEIGHT`. A ``median_label_height`` of ``None`` — a
+    sheet with no labels to take a median of — treats every box as tight, which
+    changes nothing because there is then nothing to cross.
+    """
+    if not label_box or len(label_box) != 4:
+        return False
+    if not median_label_height:
+        return True
+    return bool((label_box[3] - label_box[1]) <= MAX_TIGHT_LABEL_HEIGHT * median_label_height)
+
+
+def label_crossings(
+    segments_a,
+    segments_b,
+    *,
+    label_a=None,
+    label_b=None,
+    median_label_height=None,
+) -> list[Crossing]:
     """Every reportable crossing between the pair, worst first.
 
     Both directions, not the worse of them. A crosses B's label *and* B crosses
@@ -257,6 +323,10 @@ def label_crossings(segments_a, segments_b, *, label_a=None, label_b=None) -> li
     annotation's full extent, which spans its witness lines and would report
     every dimension whose line-work reaches a neighbour's arm.
     """
+    if not is_tight(label_a, median_label_height):
+        label_a = None
+    if not is_tight(label_b, median_label_height):
+        label_b = None
     found = [
         Crossing(
             length=crossing_length(segments_a, label_b),

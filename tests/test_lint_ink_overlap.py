@@ -11,9 +11,11 @@ releases carve it differently.
 import pytest
 
 from draftwright.linting.ink_overlap import (
+    MAX_TIGHT_LABEL_HEIGHT,
     MIN_CROSSING_MM,
     Crossing,
     crossing_length,
+    is_tight,
     label_crossings,
     length_inside,
     segments_of,
@@ -236,3 +238,79 @@ class TestTheFloor:
         assert not Crossing(
             length=MIN_CROSSING_MM - 1e-9, label_box=BOX, crosses_b=True
         ).is_reportable()
+
+
+class TestTheLabelBoxMustBeTight:
+    """`label_bbox` is the *axis-aligned* box of a possibly-rotated label.
+
+    On `_dense_plate`, `'2× 14.1'` — seven characters about 2.2 mm tall — has a
+    10.197 x 10.197 mm **square** box, because it is drawn on a diagonal. Clipping
+    against that reports a ~3 mm crossing as 10.2 mm and a 0.4 mm corner graze as
+    10.2 mm, defeating `MIN_CROSSING_MM` by a factor of 25. The true rectangle is
+    not recoverable from the annotation, so such a box is not crossable at all.
+    """
+
+    def test_a_tight_box_is_crossable(self):
+        assert is_tight((10.0, 10.0, 20.0, 12.166), 2.166)
+
+    def test_a_box_well_above_the_median_height_is_still_tight(self):
+        # A second font size or a stacked tolerance must stay covered. On
+        # `_dense_plate` the heights are 2.166 (x12), 2.67 (x9), 3.252 and 2.694;
+        # none of those may be cut, only the 10.197 rotated one.
+        assert is_tight((10.0, 10.0, 20.0, 13.252), 2.166)
+        assert is_tight((10.0, 10.0, 20.0, 12.694), 2.166)
+
+    def test_the_limit_is_exactly_the_documented_multiple(self):
+        # Stated as a relationship so a change to either is deliberate.
+        median = 2.0
+        assert is_tight((0.0, 0.0, 10.0, MAX_TIGHT_LABEL_HEIGHT * median), median)
+        assert not is_tight((0.0, 0.0, 10.0, MAX_TIGHT_LABEL_HEIGHT * median + 1e-6), median)
+
+    def test_the_rotated_dense_plate_box_is_not_tight(self):
+        # The measured case: 10.197 mm tall against a 2.166 mm median.
+        assert not is_tight((38.298, 176.558, 48.495, 186.755), 2.166)
+
+    def test_an_untight_label_cannot_be_crossed(self):
+        rotated = (38.298, 176.558, 48.495, 186.755)
+        crosser = _Annotation([((0.0, 181.0), (100.0, 181.0))], label="10")
+        assert (
+            label_crossings(
+                segments_of(crosser),
+                segments_of(_Annotation([])),
+                label_a=None,
+                label_b=rotated,
+                median_label_height=2.166,
+            )
+            == []
+        )
+        # The precondition: without the tightness gate this same pair reports the
+        # full width of the inflated box, so the emptiness above is the gate's
+        # doing rather than the fixture's.
+        assert label_crossings(
+            segments_of(crosser),
+            segments_of(_Annotation([])),
+            label_a=None,
+            label_b=rotated,
+            median_label_height=None,
+        )
+
+    def test_a_sheet_with_no_labels_treats_every_box_as_tight(self):
+        # Nothing to take a median of, and nothing to cross either.
+        assert is_tight((0.0, 0.0, 10.0, 99.0), None)
+
+    def test_a_malformed_box_is_never_tight(self):
+        assert not is_tight((), 2.166)
+        assert not is_tight((1.0, 2.0), 2.166)
+        assert not is_tight(None, 2.166)
+
+
+class TestAMalformedLabelBoxCannotKillLint:
+    def test_a_falsy_box_measures_nothing_rather_than_raising(self):
+        """`crossing_length` guarded only `None`, so `()` raised `IndexError` out
+        of `lint_drawing` — killing every other check for the whole sheet."""
+        segments = (((0.0, 0.0), (10.0, 10.0)),)
+        assert crossing_length(segments, ()) == 0.0
+
+    def test_a_short_box_measures_nothing_rather_than_raising(self):
+        segments = (((0.0, 0.0), (10.0, 10.0)),)
+        assert crossing_length(segments, (1.0, 2.0)) == 0.0
