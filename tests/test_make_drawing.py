@@ -80,7 +80,7 @@ def _state_snapshot(dwg):
 
 
 @pytest.fixture(scope="module")
-def dwg_box_60_40_20():
+def plain_box_dwg():
     """A built ``Box(60, 40, 20)`` drawing, built once and shared by the
     **read-only** tests in this module (#153 — the hot part is otherwise rebuilt
     dozens of times). A teardown guard asserts the drawing was not mutated, so a
@@ -90,7 +90,7 @@ def dwg_box_60_40_20():
     before = _state_snapshot(dwg)
     yield dwg
     assert _state_snapshot(dwg) == before, (
-        "a shared-fixture consumer mutated dwg_box_60_40_20 — give that test its "
+        "a shared-fixture consumer mutated plain_box_dwg — give that test its "
         "own build_drawing(Box(60, 40, 20)) (see #153)"
     )
 
@@ -98,12 +98,6 @@ def dwg_box_60_40_20():
 # ---------------------------------------------------------------------------
 # Pure-function unit tests (fast, no OCP projection)
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture(scope="module")
-def plain_box_dwg():
-    """One plain-box build shared by read-only critiques (#656). Mutating tests build their own."""
-    return build_drawing(Box(60, 40, 20))
 
 
 @pytest.fixture(scope="module")
@@ -8603,14 +8597,14 @@ class TestLintSuggestions:
 
         assert not any(i.code == "feature_not_dimensioned" for i in dwg.lint())
 
-    def test_clean_drawing_has_no_suggestions(self, dwg_box_60_40_20):
+    def test_clean_drawing_has_no_suggestions(self, plain_box_dwg):
         # A fully auto-dimensioned plain box should lint clean → no suggestions.
-        for i in dwg_box_60_40_20.lint():
+        for i in plain_box_dwg.lint():
             assert i.suggestion is None
 
-    def test_lint_summary_omits_none_suggestion(self, dwg_box_60_40_20):
+    def test_lint_summary_omits_none_suggestion(self, plain_box_dwg):
         # A clean box: issue dicts (if any) must not carry a suggestion key.
-        for d in dwg_box_60_40_20.lint_summary()["issues"]:
+        for d in plain_box_dwg.lint_summary()["issues"]:
             assert "suggestion" not in d
 
     def test_lint_summary_includes_present_suggestion(self):
@@ -8989,8 +8983,8 @@ class TestAnnotationsQuery:
 class TestViewBounds:
     """#28: page bounding box of a named view's projected geometry."""
 
-    def test_view_bounds_returns_page_bbox(self, dwg_box_60_40_20):
-        dwg = dwg_box_60_40_20
+    def test_view_bounds_returns_page_bbox(self, plain_box_dwg):
+        dwg = plain_box_dwg
         b = dwg.view_bounds("front")
         assert b is not None and len(b) == 4
         x0, y0, x1, y1 = b
@@ -8999,19 +8993,19 @@ class TestViewBounds:
         assert (x1 - x0) == pytest.approx(60 * dwg.scale, rel=1e-3)
         assert (y1 - y0) == pytest.approx(20 * dwg.scale, rel=1e-3)
 
-    def test_view_bounds_contains_projected_centroid(self, dwg_box_60_40_20):
+    def test_view_bounds_contains_projected_centroid(self, plain_box_dwg):
         # The part centroid (world origin for a centred Box) projects inside.
-        dwg = dwg_box_60_40_20
+        dwg = plain_box_dwg
         x0, y0, x1, y1 = dwg.view_bounds("front")
         px, py, _ = dwg.at("front", 0, 0, 0)
         assert x0 <= px <= x1
         assert y0 <= py <= y1
 
-    def test_view_bounds_unknown_view_is_none(self, dwg_box_60_40_20):
-        assert dwg_box_60_40_20.view_bounds("does_not_exist") is None
+    def test_view_bounds_unknown_view_is_none(self, plain_box_dwg):
+        assert plain_box_dwg.view_bounds("does_not_exist") is None
 
-    def test_view_bounds_for_each_standard_view(self, dwg_box_60_40_20):
-        dwg = dwg_box_60_40_20
+    def test_view_bounds_for_each_standard_view(self, plain_box_dwg):
+        dwg = plain_box_dwg
         for v in ("front", "plan", "side", "iso"):
             b = dwg.view_bounds(v)
             assert b is not None, v
