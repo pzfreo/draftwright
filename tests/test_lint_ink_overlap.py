@@ -174,8 +174,8 @@ class TestWhatCountsAsACollision:
         # Measured on GRM-03: 0.10 x 0.10 and 0.10 x 0.60 two millimetres apart,
         # one place of 2.10 x 0.60. A per-face test drops it.
         faces = [
-            _Face(0.01, _Box(20.0, 10.0, 20.1, 10.1)),
-            _Face(0.06, _Box(22.0, 10.0, 22.1, 10.6)),
+            _Face(0.15, _Box(20.0, 10.0, 20.1, 10.1)),
+            _Face(0.35, _Box(22.0, 10.0, 22.1, 10.6)),
         ]
         assert not any(
             (f._box.max.X - f._box.min.X) > MIN_REGION_MM
@@ -271,3 +271,41 @@ class TestInkMustLandOnALabel:
             )
             is not None
         )
+
+
+class TestAGrazeIsNotACollision:
+    """A place can have width and height, land squarely on a label, and still be
+    nothing a reader would notice.
+
+    Measured on the #915 dense fixture: an arrowhead tip clipping one character
+    of `'50 × 120 × 5 DEEP'` shares 0.13 mm² across 1.2 x 1.3 mm, and the
+    character stays perfectly readable. The cases worth reporting are an order
+    up — 0.94 mm² for a dimension line through a label, 1.45 mm² for two
+    arrowheads merged into one blob.
+    """
+
+    def test_an_arrowhead_clipping_one_character_is_not_reported(self):
+        assert (
+            worst_shared_place(
+                _Annotation([_Face(0.13, _Box(20.0, 10.0, 21.2, 11.3))]),
+                _Annotation([]),
+                keep_clear=(_ANYWHERE, None),
+            )
+            is None
+        )
+
+    def test_a_line_crossing_a_label_is_reported(self):
+        worst = worst_shared_place(
+            _Annotation([_Face(0.94, _Box(20.0, 10.0, 29.0, 15.0))]),
+            _Annotation([]),
+            keep_clear=(_ANYWHERE, None),
+        )
+        assert worst is not None
+        assert worst.area == pytest.approx(0.94)
+
+    def test_the_floor_is_a_stroke_crossing_a_label(self):
+        # 0.1 mm of stroke width by three millimetres of crossing. Stated as a
+        # relationship so a change to either is deliberate.
+        from draftwright.linting.ink_overlap import MIN_COLLISION_MM2
+
+        assert MIN_COLLISION_MM2 == pytest.approx(0.1 * 3.0)

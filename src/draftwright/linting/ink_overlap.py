@@ -56,9 +56,20 @@ MIN_INK_MM2 = 0.001
 #: to ink instead of to label boxes.
 MIN_REGION_MM = 0.5
 
-#: Enough shared ink in one place to see it. A place can have width and height
-#: and still hold almost nothing — a few strokes clipping a corner.
-MIN_COLLISION_MM2 = 0.05
+#: Enough shared ink in one place to matter, expressed as what it means: a
+#: 0.1 mm stroke crossing a label for three millimetres.
+#:
+#: A place can have width and height, land squarely on a label, and still be a
+#: graze — an arrowhead tip clipping one character of a pocket callout shares
+#: 0.13 mm² and the character stays perfectly readable. The cases worth
+#: reporting are an order up: 0.94 mm² for a dimension line through a label,
+#: 1.45 mm² for two arrowheads merged into one blob.
+#:
+#: Calibrated against those three, which is worth saying rather than implying.
+#: The defence against that being tuning is that it is also a statement about
+#: the geometry — below this, the shared ink is shorter than a character is
+#: wide.
+MIN_COLLISION_MM2 = 0.3
 
 #: How close two pieces of shared ink have to be to count as one place. The
 #: crossings of a line through text sit about a millimetre apart; two collinear
@@ -159,8 +170,16 @@ def places_where_ink_meets(result) -> list[Place]:
     return [Place(area=area, box=box) for area, box in groups]
 
 
-def _touches(box: tuple[float, float, float, float], keep_clear) -> bool:
-    """Whether a place lands on either annotation's label."""
+def _lands_on_a_label(box: tuple[float, float, float, float], keep_clear) -> bool:
+    """Whether a place lands on either annotation's label.
+
+    Touching, not covering. Requiring the part inside the label to clear
+    ``MIN_REGION_MM`` as well was tried and measured identically on every
+    fixture here — a place that reaches a label at all is generally well inside
+    it — so the stricter rule bought nothing and cost a second thing to reason
+    about. What separates a graze from a collision is how much ink, not how the
+    two rectangles meet.
+    """
     for label in keep_clear:
         if label is None:
             continue
@@ -182,7 +201,7 @@ def worst_shared_place(item_a, item_b, *, keep_clear=()) -> Place | None:
     ``keep_clear`` is the two label extents. Shape alone is not enough: an
     arrowhead meeting another dimension's witness line shares a region with real
     width and height — measured at 13.9 x 4.0 mm on the #916 pocket fixture —
-    and is ordinary, correct drafting. What is not ordinary is ink landing on a
+    and is ordinary, correct drafting. What is not ordinary is ink *covering* a
     label, which is the gap ``annotation_overlap`` leaves by comparing label
     boxes to each other and to nothing else.
     """
@@ -192,7 +211,7 @@ def worst_shared_place(item_a, item_b, *, keep_clear=()) -> Place | None:
     collisions = [
         place
         for place in places
-        if place.is_a_collision() and (not keep_clear or _touches(place.box, keep_clear))
+        if place.is_a_collision() and (not keep_clear or _lands_on_a_label(place.box, keep_clear))
     ]
     if not collisions:
         return None
