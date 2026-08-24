@@ -23,10 +23,16 @@ BOX = (10.0, 10.0, 20.0, 14.0)
 
 
 class _Annotation:
-    """The only surface the measure touches: a segment list and a label."""
+    """The only surface the measure touches: a segment list and a label.
+
+    ``segments`` — the public, *located* property — not ``_segments_local``, which
+    is the un-located build-frame cache. Every box this is measured against comes
+    from ``label_bbox`` in page coordinates, so the stub must expose the same
+    attribute the real code reads or these tests pass against a frame mismatch.
+    """
 
     def __init__(self, segments, label="?"):
-        self._segments_local = segments
+        self.segments = segments
         self.label = label
 
 
@@ -82,10 +88,23 @@ class TestCrossingLength:
     def test_an_item_whose_segments_raise_contributes_nothing(self):
         class Hostile:
             @property
-            def _segments_local(self):
+            def segments(self):
                 raise RuntimeError("boom")
 
         assert crossing_length(Hostile(), BOX) == 0.0
+
+    def test_an_item_whose_segments_are_not_point_pairs_contributes_nothing(self):
+        # A raising *getter* is the easy case. An attribute that is present but
+        # the wrong shape has to be caught by the same guard, or it escapes
+        # `lint_drawing` — the silent-vs-loud failure #701 is about.
+        assert crossing_length(_Annotation(["not a segment"]), BOX) == 0.0
+
+    def test_an_item_whose_segments_raise_while_iterating_contributes_nothing(self):
+        def exploding():
+            yield ((0.0, 12.0), (30.0, 12.0))
+            raise RuntimeError("boom")
+
+        assert crossing_length(_Annotation(exploding()), BOX) == 0.0
 
 
 class TestWorstLabelCrossing:
@@ -133,11 +152,21 @@ class TestWhatIsNotADefect:
         assert crossing_length(stacked, BOX) == 0.0
 
     def test_an_arrowhead_meeting_a_witness_line_scores_zero(self):
-        # #916: measured at 13.9 x 4.0 mm of shared region and 3.56 mm² of ink,
-        # and ordinary dimensioning. No text is involved, so this measure is
-        # silent without needing a shape test to say so.
-        witness = _Annotation([((0.0, 5.0), (30.0, 5.0))])
+        """#916: 13.9 x 4.0 mm of shared region, 3.56 mm² of ink, and ordinary
+        dimensioning. No *text* is involved, so this measure is silent without
+        needing a shape test to say so.
+
+        The witness line is placed to run *through the box's own x-span at a y the
+        box does not cover* — a segment that simply missed the box by a wide
+        margin would pass against an implementation that ignored the box
+        entirely, which is what the first version of this test did.
+        """
+        witness = _Annotation([((0.0, 9.99), (30.0, 9.99))])
         assert crossing_length(witness, BOX) == 0.0
+        # The precondition: nudge it inside and the same segment is measured, so
+        # the zero above is the box's doing rather than the fixture's.
+        inside = _Annotation([((0.0, 10.01), (30.0, 10.01))])
+        assert crossing_length(inside, BOX) == pytest.approx(10.0)
 
 
 class TestTheFloor:

@@ -13,23 +13,26 @@ _ISSUE_915 = Path(__file__).parent / "fixtures" / "issue_915_case_study_2.step"
 #: The two crossings this fixture is known to carry, so that `lint() == []` can stay
 #: a real assertion instead of being relaxed to "some issues are fine".
 #:
-#: Both are `'170'`'s dimension line running through another annotation's text.
-#: The larger, 18.2 mm through `'50 × 120 × 5 DEEP'`, is most of the width of that
-#: callout. Rendered at 500 dpi and confirmed: this drawing genuinely carries them,
-#: and the previous `lint() == []` here was asserting something false.
+#: Both are `'170'`'s dimension line running through another annotation's text, and
+#: both appear on the A1 and the A2 build alike. The larger, 18.2 mm through
+#: `'50 × 120 × 5 DEEP'`, is most of the width of that callout. Rendered at 500 dpi
+#: and confirmed: this drawing genuinely carries them, and the `lint() == []` that
+#: used to stand here was asserting something false.
 #:
-#: Naming the pairs rather than the code keeps the assertion sharp — a *third*
-#: crossing on this drawing, or any other lint code, still fails these tests.
+#: Stored as (crosser, crossed) and matched in that order — a reversed pair is a
+#: different defect and must not be filtered as a known one. Naming the pairs rather
+#: than the code also keeps the assertion sharp: a *third* crossing on either sheet,
+#: or any other lint code, still fails these tests.
 _KNOWN_CROSSINGS = (
-    ("annotation_ink_overlap", "'170'", "'50 × 120 × 5 DEEP'"),
-    ("annotation_ink_overlap", "'170'", "'75'"),
+    ("170", "50 × 120 × 5 DEEP"),
+    ("170", "75"),
 )
 
 
 def _is_known(issue):
-    return any(
-        issue.code == code and all(token in issue.message for token in tokens)
-        for code, *tokens in _KNOWN_CROSSINGS
+    return issue.code == "annotation_ink_overlap" and any(
+        f"'{crosser}' draws" in issue.message and f"through the label '{crossed}'" in issue.message
+        for crosser, crossed in _KNOWN_CROSSINGS
     )
 
 
@@ -80,18 +83,20 @@ def test_issue_915_hole_callouts_share_one_spacing_solve():
     assert "5 step height(s)" in step_drops[0].message
 
 
-def test_issue_915_actually_carries_the_known_crossings():
-    """The precondition for the two assertions that filter these out.
+@pytest.mark.parametrize("page", ["A1", "A2"])
+def test_issue_915_actually_carries_the_known_crossings(page):
+    """The precondition for the assertions that filter these out.
 
-    If the fixture stopped producing them, `_lint_apart_from_the_known_crossings`
-    would filter nothing and those tests would pass while asserting less than
-    they claim.
+    Parametrised over both pages because both builds apply the filter: if either
+    sheet stopped producing the crossings, `_lint_apart_from_the_known_crossings`
+    would filter nothing there and that test would pass while asserting less than
+    it claims.
     """
-    dwg = build_drawing(_ISSUE_915, page="A1", scale=0.5, detail_view=True)
+    dwg = build_drawing(_ISSUE_915, page=page, scale=0.5, detail_view=True)
     matched = [issue for issue in dwg.lint() if _is_known(issue)]
     assert len(matched) == len(_KNOWN_CROSSINGS), (
-        "the fixture no longer carries both known crossings — the filter in this "
-        f"module is now over-broad; matched {[i.message for i in matched]}"
+        f"the {page} sheet no longer carries both known crossings — the filter in "
+        f"this module is now over-broad; matched {[i.message for i in matched]}"
     )
 
 

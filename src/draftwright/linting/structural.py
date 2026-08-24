@@ -454,19 +454,27 @@ def lint_drawing(
                 crosser, crossed = (item_a, item_b) if crossing.crosses_b else (item_b, item_a)
                 lc = getattr(crosser, "label", None) or _item_label(crosser) or "?"
                 lx = getattr(crossed, "label", None) or _item_label(crossed) or "?"
-                issues.append(
-                    LintIssue(
-                        severity="warning",
-                        message=(
-                            f"'{lc}' draws {crossing.length:.1f} mm of line-work "
-                            f"through the label '{lx}' — the labels clear each "
-                            "other, so this is a dimension line, an extension "
-                            "line or a leader over text; move what is drawn, "
-                            "not just the text"
-                        ),
-                        code="annotation_ink_overlap",
-                    )
+                issue = LintIssue(
+                    severity="warning",
+                    message=(
+                        f"'{lc}' draws {crossing.length:.1f} mm of line-work "
+                        f"through the label '{lx}' — the labels clear each "
+                        "other, so this is a dimension line, an extension "
+                        "line or a leader over text; move what is drawn, "
+                        "not just the text"
+                    ),
+                    code="annotation_ink_overlap",
                 )
+                issues.append(issue)
+                # #1147: the defect belongs to the label being obscured, not to
+                # each thing that crosses it. On `nist_ctc_03_asme1_ap203` six
+                # different dimensions cross the single label '19.1'; without
+                # this the one unreadable label costs six primary warnings
+                # against the legibility score. The token is the crossed item's,
+                # so the ledger collapses them onto it.
+                crossed_token = pair_tokens.get(id(crossed))
+                if _aggregation is not None and crossed_token is not None:
+                    _aggregation.record_pair(issue, crossed_token)
 
     # Page-bounds check — annotations must stay within the drawable area.
     # (#701: unguarded — _ann_box absorbs the fragile measure; the rest is arithmetic.)

@@ -49,6 +49,22 @@ the neighbouring label on its way — but that is luck, not coverage.
 `leader_line_through_text` covers the specific case of a leader shaft through
 text and predates this; the two overlap and #1332 records the question of
 whether it is now redundant.
+
+## A finding this check makes that repair currently cannot act on
+
+`repair.reconcile_witness_labels` slides a label along its own dimension line to
+clear a foreign stroke, but it deliberately exempts strokes *parallel* to that
+line — ``if (sdy > sdx) == vertical: continue  # parallel = stacked shafts``.
+The smallest confirmed defect here is exactly such a stroke: on
+`_issue_881_y_step_flange` the reported `'8' -> '4× 2'` crossing is the
+horizontal dimension-line segment ``(179.24, 119.0)-(183.29, 119.0)`` entering a
+label box centred on the same ``y = 119.0``. Sliding the label along that line
+cannot clear a stroke running down it.
+
+So a subset of what this reports is, today, permanent: detected and unactionable
+through the existing repair path. That is a real gap rather than a defect in
+either piece — which of the two rules should win is a decision for #1333, and
+#1334 removes the question by not placing the label there in the first place.
 """
 
 from __future__ import annotations
@@ -75,9 +91,12 @@ from dataclasses import dataclass
 #: caption is entirely legible, and nothing is drawn across a character.
 #:
 #: The smallest crossing confirmed as a real defect is **0.854 mm**, on
-#: `_issue_881_y_step_flange`: `'8'`'s dimension line entering the neighbouring
-#: `'4× 2'` label. So the floor sits inside the empty band, above the confirmed
-#: graze and below the confirmed defect, rather than on top of either.
+#: `_issue_881_y_step_flange` — `'8'`'s dimension line entering the neighbouring
+#: `'4× 2'` label. That fixture is built in Python and is **not** in the corpus
+#: above, and 0.854 mm falls inside the band the histogram shows as empty; the
+#: band is empty *of STEP-fixture crossings*, not of defects. So state the floor's
+#: position for what it is: it sits at the bottom edge of that band, 0.19 mm above
+#: the confirmed graze and 0.35 mm below the smallest confirmed defect.
 #:
 #: Note what legitimate drafting scores: **exactly zero**. Extension lines run
 #: away from their own text, so on a clean sheet nothing enters any label box.
@@ -96,8 +115,11 @@ class Crossing:
 
     #: Millimetres of line-work inside the label box.
     length: float
-    #: The label box crossed, as ``(min_x, min_y, max_x, max_y)``.
-    label_box: tuple[float, float, float, float]
+    #: The label box crossed, or ``None`` when there was no box to cross. Not
+    #: ``tuple[float, ...]``: a crossing of length zero against a label-less
+    #: annotation has no box, and declaring one it cannot supply is a lie the
+    #: type checker cannot catch because nothing reads the field yet.
+    label_box: tuple[float, float, float, float] | None
     #: ``True`` when it is *item_b*'s label that is crossed by *item_a*.
     crosses_b: bool
 
@@ -108,15 +130,28 @@ class Crossing:
 def _segments_of(item) -> tuple:
     """An annotation's line-work as ``((x0, y0), (x1, y1))`` pairs, or ``()``.
 
+    ``segments``, not ``_segments_local``. The private one is the un-located
+    build-frame cache; the public property applies the annotation's location, and
+    every box measured against it here comes from ``label_bbox``, which is in page
+    coordinates. Mixing them measures a located annotation against the wrong part
+    of the sheet — on an A4 sheet the title block's own rules cache as
+    ``(0, 0)-(150, 16)`` while they are drawn at ``(166, 11)-(286, 27)``. Every
+    other reader in this repository uses ``segments`` for the same reason.
+
     Read defensively: ``items`` is duck-typed (ADR 0005), so an annotation that
-    has never heard of the attribute simply contributes no line-work rather than
-    killing lint. It is a sequence, not a shape — no CAD call is made here.
+    has never heard of the attribute — or whose attribute is not a sequence of
+    point pairs — contributes no line-work rather than killing lint. The
+    materialisation is inside the guard because an iterable that raises partway
+    through is the same failure as a property that raises up front. No CAD call is
+    made here.
     """
     try:
-        segments = getattr(item, "_segments_local", None)
+        segments = getattr(item, "segments", None)
+        if not segments:
+            return ()
+        return tuple((tuple(a), tuple(b)) for a, b in segments)
     except Exception:  # noqa: BLE001 — duck-typed items may misbehave
         return ()
-    return tuple(segments) if segments else ()
 
 
 def length_inside(segment, box) -> float:
@@ -175,7 +210,15 @@ def worst_label_crossing(item_a, item_b, *, label_a=None, label_b=None) -> Cross
     into_b = crossing_length(item_a, label_b)
     into_a = crossing_length(item_b, label_a)
     if into_b >= into_a:
-        best = Crossing(length=into_b, label_box=tuple(label_b or ()), crosses_b=True)
+        best = Crossing(
+            length=into_b,
+            label_box=tuple(label_b) if label_b else None,
+            crosses_b=True,
+        )
     else:
-        best = Crossing(length=into_a, label_box=tuple(label_a or ()), crosses_b=False)
+        best = Crossing(
+            length=into_a,
+            label_box=tuple(label_a) if label_a else None,
+            crosses_b=False,
+        )
     return best if best.is_reportable() else None
