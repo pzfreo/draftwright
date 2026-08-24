@@ -1057,8 +1057,16 @@ def test_two_cross_hole_heights_share_their_end_view_ladder_without_crossing():
     # The required hole callout remains under the established Policy-B floor,
     # but the retained fixed-ink crossing is no longer silently lint-clean.
     issues = drawing.lint()
-    assert {issue.code for issue in issues} == {"feature_leader_crossing"}
-    (crossing,) = issues
+    # `annotation_ink_overlap` (#1321/#1332) joins it: this sheet also draws
+    # line-work across a label. Measured, not rendered -- it is the same family as
+    # the cases that were rendered, and stage 3 (#1334) is what prevents it.
+    assert {issue.code for issue in issues} == {
+        "feature_leader_crossing",
+        "annotation_ink_overlap",
+    }
+    # Select by code: the sheet now carries ink crossings alongside this one, and
+    # the assertions below are about the Policy-B leader crossing specifically.
+    (crossing,) = [issue for issue in issues if issue.code == "feature_leader_crossing"]
     assert crossing.severity == "info"
     assert "dim_loc_side_z7550:segment:3" in crossing.message
 

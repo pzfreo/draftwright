@@ -267,7 +267,13 @@ def test_unavoidable_policy_b_crossing_is_persisted_without_opt_in_trace():
     assert all(issue.severity == "info" for issue in issues)
     assert all(issue.measurement_ids for issue in issues)
     legibility = drawing.lint_summary()["quality"]["legibility"]
-    assert legibility["by_code"] == {"feature_leader_crossing": 1}
+    # `annotation_ink_overlap` (#1321/#1332) scores on legibility too, and this
+    # sheet carries two. Measured, not rendered -- the same family as the cases
+    # that were; stage 3 (#1334) is what prevents them.
+    assert legibility["by_code"] == {
+        "feature_leader_crossing": 1,
+        "annotation_ink_overlap": 2,
+    }
     assert legibility["score"] < 1.0
 
 

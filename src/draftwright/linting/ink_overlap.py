@@ -1,252 +1,181 @@
-"""Where two annotations put ink in the same place, rather than boxes.
+"""Line-work drawn across another annotation's label text.
 
 `annotation_overlap` compares label boxes. That is a deliberate choice, and the
 comment beside it gives the reason: full bounding boxes include witness lines,
 which legitimately overlap for stacked dimensions, so comparing them cries wolf.
 
-The cost of the choice is that anything drawn over a label which is not itself a
-label goes unreported — a dimension line, an arrowhead, a leader. On GRM-03,
-`annotation_overlap` fires zero times while ink a reader can see is shared
-anyway (#1321).
+The cost of the choice is that anything drawn over a label which is *not itself
+a label* goes unreported — a dimension line, an extension line, a leader shaft.
+This measures that directly: **how far another annotation's line-work runs
+through this label's text box**, in millimetres.
 
-On GRM-03 that gap is real but smaller than it first looked: the largest place
-where ink lands on a label is 0.2755 mm² across 1.31 x 1.96 mm — an arrowhead
-driven through the `5` of `0.5`. A 9.0 x 5.0 mm, 0.94 mm² collision reported for
-this part elsewhere belongs to a different drawing of it (an AI-authored sheet in
-the sibling application), not to the drawing this engine builds; it is recorded
-here because it was briefly used to calibrate the floor below.
+## Why this measures line length, and not shared ink
 
-Annotations are build123d sketches, so the ink itself is available. Measuring it
-takes care, and both obvious approaches are wrong:
+The first implementation of #1321 intersected the two annotations' sketches and
+measured the shared area. Three things were wrong with it, and each is worth
+recording because each cost a wrong answer:
 
-**Area alone reports ordinary drafting as a defect.** Strokes are filled faces
-about 0.1 mm wide, so everything crosses everything. On that sheet the *largest*
-shared area was two collinear extension lines — 1.1004 mm² in a region
-0.100 x 11.000 mm — which is exactly the stacked-dimension case full boxes were
-rejected for, reached from the other side. Seven such pairs.
+**It answered a question nobody asked.** Two annotations sharing ink is ordinary
+— strokes are filled faces about 0.1 mm wide, so everything crosses everything.
+What a reader cares about is whether the *digits* are obscured. Asking that
+directly needs no shape test, no area floor tuned against line width, and no
+grouping: the region of interest is one label box.
 
-**The union of everywhere a pair meets is not the region to test.** Two stacked
-dimensions sharing left *and* right extension lines give two thin places forty
-millimetres apart; unioned they are 40 x 11 mm and look like the worst collision
-on the drawing.
+**Its answer depended on how the CAD kernel carved up the intersection.**
+`Shape.intersect` returns a face list, and the two supported build123d releases
+return *different* lists for the same drawing. On `_issue_881_y_step_flange`,
+0.11.1 additionally returns three hairline faces one stroke-width tall where two
+dimension lines lie along each other; 0.10.0 returns none of them. That changed
+a 2.28 mm gap into a bridged one, and the shared-ink check reported the defect
+on one kernel and not the other — a 14% margin on a clustering constant deciding
+whether a visible defect was seen at all. Segment endpoints come from the
+annotation's own spec, not from a boolean, so both kernels see the same numbers.
 
-So the shared ink is grouped into **places** by proximity, and a place counts
-only if it has width *and* height. Collinear line-work is thin in one axis
-however long it runs; a single crossing is thin in both; ink shared across a
-region with both is something a reader sees.
+**It cost a boolean per pair.** Measured across the 23 STEP fixtures in
+`tests/fixtures`, that was +79% build time (264.6s -> 473.9s) and it exhausted
+its own 250-comparison ceiling on four of them. This is arithmetic on a handful
+of segments and costs nothing measurable, so the ceiling — and the truncation
+report the ceiling needed — are gone.
 
-Two cases from that sheet fix the shape of the rule, and any change here should
-keep both:
+## What it does not cover
 
-- **excluded** — stacked dimensions sharing left and right extension lines: two
-  places of 0.1 x 11 mm, forty apart. Baseline dimensioning.
-- **reported** — a place made of faces none of which is itself square:
-  0.10 x 0.10 and 0.10 x 0.60 two millimetres apart, one place of 2.10 x 0.60.
+Line-work crossing other line-work, with no text involved: two arrowheads
+merging into one blob in open space. That is a real defect and this check is
+silent on it, deliberately, because the honest measure for it is a question
+about terminator geometry rather than anything a label box can answer. The
+flange case happens to be caught anyway — the dimension line runs 0.85 mm into
+the neighbouring label on its way — but that is luck, not coverage.
 
-Per-face tests break the second. Union tests break the first.
-
-What this cannot see, and does not try to: a line drawn *through* text shares
-ink only as tall as the line, so no test on the shape of that region will call
-it a collision however unreadable it looks. `leader_line_through_text` covers
-that case directly; the two checks are complementary.
+`leader_line_through_text` covers the specific case of a leader shaft through
+text and predates this; the two overlap and #1332 records the question of
+whether it is now redundant.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-#: Below this the boolean found nothing — its own rounding, not an overlap.
-MIN_INK_MM2 = 0.001
-
-#: A place must reach this in *both* axes to be ink a reader can separate.
-#: The figure is ``annotation_overlap``'s own ``ox > 0.5 and oy > 0.5``, applied
-#: to ink instead of to label boxes.
-MIN_REGION_MM = 0.5
-
-#: Enough shared ink in one place to matter. The floor `b123d-drafting-helpers`'
-#: sibling application ships, kept rather than raised, because every candidate it
-#: admits on this repository's fixtures was rendered and judged a real defect.
+#: How far another annotation's line-work may run through a label's text box
+#: before it is reported, in millimetres.
 #:
-#: An earlier revision of this module set 0.3 — "a 0.1 mm stroke crossing a label
-#: for three millimetres" — on three measured cases. That figure does not survive
-#: measurement:
+#: Measured, not estimated. Every crossing on the 23 STEP fixtures in
+#: `tests/fixtures` was collected with **no floor at all** — 134 of them across
+#: both supported build123d releases — and the distribution is not a gradient
+#: with a judgement call in it. It is two populations with an empty band between:
 #:
-#: * At 0.3 the check reports **nothing** on any of the 23 STEP fixtures in
-#:   ``tests/fixtures`` (11 ``*.step`` + 12 ``*.stp``, all built through
-#:   ``build_drawing``). Its only positive anywhere was one programmatic fixture.
-#: * One of the three anchors — "0.94 mm² for a dimension line through a label,
-#:   GRM-03" — does not exist on the drawing this engine produces for GRM-03,
-#:   whose largest on-label place is 0.2755 mm² across 1.31 x 1.96 mm. That
-#:   measurement came from a sibling application's AI-authored sheet of the same
-#:   part, which is a different drawing.
-#: * The remaining "graze" anchor was the argument for the raise. Rendered at
-#:   600 dpi it is an arrowhead sitting on the `x` of `50 x 120 x 5 DEEP` — the
-#:   same defect the blatant cases show, smaller, not a different kind.
+#:     0.0 - 0.5 mm :   1        <- one case, and it is a graze
+#:     0.5 - 1.0 mm :   0        <- nothing here at all
+#:     1.0 - 2.0 mm :   2
+#:     2.0 - 5.0 mm : 110
+#:     5.0 +    mm :   21
 #:
-#: Every place at or above this floor on the corpus, each one rendered and looked
-#: at rather than inferred:
+#: The single case below the floor is 0.308 mm on
+#: `issue_909_basic_part_design_017_body`: an extension line's tip touching the
+#: corner of the `DETAIL A — SCALE 2:1` caption box. Rendered at 600 dpi — the
+#: caption is entirely legible, and nothing is drawn across a character.
 #:
-#: =========  ==========================  ================================
-#: area mm²   fixture / pair              what the render shows
-#: =========  ==========================  ================================
-#: 0.2755     grm03 `0.5` x `2`           arrowhead driven through the `5`
-#: 0.2124     ctc-02 ap203 hole table     dimension line struck through a
-#:                                        table row, arrowhead on the `1`
-#: 0.1828     ctc-02 ap242 hole table     line through the row, arrowhead
-#:                                        covering the `⌀`
-#: 0.1312     issue_915 pocket callout    arrowhead on the `x` of the
-#:                                        callout
-#: 0.0944     ctc-02 ap203 hole table     arrowhead on the `⌀`, extension
-#:                                        line down through `22` below
-#: =========  ==========================  ================================
+#: The smallest crossing confirmed as a real defect is **0.854 mm**, on
+#: `_issue_881_y_step_flange`: `'8'`'s dimension line entering the neighbouring
+#: `'4× 2'` label. So the floor sits inside the empty band, above the confirmed
+#: graze and below the confirmed defect, rather than on top of either.
 #:
-#: So this is not a tuned number: it is the sibling's value, retained because
-#: nothing between it and 1.45 mm² was found that a draughtsman would accept.
-#: Raising it again needs a rendered case it wrongly reports, not an estimate.
-MIN_COLLISION_MM2 = 0.05
-
-#: How close two pieces of shared ink have to be to count as one place. The
-#: crossings of a line through text sit about a millimetre apart; two collinear
-#: extension-line overlaps on stacked dimensions do not.
-CLUSTER_GAP_MM = 2.0
+#: Note what legitimate drafting scores: **exactly zero**. Extension lines run
+#: away from their own text, so on a clean sheet nothing enters any label box.
+#: This is therefore a guard against corner-clipping, not a separator between two
+#: overlapping populations — which is why it can be a round number without that
+#: being a tuning choice.
+#:
+#: The bulk at 2.157-2.166 mm is a line crossing a label vertically: text is
+#: about 2.16 mm tall, so those are strokes clean through a row of digits.
+MIN_CROSSING_MM = 0.5
 
 
 @dataclass(frozen=True)
-class Place:
-    """One place two annotations share ink, and how much."""
+class Crossing:
+    """One annotation's line-work running through another's label text."""
 
-    area: float
-    box: tuple[float, float, float, float]
+    #: Millimetres of line-work inside the label box.
+    length: float
+    #: The label box crossed, as ``(min_x, min_y, max_x, max_y)``.
+    label_box: tuple[float, float, float, float]
+    #: ``True`` when it is *item_b*'s label that is crossed by *item_a*.
+    crosses_b: bool
 
-    @property
-    def width(self) -> float:
-        return self.box[2] - self.box[0]
-
-    @property
-    def height(self) -> float:
-        return self.box[3] - self.box[1]
-
-    def is_a_collision(self) -> bool:
-        """Ink with width, height, and enough of it to see."""
-        return (
-            self.width >= MIN_REGION_MM
-            and self.height >= MIN_REGION_MM
-            and self.area >= MIN_COLLISION_MM2
-        )
+    def is_reportable(self) -> bool:
+        return self.length >= MIN_CROSSING_MM
 
 
-def _faces_of(result) -> list[tuple[float, tuple[float, float, float, float]]]:
-    """Every face of an intersection, as ``(area, box)``.
+def _segments_of(item) -> tuple:
+    """An annotation's line-work as ``((x0, y0), (x1, y1))`` pairs, or ``()``.
 
-    Two shapes of the build123d API matter here, and both are easy to get wrong:
-    ``Shape.intersect`` returns a ``ShapeList``, not a shape — so the natural
-    ``getattr(result, "area", 0.0)`` answers ``0.0`` for every pair and reports
-    every sheet clean — and it returns ``None``, not an empty list, when the two
-    are disjoint.
+    Read defensively: ``items`` is duck-typed (ADR 0005), so an annotation that
+    has never heard of the attribute simply contributes no line-work rather than
+    killing lint. It is a sequence, not a shape — no CAD call is made here.
     """
-    if result is None:
-        return []
-    shapes = [result] if hasattr(result, "faces") else list(result)
-    faces = []
-    for shape in shapes:
-        if shape is None or not hasattr(shape, "faces"):
+    try:
+        segments = getattr(item, "_segments_local", None)
+    except Exception:  # noqa: BLE001 — duck-typed items may misbehave
+        return ()
+    return tuple(segments) if segments else ()
+
+
+def length_inside(segment, box) -> float:
+    """Length of *segment* lying inside axis-aligned *box*.
+
+    Liang-Barsky parametric clipping. Returns 0.0 for a segment that misses the
+    box, lies on its boundary, or has zero length.
+    """
+    (x0, y0), (x1, y1) = segment
+    dx, dy = x1 - x0, y1 - y0
+    t0, t1 = 0.0, 1.0
+    for numerator, denominator in (
+        (box[0] - x0, dx),
+        (x0 - box[2], -dx),
+        (box[1] - y0, dy),
+        (y0 - box[3], -dy),
+    ):
+        if denominator == 0.0:
+            # Parallel to this edge. `>= 0` rather than `> 0` so that a segment
+            # lying exactly ON the boundary measures zero: it shares no interior
+            # with the box, and a line running along the top of a text box does
+            # not obscure the text. Same strictness as `annotation_overlap`'s own
+            # `ox > 0.5 and oy > 0.5`.
+            if numerator >= 0.0:
+                return 0.0
             continue
-        for face in shape.faces():
-            area = float(face.area)
-            if area <= 0.0:
-                continue
-            bounds = face.bounding_box()
-            faces.append((area, (bounds.min.X, bounds.min.Y, bounds.max.X, bounds.max.Y)))
-    return faces
+        t = numerator / denominator
+        if denominator > 0.0:
+            if t > t1:
+                return 0.0
+            t0 = max(t0, t)
+        else:
+            if t < t0:
+                return 0.0
+            t1 = min(t1, t)
+    if t1 <= t0:
+        return 0.0
+    return float((t1 - t0) * (dx * dx + dy * dy) ** 0.5)
 
 
-def _near(a: tuple[float, ...], b: tuple[float, ...]) -> bool:
-    """Whether two boxes are close enough to be one place."""
-    return (
-        a[0] - CLUSTER_GAP_MM <= b[2]
-        and b[0] - CLUSTER_GAP_MM <= a[2]
-        and a[1] - CLUSTER_GAP_MM <= b[3]
-        and b[1] - CLUSTER_GAP_MM <= a[3]
-    )
+def crossing_length(item, label_box) -> float:
+    """Total line-work of *item* running through *label_box*."""
+    if label_box is None:
+        return 0.0
+    return sum(length_inside(segment, label_box) for segment in _segments_of(item))
 
 
-def places_where_ink_meets(result) -> list[Place]:
-    """Group an intersection into the places the two annotations actually meet.
+def worst_label_crossing(item_a, item_b, *, label_a=None, label_b=None) -> Crossing | None:
+    """The worse of the two directions, or ``None`` if neither is reportable.
 
-    Single-linkage, merged to a fixpoint rather than in one pass: absorbing a
-    group grows its box, and a group already passed over may be adjacent to the
-    grown one — three faces in an L are the smallest case. Face counts are
-    single digits, so running to a fixpoint costs nothing worth saving, and the
-    input is sorted so the answer does not depend on the order faces arrive in.
+    *label_a* and *label_b* are the two **text** extents. A label-less annotation
+    passes ``None`` and simply cannot be crossed — it must not fall back to the
+    annotation's full extent, which spans its witness lines and would report
+    every dimension whose line-work reaches a neighbour's arm.
     """
-    groups = sorted(_faces_of(result), key=lambda face: face[1])
-    changed = True
-    while changed:
-        changed = False
-        settled: list[tuple[float, tuple[float, float, float, float]]] = []
-        for area, box in groups:
-            for index, (other_area, other_box) in enumerate(settled):
-                if _near(box, other_box):
-                    settled[index] = (
-                        other_area + area,
-                        (
-                            min(box[0], other_box[0]),
-                            min(box[1], other_box[1]),
-                            max(box[2], other_box[2]),
-                            max(box[3], other_box[3]),
-                        ),
-                    )
-                    changed = True
-                    break
-            else:
-                settled.append((area, box))
-        groups = settled
-    return [Place(area=area, box=box) for area, box in groups]
-
-
-def _lands_on_a_label(box: tuple[float, float, float, float], keep_clear) -> bool:
-    """Whether a place lands on either annotation's label.
-
-    Touching, not covering. Requiring the part inside the label to clear
-    ``MIN_REGION_MM`` as well was tried and measured identically on every
-    fixture here — a place that reaches a label at all is generally well inside
-    it — so the stricter rule bought nothing and cost a second thing to reason
-    about. What separates a graze from a collision is how much ink, not how the
-    two rectangles meet.
-    """
-    for label in keep_clear:
-        if label is None:
-            continue
-        if min(box[2], label[2]) > max(box[0], label[0]) and min(box[3], label[3]) > max(
-            box[1], label[1]
-        ):
-            return True
-    return False
-
-
-def worst_shared_place(item_a, item_b, *, keep_clear=()) -> Place | None:
-    """The worst place two annotations put ink over a label, if any.
-
-    ``None`` when they share no ink, share it only where lines meet, or share it
-    somewhere no label is. Callers should reject on bounding boxes first: the
-    boolean costs far more than the comparison and almost every pair is
-    disjoint.
-
-    ``keep_clear`` is the two label extents. Shape alone is not enough: an
-    arrowhead meeting another dimension's witness line shares a region with real
-    width and height — measured at 13.9 x 4.0 mm on the #916 pocket fixture —
-    and is ordinary, correct drafting. What is not ordinary is ink *covering* a
-    label, which is the gap ``annotation_overlap`` leaves by comparing label
-    boxes to each other and to nothing else.
-    """
-    places = places_where_ink_meets(item_a.intersect(item_b))
-    if not places or sum(place.area for place in places) < MIN_INK_MM2:
-        return None
-    collisions = [
-        place
-        for place in places
-        if place.is_a_collision() and (not keep_clear or _lands_on_a_label(place.box, keep_clear))
-    ]
-    if not collisions:
-        return None
-    return max(collisions, key=lambda place: place.area)
+    into_b = crossing_length(item_a, label_b)
+    into_a = crossing_length(item_b, label_a)
+    if into_b >= into_a:
+        best = Crossing(length=into_b, label_box=tuple(label_b or ()), crosses_b=True)
+    else:
+        best = Crossing(length=into_a, label_box=tuple(label_a or ()), crosses_b=False)
+    return best if best.is_reportable() else None

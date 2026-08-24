@@ -1,332 +1,160 @@
-"""Tests for the ink-level overlap check (#1321).
+"""Line-work crossing a label's text (#1321, redesigned by #1332).
 
-`annotation_overlap` compares label boxes, so anything drawn over a label which
-is not itself a label goes unreported. These cover the shape of the rule that
-replaces it — and two cases from GRM-03 that fix that shape, because the obvious
-implementations break one or the other.
+Pure logic — the measure is Liang-Barsky clipping over the annotations' own
+segment lists, with no CAD call anywhere, which is why this module is in the
+unit tier. That is the point of the redesign as much as a consequence of it: the
+first implementation measured the *area of shared ink*, which depends on how the
+CAD kernel carves an intersection into faces, and the two supported build123d
+releases carve it differently.
 """
 
 import pytest
 
 from draftwright.linting.ink_overlap import (
-    MIN_REGION_MM,
-    Place,
-    places_where_ink_meets,
-    worst_shared_place,
+    MIN_CROSSING_MM,
+    Crossing,
+    crossing_length,
+    length_inside,
+    worst_label_crossing,
 )
 
-
-class _Vec:
-    def __init__(self, x, y):
-        self.X, self.Y = float(x), float(y)
-
-
-class _Box:
-    def __init__(self, x0, y0, x1, y1):
-        self.min, self.max = _Vec(x0, y0), _Vec(x1, y1)
-
-
-class _Face:
-    def __init__(self, area, box):
-        self.area, self._box = area, box
-
-    def bounding_box(self):
-        return self._box
-
-
-class _Shape:
-    def __init__(self, faces):
-        self._faces = faces
-
-    def faces(self):
-        return self._faces
-
-
-#: A label extent covering the whole page, so a test that is about the *shape*
-#: of the shared ink is not also testing where the label happens to be.
-_ANYWHERE = (-1e6, -1e6, 1e6, 1e6)
+#: A 10 x 4 mm label box, big enough that a crossing's length is obvious by eye.
+BOX = (10.0, 10.0, 20.0, 14.0)
 
 
 class _Annotation:
-    """Intersects to a fixed set of faces, as a real sketch does."""
+    """The only surface the measure touches: a segment list and a label."""
 
-    def __init__(self, faces):
-        self._faces = faces
-
-    def intersect(self, other):
-        # A ShapeList, and `None` when disjoint — both shapes the real API has.
-        return [_Shape(self._faces)] if self._faces else None
+    def __init__(self, segments, label="?"):
+        self._segments_local = segments
+        self.label = label
 
 
-class TestPlacesWhereInkMeets:
-    def test_disjoint_shapes_yield_no_places(self):
-        # `Shape.intersect` returns None, not an empty list, when disjoint.
-        assert places_where_ink_meets(None) == []
+class TestLengthInside:
+    def test_a_segment_clean_through_the_box_measures_its_width(self):
+        assert length_inside(((0.0, 12.0), (30.0, 12.0)), BOX) == pytest.approx(10.0)
 
-    def test_faces_a_millimetre_apart_are_one_place(self):
-        faces = [
-            _Face(0.06, _Box(20.0, 10.0, 20.1, 11.19)),
-            _Face(0.14, _Box(21.0, 10.5, 22.4, 10.6)),
-            _Face(0.09, _Box(23.0, 10.5, 23.88, 10.6)),
-        ]
-        places = places_where_ink_meets([_Shape(faces)])
-        assert len(places) == 1
-        assert places[0].area == pytest.approx(0.29)
+    def test_a_segment_that_misses_measures_nothing(self):
+        assert length_inside(((0.0, 30.0), (30.0, 30.0)), BOX) == 0.0
 
-    def test_faces_far_apart_are_separate_places(self):
-        places = places_where_ink_meets(
-            [
-                _Shape(
-                    [
-                        _Face(1.1, _Box(20.0, 10.0, 20.1, 21.0)),
-                        _Face(1.1, _Box(60.0, 10.0, 60.1, 21.0)),
-                    ]
-                )
-            ]
-        )
-        assert len(places) == 2
+    def test_a_segment_stopping_short_measures_only_what_is_inside(self):
+        assert length_inside(((0.0, 12.0), (13.0, 12.0)), BOX) == pytest.approx(3.0)
 
-    def test_an_l_of_three_faces_merges_to_a_fixpoint(self):
-        # Absorbing a group grows its box, and a group already passed over may
-        # be adjacent to the grown one. One pass leaves this as two places.
-        faces = [
-            _Face(1.0, _Box(0, 0, 1, 1)),
-            _Face(1.0, _Box(0, 100, 50, 101)),
-            _Face(1.0, _Box(49, 0, 50, 101)),
-        ]
-        assert len(places_where_ink_meets([_Shape(faces)])) == 1
+    def test_a_segment_starting_inside_measures_from_where_it_starts(self):
+        assert length_inside(((17.0, 12.0), (40.0, 12.0)), BOX) == pytest.approx(3.0)
 
-    def test_the_answer_does_not_depend_on_the_order_faces_arrive(self):
-        import itertools
+    def test_a_segment_wholly_inside_measures_its_whole_self(self):
+        assert length_inside(((12.0, 12.0), (16.0, 12.0)), BOX) == pytest.approx(4.0)
 
-        faces = [
-            _Face(1.0, _Box(0, 0, 1, 1)),
-            _Face(1.0, _Box(0, 100, 50, 101)),
-            _Face(1.0, _Box(49, 0, 50, 101)),
-        ]
-        for order in itertools.permutations(faces):
-            assert len(places_where_ink_meets([_Shape(list(order))])) == 1
+    def test_a_diagonal_measures_its_own_length_not_its_extent(self):
+        # Corner to corner of the box: 10 x 4 mm, so sqrt(116), not 10 or 14.
+        assert length_inside(((10.0, 10.0), (20.0, 14.0)), BOX) == pytest.approx(116**0.5)
 
-    def test_zero_area_faces_do_not_widen_a_place(self):
-        places = places_where_ink_meets(
-            [
-                _Shape(
-                    [
-                        _Face(3.0, _Box(1, 2, 3, 4)),
-                        _Face(0.0, _Box(9, 9, 9, 9)),
-                    ]
-                )
-            ]
-        )
-        assert len(places) == 1
-        assert places[0].box == (1.0, 2.0, 3.0, 4.0)
+    def test_a_zero_length_segment_measures_nothing(self):
+        assert length_inside(((12.0, 12.0), (12.0, 12.0)), BOX) == 0.0
+
+    def test_a_segment_along_the_boundary_measures_nothing(self):
+        # Grazing the edge is not drawing through the text. Zero, not 10.
+        assert length_inside(((0.0, 10.0), (30.0, 10.0)), BOX) == 0.0
+
+    def test_the_measure_does_not_depend_on_direction(self):
+        forward = length_inside(((0.0, 12.0), (13.0, 12.0)), BOX)
+        backward = length_inside(((13.0, 12.0), (0.0, 12.0)), BOX)
+        assert forward == pytest.approx(backward)
 
 
-class TestWhatCountsAsACollision:
-    def test_collinear_line_work_is_not_a_collision(self):
-        # Measured on GRM-03: the *largest* shared area on the sheet, and the
-        # stacked-dimension case full bounding boxes were rejected for.
-        assert (
-            worst_shared_place(
-                _Annotation([_Face(1.1004, _Box(20.0, 10.0, 20.1, 21.0))]),
-                _Annotation([]),
-            )
-            is None
-        )
+class TestCrossingLength:
+    def test_separate_segments_add_up(self):
+        item = _Annotation([((0.0, 11.0), (13.0, 11.0)), ((17.0, 13.0), (40.0, 13.0))])
+        assert crossing_length(item, BOX) == pytest.approx(6.0)
 
-    def test_stacked_dimensions_sharing_both_extension_lines_are_not_a_collision(self):
-        # Two thin places forty millimetres apart. Unioned they are 40 x 11 mm
-        # with 2.2 mm² of ink and look like the worst collision on the drawing.
-        assert (
-            worst_shared_place(
-                _Annotation(
-                    [
-                        _Face(1.1, _Box(20.0, 10.0, 20.1, 21.0)),
-                        _Face(1.1, _Box(60.0, 10.0, 60.1, 21.0)),
-                    ]
-                ),
-                _Annotation([]),
-            )
-            is None
-        )
+    def test_an_annotation_with_no_segments_crosses_nothing(self):
+        assert crossing_length(_Annotation([]), BOX) == 0.0
 
-    def test_one_line_crossing_another_is_not_a_collision(self):
-        # Strokes are filled faces ~0.1 mm wide, so a perpendicular crossing is
-        # about 0.01 mm² — ordinary drafting, on every sheet.
-        assert (
-            worst_shared_place(
-                _Annotation([_Face(0.01, _Box(20.0, 10.0, 20.1, 10.1))]),
-                _Annotation([]),
-            )
-            is None
-        )
+    def test_a_missing_label_box_cannot_be_crossed(self):
+        item = _Annotation([((0.0, 12.0), (30.0, 12.0))])
+        assert crossing_length(item, None) == 0.0
 
-    def test_a_place_with_width_and_height_is_a_collision(self):
-        worst = worst_shared_place(
-            _Annotation([_Face(0.9, _Box(20.0, 10.0, 22.0, 12.0))]),
-            _Annotation([]),
-            keep_clear=(_ANYWHERE, None),
-        )
+    def test_an_item_without_a_segment_list_contributes_nothing(self):
+        # Duck-typed items (ADR 0005) must not kill lint.
+        assert crossing_length(object(), BOX) == 0.0
+
+    def test_an_item_whose_segments_raise_contributes_nothing(self):
+        class Hostile:
+            @property
+            def _segments_local(self):
+                raise RuntimeError("boom")
+
+        assert crossing_length(Hostile(), BOX) == 0.0
+
+
+class TestWorstLabelCrossing:
+    def test_line_work_through_a_label_is_reported(self):
+        crosser = _Annotation([((0.0, 12.0), (30.0, 12.0))], label="16.5")
+        crossed = _Annotation([], label="⌀2.4 THRU")
+        worst = worst_label_crossing(crosser, crossed, label_a=None, label_b=BOX)
         assert worst is not None
-        assert worst.width == 2.0 and worst.height == 2.0
+        assert worst.length == pytest.approx(10.0)
+        assert worst.crosses_b is True
 
-    def test_a_place_of_faces_none_of_which_is_square_is_still_a_collision(self):
-        # Measured on GRM-03: 0.10 x 0.10 and 0.10 x 0.60 two millimetres apart,
-        # one place of 2.10 x 0.60. A per-face test drops it.
-        faces = [
-            _Face(0.15, _Box(20.0, 10.0, 20.1, 10.1)),
-            _Face(0.35, _Box(22.0, 10.0, 22.1, 10.6)),
-        ]
-        assert not any(
-            (f._box.max.X - f._box.min.X) > MIN_REGION_MM
-            and (f._box.max.Y - f._box.min.Y) > MIN_REGION_MM
-            for f in faces
-        )
-        worst = worst_shared_place(
-            _Annotation(faces), _Annotation([]), keep_clear=(_ANYWHERE, None)
-        )
+    def test_the_worse_of_the_two_directions_wins(self):
+        far = (100.0, 100.0, 110.0, 104.0)
+        a = _Annotation([((0.0, 12.0), (13.0, 12.0))], label="a")  # 3 mm into b
+        b = _Annotation([((90.0, 102.0), (108.0, 102.0))], label="b")  # 8 mm into a
+        worst = worst_label_crossing(a, b, label_a=far, label_b=BOX)
         assert worst is not None
-        assert worst.width == pytest.approx(2.1)
+        assert worst.length == pytest.approx(8.0)
+        assert worst.crosses_b is False
 
-    def test_a_compact_but_nearly_empty_place_is_not_a_collision(self):
-        assert (
-            worst_shared_place(
-                _Annotation([_Face(0.02, _Box(20.0, 10.0, 20.8, 10.8))]),
-                _Annotation([]),
-            )
-            is None
-        )
+    def test_a_pair_that_does_not_reach_either_label_is_not_reported(self):
+        a = _Annotation([((0.0, 30.0), (30.0, 30.0))], label="a")
+        assert worst_label_crossing(a, _Annotation([]), label_a=None, label_b=BOX) is None
 
-    def test_the_worst_place_is_the_one_returned(self):
-        worst = worst_shared_place(
-            _Annotation(
-                [
-                    _Face(0.2, _Box(5.0, 5.0, 6.0, 6.0)),
-                    _Face(3.0, _Box(90.0, 90.0, 93.0, 93.0)),
-                ]
-            ),
-            _Annotation([]),
-            keep_clear=(_ANYWHERE, None),
-        )
-        assert worst is not None
-        assert worst.box == (90.0, 90.0, 93.0, 93.0)
+    def test_a_label_less_annotation_cannot_be_crossed(self):
+        """It must NOT fall back to the annotation's full extent.
+
+        A dimension's full box spans its witness lines, so falling back would
+        report every dimension whose line-work reaches a neighbour's arm — the
+        exact false positive `annotation_overlap` compares label boxes to avoid.
+        """
+        crosser = _Annotation([((0.0, 12.0), (30.0, 12.0))], label="a")
+        assert worst_label_crossing(crosser, _Annotation([]), label_a=None, label_b=None) is None
 
 
-class TestPlace:
-    def test_a_place_knows_its_own_extent(self):
-        place = Place(area=1.0, box=(1.0, 2.0, 4.0, 6.0))
-        assert place.width == 3.0
-        assert place.height == 4.0
+class TestWhatIsNotADefect:
+    """The two cases the shared-ink implementation needed tuned constants to
+    exclude, and which this measure excludes by construction."""
+
+    def test_stacked_dimensions_sharing_extension_lines_score_zero(self):
+        # The case `structural.py`'s own comment rejects full bounding boxes for.
+        # Extension lines run away from their own text, so nothing enters the
+        # label box: zero, not "a small number below a floor".
+        stacked = _Annotation([((10.0, 0.0), (10.0, 9.0)), ((20.0, 0.0), (20.0, 9.0))])
+        assert crossing_length(stacked, BOX) == 0.0
+
+    def test_an_arrowhead_meeting_a_witness_line_scores_zero(self):
+        # #916: measured at 13.9 x 4.0 mm of shared region and 3.56 mm² of ink,
+        # and ordinary dimensioning. No text is involved, so this measure is
+        # silent without needing a shape test to say so.
+        witness = _Annotation([((0.0, 5.0), (30.0, 5.0))])
+        assert crossing_length(witness, BOX) == 0.0
 
 
-class TestInkMustLandOnALabel:
-    """Shape alone reports correct drawings.
+class TestTheFloor:
+    def test_the_floor_is_below_the_smallest_confirmed_defect(self):
+        # 0.85 mm: the dimension line entering the neighbouring label on
+        # `_issue_881_y_step_flange`, rendered at 600 dpi and confirmed.
+        assert MIN_CROSSING_MM < 0.85
 
-    An arrowhead meeting another dimension's witness line shares a region with
-    real width and height — measured at 13.9 x 4.0 mm on the #916 pocket
-    fixture, which the engine's own tests assert lints clean. What is not
-    ordinary is ink landing on a *label*, which is the gap `annotation_overlap`
-    leaves by comparing label boxes only to each other.
-    """
+    def test_the_floor_still_excludes_a_corner_clip(self):
+        # A hair of line in the corner of a box is not a stroke through a digit.
+        clip = _Annotation([((9.9, 9.9), (10.1, 10.1))])
+        assert crossing_length(clip, BOX) < MIN_CROSSING_MM
 
-    def test_a_square_region_clear_of_both_labels_is_not_reported(self):
-        faces = [_Face(3.56, _Box(30.0, 113.0, 43.9, 117.0))]
-        assert (
-            worst_shared_place(
-                _Annotation(faces),
-                _Annotation([]),
-                keep_clear=((0.0, 0.0, 10.0, 10.0), (200.0, 200.0, 210.0, 210.0)),
-            )
-            is None
-        )
+    def test_a_crossing_at_the_floor_is_reportable(self):
+        assert Crossing(length=MIN_CROSSING_MM, label_box=BOX, crosses_b=True).is_reportable()
 
-    def test_the_same_region_over_a_label_is_reported(self):
-        faces = [_Face(3.56, _Box(30.0, 113.0, 43.9, 117.0))]
-        worst = worst_shared_place(
-            _Annotation(faces),
-            _Annotation([]),
-            keep_clear=((32.0, 114.0, 40.0, 116.0), None),
-        )
-        assert worst is not None
-        assert worst.area == pytest.approx(3.56)
-
-    def test_either_label_is_enough(self):
-        faces = [_Face(3.56, _Box(30.0, 113.0, 43.9, 117.0))]
-        assert (
-            worst_shared_place(
-                _Annotation(faces),
-                _Annotation([]),
-                keep_clear=(None, (32.0, 114.0, 40.0, 116.0)),
-            )
-            is not None
-        )
-
-    def test_no_labels_at_all_falls_back_to_shape(self):
-        # An item with no label has no keep-clear box; the caller passes what it
-        # has, and an empty tuple means "do not filter".
-        assert (
-            worst_shared_place(
-                _Annotation([_Face(0.9, _Box(20.0, 10.0, 22.0, 12.0))]),
-                _Annotation([]),
-            )
-            is not None
-        )
-
-
-class TestHowMuchInkIsEnough:
-    """The floor is the sibling application's 0.05, and it is there because every
-    candidate it admits on this repository's fixtures was rendered and judged.
-
-    An earlier revision set 0.3, which reported nothing on any of the 23 STEP
-    fixtures in ``tests/fixtures``. Its "graze" anchor — an arrowhead clipping one
-    character of ``'50 × 120 × 5 DEEP'`` at 0.13 mm² — renders as an arrowhead
-    sitting on the ``×`` of the callout: the same defect as the blatant cases,
-    smaller. Its "reported" anchor of 0.94 mm² on GRM-03 does not exist on the
-    drawing this engine produces, whose largest on-label place is 0.2755 mm².
-    """
-
-    def test_the_smallest_rendered_defect_is_reported(self):
-        # ctc-02 ap203: an arrowhead on the `⌀` of a hole-table row, with an
-        # extension line running down through the `22` below it. 0.0944 mm²
-        # across 4.11 x 0.87 mm — the smallest place on the corpus that a render
-        # shows to be a real collision, so the floor must sit under it.
-        worst = worst_shared_place(
-            _Annotation([_Face(0.0944, _Box(20.0, 10.0, 24.11, 10.87))]),
-            _Annotation([]),
-            keep_clear=(_ANYWHERE, None),
-        )
-        assert worst is not None
-        assert worst.area == pytest.approx(0.0944)
-
-    def test_the_arrowhead_on_a_callout_character_is_reported(self):
-        # issue_915, the case the 0.3 floor was raised to exclude. Rendered, it
-        # is an arrowhead on the `×` of `50 × 120 × 5 DEEP`.
-        worst = worst_shared_place(
-            _Annotation([_Face(0.1312, _Box(20.0, 10.0, 21.2, 11.27))]),
-            _Annotation([]),
-            keep_clear=(_ANYWHERE, None),
-        )
-        assert worst is not None
-        assert worst.area == pytest.approx(0.1312)
-
-    def test_ink_below_the_floor_is_still_nothing(self):
-        # Under MIN_COLLISION_MM2 a place with width and height on a label is
-        # still not reported — the shape test alone never was the whole rule.
-        assert (
-            worst_shared_place(
-                _Annotation([_Face(0.04, _Box(20.0, 10.0, 21.0, 11.0))]),
-                _Annotation([]),
-                keep_clear=(_ANYWHERE, None),
-            )
-            is None
-        )
-
-    def test_the_floor_is_the_sibling_value_not_a_tuned_one(self):
-        # Pinned so that raising it is a deliberate act needing a rendered case
-        # it wrongly reports — which is what the 0.3 revision lacked.
-        from draftwright.linting.ink_overlap import MIN_COLLISION_MM2
-
-        assert MIN_COLLISION_MM2 == pytest.approx(0.05)
-        assert MIN_COLLISION_MM2 < 0.0944, (
-            "the floor must sit under the smallest place a render showed to be real"
-        )
+    def test_a_crossing_below_the_floor_is_not(self):
+        assert not Crossing(
+            length=MIN_CROSSING_MM - 1e-9, label_box=BOX, crosses_b=True
+        ).is_reportable()

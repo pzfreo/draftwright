@@ -23,12 +23,9 @@ from draftwright._geometry import (
     _segment_clips_box,
     material_reentry_span,
 )
-from draftwright.linting.ink_overlap import worst_shared_place
+from draftwright.linting.ink_overlap import worst_label_crossing
 from draftwright.linting.issues import LintIssue, _IssueAggregation
 from draftwright.projection import _MATERIAL_PAGE_TOLERANCE
-
-#: Ceiling on ink booleans per sheet — see the pairwise overlap loop.
-MAX_INK_BOOLEANS = 250
 
 #: The shared visible-stroke floor. Imported rather than restated so the critique cannot
 #: drift from the router that solves against the same field (#798).
@@ -385,26 +382,6 @@ def lint_drawing(
     # #701: the check body runs unguarded — the fragile duck-typed reads happened
     # above (boxes) or inside the callee; a bug here must fail loudly, not silently
     # disable the check forever.
-    # Booleans performed for the ink check below, per call of this function. Only
-    # pairs whose full boxes touch and whose labels already cleared each other
-    # spend one. Measured through ``build_drawing`` over the 23 STEP fixtures in
-    # ``tests/fixtures`` (11 ``*.step`` + 12 ``*.stp``): GRM-03 spends 6, but the
-    # NIST CTC parts are not near that — CTC-02 and CTC-04 exhaust the ceiling in
-    # both protocols, and CTC-05/CTC-01/CTC-03 spend 124–162.
-    #
-    # This is a per-call budget and a build runs lint 3–7 times (repair re-lints),
-    # so a saturating sheet spends up to 3 x MAX_INK_BOOLEANS across one build,
-    # not MAX_INK_BOOLEANS. Making it a per-build budget needs state this function
-    # does not own (ADR 0005) and is deliberately left alone.
-    #
-    # A count rather than a deadline: the same drawing has to lint the same way
-    # twice, and a wall-clock budget makes the answer depend on the machine.
-    #
-    # Exhausting it stops the check part-way, so it is reported rather than
-    # silent — a sheet that lints clean because the budget ran out must not read
-    # as a sheet with no collisions.
-    ink_budget = MAX_INK_BOOLEANS
-    ink_pairs_skipped = 0
 
     for i, item_a in enumerate(items):
         for j in range(i + 1, len(items)):
@@ -456,71 +433,40 @@ def lint_drawing(
                 )
                 continue
 
-            # The label boxes clear each other, which does not mean the ink
-            # does: a dimension line, an arrowhead or a leader drawn over a
-            # label is not a label, and the test above cannot see it (#1321).
+            # The label boxes clear each other, which does not mean the
+            # line-work does: a dimension line, an extension line or a leader
+            # shaft drawn across a label is not a label, and the test above
+            # cannot see it (#1321).
             #
-            # Only reached for pairs the label test cleared, and gated on the
-            # full boxes touching first, because the boolean costs far more
-            # than the comparison and almost every pair is disjoint. The budget
-            # bounds a pathological sheet: this loop is already O(n²), and #161
-            # records what that cost on an 83-hole part.
-            if ink_budget <= 0:
-                ink_pairs_skipped += 1
-                continue
-            full_a = _ann_box(item_a, box_cache)
-            full_b = _ann_box(item_b, box_cache)
-            if full_a is None or full_b is None:
-                continue
-            if not (
-                min(full_a[2], full_b[2]) > max(full_a[0], full_b[0])
-                and min(full_a[3], full_b[3]) > max(full_a[1], full_b[1])
-            ):
-                continue
-            ink_budget -= 1
-            # Only ink that lands on a label. The gap this closes is line-work
-            # drawn *over a label*; an arrowhead meeting another dimension's
-            # witness line is ordinary drafting and shares a region with real
-            # width and height, so shape alone reports correct drawings.
-            worst = worst_shared_place(
+            # Arithmetic on the annotations' own segments — no CAD boolean, so
+            # there is nothing to budget and both supported build123d releases
+            # answer identically. `la_box`/`lb_box` are TEXT extents here: an
+            # annotation whose label_bbox is absent contributes `None` and
+            # cannot be crossed, because falling back to its full extent would
+            # report every dimension whose line-work reaches a neighbour's arm.
+            crossing = worst_label_crossing(
                 item_a,
                 item_b,
-                keep_clear=(boxes[i], boxes[j]),
+                label_a=_label_bbox(item_a, warned_label_bbox),
+                label_b=_label_bbox(item_b, warned_label_bbox),
             )
-            if worst is not None:
-                la = getattr(item_a, "label", None) or _item_label(item_a) or "?"
-                lb = getattr(item_b, "label", None) or _item_label(item_b) or "?"
+            if crossing is not None:
+                crosser, crossed = (item_a, item_b) if crossing.crosses_b else (item_b, item_a)
+                lc = getattr(crosser, "label", None) or _item_label(crosser) or "?"
+                lx = getattr(crossed, "label", None) or _item_label(crossed) or "?"
                 issues.append(
                     LintIssue(
                         severity="warning",
                         message=(
-                            f"'{la}' and '{lb}' are drawn over each other: "
-                            f"{worst.area:.2f} mm² of ink shared across "
-                            f"{worst.width:.1f}×{worst.height:.1f} mm. The labels "
-                            "clear each other, so this is line-work, an arrowhead "
-                            "or a leader over a label — move what is drawn, not "
-                            "just the text"
+                            f"'{lc}' draws {crossing.length:.1f} mm of line-work "
+                            f"through the label '{lx}' — the labels clear each "
+                            "other, so this is a dimension line, an extension "
+                            "line or a leader over text; move what is drawn, "
+                            "not just the text"
                         ),
                         code="annotation_ink_overlap",
                     )
                 )
-
-    # A truncated check is not a clean one. #1321's budget bounds a pathological
-    # sheet, and on the NIST CTC parts it is reached in practice, so the sheets
-    # where it matters most are exactly the ones it stops checking. Saying so is
-    # the difference between "no collisions" and "stopped looking".
-    if ink_pairs_skipped:
-        issues.append(
-            LintIssue(
-                severity="warning",
-                message=(
-                    f"ink-overlap check stopped after {MAX_INK_BOOLEANS} comparisons "
-                    f"with {ink_pairs_skipped} pair(s) unchecked — this sheet may hold "
-                    "annotation_ink_overlap defects that were never measured"
-                ),
-                code="annotation_ink_overlap_truncated",
-            )
-        )
 
     # Page-bounds check — annotations must stay within the drawable area.
     # (#701: unguarded — _ann_box absorbs the fragile measure; the rest is arithmetic.)

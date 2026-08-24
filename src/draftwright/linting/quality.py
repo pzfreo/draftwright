@@ -237,12 +237,6 @@ _FIDELITY_CODES = frozenset(
 #: this register is what makes that visible instead of implicit.
 _UNSCORED_CODES = frozenset(
     {
-        # Not a defect in the drawing but a limit of the checker: the #1321 ink budget was
-        # exhausted and some pairs were never measured. Scoring it against legibility would
-        # price the sheet for the linter's own ceiling. It is here so that "stopped looking"
-        # is visible rather than indistinguishable from "found nothing" — measured through
-        # `build_drawing` over `tests/fixtures`, four of the 23 STEP fixtures reach it.
-        "annotation_ink_overlap_truncated",
         "authored_dim_degenerate",
         # A source relationship withheld because its geometry cannot prove a truthful
         # witness. Like the adjacent degenerate/unsupported cases, this is an explicit

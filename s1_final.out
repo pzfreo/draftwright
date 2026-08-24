@@ -1,0 +1,396 @@
+bringing up nodes...
+bringing up nodes...
+
+........................................................................ [  1%]
+........................................................................ [  2%]
+........................................................................ [  4%]
+........................................................................ [  5%]
+........................................................................ [  7%]
+........................................................................ [  8%]
+........................................................................ [ 10%]
+........................................................................ [ 11%]
+........................................................................ [ 13%]
+........................................................................ [ 14%]
+........................................................................ [ 16%]
+........................................................................ [ 17%]
+.................................................................s...... [ 19%]
+.....s.................................................................. [ 20%]
+........................................................................ [ 22%]
+........................................................................ [ 23%]
+........................................................................ [ 25%]
+........................................................................ [ 26%]
+........................................................................ [ 28%]
+........................................................................ [ 29%]
+........................................................................ [ 31%]
+............................s........................................... [ 32%]
+........................................................................ [ 34%]
+........................................................................ [ 35%]
+........................................................................ [ 37%]
+........................................................................ [ 38%]
+........................................................................ [ 40%]
+........................................................................ [ 41%]
+........................................................................ [ 43%]
+........................................................................ [ 44%]
+........................................................................ [ 46%]
+........................................................................ [ 47%]
+........................................................................ [ 49%]
+........................................................................ [ 50%]
+........................................................................ [ 52%]
+........................................................................ [ 53%]
+........................................................................ [ 55%]
+........................................................................ [ 56%]
+........................................................................ [ 58%]
+........................................................................ [ 59%]
+........................................................................ [ 61%]
+........................................................................ [ 62%]
+.........................ss............................................. [ 64%]
+........................................................................ [ 65%]
+........................................................................ [ 67%]
+........................................................................ [ 68%]
+........................................................................ [ 70%]
+........................................................................ [ 71%]
+........................................................................ [ 73%]
+........................................................................ [ 74%]
+........................................................................ [ 76%]
+........................................................................ [ 77%]
+........................................................................ [ 79%]
+........................................................................ [ 80%]
+........................................................................ [ 82%]
+........................................................................ [ 83%]
+........................................................................ [ 85%]
+........................................................................ [ 86%]
+........................................................................ [ 88%]
+........................................................................ [ 89%]
+........................................................................ [ 91%]
+........................................................................ [ 92%]
+........................................................x............... [ 94%]
+......x................................................................. [ 95%]
+........................................................................ [ 97%]
+........................................................................ [ 98%]
+.................................................                        [100%]
+=============================== warnings summary ===============================
+.venv/lib/python3.14/site-packages/lib3mf/Lib3MF.py:1242: 18 warnings
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/.venv/lib/python3.14/site-packages/lib3mf/Lib3MF.py:1242: DeprecationWarning: Due to '_pack_', the 'Triangle' Structure will use memory layout compatible with MSVC (Windows). If this is intended, set _layout_ to 'ms'. The implicit default is deprecated and slated to become an error in Python 3.19.
+    class Triangle(ctypes.Structure):
+
+.venv/lib/python3.14/site-packages/lib3mf/Lib3MF.py:1249: 18 warnings
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/.venv/lib/python3.14/site-packages/lib3mf/Lib3MF.py:1249: DeprecationWarning: Due to '_pack_', the 'TriangleProperties' Structure will use memory layout compatible with MSVC (Windows). If this is intended, set _layout_ to 'ms'. The implicit default is deprecated and slated to become an error in Python 3.19.
+    class TriangleProperties(ctypes.Structure):
+
+.venv/lib/python3.14/site-packages/lib3mf/Lib3MF.py:1257: 18 warnings
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/.venv/lib/python3.14/site-packages/lib3mf/Lib3MF.py:1257: DeprecationWarning: Due to '_pack_', the 'Position' Structure will use memory layout compatible with MSVC (Windows). If this is intended, set _layout_ to 'ms'. The implicit default is deprecated and slated to become an error in Python 3.19.
+    class Position(ctypes.Structure):
+
+.venv/lib/python3.14/site-packages/lib3mf/Lib3MF.py:1264: 18 warnings
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/.venv/lib/python3.14/site-packages/lib3mf/Lib3MF.py:1264: DeprecationWarning: Due to '_pack_', the 'Position2D' Structure will use memory layout compatible with MSVC (Windows). If this is intended, set _layout_ to 'ms'. The implicit default is deprecated and slated to become an error in Python 3.19.
+    class Position2D(ctypes.Structure):
+
+.venv/lib/python3.14/site-packages/lib3mf/Lib3MF.py:1271: 18 warnings
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/.venv/lib/python3.14/site-packages/lib3mf/Lib3MF.py:1271: DeprecationWarning: Due to '_pack_', the 'CompositeConstituent' Structure will use memory layout compatible with MSVC (Windows). If this is intended, set _layout_ to 'ms'. The implicit default is deprecated and slated to become an error in Python 3.19.
+    class CompositeConstituent(ctypes.Structure):
+
+.venv/lib/python3.14/site-packages/lib3mf/Lib3MF.py:1279: 18 warnings
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/.venv/lib/python3.14/site-packages/lib3mf/Lib3MF.py:1279: DeprecationWarning: Due to '_pack_', the 'MultiPropertyLayer' Structure will use memory layout compatible with MSVC (Windows). If this is intended, set _layout_ to 'ms'. The implicit default is deprecated and slated to become an error in Python 3.19.
+    class MultiPropertyLayer(ctypes.Structure):
+
+.venv/lib/python3.14/site-packages/lib3mf/Lib3MF.py:1287: 18 warnings
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/.venv/lib/python3.14/site-packages/lib3mf/Lib3MF.py:1287: DeprecationWarning: Due to '_pack_', the 'Tex2Coord' Structure will use memory layout compatible with MSVC (Windows). If this is intended, set _layout_ to 'ms'. The implicit default is deprecated and slated to become an error in Python 3.19.
+    class Tex2Coord(ctypes.Structure):
+
+.venv/lib/python3.14/site-packages/lib3mf/Lib3MF.py:1295: 18 warnings
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/.venv/lib/python3.14/site-packages/lib3mf/Lib3MF.py:1295: DeprecationWarning: Due to '_pack_', the 'Transform' Structure will use memory layout compatible with MSVC (Windows). If this is intended, set _layout_ to 'ms'. The implicit default is deprecated and slated to become an error in Python 3.19.
+    class Transform(ctypes.Structure):
+
+.venv/lib/python3.14/site-packages/lib3mf/Lib3MF.py:1302: 18 warnings
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/.venv/lib/python3.14/site-packages/lib3mf/Lib3MF.py:1302: DeprecationWarning: Due to '_pack_', the 'Box' Structure will use memory layout compatible with MSVC (Windows). If this is intended, set _layout_ to 'ms'. The implicit default is deprecated and slated to become an error in Python 3.19.
+    class Box(ctypes.Structure):
+
+.venv/lib/python3.14/site-packages/lib3mf/Lib3MF.py:1310: 18 warnings
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/.venv/lib/python3.14/site-packages/lib3mf/Lib3MF.py:1310: DeprecationWarning: Due to '_pack_', the 'Color' Structure will use memory layout compatible with MSVC (Windows). If this is intended, set _layout_ to 'ms'. The implicit default is deprecated and slated to become an error in Python 3.19.
+    class Color(ctypes.Structure):
+
+.venv/lib/python3.14/site-packages/lib3mf/Lib3MF.py:1320: 18 warnings
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/.venv/lib/python3.14/site-packages/lib3mf/Lib3MF.py:1320: DeprecationWarning: Due to '_pack_', the 'Beam' Structure will use memory layout compatible with MSVC (Windows). If this is intended, set _layout_ to 'ms'. The implicit default is deprecated and slated to become an error in Python 3.19.
+    class Beam(ctypes.Structure):
+
+.venv/lib/python3.14/site-packages/lib3mf/Lib3MF.py:1329: 18 warnings
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/.venv/lib/python3.14/site-packages/lib3mf/Lib3MF.py:1329: DeprecationWarning: Due to '_pack_', the 'Ball' Structure will use memory layout compatible with MSVC (Windows). If this is intended, set _layout_ to 'ms'. The implicit default is deprecated and slated to become an error in Python 3.19.
+    class Ball(ctypes.Structure):
+
+.venv/lib/python3.14/site-packages/lib3mf/Lib3MF.py:1337: 18 warnings
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/.venv/lib/python3.14/site-packages/lib3mf/Lib3MF.py:1337: DeprecationWarning: Due to '_pack_', the 'Vector' Structure will use memory layout compatible with MSVC (Windows). If this is intended, set _layout_ to 'ms'. The implicit default is deprecated and slated to become an error in Python 3.19.
+    class Vector(ctypes.Structure):
+
+.venv/lib/python3.14/site-packages/lib3mf/Lib3MF.py:1344: 18 warnings
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/.venv/lib/python3.14/site-packages/lib3mf/Lib3MF.py:1344: DeprecationWarning: Due to '_pack_', the 'Matrix4x4' Structure will use memory layout compatible with MSVC (Windows). If this is intended, set _layout_ to 'ms'. The implicit default is deprecated and slated to become an error in Python 3.19.
+    class Matrix4x4(ctypes.Structure):
+
+tests/test_lint_structural.py:14: 36 warnings
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/tests/test_lint_structural.py:14: DeprecationWarning: build123d_drafting.annotate is deprecated: it feeds the standalone linting that has moved to the draftwright package (ADR 0007). This frozen copy will be removed in a future release.
+    from build123d_drafting import (
+
+tests/test_lint_structural.py:14: 36 warnings
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/tests/test_lint_structural.py:14: DeprecationWarning: build123d_drafting.find_interferences is deprecated: linting has moved to the draftwright package (ADR 0007); import it from draftwright instead. This frozen copy will be removed in a future release.
+    from build123d_drafting import (
+
+tests/test_sheet_identity_invariant.py: 16 warnings
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/tests/test_sheet_identity_invariant.py:149: DeprecationWarning: Sheet.section() is deprecated; use add_section_view('A', through=...) or add_section_view('A', at=...). Removal target 0.6.0.
+    return a, lambda a: s.section(feature=a)
+
+tests/test_make_drawing.py: 9 warnings
+tests/test_recognition_manifest.py: 2 warnings
+tests/test_issue_955_height_contingency.py: 1 warning
+tests/test_sheet_emit.py: 5 warnings
+tests/test_declare.py: 1 warning
+tests/test_refactor_golden.py: 1 warning
+tests/test_slanted_blind_step.py: 1 warning
+tests/test_script_detail_parity.py: 1 warning
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/src/draftwright/builder.py:2032: ScaleCompletenessWarning: the automatically planned sheet drops required annotation outcomes (step_dim_dropped); returning the incomplete drawing — see Drawing.scale_decision
+    return _complete_automatic_plan(drawing, issues=settled_issues)
+
+tests/test_sheet_identity_invariant.py::TestTokensDivergedFromIndices::test_a_section_cuts_through_the_named_feature
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/tests/test_sheet_identity_invariant.py:498: DeprecationWarning: Sheet.section() is deprecated; use add_section_view('A', through=...) or add_section_view('A', at=...). Removal target 0.6.0.
+    s.section(feature=b)
+
+tests/test_make_drawing.py::TestTurnedLengths::test_chain_skips_gracefully_when_no_room
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/tests/test_make_drawing.py:10253: ScaleCompletenessWarning: requested scale 4 dropped required annotation outcomes (placement_unsatisfiable, step_dim_dropped); returning the incomplete drawing because scale_policy='permissive'
+    dwg = build_drawing(
+
+tests/test_make_drawing.py::TestScaleMinimum::test_sheet_explicit_scale_below_floor_is_honoured
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/src/draftwright/sheet.py:2499: ScaleCompletenessWarning: requested scale 0.1 dropped required annotation outcomes (placement_unsatisfiable); returning the incomplete drawing because scale_policy='permissive'
+    return build_drawing(
+
+tests/test_strip_layout.py: 1 warning
+tests/test_issue_1144_transactional_hole_table.py: 14 warnings
+tests/test_issue_1215_no_approved_tolerance_is_dropped.py: 1 warning
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/src/draftwright/builder.py:2032: ScaleCompletenessWarning: the automatically planned sheet drops required annotation outcomes (callout_dropped); returning the incomplete drawing — see Drawing.scale_decision
+    return _complete_automatic_plan(drawing, issues=settled_issues)
+
+tests/test_sheet_section.py::test_section_through_feature_renders
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/tests/test_sheet_section.py:43: DeprecationWarning: Sheet.section() is deprecated; use add_section_view('A', through=...) or add_section_view('A', at=...). Removal target 0.6.0.
+    assert s.section(p) is s  # chainable
+
+tests/test_sheet_section.py::test_cut_plane_resolution
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/tests/test_sheet_section.py:53: DeprecationWarning: Sheet.section() is deprecated; use add_section_view('A', through=...) or add_section_view('A', at=...). Removal target 0.6.0.
+    s.section(p)
+
+tests/test_sheet_section.py::test_cut_plane_resolution
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/tests/test_sheet_section.py:57: DeprecationWarning: Sheet.section() is deprecated; use add_section_view('A', through=...) or add_section_view('A', at=...). Removal target 0.6.0.
+    s.section(at=12.0)
+
+tests/test_sheet_section.py::test_cut_plane_resolution
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/tests/test_sheet_section.py:61: DeprecationWarning: Sheet.section() is deprecated; use add_section_view('A', through=...) or add_section_view('A', at=...). Removal target 0.6.0.
+    s.section()
+
+tests/test_sheet_section.py::test_section_needs_a_declared_feature
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/tests/test_sheet_section.py:68: DeprecationWarning: Sheet.section() is deprecated; use add_section_view('A', through=...) or add_section_view('A', at=...). Removal target 0.6.0.
+    s.section(object())  # a bare build123d-ish object is not on this sheet
+
+tests/test_sheet_section.py::test_section_rejects_a_foreign_handle
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/tests/test_sheet_section.py:77: DeprecationWarning: Sheet.section() is deprecated; use add_section_view('A', through=...) or add_section_view('A', at=...). Removal target 0.6.0.
+    s_b.section(p_a)
+
+tests/test_sheet_section.py::test_section_rejects_non_finite_and_out_of_range_at
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/tests/test_sheet_section.py:83: DeprecationWarning: Sheet.section() is deprecated; use add_section_view('A', through=...) or add_section_view('A', at=...). Removal target 0.6.0.
+    s.section(at=float("nan"))
+
+tests/test_sheet_section.py::test_section_rejects_non_finite_and_out_of_range_at
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/tests/test_sheet_section.py:85: DeprecationWarning: Sheet.section() is deprecated; use add_section_view('A', through=...) or add_section_view('A', at=...). Removal target 0.6.0.
+    s.section(at=float("inf"))
+
+tests/test_sheet_section.py::test_section_rejects_non_finite_and_out_of_range_at
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/tests/test_sheet_section.py:89: DeprecationWarning: Sheet.section() is deprecated; use add_section_view('A', through=...) or add_section_view('A', at=...). Removal target 0.6.0.
+    s.section(at=100.0)
+
+tests/test_sheet_section.py::test_section_rejects_non_finite_and_out_of_range_at
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/tests/test_sheet_section.py:94: DeprecationWarning: Sheet.section() is deprecated; use add_section_view('A', through=...) or add_section_view('A', at=...). Removal target 0.6.0.
+    s.section(at=25.0)  # exactly the +Y face of the 50-wide bar
+
+tests/test_issue_955_height_contingency.py::test_an_unplaceable_fallback_is_a_drop_not_a_stale_suppression
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/tests/test_issue_955_height_contingency.py:189: ScaleCompletenessWarning: requested scale 4 dropped required annotation outcomes (groove_dropped, placement_unsatisfiable, step_dim_dropped); returning the incomplete drawing because scale_policy='permissive'
+    drawing = build_drawing(
+
+tests/test_issue_1215_envelope_tolerance.py::TestTheToleranceReachesTheInk::test_the_tolerance_reaches_the_exported_ink[width]
+tests/test_issue_1215_envelope_tolerance.py::TestTheToleranceReachesTheInk::test_the_tolerance_reaches_the_exported_ink[width]
+tests/test_issue_1215_envelope_tolerance.py::TestTheToleranceReachesTheInk::test_the_tolerance_reaches_the_exported_ink[depth]
+tests/test_issue_1215_envelope_tolerance.py::TestTheToleranceReachesTheInk::test_the_tolerance_reaches_the_exported_ink[depth]
+tests/test_issue_1215_envelope_tolerance.py::TestTheToleranceReachesTheInk::test_the_tolerance_reaches_the_exported_ink[height]
+tests/test_issue_1215_envelope_tolerance.py::TestTheToleranceReachesTheInk::test_the_tolerance_reaches_the_exported_ink[height]
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/tests/test_issue_1215_envelope_tolerance.py:119: DeprecationWarning: Drawing.export() with formats= omitted or None returns the legacy (svg, dxf) tuple and is deprecated; pass formats=(...) and read the {format: path} dict — e.g. export(out, formats=('svg', 'dxf')). Removed in 0.5.0.
+    drawing.export(str(out))
+
+tests/test_sheet_section.py::test_detail_sets_the_opt_and_chains
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/tests/test_sheet_section.py:101: DeprecationWarning: Sheet.detail() is deprecated; use add_detail_view('A', around=feature). Removal target 0.6.0.
+    assert s.detail() is s
+
+tests/test_make_drawing.py::TestComposeAnnoBoxes::test_matches_for_dense_ballooning_part
+tests/test_adr0018_arrangement_gate.py::TestTheDecisionIsMadeOnceAndCarried::test_re_deriving_per_stage_instead_loses_requirements_on_an_unchanged_sheet
+tests/test_make_drawing.py::TestComposeAnnoBoxesCorpus::test_byte_identity_across_corpus
+tests/test_make_drawing.py::TestComposeAnnoBoxesCorpus::test_box_structure_contract
+tests/test_refactor_golden.py::test_refactor_golden[grid_plate]
+tests/test_make_drawing.py::TestEscalation::test_dense_part_groups_and_types
+tests/test_issue_1153_contradictory_dimensions.py::TestOnlyTheProducerThatMeansItTags::test_a_product_convention_dimension_is_not_tagged[hole grid-grid]
+tests/test_pitch_dim_footprint.py::test_grid_pitch_dim_constructions_bounded
+tests/test_make_drawing.py::TestHolePatternAnnotations::test_pitch_dim_skipped_when_off_page
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/src/draftwright/builder.py:2032: ScaleCompletenessWarning: the automatically planned sheet drops required annotation outcomes (hole_pattern_dim_dropped); returning the incomplete drawing — see Drawing.scale_decision
+    return _complete_automatic_plan(drawing, issues=settled_issues)
+
+tests/test_adr0018_arrangement_gate.py::TestTheDecisionIsMadeOnceAndCarried::test_re_deriving_per_stage_instead_loses_requirements_on_an_unchanged_sheet
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/src/draftwright/builder.py:2032: ScaleCompletenessWarning: the automatically planned sheet drops required annotation outcomes (hole_pattern_dim_dropped, location_ref_dropped); returning the incomplete drawing — see Drawing.scale_decision
+    return _complete_automatic_plan(drawing, issues=settled_issues)
+
+tests/test_sheet_tables.py::test_oversized_table_diagnostic_reports_both_measured_dimensions_and_violation
+tests/test_sheet_tables.py::test_a_dropped_table_frees_its_name
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/src/draftwright/builder.py:2032: ScaleCompletenessWarning: the automatically planned sheet drops required annotation outcomes (table_dropped); returning the incomplete drawing — see Drawing.scale_decision
+    return _complete_automatic_plan(drawing, issues=settled_issues)
+
+tests/test_sheet_tables.py::test_auto_name_does_not_collide_with_an_explicit_one
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/src/draftwright/builder.py:1643: UserWarning: table name 'table1' is already taken — placed as 'table1_1'
+    drawing = _build(None, views=_views)
+
+tests/test_issue_1215_envelope_tolerance.py::TestTheGeneralisedFallbackMatchesToo::test_the_fallback_finds_a_toleranced_height_under_another_name
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/tests/test_issue_1215_envelope_tolerance.py:263: DeprecationWarning: Drawing.place_dim() is deprecated for normal editable scripts; use Drawing.dimension(feature, param, ..., pin=True) or Drawing.locate(feature, ..., pin=True) for feature-backed edits. place_dim() remains only as a raw page-coordinate escape hatch. Removal gated on #707 (full recompose); target 0.6.0.
+    drawing.place_dim(
+
+tests/test_make_drawing.py::TestChamferCallout::test_leader_anchors_on_the_bevel_interior_not_an_endpoint
+tests/test_make_drawing.py::TestChamferCallout::test_leader_anchors_on_the_bevel_interior_not_an_endpoint
+tests/test_make_drawing.py::TestChamferCallout::test_leader_anchors_on_the_bevel_interior_not_an_endpoint
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/tests/test_make_drawing.py:583: DeprecationWarning: to_tuple is deprecated and will be removed in a future version.  Use 'tuple(Vector)' instead.
+    and max(abs(c) for c in f.normal_at().to_tuple()) < 0.99
+
+tests/test_make_drawing.py::TestComposeThenPackRepack::test_repack_honours_pinned_scale_on_oversized_part
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/tests/test_make_drawing.py:2893: ScaleCompletenessWarning: requested scale 1 dropped required annotation outcomes (placement_unsatisfiable); returning the incomplete drawing because scale_policy='permissive'
+    dwg = build_drawing(Box(4200, 1600, 5400), scale=1, scale_policy="permissive")
+
+tests/test_slanted_blind_step.py::test_unplaceable_short_step_records_left_strip_failure
+tests/test_issue_1154_one_owner_per_measurement.py::TestConsolidationMovesTheFactOrDoesNotHappen::test_an_owner_the_rule_set_withholds_is_refused
+tests/test_script_detail_parity.py::test_generated_script_matches_direct_y_axis_turned_diameter_policy
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/src/draftwright/builder.py:2032: ScaleCompletenessWarning: the automatically planned sheet drops required annotation outcomes (placement_unsatisfiable); returning the incomplete drawing — see Drawing.scale_decision
+    return _complete_automatic_plan(drawing, issues=settled_issues)
+
+tests/test_issue_1082_polygonal_stock.py::test_rejected_stock_length_candidate_records_the_drop_with_measurement_identity
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/src/draftwright/builder.py:2032: ScaleCompletenessWarning: the automatically planned sheet drops required annotation outcomes (polygonal_stock_length_dropped); returning the incomplete drawing — see Drawing.scale_decision
+    return _complete_automatic_plan(drawing, issues=settled_issues)
+
+tests/test_issue_1143_hole_completeness.py::test_nearby_distinct_member_locations_are_dropped_not_semantically_merged
+tests/test_layout_property.py::TestGeneratedPartCollisions::test_no_layout_collisions[4]
+tests/test_refactor_golden.py::test_refactor_golden[scattered_plate]
+tests/test_layout_property.py::TestGeneratedPartDeterminism::test_build_is_deterministic[4]
+tests/test_pitch_dim_footprint.py::test_corridor_dim_constructions_bounded
+tests/test_gdt_placement.py::test_gdt_never_overlaps_the_title_block[above]
+tests/test_issue_1166_cross_pass_feature_leaders.py::test_near_clear_witness_is_not_falsely_classified_by_strip_padding
+tests/test_make_drawing.py::TestLintSummaryAndDrops::test_location_tower_trimmed_to_legible_set
+tests/test_issue_1144_transactional_hole_table.py::test_fitted_callout_can_remain_while_table_resolves_its_location_drop
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/src/draftwright/builder.py:2032: ScaleCompletenessWarning: the automatically planned sheet drops required annotation outcomes (location_ref_dropped); returning the incomplete drawing — see Drawing.scale_decision
+    return _complete_automatic_plan(drawing, issues=settled_issues)
+
+tests/test_tolerances.py::TestSheetTolerance::test_the_public_dimension_verbs_render_a_tolerance
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/tests/test_tolerances.py:477: DeprecationWarning: Drawing.place_dim() is deprecated for normal editable scripts; use Drawing.dimension(feature, param, ..., pin=True) or Drawing.locate(feature, ..., pin=True) for feature-backed edits. place_dim() remains only as a raw page-coordinate escape hatch. Removal gated on #707 (full recompose); target 0.6.0.
+    dwg.place_dim(
+
+tests/test_tolerances.py::TestSheetTolerance::test_an_explicit_none_label_still_means_auto
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/tests/test_tolerances.py:583: DeprecationWarning: Drawing.place_dim() is deprecated for normal editable scripts; use Drawing.dimension(feature, param, ..., pin=True) or Drawing.locate(feature, ..., pin=True) for feature-backed edits. place_dim() remains only as a raw page-coordinate escape hatch. Removal gated on #707 (full recompose); target 0.6.0.
+    dwg.place_dim((10, 10, 0), (60, 10, 0), "below", "plan", dwg.draft, name="u0", label=None)
+
+tests/test_issue_1143_hole_completeness.py::test_scattered_hole_table_preserves_unresolved_pattern_location_drops
+tests/test_issue_1143_hole_completeness.py::test_failed_hole_table_escalation_restores_semantic_fallback_evidence
+tests/test_issue_1144_transactional_hole_table.py::test_automatic_transaction_rejects_a_real_required_shaft_crossing
+tests/test_issue_1202_observed_drawing_consumer.py::TestAHoleTableIsAlsoTheFactReachingTheSheet::test_the_metric_is_not_inverted_on_dense_parts
+tests/test_issue_1202_observed_drawing_consumer.py::TestAHoleTableIsAlsoTheFactReachingTheSheet::test_a_dropped_table_is_not_credited
+tests/test_issue_1144_transactional_hole_table.py::test_scattered_table_reports_a_balloon_landed_on_the_wrong_semantic_owner
+tests/test_issue_1144_transactional_hole_table.py::test_automatic_compound_inventory_fails_closed_on_cross_balloon_geometry
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/src/draftwright/builder.py:2032: ScaleCompletenessWarning: the automatically planned sheet drops required annotation outcomes (callout_dropped, location_ref_dropped); returning the incomplete drawing — see Drawing.scale_decision
+    return _complete_automatic_plan(drawing, issues=settled_issues)
+
+tests/test_issue_1130_view_planning_evidence.py::TestTheFixedTopologyForcesTheSheet::test_the_automatic_result_is_a1_at_full_scale_and_reports_no_problem
+tests/test_slot_completeness.py::test_grouped_callout_failure_marks_its_orphaned_pattern_pitches
+tests/test_view_plan.py::TestPerViewRequirementCoverage::test_a_rotational_plate_has_one_view_carrying_nothing_of_its_own
+tests/test_view_plan.py::TestPerViewRequirementCoverage::test_a_turned_part_with_radial_features_keeps_its_end_view
+tests/test_issue_1219_location_claims_its_own_axis.py::TestThePartReallyContainsTheDefectsShape::test_the_slot_position_is_compiled
+tests/test_issue_1219_location_claims_its_own_axis.py::TestThePartReallyContainsTheDefectsShape::test_the_slot_is_recognised_and_runs_along_z
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/src/draftwright/builder.py:2032: ScaleCompletenessWarning: the automatically planned sheet drops required annotation outcomes (slot_dim_dropped); returning the incomplete drawing — see Drawing.scale_decision
+    return _complete_automatic_plan(drawing, issues=settled_issues)
+
+tests/test_flat_completeness.py::test_forced_placement_failure_is_dropped_not_missing
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/tests/test_flat_completeness.py:277: ScaleCompletenessWarning: requested scale 3 dropped required annotation outcomes (boss_dia_dropped, flat_dropped, placement_unsatisfiable); returning the incomplete drawing because scale_policy='permissive'
+    dwg = build_drawing(_flatted_shaft(), page="A4", scale=3.0, scale_policy="permissive")
+
+tests/test_slot_completeness.py::test_a_real_placement_failure_retains_the_dropped_measurement
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/tests/test_slot_completeness.py:406: ScaleCompletenessWarning: requested scale 1.5 dropped required annotation outcomes (slot_dim_dropped); returning the incomplete drawing because scale_policy='permissive'
+    dwg = build_drawing(_off_centre_slot(), page="A4", scale=1.5, scale_policy="permissive")
+
+tests/test_slot_completeness.py::test_pattern_placement_failures_retain_each_failed_measurement
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/tests/test_slot_completeness.py:425: ScaleCompletenessWarning: requested scale 1 dropped required annotation outcomes (location_ref_dropped, slot_dim_dropped); returning the incomplete drawing because scale_policy='permissive'
+    dwg = build_drawing(_slot_grid(), page="A4", scale=1.0, scale_policy="permissive")
+
+tests/test_issue_1240_iso_above_strip_visibility.py::test_the_above_strip_is_clamped_below_an_overlapping_iso
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/tests/test_issue_1240_iso_above_strip_visibility.py:271: ScaleCompletenessWarning: requested scale 1 dropped required annotation outcomes (location_ref_dropped); returning the incomplete drawing because scale_policy='permissive'
+    clamped = build_drawing(part, title="T", number="N", scale=1.0, scale_policy="permissive")
+
+tests/test_sheet_emit.py::TestTheDeclaredModelMatchesTheDetectedOne::test_every_declared_feature_survives_its_own_emit[control frame]
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/src/draftwright/sheet.py:2435: UserWarning: control frame references undeclared datum(s) ['A'] — declare each with sheet.datum(letter, ref)
+    self._prepare()
+
+tests/test_issue_1176_quality_fidelity.py::TestAGearTableCanBeFalseWhileTheDrawingPasses::test_a_data_table_stating_the_wrong_tooth_count_lowers_fidelity
+tests/test_issue_1176_quality_fidelity.py::TestAGearTableCanBeFalseWhileTheDrawingPasses::test_the_true_tooth_count_keeps_fidelity_perfect
+tests/test_issue_1176_quality_fidelity.py::TestAGearTableCanBeFalseWhileTheDrawingPasses::test_a_table_that_no_longer_carries_the_authored_values_lowers_fidelity
+tests/test_issue_1176_quality_fidelity.py::TestAGearTableCanBeFalseWhileTheDrawingPasses::test_a_data_table_bound_to_the_wrong_axis_lowers_fidelity
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/src/draftwright/analysis.py:615: UserWarning: scale 1.0 projects the smallest part dimension (8 mm) to 7.6 mm, below the 10 mm legibility floor — annotations may crowd or overlap. Honouring the requested scale; use scale ≥ 1.32 or omit the scale for an automatic legible fit.
+    warnings.warn(
+
+tests/test_make_drawing.py::TestScaleMinimum::test_explicit_illegible_scale_warns_and_renders
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/src/draftwright/builder.py:2228: ScaleCompletenessWarning: requested scale 0.1 dropped required annotation outcomes (placement_unsatisfiable); returning the incomplete drawing because scale_policy='permissive'
+    _paths = build_drawing(
+
+tests/test_make_drawing.py::TestPrismaticClassification::test_envelope_depth_survives_many_side_location_dims
+tests/test_make_drawing.py::TestPrismaticClassification::test_locates_every_side_drilled_hole_not_just_the_first
+tests/test_make_drawing.py::TestAutoHoleAnnotations::test_two_front_view_specs_fit_below_the_view
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/src/draftwright/builder.py:2032: ScaleCompletenessWarning: the automatically planned sheet drops required annotation outcomes (off_axis_location_dropped); returning the incomplete drawing — see Drawing.scale_decision
+    return _complete_automatic_plan(drawing, issues=settled_issues)
+
+tests/test_make_drawing.py::TestAutoHoleAnnotations::test_identical_holes_share_one_counted_callout
+tests/test_make_drawing.py::TestLocationDimsAndSection::test_x_dims_above_the_plan_view
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/.venv/lib/python3.14/site-packages/_pytest/fixtures.py:1312: PytestRemovedIn10Warning: Class-scoped fixture defined as instance method is deprecated.
+  Instance attributes set in this fixture will NOT be visible to test methods,
+  as each test gets a new instance while the fixture runs only once per class.
+  Use @classmethod decorator and set attributes on cls instead.
+  See https://docs.pytest.org/en/stable/deprecations.html#class-scoped-fixture-as-instance-method
+    fixturefunc = resolve_fixture_function(fixturedef, request)
+
+tests/test_make_drawing.py::TestTurnedDiameters::test_issue_892_short_y_step_chain_moves_to_enlarged_side_detail[0.0-90]
+tests/test_make_drawing.py::TestTurnedDiameters::test_issue_892_short_y_step_chain_moves_to_enlarged_side_detail[17.0-90]
+tests/test_make_drawing.py::TestTurnedDiameters::test_issue_892_short_y_step_chain_moves_to_enlarged_side_detail[-11.0--90]
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/tests/test_make_drawing.py:9657: ScaleCompletenessWarning: requested scale 1 dropped required annotation outcomes (placement_unsatisfiable); returning the incomplete drawing because scale_policy='permissive'
+    dwg = build_drawing(
+
+tests/test_make_drawing.py::TestTurnedDiameters::test_issue_892_toleranced_labels_drive_detail_scale_from_rendered_text
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/src/draftwright/sheet.py:2499: ScaleCompletenessWarning: requested scale 1 dropped required annotation outcomes (placement_unsatisfiable); returning the incomplete drawing because scale_policy='permissive'
+    return build_drawing(
+
+tests/test_sheet_gdt.py::test_control_frames_place_lint_clean
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/src/draftwright/sheet.py:2449: UserWarning: control frame references undeclared datum(s) ['A'] — declare each with sheet.datum(letter, ref)
+    self._prepare()
+
+tests/test_make_drawing.py::TestTurnedDiameters::test_issue_892_clear_labels_but_tight_arrows_still_request_detail
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/tests/test_make_drawing.py:9713: ScaleCompletenessWarning: requested scale 1 dropped required annotation outcomes (placement_unsatisfiable); returning the incomplete drawing because scale_policy='permissive'
+    dwg = build_drawing(part.rotate(Axis.X, 90), scale=1.0, scale_policy="permissive")
+
+tests/test_make_drawing.py::TestTurnedDiameters::test_issue_892_no_detail_room_keeps_block_and_reports_uncovered_shoulders
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/tests/test_make_drawing.py:9726: ScaleCompletenessWarning: requested scale 1 dropped required annotation outcomes (placement_unsatisfiable); returning the incomplete drawing because scale_policy='permissive'
+    dwg = build_drawing(
+
+tests/test_sheet_emit.py::TestEmit::test_step_seam_preserves_detected_ctc01_envelope
+tests/test_pmi.py::TestBuildDrawingPmi::test_default_pmi_probe_keeps_ap203_quiet
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/src/draftwright/builder.py:2032: ScaleCompletenessWarning: the automatically planned sheet drops required annotation outcomes (pocket_dim_dropped, pocket_dropped); returning the incomplete drawing — see Drawing.scale_decision
+    return _complete_automatic_plan(drawing, issues=settled_issues)
+
+tests/test_issue_915_dense_case.py::test_issue_915_hole_callouts_share_one_spacing_solve
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/tests/test_issue_915_dense_case.py:43: ScaleCompletenessWarning: requested scale 0.5 dropped required annotation outcomes (step_dim_dropped); returning the incomplete drawing because scale_policy='permissive'
+    dwg = build_drawing(
+
+tests/test_pmi.py::TestBuildDrawingPmi::test_a_forced_placement_drop_is_not_reported_as_missing_render_dispatch
+  /private/tmp/claude-501/-Users-paul-cld-draftwright/e143d59b-1f72-4ebd-8fcb-5274537e0120/scratchpad/wt-s1/src/draftwright/sheet.py:2499: ScaleCompletenessWarning: requested scale 1 dropped required annotation outcomes (pmi_dropped); returning the incomplete drawing because scale_policy='permissive'
+    return build_drawing(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+4794 passed, 5 skipped, 2 xfailed, 470 warnings in 141.95s (0:02:21)
