@@ -510,3 +510,26 @@ class TestAPointMustBeTwoNumbers:
     def test_ordinary_ints_are_accepted(self):
         # The guard must not reject a perfectly good integer coordinate.
         assert measure(_Annotation([((0, 12), (30, 12))]), BOX) == pytest.approx(10.0)
+
+
+class TestABoxMustBeFourNumbers:
+    """`Sequence` accepted `str`, which is the same hole closed for `segments`.
+
+    A four-character `label_bbox` passed `isinstance(value, Sequence) and
+    len(value) == 4`, and `shorter_side` then evaluated `'n' - 'n'` — a
+    `TypeError` out of `lint_drawing`, killing every other check on the sheet, in
+    the guard whose docstring claimed to prevent exactly that.
+    """
+
+    def test_a_four_character_string_is_not_a_box(self):
+        assert shorter_side("abcd") == 0.0
+        assert is_tight("abcd") is False
+        assert crossing_length((((0.0, 0.0), (9.0, 9.0)),), "abcd") == 0.0
+
+    def test_a_box_of_non_numbers_is_not_a_box(self):
+        assert shorter_side(("a", "b", "c", "d")) == 0.0
+        assert is_tight((None, None, None, None)) is False
+
+    def test_an_ordinary_box_still_works(self):
+        assert shorter_side((0, 0, 10, 3)) == pytest.approx(3.0)
+        assert is_tight((0.0, 0.0, 10.0, 3.0)) is True
