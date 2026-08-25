@@ -19,6 +19,7 @@ from typing import Any
 from build123d_drafting.helpers import DEFAULT_FONT_PATH, Dimension, Note, SafeDimension
 
 from draftwright._core import (  # noqa: F401 — _anno_box re-exported (#700)
+    _MARGIN,
     _anno_box,
     _decode_hole_location_fact,
     _dim,
@@ -32,6 +33,7 @@ from draftwright._geometry import (  # noqa: F401
     _segment_crosses_box,
 )
 from draftwright.layout import StripCandidate, plan_strip
+from draftwright.linting.ink_overlap import MIN_CROSSING_MM, crossable_region, crossing_length
 from draftwright.linting.issues import LintIssue
 from draftwright.linting.structural import (
     _ann_box,
@@ -42,11 +44,6 @@ from draftwright.model.compiled import resolve_feature
 _log = logging.getLogger(__name__)
 
 
-# A line entering a label by less than this is a corner graze, not obscured text.  Keep
-# this equal to the Stage-1 ratchet's measured floor without importing that late critique
-# into the placement DAG: candidate selection owns its arithmetic and Stage 1 remains a
-# backstop, not the oracle invoked for every alternative (#1334).
-_LABEL_INK_CROSSING_MM = 0.5
 _LABEL_INK_CLEARANCE_MM = 0.25
 
 
@@ -1473,6 +1470,7 @@ def prevent_dimension_label_ink(
     *,
     page=None,
     immutable=(),
+    obstacles=(),
 ):
     """Choose small along-line label offsets for a just-built dimension batch.
 
@@ -1483,10 +1481,10 @@ def prevent_dimension_label_ink(
     gap: they build the whole row before any member is visible to strip occupancy.
 
     This is the shared, bounded candidate-selection seam for both producers.  It inspects
-    public ``segments``/``label_bbox`` metadata once on the already-built natural batch.
+    the same public ``segments``/exact-label-region arithmetic as the lint backstop.
     A clean batch returns the same objects immediately.  Only a conflicting batch explores
     a bounded set of analytically-derived label centres, rebuilding the selected survivors
-    through their ``_dw_spec``.  No Stage-1 lint scan and no CAD boolean participates.
+    through their ``_dw_spec``.  No full lint scan and no CAD boolean participates.
 
     The label *centre* stays within half a millimetre of its measured span (rather than
     requiring the whole label to fit inside it).  That distinction matters for short
@@ -1495,14 +1493,17 @@ def prevent_dimension_label_ink(
     neighbour's.  If the bounded choices cannot improve the batch, the natural deterministic
     placement survives and the normal ``annotation_ink_overlap`` lint remains explicit
     evidence of the infeasible fallback.  Names in *immutable* are never shifted (pins win).
+    Fixed *obstacles* do not make an existing contact this local batch's responsibility, but
+    no selected move may introduce a new label contact with one.
 
     Returns ``[(name, dimension), ...]`` in input order.
     """
 
     original = list(dimensions)
-    if len(original) < 1:
+    if len(original) < 2:
         return original
     immutable = set(immutable)
+    obstacles = tuple(obstacles)
 
     def _axis_info(dim):
         spec = getattr(dim, "_dw_spec", None)
@@ -1521,13 +1522,24 @@ def prevent_dimension_label_ink(
     if not any(info is not None for info in infos):
         return original
 
+    box_cache: dict[int, Any] = {}
+    segments_cache: dict[int, Any] = {}
+    tips_cache: dict[int, Any] = {}
+
     def _box(dim):
+        key = id(dim)
+        if key in box_cache:
+            return box_cache[key]
         raw = getattr(dim, "label_bbox", None)
-        return tuple(float(value) for value in raw) if raw is not None else None
+        box_cache[key] = tuple(float(value) for value in raw) if raw is not None else None
+        return box_cache[key]
 
     def _segments(dim):
+        key = id(dim)
+        if key in segments_cache:
+            return segments_cache[key]
         try:
-            return tuple(
+            segments_cache[key] = tuple(
                 (
                     (float(first[0]), float(first[1])),
                     (float(second[0]), float(second[1])),
@@ -1535,7 +1547,8 @@ def prevent_dimension_label_ink(
                 for first, second in (getattr(dim, "segments", ()) or ())
             )
         except Exception:  # noqa: BLE001 — optional metadata fails closed to lint
-            return ()
+            segments_cache[key] = ()
+        return segments_cache[key]
 
     def _arrow_tips(dim, info):
         """Dimension terminator tips from its measured endpoints and dim-line ordinate.
@@ -1545,6 +1558,9 @@ def prevent_dimension_label_ink(
         attachment as label-blocking catches the short-span arrow-through-digit case without
         inflating every shaft into a coarse full-geometry box.
         """
+        key = id(dim)
+        if key in tips_cache:
+            return tips_cache[key]
         if info is None or (label := _box(dim)) is None:
             return ()
         axis, other, spec = info
@@ -1555,24 +1571,31 @@ def prevent_dimension_label_ink(
             tip[axis] = float(point[axis])
             tip[other] = line
             result.append(tuple(tip))
-        return tuple(result)
+        tips_cache[key] = tuple(result)
+        return tips_cache[key]
 
-    def _line_depth(segment, label):
-        clipped = _segment_clip_extent(segment[0], segment[1], label, pad=0.0)
-        return (
-            0.0
-            if clipped is None
-            else math.hypot(clipped[2] - clipped[0], clipped[3] - clipped[1])
+    natural_obstacle_hits = [
+        frozenset(
+            obstacle_index
+            for obstacle_index, obstacle in enumerate(obstacles)
+            if label is not None and _boxes_overlap(label, obstacle)
         )
+        for _name, dim in original
+        for label in (_box(dim),)
+    ]
 
     def _conflicts(batch):
         """Stable conflict tokens; their count is the local solve's primary objective."""
         labels = [_box(dim) for _name, dim in batch]
         segs = [_segments(dim) for _name, dim in batch]
+        regions = [
+            crossable_region(label, item=dim, segments=segments)
+            for (_name, dim), label, segments in zip(batch, labels, segs, strict=True)
+        ]
         tips = [_arrow_tips(dim, info) for (_name, dim), info in zip(batch, infos, strict=True)]
         found: set[tuple] = set()
-        for target, label in enumerate(labels):
-            if label is None:
+        for target, (label, region) in enumerate(zip(labels, regions, strict=True)):
+            if label is None or region is None:
                 continue
             # Helpers expose no arrow polygons.  The foreign dimension's exact
             # attachment tips still participate, closing the line-metadata gap without
@@ -1595,9 +1618,13 @@ def prevent_dimension_label_ink(
             for source, source_segments in enumerate(segs):
                 if source == target:
                     continue  # the helper deliberately cuts its own line around its label
-                for segment_index, segment in enumerate(source_segments):
-                    if _line_depth(segment, label) >= _LABEL_INK_CROSSING_MM:
-                        found.add(("line", source, segment_index, target))
+                if crossing_length(source_segments, region) >= MIN_CROSSING_MM:
+                    found.add(("line", source, target))
+            for obstacle_index, obstacle in enumerate(obstacles):
+                if obstacle_index not in natural_obstacle_hits[target] and _boxes_overlap(
+                    label, obstacle
+                ):
+                    found.add(("fixed", obstacle_index, target))
         for left, left_box in enumerate(labels):
             if left_box is None:
                 continue
@@ -1616,6 +1643,7 @@ def prevent_dimension_label_ink(
 
     def _objective(batch):
         conflicts = _conflicts(batch)
+        fixed_conflicts = sum(conflict[0] == "fixed" for conflict in conflicts)
         offsets = []
         for (_name, dim), info, natural in zip(batch, infos, natural_centres, strict=True):
             label = _box(dim)
@@ -1625,6 +1653,7 @@ def prevent_dimension_label_ink(
                 else abs((label[info[0]] + label[info[0] + 2]) / 2.0 - natural)
             )
         return (
+            fixed_conflicts,
             len(conflicts),
             round(sum(offsets), 9),
             round(max(offsets, default=0.0), 9),
@@ -1677,8 +1706,8 @@ def prevent_dimension_label_ink(
         # The centre remains attached to its own measured span.  A half-millimetre
         # overhang admits the minimum clear position for text wider than a short span.
         lo, hi = sorted((float(spec.p1[axis]), float(spec.p2[axis])))
-        lo -= _LABEL_INK_CROSSING_MM
-        hi += _LABEL_INK_CROSSING_MM
+        lo -= MIN_CROSSING_MM
+        hi += MIN_CROSSING_MM
         if page is not None:
             lo = max(lo, float(page[axis]) + half)
             hi = min(hi, float(page[axis + 2]) - half)
@@ -1723,8 +1752,12 @@ def prevent_dimension_label_ink(
     for _iteration in range(max(1, 2 * len(current))):
         involved: set[int] = set()
         for conflict in conflicts:
-            if conflict[0] in {"arrow", "line"}:
+            if conflict[0] == "arrow":
                 involved.update((conflict[1], conflict[3]))  # source + crossed label
+            elif conflict[0] == "line":
+                involved.update((conflict[1], conflict[2]))  # source + crossed label
+            elif conflict[0] == "fixed":
+                involved.add(conflict[2])
             else:  # label/label
                 involved.update((conflict[1], conflict[2]))
         best = None
@@ -2415,6 +2448,19 @@ def place_strip_candidates(
         tp["free_segments"] = [list(s) for s in segs]
     todo = list(cands)
 
+    def _real_box_conflict(name, real):
+        """Return the hard-obstacle reason for a built survivor, if any."""
+        if real is None:
+            return None
+        if not force and _box_hits(real, blockers):
+            return "real_box_corridor_blocked"
+        fb = (forbid or {}).get(name)
+        if fb is not None and _box_hits(real, (fb,)):
+            return "real_box_forbid"
+        if _box_hits(real, out_of_band):
+            return "real_box_out_of_band"
+        return None
+
     def _take_for_segment(items, n):
         if len(items) <= n:
             return items, []
@@ -2521,29 +2567,11 @@ def place_strip_candidates(
         for (name, build), pos in accepted:
             dim = build(pos)
             real = _geom_box(dim)
-            if real is not None:
-                if not force and _box_hits(real, blockers):
-                    if tp is not None:
-                        tp["rejected"].append(
-                            {"name": name, "reason": "real_box_corridor_blocked"}
-                        )
-                    rejected_total.append((name, build))
-                    continue
-                fb = (forbid or {}).get(name)
-                if fb is not None and _box_hits(real, (fb,)):
-                    if tp is not None:
-                        tp["rejected"].append({"name": name, "reason": "real_box_forbid"})
-                    rejected_total.append((name, build))
-                    continue
-                # A survivor whose real geometry escaped the batch's predicted
-                # perpendicular band could overlap an obstacle the carve was never
-                # shown (review #679) — the one collision class the stacking-axis
-                # model cannot tolerate. Never fires while predictions are accurate.
-                if _box_hits(real, out_of_band):
-                    if tp is not None:
-                        tp["rejected"].append({"name": name, "reason": "real_box_out_of_band"})
-                    rejected_total.append((name, build))
-                    continue
+            if reason := _real_box_conflict(name, real):
+                if tp is not None:
+                    tp["rejected"].append({"name": name, "reason": reason})
+                rejected_total.append((name, build))
+                continue
             placed.append((name, dim))
             if tp is not None:
                 tp["placed"].append({"name": name, "pos": pos})
@@ -2551,11 +2579,19 @@ def place_strip_candidates(
         solved.extend(placed)
 
     if len(solved) > 1:
+        assert len({name for name, _dim_obj in solved}) == len(solved), (
+            "strip survivor names must be unique before label selection"
+        )
         natural_solved = dict(solved)
         adjusted = prevent_dimension_label_ink(
             solved,
             page=(
-                (0.0, 0.0, float(dwg.page_w), float(dwg.page_h))
+                (
+                    _MARGIN,
+                    _MARGIN,
+                    float(dwg.page_w) - _MARGIN,
+                    float(dwg.page_h) - _MARGIN,
+                )
                 if hasattr(dwg, "page_w") and hasattr(dwg, "page_h")
                 else None
             ),
@@ -2564,19 +2600,17 @@ def place_strip_candidates(
         # A label shift normally stays inside the dimension's measured span and
         # therefore inside its already-validated footprint.  Keep the validation
         # contract explicit nevertheless: if an unusual helper/style grows the real
-        # box into a hard obstacle, retain the natural survivor.  Stage-1 lint then
+        # box into a hard obstacle, retain the natural survivor.  The lint backstop then
         # records the infeasible ink conflict instead of this prevention step trading
         # it for a structural collision.
         solved = []
         for name, dim in adjusted:
+            natural = natural_solved[name]
+            if dim is natural:
+                solved.append((name, dim))
+                continue
             real = _geom_box(dim)
-            fb = (forbid or {}).get(name)
-            invalid = (
-                (not force and real is not None and _box_hits(real, blockers))
-                or (fb is not None and real is not None and _box_hits(real, (fb,)))
-                or (real is not None and _box_hits(real, out_of_band))
-            )
-            solved.append((name, natural_solved[name] if invalid else dim))
+            solved.append((name, natural if _real_box_conflict(name, real) else dim))
     for name, dim in solved:
         # Record feature provenance (ADR 0010): the drain-time seam for corridor-placed
         # dims — `features` maps this batch's names to their source IR feature.

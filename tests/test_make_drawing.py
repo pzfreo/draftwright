@@ -4011,8 +4011,8 @@ class TestPrismaticClassification:
         assert min(ymid(o) for o in loc) > ymid(env), "location must stack inside the envelope"
         # #1321/#1332: this drawing genuinely carries one crossing, named rather
         # than filtered by code so a second one would fail here. Measured, not
-        # rendered — same family as the cases that were. Stage 3 (#1334) is what
-        # stops it being placed; until then the honest assertion is that it is
+        # rendered — same family as the cases that were. Candidate prevention
+        # (#1334) stops it being placed; until then the honest assertion is that it is
         # here, not that the sheet is clean.
         rest = _ink_crossings_named(dwg, [("40", "⌀6 THRU")])
         assert [i for i in rest if i.severity != "info"] == []
@@ -4899,8 +4899,8 @@ class TestLocationDimsAndSection:
         assert len([n for n in dwg.annotations() if n.startswith("hc_side")]) == 4
         # #1321/#1332: the envelope length '80' runs through all four side-drilled
         # callouts. Named rather than filtered by code, so a fifth would fail here.
-        # Measured, not rendered — same family as the cases that were. Stage 3
-        # (#1334) is what stops them being placed.
+        # Measured, not rendered — same family as the cases that were. Candidate
+        # prevention (#1334) stops them being placed.
         rest = _ink_crossings_named(
             dwg,
             [
@@ -9627,9 +9627,9 @@ class TestTurnedDiameters:
         # The `leader_crosses_silhouette` entry is the #798 bolt-circle cut described in
         # test_issue_881_...; it appears on BOTH paths, which is what this test is
         # actually about — the replay reproduces the same critique, defects included.
-        # Stage 3 (#1334) prevents the two same-batch step-chain crossings while
-        # preserving the two crossings against ink emitted by another placement
-        # stage. Both paths report the same residual critique, which is what this
+        # Candidate prevention (#1334) removes the same-batch step-chain crossings.
+        # One crossing against ink committed by a different producer remains. Both
+        # paths report the same residual critique, which is what this
         # round-trip test is actually about -- replay reproduces the automatic
         # drawing, defects included.
         assert (
@@ -9638,7 +9638,7 @@ class TestTurnedDiameters:
             == {
                 "hole_requirement_missing": 2,
                 "leader_crosses_silhouette": 1,
-                "annotation_ink_overlap": 2,
+                "annotation_ink_overlap": 1,
             }
         )
 

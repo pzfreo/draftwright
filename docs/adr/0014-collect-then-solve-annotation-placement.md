@@ -276,6 +276,31 @@ compatibility boundaries remain current. The change completes the analytical tie
 described by Amendment 2 and applies Amendment 4's budget rule to the now-observed
 two-tier cost model.
 
+**Amendment 6 (2026-08-25, #1334) — same-batch dimension ink participates
+before commit.** Strip assignment prevents collisions with previously committed
+occupancy, but dimensions surviving one corridor batch were formerly invisible to
+their siblings until emission. Immediate turned-part step chains had the same gap.
+After strip positions are assigned, the annotation layer now measures the complete
+natural dimension batch and selects bounded, along-dimension-line label alternatives
+before committing it. The lint backstop and this selector share the exact-label-region,
+connected-stroke crossing measure and `MIN_CROSSING_MM`; filled terminators participate
+through their attachment tips because the helper does not expose arrow polygons.
+Pinned candidates are immutable, page bounds use the common drawable margin, and an
+immediate chain may not introduce contact with already committed annotation ink.
+
+The selector is a deterministic, strictly improving local solve. At most sixteen
+nearest derived centres plus the two association bounds per involved candidate are
+considered for at most twice the batch size in iterations. A clean batch returns the
+already-built objects unchanged. A
+conflicted batch rebuilds only cached alternatives because moving a label also moves
+the helper's line cutout: translating label boxes analytically would miss the coupled
+change in line-work that resolves the reported defect. Every trial is rescored against
+the complete batch. Semantic evidence riders are copied to a selected rebuilt object;
+its fresh placement specification is retained. If no bounded improvement exists, the
+natural result survives and `annotation_ink_overlap` reports the infeasible layout.
+This is a refinement inside **Emit**, not a second placement engine or permission for
+raw-coordinate placement.
+
 ## Context (short — the full story is 0009's)
 
 A recurring defect class (#133/#225/#305: the "invisible occupant" — one strip,
@@ -349,9 +374,12 @@ Per view, per strip: **collect → solve → emit.**
   occupancy (`strip_obstacles` — full rendered footprints, decomposed per
   stroke since #685, not label boxes), evaluates candidates on analytical or
   probe footprints (`dim_footprint`, #602 — no OCC build per probe), then
-  builds each survivor **once** and re-validates its real box (corridor
+  builds each natural survivor **once** and re-validates its real box (corridor
   blockers, the `forbid` title-block box, out-of-band obstacles) — a
-  prediction miss degrades to a later-segment retry, never a collision.
+  prediction miss degrades to a later-segment retry, never a collision. A
+  dimension batch with peer ink conflicts may exceptionally rebuild the bounded,
+  cached label alternatives defined by Amendment 6; unchanged survivors are not
+  rebuilt or revalidated.
   Feature provenance is recorded at this drain seam
   (`CorridorCandidate.feature` → `dwg.add(..., feature=)`, ADR 0010).
 

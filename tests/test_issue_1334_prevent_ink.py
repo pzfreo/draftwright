@@ -1,10 +1,17 @@
-"""Stage-3 prevention: candidate line-work and terminators block peer labels (#1334)."""
+"""Candidate prevention: dimension ink blocks peer labels before commit (#1334)."""
 
 from build123d_drafting.helpers import Draft
 
 from draftwright._core import _dim
+from draftwright._geometry import _boxes_overlap
 from draftwright.annotations._common import prevent_dimension_label_ink
-from draftwright.linting.ink_overlap import crossable_region, label_crossings, segments_of
+from draftwright.linting.ink_overlap import (
+    MIN_CROSSING_MM,
+    crossable_region,
+    crossing_length,
+    label_crossings,
+    segments_of,
+)
 
 
 def _short_chain():
@@ -93,7 +100,7 @@ def test_immutable_label_keeps_deterministic_linted_fallback():
 
     assert placed[0][1] is natural[0][1]
     assert placed[1][1] is natural[1][1]
-    assert _stage1_crossings(placed), "an infeasible pin must remain visible to Stage-1 lint"
+    assert _stage1_crossings(placed), "an infeasible pin must remain visible to lint"
 
 
 def test_clean_batch_is_a_zero_construction_fast_path():
@@ -107,3 +114,45 @@ def test_clean_batch_is_a_zero_construction_fast_path():
 
     assert [dim for _name, dim in placed] == [dim for _name, dim in clean]
     assert all(placed[index][1] is clean[index][1] for index in range(len(clean)))
+
+
+def test_candidate_move_does_not_create_contact_with_committed_ink():
+    natural = _short_chain()
+    # The otherwise-preferred rightward position for ``next`` lands here.  This box
+    # represents annotation ink committed before an immediate step chain is built.
+    committed = (28.2, 9.0, 29.5, 13.0)
+    assert not _boxes_overlap(natural[1][1].label_bbox, committed)
+
+    placed = prevent_dimension_label_ink(
+        natural,
+        page=(0.0, 0.0, 100.0, 100.0),
+        obstacles=(committed,),
+    )
+
+    assert _stage1_crossings(placed) == []
+    assert not any(_boxes_overlap(dim.label_bbox, committed) for _name, dim in placed)
+
+
+def test_connected_short_segments_use_the_same_crossing_measure_as_lint():
+    draft = Draft(font_size=3.0, arrow_length=2.7, line_width=0.1)
+    source = _dim((0, 0, 0), (20, 0, 0), "above", 11, draft, label="20")
+    target = _dim((30, 0, 0), (50, 0, 0), "above", 11, draft, label="20")
+    # Each renderer piece is shorter than the lint floor, but they join inside the
+    # target label and are therefore one 0.6 mm visual stroke.
+    source._segments_local = [((39.7, 11.0), (40.0, 11.0)), ((40.0, 11.0), (40.3, 11.0))]
+    region = crossable_region(target.label_bbox, item=target, segments=target.segments)
+    assert crossing_length(source.segments, region) >= MIN_CROSSING_MM
+
+    placed = prevent_dimension_label_ink(
+        [("source", source), ("target", target)],
+        page=(0.0, 0.0, 100.0, 100.0),
+        immutable={"source"},
+    )
+
+    shifted = placed[1][1]
+    shifted_region = crossable_region(
+        shifted.label_bbox,
+        item=shifted,
+        segments=shifted.segments,
+    )
+    assert crossing_length(source.segments, shifted_region) < MIN_CROSSING_MM

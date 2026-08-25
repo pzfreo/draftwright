@@ -267,8 +267,8 @@ def test_unavoidable_policy_b_crossing_is_persisted_without_opt_in_trace():
     assert all(issue.severity == "info" for issue in issues)
     assert all(issue.measurement_ids for issue in issues)
     legibility = drawing.lint_summary()["quality"]["legibility"]
-    # `annotation_ink_overlap` (#1321/#1332) scores on legibility too. Stage 3
-    # (#1334) prevents the same-batch dimension crossing; the retained Policy-B
+    # `annotation_ink_overlap` (#1321/#1332) scores on legibility too. Candidate
+    # prevention (#1334) removes the same-batch crossing; the retained Policy-B
     # cross-stage leader conflict remains visible under both codes.
     assert legibility["by_code"] == {
         "feature_leader_crossing": 1,

@@ -3698,6 +3698,7 @@ def _draw_step_chain(
         for name, dim in prevent_dimension_label_ink(
             [(name, dim) for name, dim, _measurements in candidates],
             page=page,
+            obstacles=strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES),
         )
     ]
 
