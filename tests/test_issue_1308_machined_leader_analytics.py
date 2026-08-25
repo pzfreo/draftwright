@@ -37,13 +37,12 @@ EXPECTED = {
             "m_chamfer_x1": ("Leader", (153.14, 69.829, 177.598, 76.25)),
             "title_block": ("TitleBlock", (165.925, 10.925, 286.075, 27.075)),
         },
-        # Two crossings on the step-length chain (#1321/#1332): '2' draws 2.2 mm
-        # of line-work through the label '0.5', and '0.5' 1.1 mm back through '2'.
-        # Two obscured labels, two findings. Rendered at 600 dpi and confirmed — an
-        # arrowhead is driven through the '5'. This sheet was never clean; the
-        # check that could see it did not exist. #1334 is what stops it being
-        # placed.
-        {"annotation_ink_overlap": 2},
+        # The natural step-length chain has two crossings (#1321/#1332): '2' draws
+        # 2.2 mm through '0.5', and '0.5' 1.1 mm back through '2'.  The Stage-3
+        # same-batch selector (#1334) now moves only those two labels along their
+        # dimension lines, leaving the annotation boxes above unchanged and the
+        # finished sheet clean.
+        {},
     ),
     "issue_1058_wheel_rh.step": (
         {

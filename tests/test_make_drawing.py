@@ -9627,19 +9627,18 @@ class TestTurnedDiameters:
         # The `leader_crosses_silhouette` entry is the #798 bolt-circle cut described in
         # test_issue_881_...; it appears on BOTH paths, which is what this test is
         # actually about — the replay reproduces the same critique, defects included.
-        # Four `annotation_ink_overlap` (#1321/#1332): the step-length chain on this
-        # fixture is crowded enough that four dimensions draw line-work through a
-        # neighbour's label, the smallest 0.9 mm and the largest 2.2 mm. Rendered at
-        # 600 dpi and confirmed. Both paths report all four, which is what this test
-        # is actually about -- the replay reproduces the same critique, defects
-        # included. Stage 3 (#1334) is what stops them being placed.
+        # Stage 3 (#1334) prevents the two same-batch step-chain crossings while
+        # preserving the two crossings against ink emitted by another placement
+        # stage. Both paths report the same residual critique, which is what this
+        # round-trip test is actually about -- replay reproduces the automatic
+        # drawing, defects included.
         assert (
             auto.lint_summary()["by_code"]
             == replayed.lint_summary()["by_code"]
             == {
                 "hole_requirement_missing": 2,
                 "leader_crosses_silhouette": 1,
-                "annotation_ink_overlap": 4,
+                "annotation_ink_overlap": 2,
             }
         )
 

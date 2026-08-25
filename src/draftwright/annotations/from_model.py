@@ -81,6 +81,7 @@ from draftwright.annotations._common import (
     full_strip_message,
     leader_callout_geometry,
     place_strip_candidates,
+    prevent_dimension_label_ink,
     register_corridor,
     strip_free_span,
     strip_obstacles,
@@ -3686,8 +3687,21 @@ def _draw_step_chain(
                 )
             )
 
-    # Room guard: if any dim would fall off the drawable page, place NONE.
     page = (_MARGIN, _MARGIN, dwg.page_w - _MARGIN, dwg.page_h - _MARGIN)
+    # The chain is one placement batch: until commit, no sibling's extension line or
+    # terminator exists in strip occupancy.  Select small along-line label offsets against
+    # the complete batch before the room guard (#1334).  Measurement provenance stays paired
+    # by name; only the rendered Dimension survivor changes.
+    measurements_by_name = {name: measurements for name, _dim_obj, measurements in candidates}
+    candidates = [
+        (name, dim, measurements_by_name[name])
+        for name, dim in prevent_dimension_label_ink(
+            [(name, dim) for name, dim, _measurements in candidates],
+            page=page,
+        )
+    ]
+
+    # Room guard: if any dim would fall off the drawable page, place NONE.
     for _, dim, _measurements in candidates:
         box = _anno_box(dim)
         if box is not None and not (

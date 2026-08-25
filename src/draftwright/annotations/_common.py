@@ -21,11 +21,13 @@ from build123d_drafting.helpers import DEFAULT_FONT_PATH, Dimension, Note, SafeD
 from draftwright._core import (  # noqa: F401 — _anno_box re-exported (#700)
     _anno_box,
     _decode_hole_location_fact,
+    _dim,
     _text_size,
     place_annotation,
 )
 from draftwright._geometry import (  # noqa: F401
     _boxes_overlap,
+    _segment_clip_extent,
     _segment_clips_box,
     _segment_crosses_box,
 )
@@ -38,6 +40,14 @@ from draftwright.linting.structural import (
 from draftwright.model.compiled import resolve_feature
 
 _log = logging.getLogger(__name__)
+
+
+# A line entering a label by less than this is a corner graze, not obscured text.  Keep
+# this equal to the Stage-1 ratchet's measured floor without importing that late critique
+# into the placement DAG: candidate selection owns its arithmetic and Stage 1 remains a
+# backstop, not the oracle invoked for every alternative (#1334).
+_LABEL_INK_CROSSING_MM = 0.5
+_LABEL_INK_CLEARANCE_MM = 0.25
 
 
 def _with_hole_location_coverage(annotation, coverage):
@@ -1458,6 +1468,280 @@ def box_within_page_and_clear(bb, page_box, obstacles) -> bool:
     )
 
 
+def prevent_dimension_label_ink(
+    dimensions,
+    *,
+    page=None,
+    immutable=(),
+):
+    """Choose small along-line label offsets for a just-built dimension batch.
+
+    Corridor candidates used to reserve only their stacking tier while they were being
+    solved.  Their *eventual* decomposed ink became an obstacle after commit, but siblings
+    built in the same batch could therefore put an extension line or an external-arrow tip
+    through one another's labels (#1334).  Immediate step-length chains have the identical
+    gap: they build the whole row before any member is visible to strip occupancy.
+
+    This is the shared, bounded candidate-selection seam for both producers.  It inspects
+    public ``segments``/``label_bbox`` metadata once on the already-built natural batch.
+    A clean batch returns the same objects immediately.  Only a conflicting batch explores
+    a bounded set of analytically-derived label centres, rebuilding the selected survivors
+    through their ``_dw_spec``.  No Stage-1 lint scan and no CAD boolean participates.
+
+    The label *centre* stays within half a millimetre of its measured span (rather than
+    requiring the whole label to fit inside it).  That distinction matters for short
+    dimensions: their text is wider than the measured span by construction, yet a small
+    shift can keep a shared witness out of the digits without making the label read as its
+    neighbour's.  If the bounded choices cannot improve the batch, the natural deterministic
+    placement survives and the normal ``annotation_ink_overlap`` lint remains explicit
+    evidence of the infeasible fallback.  Names in *immutable* are never shifted (pins win).
+
+    Returns ``[(name, dimension), ...]`` in input order.
+    """
+
+    original = list(dimensions)
+    if len(original) < 1:
+        return original
+    immutable = set(immutable)
+
+    def _axis_info(dim):
+        spec = getattr(dim, "_dw_spec", None)
+        label = getattr(dim, "label_bbox", None)
+        if spec is None or label is None:
+            return None
+        dx = float(spec.p2[0]) - float(spec.p1[0])
+        dy = float(spec.p2[1]) - float(spec.p1[1])
+        if min(abs(dx), abs(dy)) > 0.1 or max(abs(dx), abs(dy)) <= 1e-9:
+            return None  # rotated labels need polygonal motion, not an AABB-axis solve
+        axis = 1 if abs(dy) > abs(dx) else 0
+        other = 1 - axis
+        return axis, other, spec
+
+    infos = [_axis_info(dim) for _name, dim in original]
+    if not any(info is not None for info in infos):
+        return original
+
+    def _box(dim):
+        raw = getattr(dim, "label_bbox", None)
+        return tuple(float(value) for value in raw) if raw is not None else None
+
+    def _segments(dim):
+        try:
+            return tuple(
+                (
+                    (float(first[0]), float(first[1])),
+                    (float(second[0]), float(second[1])),
+                )
+                for first, second in (getattr(dim, "segments", ()) or ())
+            )
+        except Exception:  # noqa: BLE001 — optional metadata fails closed to lint
+            return ()
+
+    def _arrow_tips(dim, info):
+        """Dimension terminator tips from its measured endpoints and dim-line ordinate.
+
+        Helpers expose line pieces but not the filled arrow triangles.  Their tips remain
+        exactly the two measured ordinates on the label's dimension line; treating the tip
+        attachment as label-blocking catches the short-span arrow-through-digit case without
+        inflating every shaft into a coarse full-geometry box.
+        """
+        if info is None or (label := _box(dim)) is None:
+            return ()
+        axis, other, spec = info
+        line = (label[other] + label[other + 2]) / 2.0
+        result = []
+        for point in (spec.p1, spec.p2):
+            tip = [0.0, 0.0]
+            tip[axis] = float(point[axis])
+            tip[other] = line
+            result.append(tuple(tip))
+        return tuple(result)
+
+    def _line_depth(segment, label):
+        clipped = _segment_clip_extent(segment[0], segment[1], label, pad=0.0)
+        return (
+            0.0
+            if clipped is None
+            else math.hypot(clipped[2] - clipped[0], clipped[3] - clipped[1])
+        )
+
+    def _conflicts(batch):
+        """Stable conflict tokens; their count is the local solve's primary objective."""
+        labels = [_box(dim) for _name, dim in batch]
+        segs = [_segments(dim) for _name, dim in batch]
+        tips = [_arrow_tips(dim, info) for (_name, dim), info in zip(batch, infos, strict=True)]
+        found: set[tuple] = set()
+        for target, label in enumerate(labels):
+            if label is None:
+                continue
+            # Helpers expose no arrow polygons.  The foreign dimension's exact
+            # attachment tips still participate, closing the line-metadata gap without
+            # guessing the orientation of this dimension's own inside/outside arrows.
+            for source, source_tips in enumerate(tips):
+                if source == target:
+                    continue
+                info = infos[target]
+                if info is None:
+                    continue
+                axis, other, _spec = info
+                for tip_index, tip in enumerate(source_tips):
+                    if (
+                        label[axis] + _LABEL_INK_CLEARANCE_MM
+                        < tip[axis]
+                        < label[axis + 2] - _LABEL_INK_CLEARANCE_MM
+                        and label[other] - 1e-6 < tip[other] < label[other + 2] + 1e-6
+                    ):
+                        found.add(("arrow", source, tip_index, target))
+            for source, source_segments in enumerate(segs):
+                if source == target:
+                    continue  # the helper deliberately cuts its own line around its label
+                for segment_index, segment in enumerate(source_segments):
+                    if _line_depth(segment, label) >= _LABEL_INK_CROSSING_MM:
+                        found.add(("line", source, segment_index, target))
+        for left, left_box in enumerate(labels):
+            if left_box is None:
+                continue
+            for right in range(left + 1, len(labels)):
+                right_box = labels[right]
+                if right_box is not None and _boxes_overlap(left_box, right_box):
+                    found.add(("label", left, right))
+        return frozenset(found)
+
+    natural_centres = []
+    for (_name, dim), info in zip(original, infos, strict=True):
+        label = _box(dim)
+        natural_centres.append(
+            None if info is None or label is None else (label[info[0]] + label[info[0] + 2]) / 2.0
+        )
+
+    def _objective(batch):
+        conflicts = _conflicts(batch)
+        offsets = []
+        for (_name, dim), info, natural in zip(batch, infos, natural_centres, strict=True):
+            label = _box(dim)
+            offsets.append(
+                0.0
+                if info is None or natural is None or label is None
+                else abs((label[info[0]] + label[info[0] + 2]) / 2.0 - natural)
+            )
+        return (
+            len(conflicts),
+            round(sum(offsets), 9),
+            round(max(offsets, default=0.0), 9),
+            tuple(round(value, 9) for value in offsets),
+        ), conflicts
+
+    current = list(original)
+    current_objective, conflicts = _objective(current)
+    if not conflicts:
+        return current  # overwhelmingly common path: no extra Dimension construction
+
+    cache: dict[tuple[int, float], Any] = {}
+
+    def _rebuild(index, centre):
+        key = (index, round(centre, 6))
+        if key in cache:
+            return cache[key]
+        name, dim = original[index]
+        info = infos[index]
+        natural = natural_centres[index]
+        if info is None or natural is None:
+            return dim
+        axis, _other, spec = info
+        direction = 1.0 if float(spec.p2[axis]) >= float(spec.p1[axis]) else -1.0
+        kwargs = dict(spec.kwargs)
+        kwargs["label_offset_x"] = (
+            kwargs.get("label_offset_x", 0.0) + (centre - natural) * direction
+        )
+        rebuilt = _dim(spec.p1, spec.p2, spec.side, spec.distance, spec.draft, **kwargs)
+        for attr in ("_dw_scale", "_dw_label_value"):
+            if getattr(dim, attr, None) is not None:
+                setattr(rebuilt, attr, getattr(dim, attr))
+        cache[key] = rebuilt
+        return rebuilt
+
+    def _centres_for(index, batch):
+        info = infos[index]
+        target = batch[index][1]
+        label = _box(target)
+        if info is None or label is None:
+            return ()
+        axis, other, spec = info
+        current_centre = (label[axis] + label[axis + 2]) / 2.0
+        half = (label[axis + 2] - label[axis]) / 2.0
+        # The centre remains attached to its own measured span.  A half-millimetre
+        # overhang admits the minimum clear position for text wider than a short span.
+        lo, hi = sorted((float(spec.p1[axis]), float(spec.p2[axis])))
+        lo -= _LABEL_INK_CROSSING_MM
+        hi += _LABEL_INK_CROSSING_MM
+        if page is not None:
+            lo = max(lo, float(page[axis]) + half)
+            hi = min(hi, float(page[axis + 2]) - half)
+        if lo > hi:
+            return ()
+        choices = {min(max(current_centre, lo), hi), lo, hi}
+        for source, ((_name, dim), source_info) in enumerate(zip(batch, infos, strict=True)):
+            source_label = _box(dim)
+            if source != index and source_label is not None:
+                # Existing labels are obstacles too; moving out of line-work must not
+                # exchange one illegibility defect for text-on-text.
+                if (
+                    source_label[other] < label[other + 2]
+                    and source_label[other + 2] > label[other]
+                ):
+                    choices.add(source_label[axis] - half - _LABEL_INK_CLEARANCE_MM)
+                    choices.add(source_label[axis + 2] + half + _LABEL_INK_CLEARANCE_MM)
+            if source == index:
+                continue
+            for tip in _arrow_tips(dim, source_info):
+                if label[other] - 1e-6 <= tip[other] <= label[other + 2] + 1e-6:
+                    choices.add(tip[axis] - half - _LABEL_INK_CLEARANCE_MM)
+                    choices.add(tip[axis] + half + _LABEL_INK_CLEARANCE_MM)
+            # Clip each foreign segment only to this label's fixed-axis band.  The
+            # resulting projection is the exact interval its centre must clear.
+            band = [-1e9, -1e9, 1e9, 1e9]
+            band[other], band[other + 2] = label[other], label[other + 2]
+            for segment in _segments(dim):
+                clipped = _segment_clip_extent(segment[0], segment[1], tuple(band), pad=0.0)
+                if clipped is None:
+                    continue
+                choices.add(clipped[axis] - half - _LABEL_INK_CLEARANCE_MM)
+                choices.add(clipped[axis + 2] + half + _LABEL_INK_CLEARANCE_MM)
+        bounded = {min(max(value, lo), hi) for value in choices if math.isfinite(value)}
+        # Bound exceptional work.  Nearest candidates are the meaningful drafting
+        # alternatives; the two association bounds remain present explicitly.
+        nearest = sorted(bounded, key=lambda value: (abs(value - current_centre), value))[:16]
+        return tuple(dict.fromkeys([*nearest, lo, hi]))
+
+    # Deterministic steepest descent.  Every accepted move strictly improves the
+    # lexicographic objective, so it terminates even when the layout is infeasible.
+    for _iteration in range(max(1, 2 * len(current))):
+        involved: set[int] = set()
+        for conflict in conflicts:
+            if conflict[0] in {"arrow", "line"}:
+                involved.update((conflict[1], conflict[3]))  # source + crossed label
+            else:  # label/label
+                involved.update((conflict[1], conflict[2]))
+        best = None
+        for index in sorted(involved):
+            name, _dim_obj = original[index]
+            if name in immutable or infos[index] is None:
+                continue
+            for centre in _centres_for(index, current):
+                trial = list(current)
+                trial[index] = (name, _rebuild(index, centre))
+                objective, trial_conflicts = _objective(trial)
+                key = (objective, index, round(centre, 9))
+                if objective < current_objective and (best is None or key < best[0]):
+                    best = (key, trial, objective, trial_conflicts)
+        if best is None:
+            break
+        _key, current, current_objective, conflicts = best
+        if not conflicts:
+            break
+    return current
+
+
 # ── The corridor priority ladder (#894) ───────────────────────────────────────
 # `CorridorCandidate.priority` is an over-capacity survival rank, and a rank only
 # means anything RELATIVE to the other rungs. Defining the whole ladder here — beside
@@ -2210,6 +2494,7 @@ def place_strip_candidates(
             accepted.append(((name, build), pos))
         return accepted, rejected
 
+    solved = []
     for seg_lo, seg_hi in segs:
         if not todo:
             break
@@ -2258,16 +2543,45 @@ def place_strip_candidates(
             if tp is not None:
                 tp["placed"].append({"name": name, "pos": pos})
         todo = todo + rejected_total
-        for name, dim in placed:
-            # Record feature provenance (ADR 0010): the drain-time seam for corridor-placed
-            # dims — `features` maps this batch's names to their source IR feature.
-            ctx.place(
-                dim,
-                name,
-                view=view,
-                feature=(features or {}).get(name),
-                measurement=(measurements or {}).get(name),
+        solved.extend(placed)
+
+    if len(solved) > 1:
+        natural_solved = dict(solved)
+        adjusted = prevent_dimension_label_ink(
+            solved,
+            page=(
+                (0.0, 0.0, float(dwg.page_w), float(dwg.page_h))
+                if hasattr(dwg, "page_w") and hasattr(dwg, "page_h")
+                else None
+            ),
+            immutable={name for name, _dim_obj in solved if (anchored or {}).get(name, False)},
+        )
+        # A label shift normally stays inside the dimension's measured span and
+        # therefore inside its already-validated footprint.  Keep the validation
+        # contract explicit nevertheless: if an unusual helper/style grows the real
+        # box into a hard obstacle, retain the natural survivor.  Stage-1 lint then
+        # records the infeasible ink conflict instead of this prevention step trading
+        # it for a structural collision.
+        solved = []
+        for name, dim in adjusted:
+            real = _geom_box(dim)
+            fb = (forbid or {}).get(name)
+            invalid = (
+                (not force and real is not None and _box_hits(real, blockers))
+                or (fb is not None and real is not None and _box_hits(real, (fb,)))
+                or (real is not None and _box_hits(real, out_of_band))
             )
+            solved.append((name, natural_solved[name] if invalid else dim))
+    for name, dim in solved:
+        # Record feature provenance (ADR 0010): the drain-time seam for corridor-placed
+        # dims — `features` maps this batch's names to their source IR feature.
+        ctx.place(
+            dim,
+            name,
+            view=view,
+            feature=(features or {}).get(name),
+            measurement=(measurements or {}).get(name),
+        )
     if tp is not None:
         tp["unplaced"] = [n for n, _ in todo]
         trace.end_pass(tp)  # folds a standalone pass's items; no-op when corridor-nested
