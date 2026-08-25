@@ -129,6 +129,10 @@ def test_existing_passage_contract_is_truthfully_declared_before_f4b() -> None:
     """Pin the current-family declaration separately from the future 0.4 migration."""
 
     assert INSTALLED_PACKAGE_VERSION == "0.3.1"
+    installed = tuple(int(component) for component in INSTALLED_PACKAGE_VERSION.split("."))
+    # b123d-recognisers#184 and Draftwright #1337/#1245 must be accepted before this
+    # upper bound moves: 0.4 changes both the capability model and rendered ownership.
+    assert (0, 2, 6) <= installed < (0, 4, 0)
     package = _families(recognition.capability_manifest())
     declaration = _families(consumer_capability_declaration())
     passage_package = package["passages"]
@@ -154,6 +158,10 @@ def test_existing_passage_contract_is_truthfully_declared_before_f4b() -> None:
         )
     } == {"unsupported"}
     assert passage_consumer["completeness"]["state"] == "deferred"
+    assert passage_consumer["documentation"] == {
+        "state": "supported",
+        "evidence": ["docs/reference/recogniser-capabilities.md"],
+    }
     assert "passages" not in pending_family_declarations()
 
 

@@ -85,9 +85,13 @@ The reviewed future 0.4 model is a distinct migration, not latent behavior in th
 - legacy `Passage` values will be an accepted-only compatibility projection;
 - `recognise_passages(..., ledger=...)` will be a fail-loud unavailable compatibility operation;
 - the writer-free `recognise_passages` name will remain public but non-authoritative; and
+- rich split-junction passages can supersede a currently rendered Slot claim, moving ownership to
+  the Passage family through `SLOT_SUPERSEDED_BY_PASSAGE`; and
 - the capability contract must represent those API and per-output roles exhaustively before the
   dependency pin can cross 0.4.
 
 That migration must update the package release, Draftwright adapter and declaration model,
 validator, tests, exact pin, and lockfile together. The current validator remains unchanged and
-fail closed; there is no forward declaration or stale-manifest exception.
+fail closed; there is no forward declaration or stale-manifest exception. Crossing 0.4 also
+requires #1245 to decide what those newly Passage-owned occurrences draw, or an explicit reviewed
+decision to accept the resulting loss of the existing Slot callout.
