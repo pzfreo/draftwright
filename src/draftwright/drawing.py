@@ -507,7 +507,7 @@ class Drawing:
         # The builder replaces this neutral value after the requested/automatic view policy
         # has settled.  Always present so callers never have to infer whether the repeated
         # projection was considered from logs or from the final view count (#1262).
-        self.view_decision = {
+        self.view_decision: dict[str, object] = {
             "policy": "not_evaluated",
             "status": "not_evaluated",
             "chosen": (),

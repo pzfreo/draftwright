@@ -113,6 +113,8 @@ def _automatic_turned_principals(analysis: Analysis) -> tuple[str, ...] | None:
     axis = getattr(getattr(analysis, "prof", None), "axis", None)
     if axis is None and getattr(analysis, "is_rotational", False):
         axis = getattr(analysis, "od_axis", None)
+    if not isinstance(axis, str):
+        return None
     required = {
         "x": frozenset(("front", "side")),
         "y": frozenset(("front", "side")),
@@ -1188,7 +1190,7 @@ def _build_drawing_once(
         )
 
     a = analyse(reuse=_analysis_base, views=_views)
-    view_attempts = ()
+    view_attempts: tuple[dict[str, object], ...] = ()
     view_status = "selected"
     if _select_automatic_views and _views is None and auto_dims:
         candidate_views = _automatic_turned_principals(a)
