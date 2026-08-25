@@ -124,49 +124,43 @@ from draftwright._geometry import _segment_clip_extent
 
 _log = logging.getLogger(__name__)
 
-#: How much longer than it is thick a label box must be to read as a fit around
-#: text rather than as a rotated rectangle's bounding box.
+#: How far from axis-aligned a dimension's own line must run before its label is
+#: treated as rotated, in millimetres of the smaller delta. Shared with
+#: `repair.reconcile_witness_labels`, which uses the identical test and tolerance
+#: for the identical question (`repair.py`: "A diagonal dim's label_offset_x moves
+#: BOTH page coordinates").
 #:
-#: `label_bbox` is an **axis-aligned** box around a label that may be drawn at an
-#: angle, so for a rotated label it is the bounding box of a rotated rectangle and
-#: is much larger than the glyphs. Measured on `_dense_plate`: `'2× 14.1'` — seven
-#: characters about 2.2 mm tall — has a label box of **10.197 x 10.197 mm**, a
-#: square, because it is drawn on a diagonal. Clipping against that would report a
-#: stroke as crossing 10.2 mm of text when it crosses about 3 mm, and a 0.4 mm
-#: corner graze as 10.2 mm. The true rectangle is not recoverable here — the angle
-#: is in neither `_init_rot` nor the annotation's location — so such a label is
-#: treated as **not crossable**, and diagonal labels stay uncovered until
-#: `build123d-drafting-helpers` exposes the rect or its angle.
+#: `label_bbox` is an **axis-aligned** box, so for a label drawn at an angle it is
+#: the bounding box of a rotated rectangle and much larger than the glyphs.
+#: Measured on `_dense_plate`, `'2× 14.1'` — seven characters about 2.2 mm tall —
+#: has a box of 10.197 x 10.197 mm. Clipping against that reports a stroke as
+#: crossing 10.2 mm of text when it crosses about 3 mm, so such a label is treated
+#: as not crossable.
 #:
-#: **Shape alone, at every size.** Three earlier revisions paired this with an
-#: absolute size cut and each one broke something, because the sizes do not
-#: separate:
+#: **Asked of the annotation, not of the box.** Five revisions tried to infer
+#: rotation from the box's shape or size, and each was falsified by a real case:
 #:
-#:  * gating on height alone made every vertical label uncrossable — at 90° the box
-#:    is an exact fit whose *height* is the text's width;
-#:  * a 6 mm cut excluded every GD&T control frame, measured at a 6.150 mm shorter
-#:    side, and a stacked two-row frame is larger still;
-#:  * returning tight on size *before* testing shape let a two-character label at
-#:    45° through — a 4.53 x 4.53 mm box, aspect 1.00, where a stroke across the
-#:    empty corner measured 4.9 mm against a 0.5 mm floor.
+#:     height only     every vertical label uncrossable — at 90° the box is an
+#:                     exact fit whose height is the text's WIDTH
+#:     6 mm cut        every GD&T control frame excluded, measured at 6.150 mm
+#:     size first      a two-character label at 45° through, 4.53 mm square
+#:     size last       control frames excluded again
+#:     aspect only     every DATUM SYMBOL excluded — `DatumFeature.label_bbox` is
+#:                     `2.0 * font_size` square by construction, measured at
+#:                     exactly 5.000 x 5.000 mm, aspect 1.000: a genuine tight
+#:                     frame around a letter that no shape rule can tell from a
+#:                     rotated box
 #:
-#: Aspect separates all of them, because a rotated rectangle's bounding box tends
-#: toward square while a line of text never is. Measured over the 23 STEP fixtures
-#: (671 labelled annotations) the *lowest* real aspect is **1.29** — the
-#: single-character section marker `'A'`, 1.617 x 2.090 mm — and the highest is
-#: 9.03. GD&T frames measure 1.99 to 4.09 whatever their size. The one excluded box
-#: measures **1.00**.
+#: and shape left a gap in the middle regardless: a `"123.45"` dimension label at
+#: 30° measures 7.251 x 5.208, an aspect of 1.39, which reads as tight while the
+#: box holds 37.8 mm² against 13.0 mm² of glyphs.
 #:
-#: So the cut sits at 1.15: 15% above the rotated case and 12% below the closest
-#: real label. That margin is thin, and saying so is the point — it is the whole
-#: separation the geometry offers, not a figure with room in it. A real label
-#: measuring below 1.29 would want this re-derived, not nudged.
-#:
-#: The residual gap, stated rather than implied: a **shallow** diagonal escapes. A
-#: 12 x 2.2 mm label at 20° has a box of about 12.0 x 6.2 mm, an aspect of 1.94,
-#: so it is treated as tight and measured against a box roughly twice the glyphs'
-#: area. No instance exists in the corpus.
-MIN_TIGHT_LABEL_ASPECT = 1.15
+#: A box cannot say whether it is rotated. A dimension's *spec* can, and does:
+#: `p1 -> p2` is the line its label runs along. So the question is asked of the
+#: annotation, only annotations that can be rotated are excluded, and everything
+#: with no such spec — datum symbols, control frames, callouts, notes — is
+#: measured. That also closes the shallow- and mid-angle gaps shape could not.
+DIAGONAL_DIM_TOLERANCE_MM = 0.1
 
 #: How far another annotation's line-work may run through a label's text box
 #: before it is reported, in millimetres.
@@ -412,7 +406,7 @@ def shorter_side(label_box) -> float:
     return float(min(label_box[2] - label_box[0], label_box[3] - label_box[1]))
 
 
-def warn_if_untight(label_box, seen=None) -> bool:
+def warn_if_untight(label_box, seen=None, item=None) -> bool:
     """Whether *label_box* is tight, warning once if it is not.
 
     Call this **once per item**, not once per pair: `_label_bbox` in
@@ -423,36 +417,69 @@ def warn_if_untight(label_box, seen=None) -> bool:
     reader gets no finding for line-work through it, and a check that quietly
     stops covering an annotation is the #701 failure this module keeps meeting.
     """
-    if is_tight(label_box):
+    if is_tight(label_box, item):
         return True
     if not _is_box(label_box):
+        # Present but not a box at all. Every sibling exclusion path logs, and
+        # this one returned silently — the #701 shape the module is loud about
+        # everywhere else.
+        _warn_once(
+            f"{type(item).__name__ if item is not None else 'annotation'}: "
+            f"label_bbox is not a box ({label_box!r}); it is excluded from "
+            "annotation_ink_overlap",
+            seen,
+            key=("badbox", id(item)),
+        )
         return False
     width = label_box[2] - label_box[0]
     height = label_box[3] - label_box[1]
     _warn_once(
         f"label box {width:.3f} x {height:.3f} mm is too large and too square to be "
-        "a fit around text — it is probably a rotated label's bounding box, so "
-        "line-work through it is not measured (annotation_ink_overlap)",
+        "a fit around its text: the dimension it labels runs on a diagonal, so "
+        "the box is a rotated rectangle's bounding box and line-work through it "
+        "is not measured (annotation_ink_overlap)",
         seen,
         key=("untight", tuple(label_box)),
     )
     return False
 
 
-def is_tight(label_box) -> bool:
+def is_tight(label_box, item=None) -> bool:
     """Whether *label_box* fits its text closely enough for clipping to be honest.
 
-    See :data:`MIN_TIGHT_LABEL_ASPECT`. Depends on nothing but the box itself, so a
-    pair's verdict cannot change because of an unrelated annotation elsewhere on
-    the sheet.
+    See :data:`DIAGONAL_DIM_TOLERANCE_MM`. The box must be a box, and *item* — the
+    annotation that owns it — must not be a dimension whose own line runs on a
+    diagonal, because then the box is the bounding box of a rotated rectangle
+    rather than a fit around the glyphs.
+
+    An *item* of ``None`` asks only whether the box is well-formed. Depends on
+    nothing but the pair itself, so a verdict cannot change because of an
+    unrelated annotation elsewhere on the sheet.
     """
     if not _is_box(label_box):
         return False
-    short = shorter_side(label_box)
-    if short <= 0.0:
+    if shorter_side(label_box) <= 0.0:
         return False
-    long = max(label_box[2] - label_box[0], label_box[3] - label_box[1])
-    return bool(long >= MIN_TIGHT_LABEL_ASPECT * short)
+    return not _is_diagonal_dimension(item)
+
+
+def _is_diagonal_dimension(item) -> bool:
+    """Whether *item* is a dimension whose line runs neither horizontally nor
+    vertically, so its label is drawn at an angle.
+
+    The same test and tolerance `repair.reconcile_witness_labels` applies to the
+    same question. Read defensively: a duck-typed item (ADR 0005) with no spec, or
+    a spec that does not answer, is not a diagonal dimension.
+    """
+    try:
+        spec = getattr(item, "_dw_spec", None)
+        if spec is None:
+            return False
+        p1, p2 = spec.p1, spec.p2
+        dx, dy = abs(p2[0] - p1[0]), abs(p2[1] - p1[1])
+    except Exception:  # noqa: BLE001 — duck-typed items may misbehave
+        return False
+    return bool(min(dx, dy) > DIAGONAL_DIM_TOLERANCE_MM)
 
 
 def label_crossings(

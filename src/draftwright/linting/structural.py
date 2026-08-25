@@ -392,7 +392,7 @@ def lint_drawing(
         # annotation extent including witness lines, and it began firing on pairs
         # it had never reported. Only the ink check may treat an untight box as
         # absent. Excluded once per item so the warning cannot repeat per pair.
-        crossable_boxes.append(_box if warn_if_untight(_box, warned_unmeasurable) else None)
+        crossable_boxes.append(_box if warn_if_untight(_box, warned_unmeasurable, item) else None)
         ink_segments.append(segments_of(item, warned_unmeasurable))
 
     boxes: list = []

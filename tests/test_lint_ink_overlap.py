@@ -15,8 +15,8 @@ import warnings
 import pytest
 
 from draftwright.linting.ink_overlap import (
+    DIAGONAL_DIM_TOLERANCE_MM,
     MIN_CROSSING_MM,
-    MIN_TIGHT_LABEL_ASPECT,
     Crossing,
     crossing_length,
     is_tight,
@@ -346,76 +346,80 @@ class TestTheFloor:
         ).is_reportable()
 
 
-class TestTheLabelBoxMustBeTight:
-    """`label_bbox` is the *axis-aligned* box of a possibly-rotated label.
+class _DiagonalDim:
+    """A dimension whose own line runs on a diagonal, so its label is rotated."""
 
-    On `_dense_plate`, `'2× 14.1'` — seven characters about 2.2 mm tall — has a
-    10.197 x 10.197 mm **square** box, because it is drawn on a diagonal. Clipping
-    against that reports a ~3 mm crossing as 10.2 mm and a 0.4 mm corner graze as
-    10.2 mm, defeating `MIN_CROSSING_MM` by a factor of 25. The true rectangle is
-    not recoverable from the annotation, so such a box is not crossable at all.
+    _dw_spec = type("Spec", (), {"p1": (0.0, 0.0, 0.0), "p2": (10.0, 10.0, 0.0)})()
+
+
+class _AxisAlignedDim:
+    _dw_spec = type("Spec", (), {"p1": (0.0, 0.0, 0.0), "p2": (10.0, 0.0, 0.0)})()
+
+
+class _VerticalDim:
+    _dw_spec = type("Spec", (), {"p1": (0.0, 0.0, 0.0), "p2": (0.0, 10.0, 0.0)})()
+
+
+class TestRotationIsAskedOfTheAnnotation:
+    """`label_bbox` is axis-aligned, so a rotated label's box is the bounding box
+    of a rotated rectangle — much larger than the glyphs, and clipping against it
+    reports a stroke as crossing far more text than it does.
+
+    Five revisions tried to infer that from the box's shape or size, and each was
+    falsified by a real case: a height rule made every vertical label uncrossable;
+    a 6 mm size cut excluded every GD&T control frame (6.150 mm); testing size
+    first let a 4.53 mm square rotated label through; testing it last excluded
+    frames again; and an aspect rule excluded every DATUM SYMBOL, whose box is
+    `2.0 * font_size` **square by construction** — 5.000 x 5.000 mm, aspect 1.000,
+    a genuine tight frame around a letter.
+
+    A box cannot say whether it is rotated. A dimension's spec can.
     """
 
-    def test_a_tight_box_is_crossable(self):
-        assert is_tight((10.0, 10.0, 20.0, 12.166))
+    def test_a_diagonal_dimension_label_is_not_measurable(self):
+        assert not is_tight((10.0, 10.0, 20.0, 20.0), _DiagonalDim())
 
-    def test_a_taller_font_is_still_tight(self):
-        # A second font size or a stacked tolerance must stay covered. On
-        # `_dense_plate` the shorter sides are 2.166, 2.67, 3.252 and 2.694;
-        # none of those may be cut, only the 10.197 rotated one.
-        assert is_tight((10.0, 10.0, 20.0, 13.252))
-        assert is_tight((10.0, 10.0, 20.0, 12.694))
+    def test_an_axis_aligned_dimension_label_is_measurable(self):
+        assert is_tight((10.0, 10.0, 20.0, 12.2), _AxisAlignedDim())
 
-    def test_a_single_character_label_is_tight(self):
-        """`'6'` measures 1.416 mm on its shorter side — its glyph WIDTH, not the
-        text height. Under the median gate that preceded this, a sheet carrying
-        many of these dragged the reference below an ordinary label."""
-        assert is_tight((0.0, 0.0, 1.416, 2.166))
+    def test_a_vertical_dimension_label_is_measurable(self):
+        """At 90° the box is an EXACT fit; its height is the text's width."""
+        assert is_tight((0.0, 0.0, 2.130, 6.891), _VerticalDim())
 
-    def test_a_quarter_turned_label_is_still_tight(self):
-        """At 90° the box is an EXACT fit, but its height is the text's width.
+    def test_a_square_datum_symbol_is_measurable(self):
+        """`DatumFeature.label_bbox` is `2.0 * font_size` square by construction —
+        measured at exactly 5.000 x 5.000 mm. No shape rule can tell it from a
+        rotated box; its annotation can."""
+        assert is_tight((-2.5, 5.15, 2.5, 10.15), object())
 
-        Gating on height alone made every vertical dimension label longer than
-        about three characters uncrossable — silently disabling the check for a
-        very common class while fixing a rarer one. Measured on
-        `Box(123.456, 87.654, 45.678)`: the vertical `'45.7'` has a label box of
-        2.130 x 6.891 mm.
-        """
-        vertical = (0.0, 0.0, 2.130, 6.891)
-        assert shorter_side(vertical) == pytest.approx(2.130)
-        assert is_tight(vertical)
+    def test_a_control_frame_is_measurable_at_any_size(self):
+        assert is_tight((0.0, 0.0, 25.161, 6.150), object())
+        assert is_tight((0.0, 0.0, 25.0, 12.3), object())
 
-    def test_the_rotated_dense_plate_box_is_not_tight(self):
-        # The measured case: 10.197 mm on both sides.
-        assert not is_tight((38.298, 176.558, 48.495, 186.755))
+    def test_an_item_with_no_spec_is_measurable(self):
+        assert is_tight((10.0, 10.0, 20.0, 12.2), None)
+        assert is_tight((10.0, 10.0, 20.0, 12.2), object())
 
-    def test_the_rule_is_shape_alone_at_every_size(self):
-        """No size cut. Three revisions paired shape with one and each broke
-        something: height-only made vertical labels uncrossable, a 6 mm cut
-        excluded GD&T control frames, and testing size first let a small rotated
-        label through. Aspect separates every measured case on its own.
-        """
-        assert MIN_TIGHT_LABEL_ASPECT == pytest.approx(1.15)
-        # Same shape, wildly different sizes — both are text, both crossable.
-        assert is_tight((0.0, 0.0, 3.2, 2.166))
-        assert is_tight((0.0, 0.0, 32.0, 21.66))
-        # Same shape, wildly different sizes — both near-square, neither measurable.
-        assert not is_tight((0.0, 0.0, 4.53, 4.53))
-        assert not is_tight((0.0, 0.0, 10.197, 10.197))
+    def test_a_hostile_spec_does_not_exclude(self):
+        class Hostile:
+            @property
+            def _dw_spec(self):
+                raise RuntimeError("boom")
 
-    def test_the_cut_sits_between_the_measured_populations(self):
-        """1.29 is the lowest real aspect across the 23 STEP fixtures (the
-        single-character section marker `'A'`, 1.617 x 2.090 mm); the excluded
-        rotated box is 1.00. The margin is thin and that is the point — it is the
-        whole separation the geometry offers.
-        """
-        assert 1.00 < MIN_TIGHT_LABEL_ASPECT < 1.29
-        assert is_tight((0.0, 0.0, 2.090, 1.617)), "the 'A' section marker must stay crossable"
+        assert is_tight((10.0, 10.0, 20.0, 12.2), Hostile())
 
-    def test_a_stacked_control_frame_is_crossable_at_any_size(self):
-        """The regression that kept coming back. Frames are large but long."""
-        assert is_tight((0.0, 0.0, 25.161, 6.150))
-        assert is_tight((0.0, 0.0, 25.0, 12.3))
+    def test_the_tolerance_is_the_repair_pass_figure(self):
+        """Shared with `repair.reconcile_witness_labels`, which asks the same
+        question of the same spec with the same tolerance."""
+        assert DIAGONAL_DIM_TOLERANCE_MM == pytest.approx(0.1)
+        just_off = type(
+            "D", (), {"_dw_spec": type("S", (), {"p1": (0.0, 0.0), "p2": (10.0, 0.09)})()}
+        )()
+        just_on = type(
+            "D", (), {"_dw_spec": type("S", (), {"p1": (0.0, 0.0), "p2": (10.0, 0.11)})()}
+        )()
+        assert is_tight((10.0, 10.0, 20.0, 12.2), just_off)
+        assert not is_tight((10.0, 10.0, 20.0, 12.2), just_on)
 
     def test_an_untight_label_cannot_be_crossed(self):
         rotated = (38.298, 176.558, 48.495, 186.755)
@@ -425,29 +429,20 @@ class TestTheLabelBoxMustBeTight:
                 segments_of(crosser),
                 segments_of(_Annotation([])),
                 label_a=None,
-                label_b=rotated,
+                label_b=None,
             )
             == []
         )
-        # The precondition: the same stroke through a TIGHT box of the same width
-        # is reported, so the emptiness above is the gate's doing, not the
-        # fixture's.
-        tight = (38.298, 179.0, 48.495, 181.166)
+        # The precondition: the same stroke through a measurable box IS reported,
+        # so the emptiness above is the exclusion's doing, not the fixture's.
         assert label_crossings(
             segments_of(crosser),
             segments_of(_Annotation([])),
             label_a=None,
-            label_b=tight,
+            label_b=rotated,
         )
 
     def test_a_bound_box_is_not_a_box(self):
-        """`build123d.BoundBox` defines neither `__bool__` nor `__len__`.
-
-        `len()` on one raises `TypeError` out of `lint_drawing`, killing every
-        other check — the crash the guard exists to prevent, which an earlier
-        revision of that guard would itself have caused.
-        """
-
         class BoundBoxLike:
             def __len__(self):
                 raise TypeError("object of type 'BoundBox' has no len()")
@@ -480,12 +475,14 @@ class TestTheExclusionIsLoud:
 
     def test_an_untight_box_warns(self):
         with _logs("too large and too square"):
-            assert warn_if_untight((38.298, 176.558, 48.495, 186.755)) is False
+            assert (
+                warn_if_untight((38.298, 176.558, 48.495, 186.755), item=_DiagonalDim()) is False
+            )
 
     def test_a_tight_box_is_quiet(self):
         with warnings.catch_warnings():
             warnings.simplefilter("error")
-            assert warn_if_untight((10.0, 10.0, 20.0, 12.166)) is True
+            assert warn_if_untight((10.0, 10.0, 20.0, 12.166), item=_AxisAlignedDim()) is True
 
     def test_a_control_frame_is_quiet(self):
         # Measured: m_gdt0 6.150 x 12.255, m_gdt1 25.161 x 6.150. Over the size
@@ -520,11 +517,13 @@ class TestTheReportIsLoggedNotWarned:
 
     def test_an_untight_box_is_reported(self):
         with _logs("too large and too square"):
-            assert warn_if_untight((38.298, 176.558, 48.495, 186.755)) is False
+            assert (
+                warn_if_untight((38.298, 176.558, 48.495, 186.755), item=_DiagonalDim()) is False
+            )
 
     def test_a_tight_box_is_quiet(self, caplog):
         with caplog.at_level(logging.DEBUG, logger=_LOGGER):
-            assert warn_if_untight((10.0, 10.0, 20.0, 12.166)) is True
+            assert warn_if_untight((10.0, 10.0, 20.0, 12.166), item=_AxisAlignedDim()) is True
         assert caplog.records == []
 
     def test_a_control_frame_is_quiet(self, caplog):
@@ -535,12 +534,16 @@ class TestTheReportIsLoggedNotWarned:
             assert warn_if_untight((0.0, 0.0, 25.161, 6.150)) is True
         assert caplog.records == []
 
-    def test_a_malformed_box_is_untight_without_a_report(self, caplog):
-        # Nothing useful to say about a box that is not a box; `segments_of` and
-        # `crossing_length` already report their own refusals.
-        with caplog.at_level(logging.DEBUG, logger=_LOGGER):
-            assert warn_if_untight(()) is False
-        assert caplog.records == []
+    def test_a_malformed_box_is_reported_too(self):
+        """The one exclusion path that used to say nothing.
+
+        A `label_bbox` that is present but not a box drops the annotation from the
+        check, and returning silently there is the #701 shape every sibling path
+        goes out of its way to avoid. `_is_box`'s own docstring names the case it
+        anticipates — a duck-typed item handing back a `BoundBox`.
+        """
+        with _logs("label_bbox is not a box"):
+            assert warn_if_untight((), item=object()) is False
 
     def test_a_repeated_message_reports_once_per_run(self, caplog):
         """`_label_bbox` memoises the same way (#711): several checks read the
@@ -548,16 +551,16 @@ class TestTheReportIsLoggedNotWarned:
         seen: set[str] = set()
         box = (38.298, 176.558, 48.495, 186.755)
         with caplog.at_level(logging.DEBUG, logger=_LOGGER):
-            warn_if_untight(box, seen)
-            warn_if_untight(box, seen)
-            warn_if_untight(box, seen)
+            warn_if_untight(box, seen, _DiagonalDim())
+            warn_if_untight(box, seen, _DiagonalDim())
+            warn_if_untight(box, seen, _DiagonalDim())
         assert len(caplog.records) == 1
 
     def test_without_a_memo_it_reports_every_time(self, caplog):
         box = (38.298, 176.558, 48.495, 186.755)
         with caplog.at_level(logging.DEBUG, logger=_LOGGER):
-            warn_if_untight(box)
-            warn_if_untight(box)
+            warn_if_untight(box, None, _DiagonalDim())
+            warn_if_untight(box, None, _DiagonalDim())
         assert len(caplog.records) == 2
 
     def test_lint_still_returns_under_warnings_as_errors(self):
@@ -566,7 +569,9 @@ class TestTheReportIsLoggedNotWarned:
         with warnings.catch_warnings():
             warnings.simplefilter("error")
             assert measure(_Annotation([((0.0, 12.0, 0.0), (30.0, 12.0, 0.0))]), BOX) == 0.0
-            assert warn_if_untight((38.298, 176.558, 48.495, 186.755)) is False
+            assert (
+                warn_if_untight((38.298, 176.558, 48.495, 186.755), item=_DiagonalDim()) is False
+            )
 
 
 class TestAPointMustBeTwoNumbers:
@@ -633,7 +638,7 @@ class TestTheMemoKeyIsAValue:
         with _logs_any() as records:
             for index in range(6):
                 # Built and dropped each iteration, so the address is free to reuse.
-                if not warn_if_untight((0.0, 0.0, 7.0 + index * 0.001, 7.0), seen):
+                if not warn_if_untight((0.0, 0.0, 7.0 + index * 0.001, 7.0), seen, _DiagonalDim()):
                     reported += 1
         return reported, len(records)
 
@@ -646,11 +651,33 @@ class TestTheMemoKeyIsAValue:
             "boxes that are not the same box"
         )
 
+    def test_distinct_malformed_boxes_each_report(self):
+        """The same recycling hazard, in the report added for a box that is not a
+        box. Keyed per item, so two annotations both handing back rubbish are two
+        lines — not one, which would read as a single misbehaving annotation."""
+        seen: set = set()
+        items = [object(), object(), object()]
+        with _logs_any() as records:
+            for item in items:
+                assert warn_if_untight((), seen, item) is False
+        assert len(records) == len(items), (
+            f"{len(items)} annotations with malformed boxes logged {len(records)} "
+            "times — the memo key is collapsing distinct items"
+        )
+
+    def test_the_same_item_reports_its_malformed_box_once(self):
+        seen: set = set()
+        item = object()
+        with _logs_any() as records:
+            warn_if_untight((), seen, item)
+            warn_if_untight((), seen, item)
+        assert len(records) == 1
+
     def test_the_same_box_still_reports_once(self):
         seen: set = set()
         box = (0.0, 0.0, 7.0, 7.0)
         with _logs_any() as records:
-            warn_if_untight(box, seen)
-            warn_if_untight(box, seen)
-            warn_if_untight(box, seen)
+            warn_if_untight(box, seen, _DiagonalDim())
+            warn_if_untight(box, seen, _DiagonalDim())
+            warn_if_untight(box, seen, _DiagonalDim())
         assert len(records) == 1
