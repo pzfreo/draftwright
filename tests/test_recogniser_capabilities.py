@@ -125,6 +125,46 @@ def test_installed_package_contract_validates_without_a_sibling_checkout() -> No
     assert len(package["families"]) == len(declaration["families"]) == 25
 
 
+def test_existing_passage_contract_is_truthfully_declared_before_f4b() -> None:
+    """Pin the current-family declaration separately from the future 0.4 migration."""
+
+    assert INSTALLED_PACKAGE_VERSION == "0.3.1"
+    installed = tuple(int(component) for component in INSTALLED_PACKAGE_VERSION.split("."))
+    # b123d-recognisers#184 and Draftwright #1337/#1245 must be accepted before this
+    # upper bound moves: 0.4 changes both the capability model and rendered ownership.
+    assert (0, 2, 6) <= installed < (0, 4, 0)
+    package = _families(recognition.capability_manifest())
+    declaration = _families(consumer_capability_declaration())
+    passage_package = package["passages"]
+    passage_consumer = declaration["passages"]
+
+    assert passage_package["introduced_in"] == "0.2.6"
+    assert len(passage_package["records"]) == 1
+    passage_record = passage_package["records"][0]
+    assert passage_record["name"] == "Passage"
+    assert passage_record["role"] == "output"
+    assert passage_record["schema_version"] == 1
+    assert passage_record["aggregate_membership"] == ["RecognitionResult.passages"]
+    assert passage_consumer["record_schemas"] == {"Passage": [1]}
+    assert passage_consumer["disposition"] == "unsupported"
+    assert passage_consumer["tracking"] == "https://github.com/pzfreo/draftwright/issues/1245"
+    assert {
+        passage_consumer[name]["state"]
+        for name in (
+            "ir_adapter",
+            "dsl_declaration",
+            "generated_code",
+            "drawing_consumer",
+        )
+    } == {"unsupported"}
+    assert passage_consumer["completeness"]["state"] == "deferred"
+    assert passage_consumer["documentation"] == {
+        "state": "supported",
+        "evidence": ["docs/reference/recogniser-capabilities.md"],
+    }
+    assert "passages" not in pending_family_declarations()
+
+
 def test_runtime_adapter_inventory_is_derived_independently_and_exhaustive() -> None:
     runtime = _runtime_emitted_records()
     tiers = [

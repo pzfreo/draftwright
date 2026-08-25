@@ -64,3 +64,34 @@ pass.
 `bosses` is the fully consumed reference family. `repeating-radial-profiles` is the opposite
 reference: it remains geometry-only critique evidence for a separately authored gear declaration,
 with no inferred gear feature added to fill the table.
+
+## Passage compatibility boundary
+
+The installed `b123d-recognisers==0.3.1` release already contains the `passages` family introduced
+in 0.2.6. Draftwright declares its schema-v1 `Passage` output exhaustively but deliberately keeps
+the family `unsupported`, with the drafting decision tracked by issue #1245. This is a truthful
+consumer disposition: the geometry remains visible in the aggregate inventory, while Draftwright
+does not invent an IR feature, DSL declaration, generated code, drawing annotation, or completeness
+requirement for it.
+
+Draftwright's exact dependency pin must remain on a reviewed released version in the interval
+`>=0.2.6,<0.4.0` until the separately reviewed F4b transition is ready. The lower boundary ensures
+the installed manifest really contains `passages`; the upper boundary prevents accidental adoption
+of the planned 0.4 compatibility change.
+
+The reviewed future 0.4 model is a distinct migration, not latent behavior in this declaration:
+
+- `SectionPassage` will be the authoritative physical output and aggregate census source;
+- legacy `Passage` values will be an accepted-only compatibility projection;
+- `recognise_passages(..., ledger=...)` will be a fail-loud unavailable compatibility operation;
+- the writer-free `recognise_passages` name will remain public but non-authoritative; and
+- rich split-junction passages can supersede a currently rendered Slot claim, moving ownership to
+  the Passage family through `SLOT_SUPERSEDED_BY_PASSAGE`; and
+- the capability contract must represent those API and per-output roles exhaustively before the
+  dependency pin can cross 0.4.
+
+That migration must update the package release, Draftwright adapter and declaration model,
+validator, tests, exact pin, and lockfile together. The current validator remains unchanged and
+fail closed; there is no forward declaration or stale-manifest exception. Crossing 0.4 also
+requires #1245 to decide what those newly Passage-owned occurrences draw, or an explicit reviewed
+decision to accept the resulting loss of the existing Slot callout.
