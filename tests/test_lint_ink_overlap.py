@@ -19,6 +19,7 @@ from draftwright.linting.ink_overlap import (
     label_crossings,
     length_inside,
     segments_of,
+    shorter_side,
 )
 
 
@@ -279,7 +280,7 @@ class TestTheLabelBoxMustBeTight:
                 segments_of(_Annotation([])),
                 label_a=None,
                 label_b=rotated,
-                median_label_height=2.166,
+                median_shorter_side=2.166,
             )
             == []
         )
@@ -291,8 +292,37 @@ class TestTheLabelBoxMustBeTight:
             segments_of(_Annotation([])),
             label_a=None,
             label_b=rotated,
-            median_label_height=None,
+            median_shorter_side=None,
         )
+
+    def test_a_quarter_turned_label_is_still_tight(self):
+        """At 90° the box is an EXACT fit, but its height is the text's width.
+
+        Gating on height alone made every vertical dimension label longer than
+        about three characters uncrossable — silently disabling the check for a
+        very common class while fixing a rarer one. Measured on
+        `Box(123.456, 87.654, 45.678)`: the vertical `'45.7'` has a label box of
+        2.130 x 6.891 mm against a 2.166 mm median shorter side.
+        """
+        vertical = (0.0, 0.0, 2.130, 6.891)
+        assert shorter_side(vertical) == pytest.approx(2.130)
+        assert is_tight(vertical, 2.166)
+
+    def test_a_bound_box_is_not_a_box(self):
+        """`build123d.BoundBox` defines neither `__bool__` nor `__len__`.
+
+        `len()` on one raises `TypeError` out of `lint_drawing`, killing every
+        other check — the crash the guard exists to prevent, which an earlier
+        revision of that guard would have caused while claiming to stop it.
+        """
+
+        class BoundBoxLike:
+            def __len__(self):
+                raise TypeError("object of type 'BoundBox' has no len()")
+
+        assert not is_tight(BoundBoxLike(), 2.166)
+        assert shorter_side(BoundBoxLike()) == 0.0
+        assert crossing_length((((0.0, 0.0), (10.0, 10.0)),), BoundBoxLike()) == 0.0
 
     def test_a_sheet_with_no_labels_treats_every_box_as_tight(self):
         # Nothing to take a median of, and nothing to cross either.

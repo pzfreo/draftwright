@@ -109,13 +109,18 @@ def repair_drawing(dwg, max_iter: int = 3):
             # `dim_inside_part` while moving its dimension line across a neighbour's
             # label nets +1 and is undone, leaving the wrong-side dimension in place.
             #
-            # Measured before assuming: instrumenting `_repair_dim_inside_part` over
-            # the 23 STEP fixtures in `tests/fixtures` records **zero** flips, so
-            # nothing in that corpus reaches this comparison at all and no sheet is
-            # affected today. The asymmetry is pre-existing and structural rather than
-            # anything #1321 introduced — it acquires a new member with every lint
-            # code added — and it dissolves once #1333 makes these codes repairable,
-            # at which point the loop can improve what it is being judged on.
+            # Measured over the population where it can actually occur. A first
+            # measurement counted zero flips across the 23 STEP fixtures, which was
+            # true and beside the point: `dim_inside_part` fires on Python-built
+            # parts, so that corpus cannot exercise this at all. Instrumenting
+            # `_repair_dim_inside_part` across the **whole test suite** records 2
+            # flips, of which 0 net-worsen counting ink and 0 are reverted because of
+            # it. So the veto is reachable and does not currently fire.
+            #
+            # The asymmetry is pre-existing and structural rather than anything #1321
+            # introduced — it acquires a new member with every lint code added — and
+            # it dissolves once #1333 makes these codes repairable, at which point the
+            # loop can improve what it is being judged on.
             dwg.items[:] = snap_annotations
             dwg.registry.restore(snap_registry)
             break

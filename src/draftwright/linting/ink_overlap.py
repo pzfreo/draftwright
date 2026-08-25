@@ -87,10 +87,11 @@ not placing the label there in the first place.
 from __future__ import annotations
 
 import warnings
+from collections.abc import Sequence
 from dataclasses import dataclass
 
-#: The tallest a label box may be and still be treated as a tight fit around its
-#: text, as a multiple of the sheet's own median label height.
+#: The largest a label box's **shorter side** may be and still be treated as a fit
+#: around its text, as a multiple of the sheet's own median shorter side.
 #:
 #: `label_bbox` is an **axis-aligned** box around a label that may be drawn at an
 #: angle, so for a rotated label it is the bounding box of a rotated rectangle and
@@ -111,10 +112,18 @@ from dataclasses import dataclass
 #: treated as **not crossable**, and the gap is recorded: diagonal labels are not
 #: covered until `build123d-drafting-helpers` exposes the rect or its angle.
 #:
+#: The **shorter side**, not the height. At 90° the AABB is an exact fit, but its
+#: height is then the text's *width*: a vertical `'45.7'` measures 2.130 x 6.891 mm
+#: against a 2.694 mm median, and gating on height alone silently made every
+#: vertical label longer than about three characters uncrossable — disabling the
+#: check for a very common class. The shorter side is the text height for a
+#: horizontal label and for a quarter-turned one alike, and stays inflated only
+#: when the label is genuinely diagonal, which is the case being excluded.
+#:
 #: The multiple is generous because a legitimately taller label — a second font
-#: size, a stacked tolerance — must stay covered. On `_dense_plate` the label
-#: heights are 2.166 (x12), 2.67 (x9), 3.252 and 2.694, against the rotated
-#: 10.197; a 2x median cuts only the rotated one.
+#: size, a stacked tolerance — must stay covered. On `_dense_plate` the shorter
+#: sides are 2.166 (x12), 2.67 (x9), 3.252 and 2.694 against the rotated 10.197;
+#: a 2x median cuts only the rotated one.
 MAX_TIGHT_LABEL_HEIGHT = 2.0
 
 #: How far another annotation's line-work may run through a label's text box
@@ -276,12 +285,7 @@ def crossing_length(segments, label_box) -> float:
     annotation's location on every read, and this is called inside an O(n²) loop
     (#161).
     """
-    if not label_box or len(label_box) != 4:
-        # Not just `is None`. A duck-typed item (ADR 0005) may hand back `()`, a
-        # 2-tuple or a `BoundBox`, and indexing one of those raises out of
-        # `crossing_length`, out of `lint_drawing`, killing every other check —
-        # the same failure the point-shape guard above exists to prevent, and the
-        # call site is deliberately unguarded (#701).
+    if not _is_box(label_box):
         return 0.0
     return max(
         (length_inside(segment, label_box) for segment in segments),
@@ -289,18 +293,36 @@ def crossing_length(segments, label_box) -> float:
     )
 
 
-def is_tight(label_box, median_label_height) -> bool:
-    """Whether *label_box* is a tight fit around its text, so clipping is honest.
+def _is_box(value) -> bool:
+    """Whether *value* is usable as ``(min_x, min_y, max_x, max_y)``.
 
-    See :data:`MAX_TIGHT_LABEL_HEIGHT`. A ``median_label_height`` of ``None`` — a
+    An explicit sequence test, not ``len(value) != 4``: a duck-typed item
+    (ADR 0005) may hand back a ``build123d.BoundBox``, which defines neither
+    ``__bool__`` nor ``__len__``, so ``len()`` on one raises ``TypeError`` out of
+    `lint_drawing` — the very crash the guard is here to prevent.
+    """
+    return isinstance(value, Sequence) and len(value) == 4
+
+
+def shorter_side(label_box) -> float:
+    """The label box's shorter side, or ``0.0`` if it is not a box."""
+    if not _is_box(label_box):
+        return 0.0
+    return float(min(label_box[2] - label_box[0], label_box[3] - label_box[1]))
+
+
+def is_tight(label_box, median_shorter_side) -> bool:
+    """Whether *label_box* fits its text closely enough for clipping to be honest.
+
+    See :data:`MAX_TIGHT_LABEL_HEIGHT`. A ``median_shorter_side`` of ``None`` — a
     sheet with no labels to take a median of — treats every box as tight, which
     changes nothing because there is then nothing to cross.
     """
-    if not label_box or len(label_box) != 4:
+    if not _is_box(label_box):
         return False
-    if not median_label_height:
+    if not median_shorter_side:
         return True
-    return bool((label_box[3] - label_box[1]) <= MAX_TIGHT_LABEL_HEIGHT * median_label_height)
+    return bool(shorter_side(label_box) <= MAX_TIGHT_LABEL_HEIGHT * median_shorter_side)
 
 
 def label_crossings(
@@ -309,7 +331,7 @@ def label_crossings(
     *,
     label_a=None,
     label_b=None,
-    median_label_height=None,
+    median_shorter_side=None,
 ) -> list[Crossing]:
     """Every reportable crossing between the pair, worst first.
 
@@ -323,9 +345,9 @@ def label_crossings(
     annotation's full extent, which spans its witness lines and would report
     every dimension whose line-work reaches a neighbour's arm.
     """
-    if not is_tight(label_a, median_label_height):
+    if not is_tight(label_a, median_shorter_side):
         label_a = None
-    if not is_tight(label_b, median_label_height):
+    if not is_tight(label_b, median_shorter_side):
         label_b = None
     found = [
         Crossing(
