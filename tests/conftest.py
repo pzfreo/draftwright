@@ -110,6 +110,7 @@ _UNIT_MODULES = frozenset(
         "test_import_boundaries.py",
         "test_label_provenance.py",
         "test_layout.py",
+        "test_issue_1332_overlap_remedy_fast.py",
         "test_lint_ink_overlap.py",
         "test_linting.py",
         "test_pmi_part21.py",

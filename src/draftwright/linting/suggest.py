@@ -68,6 +68,13 @@ def _suggest_fix(issue, dwg) -> str | None:
 
     if code == "annotation_overlap":
         # Message: "labels 'A' and 'B' overlap by ...".
+        if "move what is drawn" in issue.message:
+            # #1321/#1332: this pair ALSO draws line-work through one of the
+            # labels, and the message says so. Re-placing the text is what that
+            # message tells the reader will not fix it, so offering a snippet
+            # that does exactly that is worse than offering none — the snippet is
+            # the surface a caller pastes.
+            return None
         labels = _QUOTED_RE.findall(issue.message)
         first = labels[0] if labels else "<dim>"
         return (

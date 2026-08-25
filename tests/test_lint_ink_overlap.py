@@ -240,8 +240,18 @@ class TestWhatIsNotADefect:
         # The case `structural.py`'s own comment rejects full bounding boxes for.
         # Extension lines run away from their own text, so nothing enters the
         # label box: zero, not "a small number below a floor".
-        stacked = _Annotation([((10.0, 0.0), (10.0, 9.0)), ((20.0, 0.0), (20.0, 9.0))])
+        # The extension lines run PAST the label box's x-span, stopping just short
+        # of its lower edge — the real geometry. A stub that missed the box
+        # entirely would pass against an implementation that ignored the box, which
+        # is what this fixture used to do (it stopped 1 mm clear at y=9.0).
+        stacked = _Annotation([((12.0, 0.0), (12.0, 9.99)), ((18.0, 0.0), (18.0, 9.99))])
         assert measure(stacked, BOX) == 0.0
+        # The precondition: extend them 0.02 mm past the box's lower edge and the
+        # same segments ARE measured, so the zero above is the box's doing rather
+        # than the fixture's. (x=12/18 sit inside the box's x-span; a stub on the
+        # x-edge would read zero for the boundary rule's reasons, not these.)
+        through = _Annotation([((12.0, 0.0), (12.0, 10.01)), ((18.0, 0.0), (18.0, 10.01))])
+        assert measure(through, BOX) > 0.0
 
     def test_an_arrowhead_meeting_a_witness_line_scores_zero(self):
         """#916: 13.9 x 4.0 mm of shared region, 3.56 mm² of ink, and ordinary
