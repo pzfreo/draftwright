@@ -731,7 +731,10 @@ def test_every_direct_placement_records_identity_or_says_why_not():
         # exemption is stale and deleted rather than left to cover a case it no longer
         # describes (#1227). `render_rotational` still places centre lines, which are not
         # measurements — that is the only reason it remains.
-        ("from_model.py", "render_rotational"): "centre lines are not measurements",
+        (
+            "from_model.py",
+            "render_rotational._place_axis_centerline",
+        ): "centre lines are not measurements",
         # -- identity arrives by another route --------------------------------------
         ("from_model.py", "_reroute_crossing_diameters"): "reapplies the saved identity",
         ("sections.py", "_resolve_details"): "reapplies the saved identity",

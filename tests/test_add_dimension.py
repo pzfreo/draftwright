@@ -1190,7 +1190,8 @@ class TestOmittedDimensionsDoNotRender:
             f"an unauthored turned dimension reached the page: {sorted(drawn)}"
         )
         assert "m_steplen1" not in drawn, "the neighbouring step's length was not authored"
-        assert {"centerline_front", "centerline_plan"} <= drawn, "furniture is not a dimension"
+        assert "centerline_front" in drawn, "furniture is not a dimension"
+        assert "centerline_plan" not in drawn, "the redundant profile view was omitted"
 
     def test_an_omitted_rotational_od_and_bore_are_not_drawn(self):
         """`render_rotational` places the OD and each concentric bore leader directly.

@@ -107,8 +107,9 @@ def _automatic_turned_principals(analysis: Analysis) -> tuple[str, ...] | None:
     hard-coded "drop plan" rule.
 
     This only proposes a candidate.  ``build_drawing`` checks the model's approved dimensions
-    before projection and then compares the finished candidate with the full-view baseline;
-    an asymmetric feature can therefore veto the reduction.
+    before projection and rejects a finished candidate with a required placement loss,
+    structural error, or absent-view annotation; an asymmetric feature can therefore veto the
+    reduction without making every common turned part compile twice.
     """
     axis = getattr(getattr(analysis, "prof", None), "axis", None)
     if axis is None and getattr(analysis, "is_rotational", False):
@@ -229,9 +230,11 @@ def _cross_view_overlaps(dwg, a) -> int:
             # (extension/leader) crossing between views is normal drafting.
             if vi == vj or not (li or lj):
                 continue
-            bi = _inflate_box(bi, clearance if li else 0.0)
-            bj = _inflate_box(bj, clearance if lj else 0.0)
-            if min(bi[2], bj[2]) > max(bi[0], bj[0]) and min(bi[3], bj[3]) > max(bi[1], bj[1]):
+            padded_bi = _inflate_box(bi, clearance if li else 0.0)
+            padded_bj = _inflate_box(bj, clearance if lj else 0.0)
+            if min(padded_bi[2], padded_bj[2]) > max(padded_bi[0], padded_bj[0]) and min(
+                padded_bi[3], padded_bj[3]
+            ) > max(padded_bi[1], padded_bj[1]):
                 n += 1
     return n
 
@@ -1791,12 +1794,39 @@ def build_drawing(
             critique_recognition = built.recognition()
         return found
 
+    views_are_automatic = _view_constraints is None or (
+        isinstance(_view_constraints, ViewConstraints) and _view_constraints.is_automatic_only
+    )
+
+    def _automatic_assessment(candidate):
+        # One lint pass feeds both structural and requirement gates.  Re-running lint here
+        # used to duplicate the most expensive post-build critique for every trial.
+        issues = tuple(candidate.lint(physical=False))
+        return issues, _scale_blockers_from_issues(issues)
+
+    def _principal_names(candidate):
+        plan = getattr(candidate, "view_plan", None)
+        if plan is not None:
+            return tuple(plan.principal_names)
+        # Test doubles and older post-build adapters may expose only the established
+        # ``views`` mapping. Keep the policy boundary compatible with that narrow shape.
+        available = getattr(candidate, "views", None)
+        if available is None:
+            return tuple(_views if _views is not None else third_angle_view_names())
+        return tuple(name for name in third_angle_view_names() if name in available)
+
+    def _absent_view_owners(candidate):
+        """Annotations assigned to a view the candidate did not actually project."""
+        result = []
+        for name in candidate.annotations():
+            owner = candidate.view_of(name)
+            if owner is not None and owner not in candidate.views:
+                result.append(name)
+        return tuple(result)
+
     if scale is None:
         if scale_policy != "fallback":
             raise ValueError("scale_policy applies only when an explicit scale is supplied")
-        views_are_automatic = _view_constraints is None or (
-            isinstance(_view_constraints, ViewConstraints) and _view_constraints.is_automatic_only
-        )
         drawing = _build(
             None,
             views=_views,
@@ -1809,29 +1839,6 @@ def build_drawing(
         view_attempts = list(initial_view_decision.get("attempts", ()))
         view_status = initial_view_decision.get("status", "default")
         settled_issues = None
-
-        def _automatic_assessment(candidate):
-            # One lint pass feeds both structural and requirement gates.  Re-running lint
-            # here used to duplicate the most expensive post-build critique for every trial.
-            issues = tuple(candidate.lint(physical=False))
-            return issues, _scale_blockers_from_issues(issues)
-
-        def _principal_names(candidate):
-            plan = getattr(candidate, "view_plan", None)
-            if plan is not None:
-                return tuple(plan.principal_names)
-            # Test doubles and older post-build adapters may expose only the established
-            # ``views`` mapping. Keep the policy boundary compatible with that narrow shape.
-            return tuple(name for name in third_angle_view_names() if name in candidate.views)
-
-        def _absent_view_owners(candidate):
-            """Annotations assigned to a view the candidate did not actually project."""
-            result = []
-            for name in candidate.annotations():
-                owner = candidate.view_of(name)
-                if owner is not None and owner not in candidate.views:
-                    result.append(name)
-            return tuple(result)
 
         # The reduced topology was selected after analysis but before projection, so the
         # accepted common case performs one assembly. Read back that finished candidate now.
@@ -1895,6 +1902,10 @@ def build_drawing(
                 ),
                 lambda built: _scale_blockers(built, physical=False),
             )
+            # The arrangement gate may return a rebuilt preferred-layout drawing.  Issues
+            # cached from the pre-gate candidate describe different placed ink and must never
+            # drive the final completeness decision for that winner.
+            settled_issues = None
         arrangement_decision = getattr(drawing, "arrangement_decision", None)
         settled_arrangement = (
             arrangement_decision["chosen"]
@@ -2337,9 +2348,70 @@ def build_drawing(
         return _complete_automatic_plan(drawing, issues=settled_issues)
 
     requested_scale = float(scale)
+    automatic_view_policy = views_are_automatic and _views is None
+    drawing = _build(
+        requested_scale,
+        views=_views,
+        select_automatic_views=automatic_view_policy,
+    )
+    initial_view_decision = getattr(drawing, "view_decision", {})
+    view_attempts = list(initial_view_decision.get("attempts", ()))
+    view_status = initial_view_decision.get("status", "selected")
+    settled_principal_views = _principal_names(drawing)
+    assessed_blockers = None
 
-    drawing = _build(requested_scale)
-    blockers = scale_blockers_for(drawing)
+    # An authored scale constrains the joint plan; it does not turn automatic view planning
+    # off. Apply the same finished-drawing veto as the fully automatic scale path before the
+    # explicit-scale policy decides whether the requested scale itself is acceptable.
+    if view_status == "candidate":
+        candidate_issues, candidate_blockers = _automatic_assessment(drawing)
+        absent_owners = _absent_view_owners(drawing)
+        unrecoverable_blockers = tuple(
+            blocker for blocker in candidate_blockers if not blocker["source_ids"]
+        )
+        candidate_errors = tuple(issue for issue in candidate_issues if issue.severity == "error")
+        if unrecoverable_blockers or candidate_errors or absent_owners:
+            proposed = settled_principal_views
+            reason = (
+                "annotation_owned_by_absent_view"
+                if absent_owners
+                else ("required_outcome_dropped" if unrecoverable_blockers else "structural_error")
+            )
+            view_attempts[-1] = {
+                "views": proposed,
+                "status": "rejected",
+                "reason": reason,
+                "blockers": candidate_blockers,
+                **({"annotations": absent_owners} if absent_owners else {}),
+            }
+            drawing = _build(requested_scale, views=third_angle_view_names())
+            settled_principal_views = _principal_names(drawing)
+            view_status = "retained_after_rejection"
+        else:
+            view_attempts[-1] = {
+                "views": settled_principal_views,
+                "status": "chosen",
+                "reason": "redundant_radial_view_removed",
+                "blockers": candidate_blockers,
+            }
+            view_status = "reduced"
+            assessed_blockers = candidate_blockers
+    elif view_status == "selected" and automatic_view_policy:
+        view_status = "default"
+
+    settled_view_decision = {
+        "policy": "automatic" if automatic_view_policy else "selected",
+        "status": view_status,
+        "chosen": settled_principal_views,
+        "attempts": tuple(view_attempts),
+    }
+    drawing.view_decision = settled_view_decision
+
+    def _retain_explicit_view_decision(candidate: Drawing) -> Drawing:
+        candidate.view_decision = settled_view_decision
+        return candidate
+
+    blockers = assessed_blockers if assessed_blockers is not None else scale_blockers_for(drawing)
     if not blockers:
         drawing.scale_decision = _scale_decision(
             policy=scale_policy,
@@ -2405,7 +2477,7 @@ def build_drawing(
     for candidate in (item for item in _SCALES if item < requested_scale):
         attempted.append(candidate)
         try:
-            fallback = _build(candidate)
+            fallback = _build(candidate, views=settled_principal_views)
         except ValueError as exc:
             # Once a smaller scale hits the hard rendering floor, every following candidate
             # is smaller still. Do not hide any unrelated build error.
@@ -2413,6 +2485,7 @@ def build_drawing(
                 attempts.append(_scale_attempt(candidate, "render_floor", error=str(exc)))
                 break
             raise
+        fallback = _retain_explicit_view_decision(fallback)
         candidate_blockers = scale_blockers_for(fallback)
         if candidate_blockers:
             attempts.append(_scale_attempt(candidate, "incomplete", candidate_blockers))

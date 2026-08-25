@@ -2654,6 +2654,22 @@ class TestComposeThenPackRepack:
         )
         assert _cross_view_overlaps(dwg, None) == 1
 
+    def test_cross_view_padding_is_not_accumulated_across_comparisons(self):
+        from draftwright.builder import _cross_view_overlaps
+
+        # Every pair has a 5 mm glyph gap and therefore clears two 2 mm label bands. The
+        # front box participates in both pairs; mutating it in the inner loop inflated it a
+        # second time and made the result depend on annotation iteration order.
+        dwg = self._fake_dwg(
+            {
+                "front": self._label((0, 0, 10, 10)),
+                "side": self._label((15, 0, 25, 10)),
+                "plan": self._label((0, 15, 10, 25)),
+            },
+            {"front": "front", "side": "side", "plan": "plan"},
+        )
+        assert _cross_view_overlaps(dwg, None) == 0
+
     # --- annotation-over-view-linework trigger (#293) ---------------------
 
     def test_annotation_view_overlap_counts_label_over_other_view(self):

@@ -206,11 +206,12 @@ def test_generated_script_matches_direct_rotational_furniture(tmp_path):
     step, scripted = _scripted_drawing(Cylinder(15, 40), tmp_path, "rotational")
     direct = build_drawing(str(step))
 
-    names = {"dim_od", "centerline_front", "centerline_side"}
+    names = {"dim_od", "centerline_front"}
     direct_furniture = names & set(direct.annotations())
     scripted_furniture = names & set(scripted.annotations())
     assert direct_furniture == names  # guard the fixture
     assert scripted_furniture == direct_furniture
+    assert "centerline_side" not in direct.annotations(), "the redundant profile view was omitted"
 
 
 @pytest.mark.timeout(240)

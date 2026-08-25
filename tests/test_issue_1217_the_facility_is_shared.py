@@ -81,6 +81,16 @@ def _chamfer_part():
     return chamfer(Box(80, 50, 20, align=_C).edges().sort_by()[0:2], 3)
 
 
+def _detail_part():
+    """A compact shoulder stack that deliberately needs a measured detail view."""
+    part = Pos(0, 0, 3) * Box(20, 16, 6)
+    z = 6
+    for width in (16, 13, 10, 7, 5):
+        part += Pos(0, 0, z + 1.5) * Box(width, 12, 3)
+        z += 3
+    return part
+
+
 #: The five families this slice claims, each with the cheapest part that exercises it, plus
 #: `bored tube` — #1227's own part, which is not a sixth family but the regression guard for the
 #: threading fixed here. The ratchet sweeps all six.
@@ -282,7 +292,10 @@ class TestNoMeasuredAnnotationEscapesUnclaimed:
         # author's own mutation run missed — `rendered_numbers` must still be able to SEE a
         # number on it. Neutering the reader makes this test pass vacuously otherwise, which it
         # did (#1225 review, finding 5).
-        assert unclaimed > 50, f"only {unclaimed} unclaimed annotations examined; too few"
+        # Automatic turned-view selection removes silent furniture along with the redundant
+        # projection. The measured fast corpus now carries 47 unclaimed annotations; keep a
+        # floor close enough to catch a neutered reader without requiring obsolete furniture.
+        assert unclaimed > 45, f"only {unclaimed} unclaimed annotations examined; too few"
         assert readable > 50, (
             f"only {readable} claimed annotations render a readable number; the reader is "
             "blind and the assertion below is vacuous"
@@ -345,8 +358,8 @@ class TestNoMeasuredAnnotationEscapesUnclaimed:
         # really does render digits, and that those digits are a scale ratio rather than a
         # fact about the part.
         drawing = _drawing(
-            "tests/fixtures/issue_915_case_study_2.step",
-            "tests/fixtures/issue_915_case_study_2.step",
+            "detail-caption-fixture",
+            _detail_part,
         )
         captions = [
             n for n in drawing.registry.names() if n.startswith(_NON_MEASURING_ANNOTATIONS)

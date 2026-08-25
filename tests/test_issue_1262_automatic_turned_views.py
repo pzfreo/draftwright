@@ -47,6 +47,17 @@ def test_plain_turned_parts_get_profile_end_and_iso_instead_of_a_repeated_view()
     assert not [issue for issue in drawing.lint() if issue.code.endswith("_dropped")]
 
 
+def test_an_explicit_scale_still_selects_the_smallest_complete_view_set():
+    drawing = build_drawing(_x_shaft(), title="SHAFT", number="1", scale=1)
+
+    assert tuple(drawing.views) == ("front", "side", "iso")
+    assert drawing.scale == 1
+    assert drawing.view_decision["policy"] == "automatic"
+    assert drawing.view_decision["status"] == "reduced"
+    assert drawing.view_decision["chosen"] == ("front", "side")
+    assert drawing.view_decision["attempts"][0]["status"] == "chosen"
+
+
 def test_a_radial_feature_vetoes_reduction_before_any_annotation_can_disappear():
     shaft = Rot(0, 90, 0) * Cylinder(12, 80)
     cross_hole = Pos(0, 0, -15) * Cylinder(3, 30)

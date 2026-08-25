@@ -992,7 +992,8 @@ class TestTheBoundaryIsLoadBearing:
         assert [o.label for n, o in dwg.iter_annotations() if n.startswith("ldr_z")] == [
             f"ø{bores[1].value_text}"
         ]
-        assert {"centerline_front", "centerline_side"} <= set(dwg.annotations())
+        assert "centerline_front" in dwg.annotations()
+        assert "centerline_side" not in dwg.annotations(), "the redundant profile view was omitted"
 
     def test_the_migration_guard_measures_the_CONTRACT_not_the_signature(self):
         """How far the boundary actually reaches, by what each renderer is HANDED.
