@@ -77,25 +77,28 @@ def test_pocket_rim_tip_is_axis_independent(rotation):
     # accumulate a third crossing. `z-depth` and `x-depth` carry none, and the
     # unrotated fixture above still asserts a wholly clean sheet.
     known = {("50", "35"), ("35", "50")} if pocket.depth_axis == "y" else set()
+
+    def _pair(issue):
+        for crosser, crossed in known:
+            if (
+                f"'{crosser}' draws" in issue.message
+                and f"through the label '{crossed}'" in issue.message
+            ):
+                return (crosser, crossed)
+        return None
+
+    crossings = [i for i in dwg.lint() if i.code == "annotation_ink_overlap"]
     unexpected = [
         issue
         for issue in dwg.lint()
-        if issue.code != "step_dim_withheld"
-        and not (
-            issue.code == "annotation_ink_overlap"
-            and any(
-                f"'{crosser}' draws" in issue.message
-                and f"through the label '{crossed}'" in issue.message
-                for crosser, crossed in known
-            )
-        )
+        if issue.code not in {"step_dim_withheld", "annotation_ink_overlap"}
     ]
     assert [issue.code for issue in unexpected] == []
-    # The precondition: without it the filter above would be vacuous on a build
-    # that stopped producing the pair.
-    assert len([i for i in dwg.lint() if i.code == "annotation_ink_overlap"]) == len(known), (
-        "the known crossings for this orientation changed; the filter is now wrong"
-    )
+    # An EXACT set, not `any(...)`. Two crossings in the SAME direction used to
+    # satisfy both this and the count below, so the test did not pin the "two
+    # obscured labels, one each way" claim its comment makes.
+    assert {_pair(i) for i in crossings} == known, [i.message for i in crossings]
+    assert len(crossings) == len(known)
 
 
 @pytest.mark.parametrize("axis", ["long", "width"], ids=["long-axis", "width-axis"])

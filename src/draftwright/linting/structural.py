@@ -461,15 +461,22 @@ def lint_drawing(
                     label_b=crossable_boxes[j],
                 )
                 also_crosses = bool(crossings_here)
-                remedy = (
-                    "use label_offset_x or increase dim offset to separate them"
-                    if not also_crosses
-                    else (
-                        "line-work is drawn through one of these labels as well, so "
-                        "separating the text is not enough — move what is drawn "
-                        "(#1321)"
+                if not also_crosses:
+                    remedy = "use label_offset_x or increase dim offset to separate them"
+                else:
+                    # State which label, by what, and how far. An earlier revision
+                    # computed exactly this and reduced it to a boolean, while the
+                    # note below deferred those same three facts to #1333 as the
+                    # detail the reader loses.
+                    worst = crossings_here[0]
+                    crosser, crossed = (item_a, item_b) if worst.crosses_b else (item_b, item_a)
+                    crosser_label = getattr(crosser, "label", None) or _item_label(crosser) or "?"
+                    crossed_label = getattr(crossed, "label", None) or _item_label(crossed) or "?"
+                    remedy = (
+                        f"'{crosser_label}' also draws {worst.length:.1f} mm of "
+                        f"line-work through the label '{crossed_label}', so separating "
+                        "the text is not enough — move what is drawn (#1321)"
                     )
-                )
                 overlap_issue = LintIssue(
                     severity="warning",
                     message=(

@@ -15,8 +15,8 @@ import warnings
 import pytest
 
 from draftwright.linting.ink_overlap import (
-    MAX_TIGHT_LABEL_SIDE,
     MIN_CROSSING_MM,
+    MIN_TIGHT_LABEL_ASPECT,
     Crossing,
     crossing_length,
     is_tight,
@@ -53,6 +53,27 @@ def _logs(fragment):
     assert any(fragment in record.getMessage() for record in records), (
         f"expected a log containing {fragment!r}, saw {[r.getMessage() for r in records]}"
     )
+
+
+@contextlib.contextmanager
+def _logs_any():
+    """Collect every record the module logs, for counting rather than matching."""
+    records: list[logging.LogRecord] = []
+
+    class _Catch(logging.Handler):
+        def emit(self, record):
+            records.append(record)
+
+    logger = logging.getLogger(_LOGGER)
+    handler = _Catch()
+    logger.addHandler(handler)
+    previous = logger.level
+    logger.setLevel(logging.DEBUG)
+    try:
+        yield records
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(previous)
 
 
 def measure(item, box):
@@ -368,23 +389,33 @@ class TestTheLabelBoxMustBeTight:
         # The measured case: 10.197 mm on both sides.
         assert not is_tight((38.298, 176.558, 48.495, 186.755))
 
-    def test_the_limit_is_the_engine_text_height_not_the_sheet(self):
-        """A FIXED reference, so a pair's verdict cannot change because of an
-        unrelated annotation elsewhere on the sheet.
-
-        Two revisions used the sheet's median shorter side, and both were wrong the
-        same way. `--zones` — a public CLI flag — put 28 single-character zone
-        labels on a sheet, dragged the median to 1.051 mm, pushed the threshold
-        below the ordinary 2.166 mm label height, and silently disabled the entire
-        check: four findings became zero.
+    def test_the_rule_is_shape_alone_at_every_size(self):
+        """No size cut. Three revisions paired shape with one and each broke
+        something: height-only made vertical labels uncrossable, a 6 mm cut
+        excluded GD&T control frames, and testing size first let a small rotated
+        label through. Aspect separates every measured case on its own.
         """
-        from draftwright._core import _FONT_SIZE
+        assert MIN_TIGHT_LABEL_ASPECT == pytest.approx(1.15)
+        # Same shape, wildly different sizes — both are text, both crossable.
+        assert is_tight((0.0, 0.0, 3.2, 2.166))
+        assert is_tight((0.0, 0.0, 32.0, 21.66))
+        # Same shape, wildly different sizes — both near-square, neither measurable.
+        assert not is_tight((0.0, 0.0, 4.53, 4.53))
+        assert not is_tight((0.0, 0.0, 10.197, 10.197))
 
-        assert MAX_TIGHT_LABEL_SIDE == pytest.approx(2.0 * _FONT_SIZE)
-        assert is_tight((0.0, 0.0, 10.0, MAX_TIGHT_LABEL_SIDE))
-        # Over the size cut AND near-square, which is what the pair of rules means.
-        over = MAX_TIGHT_LABEL_SIDE + 1e-6
-        assert not is_tight((0.0, 0.0, over, over))
+    def test_the_cut_sits_between_the_measured_populations(self):
+        """1.29 is the lowest real aspect across the 23 STEP fixtures (the
+        single-character section marker `'A'`, 1.617 x 2.090 mm); the excluded
+        rotated box is 1.00. The margin is thin and that is the point — it is the
+        whole separation the geometry offers.
+        """
+        assert 1.00 < MIN_TIGHT_LABEL_ASPECT < 1.29
+        assert is_tight((0.0, 0.0, 2.090, 1.617)), "the 'A' section marker must stay crossable"
+
+    def test_a_stacked_control_frame_is_crossable_at_any_size(self):
+        """The regression that kept coming back. Frames are large but long."""
+        assert is_tight((0.0, 0.0, 25.161, 6.150))
+        assert is_tight((0.0, 0.0, 25.0, 12.3))
 
     def test_an_untight_label_cannot_be_crossed(self):
         rotated = (38.298, 176.558, 48.495, 186.755)
@@ -582,3 +613,44 @@ class TestABoxMustBeFourNumbers:
     def test_an_ordinary_box_still_works(self):
         assert shorter_side((0, 0, 10, 3)) == pytest.approx(3.0)
         assert is_tight((0.0, 0.0, 10.0, 3.0)) is True
+
+
+class TestTheMemoKeyIsAValue:
+    """`id()` of a value tuple is recycled the instant the caller drops it.
+
+    An earlier revision keyed the untight memo on `id(label_box)`, so four
+    *distinct* boxes created and dropped in a loop reported twice — CPython reuses
+    the freed tuple's address, and the exclusion this helper exists to keep loud
+    went silent for boxes that merely landed on a recycled one.
+
+    `_label_bbox` keys on `id(item)` safely only because `items` holds every
+    annotation alive for the whole run. A box computed and dropped has no such
+    anchor, so the key must be the box's value.
+    """
+
+    def _boxes_reported(self, seen):
+        reported = 0
+        with _logs_any() as records:
+            for index in range(6):
+                # Built and dropped each iteration, so the address is free to reuse.
+                if not warn_if_untight((0.0, 0.0, 7.0 + index * 0.001, 7.0), seen):
+                    reported += 1
+        return reported, len(records)
+
+    def test_distinct_boxes_each_report(self):
+        seen: set = set()
+        untight, logged = self._boxes_reported(seen)
+        assert untight == 6, "fixture must produce six untight boxes"
+        assert logged == 6, (
+            f"six distinct boxes logged {logged} times — the memo key is collapsing "
+            "boxes that are not the same box"
+        )
+
+    def test_the_same_box_still_reports_once(self):
+        seen: set = set()
+        box = (0.0, 0.0, 7.0, 7.0)
+        with _logs_any() as records:
+            warn_if_untight(box, seen)
+            warn_if_untight(box, seen)
+            warn_if_untight(box, seen)
+        assert len(records) == 1

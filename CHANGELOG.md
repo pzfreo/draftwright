@@ -16,6 +16,12 @@
 
 ### Changed
 
+- `annotation_overlap` now reports the whole defect when the same pair also draws
+  line-work through one of the two labels: the message names the crosser, the label
+  crossed and the millimetres, and replaces the "use `label_offset_x`" remedy, which
+  is the advice that case contradicts. `LintIssue.suggestion` is `None` for those
+  issues rather than a snippet that re-places the text (#1321, #1332).
+
 - Recogniser integration now uses only the exact `b123d-recognisers` dependency in
   `pyproject.toml` and `uv.lock`. The separate release-evidence record, dependency-bump workflow,
   candidate-checkout harness, and release-time capability-version rewrites have been removed;

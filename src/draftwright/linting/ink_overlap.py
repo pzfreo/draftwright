@@ -120,79 +120,53 @@ import logging
 import math
 from dataclasses import dataclass
 
-from draftwright._core import _FONT_SIZE
 from draftwright._geometry import _segment_clip_extent
 
 _log = logging.getLogger(__name__)
 
-#: The largest a label box's shorter side may be and still be treated as a fit
-#: around its text, as a multiple of the engine's own annotation text height
-#: (``_core._FONT_SIZE``).
+#: How much longer than it is thick a label box must be to read as a fit around
+#: text rather than as a rotated rectangle's bounding box.
 #:
 #: `label_bbox` is an **axis-aligned** box around a label that may be drawn at an
 #: angle, so for a rotated label it is the bounding box of a rotated rectangle and
 #: is much larger than the glyphs. Measured on `_dense_plate`: `'2× 14.1'` — seven
 #: characters about 2.2 mm tall — has a label box of **10.197 x 10.197 mm**, a
-#: square, because it is drawn on a diagonal.
+#: square, because it is drawn on a diagonal. Clipping against that would report a
+#: stroke as crossing 10.2 mm of text when it crosses about 3 mm, and a 0.4 mm
+#: corner graze as 10.2 mm. The true rectangle is not recoverable here — the angle
+#: is in neither `_init_rot` nor the annotation's location — so such a label is
+#: treated as **not crossable**, and diagonal labels stay uncovered until
+#: `build123d-drafting-helpers` exposes the rect or its angle.
 #:
-#: Clipping against that would report a stroke as crossing 10.2 mm of text when it
-#: crosses about 3 mm of it, and would report a 0.4 mm corner graze as 10.2 mm —
-#: defeating `MIN_CROSSING_MM` by a factor of 25 exactly where this module claims
-#: "the region of interest is one label box".
+#: **Shape alone, at every size.** Three earlier revisions paired this with an
+#: absolute size cut and each one broke something, because the sizes do not
+#: separate:
 #:
-#: The true rectangle is not recoverable here. `_label_bbox_local` is already an
-#: axis-aligned bake of it, and the angle is in neither `_init_rot` nor the
-#: annotation's location — on that fixture both are zero, because the rotation was
-#: applied before the box reached the annotation. Rather than report a number this
-#: check cannot stand behind, such a label is treated as **not crossable**, and the
-#: gap is recorded: diagonal labels are uncovered until `build123d-drafting-helpers`
-#: exposes the rect or its angle.
+#:  * gating on height alone made every vertical label uncrossable — at 90° the box
+#:    is an exact fit whose *height* is the text's width;
+#:  * a 6 mm cut excluded every GD&T control frame, measured at a 6.150 mm shorter
+#:    side, and a stacked two-row frame is larger still;
+#:  * returning tight on size *before* testing shape let a two-character label at
+#:    45° through — a 4.53 x 4.53 mm box, aspect 1.00, where a stroke across the
+#:    empty corner measured 4.9 mm against a 0.5 mm floor.
 #:
-#: The **shorter side**, not the height. At 90° the AABB is an exact fit, but its
-#: height is then the text's *width*: a vertical `'45.7'` measures 2.130 x 6.891 mm,
-#: and gating on height alone silently made every vertical label longer than about
-#: three characters uncrossable — disabling the check for a very common class.
+#: Aspect separates all of them, because a rotated rectangle's bounding box tends
+#: toward square while a line of text never is. Measured over the 23 STEP fixtures
+#: (671 labelled annotations) the *lowest* real aspect is **1.29** — the
+#: single-character section marker `'A'`, 1.617 x 2.090 mm — and the highest is
+#: 9.03. GD&T frames measure 1.99 to 4.09 whatever their size. The one excluded box
+#: measures **1.00**.
 #:
-#: And a **fixed** reference, not the sheet's own median. Two revisions of this used
-#: a median, and both were wrong for the same reason: `min(w, h)` on a one- or
-#: two-character label is the *glyph width*, not the text height — `'6'` measures
-#: 1.416 and `'8'` 1.470 against an ordinary 2.166. So the median moved with how
-#: many short labels a sheet happened to carry, and `--zones` — a public CLI flag —
-#: put 28 single-character zone labels on the sheet, dragged the median to 1.051,
-#: and silently disabled the entire check: 4 findings became 0. A threshold that
-#: depends on unrelated annotations also forfeits the sheet-independence this
-#: module exists to secure. `_FONT_SIZE` is the engine's own declared annotation
-#: text height and moves for nobody.
+#: So the cut sits at 1.15: 15% above the rotated case and 12% below the closest
+#: real label. That margin is thin, and saying so is the point — it is the whole
+#: separation the geometry offers, not a figure with room in it. A real label
+#: measuring below 1.29 would want this re-derived, not nudged.
 #:
-#: Size alone is not enough, though, and the figure below is not a factor of two
-#: clear of everything real. A GD&T feature control frame is one text row plus box
-#: padding: measured on a declared sheet, `m_gdt0` is 6.150 x 12.255 mm and
-#: `m_gdt1` 25.161 x 6.150 — a **shorter side of 6.150**, only 1.025x this
-#: threshold. Excluding those would make a dimension line through a control frame,
-#: arguably the annotation whose legibility matters most, unreportable.
-#:
-#: So size is paired with **shape**. A rotated rectangle's bounding box tends
-#: toward square as the angle approaches 45° — the `_dense_plate` diagonal is
-#: 10.197 x 10.197, an aspect of exactly 1.00 — while a real text box stays long
-#: relative to the text: those control frames measure 1.99, 3.67 and 4.09. A box
-#: is untight only when it is **both** larger than text should be **and** nearly
-#: square, which the diagonal is and the frames are not, with the nearest real
-#: datum 1.33x clear of the aspect cut rather than 1.025x clear of the size one.
-MAX_TIGHT_LABEL_SIDE = 2.0 * _FONT_SIZE
-
-#: How long a large box must be, relative to its shorter side, to still read as
-#: text rather than as a rotated rectangle's bounding box. See
-#: :data:`MAX_TIGHT_LABEL_SIDE`.
-#:
-#: The residual gap this leaves, stated rather than implied: a **shallow** diagonal
-#: escapes both tests. A 12 x 2.2 mm label at 20° has a bounding box of about
-#: 12.0 x 6.2 mm — over the size cut but an aspect of 1.94, so it is treated as
-#: tight and measured against a box roughly twice the glyphs' area. A stroke
-#: through the empty corner could then be reported as crossing text. No instance
-#: exists in `tests/fixtures` (671 labelled annotations, one exclusion), and the
-#: real fix is for `build123d-drafting-helpers` to expose the rect or its angle;
-#: until then this closes the measured case and not the general one.
-MIN_TIGHT_LABEL_ASPECT = 1.5
+#: The residual gap, stated rather than implied: a **shallow** diagonal escapes. A
+#: 12 x 2.2 mm label at 20° has a box of about 12.0 x 6.2 mm, an aspect of 1.94,
+#: so it is treated as tight and measured against a box roughly twice the glyphs'
+#: area. No instance exists in the corpus.
+MIN_TIGHT_LABEL_ASPECT = 1.15
 
 #: How far another annotation's line-work may run through a label's text box
 #: before it is reported, in millimetres.
@@ -278,6 +252,12 @@ def _warn_once(message: str, seen, key=None) -> None:
     # `segments_of` docstring names: if `segments` ever started yielding `Vector`s,
     # every item would contribute nothing and this would report it once,
     # indistinguishable from a single misbehaving annotation.
+    # The key must be a VALUE, never `id(...)`. `id()` of a tuple is reused the
+    # instant the caller drops it, so four distinct untight boxes in a loop
+    # reported twice — the exclusion this helper exists to keep loud went silent
+    # for boxes that merely reused a freed address. `_label_bbox` keys on
+    # `id(item)` safely only because `items` holds every annotation alive for the
+    # run; a box computed and dropped has no such anchor.
     token = message if key is None else key
     if seen is not None:
         if token in seen:
@@ -355,7 +335,7 @@ def segments_of(item, seen=None) -> tuple:
             f"{type(item).__name__}: {problem}; its line-work is excluded from "
             "annotation_ink_overlap",
             seen,
-            key=("segments", id(item)),
+            key=("segments", id(item), type(item).__name__),
         )
         return ()
     return tuple(kept)
@@ -454,7 +434,7 @@ def warn_if_untight(label_box, seen=None) -> bool:
         "a fit around text — it is probably a rotated label's bounding box, so "
         "line-work through it is not measured (annotation_ink_overlap)",
         seen,
-        key=("untight", id(label_box)),
+        key=("untight", tuple(label_box)),
     )
     return False
 
@@ -462,15 +442,15 @@ def warn_if_untight(label_box, seen=None) -> bool:
 def is_tight(label_box) -> bool:
     """Whether *label_box* fits its text closely enough for clipping to be honest.
 
-    See :data:`MAX_TIGHT_LABEL_SIDE`. Depends on nothing but the box itself, so a
+    See :data:`MIN_TIGHT_LABEL_ASPECT`. Depends on nothing but the box itself, so a
     pair's verdict cannot change because of an unrelated annotation elsewhere on
     the sheet.
     """
     if not _is_box(label_box):
         return False
     short = shorter_side(label_box)
-    if short <= MAX_TIGHT_LABEL_SIDE:
-        return True
+    if short <= 0.0:
+        return False
     long = max(label_box[2] - label_box[0], label_box[3] - label_box[1])
     return bool(long >= MIN_TIGHT_LABEL_ASPECT * short)
 
