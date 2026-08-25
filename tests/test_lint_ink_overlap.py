@@ -44,7 +44,7 @@ def _logs(fragment):
     handler = _Catch()
     logger.addHandler(handler)
     previous = logger.level
-    logger.setLevel(logging.WARNING)
+    logger.setLevel(logging.DEBUG)
     try:
         yield
     finally:
@@ -429,13 +429,18 @@ class TestTheExclusionIsLoud:
 
 
 class TestTheReportIsLoggedNotWarned:
-    """Logged, not warned — and that is a correctness constraint, not a style one.
+    """Logged at DEBUG, not warned — and that is a correctness constraint.
 
     These helpers run inside `lint_drawing`'s deliberately unguarded region
     ("#701: the check body runs unguarded"). A `warnings.warn` there propagates
     out under a warnings-as-errors configuration and kills every other check on
     the sheet — the #701 failure inverted. `_label_bbox` logs for the same
     condition twenty lines away, and a logger is silenceable by name.
+
+    DEBUG rather than WARNING because `WARNING` with no logging configured reaches
+    stderr through Python's `lastResort` handler: an ordinary supported part
+    printed this on every build. The condition is permanent and not fixable by the
+    caller.
     """
 
     def test_an_untight_box_is_reported(self):
@@ -443,14 +448,14 @@ class TestTheReportIsLoggedNotWarned:
             assert warn_if_untight((38.298, 176.558, 48.495, 186.755)) is False
 
     def test_a_tight_box_is_quiet(self, caplog):
-        with caplog.at_level(logging.WARNING, logger=_LOGGER):
+        with caplog.at_level(logging.DEBUG, logger=_LOGGER):
             assert warn_if_untight((10.0, 10.0, 20.0, 12.166)) is True
         assert caplog.records == []
 
     def test_a_control_frame_is_quiet(self, caplog):
         # Measured: m_gdt0 6.150 x 12.255, m_gdt1 25.161 x 6.150. Over the size
         # cut, but long rather than square, so they stay crossable.
-        with caplog.at_level(logging.WARNING, logger=_LOGGER):
+        with caplog.at_level(logging.DEBUG, logger=_LOGGER):
             assert warn_if_untight((0.0, 0.0, 6.150, 12.255)) is True
             assert warn_if_untight((0.0, 0.0, 25.161, 6.150)) is True
         assert caplog.records == []
@@ -458,7 +463,7 @@ class TestTheReportIsLoggedNotWarned:
     def test_a_malformed_box_is_untight_without_a_report(self, caplog):
         # Nothing useful to say about a box that is not a box; `segments_of` and
         # `crossing_length` already report their own refusals.
-        with caplog.at_level(logging.WARNING, logger=_LOGGER):
+        with caplog.at_level(logging.DEBUG, logger=_LOGGER):
             assert warn_if_untight(()) is False
         assert caplog.records == []
 
@@ -467,7 +472,7 @@ class TestTheReportIsLoggedNotWarned:
         same item, and `repair()` lints twice per pass for up to three passes."""
         seen: set[str] = set()
         box = (38.298, 176.558, 48.495, 186.755)
-        with caplog.at_level(logging.WARNING, logger=_LOGGER):
+        with caplog.at_level(logging.DEBUG, logger=_LOGGER):
             warn_if_untight(box, seen)
             warn_if_untight(box, seen)
             warn_if_untight(box, seen)
@@ -475,7 +480,7 @@ class TestTheReportIsLoggedNotWarned:
 
     def test_without_a_memo_it_reports_every_time(self, caplog):
         box = (38.298, 176.558, 48.495, 186.755)
-        with caplog.at_level(logging.WARNING, logger=_LOGGER):
+        with caplog.at_level(logging.DEBUG, logger=_LOGGER):
             warn_if_untight(box)
             warn_if_untight(box)
         assert len(caplog.records) == 2

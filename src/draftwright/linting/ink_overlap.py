@@ -56,15 +56,31 @@ about terminator geometry rather than anything a label box can answer. The
 flange case happens to be caught anyway — the dimension line runs 0.85 mm into
 the neighbouring label on its way — but that is luck, not coverage.
 
-`feature_leader_crossing` is the code that can overlap with this one.
-`_annotation_fixed_ink` registers a `{name}:label` component holding the label
-*box*, and a leader retained under Policy B across it is reported there as `info`,
-deliberately unpenalised. The same geometry reaches this check as a `warning`, so
-one defect can score twice against legibility. On the #1166 fixture the two fire
-on adjacent-but-distinct geometry (`:segment:3` against the callout label) rather
-than the same, so this is a reachable structural overlap rather than an observed
-one; excluding `:label` blockers there, or this check when that one has already
-reported the pair, is the fix if it is seen.
+`feature_leader_crossing` overlaps with this one, and **it is observed, not
+theoretical** — an earlier revision of this note claimed otherwise and was wrong.
+On `test_two_cross_hole_heights_share_their_end_view_ladder_without_crossing` both
+fire on the same segment against the same label box:
+
+    info    feature_leader_crossing  hole callout ⌀2.5 THRU retained under
+                                     Policy B across: dim_loc_side_z7550:segment:3
+    warning annotation_ink_overlap   '75.5' draws 17.4 mm of line-work through
+                                     the label '⌀2.5 THRU'
+
+`dim_loc_side_z7550.label` is `'75.5'`, and clipping its segments against
+`hc_side1.label_bbox` gives 17.42 mm for `segment:3` and 0.00 for the rest — the
+same stroke, the same box.
+
+Both codes are in `_LEGIBILITY_CODES`; `_primary_issues` keys on `(code, token)`
+so they never collapse; and `info` takes the WARNING floor in `_issue_component`
+("an issue reaching here is a defect in the axis being scored"), so the earlier
+claim that the `info` is "deliberately unpenalised" was also wrong. A crossing the
+router *deliberately accepted* under Policy B therefore costs two warning
+penalties where it used to cost one.
+
+That is a scoring regression this check introduces, recorded rather than papered
+over. The fix is either to exclude `:label` blockers from `feature_leader_crossing`
+or to suppress this check for a pair that one has already reported — both reach
+into the leader router, so #1333 owns the decision.
 
 `leader_line_through_text` is **not** the same check and is not made redundant by
 this one. `_lint_leader` tests an item's own elbow against its own `label_bbox` —
@@ -235,7 +251,13 @@ class Crossing:
 def _warn_once(message: str, seen) -> None:
     """Log unless *seen* has already carried this message for this run.
 
-    **Logged, not warned.** These helpers run inside `lint_drawing`'s deliberately
+    **Logged at DEBUG, not warned.** `WARNING` with no logging configured reaches
+    stderr through Python's `lastResort` handler, so an ordinary supported part
+    printed this on every build — twice, and up to six times through `repair()`.
+    The condition is permanent and not fixable by the caller, so it belongs in a
+    log an operator opts into rather than on their terminal.
+
+    These helpers run inside `lint_drawing`'s deliberately
     unguarded region ("#701: the check body runs unguarded"), so under a
     warnings-as-errors configuration a `warnings.warn` here propagates out and
     kills every other check on the sheet — the #701 failure inverted. The
@@ -251,7 +273,7 @@ def _warn_once(message: str, seen) -> None:
         if message in seen:
             return
         seen.add(message)
-    _log.warning("%s", message)
+    _log.debug("%s", message)
 
 
 def segments_of(item, seen=None) -> tuple:
