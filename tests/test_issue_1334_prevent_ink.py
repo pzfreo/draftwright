@@ -63,6 +63,8 @@ def _foreign_arrow_tips_in_labels(batch):
 
 def test_same_batch_dimension_ink_selects_clear_label_candidates():
     natural = _short_chain()
+    semantic_evidence = ((object(), "location.location.x", (22.5, 0.0, 0.0)),)
+    natural[1][1].covers_hole_locations = semantic_evidence
     assert len(_stage1_crossings(natural)) == 2
     assert _foreign_arrow_tips_in_labels(natural)
 
@@ -70,6 +72,7 @@ def test_same_batch_dimension_ink_selects_clear_label_candidates():
 
     assert _stage1_crossings(placed) == []
     assert _foreign_arrow_tips_in_labels(placed) == []
+    assert placed[1][1].covers_hole_locations == semantic_evidence
     assert any("label_offset_x" in dim._dw_spec.kwargs for _name, dim in placed)
 
     # The bounded solve is deterministic, including its exact selected offsets.

@@ -1654,9 +1654,14 @@ def prevent_dimension_label_ink(
             kwargs.get("label_offset_x", 0.0) + (centre - natural) * direction
         )
         rebuilt = _dim(spec.p1, spec.p2, spec.side, spec.distance, spec.draft, **kwargs)
-        for attr in ("_dw_scale", "_dw_label_value"):
-            if getattr(dim, attr, None) is not None:
-                setattr(rebuilt, attr, getattr(dim, attr))
+        # The producer attaches semantic evidence before the corridor commits the
+        # survivor. Rebuilding only the rendered Dimension must not erase that evidence:
+        # hole-table escalation and coverage lint read these riders from the final object.
+        # Copy semantic namespaces, never helper geometry internals; `_dw_spec` belongs to
+        # the rebuilt placement and must remain the one `_dim` just created.
+        for attr, value in vars(dim).items():
+            if attr.startswith("covers_") or (attr.startswith("_dw_") and attr != "_dw_spec"):
+                setattr(rebuilt, attr, value)
         cache[key] = rebuilt
         return rebuilt
 
