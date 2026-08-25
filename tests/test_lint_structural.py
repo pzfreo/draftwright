@@ -203,10 +203,8 @@ class TestDiagonalDimensionInkOverlap:
     def test_direct_dimension_does_not_treat_aabb_corner_as_text(self, draft):
         """A direct helper Dimension has no draftwright placement spec.
 
-        Old helper releases expose no exact polygon, so lint explicitly excludes
-        the known-inflated diagonal AABB. New releases expose the polygon and the
-        same corner line clips only a sub-floor sliver. Neither may report the
-        old 3 mm false crossing.
+        Its exact helper-provided polygon makes the corner line clip only a
+        sub-floor sliver, rather than the old 3 mm inflated-AABB false crossing.
         """
         dim = Dimension((0, 0, 0), (10, 10, 0), "above", 4, draft, label="10")
         x0, _y0, x1, y1 = dim.label_bbox
@@ -219,10 +217,9 @@ class TestDiagonalDimensionInkOverlap:
         ]
         assert not any("through the label '10'" in issue.message for issue in crossings)
 
-    def test_direct_dimension_real_polygon_crossing_is_reported_when_available(self, draft):
+    def test_direct_dimension_real_polygon_crossing_is_reported(self, draft):
         dim = Dimension((0, 0, 0), (10, 10, 0), "above", 4, draft, label="10")
-        if getattr(dim, "label_polygon", None) is None:
-            pytest.skip("installed helper predates public Dimension.label_polygon")
+        assert dim.label_polygon is not None
         x0, y0, x1, y1 = dim.label_bbox
         foreign = self._foreign_line((y0 + y1) / 2.0, x0 - 1.0, x1 + 1.0)
 
@@ -233,7 +230,7 @@ class TestDiagonalDimensionInkOverlap:
         ]
         assert any("through the label '10'" in issue.message for issue in crossings)
 
-    def test_engine_dimension_backfills_polygon_until_helper_release(self, draft):
+    def test_engine_dimension_exposes_helper_label_polygon(self, draft):
         from draftwright._core import _dim
         from draftwright.linting.ink_overlap import crossable_region, segments_of
 
@@ -241,7 +238,7 @@ class TestDiagonalDimensionInkOverlap:
         assert getattr(dim, "label_polygon", None) is not None
         assert crossable_region(dim.label_bbox, item=dim, segments=segments_of(dim)) is not None
 
-    def test_engine_dimension_backfills_formatted_default_label(self, draft):
+    def test_engine_dimension_exposes_polygon_for_formatted_default_label(self, draft):
         from draftwright._core import _dim
         from draftwright.linting.ink_overlap import crossable_region, segments_of
 
