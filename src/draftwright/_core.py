@@ -31,6 +31,7 @@ if TYPE_CHECKING:
 
 from build123d import Align, BoundBox, Compound, Edge, Location, Mode, Shape, Text, Vector
 from build123d_drafting.helpers import (
+    DEFAULT_FONT_PATH,
     Dimension,
     TitleBlock,
     annotate,
@@ -358,7 +359,11 @@ _QUOTED_RE = re.compile(r"'([^']*)'")
 
 @functools.lru_cache(maxsize=512)
 def _text_size(
-    text: str, font_size: float, font_path: str | None = PLEX_MONO, font: str = "Arial"
+    text: str,
+    font_size: float,
+    font_path: str | None = PLEX_MONO,
+    font: str = "Arial",
+    font_style=None,
 ) -> tuple[float, float]:
     """Measured rendered (width, height) (page-mm) of *text* at *font_size*.
 
@@ -375,6 +380,9 @@ def _text_size(
     """
     if not text:
         return (0.0, 0.0)
+    text_kwargs = {}
+    if font_style is not None:
+        text_kwargs["font_style"] = font_style
     bb = Text(
         txt=text,
         font_size=font_size,
@@ -382,6 +390,7 @@ def _text_size(
         font_path=font_path,
         align=(Align.CENTER, Align.CENTER),
         mode=Mode.PRIVATE,
+        **text_kwargs,
     ).bounding_box()
     return (bb.size.X, bb.size.Y)
 
@@ -435,6 +444,49 @@ def _dim(p1, p2, side, distance, draft, **kwargs):
     built this way are re-placeable by :meth:`Drawing.repair`.
     """
     d = Dimension(p1, p2, side, distance, draft, **kwargs)
+    # helpers >= the label-polygon release retains this exact geometry itself.
+    # Until that release is the minimum supported version, give engine-built
+    # dimensions the same public metadata from the inputs we already own.  Do
+    # not infer the polygon from ``label_bbox``: on a diagonal that box is the
+    # inflated AABB whose ambiguity the polygon exists to remove (#1322 review).
+    if not hasattr(type(d), "label_polygon"):
+        label = kwargs.get("label")
+        if label is None:
+            try:
+                label = draft._number_with_units(d.measured_length, kwargs.get("tolerance"))
+            except Exception:  # noqa: BLE001 — compatibility with custom Draft-like objects
+                label = d.label
+        box = d.label_bbox
+        if isinstance(label, str) and label and box is not None:
+            if kwargs.get("basic", False):
+                x0, y0, x1, y1 = box
+                d.label_polygon = ((x0, y0), (x1, y0), (x1, y1), (x0, y1))
+            else:
+                width, height = _text_size(
+                    label,
+                    draft.font_size,
+                    getattr(draft, "font_path", DEFAULT_FONT_PATH),
+                    draft.font,
+                    getattr(draft, "font_style", None),
+                )
+                cx, cy = (box[0] + box[2]) / 2.0, (box[1] + box[3]) / 2.0
+                angle = math.degrees(math.atan2(p2[1] - p1[1], p2[0] - p1[0]))
+                if not -90.0 < angle <= 90.0:
+                    angle -= math.copysign(180.0, angle)
+                angle += float(kwargs.get("rotation", 0.0))
+                cos_a, sin_a = math.cos(math.radians(angle)), math.sin(math.radians(angle))
+                d.label_polygon = tuple(
+                    (
+                        cx + x * cos_a - y * sin_a,
+                        cy + x * sin_a + y * cos_a,
+                    )
+                    for x, y in (
+                        (-width / 2.0, -height / 2.0),
+                        (width / 2.0, -height / 2.0),
+                        (width / 2.0, height / 2.0),
+                        (-width / 2.0, height / 2.0),
+                    )
+                )
     d._dw_spec = SimpleNamespace(
         p1=p1, p2=p2, side=side, distance=abs(distance), draft=draft, kwargs=kwargs
     )

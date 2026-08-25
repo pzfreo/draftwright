@@ -18,6 +18,8 @@ from draftwright.linting.ink_overlap import (
     DIAGONAL_DIM_TOLERANCE_MM,
     MIN_CROSSING_MM,
     Crossing,
+    LabelRegion,
+    crossable_region,
     crossing_length,
     is_tight,
     label_crossings,
@@ -186,6 +188,33 @@ class TestCrossingLength:
         )
         assert measure(clips, BOX) < MIN_CROSSING_MM
 
+    def test_connected_segments_inside_the_label_are_one_stroke(self):
+        """A renderer may split one continuous path at an ordinary vertex.
+
+        Each piece is below the floor, but the connected 0.8 mm stroke is not.
+        The shared endpoint lies inside the label, which distinguishes this from
+        independent corner grazes.
+        """
+        box = (0.0, 0.0, 1.0, 1.0)
+        connected = _Annotation(
+            [
+                ((-1.0, 0.5), (0.4, 0.5)),
+                ((0.4, 0.5), (0.8, 0.5)),
+            ]
+        )
+        assert measure(connected, box) == pytest.approx(0.8)
+        assert measure(connected, box) >= MIN_CROSSING_MM
+
+    def test_segments_connected_only_outside_the_label_do_not_add(self):
+        box = (0.0, 0.0, 1.0, 1.0)
+        outside_joint = _Annotation(
+            [
+                ((-1.0, 0.1), (0.4, 0.1)),
+                ((-1.0, 0.1), (0.4, 0.2)),
+            ]
+        )
+        assert measure(outside_joint, box) < MIN_CROSSING_MM
+
     def test_a_three_coordinate_point_is_rejected_rather_than_raising(self):
         """A `build123d.Vector` yields THREE coordinates under `tuple()`.
 
@@ -349,15 +378,18 @@ class TestTheFloor:
 class _DiagonalDim:
     """A dimension whose own line runs on a diagonal, so its label is rotated."""
 
-    _dw_spec = type("Spec", (), {"p1": (0.0, 0.0, 0.0), "p2": (10.0, 10.0, 0.0)})()
+    measured_length = 10.0
+    segments = (((0.0, 0.0), (10.0, 10.0)),)
 
 
 class _AxisAlignedDim:
-    _dw_spec = type("Spec", (), {"p1": (0.0, 0.0, 0.0), "p2": (10.0, 0.0, 0.0)})()
+    measured_length = 10.0
+    segments = (((0.0, 0.0), (10.0, 0.0)),)
 
 
 class _VerticalDim:
-    _dw_spec = type("Spec", (), {"p1": (0.0, 0.0, 0.0), "p2": (0.0, 10.0, 0.0)})()
+    measured_length = 10.0
+    segments = (((0.0, 0.0), (0.0, 10.0)),)
 
 
 class TestRotationIsAskedOfTheAnnotation:
@@ -373,11 +405,19 @@ class TestRotationIsAskedOfTheAnnotation:
     `2.0 * font_size` **square by construction** — 5.000 x 5.000 mm, aspect 1.000,
     a genuine tight frame around a letter.
 
-    A box cannot say whether it is rotated. A dimension's spec can.
+    A box cannot say whether it is rotated. A dimension's public segment
+    metadata can, and its exact label polygon makes the rotated region measurable.
     """
 
     def test_a_diagonal_dimension_label_is_not_measurable(self):
         assert not is_tight((10.0, 10.0, 20.0, 20.0), _DiagonalDim())
+
+    def test_a_diagonal_dimension_with_a_polygon_is_measurable(self):
+        item = _DiagonalDim()
+        item.label_polygon = ((12.0, 10.0), (20.0, 18.0), (18.0, 20.0), (10.0, 12.0))
+        region = crossable_region((10.0, 10.0, 20.0, 20.0), item=item)
+        assert isinstance(region, LabelRegion)
+        assert region.polygon == item.label_polygon
 
     def test_an_axis_aligned_dimension_label_is_measurable(self):
         assert is_tight((10.0, 10.0, 20.0, 12.2), _AxisAlignedDim())
@@ -396,27 +436,31 @@ class TestRotationIsAskedOfTheAnnotation:
         assert is_tight((0.0, 0.0, 25.161, 6.150), object())
         assert is_tight((0.0, 0.0, 25.0, 12.3), object())
 
-    def test_an_item_with_no_spec_is_measurable(self):
+    def test_an_item_with_no_dimension_metadata_is_measurable(self):
         assert is_tight((10.0, 10.0, 20.0, 12.2), None)
         assert is_tight((10.0, 10.0, 20.0, 12.2), object())
 
-    def test_a_hostile_spec_does_not_exclude(self):
+    def test_a_hostile_polygon_does_not_kill_the_check(self):
         class Hostile:
             @property
-            def _dw_spec(self):
+            def label_polygon(self):
                 raise RuntimeError("boom")
 
         assert is_tight((10.0, 10.0, 20.0, 12.2), Hostile())
 
     def test_the_tolerance_is_the_repair_pass_figure(self):
         """Shared with `repair.reconcile_witness_labels`, which asks the same
-        question of the same spec with the same tolerance."""
+        orientation question with the same tolerance."""
         assert DIAGONAL_DIM_TOLERANCE_MM == pytest.approx(0.1)
         just_off = type(
-            "D", (), {"_dw_spec": type("S", (), {"p1": (0.0, 0.0), "p2": (10.0, 0.09)})()}
+            "D",
+            (),
+            {"measured_length": 10.0, "segments": (((0.0, 0.0), (10.0, 0.09)),)},
         )()
         just_on = type(
-            "D", (), {"_dw_spec": type("S", (), {"p1": (0.0, 0.0), "p2": (10.0, 0.11)})()}
+            "D",
+            (),
+            {"measured_length": 10.0, "segments": (((0.0, 0.0), (10.0, 0.11)),)},
         )()
         assert is_tight((10.0, 10.0, 20.0, 12.2), just_off)
         assert not is_tight((10.0, 10.0, 20.0, 12.2), just_on)
@@ -474,7 +518,7 @@ class TestTheExclusionIsLoud:
     for line-work through it. That must never be silent (#701)."""
 
     def test_an_untight_box_warns(self):
-        with _logs("too large and too square"):
+        with _logs("no exact label_polygon"):
             assert (
                 warn_if_untight((38.298, 176.558, 48.495, 186.755), item=_DiagonalDim()) is False
             )
@@ -516,7 +560,7 @@ class TestTheReportIsLoggedNotWarned:
     """
 
     def test_an_untight_box_is_reported(self):
-        with _logs("too large and too square"):
+        with _logs("no exact label_polygon"):
             assert (
                 warn_if_untight((38.298, 176.558, 48.495, 186.755), item=_DiagonalDim()) is False
             )

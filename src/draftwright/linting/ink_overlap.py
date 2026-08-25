@@ -28,8 +28,9 @@ return *different* lists for the same drawing. On `_issue_881_y_step_flange`,
 dimension lines lie along each other; 0.10.0 returns none of them. That changed
 a 2.28 mm gap into a bridged one, and the shared-ink check reported the defect
 on one kernel and not the other — a 14% margin on a clustering constant deciding
-whether a visible defect was seen at all. Segment endpoints come from the
-annotation's own spec, not from a boolean, so both kernels see the same numbers.
+whether a visible defect was seen at all. Segment endpoints and exact label
+polygons come from annotation metadata, not from a boolean, so both kernels see
+the same numbers.
 
 **It cost a boolean per pair.** Measured across the 23 STEP fixtures in
 `tests/fixtures`, that was +79% build time (264.6s -> 473.9s) and it exhausted
@@ -155,11 +156,12 @@ _log = logging.getLogger(__name__)
 #: 30° measures 7.251 x 5.208, an aspect of 1.39, which reads as tight while the
 #: box holds 37.8 mm² against 13.0 mm² of glyphs.
 #:
-#: A box cannot say whether it is rotated. A dimension's *spec* can, and does:
-#: `p1 -> p2` is the line its label runs along. So the question is asked of the
-#: annotation, only annotations that can be rotated are excluded, and everything
-#: with no such spec — datum symbols, control frames, callouts, notes — is
-#: measured. That also closes the shallow- and mid-angle gaps shape could not.
+#: A box cannot say whether it is rotated. ``Dimension.label_polygon`` can: it
+#: retains the exact four corners computed by the renderer before that rectangle
+#: became an AABB. Older direct ``Dimension`` objects are recognised from their
+#: public ``measured_length`` and first dimension-line segment; a diagonal one
+#: without the polygon is excluded loudly rather than measured against geometry
+#: known to be false. No private draftwright placement spec participates.
 DIAGONAL_DIM_TOLERANCE_MM = 0.1
 
 #: How far another annotation's line-work may run through a label's text box
@@ -216,6 +218,14 @@ class Crossing:
 
     def is_reportable(self) -> bool:
         return self.length >= MIN_CROSSING_MM
+
+
+@dataclass(frozen=True)
+class LabelRegion:
+    """A label's reporting AABB and optional exact convex keep-clear polygon."""
+
+    box: tuple[float, float, float, float]
+    polygon: tuple[tuple[float, float], ...] | None = None
 
 
 def _warn_once(message: str, seen, key=None) -> None:
@@ -335,14 +345,85 @@ def segments_of(item, seen=None) -> tuple:
     return tuple(kept)
 
 
-def length_inside(segment, box) -> float:
-    """Length of *segment* lying inside axis-aligned *box*.
+def _is_polygon(value) -> bool:
+    """Whether *value* is a usable ordered convex page-plane polygon."""
+    if not isinstance(value, (tuple, list)) or len(value) < 3:
+        return False
+    if not all(
+        isinstance(point, (tuple, list))
+        and len(point) == 2
+        and all(isinstance(coordinate, (int, float)) for coordinate in point)
+        for point in value
+    ):
+        return False
+    signs = []
+    for index, point in enumerate(value):
+        nxt = value[(index + 1) % len(value)]
+        after = value[(index + 2) % len(value)]
+        cross = (nxt[0] - point[0]) * (after[1] - nxt[1]) - (nxt[1] - point[1]) * (
+            after[0] - nxt[0]
+        )
+        if abs(cross) > 1e-12:
+            signs.append(math.copysign(1.0, cross))
+    return bool(signs) and all(sign == signs[0] for sign in signs)
 
-    A thin derivation from `_geometry._segment_clip_extent`, not a second clipper.
-    That helper already clips a segment to a box for lint — `structural.py` uses it
+
+def _region_box(region) -> tuple[float, float, float, float] | None:
+    if isinstance(region, LabelRegion):
+        return region.box
+    return tuple(region) if _is_box(region) else None
+
+
+def _region_polygon(region) -> tuple[tuple[float, float], ...] | None:
+    if isinstance(region, LabelRegion) and region.polygon is not None:
+        return region.polygon
+    return None
+
+
+def _length_inside_polygon(segment, polygon) -> float:
+    """Length of a segment inside an ordered convex polygon (Cyrus-Beck)."""
+    area2 = sum(
+        point[0] * polygon[(index + 1) % len(polygon)][1]
+        - polygon[(index + 1) % len(polygon)][0] * point[1]
+        for index, point in enumerate(polygon)
+    )
+    orientation = 1.0 if area2 > 0.0 else -1.0
+    start, end = segment
+    dx, dy = end[0] - start[0], end[1] - start[1]
+    t0, t1 = 0.0, 1.0
+    for index, edge_start in enumerate(polygon):
+        edge_end = polygon[(index + 1) % len(polygon)]
+        ex, ey = edge_end[0] - edge_start[0], edge_end[1] - edge_start[1]
+        at_start = orientation * (
+            ex * (start[1] - edge_start[1]) - ey * (start[0] - edge_start[0])
+        )
+        along = orientation * (ex * dy - ey * dx)
+        if abs(along) < 1e-12:
+            if at_start < -1e-12:
+                return 0.0
+            continue
+        boundary_t = -at_start / along
+        if along > 0.0:
+            t0 = max(t0, boundary_t)
+        else:
+            t1 = min(t1, boundary_t)
+        if t0 > t1:
+            return 0.0
+    return float(math.hypot(dx, dy) * max(0.0, t1 - t0))
+
+
+def length_inside(segment, region) -> float:
+    """Length of *segment* lying inside a label region.
+
+    Axis-aligned regions remain a thin derivation from
+    `_geometry._segment_clip_extent`, not a second box clipper. That helper
+    already clips a segment to a box for lint — `structural.py` uses it
     for `label_centerline_overlap`, whose docstring says lint measures "only the
     rendered part that actually reaches a label (#1144)" — and for a straight
     segment the diagonal of the extent it returns *is* the clipped length.
+
+    A rotated ``Dimension.label_polygon`` is clipped against its actual convex
+    rectangle. This is still arithmetic over metadata, not a CAD-kernel boolean.
 
     An earlier revision here was its own Liang-Barsky implementation. It agreed
     with the shared one on every case tried except the boundary, where it returned
@@ -352,33 +433,97 @@ def length_inside(segment, box) -> float:
     shared convention wins: CLAUDE.md asks for a shared pass extended rather than
     a copy, and a boundary is a measure-zero case not worth a second answer to.
     """
+    polygon = _region_polygon(region)
+    if polygon is not None:
+        return _length_inside_polygon(segment, polygon)
+    box = _region_box(region)
+    if box is None:
+        return 0.0
     clipped = _segment_clip_extent(segment[0], segment[1], box, 0.0)
     if clipped is None:
         return 0.0
     return float(math.hypot(clipped[2] - clipped[0], clipped[3] - clipped[1]))
 
 
-def crossing_length(segments, label_box) -> float:
-    """The longest single stroke of *item* running through *label_box*.
+def _point_in_region(point, region) -> bool:
+    polygon = _region_polygon(region)
+    if polygon is None:
+        box = _region_box(region)
+        return bool(
+            box is not None
+            and box[0] - 1e-9 <= point[0] <= box[2] + 1e-9
+            and box[1] - 1e-9 <= point[1] <= box[3] + 1e-9
+        )
+    area2 = sum(
+        vertex[0] * polygon[(index + 1) % len(polygon)][1]
+        - polygon[(index + 1) % len(polygon)][0] * vertex[1]
+        for index, vertex in enumerate(polygon)
+    )
+    orientation = 1.0 if area2 > 0.0 else -1.0
+    return all(
+        orientation
+        * (
+            (polygon[(index + 1) % len(polygon)][0] - vertex[0]) * (point[1] - vertex[1])
+            - (polygon[(index + 1) % len(polygon)][1] - vertex[1]) * (point[0] - vertex[0])
+        )
+        >= -1e-9
+        for index, vertex in enumerate(polygon)
+    )
 
-    The longest, not the total. ``MIN_CROSSING_MM`` is justified as a guard
-    against corner-clipping, and summing defeats it: a callout with a shaft, an
-    elbow and a shelf each clipping a corner by 0.15 mm totals 0.45 mm of
-    "crossing" while nothing is drawn over a character. What the check claims in
-    its message — that a line is drawn through the text — is a statement about one
-    stroke, so one stroke is what is measured.
+
+def _shared_endpoint(left, right):
+    for first in left:
+        for second in right:
+            if math.hypot(first[0] - second[0], first[1] - second[1]) <= 1e-9:
+                return ((first[0] + second[0]) / 2.0, (first[1] + second[1]) / 2.0)
+    return None
+
+
+def crossing_length(segments, label_region) -> float:
+    """The longest connected stroke path running through *label_region*.
+
+    Connected pieces are one visual stroke even when the renderer stores them as
+    adjacent segments, so their clipped lengths add. Disjoint pieces do not add:
+    several independent corner grazes must not combine to clear
+    ``MIN_CROSSING_MM``. Segments are joined only at an endpoint that lies inside
+    the label region; pieces that happen to connect elsewhere on the sheet remain
+    separate crossings here.
 
     Takes the segments rather than the annotation so the caller can compute them
     once per item. `segments` is a property that rebuilds its list from the
     annotation's location on every read, and this is called inside an O(n²) loop
     (#161).
     """
-    if not _is_box(label_box):
+    if _region_box(label_region) is None:
         return 0.0
-    return max(
-        (length_inside(segment, label_box) for segment in segments),
-        default=0.0,
-    )
+    segments = tuple(segments)
+    lengths = [length_inside(segment, label_region) for segment in segments]
+    active = [index for index, length in enumerate(lengths) if length > 0.0]
+    if not active:
+        return 0.0
+    parent = {index: index for index in active}
+
+    def find(index):
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    def union(left, right):
+        left_root, right_root = find(left), find(right)
+        if left_root != right_root:
+            parent[right_root] = left_root
+
+    for offset, left in enumerate(active):
+        for right in active[offset + 1 :]:
+            joint = _shared_endpoint(segments[left], segments[right])
+            if joint is not None and _point_in_region(joint, label_region):
+                union(left, right)
+    totals: dict[int, float] = {}
+    for index in active:
+        root = find(index)
+        totals[root] = totals.get(root, 0.0) + lengths[index]
+    return max(totals.values(), default=0.0)
 
 
 def _is_box(value) -> bool:
@@ -406,8 +551,92 @@ def shorter_side(label_box) -> float:
     return float(min(label_box[2] - label_box[0], label_box[3] - label_box[1]))
 
 
-def warn_if_untight(label_box, seen=None, item=None) -> bool:
-    """Whether *label_box* is tight, warning once if it is not.
+def _polygon_of(item, seen=None, report=False):
+    try:
+        polygon = getattr(item, "label_polygon", None)
+    except Exception as exc:  # noqa: BLE001 — duck-typed items may misbehave
+        if report:
+            _warn_once(
+                f"{type(item).__name__}: reading label_polygon raised "
+                f"{type(exc).__name__}; its exact label region is unavailable",
+                seen,
+                key=("label_polygon", id(item)),
+            )
+        return None
+    if polygon is None:
+        return None
+    if _is_polygon(polygon):
+        return tuple((float(point[0]), float(point[1])) for point in polygon)
+    if report:
+        _warn_once(
+            f"{type(item).__name__}: label_polygon is not an ordered convex polygon; "
+            "its exact label region is unavailable",
+            seen,
+            key=("badpolygon", id(item)),
+        )
+    return None
+
+
+def _polygon_matches_box(polygon, box) -> bool:
+    """Whether the polygon is located with the AABB it claims to refine."""
+    xs, ys = zip(*polygon, strict=True)
+    actual = (min(xs), min(ys), max(xs), max(ys))
+    return all(abs(found - expected) <= 1e-6 for found, expected in zip(actual, box, strict=True))
+
+
+def crossable_region(
+    label_box,
+    *,
+    item=None,
+    segments=None,
+    seen=None,
+    report=False,
+) -> LabelRegion | None:
+    """Return the honest clipping region for *item*'s label, or ``None``.
+
+    Exact ``label_polygon`` metadata wins. Axis-aligned labels use their AABB.
+    A diagonal dimension with no exact polygon is excluded because clipping its
+    inflated AABB produces known false positives; the public dimension-line
+    segments classify it, never the optional private ``_dw_spec``.
+    """
+    if not _is_box(label_box) or shorter_side(label_box) <= 0.0:
+        if report and not _is_box(label_box):
+            _warn_once(
+                f"{type(item).__name__ if item is not None else 'annotation'}: "
+                f"label_bbox is not a box ({label_box!r}); it is excluded from "
+                "annotation_ink_overlap",
+                seen,
+                key=("badbox", id(item)),
+            )
+        return None
+    box = tuple(float(value) for value in label_box)
+    polygon = _polygon_of(item, seen, report)
+    if polygon is not None and _polygon_matches_box(polygon, box):
+        return LabelRegion(box=box, polygon=polygon)
+    if polygon is not None and report:
+        _warn_once(
+            f"{type(item).__name__}: label_polygon does not match its current label_bbox; "
+            "the exact label region is unavailable",
+            seen,
+            key=("stale-polygon", id(item)),
+        )
+    if not _is_diagonal_dimension(item, segments):
+        return LabelRegion(box=box)
+    if report:
+        width = label_box[2] - label_box[0]
+        height = label_box[3] - label_box[1]
+        _warn_once(
+            f"label box {width:.3f} x {height:.3f} mm belongs to a diagonal "
+            "dimension but has no exact label_polygon; line-work through it is "
+            "not measured (annotation_ink_overlap)",
+            seen,
+            key=("untight", tuple(label_box)),
+        )
+    return None
+
+
+def warn_if_untight(label_box, seen=None, item=None, segments=None) -> bool:
+    """Whether *label_box* has an honest clipping region, reporting exclusions.
 
     Call this **once per item**, not once per pair: `_label_bbox` in
     `structural.py` memoises its own warning for exactly this reason (#711), since
@@ -417,35 +646,20 @@ def warn_if_untight(label_box, seen=None, item=None) -> bool:
     reader gets no finding for line-work through it, and a check that quietly
     stops covering an annotation is the #701 failure this module keeps meeting.
     """
-    if is_tight(label_box, item):
-        return True
-    if not _is_box(label_box):
-        # Present but not a box at all. Every sibling exclusion path logs, and
-        # this one returned silently — the #701 shape the module is loud about
-        # everywhere else.
-        _warn_once(
-            f"{type(item).__name__ if item is not None else 'annotation'}: "
-            f"label_bbox is not a box ({label_box!r}); it is excluded from "
-            "annotation_ink_overlap",
-            seen,
-            key=("badbox", id(item)),
+    return (
+        crossable_region(
+            label_box,
+            item=item,
+            segments=segments,
+            seen=seen,
+            report=True,
         )
-        return False
-    width = label_box[2] - label_box[0]
-    height = label_box[3] - label_box[1]
-    _warn_once(
-        f"label box {width:.3f} x {height:.3f} mm is too large and too square to be "
-        "a fit around its text: the dimension it labels runs on a diagonal, so "
-        "the box is a rotated rectangle's bounding box and line-work through it "
-        "is not measured (annotation_ink_overlap)",
-        seen,
-        key=("untight", tuple(label_box)),
+        is not None
     )
-    return False
 
 
 def is_tight(label_box, item=None) -> bool:
-    """Whether *label_box* fits its text closely enough for clipping to be honest.
+    """Whether *label_box* has geometry tight enough for honest clipping.
 
     See :data:`DIAGONAL_DIM_TOLERANCE_MM`. The box must be a box, and *item* — the
     annotation that owns it — must not be a dimension whose own line runs on a
@@ -456,26 +670,27 @@ def is_tight(label_box, item=None) -> bool:
     nothing but the pair itself, so a verdict cannot change because of an
     unrelated annotation elsewhere on the sheet.
     """
-    if not _is_box(label_box):
-        return False
-    if shorter_side(label_box) <= 0.0:
-        return False
-    return not _is_diagonal_dimension(item)
+    return crossable_region(label_box, item=item) is not None
 
 
-def _is_diagonal_dimension(item) -> bool:
+def _is_diagonal_dimension(item, segments=None) -> bool:
     """Whether *item* is a dimension whose line runs neither horizontally nor
     vertically, so its label is drawn at an angle.
 
-    The same test and tolerance `repair.reconcile_witness_labels` applies to the
-    same question. Read defensively: a duck-typed item (ADR 0005) with no spec, or
-    a spec that does not answer, is not a diagonal dimension.
+    ``Dimension`` documents ``measured_length`` and ``segments`` as public
+    metadata. Its first segment is a piece of the dimension line (the witnesses
+    follow), so that direction remains authoritative after construction and
+    location transforms. An object without that public dimension surface is not
+    classified as a dimension at all.
     """
     try:
-        spec = getattr(item, "_dw_spec", None)
-        if spec is None:
+        measured = getattr(item, "measured_length", None)
+        if not isinstance(measured, (int, float)):
             return False
-        p1, p2 = spec.p1, spec.p2
+        available = tuple(segments) if segments is not None else segments_of(item)
+        if not available:
+            return False
+        p1, p2 = available[0]
         dx, dy = abs(p2[0] - p1[0]), abs(p2[1] - p1[1])
     except Exception:  # noqa: BLE001 — duck-typed items may misbehave
         return False
@@ -503,19 +718,19 @@ def label_crossings(
     """
     # Defensive only: callers are expected to have excluded untight boxes already,
     # once per item rather than once per pair — see `warn_if_untight`.
-    if not is_tight(label_a):
+    if _region_box(label_a) is None:
         label_a = None
-    if not is_tight(label_b):
+    if _region_box(label_b) is None:
         label_b = None
     found = [
         Crossing(
             length=crossing_length(segments_a, label_b),
-            label_box=tuple(label_b) if label_b else None,
+            label_box=_region_box(label_b),
             crosses_b=True,
         ),
         Crossing(
             length=crossing_length(segments_b, label_a),
-            label_box=tuple(label_a) if label_a else None,
+            label_box=_region_box(label_a),
             crosses_b=False,
         ),
     ]

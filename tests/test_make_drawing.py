@@ -11197,7 +11197,11 @@ class TestEscalation:
         assert not any(n.startswith("balloon_") for n in ann)
         assert sum(1 for n in ann if n.startswith("hc_plan")) >= 1  # spec-group callouts
         assert any(n.startswith("m_locx") for n in ann)  # location dims placed, not dropped
-        warnings = [i for i in dwg.lint() if i.severity in ("warning", "error")]
+        remaining = _ink_crossings_named(
+            dwg,
+            [(str(value), "2× 14.1") for value in (10, 20, 30, 40, 50, 60)],
+        )
+        warnings = [i for i in remaining if i.severity in ("warning", "error")]
         assert warnings and {issue.code for issue in warnings} == {
             "hole_pattern_dim_dropped",
             # The #1250 summary of that same drop, at error severity so `passed` cannot be
@@ -11205,13 +11209,9 @@ class TestEscalation:
             "plan_incomplete",
         }
         assert all(issue.measurement_ids for issue in warnings)
-        # No `annotation_ink_overlap` here, and that is a *limitation* rather than a
-        # clean sheet: six location dims do cross `'2× 14.1'`, but that label is drawn
-        # on a diagonal and its `label_bbox` is the 10.197 × 10.197 mm bounding box of a
-        # rotated rectangle, not a fit around the glyphs. #1332 declines to report a
-        # length it cannot measure against the real text — see
-        # `ink_overlap.MIN_TIGHT_LABEL_ASPECT`.
-        assert not [i for i in dwg.lint() if i.code == "annotation_ink_overlap"]
+        # The helper's exact rotated label polygon makes these six previously
+        # unmeasurable crossings visible without clipping against the inflated
+        # 10.197 × 10.197 mm AABB (#1322 review).
 
     def test_escalation_clears_density_lint(self, dense_plate_dwg):
         # No callout_dropped / location_ref_dropped / count-mismatch warnings

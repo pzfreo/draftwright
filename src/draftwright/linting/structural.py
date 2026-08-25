@@ -23,7 +23,7 @@ from draftwright._geometry import (
     _segment_clips_box,
     material_reentry_span,
 )
-from draftwright.linting.ink_overlap import label_crossings, segments_of, warn_if_untight
+from draftwright.linting.ink_overlap import crossable_region, label_crossings, segments_of
 from draftwright.linting.issues import LintIssue, _IssueAggregation
 from draftwright.projection import _MATERIAL_PAGE_TOLERANCE
 
@@ -377,7 +377,7 @@ def lint_drawing(
     # read. Measured on `nist_ctc_02_asme1_ap203` (162 annotations) that cost
     # +32% of lint time, and a build lints 3-7 times.
     label_boxes: list = []
-    crossable_boxes: list = []
+    crossable_regions: list = []
     ink_segments: list = []
     # Per-run memo for the "cannot measure this" warnings, so one diagonal label
     # warns once for the whole lint rather than once per pass — `repair()` lints
@@ -392,8 +392,17 @@ def lint_drawing(
         # annotation extent including witness lines, and it began firing on pairs
         # it had never reported. Only the ink check may treat an untight box as
         # absent. Excluded once per item so the warning cannot repeat per pair.
-        crossable_boxes.append(_box if warn_if_untight(_box, warned_unmeasurable, item) else None)
-        ink_segments.append(segments_of(item, warned_unmeasurable))
+        item_segments = segments_of(item, warned_unmeasurable)
+        ink_segments.append(item_segments)
+        crossable_regions.append(
+            crossable_region(
+                _box,
+                item=item,
+                segments=item_segments,
+                seen=warned_unmeasurable,
+                report=True,
+            )
+        )
 
     boxes: list = []
     for index, item in enumerate(items):
@@ -457,8 +466,8 @@ def lint_drawing(
                 crossings_here = label_crossings(
                     ink_segments[i],
                     ink_segments[j],
-                    label_a=crossable_boxes[i],
-                    label_b=crossable_boxes[j],
+                    label_a=crossable_regions[i],
+                    label_b=crossable_regions[j],
                 )
                 also_crosses = bool(crossings_here)
                 if not also_crosses:
@@ -523,8 +532,8 @@ def lint_drawing(
             for crossing in label_crossings(
                 ink_segments[i],
                 ink_segments[j],
-                label_a=crossable_boxes[i],
-                label_b=crossable_boxes[j],
+                label_a=crossable_regions[i],
+                label_b=crossable_regions[j],
             ):
                 crosser, crossed = (item_a, item_b) if crossing.crosses_b else (item_b, item_a)
                 lc = getattr(crosser, "label", None) or _item_label(crosser) or "?"

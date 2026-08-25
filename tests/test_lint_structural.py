@@ -191,6 +191,65 @@ class TestAnnotationOverlapLabelBbox:
         assert overlaps, "identical dims with overlapping labels should fire annotation_overlap"
 
 
+class TestDiagonalDimensionInkOverlap:
+    @staticmethod
+    def _foreign_line(y, x0, x1):
+        return SimpleNamespace(
+            label="FOREIGN",
+            label_bbox=(100.0, 100.0, 110.0, 103.0),
+            segments=(((x0, y), (x1, y)),),
+        )
+
+    def test_direct_dimension_does_not_treat_aabb_corner_as_text(self, draft):
+        """A direct helper Dimension has no draftwright placement spec.
+
+        Old helper releases expose no exact polygon, so lint explicitly excludes
+        the known-inflated diagonal AABB. New releases expose the polygon and the
+        same corner line clips only a sub-floor sliver. Neither may report the
+        old 3 mm false crossing.
+        """
+        dim = Dimension((0, 0, 0), (10, 10, 0), "above", 4, draft, label="10")
+        x0, _y0, x1, y1 = dim.label_bbox
+        foreign = self._foreign_line(y1 - 0.05, x0, x1)
+
+        crossings = [
+            issue
+            for issue in lint_drawing([dim, foreign])
+            if issue.code == "annotation_ink_overlap"
+        ]
+        assert not any("through the label '10'" in issue.message for issue in crossings)
+
+    def test_direct_dimension_real_polygon_crossing_is_reported_when_available(self, draft):
+        dim = Dimension((0, 0, 0), (10, 10, 0), "above", 4, draft, label="10")
+        if getattr(dim, "label_polygon", None) is None:
+            pytest.skip("installed helper predates public Dimension.label_polygon")
+        x0, y0, x1, y1 = dim.label_bbox
+        foreign = self._foreign_line((y0 + y1) / 2.0, x0 - 1.0, x1 + 1.0)
+
+        crossings = [
+            issue
+            for issue in lint_drawing([dim, foreign])
+            if issue.code == "annotation_ink_overlap"
+        ]
+        assert any("through the label '10'" in issue.message for issue in crossings)
+
+    def test_engine_dimension_backfills_polygon_until_helper_release(self, draft):
+        from draftwright._core import _dim
+        from draftwright.linting.ink_overlap import crossable_region, segments_of
+
+        dim = _dim((0, 0, 0), (10, 10, 0), "above", 4, draft, label="10")
+        assert getattr(dim, "label_polygon", None) is not None
+        assert crossable_region(dim.label_bbox, item=dim, segments=segments_of(dim)) is not None
+
+    def test_engine_dimension_backfills_formatted_default_label(self, draft):
+        from draftwright._core import _dim
+        from draftwright.linting.ink_overlap import crossable_region, segments_of
+
+        dim = _dim((0, 0, 0), (10, 10, 0), "above", 4, draft)
+        assert getattr(dim, "label_polygon", None) is not None
+        assert crossable_region(dim.label_bbox, item=dim, segments=segments_of(dim)) is not None
+
+
 class TestLintViewShapes:
     """Tests for view_shapes parameter — #159 (view vs annotation) and #160 (view vs view)."""
 
