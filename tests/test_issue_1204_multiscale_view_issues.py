@@ -205,7 +205,7 @@ class TestTheCountsDoNotMoveWithTheGrouping:
         # produces none, so only a real part covers it. CTC-05 has two genuine scale groups
         # (0.2 and 1.0).
         #
-        # An earlier version stopped there and constrained NOTHING: both leader findings
+        # An earlier version stopped there and constrained NOTHING: the leader findings
         # sit at scale 0.2, which was group index 0 and always got the flag. Moving the
         # guard above the leader loop — dropping those findings for every later group —
         # passed all 4,178 tests, while the comment here claimed the half was covered.
@@ -214,7 +214,8 @@ class TestTheCountsDoNotMoveWithTheGrouping:
         # there is no index at all, so this now asserts the property directly: the tag
         # changes nothing.
         drawing = build_drawing(step_file="tests/fixtures/nist_ctc_05_asme1_ap242.stp")
-        assert _counts(drawing)["leader_crosses_silhouette"] == 2, "fixture changed"
+        before = _counts(drawing)["leader_crosses_silhouette"]
+        assert before > 0, "fixture no longer supplies a real leader finding"
 
         drawing.items[0]._dw_scale = drawing.scale * 97
         order = []
@@ -231,7 +232,7 @@ class TestTheCountsDoNotMoveWithTheGrouping:
             f"the leader-carrying group is still first ({order}, leaders at {leaders}), so "
             f"this asserts nothing about the flag"
         )
-        assert _counts(drawing)["leader_crosses_silhouette"] == 2, (
+        assert _counts(drawing)["leader_crosses_silhouette"] == before, (
             "the leader findings of a later scale group were lost"
         )
 

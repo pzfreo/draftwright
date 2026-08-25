@@ -75,9 +75,14 @@ def _assert_ctc_diagnostic_contract(dwg, svg_path, dxf_path, *, expect_incomplet
 
     errors = [i for i in dwg.lint() if i.severity == "error"]
     if expect_incomplete:
-        assert [i.code for i in errors] == ["plan_incomplete"], (
-            f"expected the known incomplete plan, got {[(i.code, i.message) for i in errors]}"
-        )
+        codes = [i.code for i in errors]
+        # ``overall_dim_withheld`` is a measurement-specific explanation of the same
+        # incomplete plan, not a second unrelated standards failure. It may precede the
+        # aggregate terminal issue when a mandatory extent cannot fit (#1215).
+        assert codes in (
+            ["plan_incomplete"],
+            ["overall_dim_withheld", "plan_incomplete"],
+        ), f"expected the known incomplete plan, got {[(i.code, i.message) for i in errors]}"
         assert dwg.scale_decision["status"] == "incomplete"
         assert dwg.lint_summary()["passed"] is False
     else:

@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, replace
-from itertools import chain, groupby, islice, tee
+from itertools import groupby, tee
 from typing import Any
 
 from build123d_drafting import DatumFeature, FeatureControlFrame, SurfaceFinish, TextBlock
@@ -75,10 +75,11 @@ from draftwright.annotations._common import (
     _same_location_ordinate,
     _with_hole_center_coverage,
     _with_hole_location_coverage,
-    annotation_obstacle_boxes,
+    analytical_leader_lands_clear,
     carve_free_position,
     dim_footprint,
     full_strip_message,
+    leader_callout_geometry,
     place_strip_candidates,
     register_corridor,
     strip_free_span,
@@ -86,18 +87,13 @@ from draftwright.annotations._common import (
     strip_occupants,
 )
 from draftwright.annotations.leaders import (
-    _GREEDY_MATERIAL_LOOKAHEAD,
     FeatureLeaderJob,
-    _assign_by_view,
     collect_feature_leader,
     material_penalty_units,
+    place_feature_leader_jobs,
     view_material,
 )
-from draftwright.layout import (
-    _LEADER_ASSIGN_MAX_JOBS,
-    StripCandidate,
-    plan_strip,
-)
+from draftwright.layout import StripCandidate, plan_strip
 
 # Re-exported: `annotations/holes.py` and the tests import the spec from here, and the
 # renderer is its natural home from a caller's point of view even though the reading
@@ -1486,7 +1482,7 @@ def _render_typed_diameter_leaders(dwg, a, indexed_buckets, *, prefix, start, ct
                 ),
             )
         )
-    return _leader_callout_pass(
+    return place_machined_leader_jobs(
         dwg,
         a,
         jobs,
@@ -1666,7 +1662,7 @@ def render_diameters(dwg, plan, a, tol: float = 0.15, *, ctx, only=None) -> int:
                 owner = next(iter(refs)) if len(refs) == 1 else None
                 # Materialise now: a generator expression would close over ``owner``
                 # and all jobs would read the final loop iteration's feature when
-                # _leader_callout_pass consumes them (#890).
+                # place_machined_leader_jobs consumes them (#890).
                 candidates = [
                     (tip, elbow, owner)
                     for tip, elbow, _feature in _radial_candidates(
@@ -1699,7 +1695,7 @@ def render_diameters(dwg, plan, a, tol: float = 0.15, *, ctx, only=None) -> int:
                 )
                 jobs.append((name, "front", vb, label, candidates, mids))
                 covered_by_name[name] = dia
-            placed += _leader_callout_pass(
+            placed += place_machined_leader_jobs(
                 dwg,
                 a,
                 jobs,
@@ -1872,32 +1868,6 @@ def _leader_callout_reach(draft) -> float:
     return float(draft.font_size + 6 * draft.pad_around_text)
 
 
-def _label_lands_clear(ldr, obstacles, silhouette, page, *, geom_clear=False) -> bool:
-    """True when a leader's LABEL box sits in clear margin: off other annotations
-    (*obstacles*), off the part *silhouette* (the leader line may cross into the view, its
-    text may not), and inside the *page* margin box. The single accept test the callout
-    passes share (was the identical six-line guard, copied five times).
-
-    With *geom_clear* the obstacle test uses the FULL ``_geom_box`` footprint (shaft +
-    arrow + label) instead of the label box — the shaft is the invisible occupant a
-    label-only box hides (#133/#305/#358), so a rim-anchored boss ø leader must clear
-    the other callouts/witnesses along its whole length (#629/#700). The silhouette/
-    page checks stay on the label box, since such a shaft legitimately starts inside
-    the view."""
-    geom = _geom_box(ldr) if geom_clear else None
-    label = getattr(ldr, "label_bbox", None) or (geom if geom_clear else _anno_box(ldr))
-    if label is None or (geom_clear and geom is None):
-        return False
-    return not (
-        _box_hits(geom if geom_clear else label, obstacles)
-        or _box_hits(label, [silhouette])
-        or label[0] < page[0]
-        or label[1] < page[1]
-        or label[2] > page[2]
-        or label[3] > page[3]
-    )
-
-
 def _corner_candidates(dwg, view, vb, members, reach, *, provenances=None, cylinders=None):
     """Lead candidates for a corner-sitting feature (chamfer/fillet/flat): from each member's
     projected origin, a diagonal from the view centre out through the corner, *reach* beyond
@@ -1990,37 +1960,7 @@ def _flat_candidates(dwg, view, vb, members, reach, *, provenances):
         )
 
 
-_LEADER_ASSIGN_MAX_CANDIDATES = 256
-_LEADER_ASSIGN_MAX_PAIR_PROBES = 100_000
-
-
-@dataclass(frozen=True)
-class _LeaderPassCandidate:
-    """One measured alternative for the bounded #740 within-pass assignment."""
-
-    tip: tuple
-    elbow: tuple
-    feature: Any
-    leader: Any
-    raw_index: int
-    check_box: tuple
-    obstacle_boxes: tuple
-    cost: float
-
-
-def _leader_candidate_check_box(leader, *, geom_clear):
-    """The footprint the candidate itself must keep clear of earlier leaders.
-
-    This is the obstacle half of :func:`_label_lands_clear`, factored so the
-    joint assignment uses exactly the same rule as the former sequential pass.
-    """
-
-    geom = _geom_box(leader) if geom_clear else None
-    label = getattr(leader, "label_bbox", None) or (geom if geom_clear else _anno_box(leader))
-    return geom if geom_clear else label
-
-
-def _leader_callout_pass(
+def place_machined_leader_jobs(
     dwg,
     a,
     jobs,
@@ -2032,414 +1972,138 @@ def _leader_callout_pass(
     joint=False,
     source_ids_by_name=None,
 ) -> int:
-    """Place one machined-feature leader callout per job (#637/#740). A *job* is
-    ``(name, view, vb, label, candidates, measurement)`` where *candidates* yields ``(tip,
-    elbow, feature)`` lead positions to try in order and *measurement* is the tuple of
-    `DimensionId`s the callout's label draws — several, because these callouts are compound:
-    a pocket prints width × length × depth, a groove width × ⌀ (#1002 r3, which found the
-    whole machined-feature group recording nothing at all).
-    The six scoped post-drain adapters pass ``joint=True``. Their candidate geometry is
-    collected before anything is emitted. Fixed-obstacle eligibility and pairwise conflicts
-    use the same rendered occupancy as the old first-clear loop; the geometry-only layout
-    solver then maximises placed jobs, minimises total leader length, and uses candidate order
-    as the deterministic final tie-break. Alternative construction, pass size, pair
-    construction, and the exact search are bounded. If any budget is reached, the legacy
-    greedy result is retained, so resource pressure can never place fewer callouts than before
-    #740. Pre-drain diameter/pattern consumers leave ``joint=False`` because their winners
-    affect later semantic passes; #740 deliberately does not change that stage boundary.
+    """Lower every machined callout to the one shared ``FeatureLeaderJob`` path.
 
-    A selected Leader is attributed to that candidate's feature; every unselected job records
-    ``<noun> callout … not placed`` as ``<drop_code>`` lint (never a silent drop). Returns the
-    count placed.
+    Post-drain families join the canonical late inventory.  Pre-drain families
+    are solved immediately through that same analytical machinery with its lazy
+    producer floor, preserving both their semantic stage and first-clear order.
+    """
 
-    Traced (#736): with ``ctx.trace`` on, one ``pass_events`` record
-    (``<noun>_callouts``) carries a per-job item — name, view, label, candidates
-    tried, obstacle count, placed tip/elbow or the drop reason. Post-#734 these
-    callouts place after the drain, so without this the #733 story ("why did this
-    pocket callout land here / drop") would be invisible to the trace."""
     source_ids_by_name = source_ids_by_name or {}
-    # Keep alternatives lazy until the bounded joint tier is known to be usable.
-    # This matters for one grouped job with many members: counting jobs or
-    # cross-job pairs alone cannot protect its collect-all OCC construction.
-    jobs = [(*job[:4], iter(job[4]), job[5]) for job in jobs]
-    if not jobs:
-        return 0
+    late_inventory = joint and getattr(ctx, "feature_leaders", None) is not None
+    feature_jobs = []
+    for name, view, silhouette, label, raw_candidates, measurement in jobs:
+        joint_candidates, fallback_candidates = tee(iter(raw_candidates))
 
-    def record_drop(
-        label,
-        measurement,
-        *,
-        source_ids=(),
-        reason="no_clear_room",
-    ) -> None:
-        """Record every pass drop through one provenance-preserving producer."""
+        def _lane_candidates(_raw=joint_candidates):
+            spacing = dwg.draft.font_size + 2 * dwg.draft.pad_around_text
+            for tip, elbow, feature in _raw:
+                dx, dy = float(elbow[0]) - float(tip[0]), float(elbow[1]) - float(tip[1])
+                length = math.hypot(dx, dy)
+                if length <= 1e-12:
+                    yield (tip, elbow, feature)
+                    continue
+                ux, uy = dx / length, dy / length
+                px, py = -dy / length, dx / length
+                for outward, lane in (
+                    (0, 0),
+                    (0, 1),
+                    (0, -1),
+                    (0, 2),
+                    (0, -2),
+                    (1, 0),
+                    (2, 0),
+                    (1, 1),
+                    (1, -1),
+                ):
+                    yield (
+                        tip,
+                        (
+                            float(elbow[0]) + ux * spacing * outward + px * spacing * lane,
+                            float(elbow[1]) + uy * spacing * outward + py * spacing * lane,
+                            0,
+                        ),
+                        feature,
+                    )
 
-        validation = reason == "geometry_validation"
-        detail = "rendered geometry validation failed" if validation else "no clear room"
-        ctx.record_issue(
-            "warning",
-            drop_code,
-            f"{noun} callout {label} not placed ({detail})",
-            measurement=measurement,
-            source=tuple(source_ids),
-            outcome_stage="validation" if validation else "placement",
+        def _build(tip, elbow, _feature, *, _label=label):
+            return Leader(tip=(tip[0], tip[1], 0), elbow=elbow, label=_label, draft=dwg.draft)
+
+        label_width, label_height = _text_size(
+            str(label),
+            float(dwg.draft.font_size),
+            getattr(dwg.draft, "font_path", DEFAULT_FONT_PATH),
+            getattr(dwg.draft, "font", "Arial"),
+        )
+        label_box = (
+            (0.0, 0.0, label_width, label_height)
+            if label_width > 0.0 and label_height > 0.0
+            else None
         )
 
-    if joint and getattr(ctx, "feature_leaders", None) is not None:
-        for name, view, vb, label, raw_candidates, measurement in jobs:
-            joint_candidates, fallback_candidates = tee(raw_candidates)
+        def _analytical_geometry(tip, elbow, _feature, *, _label_box=label_box):
+            if _label_box is None:
+                return None
+            return leader_callout_geometry(tip, elbow, dwg.draft, callout_box=_label_box)
 
-            def _lane_candidates(_raw=joint_candidates):
-                spacing = dwg.draft.font_size + 2 * dwg.draft.pad_around_text
-                for tip, elbow, feature in _raw:
-                    dx, dy = float(elbow[0]) - float(tip[0]), float(elbow[1]) - float(tip[1])
-                    length = math.hypot(dx, dy)
-                    if length <= 1e-12:
-                        yield (tip, elbow, feature)
-                        continue
-                    ux, uy = dx / length, dy / length
-                    px, py = -dy / length, dx / length
-                    for outward, lane in (
-                        (0, 0),
-                        (0, 1),
-                        (0, -1),
-                        (0, 2),
-                        (0, -2),
-                        (1, 0),
-                        (2, 0),
-                        (1, 1),
-                        (1, -1),
-                    ):
-                        yield (
-                            tip,
-                            (
-                                float(elbow[0]) + ux * spacing * outward + px * spacing * lane,
-                                float(elbow[1]) + uy * spacing * outward + py * spacing * lane,
-                                0,
-                            ),
-                            feature,
-                        )
-
-            def _build(tip, elbow, _feature, *, _label=label):
-                return Leader(
-                    tip=(tip[0], tip[1], 0),
-                    elbow=elbow,
-                    label=_label,
-                    draft=dwg.draft,
-                )
-
-            def _fallback_accept(
+        def _fallback_accept(
+            candidate,
+            obstacles,
+            page,
+            *,
+            _silhouette=silhouette,
+            _geom_clear=geom_clear,
+            _label=label,
+        ):
+            return analytical_leader_lands_clear(
                 candidate,
                 obstacles,
+                _silhouette,
                 page,
-                *,
-                _vb=vb,
-                _geom_clear=geom_clear,
-            ):
-                return _label_lands_clear(
-                    candidate.annotation,
-                    obstacles,
-                    _vb,
-                    page,
-                    geom_clear=_geom_clear,
-                )
-
-            source_ids = tuple(source_ids_by_name.get(name, ()))
-
-            def _on_drop(
-                reason,
-                *,
-                _source_ids=source_ids,
-                _label=label,
-                _measurement=measurement,
-            ):
-                record_drop(
-                    _label,
-                    _measurement,
-                    source_ids=_source_ids,
-                    reason=reason,
-                )
-
-            collect_feature_leader(
-                ctx,
-                FeatureLeaderJob(
-                    name=name,
-                    view=view,
-                    silhouette=vb,
-                    label=label,
-                    candidates=_lane_candidates(),
-                    build=_build,
-                    measurement=tuple(measurement),
-                    noun=noun,
-                    drop_code=drop_code,
-                    fallback_candidates=fallback_candidates,
-                    fallback_accept=_fallback_accept,
-                    # Fixed dimensions/witnesses are exact-ink constraints in
-                    # the shared solve.  If every relocation is worse, retain
-                    # the established semantic callout only through explicit
-                    # Policy B: the solver penalises the crossing and the
-                    # emitter records a machine-readable warning (#1166).
-                    allow_policy_b_fixed=True,
-                    on_drop=_on_drop if source_ids else None,
-                ),
+                label=_label,
+                geom_clear=_geom_clear,
             )
+
+        source_ids = tuple(source_ids_by_name.get(name, ()))
+
+        def _on_drop(
+            reason,
+            *,
+            _source_ids=source_ids,
+            _label=label,
+            _measurement=measurement,
+        ):
+            validation = reason == "geometry_validation"
+            detail = "rendered geometry validation failed" if validation else "no clear room"
+            ctx.record_issue(
+                "warning",
+                drop_code,
+                f"{noun} callout {_label} not placed ({detail})",
+                measurement=_measurement,
+                source=_source_ids,
+                outcome_stage="validation" if validation else "placement",
+            )
+
+        feature_jobs.append(
+            FeatureLeaderJob(
+                name=name,
+                view=view,
+                silhouette=silhouette,
+                label=label,
+                candidates=_lane_candidates() if late_inventory else joint_candidates,
+                build=_build,
+                analytical_geometry=_analytical_geometry,
+                measurement=tuple(measurement),
+                noun=noun,
+                drop_code=drop_code,
+                fallback_candidates=fallback_candidates,
+                fallback_accept=_fallback_accept,
+                allow_policy_b_fixed=True,
+                on_drop=_on_drop if source_ids else None,
+            )
+        )
+
+    if late_inventory:
+        for job in feature_jobs:
+            collect_feature_leader(ctx, job)
         return 0
-    trace = getattr(ctx, "trace", None)
-    ev = trace.pass_event(f"{noun}_callouts") if trace is not None else None
-    page = (a.margin, a.margin, a.PAGE_W - a.margin, a.PAGE_H - a.margin)
-
-    def trace_item(
-        name,
-        view,
-        label,
-        raw_count,
-        obstacle_count,
-        candidate=None,
-        *,
-        viable=None,
-        drop_reason="no_clear_room",
-    ):
-        if ev is None:
-            return
-        item = {
-            "name": name,
-            "view": view,
-            "label": label,
-            "candidates_tried": raw_count,
-            "obstacles": obstacle_count,
-        }
-        if viable is not None:
-            item["viable_candidates"] = viable
-        if candidate is None:
-            item.update({"outcome": "dropped", "reason": drop_reason})
-        else:
-            item.update(
-                {
-                    "outcome": "placed",
-                    "candidate": candidate.raw_index,
-                    "tip": [candidate.tip[0], candidate.tip[1]],
-                    "elbow": [candidate.elbow[0], candidate.elbow[1]],
-                }
-            )
-        ev["items"].append(item)
-
-    def place(candidate, job) -> None:
-        name, view, _vb, _label, _raw, measurement = job
-        # Compiled renderers carry opaque FeatureRefs so they cannot recover
-        # measurements from the source feature. Provenance is the one seam where
-        # the registry intentionally needs the source object itself (#1002).
-        ctx.place(
-            candidate.leader,
-            name,
-            view=view,
-            feature=resolve_feature(candidate.feature),
-            measurement=measurement,
-        )
-
-    def greedy(reason: str) -> int:
-        """The exact pre-#740 first-clear loop, retained as the bounded fallback."""
-
-        if ev is not None:
-            ev.update({"assignment": reason, "optimal": False})
-        placed_count = 0
-        for job in jobs:
-            name, view, vb, label, raw_candidates, measurement = job
-            obstacles = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
-            field = view_material(dwg, view)
-            tried = 0
-            chosen = None
-            # Acceptable-but-cutting alternatives, held while a bounded lookahead searches
-            # for one that clears the body (#1187). Empty in the common case, where the
-            # first acceptable route already clears and this breaks exactly where the
-            # pre-#798 loop did.
-            held: list[tuple[int, int, Any]] = []
-            examined_since_accept = None
-            for raw_index, (tip, elbow, feature) in enumerate(raw_candidates):
-                tried = raw_index + 1
-                if examined_since_accept is not None:
-                    examined_since_accept += 1
-                    if examined_since_accept > _GREEDY_MATERIAL_LOOKAHEAD:
-                        break
-                leader = Leader(tip=(tip[0], tip[1], 0), elbow=elbow, label=label, draft=dwg.draft)
-                if not _label_lands_clear(leader, obstacles, vb, page, geom_clear=geom_clear):
-                    continue
-                candidate = _LeaderPassCandidate(
-                    tip,
-                    elbow,
-                    feature,
-                    leader,
-                    raw_index,
-                    _leader_candidate_check_box(leader, geom_clear=geom_clear),
-                    tuple(annotation_obstacle_boxes(dwg, leader)),
-                    math.hypot(elbow[0] - tip[0], elbow[1] - tip[1]),
-                )
-                units = material_penalty_units(tip, elbow, field)
-                if units:
-                    # Eligible, but it cuts the part. Policy B keeps a required callout at
-                    # a logged cost rather than dropping it, so this is only ever a
-                    # preference — the candidate stays available if nothing clearer is.
-                    held.append((units, raw_index, candidate))
-                    if examined_since_accept is None:
-                        examined_since_accept = 0
-                    continue
-                chosen = candidate
-                break
-            if chosen is None and held:
-                chosen = min(held, key=lambda entry: entry[:2])[2]
-            if chosen is not None:
-                place(chosen, job)
-                trace_item(name, view, label, tried, len(obstacles), chosen)
-                placed_count += 1
-            else:
-                record_drop(
-                    label,
-                    measurement,
-                    source_ids=source_ids_by_name.get(name, ()),
-                )
-                trace_item(name, view, label, tried, len(obstacles))
-        return placed_count
-
-    if not joint:
-        return greedy("greedy_legacy_scope")
-
-    # Apply the pure solver's recursion bound before constructing any OCC
-    # candidate geometry. The fallback creates at most the alternatives the old
-    # first-clear loop actually visits, so an oversized pass cannot pay the
-    # collect-all cost merely to discover that it is outside the exact tier.
-    if len(jobs) > _LEADER_ASSIGN_MAX_JOBS:
-        return greedy("greedy_job_budget")
-
-    # Materialise at most the cheap tuple alternatives allowed into the joint
-    # tier. On the first excess item, restore the consumed prefix in front of the
-    # still-lazy tail and run the old loop. The fallback therefore constructs at
-    # most as many OCC Leaders as pre-#740 did, even for one enormous grouped job.
-    candidate_count = 0
-    for job_index, job in enumerate(jobs):
-        remaining = _LEADER_ASSIGN_MAX_CANDIDATES - candidate_count
-        raw_candidates = job[4]
-        prefix = list(islice(raw_candidates, remaining + 1))
-        if len(prefix) > remaining:
-            jobs[job_index] = (*job[:4], chain(prefix, raw_candidates), job[5])
-            return greedy("greedy_candidate_budget")
-        jobs[job_index] = (*job[:4], prefix, job[5])
-        candidate_count += len(prefix)
-
-    fixed_obstacles = {
-        view: strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
-        for view in dict.fromkeys(job[1] for job in jobs)
-    }
-    candidates_by_job: list[list[_LeaderPassCandidate]] = []
-    for _name, view, vb, label, raw_candidates, _measurement in jobs:
-        viable = []
-        for raw_index, (tip, elbow, feature) in enumerate(raw_candidates):
-            leader = Leader(tip=(tip[0], tip[1], 0), elbow=elbow, label=label, draft=dwg.draft)
-            if not _label_lands_clear(
-                leader,
-                fixed_obstacles[view],
-                vb,
-                page,
-                geom_clear=geom_clear,
-            ):
-                continue
-            check_box = _leader_candidate_check_box(leader, geom_clear=geom_clear)
-            viable.append(
-                _LeaderPassCandidate(
-                    tip,
-                    elbow,
-                    feature,
-                    leader,
-                    raw_index,
-                    check_box,
-                    tuple(annotation_obstacle_boxes(dwg, leader)),
-                    # Leader adds the same 2 mm landing segment to every
-                    # alternative. Cardinality is the primary objective, so
-                    # only this variable tip-to-elbow length affects ranking.
-                    math.hypot(elbow[0] - tip[0], elbow[1] - tip[1]),
-                )
-            )
-        candidates_by_job.append(viable)
-
-    # Only same-view candidates can become obstacles to one another. Apply the
-    # deterministic probe budget before entering the quadratic geometry loop.
-    pair_probes = 0
-    prior_by_view: dict[str, int] = {}
-    for job, candidates in zip(jobs, candidates_by_job, strict=True):
-        view = job[1]
-        pair_probes += prior_by_view.get(view, 0) * len(candidates)
-        prior_by_view[view] = prior_by_view.get(view, 0) + len(candidates)
-        if pair_probes > _LEADER_ASSIGN_MAX_PAIR_PROBES:
-            return greedy("greedy_pair_budget")
-
-    conflicts = []
-    for later_job, later_candidates in enumerate(candidates_by_job):
-        later_view = jobs[later_job][1]
-        for earlier_job in range(later_job):
-            if jobs[earlier_job][1] != later_view:
-                continue
-            for earlier_index, earlier in enumerate(candidates_by_job[earlier_job]):
-                for later_index, later in enumerate(later_candidates):
-                    if _box_hits(later.check_box, earlier.obstacle_boxes):
-                        conflicts.append((earlier_job, earlier_index, later_job, later_index))
-
-    # Same material term and same per-view decomposition as the shared inventory
-    # (#798/#1188): a within-pass callout is no more entitled to cut the part than a
-    # shared one, and its conflicts are likewise same-view only.
-    assignment = _assign_by_view(
-        [job[1] for job in jobs],
-        [[candidate.cost for candidate in candidates] for candidates in candidates_by_job],
-        conflicts,
-        priorities=[0.0] * len(jobs),
-        penalties_by_job=[
-            [
-                material_penalty_units(candidate.tip, candidate.elbow, view_material(dwg, job[1]))
-                for candidate in candidates
-            ]
-            for job, candidates in zip(jobs, candidates_by_job, strict=True)
-        ],
+    return place_feature_leader_jobs(
+        dwg,
+        a,
+        ctx,
+        feature_jobs,
+        producer_floor=not late_inventory,
     )
-    if ev is not None:
-        ev.update(
-            {
-                "assignment": "joint" if assignment.optimal else "joint_budget_incumbent",
-                "optimal": assignment.optimal,
-                "states": assignment.states,
-                "pair_probes": pair_probes,
-            }
-        )
-
-    placed_count = 0
-    for job_index, (job, choice) in enumerate(zip(jobs, assignment.choices, strict=True)):
-        name, view, _vb, label, raw_candidates, measurement = job
-        candidates = candidates_by_job[job_index]
-        if choice is not None:
-            candidate = candidates[choice]
-            place(candidate, job)
-            trace_item(
-                name,
-                view,
-                label,
-                len(raw_candidates),
-                len(fixed_obstacles[view]),
-                candidate,
-                viable=len(candidates),
-            )
-            placed_count += 1
-            continue
-        record_drop(
-            label,
-            measurement,
-            source_ids=source_ids_by_name.get(name, ()),
-        )
-        trace_item(
-            name,
-            view,
-            label,
-            len(raw_candidates),
-            len(fixed_obstacles[view]),
-            viable=len(candidates),
-            drop_reason="assignment_conflict" if candidates else "no_clear_room",
-        )
-    return placed_count
 
 
 def render_chamfers(dwg, plan, a, *, ctx, only=None) -> int:
@@ -2532,7 +2196,7 @@ def render_chamfers(dwg, plan, a, *, ctx, only=None) -> int:
                 tuple(pd.id for _, pd in members),
             )
         )
-    return _leader_callout_pass(
+    return place_machined_leader_jobs(
         dwg,
         a,
         jobs,
@@ -2666,7 +2330,7 @@ def render_fillets(dwg, plan, a, *, ctx, only=None) -> int:
                 tuple(pd.id for _, pd in members),
             )
         )
-    return _leader_callout_pass(
+    return place_machined_leader_jobs(
         dwg,
         a,
         jobs,
@@ -2772,7 +2436,7 @@ def render_flats(dwg, plan, a, *, ctx, only=None) -> int:
                 tuple(pd.id for _, pd in ordered),  # the grouped callout draws every member
             )
         )
-    return _leader_callout_pass(
+    return place_machined_leader_jobs(
         dwg,
         a,
         jobs,
@@ -2997,7 +2661,7 @@ def render_pockets(dwg, plan, a, *, ctx, only=None) -> int:
                 (wpd.id, lpd.id, dpd.id),  # width × length × depth, one callout (#1002)
             )
         )
-    return _leader_callout_pass(
+    return place_machined_leader_jobs(
         dwg,
         a,
         jobs,
@@ -3062,7 +2726,7 @@ def render_grooves(dwg, plan, a, *, ctx, only=None) -> int:
                 (wpd.id, dpd.id),  # one callout, two measurements (#1002)
             )
         )
-    return _leader_callout_pass(
+    return place_machined_leader_jobs(
         dwg,
         a,
         jobs,
@@ -3088,7 +2752,7 @@ def render_boss_diameters(dwg, plan, a, *, ctx) -> int:
     Run BEFORE ``render_diameters`` so a placed boss ø is 'mentioned' and not re-placed. A boss
     whose ø a coincident feature already carries is skipped; an unplaceable one drops lint-visibly.
 
-    Placement rides the shared :func:`_leader_callout_pass` adapter (#700 — never a sixth copy
+    Placement rides the shared :func:`place_machined_leader_jobs` adapter (#700 — never a sixth copy
     of the ray-exit loop, #637): rim-anchored :func:`_radial_candidates`, accepted with
     ``geom_clear`` (the full shaft, not just the label, must clear other annotations)."""
     if a.is_rotational or a.prof is not None:
@@ -3137,7 +2801,7 @@ def render_boss_diameters(dwg, plan, a, *, ctx) -> int:
                 (dpd.id,),
             )
         )
-    return _leader_callout_pass(
+    return place_machined_leader_jobs(
         dwg, a, jobs, noun="boss", drop_code="boss_dia_dropped", ctx=ctx, geom_clear=True
     )
 
@@ -3214,7 +2878,7 @@ def _render_polygonal_prisms(
                 (dimension.id,),
             )
         )
-    return _leader_callout_pass(
+    return place_machined_leader_jobs(
         dwg,
         a,
         jobs,

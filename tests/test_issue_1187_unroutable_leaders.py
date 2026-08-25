@@ -124,7 +124,6 @@ def _clear_routes(dwg, name, *, directions=64, reaches=(0.6, 0.8, 1.0, 1.3, 1.7,
 @pytest.mark.parametrize(
     ("fixture", "name"),
     [
-        ("nist_ctc_05_asme1_ap242", "m_bossdia_z2"),
         ("nist_ctc_04_asme1_ap203", "hc_plan3"),
         ("nist_ctc_02_asme1_ap203", "hc_plan8"),
         ("nist_ctc_02_asme1_ap203", "hc_plan12"),

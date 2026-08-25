@@ -41,8 +41,17 @@ from draftwright.layout import (
 from draftwright.model.compiled import resolve_feature
 from draftwright.projection import _MATERIAL_PAGE_TOLERANCE
 
-_FEATURE_LEADER_MAX_CANDIDATES = 512
-_FEATURE_LEADER_MAX_FIXED_PROBES = 100_000
+# One unit is the measured ~0.1 ms analytical candidate cost from #1308.  A real
+# OCC Leader probe costs ~14.8 ms on the same corpus, so it is charged 150 units.
+# The default preserves the former 512-OCC-probe ceiling while allowing the cheap
+# analytical tier to spend the same bounded wall-work budget on more alternatives.
+_FEATURE_LEADER_ANALYTICAL_MEASURE_WORK = 1
+_FEATURE_LEADER_OCC_MEASURE_WORK = 150
+_FEATURE_LEADER_MAX_MEASURE_WORK = 512 * _FEATURE_LEADER_OCC_MEASURE_WORK
+
+# Fixed-ink inventory components and candidate×component probes are already direct
+# measured operations, so one component/probe is one work unit (#1308).
+_FEATURE_LEADER_MAX_FIXED_WORK = 100_000
 _FEATURE_LEADER_MAX_PAIR_PROBES = 100_000
 _FIXED_INVENTORY_EXHAUSTED = object()
 
@@ -139,6 +148,14 @@ class _FixedInkComponent:
     kind: str = ""
     segment: tuple[tuple[float, float], tuple[float, float]] | None = None
     global_axis: bool = False
+
+
+def _candidate_measure_work(job: FeatureLeaderJob) -> int:
+    return (
+        _FEATURE_LEADER_ANALYTICAL_MEASURE_WORK
+        if job.analytical_geometry is not None
+        else _FEATURE_LEADER_OCC_MEASURE_WORK
+    )
 
 
 def collect_feature_leader(ctx, job: FeatureLeaderJob) -> bool:
@@ -1169,11 +1186,33 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
         return 0
     jobs = list(pending)
     pending.clear()
+    return place_feature_leader_jobs(dwg, analysis, ctx, jobs)
+
+
+def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False) -> int:
+    """Solve explicit jobs now through the shared analytical leader machinery.
+
+    Pre-drain semantic consumers use ``producer_floor=True`` to retain their
+    established first-clear ordering without postponing their winners to the
+    canonical late inventory.  Candidate measurement and survivor validation
+    remain the same shared path; only the assignment tier is fixed to the lazy
+    producer floor.
+    """
+
+    jobs = list(jobs)
     if not jobs:
         return 0
 
     trace = getattr(ctx, "trace", None)
-    shared_event = trace.pass_event("feature_leader_inventory") if trace is not None else None
+    # ``feature_leader_inventory`` is the authoritative cross-pass drain event: consumers
+    # and performance ratchets select it to measure the shared late solve. Immediate
+    # pre-drain batches retain their noun event below, but must not impersonate that drain
+    # merely because they now share its analytical implementation (#1308 release gate).
+    shared_event = (
+        trace.pass_event("feature_leader_inventory")
+        if trace is not None and not producer_floor
+        else None
+    )
     noun_events = (
         {
             noun: trace.pass_event(f"{noun}_callouts")
@@ -1196,6 +1235,7 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
     )
     raw_jobs = []
     fallback_jobs = []
+    measurement_work_by_view: dict[str, int] = {}
     for job in jobs:
         if job.fallback_candidates is None:
             joint, fallback = tee(job.candidates)
@@ -1235,7 +1275,7 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
         cached = provisional_inventory if provisional else committed_inventory
         if cached is not inventory_unset:
             return cached
-        remaining = _FEATURE_LEADER_MAX_FIXED_PROBES
+        remaining = _FEATURE_LEADER_MAX_FIXED_WORK
         lowered: dict[str, tuple[_FixedInkComponent, ...]] = {}
         result = {}
         for view in views:
@@ -1383,6 +1423,13 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
         than looking clean merely because the trace recorder was disabled.
         """
 
+        if producer_floor:
+            # Immediate pre-drain consumers retain their historical diagnostic
+            # contract as well as their selection order. Their later semantic
+            # passes already diagnose the resulting drawing; this late-inventory
+            # Policy-B finding was never part of the immediate producer floor.
+            return
+
         unverified = "fixed_probe_budget" in blockers
         crossed = tuple(
             blocker
@@ -1445,7 +1492,13 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
                         "states": states,
                         "fixed_probes": fixed_probes,
                         "fixed_probe_bound": fixed_probe_bound,
+                        "fixed_work_limit": _FEATURE_LEADER_MAX_FIXED_WORK,
                         "pair_probes": pair_probes,
+                        "joint_measurement_work": sum(measurement_work_by_view.values()),
+                        "joint_measurement_work_by_view": dict(measurement_work_by_view),
+                        "joint_measurement_work_limit_per_view": (
+                            _FEATURE_LEADER_MAX_MEASURE_WORK
+                        ),
                         "provisional_refinement": provisional_refinement,
                         "inventory_jobs": len(jobs),
                         "objective": {
@@ -1567,7 +1620,7 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
                         break
                 fixed_components = fixed[job.view]
                 if fixed_verified and (
-                    actual_fixed_probes + len(fixed_components) <= _FEATURE_LEADER_MAX_FIXED_PROBES
+                    actual_fixed_probes + len(fixed_components) <= _FEATURE_LEADER_MAX_FIXED_WORK
                 ):
                     blockers = _fixed_blockers(candidate, job, page, fixed_components)
                     actual_fixed_probes += len(fixed_components)
@@ -1661,7 +1714,7 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
                     fixed_components = fixed[job.view]
                     if fixed_verified and (
                         actual_fixed_probes + len(fixed_components)
-                        <= _FEATURE_LEADER_MAX_FIXED_PROBES
+                        <= _FEATURE_LEADER_MAX_FIXED_WORK
                     ):
                         blockers = _fixed_blockers(candidate, job, page, fixed_components)
                         actual_fixed_probes += len(fixed_components)
@@ -1742,7 +1795,7 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
             place(job_index, selected, annotation)
             record_policy_b(job_index, selected_policy_b)
             if fixed_verified:
-                remaining_components = _FEATURE_LEADER_MAX_FIXED_PROBES - sum(
+                remaining_components = _FEATURE_LEADER_MAX_FIXED_WORK - sum(
                     len(components) for components in fixed.values()
                 )
                 if remaining_components <= 0:
@@ -1796,6 +1849,9 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
         )
         return placed_count
 
+    if producer_floor:
+        return greedy("greedy_stage_boundary")
+
     if len(jobs) > _LEADER_ASSIGN_MAX_JOBS:
         return greedy("greedy_job_budget")
 
@@ -1805,29 +1861,31 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
     # inventory each view could actually handle, and every dense fixture fell back to the
     # greedy floor before the exact solve began.
     candidate_counts_by_job = []
-    candidates_by_view: dict[str, int] = {}
     for job_index, iterator in enumerate(raw_jobs):
         view = jobs[job_index].view
-        remaining = _FEATURE_LEADER_MAX_CANDIDATES - candidates_by_view.get(view, 0)
-        prefix = list(islice(iterator, remaining + 1))
-        if len(prefix) > remaining:
+        unit_work = _candidate_measure_work(jobs[job_index])
+        used_work = measurement_work_by_view.get(view, 0)
+        remaining_work = max(0, _FEATURE_LEADER_MAX_MEASURE_WORK - used_work)
+        admitted = remaining_work // unit_work
+        prefix = list(islice(iterator, admitted + 1))
+        measurement_work_by_view[view] = used_work + len(prefix) * unit_work
+        if len(prefix) > admitted:
             raw_jobs[job_index] = chain(prefix, iterator)
             return greedy("greedy_candidate_budget")
         raw_jobs[job_index] = iter(prefix)
-        candidates_by_view[view] = candidates_by_view.get(view, 0) + len(prefix)
         candidate_counts_by_job.append(len(prefix))
 
     fixed = bounded_fixed_obstacles()
     if fixed is _FIXED_INVENTORY_EXHAUSTED:
         return greedy(
             "greedy_fixed_inventory_budget",
-            fixed_probe_bound=_FEATURE_LEADER_MAX_FIXED_PROBES + 1,
+            fixed_probe_bound=_FEATURE_LEADER_MAX_FIXED_WORK + 1,
         )
     probes_by_view: dict[str, int] = {}
     for count, job in zip(candidate_counts_by_job, jobs, strict=True):
         probes_by_view[job.view] = probes_by_view.get(job.view, 0) + count * len(fixed[job.view])
     fixed_probe_bound = sum(probes_by_view.values())
-    if any(bound > _FEATURE_LEADER_MAX_FIXED_PROBES for bound in probes_by_view.values()):
+    if any(bound > _FEATURE_LEADER_MAX_FIXED_WORK for bound in probes_by_view.values()):
         return greedy(
             "greedy_fixed_probe_budget",
             fixed_probe_bound=fixed_probe_bound,
@@ -1970,7 +2028,7 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
                 job.view, 0
             ) + len(candidates) * len(provisional[job.view])
     provisional_probe_bound = (
-        _FEATURE_LEADER_MAX_FIXED_PROBES + 1
+        _FEATURE_LEADER_MAX_FIXED_WORK + 1
         if provisional_inventory_exhausted
         else sum(provisional_probes_by_view.values())
     )
@@ -1986,7 +2044,7 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
         and provisional_probe_bound
         and all(
             probes_by_view.get(view, 0) + provisional_probes_by_view.get(view, 0)
-            <= _FEATURE_LEADER_MAX_FIXED_PROBES
+            <= _FEATURE_LEADER_MAX_FIXED_WORK
             for view in {*probes_by_view, *provisional_probes_by_view}
         )
     ):

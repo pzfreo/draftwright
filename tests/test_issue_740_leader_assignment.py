@@ -19,7 +19,7 @@ from draftwright.layout import _assign_leader_candidates
 from draftwright.model import FilletFeature, Frame, GrooveFeature, PartModel, pocket
 
 
-def test_joint_assignment_is_scoped_to_the_six_post_drain_adapters():
+def test_late_joint_assignment_stays_scoped_to_the_six_post_drain_adapters():
     root = Path(__file__).parents[1] / "src" / "draftwright" / "annotations"
 
     def call_sites(filename):
@@ -27,7 +27,10 @@ def test_joint_assignment_is_scoped_to_the_six_post_drain_adapters():
         sites = set()
         for function in (node for node in tree.body if isinstance(node, ast.FunctionDef)):
             for call in (node for node in ast.walk(function) if isinstance(node, ast.Call)):
-                if not isinstance(call.func, ast.Name) or call.func.id != "_leader_callout_pass":
+                if (
+                    not isinstance(call.func, ast.Name)
+                    or call.func.id != "place_machined_leader_jobs"
+                ):
                     continue
                 keyword = next((kw.value for kw in call.keywords if kw.arg == "joint"), None)
                 sites.add(
@@ -61,7 +64,7 @@ def test_pre_drain_pattern_keeps_legacy_greedy_semantics(monkeypatch):
     # The joint solve is reached through the per-view decomposition since #1188; that
     # wrapper is the one call site, so it is what a pre-drain pattern must never enter.
     monkeypatch.setattr(
-        "draftwright.annotations.from_model._assign_by_view",
+        "draftwright.annotations.leaders._assign_by_view",
         forbidden_joint_solve,
     )
     member = pocket(
@@ -85,13 +88,10 @@ def test_pre_drain_pattern_keeps_legacy_greedy_semantics(monkeypatch):
     assert [name for name in drawing.annotations() if name.startswith("dim_pocketpat_pitch")]
 
 
-def test_pre_drain_y_diameter_keeps_the_policy_b_fallback_tail(monkeypatch):
-    """A clear ray blocked by fixed ink must not erase later obstructed fallbacks.
+def test_pre_drain_y_diameter_uses_the_shared_analytical_producer_floor(monkeypatch, tmp_path):
+    """The pre-drain semantic stage shares measurement but still emits immediately."""
+    from draftwright.annotations import from_model
 
-    #890 ranks projected-hole-clear rays first, but its pre-drain greedy pass keeps the
-    obstructed Policy-B tail. Filtering that tail for #740's joint tier made this real
-    diameter disappear before it could populate structured/downstream coverage.
-    """
     locations = ((18, 0), (-18, 0), (0, 18), (0, -18))
     part = Cylinder(21, 4)
     for x, y in locations:
@@ -108,38 +108,38 @@ def test_pre_drain_y_diameter_keeps_the_policy_b_fallback_tail(monkeypatch):
         part -= Pos(x, y, 0) * Cylinder(2, 10)
     part = part.rotate(Axis.X, 90)
 
-    def is_diagonal(tip, elbow):
-        return (
-            abs(float(elbow[0]) - float(tip[0])) > 1e-6
-            and abs(float(elbow[1]) - float(tip[1])) > 1e-6
-        )
+    constructed = []
+    real_leader = from_model.Leader
 
-    def controlled_clearance(candidate, _circles):
-        return 1.0 if is_diagonal(candidate[0], candidate[1]) else -1.0
-
-    def clear_ray_is_occupied(leader, obstacles, silhouette, page, *, geom_clear=False):
+    def counted_leader(*args, **kwargs):
+        leader = real_leader(*args, **kwargs)
         if str(leader.label) == "ø25":
-            # Model fixed inventory that blocks every preferred clear ray while one
-            # hole-obstructed Policy-B ray remains usable.
-            return not is_diagonal(leader.tip, leader.elbow)
-        return True
+            constructed.append(leader)
+        return leader
 
-    monkeypatch.setattr(
-        "draftwright.annotations.from_model._leader_hole_clearance",
-        controlled_clearance,
+    monkeypatch.setattr(from_model, "Leader", counted_leader)
+    trace_path = tmp_path / "y-diameter.json"
+    drawing = build_drawing(
+        part,
+        page="A4",
+        scale=1.0,
+        scale_policy="permissive",
+        trace=trace_path,
     )
-    monkeypatch.setattr(
-        "draftwright.annotations.from_model._label_lands_clear",
-        clear_ray_is_occupied,
-    )
-
-    drawing = build_drawing(part, page="A4", scale=1.0, scale_policy="permissive")
 
     diameter = drawing.get_annotation("m_dia_y0")
     assert diameter.label == "ø25"
-    assert not is_diagonal(diameter.tip, diameter.elbow)
+    assert constructed == [diameter], "only the selected analytical survivor builds OCC"
     assert diameter.covers_diameters == (25.0,)
     assert drawing.measurement_keys("m_dia_y0")
+    trace = json.loads(trace_path.read_text(encoding="utf-8"))
+    event = next(
+        item for item in trace["pass_events"] if item["label"] == "Y-axis step diameter_callouts"
+    )
+    assert event["assignment"] == "greedy_stage_boundary"
+    assert any(
+        item["name"] == "m_dia_y0" and item["outcome"] == "placed" for item in event["items"]
+    )
     assert not [
         issue
         for issue in drawing.lint()
@@ -437,6 +437,7 @@ def test_grouped_job_candidate_budget_precedes_occ_construction(monkeypatch, tmp
         return Leader(*args, **kwargs)
 
     monkeypatch.setattr("draftwright.annotations.from_model.Leader", counted_leader)
+    monkeypatch.setattr("draftwright.annotations.leaders._FEATURE_LEADER_MAX_MEASURE_WORK", 512)
     trace_path = tmp_path / "candidate-budget.json"
     drawing = build_drawing(
         shaft,
@@ -454,6 +455,8 @@ def test_grouped_job_candidate_budget_precedes_occ_construction(monkeypatch, tmp
     assert len(drawing.measurement_keys("m_fillet_z0")) == 257
     assert event["assignment"] == "greedy_candidate_budget"
     assert event["optimal"] is False
+    assert event["joint_measurement_work"] > 512
+    assert event["joint_measurement_work_limit_per_view"] == 512
 
 
 def test_grouped_job_at_candidate_budget_still_uses_joint_assignment(monkeypatch, tmp_path):
@@ -466,7 +469,7 @@ def test_grouped_job_at_candidate_budget_still_uses_joint_assignment(monkeypatch
         created += 1
         return Leader(*args, **kwargs)
 
-    monkeypatch.setattr("draftwright.annotations.leaders._FEATURE_LEADER_MAX_CANDIDATES", 54)
+    monkeypatch.setattr("draftwright.annotations.leaders._FEATURE_LEADER_MAX_MEASURE_WORK", 54)
     monkeypatch.setattr("draftwright.annotations.from_model.Leader", counted_leader)
     trace_path = tmp_path / "candidate-budget-boundary.json"
     drawing = build_drawing(
@@ -479,15 +482,19 @@ def test_grouped_job_at_candidate_budget_still_uses_joint_assignment(monkeypatch
     trace = json.loads(trace_path.read_text(encoding="utf-8"))
     event = next(item for item in trace["pass_events"] if item["label"] == "fillet_callouts")
 
-    assert created == 54
+    # All 54 analytical alternatives are measured, but OCC is materialised only for
+    # the selected survivor.
+    assert created == 1
     assert drawing.get_annotation("m_fillet_z0").label == "2× R1"
     assert event["assignment"] == "joint"
     assert event["optimal"] is True
+    assert event["joint_measurement_work"] == 54
+    assert event["joint_measurement_work_limit_per_view"] == 54
 
 
 def test_candidate_budget_is_global_across_jobs(monkeypatch, tmp_path):
     part, model = _crowded_declared_grooves()
-    monkeypatch.setattr("draftwright.annotations.leaders._FEATURE_LEADER_MAX_CANDIDATES", 16)
+    monkeypatch.setattr("draftwright.annotations.leaders._FEATURE_LEADER_MAX_MEASURE_WORK", 16)
     trace_path = tmp_path / "global-candidate-budget.json"
 
     drawing = build_drawing(
@@ -504,6 +511,7 @@ def test_candidate_budget_is_global_across_jobs(monkeypatch, tmp_path):
 
     assert event["assignment"] == "greedy_candidate_budget"
     assert event["optimal"] is False
+    assert event["joint_measurement_work"] > 16
     assert [item["candidates_tried"] for item in event["items"]] == [1, 4, 1]
     assert len([name for name in drawing.annotations() if name.startswith("m_groove")]) == 3
 
@@ -514,7 +522,7 @@ def test_candidate_budget_fallback_restores_consumed_prefix_and_lazy_tail(monkey
         FilletFeature(Frame(origin, "z"), "z", 1.0)
         for origin in ((-1000.0, 0.0, 10.0), (-900.0, 0.0, 10.0), (10.0, 0.0, 10.0))
     ]
-    monkeypatch.setattr("draftwright.annotations.leaders._FEATURE_LEADER_MAX_CANDIDATES", 2)
+    monkeypatch.setattr("draftwright.annotations.leaders._FEATURE_LEADER_MAX_MEASURE_WORK", 2)
     trace_path = tmp_path / "candidate-budget-tail.json"
 
     drawing = build_drawing(
@@ -531,6 +539,7 @@ def test_candidate_budget_fallback_restores_consumed_prefix_and_lazy_tail(monkey
     (item,) = event["items"]
 
     assert event["assignment"] == "greedy_candidate_budget"
+    assert event["joint_measurement_work"] > 2
     assert item["candidates_tried"] == 3
     assert item["candidate"] == 2  # the untouched generator tail, after two invalid members
     assert drawing.get_annotation("m_fillet_z0").label == "3× R1"

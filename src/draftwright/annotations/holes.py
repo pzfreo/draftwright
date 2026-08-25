@@ -61,7 +61,6 @@ from draftwright.annotations._common import (
 from draftwright.annotations.from_model import (
     _diameter_column_left,
     _diameter_row_below,
-    _leader_callout_pass,
     _leader_callout_reach,
     _pocket_label,
     _radial_candidates,
@@ -69,6 +68,7 @@ from draftwright.annotations.from_model import (
     _tol_suffix,
     callout_from_spec,
     hole_callout_spec,
+    place_machined_leader_jobs,
 )
 from draftwright.annotations.leaders import (
     FeatureLeaderJob,
@@ -1832,7 +1832,7 @@ def render_pocket_patterns(dwg, plan, a, *, ctx, only=None) -> int:
             )
         )
         furniture.append((i, g, view, name))
-    placed = _leader_callout_pass(
+    placed = place_machined_leader_jobs(
         dwg, a, jobs, noun="pocket pattern", drop_code="pocket_dropped", ctx=ctx
     )
     placed_names = dwg.annotations()
@@ -1943,7 +1943,7 @@ def render_slot_patterns(dwg, plan, a, *, ctx, only=None) -> int:
             )
         )
         furniture.append((i, g, view, name))
-    placed = _leader_callout_pass(
+    placed = place_machined_leader_jobs(
         dwg, a, jobs, noun="slot pattern", drop_code="slot_dropped", ctx=ctx
     )
     placed_names = dwg.annotations()

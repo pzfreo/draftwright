@@ -456,6 +456,15 @@ def _convex_polygons_overlap(left, right) -> bool:
 
     if len(left) < 3 or len(right) < 3:
         return False
+    left_x, left_y = zip(*left, strict=True)
+    right_x, right_y = zip(*right, strict=True)
+    if (
+        max(left_x) <= min(right_x)
+        or max(right_x) <= min(left_x)
+        or max(left_y) <= min(right_y)
+        or max(right_y) <= min(left_y)
+    ):
+        return False
     axes: list[tuple[float, float]] = []
     for points in (left, right):
         axes.extend(

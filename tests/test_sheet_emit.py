@@ -2568,7 +2568,9 @@ class TestTheDimensionMirror:
         assert "location_off_axis" in roles, f"got {sorted(roles)}"
 
     @pytest.mark.parametrize("name", sorted(_corpus()))
-    def test_the_mirrored_script_draws_what_the_automatic_drawing_draws(self, name):
+    def test_the_mirrored_script_draws_what_the_automatic_drawing_draws(
+        self, name, mirror_automatic_drawings
+    ):
         """The acceptance, per fixture: annotation-set EQUALITY.
 
         On drawn annotations, not emitted text — a text assertion passes on a script that
@@ -2576,11 +2578,7 @@ class TestTheDimensionMirror:
         #932. A corpus rather than one part, because single-fixture guards are how whole
         paths stayed uncovered twice in this series (#925 had no holes, #934 had one ladder).
         """
-        part = self._corpus()[name]
-        model = detect_part_model(part)
-        # Same title/number on both sides — the signature includes the title block, and a
-        # mismatch there would read as a dimension difference.
-        automatic = build_drawing(part, model=model, title="T", number="N")
+        part, model, automatic, _initial = mirror_automatic_drawings[name]
         src = emit_sheet_script(model, "part", "s", title="T", number="N")
         regenerated = self._run(src, part)["sheet"].build()
 
@@ -2681,6 +2679,49 @@ class TestTheDimensionMirror:
 
         assert mirrored is model
         assert synthesised is None
+
+    def test_every_furniture_entry_is_OBSERVED_not_asserted(self, mirror_automatic_drawings):
+        """Every entry must be produced by this corpus. **No exemptions.**
+
+        The first version listed a `section_` family from memory — `section_label`,
+        `section_line` — and the renderer actually emits `section_caption`,
+        `section_arrow_*`, `section_wing_*`. So the list carried three dead entries AND would
+        have reported a real sectioned drawing's caption as unaccounted (#947 review). It had
+        been "validated" only by the length of its prose.
+
+        An entry nobody observes is a guess, and a guess in an allowlist only ever widens
+        what the accounting forgives. So the list is exactly what this corpus draws, and a
+        drawing feature it does not reach — sections, detail views, balloons, hole tables —
+        is deliberately ABSENT. Adding such a fixture then fails loudly, and whoever adds it
+        classifies the annotation with its real name in front of them rather than from memory.
+        """
+        drawn: set[str] = set()
+        for name, (_part, _model, dwg, _initial) in mirror_automatic_drawings.items():
+            expected = self._EXPECTED_KINDS[name]
+            actual = {feature.kind for feature in dwg.model().features}
+            assert expected <= actual, (
+                f"{name}: shared drawing detects {sorted(actual)}, "
+                f"missing {sorted(expected - actual)}"
+            )
+            drawn |= {n for n, _ in dwg.iter_annotations()}
+        unobserved = sorted(
+            prefix for prefix in _SCRIPT_FURNITURE if not any(n.startswith(prefix) for n in drawn)
+        )
+        assert not unobserved, (
+            f"{unobserved} are exempted as furniture but this corpus never draws them — "
+            "remove them, or add a fixture that produces them so the name is observed"
+        )
+
+    def test_shared_mirror_drawings_stay_pristine_after_both_readers(
+        self, mirror_automatic_drawings
+    ):
+        """A mutation by either read-only consumer must fail this named sibling."""
+        changed = {}
+        for name, (_part, _model, drawing, initial) in mirror_automatic_drawings.items():
+            current = _annotation_signature(drawing)
+            if current != initial:
+                changed[name] = (initial, current)
+        assert not changed, f"shared automatic drawings were mutated: {sorted(changed)}"
 
 
 #: Annotations a generated script legitimately does NOT declare, keyed by EXACT name prefix
@@ -3118,6 +3159,24 @@ class TestTheMirrorCoversTheCompiledSet:
                 )
 
 
+@pytest.fixture(scope="module")
+def mirror_automatic_drawings():
+    """One read-only automatic drawing per mirror-corpus part.
+
+    The mirror parity and furniture-accounting readers used to rebuild these same 22
+    drawings independently. Both readers and the mutation sibling deliberately live in
+    ``TestTheDimensionMirror`` because CI's xdist ``loadscope`` groups by class. Keep the
+    initial signature with each case so that sibling proves neither reader mutated the
+    shared Drawing.
+    """
+    cases = {}
+    for name, part in TestTheDimensionMirror._corpus().items():
+        model = detect_part_model(part)
+        drawing = build_drawing(part, model=model, title="T", number="N")
+        cases[name] = (part, model, drawing, _annotation_signature(drawing))
+    return cases
+
+
 class TestTheScriptAccountsForEveryAnnotation:
     """Absence of a `dimension(...)` line means SUPPRESSED — a claim that is only safe over
     the set the emitter can actually express (#939).
@@ -3179,33 +3238,6 @@ class TestTheScriptAccountsForEveryAnnotation:
         cannot tell it from unfinished work, and the list decays into a suppression."""
         for prefix, why in _SCRIPT_FURNITURE.items():
             assert len(why) > 20, f"{prefix} needs a reason it can never be a dimension line"
-
-    def test_every_furniture_entry_is_OBSERVED_not_asserted(self):
-        """Every entry must be produced by this corpus. **No exemptions.**
-
-        The first version listed a `section_` family from memory — `section_label`,
-        `section_line` — and the renderer actually emits `section_caption`,
-        `section_arrow_*`, `section_wing_*`. So the list carried three dead entries AND would
-        have reported a real sectioned drawing's caption as unaccounted (#947 review). It had
-        been "validated" only by the length of its prose.
-
-        An entry nobody observes is a guess, and a guess in an allowlist only ever widens
-        what the accounting forgives. So the list is exactly what this corpus draws, and a
-        drawing feature it does not reach — sections, detail views, balloons, hole tables —
-        is deliberately ABSENT. Adding such a fixture then fails loudly, and whoever adds it
-        classifies the annotation with its real name in front of them rather than from memory.
-        """
-        drawn: set[str] = set()
-        for part in self._corpus().values():
-            dwg = build_drawing(part, model=detect_part_model(part), title="T", number="N")
-            drawn |= {n for n, _ in dwg.iter_annotations()}
-        unobserved = sorted(
-            prefix for prefix in _SCRIPT_FURNITURE if not any(n.startswith(prefix) for n in drawn)
-        )
-        assert not unobserved, (
-            f"{unobserved} are exempted as furniture but this corpus never draws them — "
-            "remove them, or add a fixture that produces them so the name is observed"
-        )
 
 
 def _rounded(points):

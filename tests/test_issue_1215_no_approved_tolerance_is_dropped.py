@@ -44,6 +44,7 @@ from collections import Counter
 
 import pytest
 from build123d import Axis, Box, Cylinder, Pos, Rot
+from build123d_drafting.helpers import Draft
 
 from draftwright._core import _tol_suffix
 from draftwright.builder import build_drawing, detect_part_model
@@ -51,10 +52,9 @@ from draftwright.model.compiled import compile_dimensions
 
 _TOL = 0.05
 
-#: The draft the suffix is formatted against. `_tol_suffix` rounds to `decimal_precision`, so
-#: the expected text must come from the same draft the renderer used — a different precision
-#: would make the comparison a guess again.
-_DRAFT = build_drawing(Box(20, 20, 20), title="T", number="N").draft
+#: `_tol_suffix` reads only `decimal_precision`; pin that to the builder preset's precision
+#: without constructing an entire drawing during collection on every xdist worker.
+_DRAFT = Draft(decimal_precision=1)
 
 
 def _staircase():
@@ -315,13 +315,9 @@ def _absence_reported(drawing) -> set:
     return reported
 
 
-def _sweep(part_name, feature, param, mode):
-    """Build with exactly one decoration and return ``(drops, unreported_absences)``."""
-    model = detect_part_model(_PARTS[part_name]())
-    target = next((f for f in model.features if f.kind == feature.kind and f == feature), None)
-    if target is None:
-        return [], []
-    key = (target, param.kind, param.role) if mode == "role" else (target, param.kind)
+def _sweep(part_name, model, feature, param, mode):
+    """Build once with one decoration; the caller owns the immutable detected model."""
+    key = (feature, param.kind, param.role) if mode == "role" else (feature, param.kind)
     drawing = build_drawing(
         _PARTS[part_name](),
         model=model,
@@ -331,7 +327,7 @@ def _sweep(part_name, feature, param, mode):
     )
     approved = _approved_with_tolerance(compile_dimensions(drawing.model()))
     if not approved:
-        return [], []
+        return [], [], 0
     where = f"{part_name}/{feature.kind}.{param.role}[{mode}]"
     dropped = []
     claimed_anywhere: set = set()
@@ -362,7 +358,7 @@ def _sweep(part_name, feature, param, mode):
     unreported = (
         [f"{where}: {silent} approved, drawn by nothing, reported by nothing"] if silent else []
     )
-    return dropped, unreported
+    return dropped, unreported, len(approved)
 
 
 @pytest.mark.parametrize("mode", _KEY_MODES)
@@ -371,11 +367,18 @@ def test_no_approved_tolerance_is_dropped_by_a_renderer(part_name, mode):
     model = detect_part_model(_PARTS[part_name]())
     dropped: list[str] = []
     unreported: list[str] = []
+    approved = 0
     for feature in model.features:
         for param in feature.parameters():
-            got_dropped, got_unreported = _sweep(part_name, feature, param, mode)
+            got_dropped, got_unreported, got_approved = _sweep(
+                part_name, model, feature, param, mode
+            )
             dropped += got_dropped
             unreported += got_unreported
+            approved += got_approved
+    # This precondition belongs to the property whose coverage it guards. Keeping it here
+    # catches a vacuous fixture without rebuilding the entire role-key sweep in another test.
+    assert approved, f"{part_name}[{mode}] approves no toleranced dimension; it guards nothing"
     assert not dropped, (
         f"{dropped}\n\nThe compiler approved a tolerance on these measurements and the "
         "annotation claiming them renders no suffix, so the drawing states the requirement "
@@ -390,25 +393,6 @@ def test_no_approved_tolerance_is_dropped_by_a_renderer(part_name, mode):
     )
 
 
-def test_the_sweep_actually_decorates_something():
-    """The precondition. A sweep that approves no toleranced dimension asserts nothing, and
-    every part above must contribute — otherwise a fixture silently stops covering its site."""
-    for part_name in sorted(_PARTS):
-        model = detect_part_model(_PARTS[part_name]())
-        seen = 0
-        for feature in model.features:
-            for param in feature.parameters():
-                drawing = build_drawing(
-                    _PARTS[part_name](),
-                    model=model,
-                    decorations={(feature, param.kind, param.role): _TOL},
-                    title="T",
-                    number="N",
-                )
-                seen += len(_approved_with_tolerance(compile_dimensions(drawing.model())))
-        assert seen, f"{part_name} approves no toleranced dimension; it guards nothing"
-
-
 def test_the_deliberately_bare_names_are_reachable():
     """`_DELIBERATELY_BARE` must exclude something that OCCURS.
 
@@ -418,16 +402,16 @@ def test_the_deliberately_bare_names_are_reachable():
     asserted nowhere, and the rule could have been broken in either direction with this file
     green (#1216 review r9).
     """
-    seen: set[str] = set()
-    for part_name in ("uniform_staircase", "uniform_stepped_shaft"):
-        drawing = build_drawing(_PARTS[part_name](), title="T", number="N")
-        seen |= set(drawing.registry.names())
+    drawings = {
+        part_name: build_drawing(_PARTS[part_name](), title="T", number="N")
+        for part_name in ("uniform_staircase", "uniform_stepped_shaft")
+    }
+    seen = {name for drawing in drawings.values() for name in drawing.registry.names()}
     assert _DELIBERATELY_BARE <= seen, (
         f"{sorted(_DELIBERATELY_BARE - seen)} never occur in this corpus, so excluding them "
         "excludes nothing"
     )
-    for part_name in ("uniform_staircase", "uniform_stepped_shaft"):
-        drawing = build_drawing(_PARTS[part_name](), title="T", number="N")
+    for part_name, drawing in drawings.items():
         for name in _DELIBERATELY_BARE & set(drawing.registry.names()):
             label = str(getattr(drawing.registry.named(name), "label", ""))
             assert label.startswith(("3\u00d7", "4\u00d7")), (
