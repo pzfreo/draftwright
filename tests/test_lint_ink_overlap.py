@@ -22,6 +22,7 @@ from draftwright.linting.ink_overlap import (
     length_inside,
     segments_of,
     shorter_side,
+    warn_if_untight,
 )
 
 
@@ -321,7 +322,9 @@ class TestTheLabelBoxMustBeTight:
 
         assert MAX_TIGHT_LABEL_SIDE == pytest.approx(2.0 * _FONT_SIZE)
         assert is_tight((0.0, 0.0, 10.0, MAX_TIGHT_LABEL_SIDE))
-        assert not is_tight((0.0, 0.0, 10.0, MAX_TIGHT_LABEL_SIDE + 1e-6))
+        # Over the size cut AND near-square, which is what the pair of rules means.
+        over = MAX_TIGHT_LABEL_SIDE + 1e-6
+        assert not is_tight((0.0, 0.0, over, over))
 
     def test_an_untight_label_cannot_be_crossed(self):
         rotated = (38.298, 176.558, 48.495, 186.755)
@@ -378,3 +381,32 @@ class TestAMalformedLabelBoxCannotKillLint:
     def test_a_short_box_measures_nothing_rather_than_raising(self):
         segments = (((0.0, 0.0), (10.0, 10.0)),)
         assert crossing_length(segments, (1.0, 2.0)) == 0.0
+
+
+class TestTheExclusionIsLoud:
+    """An untight box makes its label uncrossable, so the reader gets no finding
+    for line-work through it. That must never be silent (#701)."""
+
+    def test_an_untight_box_warns(self):
+        with pytest.warns(UserWarning, match="too large and too square"):
+            assert warn_if_untight((38.298, 176.558, 48.495, 186.755)) is False
+
+    def test_a_tight_box_is_quiet(self):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            assert warn_if_untight((10.0, 10.0, 20.0, 12.166)) is True
+
+    def test_a_control_frame_is_quiet(self):
+        # Measured: m_gdt0 6.150 x 12.255, m_gdt1 25.161 x 6.150. Over the size
+        # cut, but long rather than square, so they stay crossable.
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            assert warn_if_untight((0.0, 0.0, 6.150, 12.255)) is True
+            assert warn_if_untight((0.0, 0.0, 25.161, 6.150)) is True
+
+    def test_a_malformed_box_is_untight_without_warning(self):
+        # Nothing useful to say about a box that is not a box; `segments_of` and
+        # `crossing_length` already report their own refusals.
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            assert warn_if_untight(()) is False

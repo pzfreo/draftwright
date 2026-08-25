@@ -11216,7 +11216,7 @@ class TestEscalation:
         # on a diagonal and its `label_bbox` is the 10.197 × 10.197 mm bounding box of a
         # rotated rectangle, not a fit around the glyphs. #1332 declines to report a
         # length it cannot measure against the real text — see
-        # `ink_overlap.MAX_TIGHT_LABEL_HEIGHT`.
+        # `ink_overlap.MAX_TIGHT_LABEL_SIDE`.
         assert not [i for i in dwg.lint() if i.code == "annotation_ink_overlap"]
 
     def test_escalation_clears_density_lint(self, dense_plate_dwg):

@@ -23,7 +23,7 @@ from draftwright._geometry import (
     _segment_clips_box,
     material_reentry_span,
 )
-from draftwright.linting.ink_overlap import label_crossings, segments_of
+from draftwright.linting.ink_overlap import label_crossings, segments_of, warn_if_untight
 from draftwright.linting.issues import LintIssue, _IssueAggregation
 from draftwright.projection import _MATERIAL_PAGE_TOLERANCE
 
@@ -377,9 +377,18 @@ def lint_drawing(
     # read. Measured on `nist_ctc_02_asme1_ap203` (162 annotations) that cost
     # +32% of lint time, and a build lints 3-7 times.
     label_boxes: list = []
+    crossable_boxes: list = []
     ink_segments: list = []
     for item in items:
-        label_boxes.append(_label_bbox(item, warned_label_bbox))
+        _box = _label_bbox(item, warned_label_bbox)
+        label_boxes.append(_box)
+        # A SEPARATE list. `label_boxes` feeds `_label_box` and through it
+        # `annotation_overlap`, which must keep comparing the real text extents:
+        # nulling an entry here made that check fall back to `_ann_box`, the full
+        # annotation extent including witness lines, and it began firing on pairs
+        # it had never reported. Only the ink check may treat an untight box as
+        # absent. Excluded once per item so the warning cannot repeat per pair.
+        crossable_boxes.append(_box if warn_if_untight(_box) else None)
         ink_segments.append(segments_of(item))
 
     boxes: list = []
@@ -445,8 +454,8 @@ def lint_drawing(
                     label_crossings(
                         ink_segments[i],
                         ink_segments[j],
-                        label_a=label_boxes[i],
-                        label_b=label_boxes[j],
+                        label_a=crossable_boxes[i],
+                        label_b=crossable_boxes[j],
                     )
                 )
                 remedy = (
@@ -484,8 +493,8 @@ def lint_drawing(
             for crossing in label_crossings(
                 ink_segments[i],
                 ink_segments[j],
-                label_a=label_boxes[i],
-                label_b=label_boxes[j],
+                label_a=crossable_boxes[i],
+                label_b=crossable_boxes[j],
             ):
                 crosser, crossed = (item_a, item_b) if crossing.crosses_b else (item_b, item_a)
                 lc = getattr(crosser, "label", None) or _item_label(crosser) or "?"

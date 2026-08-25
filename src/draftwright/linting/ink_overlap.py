@@ -38,10 +38,14 @@ ceiling — and the truncation report the ceiling needed — are gone.
 
 It is arithmetic, but it is not free, and the first version of this said it "costs
 nothing measurable" while recomputing `label_bbox` and the `segments` property
-inside the O(n²) pair loop. On `nist_ctc_02_asme1_ap203` (162 annotations) that
-measured `lint()` at 0.772 s against 0.576 s with both hoisted to one pass per
-item — the same recomputation #161 removed from the loop beside it. Callers pass
+inside the O(n²) pair loop — the same recomputation #161 removed from the loop
+beside it. Hoisting both to one pass per item took `lint()` on
+`nist_ctc_02_asme1_ap203` (162 annotations) from 0.772 s to 0.576 s. Callers pass
 segments in for that reason.
+
+Those two figures compare revisions of this branch. Against `main`, which has no
+check at all, the same measurement is **0.565 s to 0.570 s** — about 1%. That is
+the number that answers "what does this cost", and it is the one to quote.
 
 ## What it does not cover
 
@@ -131,9 +135,35 @@ from draftwright._core import _FONT_SIZE
 #: module exists to secure. `_FONT_SIZE` is the engine's own declared annotation
 #: text height and moves for nobody.
 #:
-#: 2x it admits every real label measured — 1.416 to 2.694 — and cuts the 10.197
-#: rotated one, with the nearest datum on either side a factor of 2 away.
+#: Size alone is not enough, though, and the figure below is not a factor of two
+#: clear of everything real. A GD&T feature control frame is one text row plus box
+#: padding: measured on a declared sheet, `m_gdt0` is 6.150 x 12.255 mm and
+#: `m_gdt1` 25.161 x 6.150 — a **shorter side of 6.150**, only 1.025x this
+#: threshold. Excluding those would make a dimension line through a control frame,
+#: arguably the annotation whose legibility matters most, unreportable.
+#:
+#: So size is paired with **shape**. A rotated rectangle's bounding box tends
+#: toward square as the angle approaches 45° — the `_dense_plate` diagonal is
+#: 10.197 x 10.197, an aspect of exactly 1.00 — while a real text box stays long
+#: relative to the text: those control frames measure 1.99, 3.67 and 4.09. A box
+#: is untight only when it is **both** larger than text should be **and** nearly
+#: square, which the diagonal is and the frames are not, with the nearest real
+#: datum 1.33x clear of the aspect cut rather than 1.025x clear of the size one.
 MAX_TIGHT_LABEL_SIDE = 2.0 * _FONT_SIZE
+
+#: How long a large box must be, relative to its shorter side, to still read as
+#: text rather than as a rotated rectangle's bounding box. See
+#: :data:`MAX_TIGHT_LABEL_SIDE`.
+#:
+#: The residual gap this leaves, stated rather than implied: a **shallow** diagonal
+#: escapes both tests. A 12 x 2.2 mm label at 20° has a bounding box of about
+#: 12.0 x 6.2 mm — over the size cut but an aspect of 1.94, so it is treated as
+#: tight and measured against a box roughly twice the glyphs' area. A stroke
+#: through the empty corner could then be reported as crossing text. No instance
+#: exists in `tests/fixtures` (671 labelled annotations, one exclusion), and the
+#: real fix is for `build123d-drafting-helpers` to expose the rect or its angle;
+#: until then this closes the measured case and not the general one.
+MIN_TIGHT_LABEL_ASPECT = 1.5
 
 #: How far another annotation's line-work may run through a label's text box
 #: before it is reported, in millimetres.
@@ -333,6 +363,32 @@ def shorter_side(label_box) -> float:
     return float(min(label_box[2] - label_box[0], label_box[3] - label_box[1]))
 
 
+def warn_if_untight(label_box) -> bool:
+    """Whether *label_box* is tight, warning once if it is not.
+
+    Call this **once per item**, not once per pair: `_label_bbox` in
+    `structural.py` memoises its own warning for exactly this reason (#711), since
+    an unmemoised one floods the log O(n²) on a single bad annotation.
+
+    Loud rather than silent. An untight box makes its label uncrossable, so the
+    reader gets no finding for line-work through it, and a check that quietly
+    stops covering an annotation is the #701 failure this module keeps meeting.
+    """
+    if is_tight(label_box):
+        return True
+    if not _is_box(label_box):
+        return False
+    width = label_box[2] - label_box[0]
+    height = label_box[3] - label_box[1]
+    warnings.warn(
+        f"label box {width:.3f} x {height:.3f} mm is too large and too square to be "
+        "a fit around text — it is probably a rotated label's bounding box, so "
+        "line-work through it is not measured (annotation_ink_overlap)",
+        stacklevel=3,
+    )
+    return False
+
+
 def is_tight(label_box) -> bool:
     """Whether *label_box* fits its text closely enough for clipping to be honest.
 
@@ -342,7 +398,11 @@ def is_tight(label_box) -> bool:
     """
     if not _is_box(label_box):
         return False
-    return shorter_side(label_box) <= MAX_TIGHT_LABEL_SIDE
+    short = shorter_side(label_box)
+    if short <= MAX_TIGHT_LABEL_SIDE:
+        return True
+    long = max(label_box[2] - label_box[0], label_box[3] - label_box[1])
+    return bool(long >= MIN_TIGHT_LABEL_ASPECT * short)
 
 
 def label_crossings(
@@ -364,6 +424,8 @@ def label_crossings(
     annotation's full extent, which spans its witness lines and would report
     every dimension whose line-work reaches a neighbour's arm.
     """
+    # Defensive only: callers are expected to have excluded untight boxes already,
+    # once per item rather than once per pair — see `warn_if_untight`.
     if not is_tight(label_a):
         label_a = None
     if not is_tight(label_b):
