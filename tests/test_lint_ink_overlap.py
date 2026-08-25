@@ -8,11 +8,12 @@ CAD kernel carves an intersection into faces, and the two supported build123d
 releases carve it differently.
 """
 
+import contextlib
+import logging
 import warnings
 
 import pytest
 
-from draftwright import UnmeasurableLabelWarning
 from draftwright.linting.ink_overlap import (
     MAX_TIGHT_LABEL_SIDE,
     MIN_CROSSING_MM,
@@ -25,6 +26,33 @@ from draftwright.linting.ink_overlap import (
     shorter_side,
     warn_if_untight,
 )
+
+_LOGGER = "draftwright.linting.ink_overlap"
+
+
+@contextlib.contextmanager
+def _logs(fragment):
+    """Assert the helpers report *fragment* through the logger, not a warning."""
+
+    records: list[logging.LogRecord] = []
+
+    class _Catch(logging.Handler):
+        def emit(self, record):
+            records.append(record)
+
+    logger = logging.getLogger(_LOGGER)
+    handler = _Catch()
+    logger.addHandler(handler)
+    previous = logger.level
+    logger.setLevel(logging.WARNING)
+    try:
+        yield
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(previous)
+    assert any(fragment in record.getMessage() for record in records), (
+        f"expected a log containing {fragment!r}, saw {[r.getMessage() for r in records]}"
+    )
 
 
 def measure(item, box):
@@ -110,21 +138,8 @@ class TestCrossingLength:
         `length_inside` — out of `crossing_length`, out of `lint_drawing`, killing
         the run for every other check too.
         """
-        with pytest.warns(UnmeasurableLabelWarning, match="not pairs of 2D numeric points"):
+        with _logs("not pairs of 2D numeric points"):
             assert measure(_Annotation([((0.0, 12.0, 0.0), (30.0, 12.0, 0.0))]), BOX) == 0.0
-
-    def test_the_warning_survives_warnings_as_errors(self):
-        """The warn must sit OUTSIDE the guard.
-
-        An earlier revision raised it inside the `try`, so under a
-        warnings-as-errors configuration the warning raised and was swallowed by
-        its own handler — the one loud path went quiet exactly when the operator
-        asked for loud.
-        """
-        with warnings.catch_warnings():
-            warnings.simplefilter("error")
-            with pytest.raises(UnmeasurableLabelWarning, match="not pairs of 2D numeric points"):
-                measure(_Annotation([((0.0, 12.0, 0.0), (30.0, 12.0, 0.0))]), BOX)
 
     def test_an_annotation_with_no_segments_crosses_nothing(self):
         assert measure(_Annotation([]), BOX) == 0.0
@@ -147,14 +162,14 @@ class TestCrossingLength:
         # the #701 failure the neighbouring `_label_bbox` logs to avoid: if one
         # annotation type's `segments` started raising, that item would vanish
         # from the check with no signal at all.
-        with pytest.warns(UnmeasurableLabelWarning, match="reading segments raised RuntimeError"):
+        with _logs("reading segments raised RuntimeError"):
             assert measure(Hostile(), BOX) == 0.0
 
     def test_an_item_whose_segments_are_not_point_pairs_contributes_nothing(self):
         # A raising *getter* is the easy case. An attribute that is present but
         # the wrong shape has to be caught by the same guard, or it escapes
         # `lint_drawing` — the silent-vs-loud failure #701 is about.
-        with pytest.warns(UnmeasurableLabelWarning, match="reading segments raised"):
+        with _logs("reading segments raised"):
             assert measure(_Annotation(["not a segment"]), BOX) == 0.0
 
     def test_an_item_whose_segments_raise_while_iterating_contributes_nothing(self):
@@ -162,7 +177,7 @@ class TestCrossingLength:
             yield ((0.0, 12.0), (30.0, 12.0))
             raise RuntimeError("boom")
 
-        with pytest.warns(UnmeasurableLabelWarning, match="reading segments raised RuntimeError"):
+        with _logs("reading segments raised RuntimeError"):
             assert measure(_Annotation(exploding()), BOX) == 0.0
 
 
@@ -389,7 +404,7 @@ class TestTheExclusionIsLoud:
     for line-work through it. That must never be silent (#701)."""
 
     def test_an_untight_box_warns(self):
-        with pytest.warns(UnmeasurableLabelWarning, match="too large and too square"):
+        with _logs("too large and too square"):
             assert warn_if_untight((38.298, 176.558, 48.495, 186.755)) is False
 
     def test_a_tight_box_is_quiet(self):
@@ -413,46 +428,65 @@ class TestTheExclusionIsLoud:
             assert warn_if_untight(()) is False
 
 
-class TestTheWarningIsSilenceable:
-    """Its own category, so a caller can mute an engine limitation they cannot act
-    on without muting every other warning (#1332, review round 7).
+class TestTheReportIsLoggedNotWarned:
+    """Logged, not warned — and that is a correctness constraint, not a style one.
 
-    `_warnings.py` exists for exactly this: "A `UserWarning` subclass rather than a
-    bare one so callers can silence this category alone."
+    These helpers run inside `lint_drawing`'s deliberately unguarded region
+    ("#701: the check body runs unguarded"). A `warnings.warn` there propagates
+    out under a warnings-as-errors configuration and kills every other check on
+    the sheet — the #701 failure inverted. `_label_bbox` logs for the same
+    condition twenty lines away, and a logger is silenceable by name.
     """
 
-    def test_the_category_is_specific_but_still_a_user_warning(self):
-        assert issubclass(UnmeasurableLabelWarning, UserWarning)
-        assert UnmeasurableLabelWarning is not UserWarning
+    def test_an_untight_box_is_reported(self):
+        with _logs("too large and too square"):
+            assert warn_if_untight((38.298, 176.558, 48.495, 186.755)) is False
 
-    def test_silencing_the_category_leaves_other_warnings_alone(self):
-        with warnings.catch_warnings(record=True) as seen:
-            warnings.simplefilter("always")
-            warnings.filterwarnings("ignore", category=UnmeasurableLabelWarning)
-            warn_if_untight((38.298, 176.558, 48.495, 186.755))
-            warnings.warn("something else entirely", UserWarning)
-        assert [str(w.message) for w in seen] == ["something else entirely"]
+    def test_a_tight_box_is_quiet(self, caplog):
+        with caplog.at_level(logging.WARNING, logger=_LOGGER):
+            assert warn_if_untight((10.0, 10.0, 20.0, 12.166)) is True
+        assert caplog.records == []
 
-    def test_a_repeated_message_warns_once_per_run(self):
-        """`_label_bbox` memoises the same way (#711): several checks read the same
-        item, and `repair()` lints twice per pass for up to three passes."""
+    def test_a_control_frame_is_quiet(self, caplog):
+        # Measured: m_gdt0 6.150 x 12.255, m_gdt1 25.161 x 6.150. Over the size
+        # cut, but long rather than square, so they stay crossable.
+        with caplog.at_level(logging.WARNING, logger=_LOGGER):
+            assert warn_if_untight((0.0, 0.0, 6.150, 12.255)) is True
+            assert warn_if_untight((0.0, 0.0, 25.161, 6.150)) is True
+        assert caplog.records == []
+
+    def test_a_malformed_box_is_untight_without_a_report(self, caplog):
+        # Nothing useful to say about a box that is not a box; `segments_of` and
+        # `crossing_length` already report their own refusals.
+        with caplog.at_level(logging.WARNING, logger=_LOGGER):
+            assert warn_if_untight(()) is False
+        assert caplog.records == []
+
+    def test_a_repeated_message_reports_once_per_run(self, caplog):
+        """`_label_bbox` memoises the same way (#711): several checks read the
+        same item, and `repair()` lints twice per pass for up to three passes."""
         seen: set[str] = set()
         box = (38.298, 176.558, 48.495, 186.755)
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
+        with caplog.at_level(logging.WARNING, logger=_LOGGER):
             warn_if_untight(box, seen)
             warn_if_untight(box, seen)
             warn_if_untight(box, seen)
-        assert len(caught) == 1
+        assert len(caplog.records) == 1
 
-    def test_without_a_memo_it_warns_every_time(self):
-        # A direct helper call outside a lint run should stay loud.
+    def test_without_a_memo_it_reports_every_time(self, caplog):
         box = (38.298, 176.558, 48.495, 186.755)
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
+        with caplog.at_level(logging.WARNING, logger=_LOGGER):
             warn_if_untight(box)
             warn_if_untight(box)
-        assert len(caught) == 2
+        assert len(caplog.records) == 2
+
+    def test_lint_still_returns_under_warnings_as_errors(self):
+        """The whole point. A raised warning here would take the sheet's other
+        checks with it."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            assert measure(_Annotation([((0.0, 12.0, 0.0), (30.0, 12.0, 0.0))]), BOX) == 0.0
+            assert warn_if_untight((38.298, 176.558, 48.495, 186.755)) is False
 
 
 class TestAPointMustBeTwoNumbers:
@@ -466,11 +500,11 @@ class TestAPointMustBeTwoNumbers:
     """
 
     def test_string_coordinates_are_rejected_rather_than_raising(self):
-        with pytest.warns(UnmeasurableLabelWarning, match="2D numeric points"):
+        with _logs("2D numeric points"):
             assert measure(_Annotation([("ab", "cd")]), BOX) == 0.0
 
     def test_none_coordinates_are_rejected_rather_than_raising(self):
-        with pytest.warns(UnmeasurableLabelWarning, match="2D numeric points"):
+        with _logs("2D numeric points"):
             assert measure(_Annotation([((None, None), (1.0, 1.0))]), BOX) == 0.0
 
     def test_ordinary_ints_are_accepted(self):

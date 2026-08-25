@@ -100,12 +100,12 @@ not placing the label there in the first place.
 
 from __future__ import annotations
 
-import warnings
-from collections.abc import Sequence
+import logging
 from dataclasses import dataclass
 
 from draftwright._core import _FONT_SIZE
-from draftwright._warnings import UnmeasurableLabelWarning
+
+_log = logging.getLogger(__name__)
 
 #: The largest a label box's shorter side may be and still be treated as a fit
 #: around its text, as a multiple of the engine's own annotation text height
@@ -233,19 +233,25 @@ class Crossing:
 
 
 def _warn_once(message: str, seen) -> None:
-    """Warn unless *seen* has already carried this message for this run.
+    """Log unless *seen* has already carried this message for this run.
 
-    `_label_bbox` in `structural.py` memoises the same way (#711): several checks
-    read the same item, so an unmemoised warning floods the log O(n²) on one bad
-    annotation — and `repair()` lints twice per pass for up to three passes, so a
-    build repeats it six times over. A `seen` of ``None`` warns every time, which
-    is what a direct helper call outside a lint run should do.
+    **Logged, not warned.** These helpers run inside `lint_drawing`'s deliberately
+    unguarded region ("#701: the check body runs unguarded"), so under a
+    warnings-as-errors configuration a `warnings.warn` here propagates out and
+    kills every other check on the sheet — the #701 failure inverted. The
+    neighbouring `_label_bbox` logs for the same condition, and a logger is
+    silenceable by name, which was the point of giving this its own category.
+
+    Memoised the same way `_label_bbox` is (#711): several checks read the same
+    item, so an unmemoised message floods the log O(n²) on one bad annotation, and
+    `repair()` lints twice per pass for up to three passes. A `seen` of ``None``
+    logs every time, which is what a direct helper call should do.
     """
     if seen is not None:
         if message in seen:
             return
         seen.add(message)
-    warnings.warn(message, UnmeasurableLabelWarning, stacklevel=3)
+    _log.warning("%s", message)
 
 
 def segments_of(item, seen=None) -> tuple:
@@ -386,12 +392,19 @@ def crossing_length(segments, label_box) -> float:
 def _is_box(value) -> bool:
     """Whether *value* is usable as ``(min_x, min_y, max_x, max_y)``.
 
-    An explicit sequence test, not ``len(value) != 4``: a duck-typed item
-    (ADR 0005) may hand back a ``build123d.BoundBox``, which defines neither
-    ``__bool__`` nor ``__len__``, so ``len()`` on one raises ``TypeError`` out of
-    `lint_drawing` — the very crash the guard is here to prevent.
+    ``tuple``/``list`` specifically, and the four entries checked for numbers.
+    Not ``len(value) != 4``: a duck-typed item (ADR 0005) may hand back a
+    ``build123d.BoundBox``, which defines neither ``__bool__`` nor ``__len__``, so
+    ``len()`` on one raises ``TypeError`` out of `lint_drawing`. And not
+    ``Sequence``, which accepts ``str`` — a four-character label box passed that
+    test and ``shorter_side`` then evaluated ``'n' - 'n'``, the identical hole
+    closed for ``segments`` one round earlier.
     """
-    return isinstance(value, Sequence) and len(value) == 4
+    return (
+        isinstance(value, (tuple, list))
+        and len(value) == 4
+        and all(isinstance(entry, (int, float)) for entry in value)
+    )
 
 
 def shorter_side(label_box) -> float:

@@ -454,14 +454,13 @@ def lint_drawing(
                 # to say so. Only one code is emitted for the pair (the ink check
                 # below is skipped), so the surviving message has to carry both
                 # facts rather than send the reader after `label_offset_x` alone.
-                also_crosses = any(
-                    label_crossings(
-                        ink_segments[i],
-                        ink_segments[j],
-                        label_a=crossable_boxes[i],
-                        label_b=crossable_boxes[j],
-                    )
+                crossings_here = label_crossings(
+                    ink_segments[i],
+                    ink_segments[j],
+                    label_a=crossable_boxes[i],
+                    label_b=crossable_boxes[j],
                 )
+                also_crosses = bool(crossings_here)
                 remedy = (
                     "use label_offset_x or increase dim offset to separate them"
                     if not also_crosses
@@ -479,14 +478,26 @@ def lint_drawing(
                     code="annotation_overlap",
                 )
                 issues.append(overlap_issue)
-                # This pair reports one code, so the ink finding below is skipped —
-                # but the obscured label must still reach #1147's ledger, or a label
-                # crossed by an overlapping annotation counts for nothing while the
-                # same label crossed by a non-overlapping one counts. Keyed on
-                # `item_b`, matching the ink branch's choice of the crossed item.
-                overlap_token = pair_tokens.get(id(item_b))
-                if _aggregation is not None and overlap_token is not None:
-                    _aggregation.record_pair(overlap_issue, overlap_token)
+                # ONLY when this pair also crosses. `annotation_overlap` has never
+                # entered #1147's ledger, and `_primary_issues` keys on
+                # `(code, token)` — so recording every overlap collapses findings
+                # that merely share a subject into one primary warning, silently
+                # RAISING the legibility score of pre-existing defects. Measured on
+                # three annotations where A and B both overlap C: 2 raw findings
+                # became 1 primary, and which one survived depended on the order
+                # `items` happened to be in.
+                #
+                # When the pair does cross, the obscured label must still reach the
+                # ledger — otherwise a label both overlapped and crossed counts for
+                # nothing while the same label crossed by a non-overlapping
+                # annotation counts. Keyed on the item whose label is actually
+                # crossed, which the ink branch decides by `crosses_b`; `item_b` is
+                # not always it.
+                if also_crosses and _aggregation is not None:
+                    crossed_item = item_b if crossings_here[0].crosses_b else item_a
+                    overlap_token = pair_tokens.get(id(crossed_item))
+                    if overlap_token is not None:
+                        _aggregation.record_pair(overlap_issue, overlap_token)
                 continue
 
             # The label boxes clear each other, which does not mean the
