@@ -7,8 +7,9 @@
 - New lint code `annotation_ink_overlap`: reports another annotation's line-work —
   a dimension line, an extension line or a leader shaft — drawn through a label's
   text, which `annotation_overlap` cannot see because it compares label boxes to
-  each other and to nothing else. Measured as the longest single stroke crossing
-  the text box, in millimetres, with a 0.5 mm floor. It scores on legibility, so
+  each other and to nothing else. Measured as the longest connected stroke path
+  crossing the label's exact polygon (or its axis-aligned box), in millimetres,
+  with a 0.5 mm floor. It scores on legibility, so
   dense sheets that previously scored clean now score lower — 17 findings on
   NIST CTC-02 AP203 alone, every sampled one confirmed a real defect by rendering.
   Repair does not yet act on it (#1333) and the corridor solve does not yet avoid
