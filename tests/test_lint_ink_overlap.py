@@ -8,10 +8,12 @@ CAD kernel carves an intersection into faces, and the two supported build123d
 releases carve it differently.
 """
 
+import warnings
+
 import pytest
 
 from draftwright.linting.ink_overlap import (
-    MAX_TIGHT_LABEL_HEIGHT,
+    MAX_TIGHT_LABEL_SIDE,
     MIN_CROSSING_MM,
     Crossing,
     crossing_length,
@@ -106,7 +108,21 @@ class TestCrossingLength:
         `length_inside` — out of `crossing_length`, out of `lint_drawing`, killing
         the run for every other check too.
         """
-        assert measure(_Annotation([((0.0, 12.0, 0.0), (30.0, 12.0, 0.0))]), BOX) == 0.0
+        with pytest.warns(UserWarning, match="not 2D point pairs"):
+            assert measure(_Annotation([((0.0, 12.0, 0.0), (30.0, 12.0, 0.0))]), BOX) == 0.0
+
+    def test_the_warning_survives_warnings_as_errors(self):
+        """The warn must sit OUTSIDE the guard.
+
+        An earlier revision raised it inside the `try`, so under a
+        warnings-as-errors configuration the warning raised and was swallowed by
+        its own handler — the one loud path went quiet exactly when the operator
+        asked for loud.
+        """
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            with pytest.raises(UserWarning, match="not 2D point pairs"):
+                measure(_Annotation([((0.0, 12.0, 0.0), (30.0, 12.0, 0.0))]), BOX)
 
     def test_an_annotation_with_no_segments_crosses_nothing(self):
         assert measure(_Annotation([]), BOX) == 0.0
@@ -119,26 +135,33 @@ class TestCrossingLength:
         # Duck-typed items (ADR 0005) must not kill lint.
         assert measure(object(), BOX) == 0.0
 
-    def test_an_item_whose_segments_raise_contributes_nothing(self):
+    def test_an_item_whose_segments_raise_contributes_nothing_and_says_so(self):
         class Hostile:
             @property
             def segments(self):
                 raise RuntimeError("boom")
 
-        assert measure(Hostile(), BOX) == 0.0
+        # Loud, not silent. Excluding an item's whole line-work without a word is
+        # the #701 failure the neighbouring `_label_bbox` logs to avoid: if one
+        # annotation type's `segments` started raising, that item would vanish
+        # from the check with no signal at all.
+        with pytest.warns(UserWarning, match="reading segments raised RuntimeError"):
+            assert measure(Hostile(), BOX) == 0.0
 
     def test_an_item_whose_segments_are_not_point_pairs_contributes_nothing(self):
         # A raising *getter* is the easy case. An attribute that is present but
         # the wrong shape has to be caught by the same guard, or it escapes
         # `lint_drawing` — the silent-vs-loud failure #701 is about.
-        assert measure(_Annotation(["not a segment"]), BOX) == 0.0
+        with pytest.warns(UserWarning, match="reading segments raised"):
+            assert measure(_Annotation(["not a segment"]), BOX) == 0.0
 
     def test_an_item_whose_segments_raise_while_iterating_contributes_nothing(self):
         def exploding():
             yield ((0.0, 12.0), (30.0, 12.0))
             raise RuntimeError("boom")
 
-        assert measure(_Annotation(exploding()), BOX) == 0.0
+        with pytest.warns(UserWarning, match="reading segments raised RuntimeError"):
+            assert measure(_Annotation(exploding()), BOX) == 0.0
 
 
 class TestLabelCrossings:
@@ -252,24 +275,53 @@ class TestTheLabelBoxMustBeTight:
     """
 
     def test_a_tight_box_is_crossable(self):
-        assert is_tight((10.0, 10.0, 20.0, 12.166), 2.166)
+        assert is_tight((10.0, 10.0, 20.0, 12.166))
 
-    def test_a_box_well_above_the_median_height_is_still_tight(self):
+    def test_a_taller_font_is_still_tight(self):
         # A second font size or a stacked tolerance must stay covered. On
-        # `_dense_plate` the heights are 2.166 (x12), 2.67 (x9), 3.252 and 2.694;
+        # `_dense_plate` the shorter sides are 2.166, 2.67, 3.252 and 2.694;
         # none of those may be cut, only the 10.197 rotated one.
-        assert is_tight((10.0, 10.0, 20.0, 13.252), 2.166)
-        assert is_tight((10.0, 10.0, 20.0, 12.694), 2.166)
+        assert is_tight((10.0, 10.0, 20.0, 13.252))
+        assert is_tight((10.0, 10.0, 20.0, 12.694))
 
-    def test_the_limit_is_exactly_the_documented_multiple(self):
-        # Stated as a relationship so a change to either is deliberate.
-        median = 2.0
-        assert is_tight((0.0, 0.0, 10.0, MAX_TIGHT_LABEL_HEIGHT * median), median)
-        assert not is_tight((0.0, 0.0, 10.0, MAX_TIGHT_LABEL_HEIGHT * median + 1e-6), median)
+    def test_a_single_character_label_is_tight(self):
+        """`'6'` measures 1.416 mm on its shorter side — its glyph WIDTH, not the
+        text height. Under the median gate that preceded this, a sheet carrying
+        many of these dragged the reference below an ordinary label."""
+        assert is_tight((0.0, 0.0, 1.416, 2.166))
+
+    def test_a_quarter_turned_label_is_still_tight(self):
+        """At 90° the box is an EXACT fit, but its height is the text's width.
+
+        Gating on height alone made every vertical dimension label longer than
+        about three characters uncrossable — silently disabling the check for a
+        very common class while fixing a rarer one. Measured on
+        `Box(123.456, 87.654, 45.678)`: the vertical `'45.7'` has a label box of
+        2.130 x 6.891 mm.
+        """
+        vertical = (0.0, 0.0, 2.130, 6.891)
+        assert shorter_side(vertical) == pytest.approx(2.130)
+        assert is_tight(vertical)
 
     def test_the_rotated_dense_plate_box_is_not_tight(self):
-        # The measured case: 10.197 mm tall against a 2.166 mm median.
-        assert not is_tight((38.298, 176.558, 48.495, 186.755), 2.166)
+        # The measured case: 10.197 mm on both sides.
+        assert not is_tight((38.298, 176.558, 48.495, 186.755))
+
+    def test_the_limit_is_the_engine_text_height_not_the_sheet(self):
+        """A FIXED reference, so a pair's verdict cannot change because of an
+        unrelated annotation elsewhere on the sheet.
+
+        Two revisions used the sheet's median shorter side, and both were wrong the
+        same way. `--zones` — a public CLI flag — put 28 single-character zone
+        labels on a sheet, dragged the median to 1.051 mm, pushed the threshold
+        below the ordinary 2.166 mm label height, and silently disabled the entire
+        check: four findings became zero.
+        """
+        from draftwright._core import _FONT_SIZE
+
+        assert MAX_TIGHT_LABEL_SIDE == pytest.approx(2.0 * _FONT_SIZE)
+        assert is_tight((0.0, 0.0, 10.0, MAX_TIGHT_LABEL_SIDE))
+        assert not is_tight((0.0, 0.0, 10.0, MAX_TIGHT_LABEL_SIDE + 1e-6))
 
     def test_an_untight_label_cannot_be_crossed(self):
         rotated = (38.298, 176.558, 48.495, 186.755)
@@ -280,58 +332,40 @@ class TestTheLabelBoxMustBeTight:
                 segments_of(_Annotation([])),
                 label_a=None,
                 label_b=rotated,
-                median_shorter_side=2.166,
             )
             == []
         )
-        # The precondition: without the tightness gate this same pair reports the
-        # full width of the inflated box, so the emptiness above is the gate's
-        # doing rather than the fixture's.
+        # The precondition: the same stroke through a TIGHT box of the same width
+        # is reported, so the emptiness above is the gate's doing, not the
+        # fixture's.
+        tight = (38.298, 179.0, 48.495, 181.166)
         assert label_crossings(
             segments_of(crosser),
             segments_of(_Annotation([])),
             label_a=None,
-            label_b=rotated,
-            median_shorter_side=None,
+            label_b=tight,
         )
-
-    def test_a_quarter_turned_label_is_still_tight(self):
-        """At 90° the box is an EXACT fit, but its height is the text's width.
-
-        Gating on height alone made every vertical dimension label longer than
-        about three characters uncrossable — silently disabling the check for a
-        very common class while fixing a rarer one. Measured on
-        `Box(123.456, 87.654, 45.678)`: the vertical `'45.7'` has a label box of
-        2.130 x 6.891 mm against a 2.166 mm median shorter side.
-        """
-        vertical = (0.0, 0.0, 2.130, 6.891)
-        assert shorter_side(vertical) == pytest.approx(2.130)
-        assert is_tight(vertical, 2.166)
 
     def test_a_bound_box_is_not_a_box(self):
         """`build123d.BoundBox` defines neither `__bool__` nor `__len__`.
 
         `len()` on one raises `TypeError` out of `lint_drawing`, killing every
         other check — the crash the guard exists to prevent, which an earlier
-        revision of that guard would have caused while claiming to stop it.
+        revision of that guard would itself have caused.
         """
 
         class BoundBoxLike:
             def __len__(self):
                 raise TypeError("object of type 'BoundBox' has no len()")
 
-        assert not is_tight(BoundBoxLike(), 2.166)
+        assert not is_tight(BoundBoxLike())
         assert shorter_side(BoundBoxLike()) == 0.0
         assert crossing_length((((0.0, 0.0), (10.0, 10.0)),), BoundBoxLike()) == 0.0
 
-    def test_a_sheet_with_no_labels_treats_every_box_as_tight(self):
-        # Nothing to take a median of, and nothing to cross either.
-        assert is_tight((0.0, 0.0, 10.0, 99.0), None)
-
     def test_a_malformed_box_is_never_tight(self):
-        assert not is_tight((), 2.166)
-        assert not is_tight((1.0, 2.0), 2.166)
-        assert not is_tight(None, 2.166)
+        assert not is_tight(())
+        assert not is_tight((1.0, 2.0))
+        assert not is_tight(None)
 
 
 class TestAMalformedLabelBoxCannotKillLint:

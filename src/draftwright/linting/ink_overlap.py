@@ -90,41 +90,50 @@ import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-#: The largest a label box's **shorter side** may be and still be treated as a fit
-#: around its text, as a multiple of the sheet's own median shorter side.
+from draftwright._core import _FONT_SIZE
+
+#: The largest a label box's shorter side may be and still be treated as a fit
+#: around its text, as a multiple of the engine's own annotation text height
+#: (``_core._FONT_SIZE``).
 #:
 #: `label_bbox` is an **axis-aligned** box around a label that may be drawn at an
 #: angle, so for a rotated label it is the bounding box of a rotated rectangle and
-#: is much larger than the glyphs. Measured on `_dense_plate`: `'2× 14.1'` — a
-#: 7-character label about 2.2 mm tall — has a label box of
-#: **10.197 x 10.197 mm**, a square, because it is drawn on a diagonal.
+#: is much larger than the glyphs. Measured on `_dense_plate`: `'2× 14.1'` — seven
+#: characters about 2.2 mm tall — has a label box of **10.197 x 10.197 mm**, a
+#: square, because it is drawn on a diagonal.
 #:
-#: Clipping against that box would report a stroke as crossing 10.2 mm of text
-#: when it crosses about 3 mm of it, and would report a 0.4 mm corner graze as
-#: 10.2 mm — defeating `MIN_CROSSING_MM` by a factor of 25 exactly where the
-#: docstring claims "the region of interest is one label box".
+#: Clipping against that would report a stroke as crossing 10.2 mm of text when it
+#: crosses about 3 mm of it, and would report a 0.4 mm corner graze as 10.2 mm —
+#: defeating `MIN_CROSSING_MM` by a factor of 25 exactly where this module claims
+#: "the region of interest is one label box".
 #:
 #: The true rectangle is not recoverable here. `_label_bbox_local` is already an
 #: axis-aligned bake of it, and the angle is in neither `_init_rot` nor the
 #: annotation's location — on that fixture both are zero, because the rotation was
 #: applied before the box reached the annotation. Rather than report a number this
-#: check cannot stand behind, a label whose box is too tall to be a tight fit is
-#: treated as **not crossable**, and the gap is recorded: diagonal labels are not
-#: covered until `build123d-drafting-helpers` exposes the rect or its angle.
+#: check cannot stand behind, such a label is treated as **not crossable**, and the
+#: gap is recorded: diagonal labels are uncovered until `build123d-drafting-helpers`
+#: exposes the rect or its angle.
 #:
 #: The **shorter side**, not the height. At 90° the AABB is an exact fit, but its
-#: height is then the text's *width*: a vertical `'45.7'` measures 2.130 x 6.891 mm
-#: against a 2.694 mm median, and gating on height alone silently made every
-#: vertical label longer than about three characters uncrossable — disabling the
-#: check for a very common class. The shorter side is the text height for a
-#: horizontal label and for a quarter-turned one alike, and stays inflated only
-#: when the label is genuinely diagonal, which is the case being excluded.
+#: height is then the text's *width*: a vertical `'45.7'` measures 2.130 x 6.891 mm,
+#: and gating on height alone silently made every vertical label longer than about
+#: three characters uncrossable — disabling the check for a very common class.
 #:
-#: The multiple is generous because a legitimately taller label — a second font
-#: size, a stacked tolerance — must stay covered. On `_dense_plate` the shorter
-#: sides are 2.166 (x12), 2.67 (x9), 3.252 and 2.694 against the rotated 10.197;
-#: a 2x median cuts only the rotated one.
-MAX_TIGHT_LABEL_HEIGHT = 2.0
+#: And a **fixed** reference, not the sheet's own median. Two revisions of this used
+#: a median, and both were wrong for the same reason: `min(w, h)` on a one- or
+#: two-character label is the *glyph width*, not the text height — `'6'` measures
+#: 1.416 and `'8'` 1.470 against an ordinary 2.166. So the median moved with how
+#: many short labels a sheet happened to carry, and `--zones` — a public CLI flag —
+#: put 28 single-character zone labels on the sheet, dragged the median to 1.051,
+#: and silently disabled the entire check: 4 findings became 0. A threshold that
+#: depends on unrelated annotations also forfeits the sheet-independence this
+#: module exists to secure. `_FONT_SIZE` is the engine's own declared annotation
+#: text height and moves for nobody.
+#:
+#: 2x it admits every real label measured — 1.416 to 2.694 — and cuts the 10.197
+#: rotated one, with the nearest datum on either side a factor of 2 away.
+MAX_TIGHT_LABEL_SIDE = 2.0 * _FONT_SIZE
 
 #: How far another annotation's line-work may run through a label's text box
 #: before it is reported, in millimetres.
@@ -200,11 +209,12 @@ def segments_of(item) -> tuple:
     through is the same failure as a property that raises up front. No CAD call is
     made here.
     """
+    problem = None
     try:
         segments = getattr(item, "segments", None)
         if not segments:
             return ()
-        kept = []
+        kept: list[tuple[tuple, tuple]] = []
         for segment in segments:
             start, end = segment
             start, end = tuple(start), tuple(end)
@@ -220,16 +230,28 @@ def segments_of(item) -> tuple:
                 # silently disable itself). If `segments` ever started yielding
                 # `Vector`s, every item would contribute nothing and this check
                 # would become a no-op that reported a clean sheet.
-                warnings.warn(
-                    f"{type(item).__name__} segments are not 2D point pairs; its "
-                    "line-work is excluded from annotation_ink_overlap",
-                    stacklevel=2,
-                )
-                return ()
+                problem = "segments are not 2D point pairs"
+                kept = []
+                break
             kept.append((start, end))
-        return tuple(kept)
-    except Exception:  # noqa: BLE001 — duck-typed items may misbehave
+    except Exception as exc:  # noqa: BLE001 — duck-typed items may misbehave
+        problem = f"reading segments raised {type(exc).__name__}"
+        kept = []
+    if problem is not None:
+        # Outside the `try`. An earlier revision warned *inside* it, so under a
+        # warnings-as-errors configuration the warning raised and was swallowed by
+        # the same handler — the one loud path went quiet exactly when the operator
+        # asked for loud. The raising-property path said nothing at all, which is
+        # the #701 failure the neighbouring `_label_bbox` logs to avoid: if one
+        # annotation type's `segments` started raising, that item would vanish from
+        # the check with no signal.
+        warnings.warn(
+            f"{type(item).__name__}: {problem}; its line-work is excluded from "
+            "annotation_ink_overlap",
+            stacklevel=2,
+        )
         return ()
+    return tuple(kept)
 
 
 def length_inside(segment, box) -> float:
@@ -311,18 +333,16 @@ def shorter_side(label_box) -> float:
     return float(min(label_box[2] - label_box[0], label_box[3] - label_box[1]))
 
 
-def is_tight(label_box, median_shorter_side) -> bool:
+def is_tight(label_box) -> bool:
     """Whether *label_box* fits its text closely enough for clipping to be honest.
 
-    See :data:`MAX_TIGHT_LABEL_HEIGHT`. A ``median_shorter_side`` of ``None`` — a
-    sheet with no labels to take a median of — treats every box as tight, which
-    changes nothing because there is then nothing to cross.
+    See :data:`MAX_TIGHT_LABEL_SIDE`. Depends on nothing but the box itself, so a
+    pair's verdict cannot change because of an unrelated annotation elsewhere on
+    the sheet.
     """
     if not _is_box(label_box):
         return False
-    if not median_shorter_side:
-        return True
-    return bool(shorter_side(label_box) <= MAX_TIGHT_LABEL_HEIGHT * median_shorter_side)
+    return shorter_side(label_box) <= MAX_TIGHT_LABEL_SIDE
 
 
 def label_crossings(
@@ -331,7 +351,6 @@ def label_crossings(
     *,
     label_a=None,
     label_b=None,
-    median_shorter_side=None,
 ) -> list[Crossing]:
     """Every reportable crossing between the pair, worst first.
 
@@ -345,9 +364,9 @@ def label_crossings(
     annotation's full extent, which spans its witness lines and would report
     every dimension whose line-work reaches a neighbour's arm.
     """
-    if not is_tight(label_a, median_shorter_side):
+    if not is_tight(label_a):
         label_a = None
-    if not is_tight(label_b, median_shorter_side):
+    if not is_tight(label_b):
         label_b = None
     found = [
         Crossing(

@@ -23,7 +23,7 @@ from draftwright._geometry import (
     _segment_clips_box,
     material_reentry_span,
 )
-from draftwright.linting.ink_overlap import label_crossings, segments_of, shorter_side
+from draftwright.linting.ink_overlap import label_crossings, segments_of
 from draftwright.linting.issues import LintIssue, _IssueAggregation
 from draftwright.projection import _MATERIAL_PAGE_TOLERANCE
 
@@ -382,18 +382,6 @@ def lint_drawing(
         label_boxes.append(_label_bbox(item, warned_label_bbox))
         ink_segments.append(segments_of(item))
 
-    # The sheet's own sense of how thick a line of text is, so a box far thicker
-    # than that can be recognised as the bounding box of a *rotated* label rather
-    # than a fit around text — see `ink_overlap.MAX_TIGHT_LABEL_HEIGHT`.
-    #
-    # The SHORTER SIDE of each box, not its height: at 90° the box is an exact fit
-    # but its height is the text's width. A median rather than a mean, so one
-    # inflated box among a dozen tight ones cannot drag the reference up.
-    # `shorter_side` returns 0.0 for anything that is not a box, including a
-    # `BoundBox`, which has no `__len__`.
-    _sides = sorted(side for box in label_boxes if (side := shorter_side(box)) > 0.0)
-    median_shorter_side = _sides[len(_sides) // 2] if _sides else None
-
     boxes: list = []
     for index, item in enumerate(items):
         # The sheet frame (#767) spans the page by design; a None box excludes it from every
@@ -459,7 +447,6 @@ def lint_drawing(
                         ink_segments[j],
                         label_a=label_boxes[i],
                         label_b=label_boxes[j],
-                        median_shorter_side=median_shorter_side,
                     )
                 )
                 remedy = (
@@ -499,7 +486,6 @@ def lint_drawing(
                 ink_segments[j],
                 label_a=label_boxes[i],
                 label_b=label_boxes[j],
-                median_shorter_side=median_shorter_side,
             ):
                 crosser, crossed = (item_a, item_b) if crossing.crosses_b else (item_b, item_a)
                 lc = getattr(crosser, "label", None) or _item_label(crosser) or "?"
