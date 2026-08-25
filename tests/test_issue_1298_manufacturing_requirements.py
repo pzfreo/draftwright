@@ -28,7 +28,7 @@ from draftwright.model.pmi_lowering import lower_ap242_manufacturing_requirement
 from draftwright.pmi import PmiExtractionReport, PmiRecord, extract_pmi_report
 from draftwright.sheet_emit import emit_sheet_script
 
-GRM03 = Path("/Users/paul/steps/GRM-03_thumbwheel_drive_screw_AP242_PMI.step")
+GRM03 = Path(__file__).parent / "fixtures" / "grm03_thumbwheel_drive_screw_ap242_pmi.step"
 GRM03_SHA256 = "4b6462b9cc9f0d419250933bd77fb305f9cfebb7ec2b3f377008732876010a21"
 
 EXTERNAL_TEXT = "M3 x 0.5-6g RH, full available length on nominal DIA 3 region"
@@ -1035,7 +1035,6 @@ def test_emitter_preserves_pattern_member_raw_topology_and_object_backed_knurl()
     assert "sheet.diameter(features.boss, knurl=KnurlRequirement(" in boss_source
 
 
-@pytest.mark.skipif(not GRM03.exists(), reason="local exact GRM-03 AP242 file absent")
 def test_exact_grm03_lowers_all_three_supported_manufacturing_requirements():
     assert hashlib.sha256(GRM03.read_bytes()).hexdigest() == GRM03_SHA256
     report = extract_pmi_report(GRM03)
@@ -1068,7 +1067,6 @@ def test_exact_grm03_lowers_all_three_supported_manufacturing_requirements():
     ]
 
 
-@pytest.mark.skipif(not GRM03.exists(), reason="local exact GRM-03 AP242 file absent")
 def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
     assert hashlib.sha256(GRM03.read_bytes()).hexdigest() == GRM03_SHA256
     drawing = build_drawing(GRM03, pmi="annotate")

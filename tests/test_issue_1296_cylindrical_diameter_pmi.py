@@ -38,7 +38,7 @@ from draftwright.sheet_emit import emit_sheet_script
 
 FIXTURE = Path(__file__).parent / "fixtures" / "ap242_single_cylinder_diameter.step"
 FIXTURE_SHA256 = "e1a819891ceadf5ac95c0c018713f839dd0532098d380224fd69240b3542c306"
-GRM03 = Path("/Users/paul/steps/GRM-03_thumbwheel_drive_screw_AP242_PMI.step")
+GRM03 = Path(__file__).parent / "fixtures" / "grm03_thumbwheel_drive_screw_ap242_pmi.step"
 GRM03_SHA256 = "4b6462b9cc9f0d419250933bd77fb305f9cfebb7ec2b3f377008732876010a21"
 GRM_DIAMETERS = {f"dimension:0:1:4:{index}" for index in range(1, 6)}
 
@@ -799,7 +799,6 @@ def test_diameter_blockers_and_standalone_target_reject_inconsistent_groups():
         _requirement_parameter(rotational, "diameter")
 
 
-@pytest.mark.skipif(not GRM03.exists(), reason="local exact GRM-03 AP242 acceptance file absent")
 def test_exact_grm03_five_diameters_each_own_one_canonical_annotation(tmp_path):
     assert _sha256(GRM03) == GRM03_SHA256
     drawing = build_drawing(GRM03, pmi="annotate", out=str(tmp_path / "grm03"))

@@ -13,7 +13,7 @@ from draftwright.linting import LintIssue
 from draftwright.model.ir import Frame, StepFeature
 from draftwright.model.planner import DimensionId
 
-GRM03 = Path("/Users/paul/steps/GRM-03_thumbwheel_drive_screw_AP242_PMI.step")
+GRM03 = Path(__file__).parent / "fixtures" / "grm03_thumbwheel_drive_screw_ap242_pmi.step"
 GRM03_SHA256 = "4b6462b9cc9f0d419250933bd77fb305f9cfebb7ec2b3f377008732876010a21"
 
 
@@ -445,7 +445,6 @@ def test_explicit_a4_remains_fixed_instead_of_escalating():
     assert [issue for issue in drawing.lint() if issue.code == "axial_length_missing"]
 
 
-@pytest.mark.skipif(not GRM03.exists(), reason="local exact GRM-03 AP242 file absent")
 def test_exact_grm03_recovers_all_axial_stations_on_a3_with_pmi_off():
     assert hashlib.sha256(GRM03.read_bytes()).hexdigest() == GRM03_SHA256
     drawing = build_drawing(GRM03, pmi="off")
