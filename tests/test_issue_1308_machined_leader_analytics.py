@@ -27,7 +27,7 @@ EXPECTED = {
             "m_dia_x2": ("Leader", (56.074, 32.893, 62.876, 57.5)),
             "m_dia_x3": ("Leader", (108.49, 32.875, 114.603, 62.5)),
             "m_dia_x0": ("Leader", (24.623, 53.893, 38.14, 56.107)),
-            "m_steplen0": ("Dimension", (31.49, 97.0, 44.79, 107.083)),
+            "m_steplen0": ("Dimension", (31.49, 97.0, 44.79, 114.083)),
             "m_steplen1": ("Dimension", (39.34, 97.0, 49.44, 108.0)),
             "m_steplen2": ("Dimension", (49.34, 97.0, 64.44, 108.0)),
             "m_steplen3": ("Dimension", (64.34, 97.0, 154.44, 108.0)),
@@ -36,15 +36,11 @@ EXPECTED = {
             "m_chamfer_x0": ("Leader", (12.236, 94.25, 40.14, 101.339)),
             "m_chamfer_x1": ("Leader", (153.14, 69.829, 177.598, 76.25)),
             "title_block": ("TitleBlock", (165.925, 10.925, 286.075, 27.075)),
-            # #1338: the automatic replan now keeps the optional ISO on the same sheet,
-            # so its NTS note is part of the measured drawing. Every other box is unchanged.
+            # #1338: the automatic replan keeps the optional ISO on the same sheet.
             "note_iso_nts": ("Note", (218.528, 122.668, 242.861, 125.362)),
         },
-        # The natural step-length chain has two crossings (#1321/#1332): '2' draws
-        # 2.2 mm through '0.5', and '0.5' 1.1 mm back through '2'.  The Stage-3
-        # same-batch selector (#1334) now moves only those two labels along their
-        # dimension lines, leaving the annotation boxes above unchanged and the
-        # finished sheet clean.
+        # The generic Stage-3 same-batch selector (#1334) promotes a conflicted label by one
+        # tier when along-line movement cannot clear the chain; the finished sheet is clean.
         {},
     ),
     "issue_1058_wheel_rh.step": (
@@ -185,6 +181,12 @@ def test_shared_machined_adapter_fails_closed_with_provenance(monkeypatch):
 
 @pytest.mark.parametrize("fixture", tuple(EXPECTED))
 def test_analytical_machined_leaders_preserve_the_occ_measured_drawing(fixture, monkeypatch):
+    from draftwright import builder as builder_module
+
+    # This is the historical analytical-vs-OCC geometry golden.  Inter-view clearance has
+    # dedicated compose/repack coverage; suppress that independent outer-layout migration here
+    # so a leader-lowering regression remains the only way these coordinates can change.
+    monkeypatch.setattr(builder_module, "_annotation_clearance", lambda _drawing: 0.0)
     immediate_jobs = []
     constructed_polygonal = []
     place_feature_leader_jobs = from_model.place_feature_leader_jobs
@@ -211,7 +213,10 @@ def test_analytical_machined_leaders_preserve_the_occ_measured_drawing(fixture, 
         return leader
 
     monkeypatch.setattr(from_model, "Leader", counted_leader)
-    drawing = build_drawing(FIXTURES / fixture)
+    # This golden isolates analytical-vs-OCC leader lowering.  Keep the established principal
+    # topology explicit so automatic redundant-view selection is not mistaken for a leader
+    # geometry change (and so the recorded page coordinates remain meaningful).
+    drawing = build_drawing(FIXTURES / fixture, _views=("front", "plan", "side"))
     actual = {}
     for name, annotation in drawing.iter_annotations():
         box = annotation.bounding_box()

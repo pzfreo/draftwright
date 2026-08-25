@@ -1471,6 +1471,7 @@ def prevent_dimension_label_ink(
     page=None,
     immutable=(),
     obstacles=(),
+    perpendicular_step=None,
 ):
     """Choose small along-line label offsets for a just-built dimension batch.
 
@@ -1493,6 +1494,9 @@ def prevent_dimension_label_ink(
     neighbour's.  If the bounded choices cannot improve the batch, the natural deterministic
     placement survives and the normal ``annotation_ink_overlap`` lint remains explicit
     evidence of the infeasible fallback.  Names in *immutable* are never shifted (pins win).
+    When ``perpendicular_step`` is supplied, a conflicting dimension may also move one
+    established stacking tier away from the view. This is the generic fallback for a chain
+    whose line-work cannot be cleared by moving labels along their measured spans.
     Fixed *obstacles* do not make an existing contact this local batch's responsibility, but
     no selected move may introduce a new label contact with one.
 
@@ -1645,6 +1649,7 @@ def prevent_dimension_label_ink(
         conflicts = _conflicts(batch)
         fixed_conflicts = sum(conflict[0] == "fixed" for conflict in conflicts)
         offsets = []
+        tier_offsets = []
         for (_name, dim), info, natural in zip(batch, infos, natural_centres, strict=True):
             label = _box(dim)
             offsets.append(
@@ -1652,9 +1657,18 @@ def prevent_dimension_label_ink(
                 if info is None or natural is None or label is None
                 else abs((label[info[0]] + label[info[0] + 2]) / 2.0 - natural)
             )
+        for (_name, dim), (_original_name, original_dim) in zip(batch, original, strict=True):
+            spec = getattr(dim, "_dw_spec", None)
+            original_spec = getattr(original_dim, "_dw_spec", None)
+            tier_offsets.append(
+                0.0
+                if spec is None or original_spec is None
+                else abs(float(spec.distance) - float(original_spec.distance))
+            )
         return (
             fixed_conflicts,
             len(conflicts),
+            sum(value > 1e-9 for value in tier_offsets),
             round(sum(offsets), 9),
             round(max(offsets, default=0.0), 9),
             tuple(round(value, 9) for value in offsets),
@@ -1665,10 +1679,10 @@ def prevent_dimension_label_ink(
     if not conflicts:
         return current  # overwhelmingly common path: no extra Dimension construction
 
-    cache: dict[tuple[int, float], Any] = {}
+    cache: dict[tuple[int, float, float], Any] = {}
 
-    def _rebuild(index, centre):
-        key = (index, round(centre, 6))
+    def _rebuild(index, centre, distance_delta=0.0):
+        key = (index, round(centre, 6), round(distance_delta, 6))
         if key in cache:
             return cache[key]
         name, dim = original[index]
@@ -1682,7 +1696,14 @@ def prevent_dimension_label_ink(
         kwargs["label_offset_x"] = (
             kwargs.get("label_offset_x", 0.0) + (centre - natural) * direction
         )
-        rebuilt = _dim(spec.p1, spec.p2, spec.side, spec.distance, spec.draft, **kwargs)
+        rebuilt = _dim(
+            spec.p1,
+            spec.p2,
+            spec.side,
+            spec.distance + distance_delta,
+            spec.draft,
+            **kwargs,
+        )
         # The producer attaches semantic evidence before the corridor commits the
         # survivor. Rebuilding only the rendered Dimension must not erase that evidence:
         # hole-table escalation and coverage lint read these riders from the final object.
@@ -1765,13 +1786,30 @@ def prevent_dimension_label_ink(
             name, _dim_obj = original[index]
             if name in immutable or infos[index] is None:
                 continue
-            for centre in _centres_for(index, current):
-                trial = list(current)
-                trial[index] = (name, _rebuild(index, centre))
-                objective, trial_conflicts = _objective(trial)
-                key = (objective, index, round(centre, 9))
-                if objective < current_objective and (best is None or key < best[0]):
-                    best = (key, trial, objective, trial_conflicts)
+            distances = (0.0,) if perpendicular_step is None else (0.0, perpendicular_step)
+            for distance_delta in distances:
+                for centre in _centres_for(index, current):
+                    rebuilt = _rebuild(index, centre, distance_delta)
+                    if page is not None:
+                        box = _anno_box(rebuilt)
+                        if box is not None and not (
+                            page[0] <= box[0]
+                            and box[2] <= page[2]
+                            and page[1] <= box[1]
+                            and box[3] <= page[3]
+                        ):
+                            continue
+                    trial = list(current)
+                    trial[index] = (name, rebuilt)
+                    objective, trial_conflicts = _objective(trial)
+                    key = (
+                        objective,
+                        index,
+                        round(distance_delta, 9),
+                        round(centre, 9),
+                    )
+                    if objective < current_objective and (best is None or key < best[0]):
+                        best = (key, trial, objective, trial_conflicts)
         if best is None:
             break
         _key, current, current_objective, conflicts = best

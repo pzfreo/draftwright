@@ -2643,6 +2643,17 @@ class TestComposeThenPackRepack:
         )
         assert _cross_view_overlaps(dwg, None) == 0
 
+    def test_nearby_cross_view_labels_reserve_external_text_padding(self):
+        from draftwright.builder import _cross_view_overlaps
+
+        # Exact glyph boxes do not overlap, but each label owns the default 2 mm external
+        # padding.  A 3 mm gap is therefore not a clear inter-view corridor.
+        dwg = self._fake_dwg(
+            {"a": self._label((0, 0, 10, 10)), "b": self._label((13, 0, 23, 10))},
+            {"a": "front", "b": "side"},
+        )
+        assert _cross_view_overlaps(dwg, None) == 1
+
     # --- annotation-over-view-linework trigger (#293) ---------------------
 
     def test_annotation_view_overlap_counts_label_over_other_view(self):
@@ -2672,6 +2683,49 @@ class TestComposeThenPackRepack:
         assert _annotation_view_overlaps(bare, a) == 0  # bare line — normal drafting
         own = self._fake_dwg({"d": self._label((-5, -5, 5, 5))}, {"d": "front"})
         assert _annotation_view_overlaps(own, a) == 0  # inside its own view
+
+    def test_annotation_view_clearance_triggers_before_literal_overlap(self):
+        from types import SimpleNamespace
+
+        from draftwright.builder import _annotation_view_overlaps
+
+        a = SimpleNamespace(
+            FV_X=0.0,
+            FV_Y=0.0,
+            fv_hw=10.0,
+            fv_hh=10.0,
+            PV_X=0.0,
+            PV_Y=40.0,
+            pv_hh=10.0,
+            SV_X=40.0,
+            SV_Y=0.0,
+            sv_hw=10.0,
+        )
+        # Side view begins at x=30.  The front-owned label stops at 29, leaving 1 mm:
+        # non-overlapping geometry, but less than the default 2 mm text clearance.
+        near = self._fake_dwg({"d": self._label((20, -2, 29, 2))}, {"d": "front"})
+        assert _annotation_view_overlaps(near, a) == 1
+
+    def test_measured_label_band_carries_external_text_padding(self):
+        from types import SimpleNamespace
+
+        from draftwright.builder import _measure_blocks
+
+        a = SimpleNamespace(
+            FV_X=0.0,
+            FV_Y=0.0,
+            fv_hw=10.0,
+            fv_hh=10.0,
+            PV_X=0.0,
+            PV_Y=40.0,
+            pv_hh=10.0,
+            SV_X=40.0,
+            SV_Y=0.0,
+            sv_hw=10.0,
+        )
+        dwg = self._fake_dwg({"d": self._label((20, -2, 29, 2))}, {"d": "front"})
+        blocks = _measure_blocks(dwg, a)
+        assert blocks["front"].right == pytest.approx(21.0)
 
     # --- out-of-bounds escalation trigger (#92) ---------------------------
 
@@ -4009,12 +4063,10 @@ class TestPrismaticClassification:
         # The below strip extends downward from the side view, so nearer the view =
         # higher Y. The location dim must sit nearer the view than the overall dim.
         assert min(ymid(o) for o in loc) > ymid(env), "location must stack inside the envelope"
-        # #1321/#1332: this drawing genuinely carries one crossing, named rather
-        # than filtered by code so a second one would fail here. Measured, not
-        # rendered — same family as the cases that were. Candidate prevention
-        # (#1334) stops it being placed; until then the honest assertion is that it is
-        # here, not that the sheet is clean.
-        rest = _ink_crossings_named(dwg, [("40", "⌀6 THRU")])
+        # Measured block repacking now gives the callout enough room to take its clear
+        # candidate; retain the exact-ink assertion so this cannot regress to the old
+        # `40`-through-`⌀6 THRU` crossing unnoticed.
+        rest = _ink_crossings_named(dwg, [])
         assert [i for i in rest if i.severity != "info"] == []
 
     def test_envelope_depth_survives_many_side_location_dims(self):
@@ -4897,19 +4949,9 @@ class TestLocationDimsAndSection:
             part -= Pos(0, 0, z) * Cylinder(r, 60, rotation=(0, 90, 0))
         dwg = build_drawing(part)
         assert len([n for n in dwg.annotations() if n.startswith("hc_side")]) == 4
-        # #1321/#1332: the envelope length '80' runs through all four side-drilled
-        # callouts. Named rather than filtered by code, so a fifth would fail here.
-        # Measured, not rendered — same family as the cases that were. Candidate
-        # prevention (#1334) stops them being placed.
-        rest = _ink_crossings_named(
-            dwg,
-            [
-                ("80", "⌀2 THRU"),
-                ("80", "⌀2.4 THRU"),
-                ("80", "⌀2.8 THRU"),
-                ("80", "⌀3.2 THRU"),
-            ],
-        )
+        # Measured view-block clearance gives the four callouts clear candidates instead of
+        # letting the envelope length `80` run through every label.
+        rest = _ink_crossings_named(dwg, [])
         assert [i for i in rest if i.severity != "info"] == []
 
     @pytest.mark.timeout(120)
@@ -5719,7 +5761,7 @@ class TestLayoutGeneralisation:
     @pytest.mark.timeout(120)
     def test_turned_flange_gets_both_od_and_hole_furniture(self):
         # A turned-and-drilled flange (cylinder OD + centre bore + bolt circle)
-        # must get the turned base set (OD dim + centrelines) AND the drilled
+        # must get the turned base set (OD dim + profile centreline) AND the drilled
         # furniture (hole callout + pitch circle) — not one or the other. This
         # is the feature-presence composition from #10, on a genuinely
         # rotational part rather than a prismatic plate.
@@ -5739,7 +5781,8 @@ class TestLayoutGeneralisation:
         # Turned base set.
         assert "dim_od" in dwg.annotations()
         assert "centerline_front" in dwg.annotations()
-        assert "centerline_side" in dwg.annotations()
+        assert "centerline_side" not in dwg.annotations()  # redundant profile view omitted
+        assert "centerline_plan" not in dwg.annotations()  # end view gets marks, not an axis line
         # Drilled furniture.
         assert any(n.startswith("hc_") for n in dwg.annotations()), "expected a hole callout"
         assert any(n.startswith("bc_") for n in dwg.annotations()), "expected a pitch circle"
@@ -7562,7 +7605,10 @@ class TestFeatureEdits:
             + Cylinder(16, 15).translate((0, 0, 15))
             + Cylinder(9, 15).translate((0, 0, 30))
         )
-        auto = build_drawing(shaft)  # auto_dims=True — the reference
+        # Keep the same principal topology as the manual reconstruction below. Automatic
+        # turned-view selection is an independent outer-layout decision; this test isolates
+        # whether finalize routes the chain through the same renderer.
+        auto = build_drawing(shaft, _views=("front", "plan", "side"))
 
         dwg = build_drawing(shaft, auto_dims=False)
         dwg._defer_intents = True
@@ -7652,11 +7698,15 @@ class TestFeatureEdits:
         dwg.finalize()
 
         def steplen_pos(d):
+            _x0, _y0, _x1, front_top = d.view_bounds("front")
             return sorted(
                 (
                     n,
                     round(d.get_annotation(n).bounding_box().center().X, 1),
-                    round(d.get_annotation(n).bounding_box().center().Y, 1),
+                    # Compose-then-repack may translate the whole view block after the auto
+                    # pass measures external text clearance.  Renderer parity is the chain's
+                    # position relative to its owning view, not an incidental page ordinate.
+                    round(d.get_annotation(n).bounding_box().center().Y - front_top, 1),
                 )
                 for n in d.annotations()
                 if n.startswith("m_steplen")
@@ -9627,18 +9677,15 @@ class TestTurnedDiameters:
         # The `leader_crosses_silhouette` entry is the #798 bolt-circle cut described in
         # test_issue_881_...; it appears on BOTH paths, which is what this test is
         # actually about — the replay reproduces the same critique, defects included.
-        # Candidate prevention (#1334) removes the same-batch step-chain crossings.
-        # One crossing against ink committed by a different producer remains. Both
-        # paths report the same residual critique, which is what this
-        # round-trip test is actually about -- replay reproduces the automatic
-        # drawing, defects included.
+        # Candidate prevention (#1334) removes the same-batch step-chain crossings, and
+        # measured block clearance now clears the former cross-producer ink crossing. The
+        # remaining critique is reproduced on both paths.
         assert (
             auto.lint_summary()["by_code"]
             == replayed.lint_summary()["by_code"]
             == {
                 "hole_requirement_missing": 2,
                 "leader_crosses_silhouette": 1,
-                "annotation_ink_overlap": 1,
             }
         )
 

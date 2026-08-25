@@ -9,7 +9,7 @@ The small representative parts check the parts of "meets standards" a machine ca
   paths; stray ``<text>`` would not DXF-export and would not scale with the
   drawing);
 - the SVG is well-formed XML;
-- the standard four views and a title block are present, with at least one
+- the automatically selected views and a title block are present, with at least one
   dimension.
 
 The larger CTC corpus also contains automatic plans that are currently diagnostic rather than
@@ -43,8 +43,11 @@ def _assert_export_contract(dwg, svg_path, dxf_path):
     assert Path(svg_path).exists(), "SVG not written"
     assert Path(dxf_path).exists(), "DXF not written"
 
-    # Structure: four standard views, a title block, at least one dimension.
-    assert set(dwg.views) >= {"front", "plan", "side", "iso"}
+    # Structure: the resolved principal set, pictorial context, a title block, and dimensions.
+    # Turned parts intentionally omit their repeated longitudinal projection (#1262).
+    assert set(dwg.views) >= set(dwg.view_decision["chosen"])
+    assert len(dwg.view_decision["chosen"]) >= 2
+    assert "iso" in dwg.views
     assert any(isinstance(a, TitleBlock) for a in dwg.items), "no title block"
     assert len(dwg.items) >= 2, "expected dimensions + title block"
 

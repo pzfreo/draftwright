@@ -439,13 +439,16 @@ class Drawing:
 
     A ``Drawing`` holds the projected views, the annotation list, and per-view
     coordinate helpers. :func:`build_drawing` returns one pre-populated with the
-    standard 4-view layout and automatic dimensions; you then add or remove
+    automatically selected principal/pictorial views and dimensions; you then add or remove
     annotations, add section/auxiliary views, and finally :meth:`export`.
 
     Attributes:
         scale: drawing scale factor (e.g. ``2.0`` for 2:1).
         scale_decision: JSON-friendly resolution of an automatic or explicit scale request,
             including the requested/effective scales and any required placement blockers.
+        view_decision: JSON-friendly resolution of automatic principal-view selection.
+            ``chosen`` is the final principal set and ``attempts`` records a reduced candidate
+            and why it was accepted or rejected.
         arrangement_decision: JSON-friendly record of how the sheet arrangement was resolved
             (#1130) — ``chosen`` names the arrangement the sheet was composed under, and
             ``attempts`` lists each one built, in order, with the required placement blockers
@@ -499,6 +502,15 @@ class Drawing:
             "status": "automatic",
             "blockers": (),
             "attempted_scales": (),
+            "attempts": (),
+        }
+        # The builder replaces this neutral value after the requested/automatic view policy
+        # has settled.  Always present so callers never have to infer whether the repeated
+        # projection was considered from logs or from the final view count (#1262).
+        self.view_decision = {
+            "policy": "not_evaluated",
+            "status": "not_evaluated",
+            "chosen": (),
             "attempts": (),
         }
         # Public, JSON-friendly record of how the sheet ARRANGEMENT was resolved — ADR 0018

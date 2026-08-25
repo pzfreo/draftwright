@@ -76,18 +76,51 @@ from draftwright.model import (
     StepFeature,
     build_pmi_features,
 )
+from draftwright.model.planner import plan_dimensions
 from draftwright.projection import (
     _bbox_within,
     _fit_iso_view,
     _project_iso,
 )
-from draftwright.view_plan import ARRANGEMENTS, ViewConstraints, resolve_from_analysis
+from draftwright.view_plan import (
+    ARRANGEMENTS,
+    ViewConstraints,
+    ViewPlanIncomplete,
+    resolve_from_analysis,
+    third_angle_view_names,
+)
 
 # A view centre must move by more than this (mm) for the measure-and-repack
 # pass to re-assemble.  Below it, the estimate already matched the measured
 # footprint and pass 1 stands (the common, non-ballooned case).
 _REPACK_TOL = 0.75
 _REPACK_MAX_ITER = 3
+
+
+def _automatic_turned_principals(analysis: Analysis) -> tuple[str, ...] | None:
+    """Return the conventional profile + end views for an automatically planned turned part.
+
+    A body of revolution needs one longitudinal/profile projection, not the two repeated
+    radial projections in the default third-angle set.  It still keeps its end view: radial
+    holes, patterns, flats, threads and similar details may require it.  Which named views
+    play those roles depends on the turning axis, so this decision is semantic rather than a
+    hard-coded "drop plan" rule.
+
+    This only proposes a candidate.  ``build_drawing`` checks the model's approved dimensions
+    before projection and then compares the finished candidate with the full-view baseline;
+    an asymmetric feature can therefore veto the reduction.
+    """
+    axis = getattr(getattr(analysis, "prof", None), "axis", None)
+    if axis is None and getattr(analysis, "is_rotational", False):
+        axis = getattr(analysis, "od_axis", None)
+    required = {
+        "x": frozenset(("front", "side")),
+        "y": frozenset(("front", "side")),
+        "z": frozenset(("front", "plan")),
+    }.get(axis)
+    if required is None:
+        return None
+    return tuple(name for name in third_angle_view_names() if name in required)
 
 
 def _validate_authored_view_layout(dwg: Drawing, constraints) -> None:
@@ -172,14 +205,19 @@ def _settle_iso_view(dwg: Drawing, a: Analysis, *, obstacles=()):
 
 
 def _cross_view_overlaps(dwg, a) -> int:
-    """Count pairs of annotations attributed to *different* views whose boxes
-    overlap — the #121 failure (a plan-view balloon over a front-view dimension).
+    """Count annotation footprints from *different* views that lack clearance.
 
-    This is the repack trigger: a clean sheet (no cross-view overlap) is left
+    A label owns the drafting preset's external text padding on every side.  Waiting until
+    two glyph boxes literally overlap leaves technically non-intersecting text with no visible
+    air between neighbouring view blocks (#1262).  Bare line-work still has no clearance band:
+    extension/leader lines crossing between views is normal drafting.
+
+    This is the repack trigger: a clean sheet (no cross-view conflict) is left
     exactly as pass 1 placed it, so well-estimated parts stay byte-identical;
     only a sheet with a real collision is re-packed (ADR 0004).
     """
     items = list(_attribute_annotations(dwg, a))
+    clearance = _annotation_clearance(dwg)
     n = 0
     for i in range(len(items)):
         _, vi, bi, li = items[i]
@@ -189,14 +227,21 @@ def _cross_view_overlaps(dwg, a) -> int:
             # (extension/leader) crossing between views is normal drafting.
             if vi == vj or not (li or lj):
                 continue
+            bi = _inflate_box(bi, clearance if li else 0.0)
+            bj = _inflate_box(bj, clearance if lj else 0.0)
             if min(bi[2], bj[2]) > max(bi[0], bj[0]) and min(bi[3], bj[3]) > max(bi[1], bj[1]):
                 n += 1
     return n
 
 
 def _annotation_view_overlaps(dwg, a) -> int:
-    """Count view-owned annotation *labels* whose box overlaps a **different**
-    view's geometry box — a dimension that has grown into a neighbouring view's
+    """Count labels that lack clearance from a **different** view's geometry.
+
+    The label box is inflated by the drafting preset's external text padding, so a dimension
+    or callout that merely grazes a neighbouring view also triggers measured repacking.  This
+    is the generic inter-view clearance policy; feature renderers do not know their neighbours.
+
+    This catches a dimension that has grown into a neighbouring view's
     line-work (the staggered step chain bumping the plan view above the front
     view). A third repack trigger besides cross-annotation overlap and page
     overflow: the measured blocks already capture the annotation's real depth, so
@@ -206,10 +251,12 @@ def _annotation_view_overlaps(dwg, a) -> int:
     """
     geom = _view_geom(a)
     boxes = {v: (cx - hw, cy - hh, cx + hw, cy + hh) for v, (cx, cy, hw, hh) in geom.items()}
+    clearance = _annotation_clearance(dwg)
     n = 0
     for _name, v, bb, label in _attribute_annotations(dwg, a):
         if not label:
             continue
+        bb = _inflate_box(bb, clearance)
         for ov, gb in boxes.items():
             if ov == v:
                 continue
@@ -217,6 +264,26 @@ def _annotation_view_overlaps(dwg, a) -> int:
                 n += 1
                 break
     return n
+
+
+def _annotation_clearance(dwg) -> float:
+    """External text clearance used by measured view-block composition."""
+
+    draft = getattr(dwg, "draft", None)
+    if draft is not None:
+        return float(draft.pad_around_text)
+    # Pure layout tests use a deliberately tiny Drawing stand-in.  Keep their policy identical
+    # to a real default drawing without making every stand-in reproduce the drafting facade.
+    return float(draft_preset(font_size=_FONT_SIZE, decimal_precision=1).pad_around_text)
+
+
+def _inflate_box(box, clearance):
+    return (
+        box[0] - clearance,
+        box[1] - clearance,
+        box[2] + clearance,
+        box[3] + clearance,
+    )
 
 
 def _annotations_out_of_bounds(dwg, a, tol: float = 1.0) -> bool:
@@ -260,7 +327,11 @@ def _measure_blocks(dwg, a) -> dict:
     """
     geom = _view_geom(a)
     ext: dict = {v: None for v in geom}
-    for _name, v, bb, _label in _attribute_annotations(dwg, a):
+    clearance = _annotation_clearance(dwg)
+    for _name, v, bb, label in _attribute_annotations(dwg, a):
+        # A label's measured footprint includes the same external text clearance used by the
+        # repack trigger.  Otherwise repack would notice the shortfall and then reproduce it.
+        bb = _inflate_box(bb, clearance if label else 0.0)
         e = ext[v]
         ext[v] = (
             bb
@@ -566,6 +637,12 @@ def _assemble(
         camera, up = _CAMERAS[spec.name]
         place = view_plan.placements[spec.name]
         dwg._add_view(spec.name, part_s, camera, up, (place.cx, place.cy), scaled=True)
+    dwg.view_decision = {
+        "policy": "selected",
+        "status": "selected",
+        "chosen": tuple(view_plan.principal_names),
+        "attempts": (),
+    }
     if a.planned_iso:
         if a.planned_iso_scale is None:
             _project_iso(dwg, a, a.SCALE, shape_s=part_s)
@@ -1001,6 +1078,7 @@ def _build_drawing_once(
     _include_iso: bool = True,
     _view_constraints=None,
     _required_tables=(),
+    _select_automatic_views: bool = False,
 ) -> Drawing:
     """Build a customisable 4-view :class:`Drawing` without exporting it.
 
@@ -1081,32 +1159,101 @@ def _build_drawing_once(
     title = title or stem.replace("_", " ").upper()
     tracer = _resolve_trace(trace, out)
 
-    a = _analyse(
-        step_file,
-        title,
-        number,
-        tolerance,
-        drawn_by,
-        out,
-        scale=scale,
-        page=page,
-        pmi=pmi,
-        model=model,
-        decorations=decorations,
-        material=material,
-        date=date,
-        revision=revision,
-        company=company,
-        frame=frame,
-        projection=projection,
-        zones=zones,
-        _reuse=_analysis_base,
-        _required_tables=_required_tables,
-        _arrangements=_arrangements,
-        _views=_views,
-        _include_iso=_include_iso,
-        _view_constraints=_view_constraints,
-    )
+    def analyse(*, reuse, views):
+        return _analyse(
+            step_file,
+            title,
+            number,
+            tolerance,
+            drawn_by,
+            out,
+            scale=scale,
+            page=page,
+            pmi=pmi,
+            model=model,
+            decorations=decorations,
+            material=material,
+            date=date,
+            revision=revision,
+            company=company,
+            frame=frame,
+            projection=projection,
+            zones=zones,
+            _reuse=reuse,
+            _required_tables=_required_tables,
+            _arrangements=_arrangements,
+            _views=views,
+            _include_iso=_include_iso,
+            _view_constraints=_view_constraints,
+        )
+
+    a = analyse(reuse=_analysis_base, views=_views)
+    view_attempts = ()
+    view_status = "selected"
+    if _select_automatic_views and _views is None and auto_dims:
+        candidate_views = _automatic_turned_principals(a)
+        if candidate_views is not None:
+            planning_model = (
+                _coerce_model(model, a.part, decorations, requested, authored)
+                if model is not None
+                else cast("PartModel", a.model if a.model is not None else build_model(a))
+            )
+            # Dimensions are not the only annotations with view requirements.  GD&T,
+            # surface-finish, datum, and manufacturing-note aspects carry an explicit target
+            # view in the IR and intentionally bypass the dimension planner.  Fail closed
+            # before projection when an automatic reduction would erase one of those targets.
+            aspect_views = {
+                view
+                for feature in planning_model.features
+                if isinstance((view := getattr(feature, "view", None)), str)
+                and view in third_angle_view_names()
+            }
+            missing_aspect_views = tuple(sorted(aspect_views - set(candidate_views)))
+            uncovered = missing_aspect_views
+            reason = "annotation_view_required" if uncovered else None
+            if not uncovered:
+                try:
+                    plan_dimensions(planning_model, planned_views=candidate_views)
+                except ViewPlanIncomplete as exc:
+                    reason = "dimension_requirement_uncovered"
+                    uncovered = tuple(item.label for item in exc.uncovered)
+            candidate_analysis = None
+            if reason is None:
+                try:
+                    # The analysis sizing model can legitimately carry requirements not in a
+                    # caller's authored rendering subset (for example an emitted script with
+                    # every dimension line commented out). It is an independent preflight and
+                    # must reject the proposal rather than escape the automatic-view gate.
+                    candidate_analysis = analyse(reuse=a, views=candidate_views)
+                except ViewPlanIncomplete as exc:
+                    reason = "dimension_requirement_uncovered"
+                    uncovered = tuple(item.label for item in exc.uncovered)
+            if reason is not None:
+                view_status = "retained_for_requirements"
+                view_attempts = (
+                    {
+                        "views": candidate_views,
+                        "status": "rejected",
+                        "reason": reason,
+                        "uncovered": uncovered,
+                        "blockers": (),
+                    },
+                )
+            else:
+                # Recognition/model construction has already happened. Re-resolve only the
+                # scale/page/view geometry under the candidate before any projection or
+                # annotation is built, so the common accepted path still compiles once.
+                assert candidate_analysis is not None
+                a = candidate_analysis
+                view_status = "candidate"
+                view_attempts = (
+                    {
+                        "views": candidate_views,
+                        "status": "candidate",
+                        "reason": "redundant_radial_view_removed",
+                        "blockers": (),
+                    },
+                )
 
     # Pass 1: place + annotate from the estimated layout, then measure the real
     # per-view footprints and re-pack the blocks disjoint if a view actually
@@ -1153,6 +1300,12 @@ def _build_drawing_once(
         tracer.write()
     if _analysis_sink is not None:
         _analysis_sink(a)
+    dwg.view_decision = {
+        "policy": "automatic" if _select_automatic_views else "selected",
+        "status": view_status,
+        "chosen": tuple(dwg.view_plan.principal_names),
+        "attempts": view_attempts,
+    }
     return dwg
 
 
@@ -1582,6 +1735,7 @@ def build_drawing(
         views: tuple[str, ...] | None = None,
         include_iso: bool | None = None,
         page_override: str | tuple | None = None,
+        select_automatic_views: bool = False,
     ) -> Drawing:
         nonlocal analysis_base
 
@@ -1623,6 +1777,7 @@ def build_drawing(
             _views=views,
             _include_iso=_include_iso if include_iso is None else include_iso,
             _view_constraints=_view_constraints,
+            _select_automatic_views=select_automatic_views,
         )
         _validate_authored_view_layout(built, _view_constraints)
         return _post_build(built) if _post_build is not None else built
@@ -1640,26 +1795,104 @@ def build_drawing(
         views_are_automatic = _view_constraints is None or (
             isinstance(_view_constraints, ViewConstraints) and _view_constraints.is_automatic_only
         )
-        drawing = _build(None, views=_views)
+        drawing = _build(
+            None,
+            views=_views,
+            select_automatic_views=views_are_automatic and _views is None,
+        )
+        dimensions_are_automatic = auto_dims and drawing.model().authored_dimensions is None
+        replanned = False
+        replan_attempts = []
+        initial_view_decision = getattr(drawing, "view_decision", {})
+        view_attempts = list(initial_view_decision.get("attempts", ()))
+        view_status = initial_view_decision.get("status", "default")
+        settled_issues = None
+
+        def _automatic_assessment(candidate):
+            # One lint pass feeds both structural and requirement gates.  Re-running lint
+            # here used to duplicate the most expensive post-build critique for every trial.
+            issues = tuple(candidate.lint(physical=False))
+            return issues, _scale_blockers_from_issues(issues)
+
+        def _principal_names(candidate):
+            plan = getattr(candidate, "view_plan", None)
+            if plan is not None:
+                return tuple(plan.principal_names)
+            # Test doubles and older post-build adapters may expose only the established
+            # ``views`` mapping. Keep the policy boundary compatible with that narrow shape.
+            return tuple(name for name in third_angle_view_names() if name in candidate.views)
+
+        def _absent_view_owners(candidate):
+            """Annotations assigned to a view the candidate did not actually project."""
+            result = []
+            for name in candidate.annotations():
+                owner = candidate.view_of(name)
+                if owner is not None and owner not in candidate.views:
+                    result.append(name)
+            return tuple(result)
+
+        # The reduced topology was selected after analysis but before projection, so the
+        # accepted common case performs one assembly. Read back that finished candidate now.
+        # A non-source placement drop, structural error, or annotation still owned by an
+        # absent view vetoes it and pays for the full-view fallback. Source-owned callout
+        # drops remain eligible for the established scale/page recovery below.
+        settled_principal_views = _principal_names(drawing)
+        if view_status == "candidate":
+            candidate_issues, candidate_blockers = _automatic_assessment(drawing)
+            absent_owners = _absent_view_owners(drawing)
+            unrecoverable_blockers = tuple(
+                blocker for blocker in candidate_blockers if not blocker["source_ids"]
+            )
+            candidate_errors = tuple(
+                issue for issue in candidate_issues if issue.severity == "error"
+            )
+            if unrecoverable_blockers or candidate_errors or absent_owners:
+                proposed = settled_principal_views
+                reason = (
+                    "annotation_owned_by_absent_view"
+                    if absent_owners
+                    else (
+                        "required_outcome_dropped"
+                        if unrecoverable_blockers
+                        else "structural_error"
+                    )
+                )
+                view_attempts[-1] = {
+                    "views": proposed,
+                    "status": "rejected",
+                    "reason": reason,
+                    "blockers": candidate_blockers,
+                    **({"annotations": absent_owners} if absent_owners else {}),
+                }
+                drawing = _build(None, views=third_angle_view_names())
+                settled_principal_views = _principal_names(drawing)
+                view_status = "retained_after_rejection"
+            else:
+                view_attempts[-1] = {
+                    "views": settled_principal_views,
+                    "status": "chosen",
+                    "reason": "redundant_radial_view_removed",
+                    "blockers": candidate_blockers,
+                }
+                view_status = "reduced"
+                settled_issues = candidate_issues
+        elif view_status == "selected":
+            view_status = "default"
+
         if built_arrangement != ARRANGEMENTS[0]:
-            # The RECOGNITION-FREE critique, not `scale_blockers_for`: the gate must reach the
-            # same verdict whether the model was detected or declared, or the arrangement
-            # would depend on how the part was described and ADR 0011's declare-equals-detect
-            # parity would break. Materialising the aggregate here would also recognise a
-            # solid whose features a declared caller has already stated (ADR 0011 / 0017).
-            # Placement drops are recorded during the build, so they survive the restriction.
+            # The recognition-free critique makes the arrangement independent of whether the
+            # model was detected or declared. Carry the already settled view topology through
+            # its fallback compile; otherwise proving the arrangement would restore a view.
             drawing = _preserve_requirements_under_arrangement(
                 drawing,
                 built_arrangement,
-                _build,
+                lambda candidate_scale, arrangements: _build(
+                    candidate_scale,
+                    arrangements,
+                    views=settled_principal_views,
+                ),
                 lambda built: _scale_blockers(built, physical=False),
             )
-        dimensions_are_automatic = auto_dims and drawing.model().authored_dimensions is None
-        original_scale = drawing.scale
-        original_page = (drawing.page_w, drawing.page_h)
-        replanned = False
-        replan_attempts = []
-        settled_issues = None
         arrangement_decision = getattr(drawing, "arrangement_decision", None)
         settled_arrangement = (
             arrangement_decision["chosen"]
@@ -1668,18 +1901,11 @@ def build_drawing(
         )
 
         def _retain_arrangement(candidate):
-            # The corrective builds are confined to the settled arrangement.  Preserve
-            # the original decision record as well: it explains why that arrangement won,
-            # whereas a fresh one-attempt record would erase the rejected alternatives.
+            # The corrective builds are confined to the settled arrangement. Preserve
+            # the original decision record explaining why that arrangement won.
             if arrangement_decision is not None:
                 candidate.arrangement_decision = arrangement_decision
             return candidate
-
-        def _automatic_assessment(candidate):
-            # One lint pass feeds both structural and requirement gates.  Re-running lint
-            # here used to duplicate the most expensive post-build critique for every trial.
-            issues = tuple(candidate.lint(physical=False))
-            return issues, _scale_blockers_from_issues(issues)
 
         def _record_attempt(
             scale,
@@ -1728,6 +1954,11 @@ def build_drawing(
                 return issues, blockers, "required_outcome_dropped"
             return issues, blockers, None
 
+        # Every later scale/page/ISO correction is a rebuild. Carry the selected topology
+        # explicitly so a successful reduced plan cannot silently revert to three principals.
+        original_scale = drawing.scale
+        original_page = (drawing.page_w, drawing.page_h)
+
         def _try_larger_standard_pages(
             starting_page,
             *,
@@ -1754,6 +1985,7 @@ def build_drawing(
                     larger = _build(
                         None,
                         arrangements=(settled_arrangement,),
+                        views=settled_principal_views,
                         include_iso=include_iso,
                         page_override=page_name,
                     )
@@ -1815,6 +2047,7 @@ def build_drawing(
                     candidate_drawing = _build(
                         candidate_scale,
                         arrangements=(settled_arrangement,),
+                        views=settled_principal_views,
                         page_override=original_page,
                     )
                 except (ValueError, Standard_Failure) as exc:
@@ -1884,6 +2117,27 @@ def build_drawing(
                 drawing = upscaled
                 settled_issues = upscaled_issues
                 replanned = True
+            elif page is None and any(
+                getattr(feature, "kind", None) == "authored_dimension"
+                and bool(getattr(feature, "source_id", ""))
+                for feature in getattr(drawing.model(), "features", ())
+            ):
+                # If the measured detail cannot be eliminated on the selected sheet, keep
+                # searching the bounded standard-page tail for externally authored dimensions.
+                # A generated detail is a conservative recovery for detected measurements, but
+                # it must not strand imported source-owned marks when the next sheet renders
+                # every one directly (GRM-03 PMI after inter-view clearance, #1262).
+                larger, larger_issues = _try_larger_standard_pages(
+                    original_page,
+                    include_iso=_include_iso,
+                    reason="page_escalation_after_detail",
+                    fallback_views=tuple(drawing.views),
+                    require_axial_coverage=False,
+                )
+                if larger is not None:
+                    drawing = larger
+                    settled_issues = larger_issues
+                    replanned = True
 
         # #443/#1299: a pictorial view is useful context, but it cannot outrank the
         # dimensions or other required annotations needed to manufacture a part.
@@ -1949,6 +2203,7 @@ def build_drawing(
                     without_iso_proposal = _build(
                         None,
                         arrangements=(settled_arrangement,),
+                        views=settled_principal_views,
                         include_iso=False,
                     )
                 except (ValueError, Standard_Failure) as exc:
@@ -1979,6 +2234,7 @@ def build_drawing(
                             without_iso = _build(
                                 None,
                                 arrangements=(settled_arrangement,),
+                                views=settled_principal_views,
                                 include_iso=False,
                                 page_override=original_page,
                             )
@@ -2062,7 +2318,13 @@ def build_drawing(
             ),
             attempts=replan_attempts,
         )
-        if replan_attempts and drawing.solve_trace is not None:
+        drawing.view_decision = {
+            "policy": "automatic",
+            "status": view_status,
+            "chosen": _principal_names(drawing),
+            "attempts": tuple(view_attempts),
+        }
+        if (replan_attempts or view_attempts) and drawing.solve_trace is not None:
             # Every corrective candidate was a full build, and each build writes the
             # one shared trace path, so the file on disk may describe a *rejected*
             # candidate rather than the drawing returned.  The settled drawing's own

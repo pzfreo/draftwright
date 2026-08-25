@@ -28,6 +28,19 @@ def _short_chain():
     ]
 
 
+def _connected_mixed_chain():
+    """A generic short/long run where along-line motion alone is infeasible."""
+    draft = Draft(font_size=3.0, arrow_length=2.7, line_width=0.1)
+    spans = ((20.0, 36.0, "3.2"), (36.0, 38.5, "0.5"), (38.5, 48.5, "2"), (48.5, 63.5, "3"))
+    return [
+        (
+            f"dim_{index}",
+            _dim((lo, 0.0, 0.0), (hi, 0.0, 0.0), "above", 11.0, draft, label=label),
+        )
+        for index, (lo, hi, label) in enumerate(spans)
+    ]
+
+
 def _stage1_crossings(batch):
     found = []
     for left_index, (_left_name, left) in enumerate(batch):
@@ -101,6 +114,22 @@ def test_immutable_label_keeps_deterministic_linted_fallback():
     assert placed[0][1] is natural[0][1]
     assert placed[1][1] is natural[1][1]
     assert _stage1_crossings(placed), "an infeasible pin must remain visible to lint"
+
+
+def test_infeasible_along_line_shift_promotes_one_rung_to_the_existing_far_tier():
+    along_only = prevent_dimension_label_ink(
+        _connected_mixed_chain(), page=(0.0, 0.0, 100.0, 100.0)
+    )
+    assert _stage1_crossings(along_only), "the fixture no longer requires a tier promotion"
+
+    placed = prevent_dimension_label_ink(
+        _connected_mixed_chain(),
+        page=(0.0, 0.0, 100.0, 100.0),
+        perpendicular_step=7.0,
+    )
+
+    assert _stage1_crossings(placed) == []
+    assert [dim._dw_spec.distance for _name, dim in placed] == [11.0, 18.0, 11.0, 11.0]
 
 
 def test_clean_batch_is_a_zero_construction_fast_path():

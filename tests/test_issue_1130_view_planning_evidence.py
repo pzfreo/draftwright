@@ -10,11 +10,11 @@ This is that fixture. It exists so every later slice of #1130 is measured agains
 repository owns, and so the claim "the fixed four-view topology forces the sheet" is a number
 here rather than a recollection of someone else's file.
 
-**These tests pin CURRENT behaviour, deliberately.** Nothing here is a defect report against the
-packer — given four views the engine's choice is correct, and its refusal to fit A2 is honest.
-What they record is that the decision ADR 0018 says nothing owns is not being made: the plan
-view is a redundant second edge-on view of a rotational part, and it is on the sheet because the
-topology is fixed, not because anything judged it worth its 217 mm.
+**These tests pin the safety counterexample, deliberately.** Nothing here is a defect report
+against the packer — given four views the engine's choice is correct, and its refusal to fit A2
+is honest. Automatic selection now tries the smaller profile + end-view set, but this fixture
+loses required slot annotations under that layout, so the finished-drawing gate retains the
+full topology.
 
 A slice that changes these numbers is doing ADR 0018's work, and must update them and say so.
 """
@@ -101,16 +101,15 @@ class TestTheFixedTopologyForcesTheSheet:
     def test_the_automatic_result_is_a1_at_full_scale_and_reports_no_problem(self, automatic):
         """The ADR's headline: A1 landscape at 1:1 for a part 43 mm thick.
 
-        The sheet is the ADR's subject and is unchanged — nothing yet owns the question of
-        whether four views are the right four. What the drawing no longer does is call itself
-        complete: #1250 closed the gap where the automatic path skipped the requirement gate
-        the explicit path had always run.
+        The sheet is the ADR's subject and is unchanged because the automatic reduced candidate
+        loses required outcomes. #1250's completeness gate keeps that loss explicit.
         """
         drawing = automatic
 
         assert (drawing.page_w, drawing.page_h) == (841.0, 594.0), "not A1 landscape"
         assert drawing.scale == 1.0
         assert set(drawing.views) == {"front", "plan", "side", "iso"}
+        assert drawing.view_decision["status"] == "retained_after_rejection"
         # The sheet is still A1 at 1:1 — the fixed four-view topology still forces it, which is
         # what ADR 0018 exists to fix and has not fixed yet. What HAS changed is the second
         # half of the original claim: the drawing no longer says it is fine. Since #1250 the

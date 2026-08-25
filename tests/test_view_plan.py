@@ -310,7 +310,10 @@ class TestPerViewRequirementCoverage:
         """
         from draftwright.view_plan import view_coverage, views_carrying_nothing_exclusively
 
-        drawing = build_drawing(build(), title="T", number="N")
+        # Inspect the full baseline explicitly. Automatic planning now consumes exactly this
+        # evidence and removes one of these empty radial projections, so observing the
+        # candidate set requires retaining all three principals at this diagnostic seam.
+        drawing = build_drawing(build(), title="T", number="N", _views=("front", "plan", "side"))
         assert views_carrying_nothing_exclusively(drawing) == expected
         coverage = view_coverage(drawing)
         assert coverage["front"].exclusive, (
@@ -353,6 +356,7 @@ class TestPerViewRequirementCoverage:
             Rot(0, 90, 0) * (Cylinder(10, 40) + Pos(0, 0, 40) * Cylinder(6, 30)),
             title="T",
             number="N",
+            _views=("front", "plan", "side"),
         )
         coverage = view_coverage(drawing)
 
@@ -474,7 +478,9 @@ class TestSectionsAndDetailsAreNotPlannedYet:
 
         from draftwright.view_plan import view_coverage, views_carrying_nothing_exclusively
 
-        drawing = build_drawing(_PARTS["crowded_staircase"](), title="T", number="N")
+        # Pin the small sheet that makes the recovery detail necessary. Automatic layout may
+        # otherwise escalate to a larger standard sheet and correctly eliminate that detail.
+        drawing = build_drawing(_PARTS["crowded_staircase"](), title="T", number="N", page="A4")
         assert "detail_a" in drawing.views, "precondition: this part no longer details"
 
         cover = view_coverage(drawing)["detail_a"]

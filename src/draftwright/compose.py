@@ -614,7 +614,9 @@ def choose_scale(
             iso_scale_factor=iso_scale_factor,
         ):
             _log.warning(
-                "Requested scale %s on %s page may not fit the 4-view layout", scale, page
+                "Requested scale %s on %s page may not fit the requested view layout",
+                scale,
+                page,
             )
         return float(scale), pw, ph, tb
     if page is not None:
@@ -971,9 +973,12 @@ def _layout_geometry(
                 left=max(est.left, meas.left),
             )
 
-        fv = _merge(est_fv, blocks["front"])
-        pv = _merge(est_pv, blocks["plan"])
-        sv = _merge(est_sv, blocks["side"])
+        # A selected principal set may omit a redundant view.  Measured blocks contain only
+        # views that were actually projected; absent entries retain their estimate because the
+        # downstream geometry namespace still carries all three conventional coordinates.
+        fv = _merge(est_fv, blocks.get("front", est_fv))
+        pv = _merge(est_pv, blocks.get("plan", est_pv))
+        sv = _merge(est_sv, blocks.get("side", est_sv))
     else:
         fv, pv, sv = est_fv, est_pv, est_sv
     # Per-side corridor depths from the (possibly measured) blocks. The front and

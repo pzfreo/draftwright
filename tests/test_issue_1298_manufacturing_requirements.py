@@ -1072,7 +1072,9 @@ def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
     drawing = build_drawing(GRM03, pmi="annotate")
 
     assert (drawing.page_w, drawing.page_h, drawing.scale) == (841.0, 594.0, 10.0)
-    assert set(drawing.views) == {"front", "plan", "side"}
+    assert set(drawing.views) == {"front", "side", "iso"}
+    assert drawing.view_decision["status"] == "reduced"
+    assert drawing.view_decision["chosen"] == ("front", "side")
     assert drawing.scale_decision["status"] == "automatic_replanned"
     attempts = drawing.scale_decision["attempts"]
     assert attempts[-1]["status"] == "complete"

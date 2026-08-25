@@ -3592,6 +3592,7 @@ def _draw_step_chain(
         for seg in segs
     ]
     mean_v = sum(vals) / len(vals)
+    tier_step = draft.font_size + 2 * draft.pad_around_text
     if (
         allow_collapse
         and all(seg.label is None for seg in segs)
@@ -3610,7 +3611,6 @@ def _draw_step_chain(
         typ_name = f"{name_prefix}_typ" if start == 0 else f"{name_prefix}_typ{start}"
         candidates = [(typ_name, dim, _step_measurements(segs))]
     else:
-        tier_step = draft.font_size + 2 * draft.pad_around_text
         tiers = [0] * len(segs)
         if horizontal:
             cw = [
@@ -3699,6 +3699,7 @@ def _draw_step_chain(
             [(name, dim) for name, dim, _measurements in candidates],
             page=page,
             obstacles=strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES),
+            perpendicular_step=tier_step if horizontal else None,
         )
     ]
 
@@ -4599,7 +4600,7 @@ def _global_axis_centerline(first, second):
 
 def render_rotational(dwg, plan, a, *, ctx) -> int:
     """Rotational furniture from the IR `RotationalFeature` (#237): the OD dim (above
-    the front view), the rotation-axis centrelines (front + side), and the concentric
+    the profile view), rotation-axis centrelines on planned profile projections, and concentric
     bore leaders stacked to the left of the front view. Returns the count placed.
 
     The OD/bore dimensions consume only approved compiled entries. Suppressed entries
@@ -4621,6 +4622,14 @@ def render_rotational(dwg, plan, a, *, ctx) -> int:
         # Planner-fed value + authored tolerance/fit suffix (#754).
         return f"ø{dim.value_text}{_tol_suffix(dim.tolerance, draft)}"
 
+    def _place_axis_centerline(item, name, view):
+        # Automatic view selection may omit one of a turned body's two equivalent profile
+        # projections. Furniture is not a semantic requirement and therefore does not pass
+        # through the dimension planner's missing-view gate; guard it explicitly so it cannot
+        # leave an orphan dashed line at the absent view's former page position (#1262).
+        if view in dwg.views:
+            ctx.place(item, name, view=view)
+
     if axis == "z":
         # Vertical turning axis (the common case): OD across the top of the front
         # (profile) view; axis centrelines vertical on front + side.
@@ -4640,21 +4649,21 @@ def render_rotational(dwg, plan, a, *, ctx) -> int:
                 measurement=od_dim.id,
             )
             n += 1
-        ctx.place(
+        _place_axis_centerline(
             _global_axis_centerline(
                 (FX(a.cx), FZ(a.bb.min.Z) - 5, 0),
                 (FX(a.cx), FZ(a.bb.max.Z) + 5, 0),
             ),
             "centerline_front",
-            view="front",
+            "front",
         )
-        ctx.place(
+        _place_axis_centerline(
             _global_axis_centerline(
                 (SX(a.cy), SZ(a.bb.min.Z) - 5, 0),
                 (SX(a.cy), SZ(a.bb.max.Z) + 5, 0),
             ),
             "centerline_side",
-            view="side",
+            "side",
         )
 
         # Concentric bore leaders to the left of the front view, centred on the axis.
@@ -4738,21 +4747,21 @@ def render_rotational(dwg, plan, a, *, ctx) -> int:
                 measurement=od_dim.id,
             )
             n += 1
-        ctx.place(
+        _place_axis_centerline(
             _global_axis_centerline(
                 (FX(a.bb.min.X) - 5, FZ(a.cz), 0),
                 (FX(a.bb.max.X) + 5, FZ(a.cz), 0),
             ),
             "centerline_front",
-            view="front",
+            "front",
         )
-        ctx.place(
+        _place_axis_centerline(
             _global_axis_centerline(
                 (PX(a.bb.min.X) - 5, PY(a.cy), 0),
                 (PX(a.bb.max.X) + 5, PY(a.cy), 0),
             ),
             "centerline_plan",
-            view="plan",
+            "plan",
         )
     elif axis == "y":
         # Horizontal turning axis along Y (#222): the OD is the Z extent — a vertical
@@ -4774,21 +4783,21 @@ def render_rotational(dwg, plan, a, *, ctx) -> int:
                 measurement=od_dim.id,
             )
             n += 1
-        ctx.place(
+        _place_axis_centerline(
             _global_axis_centerline(
                 (SX(a.bb.min.Y) - 5, SZ(a.cz), 0),
                 (SX(a.bb.max.Y) + 5, SZ(a.cz), 0),
             ),
             "centerline_side",
-            view="side",
+            "side",
         )
-        ctx.place(
+        _place_axis_centerline(
             _global_axis_centerline(
                 (PX(a.cx), PY(a.bb.min.Y) - 5, 0),
                 (PX(a.cx), PY(a.bb.max.Y) + 5, 0),
             ),
             "centerline_plan",
-            view="plan",
+            "plan",
         )
     return n
 
@@ -4813,6 +4822,8 @@ def render_local_turned_centerlines(dwg, a, *, ctx) -> int:
 
     def _place(item, name, view):
         nonlocal placed
+        if view not in dwg.views:
+            return
         if ctx.registry.named(name) is not None:
             return
         ctx.place(item, name, view=view)

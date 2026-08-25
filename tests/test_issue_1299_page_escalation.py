@@ -36,16 +36,16 @@ def _five_step_grm_profile():
     return Rotation(0, 90, 0) * shaft
 
 
-def test_incomplete_same_page_recovers_at_a_larger_scale_before_spending_the_sheet():
-    # #1338: this part used to reach A3 without its ISO. The recovery it needed was one
-    # scale step on the sheet already selected, which covers every station AND keeps the
-    # ISO; the sheet and the optional view are only spent when that fails (see the
-    # bounded-page-recovery tests below, and GRM-03 with pmi="annotate" in #1298).
+def test_incomplete_same_page_tries_larger_scales_before_spending_the_sheet():
+    # #1338: larger scales on the selected sheet are still the first recovery lever. With
+    # external text clearance included in view blocks (#1262), this synthetic detected model's
+    # overall-height dimension no longer fits beside the end view on A4, so both bounded scale
+    # candidates are rejected before the workflow spends the ISO and advances to A3.
     drawing = build_drawing(_five_step_grm_profile(), pmi="off")
 
-    assert (drawing.page_w, drawing.page_h) == (297.0, 210.0)
+    assert (drawing.page_w, drawing.page_h) == (420.0, 297.0)
     assert drawing.scale == 5.0
-    assert "iso" in drawing.views
+    assert "iso" not in drawing.views
     assert drawing.scale_decision["status"] == "automatic_replanned"
     assert [
         (
@@ -57,9 +57,22 @@ def test_incomplete_same_page_recovers_at_a_larger_scale_before_spending_the_she
         for attempt in drawing.scale_decision["attempts"]
     ] == [
         ((297.0, 210.0), "axial_coverage_incomplete", "remove_optional_iso", None),
-        ((297.0, 210.0), "complete", "scale_escalation_on_selected_page", None),
+        (
+            (297.0, 210.0),
+            "rejected",
+            "scale_escalation_on_selected_page",
+            "structural_error",
+        ),
+        (
+            (297.0, 210.0),
+            "rejected",
+            "scale_escalation_on_selected_page",
+            "structural_error",
+        ),
+        ((297.0, 210.0), "rejected", "remove_optional_iso", "axial_coverage_incomplete"),
+        ((420.0, 297.0), "complete", "page_escalation_after_optional_iso", None),
     ]
-    assert drawing.scale_decision["attempted_scales"] == (2.0, 5.0)
+    assert drawing.scale_decision["attempted_scales"] == (2.0, 5.0, 10.0, 2.0, 5.0)
     assert {
         drawing.get_annotation(name).label
         for name in drawing.annotations()

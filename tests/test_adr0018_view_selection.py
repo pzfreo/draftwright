@@ -12,10 +12,9 @@ when it is dropped, or a smaller view set costs its annotations and stays on the
 An extent had to be able to move to another view, because the overall width was pinned to
 plan and vanished with it. And the decision had to be carried through every rebuild.
 
-What this does NOT do is choose automatically: `_views` is an engine seam, not a public
-option, and nothing yet drops a view on its own. The reason is measured below — on the ADR's
-own case study the smaller view set reaches the target sheet and loses six annotations doing
-it, so a gate weighing it would refuse. Naming what remains is the point of that test.
+Automatic selection now proposes the turned part's profile + end-view pair. `_views` remains
+an engine seam for testing authored topologies; the automatic proposal must pass the same
+pre-projection requirement check and finished-drawing loss gate exercised below.
 """
 
 import math
