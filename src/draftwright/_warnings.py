@@ -45,3 +45,24 @@ class ScaleCompletenessWarning(UserWarning):
     Callers can filter this policy decision independently of unrelated user warnings while
     still inspecting the complete machine-readable record on ``Drawing.scale_decision``.
     """
+
+
+class UnmeasurableLabelWarning(UserWarning):
+    """An annotation's text or line-work could not be measured, so
+    ``annotation_ink_overlap`` does not cover it (#1321, #1332).
+
+    Two causes, both engine limitations rather than anything the drawing's author
+    did: a label drawn on a diagonal, whose ``label_bbox`` is the bounding box of a
+    rotated rectangle and so much larger than the glyphs; and an annotation whose
+    ``segments`` are not 2D point pairs.
+
+    Loud, because a check that quietly stops covering an annotation can silently
+    disable itself (#701) — but its own category, because the condition is not
+    actionable by the caller and a bare ``UserWarning`` cannot be silenced without
+    silencing everything::
+
+        import warnings
+        from draftwright import UnmeasurableLabelWarning
+
+        warnings.filterwarnings("ignore", category=UnmeasurableLabelWarning)
+    """

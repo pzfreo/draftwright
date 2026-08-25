@@ -45,6 +45,7 @@ _LAZY = {
     # to reach, and the pytest filterwarnings entry naming it paid that on every invocation.
     "SoftDeprecationWarning": "draftwright._warnings",
     "ScaleCompletenessWarning": "draftwright._warnings",
+    "UnmeasurableLabelWarning": "draftwright._warnings",
 }
 
 
@@ -81,7 +82,11 @@ _sys.modules[__name__].__class__ = _DraftwrightModule
 
 
 if TYPE_CHECKING:  # static analysers / IDEs — no runtime import, no kernel cost
-    from draftwright._warnings import ScaleCompletenessWarning, SoftDeprecationWarning
+    from draftwright._warnings import (
+        ScaleCompletenessWarning,
+        SoftDeprecationWarning,
+        UnmeasurableLabelWarning,
+    )
     from draftwright.builder import ScaleIncompatibilityError, build_drawing, make_drawing
     from draftwright.compose import choose_scale
     from draftwright.drawing import Drawing, FeatureInfo
@@ -114,6 +119,7 @@ __all__ = [
     "Sheet",
     "ScaleIncompatibilityError",
     "ScaleCompletenessWarning",
+    "UnmeasurableLabelWarning",
     "ViewPlanIncomplete",
     "ViewConstraints",
     "ViewSpec",

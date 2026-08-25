@@ -379,6 +379,10 @@ def lint_drawing(
     label_boxes: list = []
     crossable_boxes: list = []
     ink_segments: list = []
+    # Per-run memo for the "cannot measure this" warnings, so one diagonal label
+    # warns once for the whole lint rather than once per pass — `repair()` lints
+    # twice per pass for up to three passes.
+    warned_unmeasurable: set[str] = set()
     for item in items:
         _box = _label_bbox(item, warned_label_bbox)
         label_boxes.append(_box)
@@ -388,8 +392,8 @@ def lint_drawing(
         # annotation extent including witness lines, and it began firing on pairs
         # it had never reported. Only the ink check may treat an untight box as
         # absent. Excluded once per item so the warning cannot repeat per pair.
-        crossable_boxes.append(_box if warn_if_untight(_box) else None)
-        ink_segments.append(segments_of(item))
+        crossable_boxes.append(_box if warn_if_untight(_box, warned_unmeasurable) else None)
+        ink_segments.append(segments_of(item, warned_unmeasurable))
 
     boxes: list = []
     for index, item in enumerate(items):
@@ -467,15 +471,22 @@ def lint_drawing(
                         "(#1321)"
                     )
                 )
-                issues.append(
-                    LintIssue(
-                        severity="warning",
-                        message=(
-                            f"labels '{la}' and '{lb}' overlap by {ox:.1f}×{oy:.1f} mm — {remedy}"
-                        ),
-                        code="annotation_overlap",
-                    )
+                overlap_issue = LintIssue(
+                    severity="warning",
+                    message=(
+                        f"labels '{la}' and '{lb}' overlap by {ox:.1f}×{oy:.1f} mm — {remedy}"
+                    ),
+                    code="annotation_overlap",
                 )
+                issues.append(overlap_issue)
+                # This pair reports one code, so the ink finding below is skipped —
+                # but the obscured label must still reach #1147's ledger, or a label
+                # crossed by an overlapping annotation counts for nothing while the
+                # same label crossed by a non-overlapping one counts. Keyed on
+                # `item_b`, matching the ink branch's choice of the crossed item.
+                overlap_token = pair_tokens.get(id(item_b))
+                if _aggregation is not None and overlap_token is not None:
+                    _aggregation.record_pair(overlap_issue, overlap_token)
                 continue
 
             # The label boxes clear each other, which does not mean the

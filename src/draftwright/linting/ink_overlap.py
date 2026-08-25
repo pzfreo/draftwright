@@ -56,6 +56,16 @@ about terminator geometry rather than anything a label box can answer. The
 flange case happens to be caught anyway — the dimension line runs 0.85 mm into
 the neighbouring label on its way — but that is luck, not coverage.
 
+`feature_leader_crossing` is the code that can overlap with this one.
+`_annotation_fixed_ink` registers a `{name}:label` component holding the label
+*box*, and a leader retained under Policy B across it is reported there as `info`,
+deliberately unpenalised. The same geometry reaches this check as a `warning`, so
+one defect can score twice against legibility. On the #1166 fixture the two fire
+on adjacent-but-distinct geometry (`:segment:3` against the callout label) rather
+than the same, so this is a reachable structural overlap rather than an observed
+one; excluding `:label` blockers there, or this check when that one has already
+reported the pair, is the fix if it is seen.
+
 `leader_line_through_text` is **not** the same check and is not made redundant by
 this one. `_lint_leader` tests an item's own elbow against its own `label_bbox` —
 a leader running through the text it is itself labelling. This runs only over
@@ -95,6 +105,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from draftwright._core import _FONT_SIZE
+from draftwright._warnings import UnmeasurableLabelWarning
 
 #: The largest a label box's shorter side may be and still be treated as a fit
 #: around its text, as a multiple of the engine's own annotation text height
@@ -221,7 +232,23 @@ class Crossing:
         return self.length >= MIN_CROSSING_MM
 
 
-def segments_of(item) -> tuple:
+def _warn_once(message: str, seen) -> None:
+    """Warn unless *seen* has already carried this message for this run.
+
+    `_label_bbox` in `structural.py` memoises the same way (#711): several checks
+    read the same item, so an unmemoised warning floods the log O(n²) on one bad
+    annotation — and `repair()` lints twice per pass for up to three passes, so a
+    build repeats it six times over. A `seen` of ``None`` warns every time, which
+    is what a direct helper call outside a lint run should do.
+    """
+    if seen is not None:
+        if message in seen:
+            return
+        seen.add(message)
+    warnings.warn(message, UnmeasurableLabelWarning, stacklevel=3)
+
+
+def segments_of(item, seen=None) -> tuple:
     """An annotation's line-work as ``((x0, y0), (x1, y1))`` pairs, or ``()``.
 
     ``segments``, not ``_segments_local``. The private one is the un-located
@@ -253,14 +280,25 @@ def segments_of(item) -> tuple:
             # inside `length_inside` — out of `crossing_length`, out of
             # `lint_drawing`, killing the whole run. Duck-typed items reach here
             # (ADR 0005), so the shape is checked rather than assumed.
-            if len(start) != 2 or len(end) != 2:
+            if (
+                len(start) != 2
+                or len(end) != 2
+                or not all(isinstance(value, (int, float)) for value in (*start, *end))
+            ):
                 # Discards this item's line-work entirely, so say so. `_label_bbox`
                 # twenty lines away in `structural.py` warns once per item for the
                 # same reason (#701: a check that silently skips an item can
                 # silently disable itself). If `segments` ever started yielding
                 # `Vector`s, every item would contribute nothing and this check
                 # would become a no-op that reported a clean sheet.
-                problem = "segments are not 2D point pairs"
+                # Length AND type. `("ab", "cd")` unpacks fine and `tuple("ab")`
+                # is `('a', 'b')` — length 2 — so a length-only check kept it and
+                # `length_inside` then evaluated `'c' - 'a'`, a `TypeError`
+                # outside any handler, killing lint for every other check on the
+                # sheet. That is the hole this guard's own comment claimed to
+                # close, and the existing `["not a segment"]` test failed at the
+                # unpack instead of reaching it.
+                problem = "segments are not pairs of 2D numeric points"
                 kept = []
                 break
             kept.append((start, end))
@@ -275,10 +313,10 @@ def segments_of(item) -> tuple:
         # the #701 failure the neighbouring `_label_bbox` logs to avoid: if one
         # annotation type's `segments` started raising, that item would vanish from
         # the check with no signal.
-        warnings.warn(
+        _warn_once(
             f"{type(item).__name__}: {problem}; its line-work is excluded from "
             "annotation_ink_overlap",
-            stacklevel=2,
+            seen,
         )
         return ()
     return tuple(kept)
@@ -363,7 +401,7 @@ def shorter_side(label_box) -> float:
     return float(min(label_box[2] - label_box[0], label_box[3] - label_box[1]))
 
 
-def warn_if_untight(label_box) -> bool:
+def warn_if_untight(label_box, seen=None) -> bool:
     """Whether *label_box* is tight, warning once if it is not.
 
     Call this **once per item**, not once per pair: `_label_bbox` in
@@ -380,11 +418,11 @@ def warn_if_untight(label_box) -> bool:
         return False
     width = label_box[2] - label_box[0]
     height = label_box[3] - label_box[1]
-    warnings.warn(
+    _warn_once(
         f"label box {width:.3f} x {height:.3f} mm is too large and too square to be "
         "a fit around text — it is probably a rotated label's bounding box, so "
         "line-work through it is not measured (annotation_ink_overlap)",
-        stacklevel=3,
+        seen,
     )
     return False
 

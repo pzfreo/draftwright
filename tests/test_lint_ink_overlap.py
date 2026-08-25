@@ -12,6 +12,7 @@ import warnings
 
 import pytest
 
+from draftwright import UnmeasurableLabelWarning
 from draftwright.linting.ink_overlap import (
     MAX_TIGHT_LABEL_SIDE,
     MIN_CROSSING_MM,
@@ -109,7 +110,7 @@ class TestCrossingLength:
         `length_inside` — out of `crossing_length`, out of `lint_drawing`, killing
         the run for every other check too.
         """
-        with pytest.warns(UserWarning, match="not 2D point pairs"):
+        with pytest.warns(UnmeasurableLabelWarning, match="not pairs of 2D numeric points"):
             assert measure(_Annotation([((0.0, 12.0, 0.0), (30.0, 12.0, 0.0))]), BOX) == 0.0
 
     def test_the_warning_survives_warnings_as_errors(self):
@@ -122,7 +123,7 @@ class TestCrossingLength:
         """
         with warnings.catch_warnings():
             warnings.simplefilter("error")
-            with pytest.raises(UserWarning, match="not 2D point pairs"):
+            with pytest.raises(UnmeasurableLabelWarning, match="not pairs of 2D numeric points"):
                 measure(_Annotation([((0.0, 12.0, 0.0), (30.0, 12.0, 0.0))]), BOX)
 
     def test_an_annotation_with_no_segments_crosses_nothing(self):
@@ -146,14 +147,14 @@ class TestCrossingLength:
         # the #701 failure the neighbouring `_label_bbox` logs to avoid: if one
         # annotation type's `segments` started raising, that item would vanish
         # from the check with no signal at all.
-        with pytest.warns(UserWarning, match="reading segments raised RuntimeError"):
+        with pytest.warns(UnmeasurableLabelWarning, match="reading segments raised RuntimeError"):
             assert measure(Hostile(), BOX) == 0.0
 
     def test_an_item_whose_segments_are_not_point_pairs_contributes_nothing(self):
         # A raising *getter* is the easy case. An attribute that is present but
         # the wrong shape has to be caught by the same guard, or it escapes
         # `lint_drawing` — the silent-vs-loud failure #701 is about.
-        with pytest.warns(UserWarning, match="reading segments raised"):
+        with pytest.warns(UnmeasurableLabelWarning, match="reading segments raised"):
             assert measure(_Annotation(["not a segment"]), BOX) == 0.0
 
     def test_an_item_whose_segments_raise_while_iterating_contributes_nothing(self):
@@ -161,7 +162,7 @@ class TestCrossingLength:
             yield ((0.0, 12.0), (30.0, 12.0))
             raise RuntimeError("boom")
 
-        with pytest.warns(UserWarning, match="reading segments raised RuntimeError"):
+        with pytest.warns(UnmeasurableLabelWarning, match="reading segments raised RuntimeError"):
             assert measure(_Annotation(exploding()), BOX) == 0.0
 
 
@@ -388,7 +389,7 @@ class TestTheExclusionIsLoud:
     for line-work through it. That must never be silent (#701)."""
 
     def test_an_untight_box_warns(self):
-        with pytest.warns(UserWarning, match="too large and too square"):
+        with pytest.warns(UnmeasurableLabelWarning, match="too large and too square"):
             assert warn_if_untight((38.298, 176.558, 48.495, 186.755)) is False
 
     def test_a_tight_box_is_quiet(self):
@@ -410,3 +411,68 @@ class TestTheExclusionIsLoud:
         with warnings.catch_warnings():
             warnings.simplefilter("error")
             assert warn_if_untight(()) is False
+
+
+class TestTheWarningIsSilenceable:
+    """Its own category, so a caller can mute an engine limitation they cannot act
+    on without muting every other warning (#1332, review round 7).
+
+    `_warnings.py` exists for exactly this: "A `UserWarning` subclass rather than a
+    bare one so callers can silence this category alone."
+    """
+
+    def test_the_category_is_specific_but_still_a_user_warning(self):
+        assert issubclass(UnmeasurableLabelWarning, UserWarning)
+        assert UnmeasurableLabelWarning is not UserWarning
+
+    def test_silencing_the_category_leaves_other_warnings_alone(self):
+        with warnings.catch_warnings(record=True) as seen:
+            warnings.simplefilter("always")
+            warnings.filterwarnings("ignore", category=UnmeasurableLabelWarning)
+            warn_if_untight((38.298, 176.558, 48.495, 186.755))
+            warnings.warn("something else entirely", UserWarning)
+        assert [str(w.message) for w in seen] == ["something else entirely"]
+
+    def test_a_repeated_message_warns_once_per_run(self):
+        """`_label_bbox` memoises the same way (#711): several checks read the same
+        item, and `repair()` lints twice per pass for up to three passes."""
+        seen: set[str] = set()
+        box = (38.298, 176.558, 48.495, 186.755)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            warn_if_untight(box, seen)
+            warn_if_untight(box, seen)
+            warn_if_untight(box, seen)
+        assert len(caught) == 1
+
+    def test_without_a_memo_it_warns_every_time(self):
+        # A direct helper call outside a lint run should stay loud.
+        box = (38.298, 176.558, 48.495, 186.755)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            warn_if_untight(box)
+            warn_if_untight(box)
+        assert len(caught) == 2
+
+
+class TestAPointMustBeTwoNumbers:
+    """Length alone was not enough, and the guard's own comment said it was.
+
+    `("ab", "cd")` unpacks to two 2-tuples — `tuple("ab")` is `('a', 'b')` — so a
+    length-only check kept it, and `length_inside` then evaluated `'c' - 'a'`, a
+    `TypeError` outside any handler, killing lint for every other check on the
+    sheet. The pre-existing test used `["not a segment"]`, which fails at the
+    unpack and so never reached this path.
+    """
+
+    def test_string_coordinates_are_rejected_rather_than_raising(self):
+        with pytest.warns(UnmeasurableLabelWarning, match="2D numeric points"):
+            assert measure(_Annotation([("ab", "cd")]), BOX) == 0.0
+
+    def test_none_coordinates_are_rejected_rather_than_raising(self):
+        with pytest.warns(UnmeasurableLabelWarning, match="2D numeric points"):
+            assert measure(_Annotation([((None, None), (1.0, 1.0))]), BOX) == 0.0
+
+    def test_ordinary_ints_are_accepted(self):
+        # The guard must not reject a perfectly good integer coordinate.
+        assert measure(_Annotation([((0, 12), (30, 12))]), BOX) == pytest.approx(10.0)

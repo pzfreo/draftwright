@@ -102,12 +102,17 @@ def repair_drawing(dwg, max_iter: int = 3):
             # The repairs net-worsened the sheet — undo this pass and stop.
             #
             # Note what this counts: EVERY placement issue, while `_REPAIRABLE_CODES`
-            # holds one. So every other code — `annotation_overlap`,
-            # `leader_crosses_silhouette`, `label_centerline_overlap`, and since #1321
-            # `annotation_ink_overlap` — can vote a repair down but never vote one up,
-            # because no repair here can reduce them. A flip that corrects a
-            # `dim_inside_part` while moving its dimension line across a neighbour's
-            # label nets +1 and is undone, leaving the wrong-side dimension in place.
+            # holds one. So a code the loop cannot target still decides whether a
+            # repair survives. A flip that corrects a `dim_inside_part` while moving
+            # its dimension line across a neighbour's label nets +1 and is undone,
+            # leaving the wrong-side dimension in place.
+            #
+            # Not one-directional, though: the flip moves the dimension line, which
+            # IS the ink `annotation_ink_overlap` measures, so it can clear a
+            # crossing as readily as create one. An earlier revision of this comment
+            # claimed such codes "can vote a repair down but never vote one up",
+            # which the measurement quoted below does not establish and the geometry
+            # contradicts.
             #
             # Measured over the population where it can actually occur. A first
             # measurement counted zero flips across the 23 STEP fixtures, which was
