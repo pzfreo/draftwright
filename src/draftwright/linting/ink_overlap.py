@@ -609,7 +609,12 @@ def crossable_region(
                 key=("badbox", id(item)),
             )
         return None
-    box = tuple(float(value) for value in label_box)
+    box = (
+        float(label_box[0]),
+        float(label_box[1]),
+        float(label_box[2]),
+        float(label_box[3]),
+    )
     polygon = _polygon_of(item, seen, report)
     if polygon is not None and _polygon_matches_box(polygon, box):
         return LabelRegion(box=box, polygon=polygon)
