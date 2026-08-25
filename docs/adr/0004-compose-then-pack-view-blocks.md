@@ -1,7 +1,7 @@
 # ADR 0004 — Compose-then-pack: views as blocks carrying their annotation footprint
 
 - **Status:** Accepted (2026-06-19; amended 2026-06-20, 2026-07-09,
-  2026-07-18 and 2026-08-14 — see Amendments). **Its fixed four-view topology
+  2026-07-18, 2026-08-14, 2026-08-23 and 2026-08-25 — see Amendments). **Its fixed four-view topology
   assumption is superseded by [ADR 0018](0018-requirement-driven-view-planning-and-editable-sheet-layout.md)
   (accepted 2026-08-16)**: which view blocks exist is now 0018's decision. Everything
   else here stands and is what 0018 builds on — each selected view is still composed
@@ -346,3 +346,30 @@ This is post-build verification, not a second occupancy-based fitness function:
 The box-math search and bounded measured-repack loop remain the layout authorities. This
 amendment permits a bounded semantic corrective trial around a known conservative recovery artifact;
 it does not license arbitrary post-build bbox optimisation.
+
+## Amendment (2026-08-25) — the sheet is not the first lever (#1338)
+
+When an automatic plan is incomplete — an axial-coverage gap, or a required annotation
+outcome dropped — the bounded larger-scale trial on the **already-selected page** now runs
+**before** the optional ISO is removed and before any larger sheet is tried. It is the same
+bounded trial the 2026-08-23 amendment introduced for a recovery detail, and it is now
+literally the same helper; only the trigger and the gate set differ.
+
+The order matters because the previous recovery sequence — drop the optional ISO, then
+escalate the sheet — could return a candidate strictly worse than one it never reached.
+GRM-03 (28.7 × 10 × 10 mm) settled on 5:1/A3 *without* its ISO while 5:1/**A4** is clean
+*with* it; the synthetic five-step profile behind #1299 did the same.
+
+The constraints of the 2026-08-23 amendment carry over unchanged: the candidate is confined
+to the settled page and arrangement, is compiled through the ordinary pipeline, shares the
+hard two-candidate work budget, wins only by passing the same structural, required-outcome
+and (when the failure was axial) axial-coverage gates the larger sheet would have had to
+pass, and every attempt, rejection and winner is recorded in the structured scale decision.
+An explicitly requested page pins the **sheet**, not the scale, so the trial still applies
+there — it fills the sheet the caller chose instead of returning an incomplete layout on it.
+
+What this amendment does **not** settle: raising the drawing scale is still the only lever
+the ladder has for a placement shortage, and scale is a statement about the part, not a
+layout knob. Text height is fixed in page mm, so every step up this ladder buys annotation
+room by shrinking the text relative to the geometry. Bounding what a single dropped
+annotation may buy in scale and sheet size is open in #1336.

@@ -36,12 +36,16 @@ def _five_step_grm_profile():
     return Rotation(0, 90, 0) * shaft
 
 
-def test_incomplete_same_page_no_iso_recovery_escalates_to_complete_a3():
+def test_incomplete_same_page_recovers_at_a_larger_scale_before_spending_the_sheet():
+    # #1338: this part used to reach A3 without its ISO. The recovery it needed was one
+    # scale step on the sheet already selected, which covers every station AND keeps the
+    # ISO; the sheet and the optional view are only spent when that fails (see the
+    # bounded-page-recovery tests below, and GRM-03 with pmi="annotate" in #1298).
     drawing = build_drawing(_five_step_grm_profile(), pmi="off")
 
-    assert (drawing.page_w, drawing.page_h) == (420.0, 297.0)
+    assert (drawing.page_w, drawing.page_h) == (297.0, 210.0)
     assert drawing.scale == 5.0
-    assert "iso" not in drawing.views
+    assert "iso" in drawing.views
     assert drawing.scale_decision["status"] == "automatic_replanned"
     assert [
         (
@@ -53,10 +57,9 @@ def test_incomplete_same_page_no_iso_recovery_escalates_to_complete_a3():
         for attempt in drawing.scale_decision["attempts"]
     ] == [
         ((297.0, 210.0), "axial_coverage_incomplete", "remove_optional_iso", None),
-        ((297.0, 210.0), "rejected", "remove_optional_iso", "axial_coverage_incomplete"),
-        ((420.0, 297.0), "complete", "page_escalation_after_optional_iso", None),
+        ((297.0, 210.0), "complete", "scale_escalation_on_selected_page", None),
     ]
-    assert drawing.scale_decision["attempted_scales"] == (2.0, 2.0, 5.0)
+    assert drawing.scale_decision["attempted_scales"] == (2.0, 5.0)
     assert {
         drawing.get_annotation(name).label
         for name in drawing.annotations()
@@ -140,6 +143,8 @@ def test_no_iso_proposal_on_different_page_reselects_scale_for_original_page(mon
         for attempt in drawing.scale_decision["attempts"]
     ] == [
         ("axial_coverage_incomplete", "remove_optional_iso", None),
+        ("rejected", "scale_escalation_on_selected_page", "axial_coverage_incomplete"),
+        ("rejected", "scale_escalation_on_selected_page", "axial_coverage_incomplete"),
         ("scale_proposal", "remove_optional_iso", None),
         ("complete", "remove_optional_iso", None),
     ]
@@ -212,6 +217,18 @@ def test_required_drop_without_axial_gap_uses_the_same_bounded_page_recovery(mon
         for attempt in drawing.scale_decision["attempts"]
     ] == [
         ((297.0, 210.0), "required_outcome_dropped", "remove_optional_iso", None),
+        (
+            (297.0, 210.0),
+            "rejected",
+            "scale_escalation_on_selected_page",
+            "required_outcome_dropped",
+        ),
+        (
+            (297.0, 210.0),
+            "rejected",
+            "scale_escalation_on_selected_page",
+            "required_outcome_dropped",
+        ),
         ((297.0, 210.0), "rejected", "remove_optional_iso", "required_outcome_dropped"),
         ((420.0, 297.0), "complete", "page_escalation_after_optional_iso", None),
     ]
@@ -392,6 +409,7 @@ def test_expected_larger_page_build_failure_is_recorded_before_next_page(monkeyp
             raise ValueError("drawing geometry degenerates on speculative A3")
         dimensions = {
             None: (297.0, 210.0),
+            (297.0, 210.0): (297.0, 210.0),
             "A2": (594.0, 420.0),
         }[page]
         return FakeDrawing(page=dimensions, include_iso=_include_iso)
@@ -416,6 +434,8 @@ def test_expected_larger_page_build_failure_is_recorded_before_next_page(monkeyp
         for attempt in drawing.scale_decision["attempts"]
     ] == [
         ((297.0, 210.0), "axial_coverage_incomplete", "remove_optional_iso", None),
+        ((297.0, 210.0), "rejected", "scale_escalation_on_selected_page", None),
+        ((297.0, 210.0), "rejected", "scale_escalation_on_selected_page", None),
         ((297.0, 210.0), "rejected", "remove_optional_iso", None),
         (
             (420.0, 297.0),
@@ -440,18 +460,23 @@ def test_explicit_a4_remains_fixed_instead_of_escalating():
     drawing = build_drawing(_five_step_grm_profile(), page="A4", pmi="off")
 
     assert (drawing.page_w, drawing.page_h) == (297.0, 210.0)
-    assert drawing.scale_decision["status"] == "automatic"
     assert all(attempt["page"] == (297.0, 210.0) for attempt in drawing.scale_decision["attempts"])
-    assert [issue for issue in drawing.lint() if issue.code == "axial_length_missing"]
+    # #1338: pinning the sheet pins the SHEET. The scale is still automatic, so the same
+    # larger-scale recovery applies and the pinned A4 now carries every station instead of
+    # returning the incomplete 2:1 layout.
+    assert drawing.scale_decision["status"] == "automatic_replanned"
+    assert drawing.scale == 5.0
+    assert not [issue for issue in drawing.lint() if issue.code == "axial_length_missing"]
 
 
-def test_exact_grm03_recovers_all_axial_stations_on_a3_with_pmi_off():
+def test_exact_grm03_recovers_all_axial_stations_on_a4_with_pmi_off():
     assert hashlib.sha256(GRM03.read_bytes()).hexdigest() == GRM03_SHA256
     drawing = build_drawing(GRM03, pmi="off")
 
-    assert (drawing.page_w, drawing.page_h) == (420.0, 297.0)
+    # #1338: was A3 without the ISO; the same stations are covered on A4 with it.
+    assert (drawing.page_w, drawing.page_h) == (297.0, 210.0)
     assert drawing.scale == 5.0
-    assert "iso" not in drawing.views
+    assert "iso" in drawing.views
     assert {
         drawing.get_annotation(name).label
         for name in drawing.annotations()

@@ -36,6 +36,9 @@ EXPECTED = {
             "m_chamfer_x0": ("Leader", (12.236, 94.25, 40.14, 101.339)),
             "m_chamfer_x1": ("Leader", (153.14, 69.829, 177.598, 76.25)),
             "title_block": ("TitleBlock", (165.925, 10.925, 286.075, 27.075)),
+            # #1338: the automatic replan now keeps the optional ISO on the same sheet,
+            # so its NTS note is part of the measured drawing. Every other box is unchanged.
+            "note_iso_nts": ("Note", (218.528, 122.668, 242.861, 125.362)),
         },
         # The natural step-length chain has two crossings (#1321/#1332): '2' draws
         # 2.2 mm through '0.5', and '0.5' 1.1 mm back through '2'.  The Stage-3

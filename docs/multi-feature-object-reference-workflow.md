@@ -111,11 +111,6 @@ sheet.dimension(hole1, "bore.diameter")
 sheet.dimension(hole1, "bore.depth")
 # ... twelve more dimension lines ...
 
-sheet.authored_views()
-sheet.view("front")
-sheet.view("plan")
-sheet.view("side")
-
 drawing = sheet.build()
 drawing.export('thumbwheel', formats=('pdf',))
 ```

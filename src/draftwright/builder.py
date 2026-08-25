@@ -1797,6 +1797,68 @@ def build_drawing(
                 )
             return None, None
 
+        def _try_larger_scales_on_selected_page(starting_scale, *, reason, require_axial_coverage):
+            """Try the bounded larger-scale tail on the ALREADY SELECTED sheet.
+
+            The sheet is not the first lever.  Raising the scale spreads the features apart
+            on the page the automatic selection already chose, so a placement shortage that
+            a larger sheet would clear can often be cleared without changing the sheet the
+            shop receives, and without spending an optional view for it (#1338).  Each
+            candidate passes the same structural, required-outcome and (when the failure
+            was an axial one) axial-coverage gates as any other attempt.
+            """
+            candidate_scales = sorted(item for item in _SCALES if item > starting_scale)[
+                :_AUTOMATIC_UPSCALE_TRIAL_LIMIT
+            ]
+            for candidate_scale in candidate_scales:
+                try:
+                    candidate_drawing = _build(
+                        candidate_scale,
+                        arrangements=(settled_arrangement,),
+                        page_override=original_page,
+                    )
+                except (ValueError, Standard_Failure) as exc:
+                    if not _is_expected_candidate_build_failure(exc):
+                        raise
+                    _log.info(
+                        "%s %s:1 rejected (candidate build failed: %s)",
+                        reason,
+                        candidate_scale,
+                        exc,
+                    )
+                    _record_attempt(
+                        candidate_scale,
+                        "error",
+                        reason=reason,
+                        views=drawing.views,
+                        page=original_page,
+                        error=str(exc),
+                    )
+                    continue
+                candidate_drawing = _retain_arrangement(candidate_drawing)
+                assert (candidate_drawing.page_w, candidate_drawing.page_h) == original_page
+                issues, blockers, rejection = _qualify_candidate(
+                    candidate_drawing,
+                    require_axial_coverage=require_axial_coverage,
+                )
+                if rejection is None:
+                    _record_attempt(
+                        candidate_scale,
+                        "complete",
+                        reason=reason,
+                        candidate=candidate_drawing,
+                    )
+                    return candidate_drawing, issues
+                _record_attempt(
+                    candidate_scale,
+                    "rejected",
+                    blockers,
+                    reason=reason,
+                    rejection=rejection,
+                    candidate=candidate_drawing,
+                )
+            return None, None
+
         # #1155: the compose-time estimate conservatively reserves an enlarged
         # detail for a crowded run.  Some larger preferred scales make that run
         # readable inline, so the detail reservation disappears and the same page
@@ -1813,55 +1875,15 @@ def build_drawing(
                 reason="measured_upscale",
                 candidate=drawing,
             )
-            candidate_scales = sorted(item for item in _SCALES if item > original_scale)[
-                :_AUTOMATIC_UPSCALE_TRIAL_LIMIT
-            ]
-            for candidate_scale in candidate_scales:
-                try:
-                    candidate_drawing = _build(
-                        candidate_scale,
-                        arrangements=(settled_arrangement,),
-                        page_override=original_page,
-                    )
-                except (ValueError, Standard_Failure) as exc:
-                    if not _is_expected_candidate_build_failure(exc):
-                        raise
-                    _log.info(
-                        "measured upscale %s:1 rejected (candidate build failed: %s)",
-                        candidate_scale,
-                        exc,
-                    )
-                    _record_attempt(
-                        candidate_scale,
-                        "error",
-                        reason="measured_upscale",
-                        views=drawing.views,
-                        page=original_page,
-                        error=str(exc),
-                    )
-                    continue
-                candidate_drawing = _retain_arrangement(candidate_drawing)
-                assert (candidate_drawing.page_w, candidate_drawing.page_h) == original_page
-                issues, blockers, rejection = _qualify_candidate(candidate_drawing)
-                if rejection is None:
-                    _record_attempt(
-                        candidate_scale,
-                        "complete",
-                        reason="measured_upscale",
-                        candidate=candidate_drawing,
-                    )
-                    drawing = candidate_drawing
-                    settled_issues = issues
-                    replanned = True
-                    break
-                _record_attempt(
-                    candidate_scale,
-                    "rejected",
-                    blockers,
-                    reason="measured_upscale",
-                    rejection=rejection,
-                    candidate=candidate_drawing,
-                )
+            upscaled, upscaled_issues = _try_larger_scales_on_selected_page(
+                original_scale,
+                reason="measured_upscale",
+                require_axial_coverage=False,
+            )
+            if upscaled is not None:
+                drawing = upscaled
+                settled_issues = upscaled_issues
+                replanned = True
 
         # #443/#1299: a pictorial view is useful context, but it cannot outrank the
         # dimensions or other required annotations needed to manufacture a part.
@@ -1892,6 +1914,7 @@ def build_drawing(
                 blocker for blocker in original_blockers if blocker["source_ids"]
             )
             settled_issues = original_issues
+            recovered_on_selected_page = False
             if original_has_axial_gap or source_blockers:
                 _record_attempt(
                     drawing.scale,
@@ -1904,6 +1927,24 @@ def build_drawing(
                     reason="remove_optional_iso",
                     candidate=drawing,
                 )
+                # #1338: before spending the optional ISO and then the sheet, try the
+                # bounded larger-scale tail on the page already selected.  GRM-03 settled
+                # on 5:1/A3 without its ISO while 5:1/A4 is clean WITH it — a strictly
+                # better candidate the ladder never reached, because its only recovery
+                # order was drop-the-ISO then escalate-the-page.  The gates are unchanged:
+                # this wins only by passing the same axial and required-outcome checks the
+                # larger sheet would have had to pass.
+                upscaled, upscaled_issues = _try_larger_scales_on_selected_page(
+                    drawing.scale,
+                    reason="scale_escalation_on_selected_page",
+                    require_axial_coverage=True,
+                )
+                if upscaled is not None:
+                    drawing = upscaled
+                    settled_issues = upscaled_issues
+                    replanned = True
+                    recovered_on_selected_page = True
+            if (original_has_axial_gap or source_blockers) and not recovered_on_selected_page:
                 try:
                     without_iso_proposal = _build(
                         None,
