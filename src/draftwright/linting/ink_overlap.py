@@ -117,9 +117,11 @@ not placing the label there in the first place.
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass
 
 from draftwright._core import _FONT_SIZE
+from draftwright._geometry import _segment_clip_extent
 
 _log = logging.getLogger(__name__)
 
@@ -248,7 +250,7 @@ class Crossing:
         return self.length >= MIN_CROSSING_MM
 
 
-def _warn_once(message: str, seen) -> None:
+def _warn_once(message: str, seen, key=None) -> None:
     """Log unless *seen* has already carried this message for this run.
 
     **Logged at DEBUG, not warned.** `WARNING` with no logging configured reaches
@@ -269,10 +271,18 @@ def _warn_once(message: str, seen) -> None:
     `repair()` lints twice per pass for up to three passes. A `seen` of ``None``
     logs every time, which is what a direct helper call should do.
     """
+    # Keyed per ITEM, not per message. `_label_bbox` — the #711 precedent this
+    # cites — memoises on `id(item)` for a reason: the message's only varying part
+    # is the annotation's type name, so keying on it collapses N distinct failing
+    # annotations into one line. That would hide exactly the systemic failure the
+    # `segments_of` docstring names: if `segments` ever started yielding `Vector`s,
+    # every item would contribute nothing and this would report it once,
+    # indistinguishable from a single misbehaving annotation.
+    token = message if key is None else key
     if seen is not None:
-        if message in seen:
+        if token in seen:
             return
-        seen.add(message)
+        seen.add(token)
     _log.debug("%s", message)
 
 
@@ -345,6 +355,7 @@ def segments_of(item, seen=None) -> tuple:
             f"{type(item).__name__}: {problem}; its line-work is excluded from "
             "annotation_ink_overlap",
             seen,
+            key=("segments", id(item)),
         )
         return ()
     return tuple(kept)
@@ -353,39 +364,24 @@ def segments_of(item, seen=None) -> tuple:
 def length_inside(segment, box) -> float:
     """Length of *segment* lying inside axis-aligned *box*.
 
-    Liang-Barsky parametric clipping. Returns 0.0 for a segment that misses the
-    box, lies on its boundary, or has zero length.
+    A thin derivation from `_geometry._segment_clip_extent`, not a second clipper.
+    That helper already clips a segment to a box for lint — `structural.py` uses it
+    for `label_centerline_overlap`, whose docstring says lint measures "only the
+    rendered part that actually reaches a label (#1144)" — and for a straight
+    segment the diagonal of the extent it returns *is* the clipped length.
+
+    An earlier revision here was its own Liang-Barsky implementation. It agreed
+    with the shared one on every case tried except the boundary, where it returned
+    0.0 while `_segment_clip_extent` documents "inclusive at the boundary (a touch
+    is a hit)" — so a stroke lying exactly on a label's edge was a hit for one
+    lint check and a miss for another, in the same module. One predicate, and the
+    shared convention wins: CLAUDE.md asks for a shared pass extended rather than
+    a copy, and a boundary is a measure-zero case not worth a second answer to.
     """
-    (x0, y0), (x1, y1) = segment
-    dx, dy = x1 - x0, y1 - y0
-    t0, t1 = 0.0, 1.0
-    for numerator, denominator in (
-        (box[0] - x0, dx),
-        (x0 - box[2], -dx),
-        (box[1] - y0, dy),
-        (y0 - box[3], -dy),
-    ):
-        if denominator == 0.0:
-            # Parallel to this edge. `>= 0` rather than `> 0` so that a segment
-            # lying exactly ON the boundary measures zero: it shares no interior
-            # with the box, and a line running along the top of a text box does
-            # not obscure the text. Same strictness as `annotation_overlap`'s own
-            # `ox > 0.5 and oy > 0.5`.
-            if numerator >= 0.0:
-                return 0.0
-            continue
-        t = numerator / denominator
-        if denominator > 0.0:
-            if t > t1:
-                return 0.0
-            t0 = max(t0, t)
-        else:
-            if t < t0:
-                return 0.0
-            t1 = min(t1, t)
-    if t1 <= t0:
+    clipped = _segment_clip_extent(segment[0], segment[1], box, 0.0)
+    if clipped is None:
         return 0.0
-    return float((t1 - t0) * (dx * dx + dy * dy) ** 0.5)
+    return float(math.hypot(clipped[2] - clipped[0], clipped[3] - clipped[1]))
 
 
 def crossing_length(segments, label_box) -> float:
@@ -458,6 +454,7 @@ def warn_if_untight(label_box, seen=None) -> bool:
         "a fit around text — it is probably a rotated label's bounding box, so "
         "line-work through it is not measured (annotation_ink_overlap)",
         seen,
+        key=("untight", id(label_box)),
     )
     return False
 

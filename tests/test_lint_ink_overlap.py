@@ -101,9 +101,43 @@ class TestLengthInside:
     def test_a_zero_length_segment_measures_nothing(self):
         assert length_inside(((12.0, 12.0), (12.0, 12.0)), BOX) == 0.0
 
-    def test_a_segment_along_the_boundary_measures_nothing(self):
-        # Grazing the edge is not drawing through the text. Zero, not 10.
-        assert length_inside(((0.0, 10.0), (30.0, 10.0)), BOX) == 0.0
+    def test_a_segment_along_the_boundary_follows_the_shared_convention(self):
+        """`_geometry._segment_clip_extent` documents "inclusive at the boundary
+        (a touch is a hit)", and `label_centerline_overlap` already measures by it.
+
+        An earlier revision of this module clipped with its own Liang-Barsky and
+        answered 0.0 here, so a stroke lying exactly on a label's edge was a hit
+        for one lint check and a miss for another in the same module. One
+        predicate; the shared convention wins.
+        """
+        from draftwright._geometry import _segment_clip_extent
+
+        segment, box = ((0.0, 10.0), (30.0, 10.0)), BOX
+        assert length_inside(segment, box) == pytest.approx(10.0)
+        clipped = _segment_clip_extent(segment[0], segment[1], box, 0.0)
+        assert clipped is not None and clipped[2] - clipped[0] == pytest.approx(10.0)
+
+    def test_the_measure_is_the_shared_clipper(self):
+        """Not a second implementation. Any disagreement here is the bug this
+        derivation exists to make impossible."""
+        import math
+
+        from draftwright._geometry import _segment_clip_extent
+
+        for segment in (
+            ((0.0, 12.0), (30.0, 12.0)),
+            ((0.0, 6.0), (30.0, 18.0)),
+            ((15.0, 0.0), (15.0, 30.0)),
+            ((0.0, 30.0), (30.0, 30.0)),
+            ((10.0, 10.0), (20.0, 14.0)),
+        ):
+            clipped = _segment_clip_extent(segment[0], segment[1], BOX, 0.0)
+            expected = (
+                0.0
+                if clipped is None
+                else math.hypot(clipped[2] - clipped[0], clipped[3] - clipped[1])
+            )
+            assert length_inside(segment, BOX) == pytest.approx(expected), segment
 
     def test_the_measure_does_not_depend_on_direction(self):
         forward = length_inside(((0.0, 12.0), (13.0, 12.0)), BOX)

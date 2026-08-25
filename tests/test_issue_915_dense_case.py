@@ -83,8 +83,20 @@ def test_issue_915_hole_callouts_share_one_spacing_solve():
     assert "5 step height(s)" in step_drops[0].message
 
 
-@pytest.mark.parametrize("page", ["A1", "A2"])
-def test_issue_915_actually_carries_the_known_crossings(page):
+@pytest.fixture(scope="module", params=["A1", "A2"])
+def detail_dwg(request):
+    """The A1 and A2 detail builds, once each for the whole module.
+
+    CLAUDE.md: "a critique-style test should share a module-scoped built drawing,
+    not mint a new dense fixture." Each build of this sheet costs ~3.1 s and it is
+    in the PR-gate tier.
+    """
+    return request.param, build_drawing(
+        _ISSUE_915, page=request.param, scale=0.5, detail_view=True
+    )
+
+
+def test_issue_915_actually_carries_the_known_crossings(detail_dwg):
     """The precondition for the assertions that filter these out.
 
     Parametrised over both pages because both builds apply the filter: if either
@@ -92,7 +104,7 @@ def test_issue_915_actually_carries_the_known_crossings(page):
     would filter nothing there and that test would pass while asserting less than
     it claims.
     """
-    dwg = build_drawing(_ISSUE_915, page=page, scale=0.5, detail_view=True)
+    page, dwg = detail_dwg
     matched = [issue for issue in dwg.lint() if _is_known(issue)]
     assert len(matched) == len(_KNOWN_CROSSINGS), (
         f"the {page} sheet no longer carries both known crossings — the filter in "

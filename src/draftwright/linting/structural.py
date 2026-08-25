@@ -522,6 +522,23 @@ def lint_drawing(
                 crosser, crossed = (item_a, item_b) if crossing.crosses_b else (item_b, item_a)
                 lc = getattr(crosser, "label", None) or _item_label(crosser) or "?"
                 lx = getattr(crossed, "label", None) or _item_label(crossed) or "?"
+                # Label text is NOT unique on a sheet. Measured on
+                # `nist_ctc_02_asme1_ap203`, `'4× 75'` names two annotations and
+                # `'5× ⌀8.4 ↧ 25'` names three, so three of that sheet's findings
+                # read identically apart from the millimetre figure and a reader
+                # told to "move what is drawn" cannot tell which of six pairings
+                # is meant. The crossed label's centre disambiguates them, and the
+                # sibling pairwise check `_lint_centerline_dim_overlap` already
+                # reports a location for the same reason.
+                crossed_box = crossing.label_box
+                location = (
+                    (
+                        (crossed_box[0] + crossed_box[2]) / 2.0,
+                        (crossed_box[1] + crossed_box[3]) / 2.0,
+                    )
+                    if crossed_box
+                    else None
+                )
                 issue = LintIssue(
                     severity="warning",
                     message=(
@@ -532,6 +549,7 @@ def lint_drawing(
                         "not just the text"
                     ),
                     code="annotation_ink_overlap",
+                    location=location,
                 )
                 issues.append(issue)
                 # #1147: the defect belongs to the label being obscured, not to
