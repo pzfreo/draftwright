@@ -14,11 +14,11 @@ from draftwright.annotations.from_model import callout_from_spec
 from draftwright.compose import _est_planned_bore_callout_width
 from draftwright.model import PartModel, double_d_bore, hole, pattern
 from draftwright.model.callout import hole_callout_spec
-from draftwright.model.compiled import compile_dimensions
+from draftwright.model.compiled import _value_text, compile_dimensions
 from draftwright.model.declare import envelope as declare_envelope
 from draftwright.model.ir import RequestedDimension
 from draftwright.model.planner import plan_dimensions
-from draftwright.sheet_emit import emit_sheet_script
+from draftwright.sheet_emit import _requested_display_decimals, emit_sheet_script
 
 
 def _width_plan(value: float, decimals: int | None):
@@ -342,6 +342,46 @@ def test_generated_mirror_preserves_precision_on_an_augmenting_intent():
     assert compile_dimensions(regenerated).groups[0].dim(role="width").value_text == "13.55"
 
 
+def test_generated_mirror_preserves_each_discriminated_grid_pitch_policy():
+    part = Box(50, 50, 5)
+    sheet = Sheet(part, title="Precision", number="1349")
+    envelope = sheet.envelope()
+    member = hole(diameter=4, at=(0, 0, 0), axis="z")
+    grid = sheet.pattern(
+        member,
+        kind="grid",
+        count=4,
+        grid=(13.55, 20.125),
+        rows=2,
+        cols=2,
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        sheet.auto_dimensions()
+        # A foreign-feature request first exercises the identity gate while the two
+        # legitimate variants prove discriminator matching through the public surface.
+        sheet.add_dimension(envelope, "width.length").format(decimals=1)
+        sheet.add_dimension(grid, "grid_pitch", axis="row").format(decimals=2)
+        sheet.add_dimension(grid, "grid_pitch", axis="col").format(decimals=3)
+
+    source = emit_sheet_script(
+        sheet.model(), "part", "precision-grid", title="Precision", number="1349"
+    )
+    assert '"grid_pitch.length.row").format(decimals=2)' in source
+    assert '"grid_pitch.length.col").format(decimals=3)' in source
+
+    namespace = {"part": part}
+    body = source.replace("\npart\n", "\n", 1)
+    body = body[: body.index("drawing = sheet.build()")]
+    exec(compile(body, "<grid-precision-round-trip>", "exec"), namespace)  # noqa: S102
+    requests = {
+        request.role: request.display_decimals
+        for request in namespace["sheet"].model().authored_dimensions
+        if request.role.startswith("grid_pitch")
+    }
+    assert requests == {"grid_pitch.length.row": 2, "grid_pitch.length.col": 3}
+
+
 def test_direct_part_model_input_preserves_precision_without_restatement():
     part = Box(13.55, 10, 5)
     envelope = declare_envelope(part)
@@ -364,6 +404,55 @@ def test_direct_part_model_input_preserves_precision_without_restatement():
     )
     requested = compile_dimensions(requested_model).groups[0].dim(role="width")
     assert requested.value_text == "13.55"
+
+
+def test_policy_matching_uses_semantic_role_and_discriminator_without_leaking():
+    part = Box(13.55, 10, 5)
+    envelope = declare_envelope(part)
+    other = declare_envelope(Box(20, 10, 5))
+    mismatched = RequestedDimension(
+        envelope,
+        "width",
+        discriminator="not-length",
+        display_decimals=3,
+    )
+    matching = RequestedDimension(envelope, "width", display_decimals=2)
+    model = PartModel(
+        bbox=part.bounding_box(),
+        orientation=None,
+        features=[envelope],
+        requested_dimensions=(
+            RequestedDimension(other, "width", display_decimals=4),
+            mismatched,
+            matching,
+        ),
+    )
+
+    assert _value_text(model, envelope, "width.length", 13.55) == "13.55"
+    assert _requested_display_decimals(model, envelope, "width.length", None) == 2
+
+
+def test_y_turned_repeated_chain_collapses_before_requesting_a_detail():
+    shaft = Cylinder(30, 10, align=(Align.CENTER, Align.CENTER, Align.MIN))
+    for index, radius in enumerate((25, 20, 15), start=1):
+        shaft += Pos(0, 0, 10 * index) * Cylinder(
+            radius, 10, align=(Align.CENTER, Align.CENTER, Align.MIN)
+        )
+    part = Rot(90, 0, 0) * shaft
+    sheet = Sheet(part, title="Precision", number="1349").authored_dimensions()
+    for index, diameter in enumerate((60, 50, 40, 30)):
+        step = sheet.step(diameter=diameter, length=10, at=(0, -5 - 10 * index, 0), axis="y")
+        sheet.dimension(step, "step.length").format(decimals=2)
+
+    drawing = sheet.build()
+    labels = {
+        name: item.label
+        for name, item in drawing.iter_annotations()
+        if name.startswith("m_steplen")
+    }
+    assert set(labels.values()) == {"4× 10.00"}
+    assert len(labels) == 1
+    assert "detail_a" not in drawing.views
 
 
 def test_conflicting_precision_for_one_semantic_dimension_fails_closed():
@@ -412,3 +501,6 @@ def test_a_compound_location_intent_refuses_one_misleading_precision_policy():
     hole = sheet.hole(diameter=4, at=(0, 0, 0), axis="z")
     with pytest.raises(ValueError, match="multiple directional values"):
         sheet.dimension(hole, "location").format(decimals=2)
+
+    with pytest.raises(ValueError, match="multiple directional values"):
+        RequestedDimension(sheet.features[0], "location", display_decimals=2)

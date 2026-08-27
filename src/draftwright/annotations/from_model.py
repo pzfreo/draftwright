@@ -3965,63 +3965,13 @@ def render_step_lengths(dwg, plan, *, ctx, only=None) -> int:
                     for i, seg in enumerate(_rows)
                 ]
                 dpairs.sort(key=lambda item: (item[0].pa[0] + item[0].pb[0]) / 2)
-                dsegs: list[_StepChainSegment] = []
-                detail_widths: list[float] = []
-                j = 0
-                while j < len(dpairs):
-                    seg0, _width0 = dpairs[j]
-                    run = [dpairs[j]]
-                    k = j + 1
-                    while k < len(dpairs):
-                        prev, _prev_width = run[-1]
-                        cur, _cur_width = dpairs[k]
-                        contiguous = (
-                            abs(max(prev.pa[0], prev.pb[0]) - min(cur.pa[0], cur.pb[0])) <= 1e-4
-                        )
-                        # A repeated-pitch claim must be true at the drawing's
-                        # displayed precision, not merely "within 10%".
-                        equal = (
-                            _step_value_text(cur) == _step_value_text(seg0)
-                            if cur.display_decimals is not None
-                            or seg0.display_decimals is not None
-                            else _fmt(cur.value) == _fmt(seg0.value)
-                        )
-                        untoleranced = prev.tolerance is None and cur.tolerance is None
-                        if not (contiguous and equal and untoleranced):
-                            break
-                        run.append(dpairs[k])
-                        k += 1
-                    if len(run) >= 3:
-                        run_segs = [seg for seg, _width in run]
-                        xs = [p[0] for seg in run_segs for p in (seg.pa, seg.pb)]
-                        y = run_segs[0].pa[1]
-                        repeated_text = (
-                            _step_value_text(run_segs[0])
-                            if any(seg.display_decimals is not None for seg in run_segs)
-                            else _fmt(sum(seg.value for seg in run_segs) / len(run_segs))
-                        )
-                        label = f"{len(run_segs)}× {repeated_text}"
-                        dsegs.append(
-                            _StepChainSegment(
-                                (min(xs), y, 0.0),
-                                (max(xs), y, 0.0),
-                                sum(seg.value for seg in run_segs),
-                                measurements=_step_measurements(run_segs),
-                                label=label,
-                            )
-                        )
-                        detail_widths.append(
-                            _text_size(
-                                label,
-                                draft.font_size,
-                                font=getattr(draft, "font", "Arial"),
-                            )[0]
-                        )
-                    else:
-                        for seg, width in run:
-                            dsegs.append(seg)
-                            detail_widths.append(width)
-                    j = k
+                # The principal-view pass immediately above already collapses every
+                # contiguous repeated run of three or more and returns before queuing this
+                # callback.  Detail projection is affine, so it cannot turn a non-contiguous
+                # run into a contiguous one.  Repeating that collapse here was unreachable
+                # and risked letting the two copies drift (#1349).
+                dsegs = [seg for seg, _width in dpairs]
+                detail_widths = [width for _seg, width in dpairs]
                 # Never recreate the ambiguous stagger inside a detail. Validate
                 # both text clearance and full inside-arrow capacity at the actual
                 # fitted scale; returning zero transactionally drops the detail.
