@@ -617,11 +617,10 @@ def _read_fillet_face(face) -> tuple[str, float, Point]:
     along), the radius (the cylinder radius), and a point **on the round** (mid angular/axial of
     the trimmed face — the ``R`` leader's tip). Agrees with the recogniser (recognition/fillets.py)
     in the two in-plane (placement) coordinates; the along-edge coordinate is view depth."""
-    from b123d_recognisers.experimental_geometry import AnalyticSurface, GeometryGraph
+    from b123d_recognisers.experimental_geometry import AnalyticSurface, inspect_face
 
-    geometry = GeometryGraph(face)
-    ref = geometry.ref(face)
-    surface = geometry.surface_fact(ref)
+    inspection = inspect_face(face)
+    surface = inspection.surface
     if not isinstance(surface, AnalyticSurface) or surface.kind.value != "cylinder":
         raise ValueError(
             "fillet(face=...) needs a cylindrical blend face (the round); an edge or flat "
@@ -633,9 +632,13 @@ def _read_fillet_face(face) -> tuple[str, float, Point]:
             "fillet(face=...): the round must run along one principal axis; use axis=, radius=, at="
         )
     edge_i = max(range(3), key=lambda i: comp[i])
-    # The facade owns both the analytic fact and the trimmed-surface anchor, so
-    # Draftwright no longer reopens the raw OCCT surface or depends on a recogniser helper.
-    p = geometry.surface_anchor(ref)
+    # The inspection result owns both the analytic fact and trimmed-surface anchor, so
+    # Draftwright sees neither a graph handle nor a recogniser implementation helper.
+    p = inspection.anchor
+    if p is None:
+        raise ValueError(
+            "fillet(face=...): no stable point on the round is available; use axis=, radius=, at="
+        )
     return (
         "xyz"[edge_i],
         round(surface.parameters[6], 3),

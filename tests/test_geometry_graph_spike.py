@@ -27,6 +27,15 @@ def test_declared_fillet_uses_the_facade_without_private_recogniser_imports() ->
 
     assert "b123d_recognisers.experimental_geometry" in recogniser_imports
     assert all(not name.startswith("b123d_recognisers._") for name in recogniser_imports)
+    imported_names = {
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+        and node.module == "b123d_recognisers.experimental_geometry"
+        for alias in node.names
+    }
+    assert imported_names == {"AnalyticSurface", "inspect_face"}
+    assert "GeometryGraph" not in source
 
 
 def test_real_declared_fillet_reads_radius_axis_and_on_surface_anchor() -> None:
