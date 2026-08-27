@@ -67,7 +67,7 @@ with no inferred gear feature added to fill the table.
 
 ## Passage compatibility boundary
 
-The installed `b123d-recognisers==0.4.0` release contains the `passages` family introduced
+The installed `b123d-recognisers==0.4.1` release contains the `passages` family introduced
 in 0.2.6. Version 0.4.0 makes `SectionPassage` the authoritative physical output and retains
 schema-v1 `Passage` as its compatibility projection. Draftwright declares all six public and nested
 record schemas exhaustively but deliberately keeps the family `unsupported`, with the drafting
@@ -84,6 +84,6 @@ The 0.4 contract is explicit:
 - rich split-junction passages can supersede a Slot claim, moving physical ownership to the
   unsupported Passage family through `SLOT_SUPERSEDED_BY_PASSAGE`.
 
-The exact 0.4.0 pin, manifest-v2 validator and explicit unsupported inventories make that limitation
+The exact 0.4.1 pin, manifest-v2 validator and explicit unsupported inventories make that limitation
 fail-visible rather than silently treating rich passages as supported. Issue #1245 still owns the
 decision about what newly Passage-owned occurrences draw and how they participate in completeness.
