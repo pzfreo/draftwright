@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 import ezdxf
@@ -20,8 +21,20 @@ from build123d import ExportDXF, ExportSVG
 from OCP.GeomConvert import GeomConvert
 
 from draftwright._core import _DRAFTWRIGHT_URL
+from draftwright.fonts import PLEX_MONO
 
 _log = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class _PDFTextRun:
+    """One searchable, invisible text run in drawing page coordinates (mm)."""
+
+    text: str
+    x: float
+    y: float
+    font_size: float
+    rotation: float = 0.0
 
 
 def fix_svg_page_size(svg_path: str, page_w: float, page_h: float) -> None:
@@ -234,10 +247,12 @@ def sanitize_svg_arcs(svg_path: str) -> int:
     return n
 
 
-def _render_pdf(svg_path: str, pdf_path: str, link_rect=None) -> None:
+def _render_pdf(svg_path: str, pdf_path: str, link_rect=None, text_runs=()) -> None:
     """Render *svg_path* to *pdf_path* via svglib + reportlab, adding draftwright
     metadata and — when *link_rect* (drawing page coords, Y up) is given — a
-    clickable PDF link annotation over that rectangle.
+    clickable PDF link annotation over that rectangle. *text_runs* overlays
+    invisible Unicode text on the path-rendered glyphs, preserving the visual
+    output while making notes and table cells searchable and selectable.
 
     svglib does not translate the SVG ``<a>`` element into a PDF link, so the
     link is added with reportlab's ``Canvas.linkURL``. The drawing page maps to
@@ -260,6 +275,34 @@ def _render_pdf(svg_path: str, pdf_path: str, link_rect=None) -> None:
         canvas.setCreator(_GENERATED_BY)
         canvas.setTitle(_GENERATED_BY)
         renderPDF.draw(drawing, canvas, 0, 0)
+        if text_runs:
+            from reportlab.pdfbase import pdfmetrics
+            from reportlab.pdfbase.ttfonts import TTFont
+
+            font_name = "DraftwrightSemanticText"
+            if font_name not in pdfmetrics.getRegisteredFontNames():
+                pdfmetrics.registerFont(TTFont(font_name, PLEX_MONO))
+            k = 72.0 / 25.4
+            for run in text_runs:
+                text = canvas.beginText()
+                text.setTextRenderMode(3)  # invisible, but retained for search/copy
+                text.setFont(font_name, run.font_size * k)
+                if run.rotation:
+                    import math
+
+                    angle = math.radians(run.rotation)
+                    text.setTextTransform(
+                        math.cos(angle),
+                        math.sin(angle),
+                        -math.sin(angle),
+                        math.cos(angle),
+                        run.x * k,
+                        run.y * k,
+                    )
+                else:
+                    text.setTextOrigin(run.x * k, run.y * k)
+                text.textOut(run.text)
+                canvas.drawText(text)
         if link_rect is not None:
             k = 72.0 / 25.4
             x0, y0, x1, y1 = link_rect

@@ -46,6 +46,7 @@ from draftwright._core import (
     _fmt,
     _font_safe_text,
     _log,
+    _table_metrics,
     _tag_sequence,
     _tol_suffix,
     place_annotation,
@@ -62,6 +63,7 @@ from draftwright.annotations.leaders import drain_feature_leaders
 from draftwright.export import (
     _DraftwrightDXF,
     _export_shape,
+    _PDFTextRun,
     _render_pdf,
     _render_png,
     add_svg_hyperlink,
@@ -2821,6 +2823,10 @@ class Drawing:
             rotation=rotation,
             align=align if align is not None else (Align.CENTER, Align.CENTER),
         )
+        # Keep the exact string shown by the drafting font for the PDF semantic
+        # overlay (notably its established ⌀ -> ø compatibility substitution).
+        n.pdf_text = _font_safe_text(text)
+        n.pdf_text_rotation = float(rotation)
         if name is None:
             i = 0
             while (name := f"note{i}") in self._registry:
@@ -2853,6 +2859,7 @@ class Drawing:
         # claims it carries are exactly the ones coverage relies on when the engine withdraws
         # the individual callouts. Mirrors `gear_requirement_rows`.
         table.table_rows = tuple(tuple(str(cell) for cell in row) for row in rows)
+        table.table_block_cols = block_cols
         w, h = table.table_size
         a = self._analysis
         margin = a.margin if a is not None else 10.0
@@ -3611,6 +3618,56 @@ class Drawing:
         _log.info("DXF → %s", dxf_path)
         return dxf_path
 
+    def _pdf_text_runs(self):
+        """Return semantic text overlaid on path-rendered PDF glyphs.
+
+        Scope is deliberately limited to text whose authoritative source and
+        final page geometry are both retained: free notes and generic tables.
+        Other annotations remain path-only until their renderers expose the
+        same information without reverse-engineering exported geometry.
+        """
+        groups = []
+        fs = self.draft.font_size
+        pad = self.draft.pad_around_text
+        for _name, annotation in self._registry.iter_named():
+            box = annotation.bounding_box()
+            rows = getattr(annotation, "table_rows", None)
+            runs = []
+            if rows:
+                lefts, _rights, _width, total_h, row_h, _bc = _table_metrics(
+                    rows, fs, pad, getattr(annotation, "table_block_cols", None)
+                )
+                for ri, row in enumerate(rows):
+                    baseline = box.min.Y + total_h - (ri + 0.5) * row_h - fs * 0.35
+                    for ci, cell in enumerate(row):
+                        if cell:
+                            runs.append(
+                                _PDFTextRun(
+                                    _font_safe_text(cell),
+                                    box.min.X + lefts[ci] + pad,
+                                    baseline,
+                                    fs,
+                                )
+                            )
+            else:
+                value = getattr(annotation, "pdf_text", None)
+                if value:
+                    lines = str(value).splitlines() or [str(value)]
+                    for index, line in enumerate(lines):
+                        if line:
+                            runs.append(
+                                _PDFTextRun(
+                                    line,
+                                    box.min.X,
+                                    box.max.Y - (index + 1) * fs,
+                                    fs,
+                                    getattr(annotation, "pdf_text_rotation", 0.0),
+                                )
+                            )
+            if runs:
+                groups.append((-box.max.Y, box.min.X, runs))
+        return tuple(run for _top, _left, runs in sorted(groups) for run in runs)
+
     def export(
         self, out=None, *, formats=None, svg=None, dxf=None, dpi: int = 150
     ) -> dict[str, str] | tuple[str | None, str | None]:
@@ -3757,6 +3814,7 @@ class Drawing:
                     svg_path,
                     pdf_path,
                     getattr(self.get_annotation("title_block"), "draftwright_link_rect", None),
+                    self._pdf_text_runs(),
                 )
                 _log.info("PDF → %s", pdf_path)
                 if "pdf" in want_set:

@@ -81,6 +81,7 @@ _DRAWING_PRIVATES: frozenset[str] = frozenset(
         "_lint",
         "_lint_and_log",
         "_part_model",
+        "_pdf_text_runs",
         "_place_dim",
         "_queue_dimension_intent",
         "_record_build_issue",
