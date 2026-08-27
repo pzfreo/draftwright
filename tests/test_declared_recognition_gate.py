@@ -19,7 +19,6 @@ import inspect
 from contextlib import contextmanager
 from types import SimpleNamespace
 
-import b123d_recognisers as recognition
 import pytest
 from b123d_recognisers import (
     RecognitionResult,
@@ -30,7 +29,7 @@ from b123d_recognisers import (
 )
 from b123d_recognisers.result import DEFERRED, MIGRATED
 from build123d import Align, Box, Cylinder, Pos, Rot
-from conftest import counting_calls
+from conftest import counting_calls, recognition_family_calls
 
 from draftwright import Sheet, build_drawing
 from draftwright.compose import _est_right_strip_depth, _n_right_strip_boss_heights
@@ -39,9 +38,7 @@ from draftwright.linting.coverage import lint_prismatic_coverage
 
 @contextmanager
 def _counting_every_family():
-    with counting_calls(
-        {name: getattr(recognition, name) for name in MIGRATED | DEFERRED.keys()}
-    ) as counts:
+    with recognition_family_calls(MIGRATED | DEFERRED.keys()) as counts:
         yield counts
 
 

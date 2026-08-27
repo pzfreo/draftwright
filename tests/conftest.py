@@ -5,6 +5,7 @@
 guard (#1019) counts recogniser families the same way.
 """
 
+import inspect
 import sys
 from collections.abc import Callable, Mapping
 from contextlib import contextmanager
@@ -84,6 +85,31 @@ def counting_calls(functions: Mapping[str, Callable[..., object]]):
         yield counts
     finally:
         sys.setprofile(previous)
+
+
+@contextmanager
+def recognition_family_calls(names: set[str] | frozenset[str] | None = None):
+    """Count aggregate family executions at the recogniser registry seam.
+
+    Since b123d-recognisers 0.4 the aggregate executes evidence-producing registry adapters,
+    not the public value-only compatibility wrappers. Simple adapters close over a per-family
+    callable; count that callable so families made through the shared adapter factory remain
+    distinguishable by code object.
+    """
+    from b123d_recognisers._registry import DERIVED_DEFINITIONS, PHYSICAL_DEFINITIONS
+
+    functions: dict[str, Callable[..., object]] = {}
+    for physical in PHYSICAL_DEFINITIONS:
+        discover = physical.discover
+        call = inspect.getclosurevars(discover).nonlocals.get("call", discover)
+        functions[physical.public_entrypoint] = call
+    for derived in DERIVED_DEFINITIONS:
+        if derived.public_entrypoint is not None:
+            functions[derived.public_entrypoint] = derived.derive
+    if names is not None:
+        functions = {name: functions[name] for name in names}
+    with counting_calls(functions) as counts:
+        yield counts
 
 
 # ── The `unit` tier (#656): pure-logic tests, zero OCC geometry ──────────────────────

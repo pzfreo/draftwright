@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import pytest
 from build123d import Axis, Box, fillet
-from conftest import counting_calls
+from conftest import counting_calls, recognition_family_calls
 
 from draftwright import build_drawing
 
@@ -39,17 +39,16 @@ def fillet_counter():
     Same reasoning as ``cyls_counter`` below and the ADR 0017 manifest guards: a code object
     cannot be re-bound, so the count survives the next migration too.
     """
-    from b123d_recognisers import recognise_fillets
-
-    with counting_calls({"n": recognise_fillets}) as counts:
-        yield counts
+    with recognition_family_calls({"recognise_fillets"}) as family_counts:
+        yield family_counts
 
 
 def test_detectors_run_once_per_build(fillet_counter):
     dwg = build_drawing(_filleted())
 
-    assert fillet_counter.get("n") == 1, (
-        f"recognise_fillets ran {fillet_counter.get('n', 0)}× in one build — the sizing and "
+    assert fillet_counter.get("recognise_fillets") == 1, (
+        "recognise_fillets ran "
+        f"{fillet_counter.get('recognise_fillets', 0)}× in one build — the sizing and "
         f"render paths are re-detecting instead of sharing one inventory (ADR 0008: detected "
         f"once). A prismatic fixture, so the #1028 classification gate does not apply."
     )
@@ -65,8 +64,9 @@ def test_generate_script_detects_once(fillet_counter, tmp_path):
     step = str(tmp_path / "filleted.step")
     export_step(_filleted(), step)
     generate_sheet_script(step, out=str(tmp_path / "s"))
-    assert fillet_counter.get("n") == 1, (
-        f"recognise_fillets ran {fillet_counter.get('n', 0)}× in generate_sheet_script — the "
+    assert fillet_counter.get("recognise_fillets") == 1, (
+        "recognise_fillets ran "
+        f"{fillet_counter.get('recognise_fillets', 0)}× in generate_sheet_script — the "
         f"emitter must reuse one inventory, not rebuild"
     )
 
@@ -113,8 +113,9 @@ def test_declared_model_runs_no_detection(fillet_counter):
 
     part = _filleted()
     dwg = build_drawing(part, model=[declare.envelope(part)])
-    assert fillet_counter.get("n", 0) == 0, (
-        f"recognise_fillets ran {fillet_counter['n']}× on the declared-model path — "
+    assert fillet_counter.get("recognise_fillets", 0) == 0, (
+        "recognise_fillets ran "
+        f"{fillet_counter.get('recognise_fillets', 0)}× on the declared-model path — "
         f"declaration must skip detection (ADR 0011)"
     )
     assert dwg._analysis.model is None  # declared models are not stored on Analysis

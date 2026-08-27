@@ -45,6 +45,7 @@ from b123d_recognisers import (
     recognise_rectangular_pads,
     recognise_repeating_radial_profiles,
     recognise_risers,
+    recognise_section_passages,
     recognise_slot_patterns,
     recognise_slots,
     recognise_turned_steps,
@@ -67,7 +68,7 @@ from build123d import (
     extrude,
     import_step,
 )
-from conftest import counting_calls
+from conftest import recognition_family_calls
 
 import draftwright.model.detect as detect_module
 from draftwright import Sheet, build_drawing
@@ -272,9 +273,12 @@ def _public_families() -> set[str]:
     return {name for name in recognition.__all__ if name.startswith("recognise_")}
 
 
+_PROJECTED_COMPATIBILITY = frozenset({"recognise_passages"})
+
+
 def test_every_public_recogniser_is_migrated_or_deferred_with_a_reason():
     families = _public_families()
-    classified = MIGRATED | DEFERRED.keys()
+    classified = MIGRATED | DEFERRED.keys() | _PROJECTED_COMPATIBILITY
 
     unclassified = families - classified
     assert not unclassified, (
@@ -285,6 +289,9 @@ def test_every_public_recogniser_is_migrated_or_deferred_with_a_reason():
     stale = classified - families
     assert not stale, f"manifest names non-existent recogniser(s): {sorted(stale)}"
     assert not (MIGRATED & DEFERRED.keys()), "a family cannot be both migrated and deferred"
+    assert not (_PROJECTED_COMPATIBILITY & (MIGRATED | DEFERRED.keys())), (
+        "a projected compatibility API cannot also be a physical migrated/deferred family"
+    )
 
 
 def test_every_public_recogniser_reaches_the_package_surface():
@@ -428,7 +435,7 @@ def test_the_migrated_families_are_the_ones_the_orchestration_actually_runs():
     # A part carrying every migrated feature kind would be enormous; the claim under test
     # is that the ORCHESTRATION invokes each family, which holds for any solid — a family
     # that finds nothing was still asked.
-    with counting_calls({name: getattr(recognition, name) for name in MIGRATED}) as called:
+    with recognition_family_calls(MIGRATED) as called:
         result_module.build_recognition_result(Box(40, 30, 10))
 
     assert set(called) == MIGRATED, (
@@ -490,6 +497,7 @@ def _expected_inventory(part, *, rotational: bool = False) -> dict:
         # nobody converts is exactly where an empty tuple would go unnoticed (#1244).
         "angled_steps": tuple(recognise_angled_steps(part)) if not rotational else (),
         "passages": tuple(recognise_passages(part)),
+        "section_passages": tuple(recognise_section_passages(part)),
         "prismatic_pockets": tuple(recognise_prismatic_pockets(part)),
     }
 
@@ -497,8 +505,8 @@ def _expected_inventory(part, *, rotational: bool = False) -> dict:
 #: Fields where a DIRECT recogniser call is not a valid oracle for the aggregate, because the
 #: aggregate applies a cross-family reconciliation the direct call deliberately precedes:
 #:
-#:   "Calling `recognise_passages` directly returns candidates BEFORE that aggregate policy,
-#:    consistently with the other reconciled families."  — b123d-recognisers 0.2.6 notes
+#: Passage compatibility and its authoritative SectionPassage source are both observed before
+#: aggregate cross-family ownership removes occurrences that yield to a Slot.
 #:
 #: A four-wall passage yields to the more directly dimensioned `Slot`;
 #: `_reconcile.prismatic_pockets_that_are_not_pockets` keeps the `Pocket`; and
@@ -508,7 +516,9 @@ def _expected_inventory(part, *, rotational: bool = False) -> dict:
 #: For these the assertion is SUBSET, not equality: the aggregate may drop a candidate to
 #: another family, and may never invent one. Equality is still demanded everywhere else, so the
 #: "ran it and stored ()" failure this test exists for is still caught for 19 of 22 fields.
-_RECONCILED_FIELDS = frozenset({"angled_steps", "chamfers", "passages", "prismatic_pockets"})
+_RECONCILED_FIELDS = frozenset(
+    {"angled_steps", "chamfers", "passages", "prismatic_pockets", "section_passages"}
+)
 
 
 def test_the_aggregate_carries_what_its_recognisers_returned():
@@ -580,9 +590,7 @@ def _counting_every_family():
     imports, then containers). A code object cannot be re-bound, so there is genuinely
     nowhere to call these from that the count does not see.
     """
-    with counting_calls(
-        {name: getattr(recognition, name) for name in MIGRATED | DEFERRED.keys()}
-    ) as counts:
+    with recognition_family_calls(MIGRATED | DEFERRED.keys()) as counts:
         yield counts
 
 
