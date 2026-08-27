@@ -67,31 +67,23 @@ with no inferred gear feature added to fill the table.
 
 ## Passage compatibility boundary
 
-The installed `b123d-recognisers==0.3.1` release already contains the `passages` family introduced
-in 0.2.6. Draftwright declares its schema-v1 `Passage` output exhaustively but deliberately keeps
-the family `unsupported`, with the drafting decision tracked by issue #1245. This is a truthful
-consumer disposition: the geometry remains visible in the aggregate inventory, while Draftwright
-does not invent an IR feature, DSL declaration, generated code, drawing annotation, or completeness
-requirement for it.
+The installed `b123d-recognisers==0.4.0` release contains the `passages` family introduced
+in 0.2.6. Version 0.4.0 makes `SectionPassage` the authoritative physical output and retains
+schema-v1 `Passage` as its compatibility projection. Draftwright declares all six public and nested
+record schemas exhaustively but deliberately keeps the family `unsupported`, with the drafting
+decision tracked by issue #1245. This is a truthful consumer disposition: both aggregate
+inventories are visible and explicitly unscored, while Draftwright does not invent an IR feature,
+DSL declaration, generated code, drawing annotation, or completeness requirement for them.
 
-Draftwright's exact dependency pin must remain on a reviewed released version in the interval
-`>=0.2.6,<0.4.0` until the separately reviewed F4b transition is ready. The lower boundary ensures
-the installed manifest really contains `passages`; the upper boundary prevents accidental adoption
-of the planned 0.4 compatibility change.
-
-The reviewed future 0.4 model is a distinct migration, not latent behavior in this declaration:
+The 0.4 contract is explicit:
 
 - `SectionPassage` will be the authoritative physical output and aggregate census source;
 - legacy `Passage` values will be an accepted-only compatibility projection;
 - `recognise_passages(..., ledger=...)` will be a fail-loud unavailable compatibility operation;
 - the writer-free `recognise_passages` name will remain public but non-authoritative; and
-- rich split-junction passages can supersede a currently rendered Slot claim, moving ownership to
-  the Passage family through `SLOT_SUPERSEDED_BY_PASSAGE`; and
-- the capability contract must represent those API and per-output roles exhaustively before the
-  dependency pin can cross 0.4.
+- rich split-junction passages can supersede a Slot claim, moving physical ownership to the
+  unsupported Passage family through `SLOT_SUPERSEDED_BY_PASSAGE`.
 
-That migration must update the package release, Draftwright adapter and declaration model,
-validator, tests, exact pin, and lockfile together. The current validator remains unchanged and
-fail closed; there is no forward declaration or stale-manifest exception. Crossing 0.4 also
-requires #1245 to decide what those newly Passage-owned occurrences draw, or an explicit reviewed
-decision to accept the resulting loss of the existing Slot callout.
+The exact 0.4.0 pin, manifest-v2 validator and explicit unsupported inventories make that limitation
+fail-visible rather than silently treating rich passages as supported. Issue #1245 still owns the
+decision about what newly Passage-owned occurrences draw and how they participate in completeness.

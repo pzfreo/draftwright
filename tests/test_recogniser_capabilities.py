@@ -117,7 +117,7 @@ def test_installed_package_contract_validates_without_a_sibling_checkout() -> No
     assert package_path.is_relative_to(ROOT / ".venv")
 
     _validate()
-    package = recognition.capability_manifest(format_version=1)
+    package = recognition.capability_manifest(format_version=2)
     declaration = consumer_capability_declaration()
     # 25 since 0.2.6 added angled-steps, passages and prismatic-pockets (#1244). A literal,
     # not a length comparison against the package: the point is that BOTH sides changed
@@ -125,27 +125,34 @@ def test_installed_package_contract_validates_without_a_sibling_checkout() -> No
     assert len(package["families"]) == len(declaration["families"]) == 25
 
 
-def test_existing_passage_contract_is_truthfully_declared_before_f4b() -> None:
-    """Pin the current-family declaration separately from the future 0.4 migration."""
+def test_rich_passage_contract_is_truthfully_deferred_with_its_projection() -> None:
+    """Pin the 0.4 physical record and compatibility projection to one decision."""
 
-    assert INSTALLED_PACKAGE_VERSION == "0.3.1"
+    assert INSTALLED_PACKAGE_VERSION == "0.4.0"
     installed = tuple(int(component) for component in INSTALLED_PACKAGE_VERSION.split("."))
-    # b123d-recognisers#184 and Draftwright #1337/#1245 must be accepted before this
-    # upper bound moves: 0.4 changes both the capability model and rendered ownership.
-    assert (0, 2, 6) <= installed < (0, 4, 0)
+    assert (0, 4, 0) <= installed < (0, 5, 0)
     package = _families(recognition.capability_manifest())
     declaration = _families(consumer_capability_declaration())
     passage_package = package["passages"]
     passage_consumer = declaration["passages"]
 
     assert passage_package["introduced_in"] == "0.2.6"
-    assert len(passage_package["records"]) == 1
-    passage_record = passage_package["records"][0]
+    assert len(passage_package["records"]) == 6
+    passage_record = next(
+        record for record in passage_package["records"] if record["name"] == "Passage"
+    )
     assert passage_record["name"] == "Passage"
-    assert passage_record["role"] == "output"
+    assert passage_record["role"] == "projection"
     assert passage_record["schema_version"] == 1
     assert passage_record["aggregate_membership"] == ["RecognitionResult.passages"]
-    assert passage_consumer["record_schemas"] == {"Passage": [1]}
+    assert passage_consumer["record_schemas"] == {
+        "Passage": [1],
+        "PassageEnds": [1],
+        "PassageFrame": [1],
+        "PassageSection": [1],
+        "PassageSectionVertex": [1],
+        "SectionPassage": [1],
+    }
     assert passage_consumer["disposition"] == "unsupported"
     assert passage_consumer["tracking"] == "https://github.com/pzfreo/draftwright/issues/1245"
     assert {
@@ -428,7 +435,7 @@ def test_pending_declarations_reject_a_malformed_manifest() -> None:
 
 def test_schema_format_fails_closed() -> None:
     package = recognition.capability_manifest()
-    package["format_version"] = 2
+    package["format_version"] = 1
     with pytest.raises(RecogniserCapabilityError, match="manifest format"):
         _validate(package=package)
 

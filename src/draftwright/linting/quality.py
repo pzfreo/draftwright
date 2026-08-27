@@ -126,6 +126,7 @@ _NON_REQUIREMENT_INVENTORIES = frozenset(
 _UNDECIDED_INVENTORIES: dict[str, str] = {
     "angled_steps": "https://github.com/pzfreo/draftwright/issues/1247",
     "passages": "https://github.com/pzfreo/draftwright/issues/1245",
+    "section_passages": "https://github.com/pzfreo/draftwright/issues/1245",
     "prismatic_pockets": "https://github.com/pzfreo/draftwright/issues/1246",
 }
 

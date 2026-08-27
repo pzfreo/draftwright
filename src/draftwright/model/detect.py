@@ -45,6 +45,7 @@ from b123d_recognisers import (
     RectGrid,
     RepeatingRadialProfile,
     RiserEvidence,
+    SectionPassage,
     Slot,
     SlotArray,
     SlotGrid,
@@ -719,8 +720,12 @@ _UNCONSUMED_RECORDS: dict[type, str] = {
         "chamfer; whether draftwright dimensions it is open (#1247)"
     ),
     Passage: (
-        "a prismatic through-opening — the internal counterpart to polygonal stock; whether it "
-        "is an IR kind or refines `hole`, and what it draws, is open (#1245)"
+        "the compatibility projection of a prismatic through-opening; whether it is an IR kind "
+        "or refines `hole`, and what it draws, is open (#1245)"
+    ),
+    SectionPassage: (
+        "the authoritative physical prismatic-opening evidence introduced in 0.4.0; its IR kind, "
+        "section rendering and completeness semantics remain open (#1245)"
     ),
     PrismaticPocket: (
         "a non-rectangular blind recess that OVERLAPS the supported `pockets` family — measured, "

@@ -215,7 +215,14 @@ def _geometry_only_declaration() -> dict[str, Any]:
 #: these three did (#1244).
 _UNSUPPORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
     "passages": (
-        ("Passage",),
+        (
+            "Passage",
+            "PassageEnds",
+            "PassageFrame",
+            "PassageSection",
+            "PassageSectionVertex",
+            "SectionPassage",
+        ),
         "https://github.com/pzfreo/draftwright/issues/1245",
         "A prismatic through-opening — the internal counterpart to polygonal stock. Whether it "
         "becomes an IR kind or refines `hole`, and what a passage draws (across-flats + THRU, or "
@@ -285,7 +292,7 @@ def consumer_capability_declaration() -> dict[str, Any]:
         "package_compatibility": {
             "distribution": _RECOGNISER_DISTRIBUTION,
             "version": f"=={distribution_version(_RECOGNISER_DISTRIBUTION)}",
-            "manifest_format": 1,
+            "manifest_format": 2,
         },
         "families": families,
         "transitions": [],
@@ -384,7 +391,7 @@ def pending_family_declarations(*, package: object | None = None) -> list[str]:
     repository, not a reason to block the package's release. See
     ``tests/test_recogniser_adoption.py``, which is what makes that job visible.
     """
-    manifest = capability_manifest(format_version=1) if package is None else package
+    manifest = capability_manifest(format_version=2) if package is None else package
     if not isinstance(manifest, dict) or not isinstance(manifest.get("families"), list):
         raise RecogniserCapabilityError("installed recogniser manifest format is unsupported")
     package_ids = {
@@ -404,7 +411,7 @@ def validate_recogniser_capabilities(
 ) -> None:
     """Fail closed when installed package truth and Draftwright policy do not exactly join."""
     current = consumer_capability_declaration() if declaration is None else declaration
-    manifest = capability_manifest(format_version=1) if package is None else package
+    manifest = capability_manifest(format_version=2) if package is None else package
     if not isinstance(current, dict) or set(current) != {
         "consumer",
         "families",
@@ -435,7 +442,7 @@ def validate_recogniser_capabilities(
     if not isinstance(compatibility, dict) or compatibility != {
         "distribution": _RECOGNISER_DISTRIBUTION,
         "version": f"=={installed_package_version}",
-        "manifest_format": 1,
+        "manifest_format": 2,
     }:
         raise RecogniserCapabilityError(
             "package compatibility does not match installed b123d-recognisers metadata"
@@ -444,7 +451,7 @@ def validate_recogniser_capabilities(
         not isinstance(manifest, dict)
         or manifest.get("format") != "b123d-recognisers-capabilities"
         or type(manifest.get("format_version")) is not int
-        or manifest.get("format_version") != 1
+        or manifest.get("format_version") != 2
     ):
         raise RecogniserCapabilityError("installed recogniser manifest format is unsupported")
     package_info = manifest.get("package")
