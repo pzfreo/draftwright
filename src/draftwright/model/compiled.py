@@ -170,6 +170,9 @@ class ApprovedDimension:
     role: str = ""
     discriminator: str | None = None
     tolerance: object | None = None
+    #: ``None`` preserves automatic formatting; an integer records an explicit referential
+    #: display policy so compound renderers can retain their default grouping behavior.
+    display_decimals: int | None = None
     #: Structural direction needed when a span cannot encode it. In particular, a
     #: shoulder rung retains X/Y explicitly rather than asking a renderer to infer semantic
     #: direction from projected coordinates.
@@ -732,6 +735,35 @@ def _dim_id(feature, parameter_id: str) -> DimensionId | None:
     return DimensionId(feature, parameter_id)
 
 
+def _value_text(model: PartModel, feature, parameter_id: str, value: float) -> str:
+    """Format one approved nominal, applying only its referential intent's policy.
+
+    The request still carries no number.  Matching by feature identity plus parameter id
+    keeps formatting on the same semantic address used for selection; the numeric
+    :class:`ApprovedDimension.value` remains untouched for reconciliation and lint (#1349).
+    """
+    requests = (
+        model.authored_dimensions
+        if model.authored_dimensions is not None
+        else model.requested_dimensions
+    )
+    for request in requests:
+        if request.feature is not feature or request.display_decimals is None:
+            continue
+        if "." in request.role:
+            matches = request.role == parameter_id
+        else:
+            matches = parameter_id.startswith(f"{request.role}.")
+        if not matches:
+            continue
+        if request.discriminator is not None and not parameter_id.endswith(
+            f".{request.discriminator}"
+        ):
+            continue
+        return _fmt(value, request.display_decimals)
+    return _fmt(value)
+
+
 def _compile_step_ladders(model: PartModel, marked) -> tuple[list[ApprovedLadder], list[Omission]]:
     """The prismatic height rungs and shoulder chain, approved as whole sets."""
     step = next((f for f in model.features if isinstance(f, StepLevelFeature)), None)
@@ -775,12 +807,12 @@ def _compile_step_ladders(model: PartModel, marked) -> tuple[list[ApprovedLadder
         heights.append(
             ApprovedDimension(
                 id=_dim_id(step, "step_height.length"),
-                value_text=_fmt(z - step.base),
+                value_text=_value_text(model, step, "step_height.length", z - step.base),
                 value=z - step.base,
                 tolerance=step_tol,
                 span=span,
                 ref=step_ref,
-                rendered_label=_fmt(z - step.base),
+                rendered_label=_value_text(model, step, "step_height.length", z - step.base),
                 support_bounds=support_bounds,
             )
         )
@@ -798,11 +830,13 @@ def _compile_step_ladders(model: PartModel, marked) -> tuple[list[ApprovedLadder
             heights = [
                 ApprovedDimension(
                     id=_dim_id(step, "step_height.length"),
-                    value_text=_fmt(rise),
+                    value_text=_value_text(model, step, "step_height.length", rise),
                     value=rise,
                     span=span,
                     ref=step_ref,
-                    rendered_label=f"{n}× {_fmt(rise)}",
+                    rendered_label=(
+                        f"{n}× {_value_text(model, step, 'step_height.length', rise)}"
+                    ),
                     support_bounds=support_bounds,
                 )
             ]
@@ -857,13 +891,13 @@ def _compile_step_ladders(model: PartModel, marked) -> tuple[list[ApprovedLadder
         shoulders.append(
             ApprovedDimension(
                 id=_dim_id(step, "step_position.length"),
-                value_text=_fmt(value),
+                value_text=_value_text(model, step, "step_position.length", value),
                 value=value,
                 span=_shoulder_span(axis, pos),
                 ref=step_ref,
                 axis=axis,
                 tolerance=shoulder_tol,
-                rendered_label=_fmt(value),
+                rendered_label=_value_text(model, step, "step_position.length", value),
             )
         )
     pos_marks = [
@@ -1009,7 +1043,7 @@ def _compile_overall_height(
         (
             ApprovedDimension(
                 id=_dim_id(identity, "height.length"),
-                value_text=_fmt(value),
+                value_text=_value_text(model, env, "height.length", value),
                 value=value,
                 span=((x, y, float(bb.min.Z)), (x, y, float(bb.max.Z))),
                 ref=env_ref,
@@ -1022,7 +1056,7 @@ def _compile_overall_height(
                 # one consumer (`render_height_ladder`), which does compose it; a second
                 # consumer trusting the docstring would silently drop the tolerance
                 # (#1234 review, F8/finding 6).
-                rendered_label=_fmt(value),
+                rendered_label=_value_text(model, env, "height.length", value),
             ),
         ),
         ref=env_ref,
@@ -1349,7 +1383,7 @@ def _compile_groups(planned) -> tuple[list[ApprovedGroup], list[Omission]]:
                 id=DimensionId(g.feature, pd.param.parameter_id),
                 # DimParameter.value is a required float. Keep that invariant explicit at
                 # the boundary instead of implying a nullable state renderers cannot handle.
-                value_text=_fmt(pd.param.value),
+                value_text=_fmt(pd.param.value, pd.display_decimals),
                 value=float(pd.param.value),
                 span=pd.param.span,
                 ref=FeatureRef(g.feature),
@@ -1357,6 +1391,7 @@ def _compile_groups(planned) -> tuple[list[ApprovedGroup], list[Omission]]:
                 role=pd.param.role,
                 discriminator=pd.param.discriminator,
                 tolerance=pd.param.tolerance,
+                display_decimals=pd.display_decimals,
             )
             for pd in g.dims
             if not pd.suppressed

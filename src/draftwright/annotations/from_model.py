@@ -135,29 +135,29 @@ def callout_from_spec(spec, draft, count) -> HoleCallout | None:
     if spec is None:
         return None
 
-    def f(v):  # see the #261 note above — every value crosses as a formatted string
-        return _fmt(v) if v is not None else None
+    def f(v, decimals=None):  # see #261 above — every value crosses as formatted text
+        return _fmt(v, decimals) if v is not None else None
 
-    dia = f(spec["diameter"])
+    dia = f(spec["diameter"], spec.get("diameter_decimals"))
     if dia is not None:
         # P2a: bake the ± tolerance into the bore string (helpers' HoleCallout accepts a
         # diameter carrying tolerance/fit text, "8 ±0.05"); no tolerance → empty suffix.
         dia += _tol_suffix(spec.get("tolerance"), draft)
 
-    def ft(value, key):
+    def ft(value, key, decimals_key):
         """A formatted term with its own authored tolerance baked in.
 
         Every term of a compound callout can be toleranced, not just the bore. `.get()`
         because hand-built specs in tests omit the keys (#1234 review r7).
         """
-        text = f(value)
+        text = f(value, spec.get(decimals_key))
         return None if text is None else text + _tol_suffix(spec.get(key), draft)
 
-    depth = ft(spec["depth"], "depth_tol")
-    cbore_dia = ft(spec["cbore_dia"], "cbore_dia_tol")
-    cbore_depth = ft(spec["cbore_depth"], "cbore_depth_tol")
-    csink_dia = ft(spec.get("csink_dia"), "csink_dia_tol")
-    csink_angle = ft(spec.get("csink_angle"), "csink_angle_tol")
+    depth = ft(spec["depth"], "depth_tol", "depth_decimals")
+    cbore_dia = ft(spec["cbore_dia"], "cbore_dia_tol", "cbore_dia_decimals")
+    cbore_depth = ft(spec["cbore_depth"], "cbore_depth_tol", "cbore_depth_decimals")
+    csink_dia = ft(spec.get("csink_dia"), "csink_dia_tol", "csink_dia_decimals")
+    csink_angle = ft(spec.get("csink_angle"), "csink_angle_tol", "csink_angle_decimals")
     suffix = spec["suffix"]
     callout = HoleCallout(
         dia,
@@ -1104,7 +1104,7 @@ def _place_what_fits(specs, axis: int, min_gap: float, lo: float, hi: float):
 
 def _diameter_row_below(dwg, items, start: int = 0, trace=None, *, ctx) -> int:
     """ø-callout row BELOW the front view for X-turned step/boss diameters (#77).
-    *items* is ``[(anchor, dia, feature, tolerance, thread, mids), ...]``. The row is dropped clear of anything
+    *items* is ``[(anchor, dia, value_text, feature, tolerance, thread, mids), ...]``. The row is dropped clear of anything
     already below the profile; labels spread along page-x by the ADR-0003 strip
     solve. Skips (returns 0) if there is no room — the diameters then surface as
     ``feature_not_dimensioned``. *trace* (#736): one ``pass_events`` record with a
@@ -1136,15 +1136,15 @@ def _diameter_row_below(dwg, items, start: int = 0, trace=None, *, ctx) -> int:
     if label_y < _MARGIN + draft.font_size:
         if ev is not None:
             ev["items"].extend(
-                {"label": f"ø{_fmt(d)}", "outcome": "dropped", "reason": "no_room_below"}
-                for _, d, _, _, _, _ in items
+                {"label": f"ø{text}", "outcome": "dropped", "reason": "no_room_below"}
+                for _, _d, text, _, _, _, _ in items
             )
         return 0
     specs = []  # (tip_page, dia, label, feature, mids), tip on the step's bottom silhouette,
-    for anchor, dia, feat, dtol, thr, mids in items:  # centred along the feature's length
+    for anchor, dia, value_text, feat, dtol, thr, mids in items:
         ax, ay, az = anchor
         tip = dwg.at("front", ax, ay, az - dia / 2)
-        label = f"ø{_fmt(dia)}{_tol_suffix(dtol, draft)}" + (f" {thr}" if thr else "")  # #859
+        label = f"ø{value_text}{_tol_suffix(dtol, draft)}" + (f" {thr}" if thr else "")
         specs.append((tip, dia, label, feat, mids))
     # Real measured width, not the per-char estimate: helpers >=0.14 label boxes are
     # honest about the rendered string, so an underestimated min_gap here surfaces as a
@@ -1248,12 +1248,12 @@ def _diameter_column_left(dwg, items, start: int = 0, trace=None, *, ctx) -> int
     # (annotation_out_of_bounds). Measure the completed label like the row-below path does.
     label_w = max(
         _text_size(
-            f"ø{_fmt(dia)}{_tol_suffix(dtol, draft)}" + (f" {thr}" if thr else ""),
+            f"ø{value_text}{_tol_suffix(dtol, draft)}" + (f" {thr}" if thr else ""),
             draft.font_size,
             getattr(draft, "font_path", DEFAULT_FONT_PATH),
             getattr(draft, "font", "Arial"),
         )[0]
-        for _, dia, _, dtol, thr, _ in items
+        for _, _dia, value_text, _, dtol, thr, _ in items
     )
     elbow_x = fx0 - (draft.font_size + 2 * draft.pad_around_text)
     # A left-directed leader hangs its label a shelf-length PAST the elbow, so the label's left
@@ -1263,15 +1263,15 @@ def _diameter_column_left(dwg, items, start: int = 0, trace=None, *, ctx) -> int
     if elbow_x - draft.pad_around_text - label_w < _MARGIN:
         if ev is not None:
             ev["items"].extend(
-                {"label": f"ø{_fmt(d)}", "outcome": "dropped", "reason": "no_room_left"}
-                for _, d, _, _, _, _ in items
+                {"label": f"ø{text}", "outcome": "dropped", "reason": "no_room_left"}
+                for _, _d, text, _, _, _, _ in items
             )
         return 0
     specs = []  # (tip_page, dia, label, feature, mids), tip on the step's left silhouette,
-    for anchor, dia, feat, dtol, thr, mids in items:  # centred along the feature's length
+    for anchor, dia, value_text, feat, dtol, thr, mids in items:
         ax, ay, az = anchor
         tip = dwg.at("front", ax - dia / 2, ay, az)
-        label = f"ø{_fmt(dia)}{_tol_suffix(dtol, draft)}" + (f" {thr}" if thr else "")  # #859
+        label = f"ø{value_text}{_tol_suffix(dtol, draft)}" + (f" {thr}" if thr else "")
         specs.append((tip, dia, label, feat, mids))
     half_h = draft.font_size / 2 + draft.pad_around_text
     min_gap = 2 * half_h
@@ -1510,13 +1510,13 @@ def render_diameters(dwg, plan, a, tol: float = 0.15, *, ctx, only=None) -> int:
     ``None`` (the auto-pass) places every diameter with the historical 0-based
     ``m_dia_{x,z}`` naming; Y-axis leaders use ``m_dia_y``."""
     mentioned = _mentioned_diameters(dwg)
-    # One distinct callout per (axis, diameter). Accumulate EVERY feature that shares a
-    # diameter (insertion-ordered), so provenance (#412) can tag the callout with its
-    # single owner — or leave it unowned when two distinct features share the diameter
-    # (the #398c/#406 shared-value rule, so drop can't over-strip a sibling).
+    # One distinct callout per (axis, diameter, approved text, manufacturing suffix/owner).
+    # Accumulate EVERY feature that shares that complete printed claim (insertion-ordered),
+    # so provenance (#412) can tag the callout with its single owner — or leave it unowned
+    # when two distinct features genuinely share the same claim.
     # Keep the compiler-approved text beside the numeric diameter.  Layout still needs the
     # number for truthful rim geometry; only ``value_text`` may cross into a printed label.
-    row_buckets: dict = {}  # round(dia,2) -> [anchor, dia, text, {features}, tolerance, ...]
+    row_buckets: dict = {}  # semantic print key -> [anchor, dia, text, {features}, tol, ...]
     col_buckets: dict = {}  # Z-turned
     end_buckets: dict = {}  # Y-turned: radial leaders in the end-on front view
     for g in plan.of_kind("step", "boss"):
@@ -1536,7 +1536,11 @@ def render_diameters(dwg, plan, a, tol: float = 0.15, *, ctx, only=None) -> int:
         )
         # A coincident plain ⌀ already drawn (a bore, another step) dedups only an UNTHREADED ⌀;
         # a threaded ⌀ is a distinct callout, so a bare ⌀8 mention must not suppress ø8 M8x1.25.
-        if thr is None and any(abs(dia - m) <= tol for m in mentioned):
+        if (
+            thr is None
+            and dpd.display_decimals is None
+            and any(abs(dia - m) <= tol for m in mentioned)
+        ):
             continue
         bucket = {"x": row_buckets, "y": end_buckets, "z": col_buckets}.get(g.facts.frame.axis)
         if bucket is None:
@@ -1552,7 +1556,7 @@ def render_diameters(dwg, plan, a, tol: float = 0.15, *, ctx, only=None) -> int:
         # owned by one canonical feature and may share identical wording with another
         # source-owned feature; include the opaque compiler owner so neither provenance
         # nor public ``drop(feature)`` is collapsed into an unowned shared mark.
-        dkey = (round(dia, 2), thr, typed_owner)
+        dkey = (round(dia, 2), dpd.value_text, thr, typed_owner)
         entry = bucket.setdefault(dkey, [g.anchor, dia, dpd.value_text, set(), dtol, thr, []])
         entry[3].add(g.ref)
         entry[6].append(g)
@@ -1565,10 +1569,11 @@ def render_diameters(dwg, plan, a, tol: float = 0.15, *, ctx, only=None) -> int:
         # same derivation the m_dia_y branch below already made; the row/column placers
         # threaded nothing, so every X- and Z-turned ø callout reached the sheet unclaimed
         # and no verifier could see it (#1227).
-        a, d, _value_text, refs, t, thr, gs = entry
+        a, d, value_text, refs, t, thr, gs = entry
         return (
             _diameter_step_anchor(a, gs),
             d,
+            value_text,
             next(iter(refs)) if len(refs) == 1 else None,
             t,
             thr,
@@ -1656,7 +1661,7 @@ def render_diameters(dwg, plan, a, tol: float = 0.15, *, ctx, only=None) -> int:
                     hole_circles.append((px, py, diameter / 2 * a.SCALE))
             jobs = []
             covered_by_name = {}
-            for i, (_anchor, dia, _value_text, refs, dtol, thr, feature_groups) in enumerate(
+            for i, (_anchor, dia, value_text, refs, dtol, thr, feature_groups) in enumerate(
                 end_buckets.values()
             ):
                 representative = feature_groups[0].facts
@@ -1684,7 +1689,7 @@ def render_diameters(dwg, plan, a, tol: float = 0.15, *, ctx, only=None) -> int:
                     key=lambda candidate: _leader_hole_clearance(candidate, hole_circles),
                     reverse=True,
                 )
-                label = f"ø{_fmt(dia)}{_tol_suffix(dtol, dwg.draft)}"
+                label = f"ø{value_text}{_tol_suffix(dtol, dwg.draft)}"
                 if thr:
                     label += f" {thr}"
                 name = f"m_dia_y{start_y + i}"
@@ -2781,7 +2786,11 @@ def render_boss_diameters(dwg, plan, a, *, ctx) -> int:
         )
         # A coincident plain ⌀ dedups only an UNTHREADED boss; a threaded ⌀ is a distinct callout,
         # so a bare ⌀8 mention (a bore, a step) must not suppress ø8 M8x1.25 (#859).
-        if thr is None and any(abs(dia - m) <= 0.15 for m in mentioned):
+        if (
+            thr is None
+            and dpd.display_decimals is None
+            and any(abs(dia - m) <= 0.15 for m in mentioned)
+        ):
             continue
         view = view_of.get(b.frame.axis)
         if view is None:
@@ -2794,7 +2803,7 @@ def render_boss_diameters(dwg, plan, a, *, ctx) -> int:
                 f"m_bossdia_{b.frame.axis}{bi}",
                 view,
                 vb,
-                f"ø{_fmt(dia)}{_tol_suffix(dtol, draft)}" + (f" {thr}" if thr else ""),
+                f"ø{dpd.value_text}{_tol_suffix(dtol, draft)}" + (f" {thr}" if thr else ""),
                 # arrowhead on the boss circle's rim, not its centre
                 _radial_candidates(
                     dwg, view, vb, b, reach, rim=dia / 2 * a.SCALE, provenance=g.ref
@@ -3524,6 +3533,13 @@ class _StepChainSegment:
     tolerance: Any = None
     measurements: tuple[Any, ...] = ()
     label: str | None = None
+    value_text: str | None = None
+    display_decimals: int | None = None
+
+
+def _step_value_text(segment: _StepChainSegment) -> str:
+    """Compiler-owned nominal text, with a fallback for synthetic block segments."""
+    return segment.value_text if segment.value_text is not None else _fmt(segment.value)
 
 
 def _step_measurements(segs: list[_StepChainSegment]) -> tuple[Any, ...]:
@@ -3585,23 +3601,31 @@ def _draw_step_chain(
     # fixed for the envelope, ninety lines away, with three tests reading the discarded kwarg
     # (two asserting a value, one asserting its absence).
     # The file already contradicted itself: `label_widths` below sizes the staggering decision
-    # with `_fmt(seg.value) + _tol_suffix(...)`, i.e. it measured a string this line refused to
+    # with the compiler-owned value text + `_tol_suffix(...)`, i.e. it measured a string this line refused to
     # draw (#1234 review round 2).
     labels = [
-        seg.label if seg.label is not None else _fmt(seg.value) + _tol_suffix(seg.tolerance, draft)
+        seg.label
+        if seg.label is not None
+        else _step_value_text(seg) + _tol_suffix(seg.tolerance, draft)
         for seg in segs
     ]
     mean_v = sum(vals) / len(vals)
+    explicit_display = any(seg.display_decimals is not None for seg in segs)
     tier_step = draft.font_size + 2 * draft.pad_around_text
     if (
         allow_collapse
         and all(seg.label is None for seg in segs)
         and len(segs) >= 3
         and (max(vals) - min(vals)) <= 0.10 * mean_v
+        and (
+            not explicit_display
+            or all(_step_value_text(seg) == _step_value_text(segs[0]) for seg in segs)
+        )
     ):
         # A uniform run collapses to one "N× v" dim; a per-step ± would be a false claim on
         # N equal steps, so the collapse carries NO tolerance (#28 / P2a).
-        label = f"{len(segs)}× {_fmt(mean_v)}"
+        repeated_text = _step_value_text(segs[0]) if explicit_display else _fmt(mean_v)
+        label = f"{len(segs)}× {repeated_text}"
         xs = [p[0] for seg in segs for p in (seg.pa, seg.pb)]
         ys = [p[1] for seg in segs for p in (seg.pa, seg.pb)]
         if horizontal:
@@ -3781,6 +3805,8 @@ def render_step_lengths(dwg, plan, *, ctx, only=None) -> int:
                     length.value,
                     length.tolerance,
                     (length.id,) if length.id is not None else (),
+                    value_text=length.value_text,
+                    display_decimals=length.display_decimals,
                 ),
             )
         )
@@ -3810,7 +3836,7 @@ def render_step_lengths(dwg, plan, *, ctx, only=None) -> int:
     if horizontal and turn_axis == "y" and len(fsegs) >= 2:
         label_widths = [
             _text_size(
-                _fmt(seg.value) + _tol_suffix(seg.tolerance, draft),
+                _step_value_text(seg) + _tol_suffix(seg.tolerance, draft),
                 draft.font_size,
                 font=getattr(draft, "font", "Arial"),
             )[0]
@@ -3841,7 +3867,12 @@ def render_step_lengths(dwg, plan, *, ctx, only=None) -> int:
                 contiguous = abs(max(prev.pa[0], prev.pb[0]) - min(cur.pa[0], cur.pb[0])) <= 1e-4
                 if not (
                     contiguous
-                    and _fmt(cur.value) == _fmt(repeat_run[0].value)
+                    and (
+                        _step_value_text(cur) == _step_value_text(repeat_run[0])
+                        if cur.display_decimals is not None
+                        or repeat_run[0].display_decimals is not None
+                        else _fmt(cur.value) == _fmt(repeat_run[0].value)
+                    )
                     and prev.tolerance is None
                     and cur.tolerance is None
                 ):
@@ -3851,14 +3882,20 @@ def render_step_lengths(dwg, plan, *, ctx, only=None) -> int:
             if len(repeat_run) >= 3:
                 xs = [p[0] for seg in repeat_run for p in (seg.pa, seg.pb)]
                 y = repeat_run[0].pa[1]
-                pitch = sum(seg.value for seg in repeat_run) / len(repeat_run)
                 compact.append(
                     _StepChainSegment(
                         (min(xs), y, 0.0),
                         (max(xs), y, 0.0),
                         sum(seg.value for seg in repeat_run),
                         measurements=_step_measurements(repeat_run),
-                        label=f"{len(repeat_run)}× {_fmt(pitch)}",
+                        label=(
+                            f"{len(repeat_run)}× "
+                            + (
+                                _step_value_text(repeat_run[0])
+                                if any(seg.display_decimals is not None for seg in repeat_run)
+                                else _fmt(sum(seg.value for seg in repeat_run) / len(repeat_run))
+                            )
+                        ),
                     )
                 )
                 collapsed = True
@@ -3943,7 +3980,12 @@ def render_step_lengths(dwg, plan, *, ctx, only=None) -> int:
                         )
                         # A repeated-pitch claim must be true at the drawing's
                         # displayed precision, not merely "within 10%".
-                        equal = _fmt(cur.value) == _fmt(seg0.value)
+                        equal = (
+                            _step_value_text(cur) == _step_value_text(seg0)
+                            if cur.display_decimals is not None
+                            or seg0.display_decimals is not None
+                            else _fmt(cur.value) == _fmt(seg0.value)
+                        )
                         untoleranced = prev.tolerance is None and cur.tolerance is None
                         if not (contiguous and equal and untoleranced):
                             break
@@ -3953,8 +3995,12 @@ def render_step_lengths(dwg, plan, *, ctx, only=None) -> int:
                         run_segs = [seg for seg, _width in run]
                         xs = [p[0] for seg in run_segs for p in (seg.pa, seg.pb)]
                         y = run_segs[0].pa[1]
-                        pitch = sum(seg.value for seg in run_segs) / len(run_segs)
-                        label = f"{len(run_segs)}× {_fmt(pitch)}"
+                        repeated_text = (
+                            _step_value_text(run_segs[0])
+                            if any(seg.display_decimals is not None for seg in run_segs)
+                            else _fmt(sum(seg.value for seg in run_segs) / len(run_segs))
+                        )
+                        label = f"{len(run_segs)}× {repeated_text}"
                         dsegs.append(
                             _StepChainSegment(
                                 (min(xs), y, 0.0),

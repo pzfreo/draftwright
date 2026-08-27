@@ -57,20 +57,8 @@ _FMT_BUDGET: dict[str, tuple[int, str]] = {
     # text is decided by the collapse rather than per approved entry.
     "from_model.render_step_lengths": (3, "labels decided during the repeat-run collapse"),
     "from_model.render_step_lengths._redraw_y": (3, "the same collapse, detail redraw"),
-    "from_model._draw_step_chain": (2, "the same collapse, drawing half"),
-    # --- The ø-leader placers take `(anchor, dia, feature, tol, thread, mids)` items, where
-    # `dia` is a float BOTH printed and used for geometry (`az - dia / 2`). Carrying the
-    # approved text alongside it is a five-call-site change to the item tuple; named here
-    # rather than rushed, because the budget's job is to make it visible.
-    #
-    # #1225 widened that tuple to carry the compiled measurement IDS and did not take the
-    # opportunity to carry the approved text as well — deliberately: the ids close a
-    # verification gap that had every turned ø callout unclaimed, while the text is a label
-    # -provenance concern with its own budget line. Same tuple, two changes, kept separate.
-    "from_model._diameter_row_below": (2, "item tuple carries a float for tip geometry"),
-    "from_model._diameter_column_left": (2, "item tuple carries a float for tip geometry"),
-    "from_model.render_diameters": (1, "builds those items from approved entries"),
-    "from_model.render_boss_diameters": (1, "builds those items from approved entries"),
+    "from_model._draw_step_chain": (1, "default repeat collapse preserves legacy mean text"),
+    "from_model._step_value_text": (1, "synthetic block segments have no approved entry"),
     # --- `hole_callout_spec` hands the callout builder floats, and the #261 invariant
     # ("every value crosses as a _fmt string") is enforced there. Fixing it means the spec
     # carrying approved text — the hole-callout migration ADR 0016 still names as pending.

@@ -174,17 +174,17 @@ def _scn_dimension(s):
 
 
 def _scn_add_dimension(s):
-    """The verb runs in the DRIVER, not in setup — so the matrix exercises the resolver on an
-    already-reordered sheet, which is a different claim from "a recorded intent survives a
-    reorder" and the one an earlier draft silently skipped.
+    """Retain a `DimensionIntent`, reorder, then apply its display policy.
 
-    `DimensionIntent` itself exposes no verb that consumes its stored reference (ADR 0012's
-    `.pin()`/`.priority()` were removed from #905 pending #906), so there is nothing further to
-    drive on the returned object. `test_dimension_intent_still_has_no_verbs` fails the moment
-    there is."""
+    This covers both halves of the identity claim: `add_dimension()` records the target by
+    token, and the retained handle's `format()` must update that same intent after neighbouring
+    features move. The closed verb-roster test below forces any future handle verb into this
+    driver too.
+    """
     a = s.hole(diameter=10, at=(-25, 0, 20), axis="z").depth(12)
     s.hole(diameter=6, at=(25, 0, 20), axis="z").depth(8)
-    return a, lambda a: s.add_dimension(a, "bore.diameter")
+    intent = s.add_dimension(a, "bore.diameter")
+    return intent, lambda intent: intent.format(decimals=2)
 
 
 def _scn_view(s):
@@ -754,10 +754,8 @@ def test_every_reference_carrying_state_field_is_exercised():
     )
 
 
-def test_dimension_intent_still_has_no_verbs():
-    """`_scn_add_dimension`'s driver is a no-op, which is honest only while `DimensionIntent`
-    has nothing to drive. #906 will restore `.pin()`/`.priority()`; this fails then, so the
-    scenario gets a real driver rather than staying quietly vacuous."""
+def test_dimension_intent_verb_roster_is_closed():
+    """Every retained-intent verb must be exercised after the feature-order mutation."""
     tree = ast.parse(_SRC.read_text())
     (intent,) = [
         n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "DimensionIntent"
@@ -767,9 +765,9 @@ def test_dimension_intent_still_has_no_verbs():
         for f in intent.body
         if isinstance(f, ast.FunctionDef) and not f.name.startswith("_")
     }
-    assert verbs == set(), (
-        f"DimensionIntent gained {sorted(verbs)} — give _scn_add_dimension a driver that calls "
-        "it after the mutation, or the retained-object matrix does not cover this class"
+    assert verbs == {"format"}, (
+        f"DimensionIntent verbs changed to {sorted(verbs)} — make _scn_add_dimension's driver "
+        "call every verb after the mutation, or the retained-object matrix does not cover them"
     )
 
 

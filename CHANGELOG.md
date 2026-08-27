@@ -4,6 +4,11 @@
 
 ### Added
 
+- Referential Sheet dimensions can preserve an explicit number of decimal places with
+  `sheet.dimension(feature, "parameter.id").format(decimals=n)`. The policy changes only
+  printed display text: numeric reconciliation, tolerances, suppression and dimension
+  provenance continue to use the feature parameter, and generated Sheet scripts round-trip the
+  policy (#1349).
 - New lint code `annotation_ink_overlap`: reports another annotation's line-work —
   a dimension line, an extension line or a leader shaft — drawn through a label's
   text, which `annotation_overlap` cannot see because it compares label boxes to

@@ -33,7 +33,7 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, fields, is_dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 from build123d import Shape
 
@@ -1239,6 +1239,24 @@ def _mirrored_requests(declared, declared_envelope=None):
     return out
 
 
+def _requested_display_decimals(model, feature, role, discriminator) -> int | None:
+    """Precision attached to an augmenting intent mirrored as an authored line (#1349)."""
+    for request in model.requested_dimensions:
+        if request.feature is not feature:
+            continue
+        matches = (
+            request.role == role if "." in request.role else role.startswith(f"{request.role}.")
+        )
+        if not matches:
+            continue
+        if request.discriminator is not None and not (
+            request.discriminator == discriminator or role.endswith(f".{request.discriminator}")
+        ):
+            continue
+        return cast(int | None, request.display_decimals)
+    return None
+
+
 def _dimension_block(model, names: dict[int, str], synthesised_envelope=None) -> list[str]:
     """The authored set as `sheet.dimension(...)` declarations, or the `auto_dimensions()` line.
 
@@ -1283,7 +1301,10 @@ def _dimension_block(model, names: dict[int, str], synthesised_envelope=None) ->
             "sheet.auto_dimensions()",
         ]
     requests = (
-        [(a.feature, a.role, a.discriminator) for a in model.authored_dimensions]
+        [
+            (a.feature, a.role, a.discriminator, a.display_decimals)
+            for a in model.authored_dimensions
+        ]
         if model.authored_dimensions is not None
         # A detected model has no authored set, so the script MIRRORS the planner's choice as
         # explicit lines instead of `auto_dimensions()` (#938). That is what makes an
@@ -1291,7 +1312,13 @@ def _dimension_block(model, names: dict[int, str], synthesised_envelope=None) ->
         # drop it" held for features and not for dimensions, so the only way to drop one
         # dimension was to drop its whole feature — losing the callout, the centre marks and
         # the location with it.
-        else _mirrored_requests(model, synthesised_envelope)
+        else [
+            (
+                *request,
+                _requested_display_decimals(model, *request),
+            )
+            for request in _mirrored_requests(model, synthesised_envelope)
+        ]
     )
     out = [
         "# ── Dimensions ────────────────────────────────────────────────────────────────",
@@ -1310,7 +1337,7 @@ def _dimension_block(model, names: dict[int, str], synthesised_envelope=None) ->
         # automatic one does, rather than in prose a reader has to trust.
         "sheet.authored_dimensions()",
     ]
-    for feature, role, discriminator in requests:
+    for feature, role, discriminator, display_decimals in requests:
         name = names.get(id(feature))
         if name is None:
             # Reachable for a kind with no declarative verb (its line is a comment, so it
@@ -1333,7 +1360,10 @@ def _dimension_block(model, names: dict[int, str], synthesised_envelope=None) ->
             if discriminator and "." not in role[role.find(".") + 1 :]
             else ""
         )
-        out.append(f'sheet.dimension({name}, "{role}"{axis})')
+        line = f'sheet.dimension({name}, "{role}"{axis})'
+        if display_decimals is not None:
+            line += f".format(decimals={display_decimals})"
+        out.append(line)
     return out
 
 

@@ -46,6 +46,23 @@ resolved result.
     options:
       filters: public
 
+## Dimension intent handle
+
+`dimension(feature, parameter_id)` and `add_dimension(feature, parameter_id)` return a
+referential `DimensionIntent`. The handle never carries a replacement nominal and never chooses
+page coordinates. Use `format(decimals=n)` to preserve between 0 and 15 decimal places in the
+printed nominal while reconciliation, tolerance, suppression and provenance continue to read the
+numeric parameter from the feature. Trailing zeroes are intentional manufacturing display text:
+
+```python
+sheet.authored_dimensions()
+sheet.dimension(envelope, "width.length").format(decimals=2)  # 13.5 prints as 13.50
+```
+
+::: draftwright.sheet.DimensionIntent
+    options:
+      filters: public
+
 ## Hole handle
 
 ::: draftwright.sheet._Hole

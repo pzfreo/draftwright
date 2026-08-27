@@ -142,6 +142,9 @@ class PlannedDimension:
     # the geometry states a fact, and the two must critique alike (#964 parity). ``None``
     # wherever nothing takes the fact over.
     conveyed_by: DimensionId | None = None
+    # Per-intent display policy (#1349). The authoritative numeric value remains on ``param``;
+    # legacy callout consumers use this field until they migrate to ``ApprovedDimension``.
+    display_decimals: int | None = None
 
 
 # Correlated sets (ADR 0016 identity, tier 3): exact ``(feature kind, role)`` pairs
@@ -963,6 +966,36 @@ def _authored_for(model, feature, param):
     return None
 
 
+def _check_display_policy_conflicts(model: PartModel) -> None:
+    """A semantic dimension cannot have two competing display authorities (#1349)."""
+    requests = (
+        model.authored_dimensions
+        if model.authored_dimensions is not None
+        else model.requested_dimensions
+    )
+    seen: dict[tuple[int, str], int | None] = {}
+    for request in requests:
+        targets: tuple[str, ...]
+        if request.role == LOCATION_ROLE:
+            targets = (LOCATION_ROLE,)
+        else:
+            targets = tuple(
+                parameter.parameter_id
+                for parameter in request.feature.parameters()
+                if _authored_addresses(request, request.feature, parameter)
+            )
+        for parameter_id in targets:
+            key = (id(request.feature), parameter_id)
+            previous = seen.get(key, request.display_decimals)
+            if key in seen and previous != request.display_decimals:
+                raise ValueError(
+                    f"conflicting display precision for {parameter_id}: "
+                    f"{previous!r} and {request.display_decimals!r}; repeat intent is "
+                    "idempotent only when its display policy agrees"
+                )
+            seen[key] = request.display_decimals
+
+
 def authored_location_omitted(model, feature) -> bool:
     """Did an AUTHORED set leave *feature*'s position out?
 
@@ -1246,6 +1279,7 @@ def plan_dimensions(model: PartModel, *, planned_views=None) -> list[DimensionGr
     """Plan each feature's parameters into one `DimensionGroup` (anchor + single
     view + planned dims, each carrying its render intent — convention, model-level
     suppression, datum). No cross- or within-feature value de-duplication."""
+    _check_display_policy_conflicts(model)
     if model.authored_dimensions is not None:
         _check_authored_targets(model)
     groups: list[DimensionGroup] = []
@@ -1271,6 +1305,7 @@ def plan_dimensions(model: PartModel, *, planned_views=None) -> list[DimensionGr
             # planner already emits is a deliberate no-op (idempotence gate): a script
             # must be able to ask without first knowing the rule set's mind.
             request = _request_for(model, feature, p)
+            display_intent = request
             if request is not None:
                 suppressed, reason, conveyed_by = False, None, None
             if model.authored_dimensions is not None:
@@ -1279,7 +1314,9 @@ def plan_dimensions(model: PartModel, *, planned_views=None) -> list[DimensionGr
                 # Marked, not filtered (#875) — the value survives on the group so the
                 # omission stays inspectable, and the compound-callout dependency rules
                 # still refuse to orphan half a term.
-                if _authored_for(model, feature, p) is None:
+                authored = _authored_for(model, feature, p)
+                display_intent = authored
+                if authored is None:
                     # `conveyed_by` deliberately SURVIVES an authored omission: the author
                     # chose which dimensions are drawn, but not where the geometry states
                     # this fact. Nulling it made a script that lists the overall extent and
@@ -1296,6 +1333,9 @@ def plan_dimensions(model: PartModel, *, planned_views=None) -> list[DimensionGr
                     reason=reason,
                     conveyed_by=conveyed_by,
                     datum=_datum_for(model, p),
+                    display_decimals=(
+                        display_intent.display_decimals if display_intent is not None else None
+                    ),
                 )
             )
         if dims:

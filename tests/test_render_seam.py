@@ -221,6 +221,8 @@ class TestStepChainDrop:
                 tolerance=None,
                 measurements=("step-a",),
                 label=None,
+                value_text="5",
+                display_decimals=None,
             ),
             SimpleNamespace(
                 pa=(80.0, 10.1, 0),
@@ -229,6 +231,8 @@ class TestStepChainDrop:
                 tolerance=None,
                 measurements=("step-b",),
                 label=None,
+                value_text="8",
+                display_decimals=None,
             ),
         ]
         placed = _draw_step_chain(dwg, "front", segs, "m_steplen", ctx=ctx)
@@ -280,11 +284,12 @@ class TestDiameterColumnOccupancy:
 
         return _Dwg()
 
-    # (anchor, dia, feature, tolerance, thread, mids) — feature=None (unit test of placement; #412
-    # added the tag); tolerance=None (untoleranced — a P2a ± field, #28); thread=None (#859)
+    # (anchor, dia, value_text, feature, tolerance, thread, mids) — feature=None (unit test of
+    # placement; #412 added the tag); tolerance=None (untoleranced — a P2a ± field, #28);
+    # thread=None (#859)
     _ITEMS = [
-        ((10.0, 0.0, 8.0), 12.0, None, None, None, ()),
-        ((10.0, 0.0, 24.0), 8.0, None, None, None, ()),
+        ((10.0, 0.0, 8.0), 12.0, "12", None, None, None, ()),
+        ((10.0, 0.0, 24.0), 8.0, "8", None, None, None, ()),
     ]  # two Z-turned ø steps; empty mids — this seam test is about occupancy, not provenance
 
     def _ctx(self):

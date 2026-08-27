@@ -597,6 +597,24 @@ class DimensionIntent:
         self._sheet = sheet
         self._entry = entry
 
+    def format(self, *, decimals: int) -> DimensionIntent:
+        """Preserve *decimals* places in this dimension's printed nominal (#1349).
+
+        This is display policy on a referential intent, not a restated label: reconciliation,
+        tolerance, suppression and provenance continue to use the feature parameter's numeric
+        value and semantic identity.  Automatic dimensions keep their existing formatting
+        unless their explicit ``add_dimension`` intent opts in.
+        """
+        if isinstance(decimals, bool) or not isinstance(decimals, int) or not 0 <= decimals <= 15:
+            raise ValueError("format(decimals=...) requires an integer from 0 to 15")
+        if self._entry["role"] == _LOCATION_ROLE:
+            raise ValueError(
+                "format() is unavailable for location intent: one location may compile "
+                "into multiple directional values"
+            )
+        self._entry["display_decimals"] = decimals
+        return self
+
     def __getattr__(self, name):  # declare-then-chain: forward to the sheet
         return getattr(self._sheet, name)
 
@@ -2352,6 +2370,7 @@ class Sheet:
                 feature=self._features[self._index_of_token(e["token"])],
                 role=e["role"],
                 discriminator=e["discriminator"],
+                display_decimals=e.get("display_decimals"),
             )
             for e in self._added_dimensions
         )
@@ -2377,6 +2396,7 @@ class Sheet:
                 feature=self._features[self._index_of_token(e["token"])],
                 role=e["role"],
                 discriminator=e["discriminator"],
+                display_decimals=e.get("display_decimals"),
             )
             for e in self._authored
         )

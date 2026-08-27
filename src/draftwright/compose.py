@@ -278,7 +278,11 @@ def _est_planned_bore_callout_width(
             token_w.append(_text_width(f"{spec['count']}×", font_size))
         token_w.append(sym_w)  # ⌀ symbol
         token_w.append(
-            _text_width(f"{_fmt(bore)}{_tol_suffix(spec['tolerance'], draft)}", font_size)
+            _text_width(
+                f"{_fmt(bore, spec.get('diameter_decimals'))}"
+                f"{_tol_suffix(spec['tolerance'], draft)}",
+                font_size,
+            )
         )
 
         # Every term's tolerance, not just the bore's. The estimator has to measure the string
@@ -286,31 +290,35 @@ def _est_planned_bore_callout_width(
         # placement check reject a callout the reservation said would fit, and the whole
         # annotation was dropped with `callout_dropped: no room beside the view` — a wrong
         # drawing produced from a right one (#1234 review r7).
-        def _term(value, tol_key):
-            return _text_width(f"{_fmt(value)}{_tol_suffix(spec.get(tol_key), draft)}", font_size)
+        def _term(value, tol_key, decimals_key):
+            return _text_width(
+                f"{_fmt(value, spec.get(decimals_key))}{_tol_suffix(spec.get(tol_key), draft)}",
+                font_size,
+            )
 
         if spec["through"]:
             token_w.append(_text_width("THRU", font_size))
         elif depth is not None:
             token_w.append(sym_w)  # depth symbol
-            token_w.append(_term(depth, "depth_tol"))
+            token_w.append(_term(depth, "depth_tol", "depth_decimals"))
         if cbore_dia is not None:
             token_w.append(sym_w)  # counterbore/spotface symbol
             token_w.append(sym_w)  # ⌀
-            token_w.append(_term(cbore_dia, "cbore_dia_tol"))
+            token_w.append(_term(cbore_dia, "cbore_dia_tol", "cbore_dia_decimals"))
             if cbore_depth is not None:
                 token_w.append(sym_w)  # depth symbol
-                token_w.append(_term(cbore_depth, "cbore_depth_tol"))
+                token_w.append(_term(cbore_depth, "cbore_depth_tol", "cbore_depth_decimals"))
         csink_dia = spec["csink_dia"]
         if csink_dia is not None:
             token_w.append(sym_w)  # countersink symbol
             token_w.append(sym_w)  # ⌀
-            token_w.append(_term(csink_dia, "csink_dia_tol"))
+            token_w.append(_term(csink_dia, "csink_dia_tol", "csink_dia_decimals"))
             csink_angle = spec["csink_angle"]
             if csink_angle is not None:
                 token_w.append(
                     _text_width(
-                        f"× {_fmt(csink_angle)}{_tol_suffix(spec.get('csink_angle_tol'), draft)}°",
+                        f"× {_fmt(csink_angle, spec.get('csink_angle_decimals'))}"
+                        f"{_tol_suffix(spec.get('csink_angle_tol'), draft)}°",
                         font_size,
                     )
                 )

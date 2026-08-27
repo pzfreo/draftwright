@@ -337,11 +337,18 @@ def _axis_direction_is_aligned(axis: str, direction, *, tol: float = 1e-3) -> bo
     )
 
 
-def _fmt(v: float) -> str:
+def _fmt(v: float, decimals: int | None = None) -> str:
     """Format a float as integer string if whole, otherwise 1 dp. The one number
     formatter the IR (:mod:`draftwright.model.ir`) and the drawing layers
     (:mod:`draftwright._core`) share (#700 — the two copies had already begun to
-    drift on ``-0``)."""
+    drift on ``-0``).
+
+    ``decimals`` is an explicit referential-dimension display policy (#1349). It preserves
+    trailing zeroes by design; ``None`` retains the established automatic formatting.
+    """
+    if decimals is not None:
+        normalized = 0.0 if round(float(v), decimals) == 0 else float(v)
+        return f"{normalized:.{decimals}f}"
     r = round(v)
     return str(r) if abs(v - r) < 1e-6 else f"{v:.1f}"
 

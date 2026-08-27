@@ -55,6 +55,16 @@ def _first(group: DimensionGroup, kind: str, *roles: str) -> float | None:
     return None
 
 
+def _display_decimals(group: DimensionGroup, kind: str, *roles: str) -> int | None:
+    """Display policy for the same surviving term :func:`_first` selects (#1349)."""
+    for role in roles:
+        planned = _planned(group, kind, role)
+        if planned is not None and not planned.suppressed:
+            decimals = planned.display_decimals
+            return int(decimals) if decimals is not None else None
+    return None
+
+
 #: The compound callout's segments: ``(name, head, dependents)``.
 #:
 #: Each segment has a HEAD term — always its ⌀ — and terms that only mean something beside it.
@@ -112,7 +122,11 @@ def _pattern_suffix(group: DimensionGroup) -> str | None:
         return None
     if feat.pattern == "bolt_circle":
         bcd = _first(group, "diameter", "bolt_circle")
-        return None if bcd is None else f"EQ SP ON ø{_fmt(bcd)} BC"
+        return (
+            None
+            if bcd is None
+            else f"EQ SP ON ø{_fmt(bcd, _display_decimals(group, 'diameter', 'bolt_circle'))} BC"
+        )
     if feat.pattern == "grid" and feat.rows and feat.cols:
         return f"({feat.rows}×{feat.cols})"
     return None
@@ -376,21 +390,31 @@ def hole_callout_spec(group: DimensionGroup) -> dict | None:
     across = None
     if getattr(hole, "profile", None) == "double_d":
         across = _first(group, "length", "profile_across_flats")
-        profile_suffix = "DOUBLE-D" + (f" {_fmt(across)} A/F" if across is not None else "")
+        profile_suffix = "DOUBLE-D" + (
+            f" {_fmt(across, _display_decimals(group, 'length', 'profile_across_flats'))} A/F"
+            if across is not None
+            else ""
+        )
     suffix = " ".join(p for p in (profile_suffix, thread, suffix) if p) or None
     return {
         "diameter": bore,
+        "diameter_decimals": _display_decimals(group, "diameter", "bore"),
         "count": count if count and count > 1 else None,
         "through": hole.through,  # the feature's fact, not the param list's shape (#868)
         "depth": depth,
+        "depth_decimals": _display_decimals(group, "depth", "bore"),
         # counterbore precedence, spotface fallback — the engine's mapping
         # ONE role, both terms. Reading ⌀ and depth through independent fallbacks let a
         # drawing pair the counterbore's ⌀32 with the spotface's 0.5 depth — a recess that
         # exists on neither feature (#920 review). The chain picks a segment, not a value.
         "cbore_dia": cbore_dia,
         "cbore_depth": cbore_depth,
+        "cbore_dia_decimals": getattr(recess_dia_pd, "display_decimals", None),
+        "cbore_depth_decimals": getattr(recess_depth_pd, "display_decimals", None),
         "csink_dia": _first(group, "diameter", "countersink"),
         "csink_angle": _first(group, "angle", "countersink"),
+        "csink_dia_decimals": getattr(csink_dia_pd, "display_decimals", None),
+        "csink_angle_decimals": getattr(csink_angle_pd, "display_decimals", None),
         "suffix": suffix,
         "tolerance": bore_tol,  # P2a: ± on the bore ⌀, baked into the callout string below
         # ...and one per remaining term, baked in the same way (#1234 review r7).

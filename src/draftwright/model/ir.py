@@ -1855,7 +1855,8 @@ class RequestedDimension:
     through ``render_locations(pinned=…)`` for location dims only. Adding a third,
     pre-build spelling would scatter one concept across three layers, the same way the
     corridor priority scale was scattered before #894 consolidated it. The convergence
-    is tracked separately; this type stays pure *selection*.
+    is tracked separately; this type stays free of placement state. It carries selection plus
+    optional display policy, while the measurement itself remains referential.
     """
 
     feature: Feature
@@ -1864,6 +1865,22 @@ class RequestedDimension:
     #: pattern's two pitches (``"row"`` / ``"col"``). ``None`` where the role identifies
     #: the measurement on its own.
     discriminator: str | None = None
+    #: Explicit display precision for this referential dimension.  The numeric value and
+    #: identity still come from ``feature``; this controls only the compiler-owned text at
+    #: the rendering boundary (#1349).  ``None`` preserves the existing automatic formatting.
+    display_decimals: int | None = None
+
+    def __post_init__(self) -> None:
+        decimals = self.display_decimals
+        if decimals is None:
+            return
+        if isinstance(decimals, bool) or not isinstance(decimals, int) or not 0 <= decimals <= 15:
+            raise ValueError("display_decimals must be an integer from 0 to 15")
+        if self.role == "location":
+            raise ValueError(
+                "display precision is unavailable for location intent: one location may "
+                "compile into multiple directional values"
+            )
 
 
 @dataclass
