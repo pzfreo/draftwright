@@ -85,15 +85,15 @@ wheels = [
 
 [[package]]
 name = "b123d-recognisers"
-version = "0.4.0"
+version = "0.4.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "build123d", version = "0.10.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
     { name = "build123d", version = "0.11.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.13'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a2/66/697bae8cab1fcded99903f8d750103743be0cb5a94973366fb0e9526fffa/b123d_recognisers-0.4.0.tar.gz", hash = "sha256:8f821412f556ccb34aed2da0501605a9df171b5c046b171cb943c9f78675dd9f", size = 1012376, upload-time = "2026-08-27T06:57:48.684Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a3/a5/01455bbb244af3a582bf73133efa1dd1e0f3a3ad375421ae1e02e2380d9e/b123d_recognisers-0.4.1.tar.gz", hash = "sha256:4c62c88f656971a80ec82c291af24158f0b24b8f8422cf47b535bab274356fd1", size = 1012878, upload-time = "2026-08-27T07:38:32.716Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/3d/ce/a466fadaa18b581b76de8bf116d44c334bb1872543704c5fdf6a4f01e206/b123d_recognisers-0.4.0-py3-none-any.whl", hash = "sha256:256ce529801f9a12238f002d27002ad08f3ff125d808534773afdf92fbe4b14d", size = 332876, upload-time = "2026-08-27T06:57:47.072Z" },
+    { url = "https://files.pythonhosted.org/packages/b5/e7/810799a78a8b3920ecdb6424cf6355fe546d10a3c7d394d9c54f98f40a2e/b123d_recognisers-0.4.1-py3-none-any.whl", hash = "sha256:037220b26d44393f1b6e9925c9af0db4880189a76c24bd952e8b24df49a014d4", size = 333086, upload-time = "2026-08-27T07:38:31.248Z" },
 ]
 
 [[package]]
@@ -746,7 +746,7 @@ docs = [
 [package.metadata]
 requires-dist = [
     { name = "antlr4-python3-runtime", specifier = "<4.10" },
-    { name = "b123d-recognisers", specifier = "==0.4.0" },
+    { name = "b123d-recognisers", specifier = "==0.4.1" },
     { name = "build123d", marker = "python_full_version < '3.13'", specifier = ">=0.9.0,<0.11" },
     { name = "build123d", marker = "python_full_version >= '3.13'", specifier = ">=0.11,<0.12" },
     { name = "build123d-drafting-helpers", specifier = ">=0.14.2" },
