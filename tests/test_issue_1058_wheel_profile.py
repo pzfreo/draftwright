@@ -296,7 +296,11 @@ def test_equal_profiles_on_distinct_bodies_remain_ambiguous(wheel_part, monkeypa
     monkeypatch.setattr(
         repeating_profiles,
         "_recognise_solid",
-        lambda solid, **_kwargs: [profile] if solid in bodies else [],
+        lambda solid, **_kwargs: [
+            repeating_profiles._RepeatingRadialProposal(profile, object(), object())
+        ]
+        if solid in bodies
+        else [],
     )
 
     assert repeating_profiles.recognise_repeating_radial_profiles(part) == [profile, profile]
