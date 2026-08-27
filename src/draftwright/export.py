@@ -279,7 +279,7 @@ def _render_pdf(svg_path: str, pdf_path: str, link_rect=None, text_runs=()) -> N
             from reportlab.pdfbase import pdfmetrics
             from reportlab.pdfbase.ttfonts import TTFont
 
-            font_name = "DraftwrightSemanticText"
+            font_name = "Draftwright_IBMPlexMono_Semantic_v1"
             if font_name not in pdfmetrics.getRegisteredFontNames():
                 pdfmetrics.registerFont(TTFont(font_name, PLEX_MONO))
             k = 72.0 / 25.4
@@ -312,6 +312,11 @@ def _render_pdf(svg_path: str, pdf_path: str, link_rect=None, text_runs=()) -> N
         canvas.showPage()
         canvas.save()
     except Exception:
+        if text_runs:
+            # Searchable text is a requested output property, not an optional
+            # embellishment. Never report success after silently discarding it.
+            _log.error("PDF semantic text render failed", exc_info=True)
+            raise
         # Never fail the export over the link/metadata extras; degrade to a
         # plain render. Logged at debug so a regression in the link annotation
         # is diagnosable (in normal use only the dedicated test would catch it).

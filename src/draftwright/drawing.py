@@ -3622,7 +3622,7 @@ class Drawing:
         """Return semantic text overlaid on path-rendered PDF glyphs.
 
         Scope is deliberately limited to text whose authoritative source and
-        final page geometry are both retained: free notes and generic tables.
+        final page geometry are both retained: unrotated free notes and generic tables.
         Other annotations remain path-only until their renderers expose the
         same information without reverse-engineering exported geometry.
         """
@@ -3651,7 +3651,11 @@ class Drawing:
                             )
             else:
                 value = getattr(annotation, "pdf_text", None)
-                if value:
+                rotation = getattr(annotation, "pdf_text_rotation", 0.0)
+                # An axis-aligned bounding box cannot recover a rotated note's
+                # original text origin. Leave those path-only until the note
+                # renderer retains its anchor/alignment transform explicitly.
+                if value and not rotation:
                     lines = str(value).splitlines() or [str(value)]
                     for index, line in enumerate(lines):
                         if line:
@@ -3661,7 +3665,6 @@ class Drawing:
                                     box.min.X,
                                     box.max.Y - (index + 1) * fs,
                                     fs,
-                                    getattr(annotation, "pdf_text_rotation", 0.0),
                                 )
                             )
             if runs:
