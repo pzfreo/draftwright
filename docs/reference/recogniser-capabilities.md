@@ -11,6 +11,15 @@ completeness treatment, and documentation. A stage is either `supported`, `defer
 other CAD consumers apply different policy without making Draftwright policy part of the geometry
 library.
 
+Declared-feature geometry reads use a different public boundary. The installed package's
+inspection manifest format 1 is joined to the separate Draftwright-owned declaration in
+`draftwright.inspection_contract`. That contract admits inspection API major 1 and exactly the
+consumed `b123d_recognisers.inspection` symbol schemas: the five geometry readers, their public
+result/error types, the cylindrical surface parameter layout, bevel rejection reasons, and the
+semantic names and units of the Double-D tuple. It also checks the exact installed package
+version. Recognition-family policy does not leak into this smaller measurement contract, and an
+additive inspection symbol does not pretend to be a new recogniser family.
+
 ## What failures mean
 
 Validation fails closed and names the family and boundary whenever possible:
@@ -67,7 +76,7 @@ with no inferred gear feature added to fill the table.
 
 ## Passage compatibility boundary
 
-The installed `b123d-recognisers==0.4.2` release contains the `passages` family introduced
+The installed `b123d-recognisers==0.4.5` release contains the `passages` family introduced
 in 0.2.6. Version 0.4.0 makes `SectionPassage` the authoritative physical output and retains
 schema-v1 `Passage` as its compatibility projection. Draftwright declares all six public and nested
 record schemas exhaustively but deliberately keeps the family `unsupported`, with the drafting
@@ -84,6 +93,6 @@ The 0.4 contract is explicit:
 - rich split-junction passages can supersede a Slot claim, moving physical ownership to the
   unsupported Passage family through `SLOT_SUPERSEDED_BY_PASSAGE`.
 
-The exact 0.4.2 pin, manifest-v2 validator and explicit unsupported inventories make that limitation
+The exact 0.4.5 pin, manifest-v2 validator and explicit unsupported inventories make that limitation
 fail-visible rather than silently treating rich passages as supported. Issue #1245 still owns the
 decision about what newly Passage-owned occurrences draw and how they participate in completeness.

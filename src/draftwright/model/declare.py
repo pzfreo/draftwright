@@ -301,7 +301,7 @@ def double_d_bore(
     with exactly that boundary; arbitrary line/arc profiles and blind profiles fail closed.
     """
     if obj is not None:
-        from b123d_recognisers.profiled_bores import read_double_d_tool
+        from b123d_recognisers.inspection import read_double_d_tool
 
         r_axis, r_major, r_af, r_at, r_depth, r_direction = read_double_d_tool(obj)
         axis = r_axis if axis is None else axis
@@ -340,9 +340,9 @@ def read_countersink(cone) -> tuple[float, float]:
     """``(major_diameter, included_angle°)`` of a countersink **cone** tool — the larger rim ⌀
     and the full cone angle, read off its conical **face** (not a removed edge, #576 lesson).
     The cone geometry is the recogniser's own
-    :func:`~b123d_recognisers.countersinks.cone_rims` (#704), so a declared
+    :func:`~b123d_recognisers.inspection.cone_rims` (#704), so a declared
     countersink reads identically to a detected one by construction."""
-    from b123d_recognisers import cone_rims
+    from b123d_recognisers.inspection import cone_rims
     from build123d import GeomType
 
     faces = cone.faces().filter_by(GeomType.CONE)
@@ -534,10 +534,10 @@ def _read_chamfer_face(face) -> tuple[str, float, float, Point]:
     """Read a chamfer off its **oblique planar bevel face**: the axis (the edge the chamfer
     runs along), the two legs (the face's in-plane extents), and a point **on the bevel** (the
     face centre — not the removed sharp corner). The classification + leg geometry is the
-    recogniser's own :func:`~b123d_recognisers.chamfers.classify_bevel` (#704), so a
+    recogniser's own :func:`~b123d_recognisers.inspection.classify_bevel` (#704), so a
     declared chamfer reads identically to a detected one by construction; only the
     user-facing error messages live here."""
-    from b123d_recognisers import BevelReject, classify_bevel
+    from b123d_recognisers.inspection import BevelReject, classify_bevel
 
     try:
         edge_i, _nv, _span, hi, lo = classify_bevel(face)
@@ -621,11 +621,11 @@ def _read_fillet_face(face) -> tuple[str, float, Point]:
     along), the radius (the cylinder radius), and a point **on the round** (mid angular/axial of
     the trimmed face — the ``R`` leader's tip). Agrees with the recogniser (recognition/fillets.py)
     in the two in-plane (placement) coordinates; the along-edge coordinate is view depth."""
-    from b123d_recognisers.experimental_geometry import AnalyticSurface, inspect_face
+    from b123d_recognisers.inspection import AnalyticSurface, SurfaceKind, inspect_face
 
     inspection = inspect_face(face)
     surface = inspection.surface
-    if not isinstance(surface, AnalyticSurface) or surface.kind.value != "cylinder":
+    if not isinstance(surface, AnalyticSurface) or surface.kind is not SurfaceKind.CYLINDER:
         raise ValueError(
             "fillet(face=...) needs a cylindrical blend face (the round); an edge or flat "
             "face is not a fillet — declare with axis=, radius=, at= instead"
@@ -772,7 +772,7 @@ def _read_groove_face(face) -> tuple[str, float, float, Point]:
     span = ((bb.min.X, bb.max.X), (bb.min.Y, bb.max.Y), (bb.min.Z, bb.max.Z))[axis_i]
     # The leader tip is the recogniser's own floor_face_anchor (#704), so a declared
     # groove anchors identically to a detected one by construction.
-    from b123d_recognisers import floor_face_anchor
+    from b123d_recognisers.inspection import floor_face_anchor
 
     c = floor_face_anchor(face)
     return (

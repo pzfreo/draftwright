@@ -107,6 +107,9 @@ _LAYERS: dict[str, int] = {
     # Cross-repository CI contract: dynamically resolves declared implementations at every
     # lower layer, so it deliberately sits above the whole engine beside the user surfaces.
     "recogniser_contract": 7,
+    # Separate cross-repository inspection contract. It currently imports no engine module,
+    # but remains a top-layer consumer policy boundary rather than an engine dependency.
+    "inspection_contract": 7,
     # Versioned, independently-authored recognition benchmark. It may validate through the
     # cross-repository contract, but the drawing engine must never depend on its evaluator.
     "evaluation": 7,

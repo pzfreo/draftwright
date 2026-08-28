@@ -128,7 +128,7 @@ def test_installed_package_contract_validates_without_a_sibling_checkout() -> No
 def test_rich_passage_contract_is_truthfully_deferred_with_its_projection() -> None:
     """Pin the 0.4 physical record and compatibility projection to one decision."""
 
-    assert INSTALLED_PACKAGE_VERSION == "0.4.2"
+    assert INSTALLED_PACKAGE_VERSION == "0.4.5"
     installed = tuple(int(component) for component in INSTALLED_PACKAGE_VERSION.split("."))
     assert (0, 4, 0) <= installed < (0, 5, 0)
     package = _families(recognition.capability_manifest())

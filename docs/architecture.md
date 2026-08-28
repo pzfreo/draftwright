@@ -206,6 +206,10 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   `Sheet`, generated-code, drawing, completeness, and documentation declarations. It is rank 7
   because validation dynamically resolves implementation references across every lower layer;
   package geometry policy never imports or owns this consumer overlay.
+- **`inspection_contract.py`** — the separate fail-closed join for declared-feature geometry
+  reads. It validates inspection manifest format 1/API major 1, the exact installed recogniser
+  release, and only the stable `b123d_recognisers.inspection` symbols and value schemas consumed
+  by `model/declare.py`. It deliberately does not declare recognition-family semantics.
 - **`model/`** — the ADR 0015 IR waist: `ir.py` (the `Feature`/`DimParameter`/
   `Datum`/`PartModel` types — the one inventory), `detect.py` (detectors →
   `Feature` objects, adapting `b123d_recognisers` records), `planner.py`
