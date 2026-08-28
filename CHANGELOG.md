@@ -37,6 +37,11 @@
 
 ### Changed
 
+- Declared Double-D bore, countersink, chamfer, fillet, and groove geometry reads now use the
+  stable `b123d_recognisers.inspection` namespace from the exact 0.4.5 wheel. A separate
+  Draftwright-owned format-1 contract fails closed on changes to the consumed signatures, result
+  schemas, units, bevel rejection reasons, or cylindrical surface layout (#1362).
+
 - `annotation_overlap` now reports the whole defect when the same pair also draws
   line-work through one of the two labels: the message names the crosser, the label
   crossed and the millimetres, and replaces the "use `label_offset_x`" remedy, which

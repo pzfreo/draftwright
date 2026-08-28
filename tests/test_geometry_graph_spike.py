@@ -1,4 +1,4 @@
-"""Bounded Draftwright consumer evidence for the provisional F7 facade."""
+"""Bounded Draftwright consumer evidence for the stable inspection facade."""
 
 from __future__ import annotations
 
@@ -12,9 +12,19 @@ from build123d import fillet as bd_fillet
 from draftwright.model.declare import fillet
 
 ROOT = Path(__file__).parents[1]
+INSPECTION_ROSTER = {
+    "AnalyticSurface",
+    "BevelReject",
+    "SurfaceKind",
+    "classify_bevel",
+    "cone_rims",
+    "floor_face_anchor",
+    "inspect_face",
+    "read_double_d_tool",
+}
 
 
-def test_declared_fillet_uses_the_facade_without_private_recogniser_imports() -> None:
+def test_declared_geometry_reads_use_only_the_stable_inspection_facade() -> None:
     source = (ROOT / "src/draftwright/model/declare.py").read_text()
     tree = ast.parse(source)
     recogniser_imports = {
@@ -25,16 +35,20 @@ def test_declared_fillet_uses_the_facade_without_private_recogniser_imports() ->
         and node.module.startswith("b123d_recognisers")
     }
 
-    assert "b123d_recognisers.experimental_geometry" in recogniser_imports
+    assert "b123d_recognisers.inspection" in recogniser_imports
     assert all(not name.startswith("b123d_recognisers._") for name in recogniser_imports)
-    imported_names = {
-        alias.name
+    roster_imports = {
+        (node.module, alias.name)
         for node in ast.walk(tree)
         if isinstance(node, ast.ImportFrom)
-        and node.module == "b123d_recognisers.experimental_geometry"
+        and node.module is not None
+        and node.module.startswith("b123d_recognisers")
         for alias in node.names
+        if alias.name in INSPECTION_ROSTER
     }
-    assert imported_names == {"AnalyticSurface", "inspect_face"}
+    assert roster_imports == {("b123d_recognisers.inspection", name) for name in INSPECTION_ROSTER}
+    assert "experimental_geometry" not in source
+    assert "profiled_bores" not in source
     assert "GeometryGraph" not in source
 
 
