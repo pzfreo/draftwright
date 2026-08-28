@@ -272,6 +272,37 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   `Drawing.export(out, *, formats=("pdf",)) → {format: path}` is the front door
   (the legacy `svg=`/`dxf=` tuple form + `export_pdf` are back-compat/deprecated
   wrappers). Sits below `make_drawing.py`, above `_core.py`.
+
+  **`reproducible=` — byte-identical exports, opt-in.** On, two exports of one
+  drawing are identical, so a checked-in drawing diffs cleanly and a caller can
+  see when its output really changed. Three things are settled to get there: the
+  clock and GUIDs an exporter stamps (a per-document fixed metadata updater,
+  avoiding ezdxf's concurrency-unsafe process-global testing option, plus
+  reportlab's `invariant`), ezdxf's CLASSES section (built by
+  iterating a `set[str]`, so it is pre-seeded sorted), and the order the kernel
+  hands parts over, which is not stable between runs and does **not** reduce to
+  `PYTHONHASHSEED`.
+
+  The two formats reach that by different routes, and the asymmetry is deliberate.
+  A DXF must be ordered *going in* — `ExportDXF` writes an entity per element as it
+  converts and the handles follow — so `_elements(ordered=True)` sorts the
+  emitted boundary entities by geometry, keyed on where an edge sits **and which way it runs**
+  (hidden-line removal emits reversed duplicate pairs that agree on everything
+  else); faces are flattened before sorting so their cyclic wire start cannot
+  leak into entity order, and cheap-key ties use exact B-rep bytes. An SVG is
+  settled *coming out*, by `canonicalize_svg` sorting each
+  all-leaf layer group in the written file, so it is handed its shapes unordered
+  even when the flag is on.
+
+  **Off by default, because ordering is not free**: about a third of DXF export
+  time again (interleaved, 9 runs, 358-part sheet: 0.45 s → 0.60 s), one
+  `bounding_box()` and one `edges()` per part. Off costs what it did before the
+  option existed (0.45 s vs 0.49 s on `main`); the metadata pinning is the cheap
+  half at ~1 ms. Both hang off the one flag, since a caller wanting a stable file
+  wants both and should not have to know which one costs. Reachable as
+  `build_drawing(..., reproducible=True)` (the default a returned `Drawing` then
+  carries) and per call as `Drawing.export(..., reproducible=True)`. Weigh any
+  change here against #602, which removed a `zoom.extents` walk from the same path.
 - **`repair.py`** — the deterministic lint→repair loop (#30 / ADR 0002): the
   re-place helpers (`_find_dim`/`_replace_dim`/`_repair_*`/`repair_drawing`) take
   the drawing duck-typed as `dwg`; `Drawing.repair()` stays a thin wrapper.

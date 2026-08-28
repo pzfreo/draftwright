@@ -104,6 +104,20 @@ for issue in dwg.lint():
 paths = dwg.export("out", formats=("svg", "dxf", "pdf", "png"))   # -> {format: path}
 ```
 
+`reproducible=True` writes files that do not carry the run that produced them, so two
+exports of the same drawing are byte-identical and a written drawing can be diffed or
+checksummed to see whether its content actually changed. Set it per call, or once for
+the drawing via `build_drawing(..., reproducible=True)`:
+
+```python
+dwg = build_drawing(part, reproducible=True)     # every export from this drawing
+paths = dwg.export("out", formats=("dxf",))
+paths = dwg.export("out", formats=("dxf",), reproducible=False)   # override per call
+```
+
+Off by default because it is not free: ordering the DXF entities costs roughly a third
+of DXF export time again. Off costs exactly what it did before the option existed.
+
 ## What NOT to do
 
 - ❌ Raw page coordinates for feature annotations; `Drawing.place_dim(...)` (deprecated raw
@@ -111,7 +125,10 @@ paths = dwg.export("out", formats=("svg", "dxf", "pdf", "png"))   # -> {format: 
 - ❌ `dwg.add(Dimension/Leader/FeatureControlFrame(...))` / raw `Note` objects — `add` is the
   engine's low-level placement primitive (being made private, #817). Use the verbs: `note()` for
   free text, `add_table()`/`add_hole_table()` for tables, the feature verbs for callouts/dims.
-- ❌ Bypassing recognition / assuming byte-identical output (it is not a goal — ADR 0004/0012).
+- ❌ Bypassing recognition / treating byte-identical output as a *stability* guarantee across
+  versions or layout changes — it is not one, and pinning a byte digest to catch regressions is
+  the wrong instrument (ADR 0004/0012). `reproducible=True` is a narrower promise: two exports
+  of one drawing, on one version, agree. It does not promise the next version draws it the same.
 
 ## Source of truth
 

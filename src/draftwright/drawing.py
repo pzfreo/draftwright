@@ -75,6 +75,7 @@ from draftwright.export import (
     _render_png,
     add_svg_hyperlink,
     add_svg_metadata,
+    canonicalize_svg,
     fix_svg_page_size,
     sanitize_svg_arcs,
     set_dxf_metadata,
@@ -519,6 +520,10 @@ class Drawing:
         assembly: feature-coverage severity control — ``None`` auto-detects a
             multi-solid part as an assembly (per-part bores at ``info``),
             ``True``/``False`` forces it (#69).
+        reproducible: default for :meth:`export`'s ``reproducible=`` — when true, two
+            exports of this drawing are byte-identical. ``False`` by default because
+            it costs roughly a third of DXF export time again (see
+            :func:`draftwright.export._elements`).
 
     The constructor also accepts ``cyls``, a precomputed
     ``analyse_cylinders(part)`` result (cached privately; computed lazily on
@@ -540,6 +545,7 @@ class Drawing:
         part=None,
         cyls=None,
         assembly=None,
+        reproducible=False,
     ):
         self.scale = scale
         # Public, JSON-friendly record of how the requested drawing scale was resolved
@@ -592,6 +598,12 @@ class Drawing:
         # None → the coverage lint auto-detects a multi-solid part as an
         # assembly; True/False forces assembly/strict severity (#69).
         self.assembly = assembly
+        # Default for `export(reproducible=…)`: settle element order and the
+        # metadata the exporters take from the clock, so two runs write the same
+        # bytes. Off by default because the ordering costs about a third of DXF
+        # export time again; a caller who wants to diff or checksum its output
+        # turns it on, here or per export call.
+        self.reproducible = reproducible
         self.page_w = page_w
         self.page_h = page_h
         self.tb_w = tb_w
@@ -3637,9 +3649,12 @@ class Drawing:
         else:
             _log.info("Lint: OK")
 
-    def _write_svg(self, out: str) -> str:
+    def _write_svg(self, out: str, *, reproducible: bool = False) -> str:
         """Write the SVG (part/hidden/dims layers, page-size fix, arc sanitise, hyperlink +
-        metadata) and return its path. The PDF and PNG renders both read this SVG."""
+        metadata) and return its path. The PDF and PNG renders both read this SVG.
+
+        *reproducible* settles the element order so two runs write the same bytes;
+        see :func:`export.canonicalize_svg`. Off, this is what it always was."""
         blk = Color(0, 0, 0)
         grey = Color(0.5, 0.5, 0.5)
         blue = Color(0, 0.2, 0.7)
@@ -3650,6 +3665,10 @@ class Drawing:
         self._add_shapes(svg_exp)
         svg_path = out + ".svg"
         svg_exp.write(svg_path)
+        if reproducible:
+            # Before the passes below read it back: they rewrite what is there,
+            # this settles what order it is in. See canonicalize_svg().
+            canonicalize_svg(svg_path)
         fix_svg_page_size(svg_path, self.page_w, self.page_h)
         n_arcs = sanitize_svg_arcs(svg_path)
         if n_arcs:
@@ -3661,17 +3680,21 @@ class Drawing:
         _log.info("SVG → %s", svg_path)
         return svg_path
 
-    def _write_dxf(self, out: str) -> str:
-        """Write the DXF (part/hidden/dims layers + metadata) and return its path."""
+    def _write_dxf(self, out: str, *, reproducible: bool = False) -> str:
+        """Write the DXF (part/hidden/dims layers + metadata) and return its path.
+
+        *reproducible* orders the entities and pins the metadata ezdxf stamps from
+        the clock, so two runs write the same bytes. It costs about a third of the
+        export time again — see :func:`export._elements`."""
         dxf_exp = _DraftwrightDXF()
         dxf_exp.add_layer("part", line_weight=0.5)
         dxf_exp.add_layer("hidden", line_weight=0.25)
         dxf_exp.add_layer("dims", line_weight=0.05)
-        self._add_shapes(dxf_exp)
+        self._add_shapes(dxf_exp, ordered=reproducible)
         set_dxf_metadata(dxf_exp)
         dxf_path = out + ".dxf"
         # #602: skip ExportDXF.write's O(entities) zoom.extents pass — the page window is known.
-        write_dxf(dxf_exp, dxf_path, self.page_w, self.page_h)
+        write_dxf(dxf_exp, dxf_path, self.page_w, self.page_h, reproducible=reproducible)
         _log.info("DXF → %s", dxf_path)
         return dxf_path
 
@@ -4260,7 +4283,14 @@ class Drawing:
         return tuple(run for _top, _left, _ordinal, runs in sorted(groups) for run in runs)
 
     def export(
-        self, out=None, *, formats=None, svg=None, dxf=None, dpi: int = 150
+        self,
+        out=None,
+        *,
+        formats=None,
+        svg=None,
+        dxf=None,
+        dpi: int = 150,
+        reproducible: bool | None = None,
     ) -> dict[str, str] | tuple[str | None, str | None]:
         """Lint, then write the requested output *formats*; return ``{format: path}``.
 
@@ -4282,8 +4312,20 @@ class Drawing:
         the planned 0.5.0 removal a silent break — and invisible to
         ``tests/test_deprecation_dates.py``, which can only scan things that warn. A
         deprecation nobody is warned about is documentation, not a deprecation.
+
+        *reproducible* makes two exports of one drawing byte-identical — the element
+        order is settled and the metadata the exporters take from the clock is pinned,
+        so a written drawing can be diffed or checksummed to see whether its content
+        actually changed. ``None`` (the default) uses :attr:`reproducible`, which
+        :func:`~draftwright.build_drawing` sets and which is ``False`` unless asked
+        for: ordering costs roughly a third of DXF export time again (see
+        :func:`draftwright.export._elements`), so it is opted into rather than paid
+        by every caller. Passing the keyword here overrides the drawing's default for
+        this call only.
         """
         self.finalize()  # #426: drain any recorded intents before export (no-op if none)
+        # An explicit keyword wins; otherwise the drawing's own default (build_drawing's).
+        reproducible = self.reproducible if reproducible is None else reproducible
         out = out if out is not None else self.out
         for _ext in self._EXPORT_FORMATS:
             if out.endswith("." + _ext):
@@ -4362,8 +4404,12 @@ class Drawing:
                     DeprecationWarning,
                     stacklevel=2,
                 )
-            svg_path = self._write_svg(out) if (svg is None or svg) else None
-            dxf_path = self._write_dxf(out) if (dxf is None or dxf) else None
+            svg_path = (
+                self._write_svg(out, reproducible=reproducible) if (svg is None or svg) else None
+            )
+            dxf_path = (
+                self._write_dxf(out, reproducible=reproducible) if (dxf is None or dxf) else None
+            )
             self.svg_path, self.dxf_path = svg_path, dxf_path
             return svg_path, dxf_path
 
@@ -4388,14 +4434,17 @@ class Drawing:
 
             svg_path = None
             if want_set & {"svg", "pdf", "png"}:
-                svg_path = self._write_svg(out if "svg" in want_set else _intermediate_stem())
+                svg_path = self._write_svg(
+                    out if "svg" in want_set else _intermediate_stem(),
+                    reproducible=reproducible,
+                )
             self.svg_path = svg_path if "svg" in want_set else None
             if "svg" in want_set:
                 paths["svg"] = svg_path  # type: ignore[assignment]
 
             self.dxf_path = None
             if "dxf" in want_set:
-                self.dxf_path = paths["dxf"] = self._write_dxf(out)
+                self.dxf_path = paths["dxf"] = self._write_dxf(out, reproducible=reproducible)
 
             pdf_path = None
             if want_set & {"pdf", "png"}:
@@ -4406,6 +4455,7 @@ class Drawing:
                     pdf_path,
                     getattr(self.get_annotation("title_block"), "draftwright_link_rect", None),
                     self._pdf_text_runs(),
+                    reproducible=reproducible,
                 )
                 _log.info("PDF → %s", pdf_path)
                 if "pdf" in want_set:
@@ -4431,13 +4481,18 @@ class Drawing:
         assert isinstance(paths, dict)  # formats=... always returns the {format: path} dict
         return paths["pdf"]
 
-    def _add_shapes(self, exporter):
-        """Add every view layer and annotation to *exporter* with error context."""
+    def _add_shapes(self, exporter, *, ordered: bool = False):
+        """Add every view layer and annotation to *exporter* with error context.
+
+        *ordered* hands each shape's parts over in a geometric order rather than
+        the kernel's, which is what makes a DXF's entities (and their handles)
+        come out the same on the next run. It is the costly half of
+        ``reproducible=``; see :func:`export._elements`."""
         for name, (vis, hid) in self.views.items():
-            _export_shape(exporter, vis, "part", f"view {name!r}")
+            _export_shape(exporter, vis, "part", f"view {name!r}", ordered=ordered)
             if hid:
-                _export_shape(exporter, hid, "hidden", f"view {name!r}")
+                _export_shape(exporter, hid, "hidden", f"view {name!r}", ordered=ordered)
         names = {id(annotation): name for name, annotation in self.iter_annotations()}
         for ann in self.items:
             identity = names.get(id(ann)) or getattr(ann, "label", "") or type(ann).__name__
-            _export_shape(exporter, ann, "dims", f"annotation {identity!r}")
+            _export_shape(exporter, ann, "dims", f"annotation {identity!r}", ordered=ordered)

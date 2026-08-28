@@ -471,6 +471,7 @@ def _assemble(
     trace=None,
     shape=None,
     critique_recognition=None,
+    reproducible=False,
 ) -> Drawing:
     """Project the 4 views for analysis *a*, run the automatic annotation
     passes, and fit the iso.  This is pass 1 of :func:`build_drawing`; with a
@@ -493,6 +494,7 @@ def _assemble(
         part=a.part,
         cyls=a.cyls,
         assembly=assembly,
+        reproducible=reproducible,
     )
     # Detect the IR here — before the auto_dims gate — so dwg.model() and feature edits
     # work even in manual mode (#398). _auto_annotate reads this attached model rather
@@ -814,6 +816,7 @@ def _repack(
     authored=None,
     trace=None,
     critique_recognition=None,
+    reproducible=False,
 ):
     """Measure the laid-out drawing's *real* per-view annotation footprints and,
     when a view collides across views, pack the blocks disjoint — escalating the
@@ -984,6 +987,7 @@ def _repack(
         authored=authored,
         trace=trace,
         critique_recognition=critique_recognition,
+        reproducible=reproducible,
     )
     return a2, dwg2
 
@@ -1002,6 +1006,7 @@ def _repack_to_fixed_point(
     authored=None,
     trace=None,
     critique_recognition=None,
+    reproducible=False,
 ):
     """Iterate measure→repack→assemble until stable or bounded (#302)."""
     cur_a, cur_dwg = a, dwg
@@ -1020,6 +1025,7 @@ def _repack_to_fixed_point(
             authored=authored,
             trace=trace,
             critique_recognition=critique_recognition,
+            reproducible=reproducible,
         )
         if repacked is None:
             if _needs_repack(cur_dwg, cur_a):
@@ -1085,6 +1091,7 @@ def _build_drawing_once(
     frame: bool = False,
     projection: str | None = None,
     zones: bool = False,
+    reproducible: bool = False,
     _analysis_base=None,
     _analysis_sink: Callable[[Analysis], None] | None = None,
     _critique_recognition=None,
@@ -1127,6 +1134,13 @@ def _build_drawing_once(
             assembly, whose per-part bores are reported at ``info`` rather than
             ``warning`` (a GA omits them by design). Force with ``True``/``False``
             (#69).
+        reproducible: write files that do not carry the run that produced them, so
+            two exports of one drawing are byte-identical and a written drawing can be
+            diffed or checksummed to see whether its content really changed. Sets the
+            default for :meth:`Drawing.export`'s own ``reproducible=``. ``False``
+            because it is not free: settling the element order costs roughly a third
+            of DXF export time again (one bounding box and one edge walk per part),
+            while the metadata pinning it also turns on is ~1 ms.
         model: a caller-supplied IR (ADR 0011) — a :class:`PartModel`, or a sequence
             of :class:`Feature`\\ s (declared with :func:`draftwright.model.hole`,
             ``boss``, ``step``, … from the objects you built). When given, **feature
@@ -1327,6 +1341,7 @@ def _build_drawing_once(
         authored=authored,
         trace=tracer,
         critique_recognition=_critique_recognition,
+        reproducible=reproducible,
     )
     if auto_dims:
         repacked = _repack_to_fixed_point(
@@ -1343,6 +1358,7 @@ def _build_drawing_once(
             authored=authored,
             trace=tracer,
             critique_recognition=_critique_recognition,
+            reproducible=reproducible,
         )
         if repacked is not None:
             a, dwg = repacked
@@ -1728,6 +1744,7 @@ def build_drawing(
     projection: str | None = None,
     zones: bool = False,
     scale_policy: Literal["strict", "fallback", "permissive"] = "fallback",
+    reproducible: bool = False,
     _post_build: Callable[[Drawing], Drawing] | None = None,
     _required_tables=(),
     _views: tuple[str, ...] | None = None,
@@ -1775,6 +1792,7 @@ def build_drawing(
         frame=frame,
         projection=projection,
         zones=zones,
+        reproducible=reproducible,
         _required_tables=_required_tables,
         _include_iso=_include_iso,
         _view_constraints=_view_constraints,
@@ -2614,6 +2632,7 @@ def make_drawing(
     projection: str | None = None,
     zones: bool = False,
     scale_policy: Literal["strict", "fallback", "permissive"] = "fallback",
+    reproducible: bool = False,
 ) -> tuple[str, str]:
     """Generate a 4-view technical drawing from a STEP file or build123d object.
 
@@ -2639,6 +2658,9 @@ def make_drawing(
             block only.
         detail_view: automatically add an enlarged view for crowded prismatic step
             dimensions. Default ``True``; pass ``False`` to disable that recovery.
+        reproducible: make repeated exports from the returned drawing byte-identical
+            on the same Draftwright version. Off by default because canonical DXF
+            ordering has a measurable export-time cost.
 
     Returns:
         Tuple of ``(svg_path, dxf_path)`` for the generated files.
@@ -2674,6 +2696,7 @@ def make_drawing(
         frame=frame,
         projection=projection,
         zones=zones,
+        reproducible=reproducible,
         scale_policy=scale_policy,
     ).export(formats=("svg", "dxf"))
     assert isinstance(_paths, dict)  # formats=... always returns the {format: path} dict
