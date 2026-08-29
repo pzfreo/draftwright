@@ -718,8 +718,9 @@ _ORCHESTRATED_RECORDS: dict[type, str] = {
 # merely because neither has an IR converter (#1244).
 _UNCONSUMED_RECORDS: dict[type, str] = {
     AngledStep: (
-        "a step's slanted wall, split out of `chamfers` by 0.2.5 to stop it being reported as a "
-        "chamfer; whether draftwright dimensions it is open (#1247)"
+        "an aggregate-reconciled angled blind step whose slanted face has yielded out of "
+        "`chamfers`; its available measurements do not choose a truthful general dimension "
+        "grammar, so every occurrence has an explicit unsupported completeness outcome (#1247)"
     ),
     Passage: (
         "the accepted-only compatibility projection of authoritative SectionPassage; it is not "

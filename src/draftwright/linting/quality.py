@@ -90,6 +90,7 @@ _LEGIBILITY_CODES = frozenset(
 
 # Recognition inventories that represent potentially dimension-bearing physical families.
 _RECOGNISED_REQUIREMENT_FAMILIES = {
+    "angled_steps": "angled_steps",
     "holes": "holes",
     "double_d_bores": "profiled_bores",
     "hole_patterns": "hole_patterns",
@@ -140,17 +141,13 @@ _NON_REQUIREMENT_INVENTORIES = frozenset(
 #: Inventories the installed package proves and this consumer has not decided about, each with
 #: the issue deciding it. Held SEPARATELY from the set above, because the two mean different
 #: things: those will never be requirement families, these have simply not been ruled on, and
-#: merging them would let an undecided family look settled (#1244).
-#:
-#: The effect on the score is deliberate and worth stating: a drawing that omits a recognised
-#: angled step scores complete today. That is a blind spot — the register is what stops it being
-#: a silent one, and closing the issue closes the gap. Passage and PrismaticPocket left this
-#: register when #1245/#1246 gave every authoritative occurrence an unsupported outcome.
-_UNDECIDED_INVENTORIES: dict[str, str] = {
-    "angled_steps": "https://github.com/pzfreo/draftwright/issues/1247",
-}
+#: merging them would let an undecided family look settled (#1244). Passage, PrismaticPocket and
+#: AngledStep left this register when #1245/#1246/#1247 gave every authoritative occurrence an
+#: unsupported outcome.
+_UNDECIDED_INVENTORIES: dict[str, str] = {}
 
 _AUDITED_FAMILIES = (
+    "angled_steps",
     "channels",
     "flats",
     "hole_patterns",
@@ -260,6 +257,7 @@ _FIDELITY_CODES = frozenset(
 #: this register is what makes that visible instead of implicit.
 _UNSCORED_CODES = frozenset(
     {
+        "angled_step_requirement_unsupported",
         "authored_dim_degenerate",
         # A source relationship withheld because its geometry cannot prove a truthful
         # witness. Like the adjacent degenerate/unsupported cases, this is an explicit
@@ -603,9 +601,10 @@ def _completeness_component(recognition, features, registry, omissions, issues) 
         by_family[family] = family_count
     # These recognised physical occurrences have reviewed, explicit unsupported outcomes.  The
     # Passage count uses only its authoritative rich inventory; the legacy projection is never a
-    # second requirement. PrismaticPocket uses the aggregate-reconciled inventory, after
-    # candidates also claimed by Pocket have yielded to that family.
+    # second requirement. PrismaticPocket and AngledStep use their aggregate-reconciled
+    # inventories after the provider assigned contested records to those physical owners.
     for family, inventory in (
+        ("angled_steps", "angled_steps"),
         ("passages", "section_passages"),
         ("prismatic_pockets", "prismatic_pockets"),
     ):

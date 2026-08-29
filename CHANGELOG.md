@@ -37,6 +37,12 @@
 
 ### Changed
 
+- Recognised angled blind steps now fail visibly instead of remaining an undecided inventory.
+  Each aggregate-reconciled `AngledStep` produces an actionable warning and one `unsupported`
+  completeness outcome. A frozen STEP corpus fixture pins the AngledStep/Chamfer ownership
+  boundary, while Draftwright deliberately invents no angle/run, IR, Sheet, generated-code,
+  section/detail, or annotation semantics (#1247).
+
 - Aggregate-reconciled `PrismaticPocket` occurrences now fail visibly instead of
   remaining an unscored inventory. Each produces an actionable warning and one `unsupported`
   completeness outcome, without repeating the provider's cross-family reconciliation or

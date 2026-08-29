@@ -186,6 +186,18 @@ def test_rich_passage_contract_has_an_explicit_unsupported_completeness_outcome(
         {
             "boundary": "completeness",
             "compatibility_evidence": [
+                "tests/test_issue_1247_angled_step_disposition.py",
+                "tests/test_recogniser_capabilities.py",
+            ],
+            "family": "angled-steps",
+            "from": "deferred",
+            "release_notes": "CHANGELOG.md",
+            "to": "unsupported",
+            "version": importlib.metadata.version("draftwright"),
+        },
+        {
+            "boundary": "completeness",
+            "compatibility_evidence": [
                 "tests/test_issue_1245_passage_disposition.py",
                 "tests/test_recogniser_capabilities.py",
             ],
@@ -208,6 +220,46 @@ def test_rich_passage_contract_has_an_explicit_unsupported_completeness_outcome(
             "version": importlib.metadata.version("draftwright"),
         },
     ]
+
+
+def test_angled_step_contract_has_an_explicit_unsupported_completeness_outcome() -> None:
+    """Pin aggregate ownership and the deliberately unchosen dimension grammar."""
+
+    package = _families(recognition.capability_manifest())["angled-steps"]
+    consumer = _families(consumer_capability_declaration())["angled-steps"]
+
+    assert package["introduced_in"] == "0.2.5"
+    assert package["census_output"] == "RecognitionResult.angled_steps"
+    assert len(package["records"]) == 1
+    record = package["records"][0]
+    assert record["name"] == "AngledStep"
+    assert record["role"] == "output"
+    assert record["schema_version"] == 1
+    assert record["aggregate_membership"] == ["RecognitionResult.angled_steps"]
+    assert consumer["record_schemas"] == {"AngledStep": [1]}
+    assert consumer["disposition"] == "unsupported"
+    assert consumer["tracking"] == "https://github.com/pzfreo/draftwright/issues/1247"
+    assert {
+        consumer[name]["state"]
+        for name in (
+            "ir_adapter",
+            "dsl_declaration",
+            "generated_code",
+            "drawing_consumer",
+        )
+    } == {"unsupported"}
+    assert consumer["completeness"] == {
+        "state": "unsupported",
+        "rationale": (
+            "Every aggregate-reconciled AngledStep occurrence produces a warning and an "
+            "unsupported completeness outcome; no angle/run drafting grammar is invented."
+        ),
+    }
+    assert consumer["documentation"] == {
+        "state": "supported",
+        "evidence": ["docs/reference/recogniser-capabilities.md"],
+    }
+    assert "angled-steps" not in pending_family_declarations()
 
 
 def test_prismatic_pocket_contract_has_an_explicit_unsupported_completeness_outcome() -> None:
