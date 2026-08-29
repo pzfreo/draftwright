@@ -70,7 +70,15 @@ def _hole_location_coverage_fact(location):
         feature = location.id.feature
     assert feature is not None and location.span is not None
     parameter = location.id.parameter if location.id is not None else location.parameter_id
-    if parameter in {"location.location", "location_pattern.location"} and location.discriminator:
+    if (
+        parameter
+        in {
+            "location.location",
+            "location_pattern.location",
+            "location_pocket.location",
+        }
+        and location.discriminator
+    ):
         parameter = f"{parameter}.{location.discriminator}"
     return (feature, parameter, tuple(location.span[1]))
 
@@ -1973,17 +1981,67 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
             for loser in group:
                 trace.record_outcome(loser.name, "deduped", winner=winners[dk].name)
 
+    def _dedup_group(candidate):
+        return (candidate, *losers.get(candidate.dedup, ()))
+
+    def _group_measurements(candidate) -> tuple:
+        return tuple(
+            dict.fromkeys(
+                measurement
+                for item in _dedup_group(candidate)
+                for value in (item.measurement,)
+                for measurement in (value if isinstance(value, (list, tuple)) else (value,))
+                if measurement is not None
+            )
+        )
+
+    def _group_owners(candidate) -> tuple:
+        return tuple(
+            dict.fromkeys(
+                resolve_feature(item.feature)
+                for item in _dedup_group(candidate)
+                if item.feature is not None
+            )
+        )
+
     def _winner_placed(c) -> bool:
         """Did this candidate's measurement reach the sheet after all? `on_drop` may
         have rescued it onto the opposite strip, in which case a coincident loser must
         stay suppressed rather than draw the same span twice (#894)."""
         return c.name in dwg.annotations()
 
+    def _restore_shared_identity(candidate, *, visible_name=None) -> None:
+        """Give a fallback survivor the same provenance as the primary-strip survivor."""
+        name = candidate.name if visible_name is None else visible_name
+        if ctx is None or ctx.registry is None or name not in dwg.annotations():
+            return
+        identity = ctx.registry.identity_of(name)
+        measurements = _group_measurements(candidate)
+        if measurements:
+            identity["measurement"] = measurements
+        owners = _group_owners(candidate)
+        identity["feature"] = owners[0] if len(owners) == 1 else None
+        ctx.registry.reapply(name, identity)
+
     def _promote_losers(dropped_winner):
         # The winner did not place → hand its measurement to the best surviving loser
         # (e.g. the slot position's below-strip fallthrough), then stop.
         for loser in losers.get(dropped_winner.dedup, ()):
+            pending = ctx.post_drain if ctx is not None else None
+            n_deferred = len(pending) if pending is not None else 0
             loser.on_drop(loser.name)
+            _restore_shared_identity(dropped_winner, visible_name=loser.name)
+            # A front-view loser's opposite-strip retry is deferred.  At this moment
+            # there is no visible annotation to restore, so queue the aggregated
+            # identity immediately behind the retry that creates it.  This mirrors the
+            # deferred winner path below and keeps a promoted survivor from retaining
+            # only its own measurement (#1372 exact-head review).
+            if pending is not None and len(pending) > n_deferred:
+                pending.append(
+                    lambda _c=dropped_winner, _name=loser.name: _restore_shared_identity(
+                        _c, visible_name=_name
+                    )
+                )
             if trace is not None:
                 trace.record_outcome(loser.name, "promoted")
             break
@@ -1991,6 +2049,7 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
     if strip is None:  # no such strip on this drawing — every candidate drops
         for c in kept:
             c.on_drop(c.name)
+            _restore_shared_identity(c)
             if trace is not None:
                 trace.record_outcome(c.name, "dropped", reason="no_strip")
             # Same rule as the solved path below: `on_drop` may have rescued this
@@ -2006,8 +2065,24 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
     # legitimately resolved back to its feature, because here the object IS the point.
     # A migrated renderer passes the opaque handle through; `resolve_feature` is a
     # no-op for the unmigrated ones that still pass the feature itself.
-    feats = {c.name: resolve_feature(c.feature) for c in kept if c.feature is not None}
-    meas = {c.name: c.measurement for c in kept if c.measurement is not None}
+    feats = {
+        candidate.name: owners[0]
+        for candidate in kept
+        for owners in (_group_owners(candidate),)
+        if len(owners) == 1
+    }
+    # A dedup survivor visibly states every coincident candidate's measurement, not only
+    # the winner's. Losing those identities makes a truthful shared dimension look like
+    # silent missing content to critique (two nested pockets with the same X/Z location
+    # are the concrete case). The dedup key is the solver's declaration that the dimensions
+    # are physically identical, so this is structured provenance rather than geometric
+    # inference after placement.
+    meas = {
+        candidate.name: measurements
+        for candidate in kept
+        for measurements in (_group_measurements(candidate),)
+        if measurements
+    }
     satisfactions = {c.name: c.satisfaction for c in kept if c.satisfaction is not None}
     sizes = {c.name: c.size for c in kept if c.size is not None}  # real footprint (#61)
     forbid = {c.name: c.forbid for c in kept if c.forbid is not None}  # title-block box (#481)
@@ -2077,6 +2152,7 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
             pending = ctx.post_drain if ctx is not None else None
             n_deferred = len(pending) if pending is not None else 0
             c.on_drop(c.name)  # dropped / not force-kept — the pass's drop handler runs
+            _restore_shared_identity(c)
             deferred = pending is not None and len(pending) > n_deferred
             if trace is not None:  # did on_drop queue a post-drain fallthrough?
                 trace.record_outcome(c.name, "dropped", deferred_post_drain=deferred)
@@ -2094,6 +2170,7 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
                 # differs: immediately when the retry already ran, or queued behind it
                 # when it was deferred (appended after, and post_drain runs in order).
                 if deferred and pending is not None:
+                    pending.append(lambda _c=c: _restore_shared_identity(_c))
                     pending.append(
                         lambda _c=c: None if _winner_placed(_c) else _promote_losers(_c)
                     )
@@ -2304,9 +2381,14 @@ def drain_corridors(ctx, dwg):
     ctx.corridor_batch = {}
     # Deferred fallthroughs (opposite-strip retries) run once every strip has drained,
     # so a retry can never preempt a corner a later sibling's force candidate needs.
-    pending, ctx.post_drain = ctx.post_drain, []
-    for cb in pending:
-        cb()
+    # A deferred winner retry can fail and promote a coincident loser whose own
+    # opposite-strip retry is also deferred.  Drain in waves until no callback remains:
+    # every wave still runs after all corridors, while a second-generation fallback
+    # cannot be stranded in ``ctx.post_drain`` (#1372 exact-head review).
+    while ctx.post_drain:
+        pending, ctx.post_drain = ctx.post_drain, []
+        for cb in pending:
+            cb()
 
 
 def place_strip_candidates(

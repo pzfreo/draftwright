@@ -54,6 +54,11 @@
   counts one physical across-flats requirement per stock line and span, then observes automatic
   IR, public `Sheet.flat`, executed generated code and placed measurement provenance independently
   (#1371).
+- Lone-pocket completeness is now supported by an independently authored STEP corpus covering
+  off-centre, edge-anchored, equal, opposed-opening, side-opening, compound, ownership-negative
+  and topology-order cases. Provider `open_sign` now survives the IR, declaration and generated
+  code boundaries; pocket sizes and both physical location ordinates are followed through exact
+  semantic placement evidence without counting pocket-pattern members twice (#1372).
 
 - Recognised angled blind steps now fail visibly instead of remaining an undecided inventory.
   Each aggregate-reconciled `AngledStep` produces an actionable warning and one `unsupported`

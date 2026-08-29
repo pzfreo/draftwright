@@ -464,6 +464,9 @@ class Omission:
         return self.reason == _AUTHORED_OMISSION
 
 
+POCKET_LOCATION_DATUM_COINCIDENT = "pocket location is coincident with its datum"
+
+
 @dataclass(frozen=True)
 class ApprovedContingency:
     """Compiler-approved content released only when its primary representation places none.
@@ -1191,11 +1194,23 @@ def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[
             for meas in (feature.long_axis, feature.width_axis):
                 index = "xyz".index(meas)
                 value = abs(span[1][index] - span[0][index])
+                parameter_id = f"{pd.param.role}.{meas}"
+                if value <= 1e-6:
+                    omissions.append(
+                        Omission(
+                            feature,
+                            parameter_id,
+                            value,
+                            POCKET_LOCATION_DATUM_COINCIDENT,
+                            code="pocket_location_coincident_with_datum",
+                        )
+                    )
+                    continue
                 start = list(span[1])
                 start[index] = span[0][index]
                 approved.append(
                     ApprovedDimension(
-                        id=_dim_id(feature, f"{pd.param.role}.{meas}"),
+                        id=_dim_id(feature, parameter_id),
                         value_text=_fmt(value),
                         value=value,
                         span=((start[0], start[1], start[2]), span[1]),
@@ -1207,6 +1222,20 @@ def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[
                     )
                 )
             continue
+        if isinstance(feature, PocketFeature) and axis == "z":
+            for measured_axis in ("x", "y"):
+                index = "xyz".index(measured_axis)
+                value = abs(span[1][index] - span[0][index])
+                if value <= 1e-6:
+                    omissions.append(
+                        Omission(
+                            feature,
+                            f"{pd.param.parameter_id}.{measured_axis}",
+                            value,
+                            POCKET_LOCATION_DATUM_COINCIDENT,
+                            code="pocket_location_coincident_with_datum",
+                        )
+                    )
         approved.append(
             ApprovedDimension(
                 id=_dim_id(feature, pd.param.parameter_id),

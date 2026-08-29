@@ -216,6 +216,21 @@ class TestConstructors:
         assert f.width == 20 and f.length == 30 and f.depth == 8
         assert f.long_axis == "x" and f.width_axis == "y" and f.depth_axis == "z"
 
+    def test_pocket_retains_and_validates_opening_side(self):
+        kwargs = dict(
+            width=20,
+            length=30,
+            depth=8,
+            long_axis="x",
+            width_axis="y",
+            lo=-15,
+            hi=15,
+        )
+
+        assert pocket(**kwargs, open_sign=-1).open_sign == -1
+        with pytest.raises(ValueError, match="open_sign"):
+            pocket(**kwargs, open_sign=0)
+
     def test_pocket_reads_axes_and_depth_off_object(self):
         # Shallow recess cavity: longest span = length, middle = width, shortest = depth.
         f = pocket(Box(30, 20, 8))  # X long, Y width, Z shortest -> depth

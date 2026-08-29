@@ -842,6 +842,18 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
         _loc_used.add(name)
         return name
 
+    def _directional_location_fact(fact, measured_axis):
+        """Split a Z-pocket's feature-level location into physical X/Y evidence.
+
+        ADR 0016 keeps one public ``location`` authoring unit, while critique needs to know
+        which of the two visible ordinates actually landed. Hole/pattern entries already
+        arrive compiler-discriminated; the legacy pocket ladder is the one unsplit case.
+        """
+        feature, parameter, point = fact
+        if parameter == "location_pocket.location":
+            parameter = f"{parameter}.{measured_axis}"
+        return (feature, parameter, point)
+
     # --- X locations: tier above the plan view ---
     PX, PY = a.proj.plan_x, a.proj.plan_y
     x_refs: list = []
@@ -854,7 +866,7 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                 if r[4] in (None, "x") and r[3] is not None and r[3] not in u[4]:
                     u[4].append(r[3])
                 if r[4] in (None, "x") and r[3] is not None:
-                    fact = r[5]
+                    fact = _directional_location_fact(r[5], "x")
                     if fact not in u[5]:
                         u[5].append(fact)
                 break
@@ -866,7 +878,9 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                     r[2],
                     r[2] in pinned_set,
                     [r[3]] if r[3] is not None and r[4] in (None, "x") else [],
-                    [r[5]] if r[3] is not None and r[4] in (None, "x") else [],
+                    [_directional_location_fact(r[5], "x")]
+                    if r[3] is not None and r[4] in (None, "x")
+                    else [],
                 ]
             )
     _x_drawable = {r[0] for r in x_refs if abs(r[0] - datum_x) * a.SCALE >= 1.0}
@@ -970,7 +984,7 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                 if r[4] in (None, "y") and r[3] is not None and r[3] not in u[4]:
                     u[4].append(r[3])  # accumulate, as in the X loop (#1002 r4)
                 if r[4] in (None, "y") and r[3] is not None:
-                    fact = r[5]
+                    fact = _directional_location_fact(r[5], "y")
                     if fact not in u[5]:
                         u[5].append(fact)
                 break
@@ -982,7 +996,9 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                     r[2],
                     r[2] in pinned_set,
                     [r[3]] if r[3] is not None and r[4] in (None, "y") else [],
-                    [r[5]] if r[3] is not None and r[4] in (None, "y") else [],
+                    [_directional_location_fact(r[5], "y")]
+                    if r[3] is not None and r[4] in (None, "y")
+                    else [],
                 ]
             )
     _y_drawable = {r[1] for r in y_refs if abs(r[1] - datum_y) * a.SCALE >= 1.0}

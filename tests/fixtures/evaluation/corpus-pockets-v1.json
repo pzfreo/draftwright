@@ -1,0 +1,269 @@
+{
+  "format": "draftwright-step-analysis-corpus",
+  "format_version": 1,
+  "corpus_version": "1.0.0",
+  "metric_version": 1,
+  "scope": ["pockets"],
+  "cases": [
+    {
+      "id": "pocket-through-negative",
+      "tags": ["negative", "overlapping-family"],
+      "fixture": "pocket-through-negative.step",
+      "sha256": "c85f4e5d983b3fafa4843961524c177b8e3ad7f6dcb731bee9b967ba1d0f236a",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored from a centred 100 by 60 by 20 mm block with a 30 by 12 mm rectangular removal through the complete Z span; the physical owner is Slot, not Pocket.",
+      "expected_outcome": "supported",
+      "facts": []
+    },
+    {
+      "id": "pocket-lone-off-centre",
+      "tags": ["positive"],
+      "fixture": "pocket-lone.step",
+      "sha256": "64ea44a5df37e85741d1f55bd5cb435d3a1175ffa56aade5e4e3b9e8e6abbd97",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored from a centred 100 by 60 by 20 mm block with one 30 by 12 by 6 mm blind rectangular recess centred at (22,-11,7), opening toward +Z.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "pockets",
+          "identity": {
+            "width_axis": {"value": "y"},
+            "long_axis": {"value": "x"},
+            "depth_axis": {"value": "z"},
+            "open_sign": {"value": 1},
+            "location": {"value": [22.0, -11.0, 7.0], "absolute_tolerance": 1e-6}
+          },
+          "parameters": {
+            "width": {"value": 12.0, "absolute_tolerance": 1e-6},
+            "length": {"value": 30.0, "absolute_tolerance": 1e-6},
+            "depth": {"value": 6.0, "absolute_tolerance": 1e-6},
+            "edge_anchored": {"value": false}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "pocket-edge-anchored",
+      "tags": ["edge-anchored", "inapplicable-location", "positive"],
+      "fixture": "pocket-edge-anchored.step",
+      "sha256": "5d4ca1b148ce2a572071677b8353d3ddfb7128dae14fdb3d5a17a6c121bfb37d",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored from a 100 by 60 by 20 mm block with a 20 by 20 by 6 mm cutter crossing the +X/+Y corner; the retained 15 by 15 mm recess is edge-anchored and needs no independent centre-location requirement.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "pockets",
+          "identity": {
+            "width_axis": {"value": "x"},
+            "long_axis": {"value": "y"},
+            "depth_axis": {"value": "z"},
+            "open_sign": {"value": 1},
+            "location": {"value": [42.5, 22.5, 7.0], "absolute_tolerance": 1e-6}
+          },
+          "parameters": {
+            "width": {"value": 15.0, "absolute_tolerance": 1e-6},
+            "length": {"value": 15.0, "absolute_tolerance": 1e-6},
+            "depth": {"value": 6.0, "absolute_tolerance": 1e-6},
+            "edge_anchored": {"value": true}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "pocket-two-equal-independent",
+      "tags": ["multiple-equal", "positive"],
+      "fixture": "pocket-two-equal.step",
+      "sha256": "34163fbb1794c8ba3edd056ccdc9d903a39161bd6ff44c80b51ef817ae952620",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored from a 140 by 90 by 20 mm block with two equal 26 by 10 by 6 mm blind recesses at non-pattern positions; they remain two physical requirements.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "pockets",
+          "identity": {
+            "width_axis": {"value": "y"}, "long_axis": {"value": "x"}, "depth_axis": {"value": "z"}, "open_sign": {"value": 1},
+            "location": {"value": [-35.0, -18.0, 7.0], "absolute_tolerance": 1e-6}
+          },
+          "parameters": {
+            "width": {"value": 10.0, "absolute_tolerance": 1e-6}, "length": {"value": 26.0, "absolute_tolerance": 1e-6},
+            "depth": {"value": 6.0, "absolute_tolerance": 1e-6}, "edge_anchored": {"value": false}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        },
+        {
+          "family": "pockets",
+          "identity": {
+            "width_axis": {"value": "y"}, "long_axis": {"value": "x"}, "depth_axis": {"value": "z"}, "open_sign": {"value": 1},
+            "location": {"value": [28.0, 17.0, 7.0], "absolute_tolerance": 1e-6}
+          },
+          "parameters": {
+            "width": {"value": 10.0, "absolute_tolerance": 1e-6}, "length": {"value": 26.0, "absolute_tolerance": 1e-6},
+            "depth": {"value": 6.0, "absolute_tolerance": 1e-6}, "edge_anchored": {"value": false}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "pocket-opposed-openings",
+      "tags": ["opposed", "positive"],
+      "fixture": "pocket-opposed.step",
+      "sha256": "766af34df412f246fd3bf24619fb690d9613abcd87802185b056b46070a62213",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored from a 120 by 70 by 30 mm block with equal 24 by 10 by 6 mm recesses on opposite Z faces; +Z and -Z openings remain distinct physical identities.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "pockets",
+          "identity": {
+            "width_axis": {"value": "y"}, "long_axis": {"value": "x"}, "depth_axis": {"value": "z"}, "open_sign": {"value": 1},
+            "location": {"value": [-25.0, 0.0, 12.0], "absolute_tolerance": 1e-6}
+          },
+          "parameters": {
+            "width": {"value": 10.0, "absolute_tolerance": 1e-6}, "length": {"value": 24.0, "absolute_tolerance": 1e-6},
+            "depth": {"value": 6.0, "absolute_tolerance": 1e-6}, "edge_anchored": {"value": false}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        },
+        {
+          "family": "pockets",
+          "identity": {
+            "width_axis": {"value": "y"}, "long_axis": {"value": "x"}, "depth_axis": {"value": "z"}, "open_sign": {"value": -1},
+            "location": {"value": [25.0, 0.0, -12.0], "absolute_tolerance": 1e-6}
+          },
+          "parameters": {
+            "width": {"value": 10.0, "absolute_tolerance": 1e-6}, "length": {"value": 24.0, "absolute_tolerance": 1e-6},
+            "depth": {"value": 6.0, "absolute_tolerance": 1e-6}, "edge_anchored": {"value": false}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "pocket-principal-side-opening",
+      "tags": ["positive", "rotated"],
+      "fixture": "pocket-side.step",
+      "sha256": "5cd1bcd57b0270a06ec5879ea9fe6145d6c49ccc68983dfb34b4f64bf30a9563",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "The lone-pocket construction is rigidly rotated 90 degrees about world Y, making a principal X-opening pocket without changing its physical dimensions.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "pockets",
+          "identity": {
+            "width_axis": {"value": "y"}, "long_axis": {"value": "z"}, "depth_axis": {"value": "x"}, "open_sign": {"value": 1},
+            "location": {"value": [7.0, -11.0, -22.0], "absolute_tolerance": 1e-6}
+          },
+          "parameters": {
+            "width": {"value": 12.0, "absolute_tolerance": 1e-6}, "length": {"value": 30.0, "absolute_tolerance": 1e-6},
+            "depth": {"value": 6.0, "absolute_tolerance": 1e-6}, "edge_anchored": {"value": false}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "pocket-prismatic-owner-negative",
+      "tags": ["ambiguous", "negative", "overlapping-family"],
+      "fixture": "pocket-prismatic-negative.step",
+      "sha256": "b7bf95428616b074a05329f8f499f6b49de9443b567474107a5a4ccde14e4e42",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored from a 100 by 60 by 20 mm block with one blind regular-hexagonal recess; the aggregate physical owner is PrismaticPocket, not rectangular Pocket.",
+      "expected_outcome": "supported",
+      "facts": []
+    },
+    {
+      "id": "pocket-compound-independent-bodies",
+      "tags": ["compound", "multiple-equal", "positive"],
+      "fixture": "pocket-compound.step",
+      "sha256": "21ec73a3c26bd9297160282fbcbd8e31b25c9cdd81a8a52df62c994be231834c",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored from two disjoint 80 by 60 by 20 mm solids, each carrying one equal 24 by 10 by 6 mm blind recess; body separation prevents pattern grouping or physical collapse.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "pockets",
+          "identity": {
+            "width_axis": {"value": "y"}, "long_axis": {"value": "x"}, "depth_axis": {"value": "z"}, "open_sign": {"value": 1},
+            "location": {"value": [-12.0, 108.0, 7.0], "absolute_tolerance": 1e-6}
+          },
+          "parameters": {
+            "width": {"value": 10.0, "absolute_tolerance": 1e-6}, "length": {"value": 24.0, "absolute_tolerance": 1e-6},
+            "depth": {"value": 6.0, "absolute_tolerance": 1e-6}, "edge_anchored": {"value": false}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        },
+        {
+          "family": "pockets",
+          "identity": {
+            "width_axis": {"value": "y"}, "long_axis": {"value": "x"}, "depth_axis": {"value": "z"}, "open_sign": {"value": 1},
+            "location": {"value": [15.0, -10.0, 7.0], "absolute_tolerance": 1e-6}
+          },
+          "parameters": {
+            "width": {"value": 10.0, "absolute_tolerance": 1e-6}, "length": {"value": 24.0, "absolute_tolerance": 1e-6},
+            "depth": {"value": 6.0, "absolute_tolerance": 1e-6}, "edge_anchored": {"value": false}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "pocket-topology-a",
+      "tags": ["multiple", "positive", "topology-order-variant"],
+      "fixture": "pocket-topology-a.step",
+      "sha256": "a63eef7e0426d943ac17d545fc3d262544f0c296e6421a27a64a738857dcd869",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored from a 140 by 90 by 24 mm block with distinct 24 by 10 by 6 mm and 30 by 12 by 8 mm blind recesses; canonical Part 21 entity order.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "pockets",
+          "identity": {"width_axis": {"value": "y"}, "long_axis": {"value": "x"}, "depth_axis": {"value": "z"}, "open_sign": {"value": 1}, "location": {"value": [-30.0, -15.0, 9.0], "absolute_tolerance": 1e-6}},
+          "parameters": {"width": {"value": 10.0, "absolute_tolerance": 1e-6}, "length": {"value": 24.0, "absolute_tolerance": 1e-6}, "depth": {"value": 6.0, "absolute_tolerance": 1e-6}, "edge_anchored": {"value": false}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        },
+        {
+          "family": "pockets",
+          "identity": {"width_axis": {"value": "y"}, "long_axis": {"value": "x"}, "depth_axis": {"value": "z"}, "open_sign": {"value": 1}, "location": {"value": [25.0, 18.0, 8.0], "absolute_tolerance": 1e-6}},
+          "parameters": {"width": {"value": 12.0, "absolute_tolerance": 1e-6}, "length": {"value": 30.0, "absolute_tolerance": 1e-6}, "depth": {"value": 8.0, "absolute_tolerance": 1e-6}, "edge_anchored": {"value": false}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "pocket-topology-b",
+      "tags": ["multiple", "positive", "topology-order-variant"],
+      "fixture": "pocket-topology-b.step",
+      "sha256": "4db54326fe03b9a6ce0f5753e467af18bbb4c4369c1f345713e32f33d59e44fa",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Geometrically identical to pocket-topology-a; all Part 21 entity identifiers are bijectively renumbered and entity records are reverse-serialized with references rewritten.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "pockets",
+          "identity": {"width_axis": {"value": "y"}, "long_axis": {"value": "x"}, "depth_axis": {"value": "z"}, "open_sign": {"value": 1}, "location": {"value": [-30.0, -15.0, 9.0], "absolute_tolerance": 1e-6}},
+          "parameters": {"width": {"value": 10.0, "absolute_tolerance": 1e-6}, "length": {"value": 24.0, "absolute_tolerance": 1e-6}, "depth": {"value": 6.0, "absolute_tolerance": 1e-6}, "edge_anchored": {"value": false}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        },
+        {
+          "family": "pockets",
+          "identity": {"width_axis": {"value": "y"}, "long_axis": {"value": "x"}, "depth_axis": {"value": "z"}, "open_sign": {"value": 1}, "location": {"value": [25.0, 18.0, 8.0], "absolute_tolerance": 1e-6}},
+          "parameters": {"width": {"value": 12.0, "absolute_tolerance": 1e-6}, "length": {"value": 30.0, "absolute_tolerance": 1e-6}, "depth": {"value": 8.0, "absolute_tolerance": 1e-6}, "edge_anchored": {"value": false}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    }
+  ]
+}

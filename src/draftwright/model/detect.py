@@ -453,6 +453,7 @@ def _member_pocket(pk: Pocket) -> PocketFeature:
         lo=pk.lo,
         hi=pk.hi,
         edge_anchored=pk.edge_anchored,
+        open_sign=pk.open_sign,
     )
 
 
