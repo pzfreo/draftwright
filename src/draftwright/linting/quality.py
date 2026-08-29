@@ -34,6 +34,7 @@ from collections import Counter
 
 from draftwright.linting.channel_coverage import channel_requirement_outcomes
 from draftwright.linting.flat_coverage import flat_requirement_outcomes
+from draftwright.linting.groove_coverage import groove_requirement_outcomes
 from draftwright.linting.hole_coverage import hole_requirement_outcomes
 from draftwright.linting.issues import LintIssue, is_placement_drop
 from draftwright.linting.pocket_coverage import pocket_requirement_outcomes
@@ -153,6 +154,7 @@ _AUDITED_FAMILIES = (
     "angled_steps",
     "channels",
     "flats",
+    "grooves",
     "hole_patterns",
     "holes",
     "passages",
@@ -372,6 +374,7 @@ _UNSCORED_CODE_PREFIXES = (
     "channel_requirement_",
     "flat_requirement_",
     "gear_requirement_",
+    "groove_requirement_",
     "hole_requirement_",
     "pocket_requirement_",
     "pocket_pattern_requirement_",
@@ -582,6 +585,7 @@ def _completeness_component(recognition, features, registry, omissions, issues) 
     outcomes = {
         "channels": channel_requirement_outcomes(recognition, features, registry, omissions),
         "flats": flat_requirement_outcomes(recognition, features, registry, omissions),
+        "grooves": groove_requirement_outcomes(recognition, features, registry, omissions),
         "holes": [],
         "hole_patterns": [],
         "polygonal_stock": polygonal_stock_outcomes(recognition, features, registry, omissions),

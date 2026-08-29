@@ -267,6 +267,7 @@ def test_pattern_and_central_bore_have_a_complete_recognition_owned_ledger():
     assert completeness["by_family"] == {
         "channels": 0,
         "flats": 0,
+        "grooves": 0,
         "holes": 4,
         "hole_patterns": 6,
         "polygonal_stock": 0,

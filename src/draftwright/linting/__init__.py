@@ -36,6 +36,7 @@ from draftwright.linting.evidence import (
 )
 from draftwright.linting.flat_coverage import lint_flat_coverage
 from draftwright.linting.gear_coverage import lint_declared_gear_coverage
+from draftwright.linting.groove_coverage import lint_groove_coverage
 from draftwright.linting.hole_coverage import lint_hole_coverage
 from draftwright.linting.issues import LintIssue
 from draftwright.linting.passage_coverage import lint_passage_coverage
@@ -65,6 +66,7 @@ __all__ = [
     "lint_claimed_representations",
     "verify_measurement_claims",
     "lint_hole_coverage",
+    "lint_groove_coverage",
     "lint_polygonal_stock_coverage",
     "lint_pocket_coverage",
     "lint_pocket_pattern_coverage",

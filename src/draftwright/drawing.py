@@ -100,6 +100,7 @@ from draftwright.linting import (
     lint_drawing,
     lint_feature_coverage,
     lint_flat_coverage,
+    lint_groove_coverage,
     lint_hole_coverage,
     lint_location_coverage,
     lint_passage_coverage,
@@ -196,6 +197,9 @@ _GEOMETRY_AWARE_CODES = frozenset(
         "flat_requirement_suppressed",
         "flat_requirement_missing",
         "flat_requirement_unverifiable",
+        "groove_requirement_suppressed",
+        "groove_requirement_missing",
+        "groove_requirement_unverifiable",
         "hole_requirement_suppressed",
         "hole_requirement_missing",
         "hole_requirement_unverifiable",
@@ -3455,6 +3459,14 @@ class Drawing:
                 assembly=self.assembly,
             )
             issues += lint_flat_coverage(
+                self.part,
+                recognition=recognition,
+                features=getattr(model, "features", ()) if model is not None else (),
+                registry=self._registry,
+                omissions=self._build.omissions,
+                assembly=self.assembly,
+            )
+            issues += lint_groove_coverage(
                 self.part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),

@@ -213,6 +213,19 @@ def test_rich_passage_contract_has_an_explicit_unsupported_completeness_outcome(
         {
             "boundary": "completeness",
             "compatibility_evidence": [
+                "tests/test_issue_1372_groove_completeness_evidence.py",
+                "tests/test_recogniser_capabilities.py",
+                "tests/test_step_analysis_evaluation.py",
+            ],
+            "family": "grooves",
+            "from": "deferred",
+            "release_notes": "CHANGELOG.md",
+            "to": "supported",
+            "version": importlib.metadata.version("draftwright"),
+        },
+        {
+            "boundary": "completeness",
+            "compatibility_evidence": [
                 "tests/test_issue_1370_hole_pattern_completeness_evidence.py",
                 "tests/test_recogniser_capabilities.py",
                 "tests/test_step_analysis_evaluation.py",
@@ -319,6 +332,16 @@ def test_flat_completeness_is_supported_by_independent_physical_stock_facts() ->
     }
 
 
+def test_groove_completeness_is_supported_by_independent_annular_recess_facts() -> None:
+    family = _families(consumer_capability_declaration())["grooves"]
+
+    assert family["completeness"] == {
+        "state": "supported",
+        "implementation": "draftwright.evaluation.step_analysis.evaluate_step_corpus",
+        "evidence": ["tests/test_issue_1372_groove_completeness_evidence.py"],
+    }
+
+
 def test_pocket_completeness_is_supported_by_independent_blind_recess_facts() -> None:
     family = _families(consumer_capability_declaration())["pockets"]
 
@@ -347,7 +370,6 @@ def test_each_deferred_supported_family_links_its_real_delivery_slice() -> None:
         "double-d-bores": 1370,
         "face-levels": 1373,
         "fillets": 1374,
-        "grooves": 1372,
         "plates": 1373,
         "polygonal-bosses": 1372,
         "polygonal-stock": 1371,
