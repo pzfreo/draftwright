@@ -12,8 +12,8 @@ from `RecognitionResult`, `feature_census()`, a capability declaration, or the d
 An observer may only normalize actual evidence; `ObservedFact` deliberately has no oracle/case fact
 identifier. Expected and observed facts are matched by family plus authored physical identity fields.
 
-Format 1 currently proves independent `holes` and `hole-patterns` vertical slices. Each observer
-reads released `b123d-recognisers` geometry records, builds one drawing, and reads all four
+Format 1 currently proves independent `holes`, `hole-patterns` and `flats` vertical slices. Each
+observer reads released `b123d-recognisers` geometry records, builds one drawing, and reads all four
 downstream outcomes from that build through the public IR, `Sheet`, generated-code and ADR 0010
 provenance seams.
 
@@ -80,6 +80,14 @@ linear pitch/direction, or grid rows/columns/pitches/angle/centre. It deliberate
 member diameter, depth, bottom or individual-location requirements from the hole corpus. Provider
 patterns must reference the exact accepted aggregate `HoleRecord` members, and those member sets
 must be disjoint, so N:1 grouping cannot become a second physical-hole denominator.
+
+The flat corpus owns one physical across-flats fact per stock axis line and connected axial span.
+Opposed provider faces on one Double-D body therefore group into one fact, while parallel lobes and
+disjoint coaxial bodies remain independent. Axis, canonical direction, axis line and stock span
+form identity; across-flats size, contributing face count and face anchors are scored parameters.
+The observer reads the build-owned recognition aggregate once and follows each group through the
+automatic IR, public `Sheet.flat` declaration, executed generated Sheet code and placed semantic
+measurement provenance.
 
 ```python
 from pathlib import Path

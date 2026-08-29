@@ -18,6 +18,12 @@ existing hole-requirement correspondence. Its separate corpus scores one arrange
 aggregate pattern. Member diameter/depth/bottom/location requirements stay solely in the hole
 corpus, so the derived N:1 group never becomes a second physical-hole denominator.
 
+The flat slice (#1371) scores one physical A/F requirement per stock line and axial span. Two
+opposed faces on one Double-D are member evidence for one requirement; equal parallel stock and
+disjoint coaxial stock remain separate facts. Across-flats and the face anchors are parameters,
+not benchmark identity, so weakening either lowers fidelity instead of hiding as a detection
+mismatch.
+
 Known limit of the drawing observation: it reads the ADR 0010 provenance seam, which
 ``registry.measurement_of`` carries and which is populated one render pass at a time (the set
 of tagged renderers is enumerated by ``tests/test_audit_differential.py``, not by prose here —
@@ -1077,6 +1083,147 @@ def _declared_pattern_model(part, patterns):
     return sheet.model()
 
 
+def _flat_point(flat) -> tuple[float, float, float]:
+    point = getattr(flat, "at", None)
+    if point is None:
+        point = flat.frame.origin
+    return tuple(round(float(component), 3) for component in point)  # type: ignore[return-value]
+
+
+def _flat_identity(flat) -> tuple:
+    """Physical stock identity, deliberately excluding its scored A/F value."""
+    from draftwright._geometry import _canonical_axis_direction
+
+    return (
+        str(flat.axis),
+        _canonical_axis_direction(flat.axis, getattr(flat, "axis_direction", None)),
+        tuple(round(float(component), 3) for component in flat.axis_line),
+        tuple(round(float(component), 3) for component in flat.stock_span),
+    )
+
+
+def _flat_groups(flats) -> list[tuple[tuple, tuple]]:
+    grouped: dict[tuple, list] = {}
+    for flat in flats:
+        grouped.setdefault(_flat_identity(flat), []).append(flat)
+    return [
+        (identity, tuple(sorted(members, key=_flat_point)))
+        for identity, members in sorted(grouped.items())
+    ]
+
+
+def _flat_parameters(members) -> dict[str, Value]:
+    across_values = tuple(sorted({round(float(member.across), 3) for member in members}))
+    across: Value = across_values[0] if len(across_values) == 1 else across_values
+    anchors = tuple(component for member in members for component in _flat_point(member))
+    return {"across": across, "face_count": len(members), "anchors": anchors}
+
+
+def _flat_correspondence(flats, recognition, features) -> list[tuple[bool, tuple]]:
+    """Per physical requirement, retain exact member IR and production-ledger evidence."""
+    from draftwright.linting.flat_coverage import flat_requirement_outcomes
+    from draftwright.registry import AnnotationRegistry
+
+    ledger = flat_requirement_outcomes(recognition, features, AnnotationRegistry())
+    ledger_by_identity: dict[tuple, list] = {}
+    for outcome in ledger:
+        ledger_by_identity.setdefault(_flat_identity(outcome), []).append(outcome)
+    feature_by_identity: dict[tuple, list] = {}
+    for feature in features:
+        if getattr(feature, "kind", None) == "flat":
+            feature_by_identity.setdefault(_flat_identity(feature), []).append(feature)
+
+    result = []
+    for identity, members in _flat_groups(flats):
+        candidate_features = tuple(sorted(feature_by_identity.get(identity, ()), key=_flat_point))
+        candidate_outcomes = ledger_by_identity.get(identity, ())
+        exact_members = _flat_parameters(candidate_features) == _flat_parameters(
+            members
+        ) and tuple(_flat_point(feature) for feature in candidate_features) == tuple(
+            _flat_point(member) for member in members
+        )
+        production_join = (
+            len(candidate_outcomes) == 1
+            and candidate_outcomes[0].state != "unverifiable"
+            and round(float(candidate_outcomes[0].across), 3)
+            in {round(float(member.across), 3) for member in members}
+        )
+        result.append((exact_members and production_join, candidate_features))
+    return result
+
+
+def _flat_model_outcomes(flats, recognition, features) -> list[Outcome]:
+    return [
+        "supported" if exact else "unknown"
+        for exact, _ in _flat_correspondence(flats, recognition, features)
+    ]
+
+
+def _flat_drawing_outcomes(flats, drawing) -> list[Outcome]:
+    """Per physical A/F requirement, verify placed semantic ownership and rendered value."""
+    from draftwright.linting.evidence import verify_measurement_claims
+    from draftwright.linting.flat_coverage import flat_requirement_outcomes
+    from draftwright.model.compiled import compile_dimensions
+
+    recognition = drawing.recognition()
+    model = drawing.model()
+    plan = compile_dimensions(model)
+    ledger = flat_requirement_outcomes(
+        recognition,
+        model.features,
+        drawing.registry,
+        plan.diagnostics,
+    )
+    ledger_by_identity: dict[tuple, list] = {}
+    for outcome in ledger:
+        ledger_by_identity.setdefault(_flat_identity(outcome), []).append(outcome)
+    confirmed = {
+        claim.measurement
+        for claim in verify_measurement_claims(drawing.registry, plan)
+        if claim.state == "confirmed" and claim.measurement is not None
+    }
+    placed = {"placed", "satisfied_by_structured_note"}
+    result: list[Outcome] = []
+    for (identity, _members), (exact, features) in zip(
+        _flat_groups(flats),
+        _flat_correspondence(flats, recognition, model.features),
+        strict=True,
+    ):
+        outcomes = ledger_by_identity.get(identity, ())
+        if not exact or len(outcomes) != 1:
+            result.append("unknown")
+        elif outcomes[0].state not in placed or any(
+            not any(
+                getattr(claim, "feature", None) == feature
+                and str(getattr(claim, "parameter", "")) == "flat.length"
+                for claim in confirmed
+            )
+            for feature in features
+        ):
+            result.append("unsupported")
+        else:
+            result.append("supported")
+    return result
+
+
+def _declared_flat_model(part, flats):
+    """Declare observed flat faces through public ``Sheet.flat`` and return its IR."""
+    from draftwright.sheet import Sheet
+
+    sheet = Sheet(part)
+    sheet.authored_dimensions()
+    for observed in flats:
+        sheet.flat(
+            axis=observed.axis,
+            across=observed.across,
+            at=observed.at,
+            axis_line=observed.axis_line,
+            stock_span=observed.stock_span,
+            axis_direction=observed.axis_direction,
+        )
+    return sheet.model()
+
+
 def _default_observers() -> Mapping[str, Observer]:
     def observe_holes(part: object) -> Sequence[ObservedFact]:
         # Lazy for COST, not for layering: `evaluation` is rank 7 and `builder` rank 6, so
@@ -1285,7 +1432,90 @@ def _default_observers() -> Mapping[str, Observer]:
             for index, pattern in enumerate(patterns)
         )
 
-    return {"holes": observe_holes, "hole-patterns": observe_hole_patterns}
+    def observe_flats(part: object) -> Sequence[ObservedFact]:
+        from draftwright.builder import build_drawing
+
+        try:
+            drawing = build_drawing(part)  # type: ignore[arg-type]
+        except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
+            _log.warning("evaluation: drawing build failed (%s); scoring flats as unknown", exc)
+            return ()
+        try:
+            recognition = drawing.recognition()
+            if recognition is None:
+                raise ValueError("detected build has no build-owned recognition result")
+            flats = tuple(recognition.flats)
+        except Exception as exc:  # noqa: BLE001 — no safe observed numerator remains
+            _log.warning("evaluation: recognition access failed (%s); observing no flats", exc)
+            return ()
+        groups = _flat_groups(flats)
+        unknown: list[Outcome] = ["unknown"] * len(groups)
+
+        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
+            try:
+                result = observe()
+                if len(result) != len(groups):
+                    raise ValueError(
+                        f"observed {len(result)} outcomes for {len(groups)} physical flats"
+                    )
+                return result
+            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
+                _log.warning(
+                    "evaluation: %s observation failed (%s); scoring flats as unknown",
+                    name,
+                    exc,
+                )
+                return list(unknown)
+
+        boundary_outcomes = {
+            "ir_adapter": observed_boundary(
+                "ir_adapter",
+                lambda: _flat_model_outcomes(flats, recognition, drawing.model().features),
+            ),
+            "dsl_declaration": observed_boundary(
+                "dsl_declaration",
+                lambda: _flat_model_outcomes(
+                    flats,
+                    recognition,
+                    _declared_flat_model(part, flats).features,
+                ),
+            ),
+            "generated_code": observed_boundary(
+                "generated_code",
+                lambda: _flat_model_outcomes(
+                    flats,
+                    recognition,
+                    _generated_sheet_model(part, drawing.model()).features,
+                ),
+            ),
+            "drawing_consumer": observed_boundary(
+                "drawing_consumer", lambda: _flat_drawing_outcomes(flats, drawing)
+            ),
+        }
+
+        return tuple(
+            ObservedFact(
+                family="flats",
+                identity={
+                    "axis": identity[0],
+                    "axis_direction": identity[1],
+                    "axis_line": identity[2],
+                    "stock_span": identity[3],
+                },
+                parameters=_flat_parameters(members),
+                downstream={
+                    boundary: boundary_outcomes[boundary][index]
+                    for boundary in _DOWNSTREAM_BOUNDARIES
+                },
+            )
+            for index, (identity, members) in enumerate(groups)
+        )
+
+    return {
+        "flats": observe_flats,
+        "holes": observe_holes,
+        "hole-patterns": observe_hole_patterns,
+    }
 
 
 def evaluate_step_corpus(
