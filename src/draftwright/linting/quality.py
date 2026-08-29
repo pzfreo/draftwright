@@ -13,9 +13,9 @@ them into another blessed scalar:
   pair observations from one annotation and failure mechanism;
 - restraint fails closed until measurement provenance can classify every annotation.
 
-Completeness is deliberately marked partial.  Only the feature families with a semantic
-``*_outcomes`` ledger participate today; warning counts and declared IR are never substituted
-for the missing physical denominator.
+Completeness is deliberately marked partial. Only feature families with a semantic
+``*_outcomes`` ledger or an explicitly audited unsupported outcome participate today; warning
+counts and declared IR are never substituted for the missing physical denominator.
 
 Its scalar is therefore named ``audited_score``, not ``score``.  A part reaches 1.0 whenever
 every requirement recognition *did* identify was placed or explicitly satisfied by structured
@@ -46,6 +46,7 @@ _OUTCOME_STATES = (
     "dropped",
     "missing",
     "unverifiable",
+    "unsupported",
 )
 
 # Structural diagnostics that describe whether the composed sheet remains readable. Placement
@@ -107,6 +108,9 @@ _RECOGNISED_REQUIREMENT_FAMILIES = {
     "turned_steps": "turned_steps",
     "chamfers": "chamfers",
     "fillets": "fillets",
+    # The rich aggregate is the sole physical Passage authority. The legacy
+    # ``passages`` projection is classified below as non-requirement compatibility data.
+    "section_passages": "passages",
 }
 
 # Inventories that are deliberately NOT requirement families: the substrates would list the
@@ -120,7 +124,16 @@ _RECOGNISED_REQUIREMENT_FAMILIES = {
 #: raw geometry, classification flags, evidence aggregated into another feature. Permanent by
 #: design, not pending a decision.
 _NON_REQUIREMENT_INVENTORIES = frozenset(
-    {"countersinks", "cylinders", "plates", "risers", "rotational", "step_levels"}
+    {
+        "countersinks",
+        "cylinders",
+        # Accepted-only compatibility projection of authoritative ``section_passages``.
+        "passages",
+        "plates",
+        "risers",
+        "rotational",
+        "step_levels",
+    }
 )
 
 #: Inventories the installed package proves and this consumer has not decided about, each with
@@ -129,12 +142,11 @@ _NON_REQUIREMENT_INVENTORIES = frozenset(
 #: merging them would let an undecided family look settled (#1244).
 #:
 #: The effect on the score is deliberate and worth stating: a drawing that omits a recognised
-#: passage, prismatic pocket or angled step scores complete today. That is a blind spot — the
-#: register is what stops it being a silent one, and closing each issue closes the gap.
+#: prismatic pocket or angled step scores complete today. That is a blind spot — the register is
+#: what stops it being a silent one, and closing each issue closes the gap. Passage left this
+#: register when #1245 gave every authoritative occurrence an unsupported outcome.
 _UNDECIDED_INVENTORIES: dict[str, str] = {
     "angled_steps": "https://github.com/pzfreo/draftwright/issues/1247",
-    "passages": "https://github.com/pzfreo/draftwright/issues/1245",
-    "section_passages": "https://github.com/pzfreo/draftwright/issues/1245",
     "prismatic_pockets": "https://github.com/pzfreo/draftwright/issues/1246",
 }
 
@@ -143,6 +155,7 @@ _AUDITED_FAMILIES = (
     "flats",
     "hole_patterns",
     "holes",
+    "passages",
     "polygonal_stock",
     "slot_patterns",
     "slots",
@@ -284,6 +297,7 @@ _UNSCORED_CODES = frozenset(
         "pmi_present_but_ignored",
         "step_dim_withheld",
         "pattern_pitch_tolerance_withheld",
+        "passage_requirement_unsupported",
         "pocket_not_located",
         "step_position_coincident_with_datum",
         # Neither confirmed nor refuted: the annotation renders no readable text, or the
@@ -585,6 +599,13 @@ def _completeness_component(recognition, features, registry, omissions, issues) 
             counts[outcome.state] += requirement_count
             family_count += requirement_count
         by_family[family] = family_count
+    # A recognised Passage is dimension-relevant physical evidence with an explicit
+    # unsupported outcome. Count only the authoritative rich inventory; the accepted-only
+    # legacy projection may contain the same occurrences and is never a second requirement.
+    passage_count = len(getattr(recognition, "section_passages", ()))
+    if passage_count:
+        counts["unsupported"] += passage_count
+        by_family["passages"] = passage_count
     requirements = sum(counts.values())
     recognised = {
         family

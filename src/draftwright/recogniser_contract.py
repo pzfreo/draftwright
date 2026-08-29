@@ -208,10 +208,11 @@ def _geometry_only_declaration() -> dict[str, Any]:
     }
 
 
-#: Families the installed package proves and Draftwright has taken NO position on yet, each with
-#: the issue where that position is being decided. Not a parking bay: a family sits here only
-#: while a decision is genuinely open, and `pending_family_declarations` still reports anything
-#: absent from BOTH this map and `_FAMILIES`, so the next new family fails closed exactly as
+#: Families the installed package proves but Draftwright does not fully support, each with the
+#: issue recording its consumer disposition. Not a parking bay: an undecided family must still
+#: have a live decision issue, while a settled unsupported boundary must carry an explicit
+#: outcome such as Passage completeness below. ``pending_family_declarations`` reports anything
+#: absent from BOTH this map and ``_FAMILIES``, so the next new family fails closed exactly as
 #: these three did (#1244).
 _UNSUPPORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
     "passages": (
@@ -224,9 +225,10 @@ _UNSUPPORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
             "SectionPassage",
         ),
         "https://github.com/pzfreo/draftwright/issues/1245",
-        "A prismatic through-opening — the internal counterpart to polygonal stock. Whether it "
-        "becomes an IR kind or refines `hole`, and what a passage draws (across-flats + THRU, or "
-        "a section), are drafting decisions this consumer has not made.",
+        "A prismatic through-opening — the internal counterpart to polygonal stock. The rich "
+        "record permits arbitrary line/arc sections, so treating its regular-polygon subset as "
+        "a supported IR feature or HEX callout would overstate the drawing contract. Draftwright "
+        "therefore reports every occurrence as an unsupported completeness requirement.",
     ),
     "prismatic-pockets": (
         ("PrismaticPocket",),
@@ -247,16 +249,30 @@ _UNSUPPORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
 
 
 def _unsupported_declaration(family_id: str) -> dict[str, Any]:
-    """A family the package proves and this consumer has not decided about.
+    """A family the package proves and this consumer does not fully support.
 
-    Every boundary is `unsupported` with the same rationale, and `completeness` is `deferred`
-    with the tracking issue — so the inventory is visible (`RecognitionResult` carries it, the
-    manifest joins) while nothing scores it. That is the honest position: scoring a family whose
-    drafting meaning is undecided would either invent a requirement or, for `prismatic-pockets`,
-    count one physical recess twice.
+    Drafting boundaries remain ``unsupported``. Completeness stays ``deferred`` while its meaning
+    is undecided, except where a reviewed consumer decision defines an explicit unsupported
+    outcome. That distinction keeps the inventory visible without inventing drafting semantics or,
+    for ``prismatic-pockets``, counting one physical recess twice.
     """
     records, tracking, rationale = _UNSUPPORTED[family_id]
     unsupported = {"state": "unsupported", "rationale": rationale}
+    completeness = (
+        {
+            "state": "unsupported",
+            "rationale": (
+                "Every authoritative SectionPassage occurrence produces a warning and an "
+                "unsupported completeness outcome; no drafting requirement is invented."
+            ),
+        }
+        if family_id == "passages"
+        else {
+            "state": "deferred",
+            "rationale": rationale,
+            "tracking": tracking,
+        }
+    )
     return {
         "id": family_id,
         "record_schemas": _record_schema_versions(family_id, records),
@@ -267,11 +283,7 @@ def _unsupported_declaration(family_id: str) -> dict[str, Any]:
         "dsl_declaration": copy.deepcopy(unsupported),
         "generated_code": copy.deepcopy(unsupported),
         "drawing_consumer": copy.deepcopy(unsupported),
-        "completeness": {
-            "state": "deferred",
-            "rationale": rationale,
-            "tracking": tracking,
-        },
+        "completeness": completeness,
         "documentation": {
             "state": "supported",
             "evidence": ["docs/reference/recogniser-capabilities.md"],
@@ -295,7 +307,20 @@ def consumer_capability_declaration() -> dict[str, Any]:
             "manifest_format": 2,
         },
         "families": families,
-        "transitions": [],
+        "transitions": [
+            {
+                "boundary": "completeness",
+                "compatibility_evidence": [
+                    "tests/test_issue_1245_passage_disposition.py",
+                    "tests/test_recogniser_capabilities.py",
+                ],
+                "family": "passages",
+                "from": "deferred",
+                "release_notes": "CHANGELOG.md",
+                "to": "unsupported",
+                "version": distribution_version("draftwright"),
+            }
+        ],
     }
 
 

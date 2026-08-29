@@ -592,7 +592,7 @@ def test_edge_types_alone_do_not_certify_a_supported_profile(part):
     issues = [
         issue
         for issue in build_drawing(part).lint()
-        if issue.code == "unrecognised_defining_geometry"
+        if issue.code in {"passage_requirement_unsupported", "unrecognised_defining_geometry"}
     ]
     assert len(issues) == 1
 
