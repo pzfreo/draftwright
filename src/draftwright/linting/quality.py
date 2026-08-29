@@ -37,6 +37,7 @@ from draftwright.linting.flat_coverage import flat_requirement_outcomes
 from draftwright.linting.hole_coverage import hole_requirement_outcomes
 from draftwright.linting.issues import LintIssue, is_placement_drop
 from draftwright.linting.pocket_coverage import pocket_requirement_outcomes
+from draftwright.linting.pocket_pattern_coverage import pocket_pattern_requirement_outcomes
 from draftwright.linting.polygonal_stock_coverage import polygonal_stock_outcomes
 from draftwright.linting.slot_coverage import slot_requirement_outcomes
 
@@ -157,6 +158,7 @@ _AUDITED_FAMILIES = (
     "passages",
     "polygonal_stock",
     "pockets",
+    "pocket_patterns",
     "prismatic_pockets",
     "slot_patterns",
     "slots",
@@ -372,6 +374,7 @@ _UNSCORED_CODE_PREFIXES = (
     "gear_requirement_",
     "hole_requirement_",
     "pocket_requirement_",
+    "pocket_pattern_requirement_",
     "polygonal_stock_requirement_",
     "slot_requirement_",
 )
@@ -583,6 +586,9 @@ def _completeness_component(recognition, features, registry, omissions, issues) 
         "hole_patterns": [],
         "polygonal_stock": polygonal_stock_outcomes(recognition, features, registry, omissions),
         "pockets": pocket_requirement_outcomes(recognition, features, registry, omissions),
+        "pocket_patterns": pocket_pattern_requirement_outcomes(
+            recognition, features, registry, omissions
+        ),
         "slots": [],
         "slot_patterns": [],
     }

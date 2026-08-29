@@ -411,7 +411,10 @@ def _member_pocket_str(m) -> str:
     return (
         f"pocket(width={_n(m.width)}, length={length}, depth={_n(m.depth)}, "
         f'long_axis="{m.long_axis}", width_axis="{m.width_axis}", '
-        f"lo={lo}, hi={hi}, w_center={_n(m.w_center)}, at={_pt(m.frame.origin)})"
+        f"lo={lo}, hi={hi}, w_center={_n(m.w_center)}, at={_pt(m.frame.origin)}"
+        + (", edge_anchored=True" if m.edge_anchored else "")
+        + (", open_sign=-1" if m.open_sign == -1 else "")
+        + ")"
     )
 
 

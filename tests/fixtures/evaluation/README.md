@@ -71,6 +71,29 @@ excluded because their grouped arrangement and callout belong to the pocket-patt
   entity identifier was bijectively renumbered and the entity records serialized in reverse order,
   with references rewritten by the same bijection.
 
+`corpus-pocket-patterns-v1.json` owns grouped rectangular-pocket arrangements without recounting
+their member pockets. Its construction facts are independent of recognition output:
+
+- `pocket-pattern-linear.step` starts with a 180 × 140 × 20 mm centred block and subtracts four
+  12 × 8 × 6 mm top-opening pockets on a 30° line through the origin at signed distances
+  (-45, -15, 15, 45) mm. The authored arrangement has 30 mm pitch and direction
+  `(cos 30°, sin 30°, 0)`; it is not derived from the recogniser's reported direction.
+- `pocket-pattern-grid.step` starts with a 200 × 170 × 20 mm centred block and subtracts six
+  12 × 8 × 6 mm top-opening pockets on a 30°-rotated 2 × 3 lattice centred at the origin. The
+  authored row offsets are ±18 mm and column offsets are (-28, 0, 28) mm, giving 36 mm row
+  pitch, 28 mm column pitch and a 30° arrangement angle.
+- `pocket-pattern-pair.step` contains two equal pockets. Two occurrences remain independent and
+  deliberately do not meet the provider's pattern threshold.
+- `pocket-pattern-ambiguous.step` contains three equal collinear pockets with adjacent 21 mm and
+  20 mm gaps. The unequal gaps deliberately do not define a constant-pitch array.
+- `pocket-pattern-topology-a.step` starts with a 180 × 130 × 24 mm centred block, subtracts an
+  underside-opening 2 × 3 grid of 8 × 12 × 4 mm pockets at X = (18, 40, 62), Y = (-17, 17),
+  and adds one differently-sized lone top pocket. The grid has 34 mm row pitch and 22 mm column
+  pitch; the lone pocket proves that its seven physical pockets retain disjoint ownership.
+- `pocket-pattern-topology-b.step` is geometrically identical to its topology-a counterpart;
+  every Part 21 entity identifier was bijectively renumbered and the entity records serialized in
+  reverse order, with references rewritten by the same bijection.
+
 The `FILE_NAME` timestamp is normalized. Each corpus manifest pins every fixture SHA-256 and records
 case-level provenance. A changed fixture therefore requires an explicit corpus-version decision;
 regenerating recognition output can never rewrite the expected facts silently.

@@ -59,6 +59,14 @@
   and topology-order cases. Provider `open_sign` now survives the IR, declaration and generated
   code boundaries; pocket sizes and both physical location ordinates are followed through exact
   semantic placement evidence without counting pocket-pattern members twice (#1372).
+- Pocket-pattern completeness is now supported by a separate independently authored STEP corpus
+  covering axis-aligned and 30° linear/grid arrangements, threshold and unequal-spacing
+  negatives, a compound underside pattern and reverse-serialized topology variants. One grouped
+  count/size/lattice/location requirement reaches automatic IR, public `Sheet.pocket_pattern`,
+  generated code and exact placed ink—including approved pitch tolerances—without recounting its
+  member pockets. Diagonal pocket-pattern dimensions use exact label-ink clearance instead of a
+  false-blocking hull; generated code preserves the member opening side and grouped callouts
+  retain structured count provenance (#1372).
 
 - Recognised angled blind steps now fail visibly instead of remaining an undecided inventory.
   Each aggregate-reconciled `AngledStep` produces an actionable warning and one `unsupported`
