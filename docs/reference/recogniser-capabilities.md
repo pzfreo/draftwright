@@ -93,8 +93,24 @@ artifact; it never creates expected facts. A missing or ambiguous correspondence
 credit. Mutations that delete provider holes, corrupt a declaration, remove generated feature
 lines or erase drawing measurement provenance reduce the corresponding layer.
 
+## Hole-pattern completeness evidence
+
+The `hole-patterns` completeness boundary is independently `supported` from
+`tests/fixtures/evaluation/corpus-hole-patterns-v1.json`. The corpus covers rectangular grids,
+bolt circles, linear arrays, a near-pattern negative, compound arrangements and a
+reverse-serialized topology pair. It scores one arrangement occurrence per provider group rather
+than treating its member holes as new physical occurrences. Member sizes, depths, bottoms and
+individual locations remain exclusively in the hole corpus.
+
+Each provider pattern must contain the exact accepted `RecognitionResult.holes` objects and no
+member may belong to two aggregate patterns. The observer follows the existing fail-closed hole
+ledger to one exact `PatternFeature` through the automatic IR, public `Sheet.pattern` declaration,
+executed generated Sheet code and placed grouping/pitch/BCD evidence. Mutations that delete the
+derived provider inventory, corrupt the declaration, remove generated pattern lines or remove a
+placed pitch dimension reduce the corresponding independent layer.
+
 Remaining supported-family completeness work is tracked by family group rather than the closed
-shared design issue: #1370 covers countersinks, Double-D bores and hole patterns; #1371 covers
+shared design issue: #1370 retains countersinks and Double-D bores; #1371 covers
 channels, flats, slots, slot patterns and polygonal stock; #1372 covers pockets, pocket patterns,
 grooves, rectangular pads and polygonal bosses; #1373 covers plates, face levels and risers; and
 #1374 covers turned steps, chamfers and fillets.

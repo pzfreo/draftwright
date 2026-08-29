@@ -43,6 +43,12 @@
   drawing are each observed through their real seam. Mutations prove that a missing provider hole
   or a broken downstream boundary lowers the relevant evidence even when internal state remains
   self-consistent (#1369).
+- Hole-pattern completeness is now supported by a separate independently authored STEP
+  arrangement corpus covering grids, bolt circles, linear arrays, false-positive controls,
+  compound cases and topology-order variants. It scores one grouping fact per pattern while the
+  hole corpus remains the sole owner of member diameter/depth/location requirements, and follows
+  each group through the IR, public Sheet declaration, generated code and placed pattern
+  dimensions (#1370).
 
 - Recognised angled blind steps now fail visibly instead of remaining an undecided inventory.
   Each aggregate-reconciled `AngledStep` produces an actionable warning and one `unsupported`

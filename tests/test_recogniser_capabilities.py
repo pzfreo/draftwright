@@ -198,6 +198,19 @@ def test_rich_passage_contract_has_an_explicit_unsupported_completeness_outcome(
         {
             "boundary": "completeness",
             "compatibility_evidence": [
+                "tests/test_issue_1370_hole_pattern_completeness_evidence.py",
+                "tests/test_recogniser_capabilities.py",
+                "tests/test_step_analysis_evaluation.py",
+            ],
+            "family": "hole-patterns",
+            "from": "deferred",
+            "release_notes": "CHANGELOG.md",
+            "to": "supported",
+            "version": importlib.metadata.version("draftwright"),
+        },
+        {
+            "boundary": "completeness",
+            "compatibility_evidence": [
                 "tests/test_issue_1369_hole_completeness_evidence.py",
                 "tests/test_recogniser_capabilities.py",
                 "tests/test_step_analysis_evaluation.py",
@@ -245,6 +258,16 @@ def test_holes_completeness_is_supported_by_the_independent_observed_corpus() ->
     }
 
 
+def test_hole_pattern_completeness_is_supported_without_recounting_member_holes() -> None:
+    family = _families(consumer_capability_declaration())["hole-patterns"]
+
+    assert family["completeness"] == {
+        "state": "supported",
+        "implementation": "draftwright.evaluation.step_analysis.evaluate_step_corpus",
+        "evidence": ["tests/test_issue_1370_hole_pattern_completeness_evidence.py"],
+    }
+
+
 def test_each_deferred_supported_family_links_its_real_delivery_slice() -> None:
     expected = {
         "chamfers": 1374,
@@ -255,7 +278,6 @@ def test_each_deferred_supported_family_links_its_real_delivery_slice() -> None:
         "fillets": 1374,
         "flats": 1371,
         "grooves": 1372,
-        "hole-patterns": 1370,
         "plates": 1373,
         "pocket-patterns": 1372,
         "pockets": 1372,
