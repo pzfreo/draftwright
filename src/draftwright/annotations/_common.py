@@ -31,9 +31,15 @@ from draftwright._geometry import (  # noqa: F401
     _segment_clip_extent,
     _segment_clips_box,
     _segment_crosses_box,
+    _segments_cross_or_overlap,
 )
 from draftwright.layout import StripCandidate, plan_strip
-from draftwright.linting.ink_overlap import MIN_CROSSING_MM, crossable_region, crossing_length
+from draftwright.linting.ink_overlap import (
+    MIN_CROSSING_MM,
+    crossable_region,
+    crossing_length,
+    segments_of,
+)
 from draftwright.linting.issues import LintIssue
 from draftwright.linting.structural import (
     _ann_box,
@@ -76,6 +82,7 @@ def _hole_location_coverage_fact(location):
             "location.location",
             "location_pattern.location",
             "location_pocket.location",
+            "location_pocket_pattern.location",
         }
         and location.discriminator
     ):
@@ -1471,6 +1478,95 @@ def box_within_page_and_clear(bb, page_box, obstacles) -> bool:
         and bb[3] <= page_box[3]
         and not _box_hits(bb, obstacles)
     )
+
+
+def annotation_ink_clear(dwg, candidate, *, view=None) -> bool:
+    """Whether *candidate* clears exact decomposable ink and conservative fixed furniture.
+
+    A diagonal dimension cannot use the strip system's conservative AABB occupancy as its
+    acceptance predicate: each slanted line's box contains a large empty triangle, so a clean
+    rotated dimension is rejected merely because another annotation sits in that empty area.
+    Public segment metadata and exact label polygons avoid those false hulls while preserving
+    the crossing-free contract: labels remain clear in both directions and non-crossable shafts
+    may not intersect. Dimension/dimension and centre-furniture intersections keep their
+    existing explicit exemptions. An annotation with no trustworthy segments is not empty:
+    tables, title furniture and other compounds retain their conservative component boxes.
+    """
+    candidate_segments = segments_of(candidate)
+    try:
+        candidate_label = getattr(candidate, "label_bbox", None)
+    except Exception:  # noqa: BLE001 — unreadable candidate ink must fail closed
+        return False
+    candidate_region = crossable_region(
+        candidate_label,
+        item=candidate,
+        segments=candidate_segments,
+    )
+    if candidate_region is None:
+        return False
+    for name, annotation in dwg.iter_annotations():
+        owner = dwg.view_of(name)
+        if view is not None and owner is not None and owner != view:
+            continue
+        annotation_segments = segments_of(annotation)
+        try:
+            annotation_label = getattr(annotation, "label_bbox", None)
+        except Exception:  # noqa: BLE001 — unreadable fixed ink must fail closed
+            return False
+        annotation_region = crossable_region(
+            annotation_label,
+            item=annotation,
+            segments=annotation_segments,
+        )
+        crossable_strokes = isinstance(annotation, (Dimension, SafeDimension)) or (
+            type(annotation).__name__ in CROSSABLE_TYPES
+        )
+        if annotation_label is not None and annotation_region is None:
+            try:
+                conservative_label_hit = _boxes_overlap(candidate_label, annotation_label) or any(
+                    _segment_clips_box(start, end, annotation_label, pad=0.0)
+                    for start, end in candidate_segments
+                )
+            except Exception:  # noqa: BLE001 — malformed fixed labels must fail closed
+                return False
+            if conservative_label_hit:
+                return False
+        if annotation_region is not None and _boxes_overlap(candidate_label, annotation_label):
+            return False
+        if annotation_region is not None and (
+            crossing_length(candidate_segments, annotation_region) >= MIN_CROSSING_MM
+        ):
+            return False
+        if annotation_segments and (
+            crossing_length(annotation_segments, candidate_region) >= MIN_CROSSING_MM
+        ):
+            return False
+        if annotation_segments:
+            if not crossable_strokes and any(
+                _segments_cross_or_overlap(start, end, fixed_start, fixed_end)
+                for start, end in candidate_segments
+                for fixed_start, fixed_end in annotation_segments
+            ):
+                return False
+            continue
+        if crossable_strokes or is_page_spanning_rider(annotation):
+            continue
+        try:
+            fixed_boxes = annotation_obstacle_boxes(dwg, annotation)
+        except Exception:  # noqa: BLE001 — malformed fixed ink must fail closed
+            fixed_boxes = ()
+        if not fixed_boxes:
+            return False
+        if any(
+            _boxes_overlap(candidate_label, fixed_box)
+            or any(
+                _segment_clips_box(start, end, fixed_box, pad=0.0)
+                for start, end in candidate_segments
+            )
+            for fixed_box in fixed_boxes
+        ):
+            return False
+    return True
 
 
 def prevent_dimension_label_ink(

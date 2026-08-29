@@ -29,6 +29,10 @@ depth, plus two independently observed datum-location axes for an interior reces
 corner interruptions retain their three explicit sizes while their position is intentionally
 implicit. Opening side remains identity so opposed-face pockets cannot collapse at the IR waist.
 
+The pocket-pattern slice (#1372) counts one grouped physical arrangement, never its member
+pockets again. Its width, length, depth, count, lattice and centre are observed through the same
+four boundaries, including exact count/pitch/location ink backed by compiler provenance.
+
 Known limit of the drawing observation: it reads the ADR 0010 provenance seam, which
 ``registry.measurement_of`` carries and which is populated one render pass at a time (the set
 of tagged renderers is enumerated by ``tests/test_audit_differential.py``, not by prose here —
@@ -79,7 +83,7 @@ from dataclasses import dataclass
 from hashlib import sha256
 from math import isfinite
 from pathlib import Path
-from typing import Any, Literal, TypeAlias
+from typing import Any, Literal, TypeAlias, cast
 
 Scalar: TypeAlias = int | float | str | bool
 Value: TypeAlias = Scalar | tuple[float, ...]
@@ -1487,6 +1491,310 @@ def _declared_pocket_model(part, pockets):
     return sheet.model()
 
 
+def _pocket_pattern_correspondence(patterns, recognition, features, registry=None, omissions=()):
+    """Per recognised arrangement, retain its exact IR owner and requirement ledger."""
+    from draftwright.linting.pocket_pattern_coverage import (
+        pocket_pattern_members,
+        pocket_pattern_requirement_outcomes,
+    )
+    from draftwright.registry import AnnotationRegistry
+
+    ledger = pocket_pattern_requirement_outcomes(
+        recognition,
+        features,
+        AnnotationRegistry() if registry is None else registry,
+        omissions,
+    )
+    by_members: dict[tuple, list] = {}
+    for outcome in ledger:
+        by_members.setdefault(outcome.members, []).append(outcome)
+    result = []
+    for pattern in patterns:
+        members = pocket_pattern_members(pattern)
+        candidates = by_members.get(members, ())
+        expected = {
+            "grouping.count",
+            "pocket_width.length",
+            "pocket_length.length",
+            "pocket_depth.length",
+            "location_pocket_pattern.location.x",
+            "location_pocket_pattern.location.y",
+        }
+        if hasattr(pattern, "row_pitch"):
+            expected.update(("grid_pitch.length.row", "grid_pitch.length.col"))
+        else:
+            expected.add("pitch.length")
+        candidate_features = tuple(
+            dict.fromkeys(feature for outcome in candidates for feature in outcome.features)
+        )
+        exact = (
+            len(candidate_features) == 1
+            and {outcome.parameter_id for outcome in candidates} == expected
+            and all(outcome.features == candidate_features for outcome in candidates)
+        )
+        result.append((exact, candidate_features, tuple(candidates)))
+    return result
+
+
+def _pocket_pattern_model_outcomes(patterns, recognition, features) -> list[Outcome]:
+    return [
+        "supported" if exact else "unknown"
+        for exact, _features, _outcomes in _pocket_pattern_correspondence(
+            patterns, recognition, features
+        )
+    ]
+
+
+def _pocket_pattern_pitch_gaps(feature, parameter: str, nominal: float) -> tuple[float, ...]:
+    """Physical adjacent gaps represented by one collapsed pitch measurement."""
+    import math
+
+    from draftwright._geometry import plane_axes
+
+    members = tuple(feature.members)
+    if parameter == "pitch.length":
+        direction = tuple(float(value) for value in feature.direction)
+        norm = math.hypot(*direction)
+        if norm <= 1e-12:
+            return ()
+        direction = tuple(value / norm for value in direction)
+        ordered = sorted(members, key=lambda point: sum(point[i] * direction[i] for i in range(3)))
+        return tuple(math.dist(first, second) for first, second in zip(ordered, ordered[1:]))
+
+    u, v = plane_axes(feature.member.depth_axis)
+    angle = math.radians(float(feature.angle or 0.0))
+    col_direction = tuple(
+        math.cos(angle) * u[index] + math.sin(angle) * v[index] for index in range(3)
+    )
+    row_direction = tuple(
+        -math.sin(angle) * u[index] + math.cos(angle) * v[index] for index in range(3)
+    )
+    direction = row_direction if parameter.endswith(".row") else col_direction
+    expected = (
+        int(feature.cols) * (int(feature.rows) - 1)
+        if parameter.endswith(".row")
+        else int(feature.rows) * (int(feature.cols) - 1)
+    )
+    gaps = []
+    for left, first in enumerate(members):
+        for second in members[left + 1 :]:
+            delta = tuple(float(second[index]) - float(first[index]) for index in range(3))
+            along = abs(sum(delta[index] * direction[index] for index in range(3)))
+            across = math.sqrt(
+                sum(
+                    (
+                        delta[index]
+                        - sum(delta[j] * direction[j] for j in range(3)) * direction[index]
+                    )
+                    ** 2
+                    for index in range(3)
+                )
+            )
+            if across <= 0.02 and 1e-9 < along <= nominal * 1.5:
+                gaps.append(math.dist(first, second))
+    return tuple(gaps) if len(gaps) == expected else ()
+
+
+def _pocket_pattern_drawing_outcomes(patterns, drawing) -> list[Outcome]:
+    """Verify exact compiler-approved arrangement ink and structured ownership."""
+    from draftwright._core import _decode_hole_location_fact, _tol_suffix
+    from draftwright._geometry import _fmt
+    from draftwright.linting.evidence import verify_measurement_claims
+    from draftwright.model.compiled import compile_dimensions
+    from draftwright.model.ir import PocketPatternFeature
+
+    recognition = drawing.recognition()
+    model = drawing.model()
+    plan = compile_dimensions(model)
+    correspondence = _pocket_pattern_correspondence(
+        patterns,
+        recognition,
+        model.features,
+        drawing.registry,
+        plan.diagnostics,
+    )
+    confirmed = {
+        (claim.annotation, claim.measurement)
+        for claim in verify_measurement_claims(drawing.registry, plan)
+        if claim.state == "confirmed" and claim.measurement is not None
+    }
+
+    size_labels: dict[object, str] = {}
+    pitch_labels: dict[tuple[object, str], str] = {}
+
+    for group in plan.of_kind("pocket_pattern"):
+        by_parameter = {
+            str(approved.id.parameter): approved
+            for approved in group.dims
+            if approved.id is not None
+        }
+        feature = cast(
+            PocketPatternFeature,
+            next(approved.id.feature for approved in group.dims if approved.id is not None),
+        )
+        width = by_parameter.get("pocket_width.length")
+        length = by_parameter.get("pocket_length.length")
+        depth = by_parameter.get("pocket_depth.length")
+        if width is not None and length is not None and depth is not None:
+            fields = tuple(
+                approved.value_text + _tol_suffix(approved.tolerance, drawing.draft)
+                for approved in (width, length, depth)
+            )
+            size_labels[feature] = f"{feature.count}× {fields[0]} × {fields[1]} × {fields[2]} DEEP"
+        for parameter in (
+            "pitch.length",
+            "grid_pitch.length.row",
+            "grid_pitch.length.col",
+        ):
+            approved = by_parameter.get(parameter)
+            if approved is None:
+                continue
+            if parameter == "pitch.length":
+                intervals = feature.count - 1
+            elif parameter.endswith(".row"):
+                intervals = cast(int, feature.rows) - 1
+            else:
+                intervals = cast(int, feature.cols) - 1
+            suffix = ""
+            if approved.tolerance is not None:
+                gaps = _pocket_pattern_pitch_gaps(feature, parameter, float(approved.value))
+                nominal = round(float(approved.value), drawing.draft.decimal_precision)
+                if gaps and all(
+                    round(gap, drawing.draft.decimal_precision) == nominal for gap in gaps
+                ):
+                    suffix = _tol_suffix(approved.tolerance, drawing.draft)
+            pitch_labels[(feature, parameter)] = f"{intervals}× {approved.value_text}{suffix}"
+
+    location_labels: dict[tuple[object, str], str] = {}
+    for approved in plan.locations:
+        location_feature = getattr(approved.id, "feature", None)
+        if getattr(location_feature, "kind", None) != "pocket_pattern":
+            continue
+        axis = approved.discriminator
+        assert axis in {"x", "y"} and approved.span is not None
+        index = "xyz".index(axis)
+        value = abs(float(approved.span[1][index]) - float(approved.span[0][index]))
+        location_labels[(location_feature, f"location_pocket_pattern.location.{axis}")] = _fmt(
+            value
+        )
+
+    def rendered_label(name) -> str | None:
+        annotation = drawing.registry.named(name)
+        label = getattr(annotation, "label", None) or getattr(annotation, "_annotate_label", None)
+        return label if isinstance(label, str) else None
+
+    location_names: dict[tuple[object, str, tuple[float, float, float]], set[str]] = {}
+    for name, annotation in drawing.registry.iter_named():
+        for fact in getattr(annotation, "covers_hole_locations", ()):
+            decoded = _decode_hole_location_fact(fact)
+            if decoded is None:
+                continue
+            feature, parameter, point = decoded
+            if getattr(feature, "kind", None) != "pocket_pattern":
+                continue
+            point_x, point_y, point_z = point
+            rounded = (
+                round(float(point_x), 2),
+                round(float(point_y), 2),
+                round(float(point_z), 2),
+            )
+            location_names.setdefault((feature, parameter, rounded), set()).add(name)
+
+    result: list[Outcome] = []
+    for pattern, (exact, features, outcomes) in zip(patterns, correspondence, strict=True):
+        if not exact or len(features) != 1:
+            result.append("unknown")
+            continue
+        feature = features[0]
+        expected_size = size_labels.get(feature)
+        ink_ok = True
+        for outcome in outcomes:
+            if outcome.state != "placed":
+                ink_ok = False
+                break
+            parameter = outcome.parameter_id
+            if parameter == "grouping.count":
+                matching = {
+                    name
+                    for name, annotation in drawing.registry.iter_named()
+                    if drawing.registry.feature_of(name) == feature
+                    and getattr(annotation, "covers_count", None) == outcome.member_count
+                    and rendered_label(name) == expected_size
+                }
+            elif parameter.startswith("location_pocket_pattern.location."):
+                matching = location_names.get((feature, parameter, outcome.source_at), set())
+                matching = {
+                    name
+                    for name in matching
+                    if rendered_label(name) == location_labels.get((feature, parameter))
+                }
+            else:
+                matching = {
+                    name
+                    for name, claim in confirmed
+                    if getattr(claim, "feature", None) == feature
+                    and str(getattr(claim, "parameter", "")) == parameter
+                }
+                expected_label = (
+                    expected_size
+                    if parameter.startswith("pocket_")
+                    else pitch_labels.get((feature, parameter))
+                )
+                matching = {name for name in matching if rendered_label(name) == expected_label}
+            if not matching:
+                ink_ok = False
+                break
+        result.append("supported" if ink_ok else "unsupported")
+    return result
+
+
+def _declared_pocket_pattern_model(part, patterns):
+    """Declare observed arrays through public ``Sheet.pocket_pattern`` and return IR."""
+    from draftwright.model import pocket
+    from draftwright.sheet import Sheet
+
+    sheet = Sheet(part)
+    sheet.authored_dimensions()
+    for observed in patterns:
+        source = observed.pockets[0]
+        member = pocket(
+            width=source.width,
+            length=source.length,
+            depth=source.depth,
+            long_axis=source.long_axis,
+            width_axis=source.width_axis,
+            depth_axis=source.depth_axis,
+            w_center=source.w_center,
+            lo=source.lo,
+            hi=source.hi,
+            at=source.location,
+            edge_anchored=source.edge_anchored,
+            open_sign=source.open_sign,
+        )
+        members = tuple(item.location for item in observed.pockets)
+        center = getattr(observed, "center", None)
+        if center is None:
+            center = tuple(
+                sum(point[index] for point in members) / len(members) for index in range(3)
+            )
+        kwargs: dict[str, object] = {
+            "kind": "grid" if hasattr(observed, "row_pitch") else "linear",
+            "count": len(members),
+            "at": center,
+        }
+        if hasattr(observed, "row_pitch"):
+            kwargs.update(
+                grid=(observed.row_pitch, observed.col_pitch),
+                rows=observed.rows,
+                cols=observed.cols,
+                angle=observed.angle,
+            )
+        else:
+            kwargs.update(pitch=observed.pitch, direction=observed.direction)
+        sheet.pocket_pattern(member, **kwargs)
+    return sheet.model()
+
+
 def _default_observers() -> Mapping[str, Observer]:
     def observe_holes(part: object) -> Sequence[ObservedFact]:
         # Lazy for COST, not for layering: `evaluation` is rank 7 and `builder` rank 6, so
@@ -1854,10 +2162,134 @@ def _default_observers() -> Mapping[str, Observer]:
             for identity in (_pocket_identity(pocket),)
         )
 
+    def observe_pocket_patterns(part: object) -> Sequence[ObservedFact]:
+        from draftwright.builder import build_drawing
+        from draftwright.linting.pocket_pattern_coverage import (
+            pocket_pattern_kind,
+            pocket_pattern_members,
+            pocket_pattern_source_at,
+        )
+
+        try:
+            drawing = build_drawing(part)  # type: ignore[arg-type]
+        except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
+            _log.warning(
+                "evaluation: drawing build failed (%s); scoring pocket patterns as unknown",
+                exc,
+            )
+            return ()
+        try:
+            recognition = drawing.recognition()
+            if recognition is None:
+                raise ValueError("detected build has no build-owned recognition result")
+            patterns = tuple(recognition.pocket_patterns)
+        except Exception as exc:  # noqa: BLE001 — no safe observed numerator remains
+            _log.warning(
+                "evaluation: recognition access failed (%s); observing no pocket patterns",
+                exc,
+            )
+            return ()
+        unknown: list[Outcome] = ["unknown"] * len(patterns)
+
+        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
+            try:
+                result = observe()
+                if len(result) != len(patterns):
+                    raise ValueError(
+                        f"observed {len(result)} outcomes for {len(patterns)} pocket patterns"
+                    )
+                return result
+            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
+                _log.warning(
+                    "evaluation: %s observation failed (%s); scoring pocket patterns as unknown",
+                    name,
+                    exc,
+                )
+                return list(unknown)
+
+        boundary_outcomes = {
+            "ir_adapter": observed_boundary(
+                "ir_adapter",
+                lambda: _pocket_pattern_model_outcomes(
+                    patterns, recognition, drawing.model().features
+                ),
+            ),
+            "dsl_declaration": observed_boundary(
+                "dsl_declaration",
+                lambda: _pocket_pattern_model_outcomes(
+                    patterns,
+                    recognition,
+                    _declared_pocket_pattern_model(part, patterns).features,
+                ),
+            ),
+            "generated_code": observed_boundary(
+                "generated_code",
+                lambda: _pocket_pattern_model_outcomes(
+                    patterns,
+                    recognition,
+                    _generated_sheet_model(part, drawing.model()).features,
+                ),
+            ),
+            "drawing_consumer": observed_boundary(
+                "drawing_consumer",
+                lambda: _pocket_pattern_drawing_outcomes(patterns, drawing),
+            ),
+        }
+
+        def parameters(pattern) -> dict[str, Value]:
+            member = pattern.pockets[0]
+            values: dict[str, Value] = {
+                "count": len(pattern.pockets),
+                "width": round(float(member.width), 2),
+                "length": round(float(member.length), 2),
+                "depth": round(float(member.depth), 2),
+                "edge_anchored": bool(member.edge_anchored),
+                "center": pocket_pattern_source_at(pattern),
+            }
+            if pocket_pattern_kind(pattern) == "linear":
+                values.update(
+                    pitch=round(float(pattern.pitch), 2),
+                    direction=tuple(round(float(value), 2) for value in pattern.direction),
+                )
+            else:
+                values.update(
+                    rows=pattern.rows,
+                    cols=pattern.cols,
+                    row_pitch=round(float(pattern.row_pitch), 2),
+                    col_pitch=round(float(pattern.col_pitch), 2),
+                    angle=round(float(pattern.angle), 2),
+                )
+            return values
+
+        return tuple(
+            ObservedFact(
+                family="pocket-patterns",
+                identity={
+                    "kind": pocket_pattern_kind(pattern),
+                    "width_axis": pattern.pockets[0].width_axis,
+                    "long_axis": pattern.pockets[0].long_axis,
+                    "depth_axis": pattern.pockets[0].depth_axis,
+                    "open_sign": pattern.pockets[0].open_sign,
+                    "members": tuple(
+                        component
+                        for point in pocket_pattern_members(pattern)
+                        for component in point
+                    ),
+                },
+                parameters=parameters(pattern),
+                downstream={
+                    boundary: boundary_outcomes[boundary][index]
+                    for boundary in _DOWNSTREAM_BOUNDARIES
+                },
+            )
+            for index, pattern in enumerate(patterns)
+        )
+
     return {
         "flats": observe_flats,
         "holes": observe_holes,
         "hole-patterns": observe_hole_patterns,
+        "pocket-patterns": observe_pocket_patterns,
         "pockets": observe_pockets,
     }
 

@@ -156,7 +156,9 @@ def test_pattern_members_are_not_counted_again_as_lone_pockets() -> None:
     )
     completeness = drawing.lint_summary()["quality"]["completeness"]
     assert "pockets" not in completeness["by_family"] or completeness["by_family"]["pockets"] == 0
-    assert "pocket_patterns" in completeness["unscored_recognized_families"]
+    assert completeness["by_family"]["pocket_patterns"] == 7
+    assert completeness["placed"] == completeness["requirements"] == 7
+    assert "pocket_patterns" not in completeness["unscored_recognized_families"]
 
 
 def test_every_pocket_boundary_is_observed_supported_on_the_real_public_path() -> None:

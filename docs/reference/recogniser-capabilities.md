@@ -144,10 +144,31 @@ Sheet code and placed size/location provenance. The IR now retains provider `ope
 shared location renderer records which physical X/Y ordinate landed while preserving ADR 0016's
 single public `location` authoring unit.
 
+## Pocket-pattern completeness evidence
+
+The `pocket-patterns` completeness boundary is independently `supported` from
+`tests/fixtures/evaluation/corpus-pocket-patterns-v1.json`. Seven construction-authored cases
+cover 30° linear and rectangular-grid positives, the two-member threshold, unequal-spacing
+ambiguity, a plain negative, an axis-aligned underside compound case and a reverse-serialized
+topology pair. The four expected arrangements contribute 41 parameter checks and 16 downstream
+checks; hard-coding the linear direction or grid angle lowers parameter fidelity.
+
+Each pattern is one physical grouping requirement: its member pockets are excluded from the lone
+pocket denominator. Identity retains arrangement kind, axes, opening side and exact member sites;
+count, member width/length/depth, edge anchoring, centre and pitch/lattice values are scored
+parameters. The observer follows one exact `PocketPatternFeature` through automatic IR, public
+`Sheet.pocket_pattern`, executed generated code and placed count/size/pitch/location evidence.
+Compiler identities and structured X/Y location facts establish ownership, while the final
+observer also checks exact compiler-approved ink, including an approved pitch tolerance only when
+every physical gap supports the collapsed claim. Diagonal pocket-pattern pitch dimensions use
+exact segment-versus-label clearance rather than a false-blocking whole-ink hull. Removing
+provider patterns, weakening a nominal or orientation, corrupting a declaration or generated
+script, or deleting/corrupting placed evidence reduces the corresponding independent layer.
+
 Remaining supported-family completeness work is tracked by family group rather than the closed
 shared design issue: #1370 retains countersinks and Double-D bores; #1371 covers
-channels, slots, slot patterns and polygonal stock; #1372 retains pocket patterns, grooves,
-rectangular pads and polygonal bosses; #1373 covers plates, face levels and risers; and
+channels, slots, slot patterns and polygonal stock; #1372 retains grooves, rectangular pads and
+polygonal bosses; #1373 covers plates, face levels and risers; and
 #1374 covers turned steps, chamfers and fillets.
 
 ## Angled-step boundary

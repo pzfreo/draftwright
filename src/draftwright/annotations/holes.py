@@ -45,6 +45,8 @@ from draftwright.annotations._common import (
     _same_location_ordinate,
     _with_hole_center_coverage,
     _with_hole_location_coverage,
+    annotation_ink_clear,
+    annotation_obstacle_boxes,
     box_within_page_and_clear,
     carve_free_position,
     carve_free_segments,
@@ -1753,22 +1755,41 @@ def _place_pitch_dim(
                 or bb[3] > page_box[3]
             ):
                 continue
-            if _box_hits(bb, obstacles):
+            exact_label_gate = drop_code == "pocket_pattern_dim_dropped"
+            if not exact_label_gate and _box_hits(bb, obstacles):
                 continue
-            # Analytically clear — build the real geometry ONCE and re-validate its true
-            # box (the #602 validation fallback): a footprint/geometry mismatch degrades
-            # to a wasted probe and the loop resumes, never a collision.
+            # Inside the analytical page hull — build the real geometry ONCE and re-validate
+            # its placement. Pocket patterns use exact segment/label legibility: a single AABB
+            # around their diagonal dimension encloses large empty triangles and made every
+            # rotated arrangement look blocked. Existing hole/slot patterns retain their
+            # conservative whole-ink gate until their later-stage consumers participate in the
+            # same solve; relaxing those here can admit a pitch that a later callout crosses.
             probe = _make(offset, side_vec)
-            real = _geom_box(probe)
-            if (
-                real is None
-                or real[0] < page_box[0]
-                or real[1] < page_box[1]
-                or real[2] > page_box[2]
-                or real[3] > page_box[3]
-                or _box_hits(real, obstacles)
-            ):
-                continue
+            if exact_label_gate:
+                real_boxes = annotation_obstacle_boxes(dwg, probe)
+                if (
+                    not real_boxes
+                    or any(
+                        box[0] < page_box[0]
+                        or box[1] < page_box[1]
+                        or box[2] > page_box[2]
+                        or box[3] > page_box[3]
+                        for box in real_boxes
+                    )
+                    or not annotation_ink_clear(dwg, probe, view=view)
+                ):
+                    continue
+            else:
+                real = _geom_box(probe)
+                if (
+                    real is None
+                    or real[0] < page_box[0]
+                    or real[1] < page_box[1]
+                    or real[2] > page_box[2]
+                    or real[3] > page_box[3]
+                    or _box_hits(real, obstacles)
+                ):
+                    continue
             ctx.place(
                 _clear_and_validate(offset, side_vec, page_box, obstacles, probe),
                 name,
@@ -1779,7 +1800,10 @@ def _place_pitch_dim(
             return
     _log.info("Pitch dimension for the %s× %s array skipped (no room)", n, pitch_text)
     if drop_code is not None:
-        noun = "hole pattern" if drop_code == "hole_pattern_dim_dropped" else "slot pattern"
+        noun = {
+            "hole_pattern_dim_dropped": "hole pattern",
+            "pocket_pattern_dim_dropped": "pocket pattern",
+        }.get(drop_code, "slot pattern")
         ctx.record_issue(
             "warning",
             drop_code,
@@ -1863,6 +1887,10 @@ def render_pocket_patterns(dwg, plan, a, *, ctx, only=None) -> int:
         if name not in placed_names:
             continue
         feat = g.facts
+        # The visible ``N×`` is a physical grouping requirement, not decoration.  Retain
+        # its structured value on the exact feature-owned callout so completeness and other
+        # consumers can verify the ink without parsing a label (ADR 0010/0016).
+        dwg.registry.named(name).covers_count = feat.count
         members = feat.members or (feat.frame.origin,)
         pitch = g.dim(role="pitch")
         grid = tuple(d for d in g.dims if d.role == "grid_pitch")
@@ -1883,6 +1911,7 @@ def render_pocket_patterns(dwg, plan, a, *, ctx, only=None) -> int:
                 f"dim_pocketpat_pitch_{view}{i}",
                 feature=g.ref,
                 measurement=pitch.id,
+                drop_code="pocket_pattern_dim_dropped",
                 ctx=ctx,
             )
         elif feat.pattern == "grid" and len(grid) == 2:
@@ -1895,6 +1924,7 @@ def render_pocket_patterns(dwg, plan, a, *, ctx, only=None) -> int:
                 grid,
                 to_page,
                 feature=g.ref,
+                drop_code="pocket_pattern_dim_dropped",
                 ctx=ctx,
                 name_prefix="dim_pocketpat_pitch",
             )

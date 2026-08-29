@@ -108,6 +108,7 @@ from draftwright.linting import (
     lint_pmi_lowering,
     lint_pmi_rendering,
     lint_pocket_coverage,
+    lint_pocket_pattern_coverage,
     lint_polygonal_stock_coverage,
     lint_principal_profile_coverage,
     lint_prismatic_coverage,
@@ -208,6 +209,7 @@ _GEOMETRY_AWARE_CODES = frozenset(
         "location_ref_dropped",
         "off_axis_location_dropped",
         "hole_pattern_dim_dropped",
+        "pocket_pattern_dim_dropped",
         "step_dim_dropped",
         "plate_thickness_dropped",
         "step_position_dropped",
@@ -3493,6 +3495,14 @@ class Drawing:
                 assembly=self.assembly,
             )
             issues += lint_pocket_coverage(
+                self.part,
+                recognition=recognition,
+                features=getattr(model, "features", ()) if model is not None else (),
+                registry=self._registry,
+                omissions=self._build.omissions,
+                assembly=self.assembly,
+            )
+            issues += lint_pocket_pattern_coverage(
                 self.part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),

@@ -1,0 +1,199 @@
+{
+  "format": "draftwright-step-analysis-corpus",
+  "format_version": 1,
+  "corpus_version": "1.1.0",
+  "metric_version": 1,
+  "scope": ["pocket-patterns"],
+  "cases": [
+    {
+      "id": "pocket-pattern-plain-block",
+      "tags": ["negative"],
+      "fixture": "plain-block.step",
+      "sha256": "1a5db509de8c0ce04d46cf39296dcdd04873e74cb0e7501bcd97630ffd8d113c",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored from the construction recipe in README.md; no recesses and therefore no pocket arrangement.",
+      "expected_outcome": "supported",
+      "facts": []
+    },
+    {
+      "id": "pocket-pattern-linear",
+      "tags": ["positive"],
+      "fixture": "pocket-pattern-linear.step",
+      "sha256": "0499fd95e2b91026b2ae36ea0a099ee48172bd05210a435c769e74046e14d88c",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored from the four-pocket, 30 mm constant-pitch construction recipe rotated 30 degrees in the opening plane in README.md.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "pocket-patterns",
+          "identity": {
+            "kind": {"value": "linear"},
+            "width_axis": {"value": "y"},
+            "long_axis": {"value": "x"},
+            "depth_axis": {"value": "z"},
+            "open_sign": {"value": 1},
+            "members": {
+              "value": [-38.97, -22.5, 7.0, -12.99, -7.5, 7.0, 12.99, 7.5, 7.0, 38.97, 22.5, 7.0],
+              "absolute_tolerance": 1e-6
+            }
+          },
+          "parameters": {
+            "count": {"value": 4},
+            "width": {"value": 8.0, "absolute_tolerance": 1e-6},
+            "length": {"value": 12.0, "absolute_tolerance": 1e-6},
+            "depth": {"value": 6.0, "absolute_tolerance": 1e-6},
+            "edge_anchored": {"value": false},
+            "center": {"value": [0.0, 0.0, 7.0], "absolute_tolerance": 1e-6},
+            "pitch": {"value": 30.0, "absolute_tolerance": 1e-6},
+            "direction": {"value": [0.87, 0.5, 0.0], "absolute_tolerance": 1e-9}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "pocket-pattern-grid",
+      "tags": ["positive"],
+      "fixture": "pocket-pattern-grid.step",
+      "sha256": "13f6a5488ab5844a9771d12d8346e7faa86dcd6e943362224f39431df26d0e97",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored from the nominal 2 by 3 rectangular pocket-grid construction recipe rotated 30 degrees in the opening plane in README.md.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "pocket-patterns",
+          "identity": {
+            "kind": {"value": "grid"},
+            "width_axis": {"value": "y"},
+            "long_axis": {"value": "x"},
+            "depth_axis": {"value": "z"},
+            "open_sign": {"value": 1},
+            "members": {
+              "value": [-33.25, 1.59, 7.0, -15.25, -29.59, 7.0, -9.0, 15.59, 7.0, 9.0, -15.59, 7.0, 15.25, 29.59, 7.0, 33.25, -1.59, 7.0],
+              "absolute_tolerance": 1e-6
+            }
+          },
+          "parameters": {
+            "count": {"value": 6},
+            "width": {"value": 8.0, "absolute_tolerance": 1e-6},
+            "length": {"value": 12.0, "absolute_tolerance": 1e-6},
+            "depth": {"value": 6.0, "absolute_tolerance": 1e-6},
+            "edge_anchored": {"value": false},
+            "center": {"value": [0.0, 0.0, 7.0], "absolute_tolerance": 1e-6},
+            "rows": {"value": 2},
+            "cols": {"value": 3},
+            "row_pitch": {"value": 36.0, "absolute_tolerance": 1e-6},
+            "col_pitch": {"value": 28.0, "absolute_tolerance": 1e-6},
+            "angle": {"value": 30.0, "absolute_tolerance": 1e-6}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "pocket-pattern-two-equal",
+      "tags": ["negative"],
+      "fixture": "pocket-pattern-pair.step",
+      "sha256": "c30c90e9c88d20222d53b9636da9c89207213b926cdb7954d8e2fe5877f38bd5",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored from the two-equal-pocket recipe in README.md; two occurrences stay independent and do not meet the provider's pattern threshold.",
+      "expected_outcome": "supported",
+      "facts": []
+    },
+    {
+      "id": "pocket-pattern-unequal-spacing",
+      "tags": ["ambiguous", "negative"],
+      "fixture": "pocket-pattern-ambiguous.step",
+      "sha256": "8e3aa2d78826684a3df76c57876411a3db6540d058fbfecf01aba1e2c683f722",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored from the construction recipe in README.md; three equal pockets have unequal 21 mm and 20 mm adjacent gaps and do not define a constant-pitch array.",
+      "expected_outcome": "supported",
+      "facts": []
+    },
+    {
+      "id": "pocket-pattern-compound-topology-a",
+      "tags": ["compound", "positive", "topology-order-variant"],
+      "fixture": "pocket-pattern-topology-a.step",
+      "sha256": "7e607df5a83bf4cf23decdf830d748933baa0ccb3ebf666d9b27ed73906c3e02",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored from the underside 2 by 3 pocket-grid plus differently-sized lone top pocket recipe in README.md; canonical Part 21 entity order.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "pocket-patterns",
+          "identity": {
+            "kind": {"value": "grid"},
+            "width_axis": {"value": "x"},
+            "long_axis": {"value": "y"},
+            "depth_axis": {"value": "z"},
+            "open_sign": {"value": -1},
+            "members": {
+              "value": [18.0, -17.0, -10.0, 18.0, 17.0, -10.0, 40.0, -17.0, -10.0, 40.0, 17.0, -10.0, 62.0, -17.0, -10.0, 62.0, 17.0, -10.0],
+              "absolute_tolerance": 1e-6
+            }
+          },
+          "parameters": {
+            "count": {"value": 6},
+            "width": {"value": 8.0, "absolute_tolerance": 1e-6},
+            "length": {"value": 12.0, "absolute_tolerance": 1e-6},
+            "depth": {"value": 4.0, "absolute_tolerance": 1e-6},
+            "edge_anchored": {"value": false},
+            "center": {"value": [40.0, 0.0, -10.0], "absolute_tolerance": 1e-6},
+            "rows": {"value": 2},
+            "cols": {"value": 3},
+            "row_pitch": {"value": 34.0, "absolute_tolerance": 1e-6},
+            "col_pitch": {"value": 22.0, "absolute_tolerance": 1e-6},
+            "angle": {"value": 0.0, "absolute_tolerance": 1e-6}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "pocket-pattern-compound-topology-b",
+      "tags": ["compound", "positive", "topology-order-variant"],
+      "fixture": "pocket-pattern-topology-b.step",
+      "sha256": "1833a0d9b2d93b5fbc6be87353ad673e25141fc35e970373b2a1843ca423f314",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "The topology-a STEP entities were bijectively renumbered and serialized in reverse order without changing geometry or expected pocket-arrangement facts.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "pocket-patterns",
+          "identity": {
+            "kind": {"value": "grid"},
+            "width_axis": {"value": "x"},
+            "long_axis": {"value": "y"},
+            "depth_axis": {"value": "z"},
+            "open_sign": {"value": -1},
+            "members": {
+              "value": [18.0, -17.0, -10.0, 18.0, 17.0, -10.0, 40.0, -17.0, -10.0, 40.0, 17.0, -10.0, 62.0, -17.0, -10.0, 62.0, 17.0, -10.0],
+              "absolute_tolerance": 1e-6
+            }
+          },
+          "parameters": {
+            "count": {"value": 6},
+            "width": {"value": 8.0, "absolute_tolerance": 1e-6},
+            "length": {"value": 12.0, "absolute_tolerance": 1e-6},
+            "depth": {"value": 4.0, "absolute_tolerance": 1e-6},
+            "edge_anchored": {"value": false},
+            "center": {"value": [40.0, 0.0, -10.0], "absolute_tolerance": 1e-6},
+            "rows": {"value": 2},
+            "cols": {"value": 3},
+            "row_pitch": {"value": 34.0, "absolute_tolerance": 1e-6},
+            "col_pitch": {"value": 22.0, "absolute_tolerance": 1e-6},
+            "angle": {"value": 0.0, "absolute_tolerance": 1e-6}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    }
+  ]
+}

@@ -61,6 +61,7 @@ from draftwright.model.ir import (
     PartModel,
     PatternFeature,
     PocketFeature,
+    PocketPatternFeature,
     Point,
     RotationalFeature,
     SlotFeature,
@@ -1125,7 +1126,10 @@ def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[
         feature = pd.feature
         span = pd.param.span
         directional_location = (
-            isinstance(feature, HoleFeature | PatternFeature | SlotPatternFeature)
+            isinstance(
+                feature,
+                HoleFeature | PatternFeature | PocketPatternFeature | SlotPatternFeature,
+            )
             and feature.frame.axis == "z"
         )
         directional_slot_pattern = (

@@ -47,6 +47,7 @@ from draftwright.linting.pmi_coverage import (
     pmi_stage_summary,
 )
 from draftwright.linting.pocket_coverage import lint_pocket_coverage
+from draftwright.linting.pocket_pattern_coverage import lint_pocket_pattern_coverage
 from draftwright.linting.polygonal_stock_coverage import lint_polygonal_stock_coverage
 from draftwright.linting.prismatic_pocket_coverage import lint_prismatic_pocket_coverage
 from draftwright.linting.profiled_bore_coverage import lint_profiled_bore_coverage
@@ -66,6 +67,7 @@ __all__ = [
     "lint_hole_coverage",
     "lint_polygonal_stock_coverage",
     "lint_pocket_coverage",
+    "lint_pocket_pattern_coverage",
     "lint_prismatic_pocket_coverage",
     "_suggest_fix",
     "lint_axial_coverage",
