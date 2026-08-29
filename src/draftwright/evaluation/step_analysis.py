@@ -1393,10 +1393,29 @@ def _groove_drawing_outcomes(grooves, drawing) -> list[Outcome]:
         page-space comparison is therefore rendered-evidence validation, never feature identity:
         retained registry metadata and correct text cannot certify a leader moved onto plain stock.
         """
-        # Independent drafting fact: axial width is visible only in a profile view.  Do not
-        # import the renderer's routing table here; a production routing regression must not
-        # rewrite the evidence oracle along with the finished drawing.
-        expected_view = {"x": "front", "y": "side", "z": "front"}.get(feature.axis)
+        # Observe the drafting fact instead of re-spelling or importing the renderer's routing
+        # table: a profile projection preserves displacement along the groove's shaft axis.
+        # Prefer front when both principal profiles preserve it, matching the drawing convention.
+        # A mutation of the renderer's mutable routing can therefore move only the production
+        # ink; it cannot rewrite this evidence oracle along with the finished drawing.
+        try:
+            origin = tuple(float(value) for value in feature.frame.origin)
+            displaced = list(origin)
+            displaced["xyz".index(feature.axis)] += 1.0
+            expected_view = next(
+                view
+                for view in ("front", "side")
+                if any(
+                    abs(float(projected) - float(start)) > 1e-9
+                    for projected, start in zip(
+                        drawing.at(view, *displaced)[:2],
+                        drawing.at(view, *origin)[:2],
+                        strict=True,
+                    )
+                )
+            )
+        except (KeyError, StopIteration, ValueError):
+            expected_view = None
         if expected_view is None or drawing.registry.view_of(name) != expected_view:
             return False
         annotation = drawing.registry.named(name)
