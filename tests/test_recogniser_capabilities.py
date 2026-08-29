@@ -198,6 +198,19 @@ def test_rich_passage_contract_has_an_explicit_unsupported_completeness_outcome(
         {
             "boundary": "completeness",
             "compatibility_evidence": [
+                "tests/test_issue_1369_hole_completeness_evidence.py",
+                "tests/test_recogniser_capabilities.py",
+                "tests/test_step_analysis_evaluation.py",
+            ],
+            "family": "holes",
+            "from": "deferred",
+            "release_notes": "CHANGELOG.md",
+            "to": "supported",
+            "version": importlib.metadata.version("draftwright"),
+        },
+        {
+            "boundary": "completeness",
+            "compatibility_evidence": [
                 "tests/test_issue_1245_passage_disposition.py",
                 "tests/test_recogniser_capabilities.py",
             ],
@@ -220,6 +233,52 @@ def test_rich_passage_contract_has_an_explicit_unsupported_completeness_outcome(
             "version": importlib.metadata.version("draftwright"),
         },
     ]
+
+
+def test_holes_completeness_is_supported_by_the_independent_observed_corpus() -> None:
+    family = _families(consumer_capability_declaration())["holes"]
+
+    assert family["completeness"] == {
+        "state": "supported",
+        "implementation": "draftwright.evaluation.step_analysis.evaluate_step_corpus",
+        "evidence": ["tests/test_issue_1369_hole_completeness_evidence.py"],
+    }
+
+
+def test_each_deferred_supported_family_links_its_real_delivery_slice() -> None:
+    expected = {
+        "chamfers": 1374,
+        "channels": 1371,
+        "countersinks": 1370,
+        "double-d-bores": 1370,
+        "face-levels": 1373,
+        "fillets": 1374,
+        "flats": 1371,
+        "grooves": 1372,
+        "hole-patterns": 1370,
+        "plates": 1373,
+        "pocket-patterns": 1372,
+        "pockets": 1372,
+        "polygonal-bosses": 1372,
+        "polygonal-stock": 1371,
+        "rectangular-pads": 1372,
+        "risers": 1373,
+        "slot-patterns": 1371,
+        "slots": 1371,
+        "turned-steps": 1374,
+    }
+    families = _families(consumer_capability_declaration())
+
+    actual = {
+        family_id: int(families[family_id]["completeness"]["tracking"].rsplit("/", 1)[-1])
+        for family_id in expected
+    }
+    assert actual == expected
+    assert all(
+        family["completeness"].get("tracking")
+        != "https://github.com/pzfreo/draftwright/issues/1169"
+        for family in families.values()
+    )
 
 
 def test_angled_step_contract_has_an_explicit_unsupported_completeness_outcome() -> None:

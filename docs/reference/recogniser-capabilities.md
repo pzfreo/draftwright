@@ -74,6 +74,31 @@ pass.
 reference: it remains geometry-only critique evidence for a separately authored gear declaration,
 with no inferred gear feature added to fill the table.
 
+## Hole completeness evidence
+
+The `holes` completeness boundary is `supported` from the versioned format-1 corpus in
+`tests/fixtures/evaluation/corpus-v1.json`. Its expected holes, identity fields, nominal values,
+tolerances and fixture hashes are independently authored. Neither `RecognitionResult`,
+`feature_census`, the compiled plan nor the hole-requirement ledger supplies the denominator.
+The corpus includes positive, negative, ambiguous, compound and topology-order-variant cases and
+reports detection recall/false positives, parameter fidelity and downstream usefulness as separate
+layers; there is deliberately no composite score.
+
+For each observed provider hole, the evaluation follows four real artifacts: the automatic
+build's `PartModel`, an explicit public `Sheet.hole` declaration, an executed
+`emit_sheet_script` result and the placed drawing's measurement provenance. The existing
+fail-closed hole-requirement correspondence supplies the join from a provider record to each IR
+artifact; it never creates expected facts. A missing or ambiguous correspondence scores
+`unknown`, a placement/ink loss scores `unsupported`, and only `supported` earns downstream
+credit. Mutations that delete provider holes, corrupt a declaration, remove generated feature
+lines or erase drawing measurement provenance reduce the corresponding layer.
+
+Remaining supported-family completeness work is tracked by family group rather than the closed
+shared design issue: #1370 covers countersinks, Double-D bores and hole patterns; #1371 covers
+channels, flats, slots, slot patterns and polygonal stock; #1372 covers pockets, pocket patterns,
+grooves, rectangular pads and polygonal bosses; #1373 covers plates, face levels and risers; and
+#1374 covers turned steps, chamfers and fillets.
+
 ## Angled-step boundary
 
 The installed aggregate reconciles a slanted face claimed by both `Chamfer` and `AngledStep` in

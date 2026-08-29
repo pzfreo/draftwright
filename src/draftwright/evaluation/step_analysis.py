@@ -1,34 +1,38 @@
 """Evidence-based STEP analysis evaluation (#1169).
 
-This module scores recogniser observations against an independently authored oracle.  It does
-not inspect ``RecognitionResult`` or the feature census: adapters supply observations, while the
-benchmark case supplies the denominator and tolerances.
+This module scores recogniser observations against an independently authored oracle.  Its
+expectations do not inspect ``RecognitionResult`` or the feature census: adapters supply
+observations, while the benchmark case supplies the denominator and tolerances.
 
-The ``drawing_consumer`` boundary is OBSERVED from a real build (#1202) rather than read from
-a capability declaration. Known limit of that approach: it reads the ADR 0010 provenance seam,
-which ``registry.measurement_of`` carries and which is populated one render pass at a time
-(the set of tagged renderers is enumerated by ``tests/test_audit_differential.py``, not by
-prose here — that docstring warns the prose version was wrong when first written). An
-un-tagged
-render pass therefore reads as a genuine omission, and this is a CLASS of limitation rather
-than a single case. Two instances are known:
+Every downstream boundary is OBSERVED through its real seam (#1369), never copied from the
+capability declaration: the built ``PartModel`` for ``ir_adapter``; an explicit public
+``Sheet.hole`` declaration for ``dsl_declaration``; an executed ``emit_sheet_script`` result
+for ``generated_code``; and the placed drawing's ADR 0010 measurement provenance for
+``drawing_consumer``.  The existing hole-requirement ledger supplies one conservative
+recognition-to-IR correspondence implementation for all four observations.  It is a join, not
+the benchmark denominator: the independently authored corpus remains the only source of
+expected facts.
+
+Known limit of the drawing observation: it reads the ADR 0010 provenance seam, which
+``registry.measurement_of`` carries and which is populated one render pass at a time (the set
+of tagged renderers is enumerated by ``tests/test_audit_differential.py``, not by prose here —
+that docstring warns the prose version was wrong when first written). An un-tagged render pass
+therefore reads as a genuine omission, and this is a CLASS of limitation rather than a single
+case. Two instances are known:
 
 * the hole-table escalation, which withdraws the individual callouts and records the
   substitution on the table — admitted here via that ledger;
-* a **turned** part, where the bore's diameter reaches the sheet as a ``Leader`` (``ldr_z0``)
-  whose ``registry.feature_of`` is ``None``, so it is neither a callout nor a table row. That
-  is inherited ADR 0015 / #754 debt (rotational OD/bore groups are not planner-routed) and
-  the engine's own ledger reports it as missing too, but this benchmark will report a loss
-  for a hole whose size is visibly printed. No corpus fixture is turned today; adding one
-  without addressing #754 would make the number wrong.
+* a **turned** part, where the bore's diameter reaches the sheet as a ``Leader`` but the hole
+  requirement ledger still reports the bore size as missing. The benchmark therefore reports
+  a loss for a hole whose size is visibly printed. No corpus fixture is turned today; adding
+  one without closing that correspondence gap would make the number wrong.
 
 A new representation route must be admitted here or it registers as a false loss.
 
 **Every draftwright import in this module is deliberately inside a function body** — there are
-no module-level ones at all — eight in function bodies: five `draftwright`, two
-`b123d_recognisers` and one `from build123d import import_step` — which is the #313 lazy-load
-pattern rather than an accident. (`b123d_recognisers` counts: importing it puts build123d in
-`sys.modules`, so it carries the same cost.) It is load-bearing: importing this module costs ~0.01 s, and hoisting ANY engine import makes it
+no module-level ones at all — which is the #313 lazy-load pattern rather than an accident.
+(`b123d_recognisers` counts: importing it puts build123d in `sys.modules`, so it carries the
+same cost.) It is load-bearing: importing this module costs ~0.01 s, and hoisting ANY engine import makes it
 one to two seconds, because every one pulls build123d transitively. Measured in a single process,
 the cost is essentially all build123d and is paid once — the draftwright modules themselves are
 free once it is loaded::
@@ -790,25 +794,77 @@ def _drawing_consumer_outcomes(holes, drawing) -> list[Outcome]:
     return outcomes
 
 
+def _hole_model_outcomes(holes, recognition, features) -> list[Outcome]:
+    """Per recognised hole: does *features* contain one exact IR owner?
+
+    This deliberately reuses :func:`hole_requirement_outcomes` rather than growing a second
+    geometry matcher in the evaluation module.  Only its correspondence evidence is read:
+    annotation state from the empty registry is necessarily ``missing`` and contributes no
+    credit.  The recognised ``holes`` supplied by the build remain the observed numerator;
+    the corpus remains the independent denominator.
+    """
+    from draftwright.linting.hole_coverage import canonical_hole_sites, hole_requirement_outcomes
+    from draftwright.registry import AnnotationRegistry
+
+    ledger = hole_requirement_outcomes(recognition, features, AnnotationRegistry())
+    by_position: dict[tuple, Outcome] = {}
+    for entry in ledger:
+        if entry.parameter_id != _SIZE_REQUIREMENT:
+            continue
+        state: Outcome = "supported" if entry.features else "unknown"
+        for member in entry.members:
+            by_position.setdefault(member, state)
+    return [
+        next(
+            (by_position[site] for site in canonical_hole_sites(hole) if site in by_position),
+            "unknown",
+        )
+        for hole in holes
+    ]
+
+
+def _declared_hole_model(part, holes):
+    """Declare observed holes through the public ``Sheet.hole`` seam and return its IR."""
+    from b123d_recognisers import HoleSpec
+
+    from draftwright.sheet import Sheet
+
+    sheet = Sheet(part)
+    # Feature correspondence is independent of dimension selection.  An explicit empty set
+    # keeps this a valid public Sheet without asking the planner to add evidence of its own.
+    sheet.authored_dimensions()
+    for observed in holes:
+        spec = HoleSpec.from_hole(observed)
+        axis = max(zip("xyz", spec.axis, strict=True), key=lambda item: abs(item[1]))[0]
+
+        def recess(value):
+            return None if value is None else (value.diameter, value.depth)
+
+        sheet.hole(
+            diameter=observed.diameter,
+            at=observed.location,
+            axis=axis,
+            through=spec.bottom == "through",
+            depth=observed.depth,
+            cbore=recess(spec.cbore),
+            spotface=recess(spec.spotface),
+            csink=spec.csink,
+        )
+    return sheet.model()
+
+
+def _generated_hole_model(part, model):
+    """Execute generated Sheet code through its public declarations and return its IR."""
+    from draftwright.sheet_emit import emit_sheet_script
+
+    source = emit_sheet_script(model, "part", "evaluation", title="EVALUATION", number="EVAL")
+    prefix = source.split("drawing = sheet.build()", 1)[0]
+    namespace: dict[str, object] = {"part": part}
+    exec(compile(prefix, "<draftwright-evaluation>", "exec"), namespace)  # noqa: S102
+    return getattr(namespace["sheet"], "model")()
+
+
 def _default_observers() -> Mapping[str, Observer]:
-    from draftwright.recogniser_contract import (
-        consumer_capability_declaration,
-        validate_recogniser_capabilities,
-    )
-
-    consumer = consumer_capability_declaration()
-    validate_recogniser_capabilities(consumer)
-    declaration = next(family for family in consumer["families"] if family["id"] == "holes")
-    # The other three boundaries remain DECLARED states — "this code path exists" — which
-    # is the same self-validating shape, one layer along, and is tracked separately. Only
-    # `drawing_consumer` is observed here, because that is the boundary #1176 is about:
-    # a drawing scoring 1.0 while omitting the geometry it owes.
-    declared = {
-        boundary: declaration[boundary]["state"]
-        for boundary in _DOWNSTREAM_BOUNDARIES
-        if boundary != "drawing_consumer"
-    }
-
     def observe_holes(part: object) -> Sequence[ObservedFact]:
         # Lazy for COST, not for layering: `evaluation` is rank 7 and `builder` rank 6, so
         # a module-level import here is a legal downward edge and passes the DAG guard —
@@ -842,15 +898,63 @@ def _default_observers() -> Mapping[str, Observer]:
                 holes = tuple(build_recognition_result(part).holes)  # type: ignore[arg-type]
             except Exception:  # noqa: BLE001 — an unanalysable fixture observes nothing
                 return ()
-            outcomes: list[Outcome] = ["unknown"] * len(holes)
+            boundary_outcomes: dict[str, list[Outcome]] = {
+                boundary: ["unknown"] * len(holes) for boundary in _DOWNSTREAM_BOUNDARIES
+            }
         else:
-            recognition = drawing.recognition()
-            if recognition is None:  # pragma: no cover — the detected path always fills it
-                from b123d_recognisers import build_recognition_result
+            try:
+                recognition = drawing.recognition()
+                if recognition is None:
+                    raise ValueError("detected build has no build-owned recognition result")
+                holes = tuple(recognition.holes)
+            except Exception as exc:  # noqa: BLE001 — no safe observed numerator remains
+                _log.warning("evaluation: recognition access failed (%s); observing no holes", exc)
+                return ()
+            unknown: list[Outcome] = ["unknown"] * len(holes)
 
-                recognition = build_recognition_result(part)  # type: ignore[arg-type]
-            holes = tuple(recognition.holes)
-            outcomes = _drawing_consumer_outcomes(holes, drawing)
+            def observed_boundary(
+                name: str, observe: Callable[[], list[Outcome]]
+            ) -> list[Outcome]:
+                try:
+                    result = observe()
+                    if len(result) != len(holes):
+                        raise ValueError(
+                            f"observed {len(result)} outcomes for {len(holes)} recognised holes"
+                        )
+                    return result
+                except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
+                    _log.warning(
+                        "evaluation: %s observation failed (%s); scoring holes as unknown",
+                        name,
+                        exc,
+                    )
+                    return list(unknown)
+
+            boundary_outcomes = {
+                "ir_adapter": observed_boundary(
+                    "ir_adapter",
+                    lambda: _hole_model_outcomes(holes, recognition, drawing.model().features),
+                ),
+                "dsl_declaration": observed_boundary(
+                    "dsl_declaration",
+                    lambda: _hole_model_outcomes(
+                        holes,
+                        recognition,
+                        _declared_hole_model(part, holes).features,
+                    ),
+                ),
+                "generated_code": observed_boundary(
+                    "generated_code",
+                    lambda: _hole_model_outcomes(
+                        holes,
+                        recognition,
+                        _generated_hole_model(part, drawing.model()).features,
+                    ),
+                ),
+                "drawing_consumer": observed_boundary(
+                    "drawing_consumer", lambda: _drawing_consumer_outcomes(holes, drawing)
+                ),
+            }
         return tuple(
             ObservedFact(
                 family="holes",
@@ -860,9 +964,12 @@ def _default_observers() -> Mapping[str, Observer]:
                     "depth": hole.depth,
                     "diameter": hole.diameter,
                 },
-                downstream={**declared, "drawing_consumer": outcome},
+                downstream={
+                    boundary: boundary_outcomes[boundary][index]
+                    for boundary in _DOWNSTREAM_BOUNDARIES
+                },
             )
-            for hole, outcome in zip(holes, outcomes, strict=True)
+            for index, hole in enumerate(holes)
         )
 
     return {"holes": observe_holes}

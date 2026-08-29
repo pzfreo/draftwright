@@ -37,6 +37,13 @@
 
 ### Changed
 
+- Hole completeness is now supported by a versioned, independently authored STEP corpus rather
+  than a Draftwright-derived census. Detection, parameter fidelity and downstream usefulness stay
+  separate, while the IR adapter, public Sheet declaration, executed generated code and placed
+  drawing are each observed through their real seam. Mutations prove that a missing provider hole
+  or a broken downstream boundary lowers the relevant evidence even when internal state remains
+  self-consistent (#1369).
+
 - Recognised angled blind steps now fail visibly instead of remaining an undecided inventory.
   Each aggregate-reconciled `AngledStep` produces an actionable warning and one `unsupported`
   completeness outcome. A frozen STEP corpus fixture pins the AngledStep/Chamfer ownership
