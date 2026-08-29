@@ -90,6 +90,7 @@ from draftwright.linting import (
     LintIssue,
     _suggest_fix,
     is_dimension_like,
+    lint_angled_step_coverage,
     lint_axial_coverage,
     lint_boss_height_coverage,
     lint_channel_coverage,
@@ -169,6 +170,7 @@ _PDF_VECTOR_ONLY_TEXT = str.maketrans("⌴⌵↧", "   ")
 # drawing from a merely tight one.
 _GEOMETRY_AWARE_CODES = frozenset(
     {
+        "angled_step_requirement_unsupported",
         "feature_not_dimensioned",
         "feature_count_mismatch",
         "feature_not_located",
@@ -3415,6 +3417,7 @@ class Drawing:
             )
             issues += lint_passage_coverage(recognition)
             issues += lint_prismatic_pocket_coverage(recognition)
+            issues += lint_angled_step_coverage(recognition)
             resolved_assembly = self.assembly
             if resolved_assembly is None:
                 resolved_assembly = len(self.part.solids()) > 1

@@ -243,8 +243,10 @@ _UNSUPPORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
         ("AngledStep",),
         "https://github.com/pzfreo/draftwright/issues/1247",
         "Introduced by 0.2.5 to stop `recognise_chamfers` reporting step slants as chamfers "
-        "(precision 44% -> 78%). Draftwright consumes the corrected chamfer inventory today; "
-        "whether an angled step is itself dimensioned — and how — is undecided.",
+        "(precision 44% -> 78%). The aggregate reconciles the shared slanted face in favour of "
+        "AngledStep, but its angle, legs and run length do not themselves decide which drawing "
+        "requirements or section/detail view are required. Draftwright therefore reports every "
+        "occurrence as an unsupported completeness requirement.",
     ),
 }
 
@@ -259,6 +261,10 @@ def _unsupported_declaration(family_id: str) -> dict[str, Any]:
     records, tracking, rationale = _UNSUPPORTED[family_id]
     unsupported = {"state": "unsupported", "rationale": rationale}
     unsupported_completeness = {
+        "angled-steps": (
+            "Every aggregate-reconciled AngledStep occurrence produces a warning and an "
+            "unsupported completeness outcome; no angle/run drafting grammar is invented."
+        ),
         "passages": (
             "Every authoritative SectionPassage occurrence produces a warning and an "
             "unsupported completeness outcome; no drafting requirement is invented."
@@ -315,6 +321,18 @@ def consumer_capability_declaration() -> dict[str, Any]:
         },
         "families": families,
         "transitions": [
+            {
+                "boundary": "completeness",
+                "compatibility_evidence": [
+                    "tests/test_issue_1247_angled_step_disposition.py",
+                    "tests/test_recogniser_capabilities.py",
+                ],
+                "family": "angled-steps",
+                "from": "deferred",
+                "release_notes": "CHANGELOG.md",
+                "to": "unsupported",
+                "version": distribution_version("draftwright"),
+            },
             {
                 "boundary": "completeness",
                 "compatibility_evidence": [

@@ -74,6 +74,25 @@ pass.
 reference: it remains geometry-only critique evidence for a separately authored gear declaration,
 with no inferred gear feature added to fill the table.
 
+## Angled-step boundary
+
+The installed aggregate reconciles a slanted face claimed by both `Chamfer` and `AngledStep` in
+favour of `RecognitionResult.angled_steps`. Draftwright consumes that aggregate result and does not
+repeat the provider's topological ownership decision. The corpus fixture
+`tests/fixtures/issue_1247_angled_blind_step.step` pins a genuine partial-width ramp with a
+triangular blind end beside an ordinary full-length chamfer: direct recognition sees two chamfers
+and one angled step, while the aggregate keeps one of each.
+
+An `AngledStep` record supplies its angle, two legs, run length, axis and slanted-face centre. Those
+measurements are geometric evidence, not a reviewed manufacturing-annotation choice: selecting an
+angle plus run, the two legs, a slanted-face dimension, or a section/detail view would invent a
+Draftwright requirement grammar that the IR, Sheet surface and compiler do not currently carry.
+Draftwright therefore keeps the family disposition `unsupported`, creates no inferred IR feature,
+Sheet declaration, generated code or annotation, and emits
+`angled_step_requirement_unsupported` at warning severity for every aggregate occurrence. Each
+occurrence contributes one `unsupported` completeness requirement. Issue #1247 records this
+consumer decision.
+
 ## Prismatic-pocket boundary
 
 The installed aggregate reconciles the two pocket inventories before Draftwright sees them. A

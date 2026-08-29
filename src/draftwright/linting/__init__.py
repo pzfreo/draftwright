@@ -16,6 +16,7 @@ Import the public surface from here, not the submodules.
 
 from __future__ import annotations
 
+from draftwright.linting.angled_step_coverage import lint_angled_step_coverage
 from draftwright.linting.channel_coverage import lint_channel_coverage
 from draftwright.linting.coverage import (
     EXAMINABLE_DECLARED_KINDS,
@@ -58,6 +59,7 @@ __all__ = [
     "EXAMINABLE_DECLARED_KINDS",
     "LintIssue",
     "is_dimension_like",
+    "lint_angled_step_coverage",
     "lint_claimed_representations",
     "verify_measurement_claims",
     "lint_hole_coverage",

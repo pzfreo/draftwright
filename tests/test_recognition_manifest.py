@@ -14,7 +14,6 @@ import importlib
 import pkgutil
 from contextlib import contextmanager
 from dataclasses import fields
-from importlib.metadata import version
 from math import cos, radians, sin
 from pathlib import Path
 
@@ -54,7 +53,6 @@ from b123d_recognisers import (
 from b123d_recognisers.result import DEFERRED, MIGRATED, Deferral
 from build123d import (
     Align,
-    Axis,
     Box,
     BuildPart,
     BuildSketch,
@@ -63,8 +61,6 @@ from build123d import (
     Plane,
     Pos,
     RegularPolygon,
-    Rot,
-    chamfer,
     extrude,
     import_step,
 )
@@ -177,7 +173,7 @@ def _repeating_wheel():
 #: *collection*, in every pytest process that imports this file — smoke tier and every xdist
 #: worker included.
 def _angled_blind_step():
-    """A partial-width ramp whose blind ends close as triangles, plus a full-length bevel.
+    """Import a partial-width ramp with triangular blind ends, plus a full-length bevel.
 
     Both families on one part, each claimed by exactly one recogniser, so the fixture pins the
     boundary between them rather than just the new one — and it exercises the reconciliation
@@ -185,37 +181,13 @@ def _angled_blind_step():
     aggregate keeps 1 chamfer, because `_reconcile.chamfers_that_are_not_angled_steps` drops the
     chamfer whose face the step owns (#1244).
 
-    Built from a rotated box rather than from the package's own golden construction, which
-    sketches on `Plane.XZ`. That construction is **not stable across the build123d versions this
-    project supports**: measured, the identical script yields volume 61600.0 with 8 faces under
-    0.11.1 and 62275.0 with 9 under 0.10.0, and the angled step is recognised only under 0.11 —
-    which is how CI's Python 3.10 shard (build123d <0.11) failed on this test's own
-    "no fixture produces a non-empty ['angled_steps']" precondition while every 3.13/3.14 shard
-    and both platform canaries passed. `both=True` does not fix it; the difference is in the
-    sketch plane, not the extrude direction.
-
-    This construction is byte-identical on both: 10 faces, volume 60975.00, on 0.10.0 and 0.11.1
-    alike. The assertions below state that, so a future version that moves it fails here rather
-    than silently emptying the inventory.
+    #1247 promotes the previously procedural probe to a real STEP corpus fixture. Importing the
+    frozen B-rep avoids rebuilding a subtly version-sensitive rotated subtraction in every test
+    environment and satisfies the disposition decision with independently recognisable evidence.
     """
-    base = Box(50, 50, 25, align=(Align.MIN, Align.MIN, Align.MIN))
-    ramped = base - (Pos(0, 25, 25) * Rot(0, -33.69, 0) * Box(40, 12, 20))
-    bevel = [
-        edge
-        for edge in ramped.edges().filter_by(Axis.X)
-        if abs(edge.center().Z - 25) < 1e-6 and abs(edge.center().Y - 50) < 1e-6
-    ]
-    assert bevel, "the bevel edge moved; this fixture no longer carries a chamfer"
-    part = chamfer(bevel[0], length=3)
-    # 0.01, not exact: the ramp angle is 33.69 degrees, so the volume is 60974.9987... and a
-    # `:.2f` probe reading of "60975.00" is what made the first tolerance here 1e-6 and wrong.
-    # The bound only has to catch the failure mode actually seen — the version difference moved
-    # this construction's predecessor by 675 mm3, five orders of magnitude larger.
-    assert len(part.faces()) == 10 and abs(part.volume - 60975.0) < 0.01, (
-        f"the fixture's geometry moved under build123d {version('build123d')}: "
-        f"{len(part.faces())} faces, volume {part.volume} — it is version-sensitive again"
+    return import_step(
+        str(Path(__file__).parent / "fixtures" / "issue_1247_angled_blind_step.step")
     )
-    return part
 
 
 def _hexagonal_passage_plate():
@@ -491,10 +463,10 @@ def _expected_inventory(part, *, rotational: bool = False) -> dict:
             if not rotational and not recognise_turned_steps(part, cyls=cyls)
             else ()
         ),
-        # Recognised and carried, consumed by nothing yet — draftwright has taken no position
-        # on these three (#1245/#1246/#1247, declared `unsupported` in the capability
-        # contract). The aggregate must still hold what its recognisers produced: an inventory
-        # nobody converts is exactly where an empty tuple would go unnoticed (#1244).
+        # Recognised and carried, but never converted to inferred IR. Their capability-contract
+        # dispositions are explicit unsupported outcomes (#1245/#1246/#1247). The aggregate must
+        # still hold what its recognisers produced: an inventory nobody converts is exactly where
+        # an empty tuple would go unnoticed (#1244).
         "angled_steps": tuple(recognise_angled_steps(part)) if not rotational else (),
         "passages": tuple(recognise_passages(part)),
         "section_passages": tuple(recognise_section_passages(part)),
@@ -515,10 +487,8 @@ def _expected_inventory(part, *, rotational: bool = False) -> dict:
 #:
 #: For these the assertion is SUBSET, not equality: the aggregate may drop a candidate to
 #: another family, and may never invent one. Equality is still demanded everywhere else, so the
-#: "ran it and stored ()" failure this test exists for is still caught for 19 of 22 fields.
-_RECONCILED_FIELDS = frozenset(
-    {"angled_steps", "chamfers", "passages", "prismatic_pockets", "section_passages"}
-)
+#: "ran it and stored ()" failure this test exists for is still caught for every other field.
+_RECONCILED_FIELDS = frozenset({"chamfers", "passages", "prismatic_pockets", "section_passages"})
 
 
 def test_the_aggregate_carries_what_its_recognisers_returned():
