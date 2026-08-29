@@ -33,6 +33,24 @@ individual location requirements, which remain owned by `corpus-v1.json`:
   entity identifier was bijectively renumbered and the entity records serialized in reverse order,
   with references rewritten by the same bijection.
 
+`corpus-flats-v1.json` is a separate physical across-flats corpus. Opposed faces on one stock line
+are one requirement, while separate lines or disjoint axial spans remain independent:
+
+- `flat-nonround.step` is a 40 × 30 × 20 mm rectangular block and deliberately has no machined
+  flat requirement.
+- `flat-lone-d.step` clips Ø30 × 40 mm stock at X = 7.5 mm to leave one X-normal D-flat.
+- `flat-double-d.step` clips Ø30 × 40 mm stock at X = ±7.5 mm, producing one
+  15 mm A/F requirement from two opposed faces.
+- `flat-slanted-double-d.step` rotates equivalent Double-D stock 30° about Y, preserving its one
+  physical requirement without relying on a principal-axis orientation.
+- `flat-coaxial.step` fuses two disjoint axial lone-D spans on the same axis; each span owns its
+  own A/F requirement.
+- `flat-topology-a.step` fuses two parallel lone-D lobes, so equal nominal sizes on separate axis
+  lines remain independent requirements.
+- `flat-topology-b.step` is geometrically identical to `flat-topology-a.step`; every Part 21 entity
+  identifier was bijectively renumbered and the entity records serialized in reverse order, with
+  references rewritten by the same bijection.
+
 The `FILE_NAME` timestamp is normalized. Each corpus manifest pins every fixture SHA-256 and records
 case-level provenance. A changed fixture therefore requires an explicit corpus-version decision;
 regenerating recognition output can never rewrite the expected facts silently.

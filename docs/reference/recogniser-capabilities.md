@@ -109,9 +109,26 @@ executed generated Sheet code and placed grouping/pitch/BCD evidence. Mutations 
 derived provider inventory, corrupt the declaration, remove generated pattern lines or remove a
 placed pitch dimension reduce the corresponding independent layer.
 
+## Flat completeness evidence
+
+The `flats` completeness boundary is independently `supported` from
+`tests/fixtures/evaluation/corpus-flats-v1.json`. Its seven construction-authored cases contribute
+nine physical across-flats requirements, 27 parameter checks and 36 downstream checks. The scope
+covers a non-round negative, a lone D-flat, axis-aligned and slanted Double-D stock, independent
+parallel lobes, independent coaxial stock and a reverse-serialized topology pair.
+
+The denominator represents physical stock requirements, not provider face records: the two
+opposed faces of one Double-D stock line form one across-flats fact, while parallel lobes and
+disjoint coaxial spans remain distinct facts. Identity uses the canonical axis, axis line and stock
+span; across-flats size, face count and anchors are scored parameters. Each fact must survive the
+automatic IR, public `Sheet.flat` declaration, executed generated Sheet code and placed
+measurement-provenance boundary. Removing provider flats, weakening a nominal, corrupting a
+declaration or generated script, or losing the placed callout/provenance reduces the corresponding
+independent score.
+
 Remaining supported-family completeness work is tracked by family group rather than the closed
 shared design issue: #1370 retains countersinks and Double-D bores; #1371 covers
-channels, flats, slots, slot patterns and polygonal stock; #1372 covers pockets, pocket patterns,
+channels, slots, slot patterns and polygonal stock; #1372 covers pockets, pocket patterns,
 grooves, rectangular pads and polygonal bosses; #1373 covers plates, face levels and risers; and
 #1374 covers turned steps, chamfers and fillets.
 

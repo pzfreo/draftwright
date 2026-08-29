@@ -198,6 +198,21 @@ def test_rich_passage_contract_has_an_explicit_unsupported_completeness_outcome(
         {
             "boundary": "completeness",
             "compatibility_evidence": [
+                "tests/test_flat_completeness.py",
+                "tests/test_flat_stock_identity.py",
+                "tests/test_issue_1371_flat_completeness_evidence.py",
+                "tests/test_recogniser_capabilities.py",
+                "tests/test_step_analysis_evaluation.py",
+            ],
+            "family": "flats",
+            "from": "deferred",
+            "release_notes": "CHANGELOG.md",
+            "to": "supported",
+            "version": importlib.metadata.version("draftwright"),
+        },
+        {
+            "boundary": "completeness",
+            "compatibility_evidence": [
                 "tests/test_issue_1370_hole_pattern_completeness_evidence.py",
                 "tests/test_recogniser_capabilities.py",
                 "tests/test_step_analysis_evaluation.py",
@@ -268,6 +283,16 @@ def test_hole_pattern_completeness_is_supported_without_recounting_member_holes(
     }
 
 
+def test_flat_completeness_is_supported_by_independent_physical_stock_facts() -> None:
+    family = _families(consumer_capability_declaration())["flats"]
+
+    assert family["completeness"] == {
+        "state": "supported",
+        "implementation": "draftwright.evaluation.step_analysis.evaluate_step_corpus",
+        "evidence": ["tests/test_issue_1371_flat_completeness_evidence.py"],
+    }
+
+
 def test_each_deferred_supported_family_links_its_real_delivery_slice() -> None:
     expected = {
         "chamfers": 1374,
@@ -276,7 +301,6 @@ def test_each_deferred_supported_family_links_its_real_delivery_slice() -> None:
         "double-d-bores": 1370,
         "face-levels": 1373,
         "fillets": 1374,
-        "flats": 1371,
         "grooves": 1372,
         "plates": 1373,
         "pocket-patterns": 1372,

@@ -49,6 +49,11 @@
   hole corpus remains the sole owner of member diameter/depth/location requirements, and follows
   each group through the IR, public Sheet declaration, generated code and placed pattern
   dimensions (#1370).
+- Flat completeness is now supported by an independently authored STEP corpus covering lone,
+  opposed, slanted, parallel and coaxial stock plus negative and topology-order controls. It
+  counts one physical across-flats requirement per stock line and span, then observes automatic
+  IR, public `Sheet.flat`, executed generated code and placed measurement provenance independently
+  (#1371).
 
 - Recognised angled blind steps now fail visibly instead of remaining an undecided inventory.
   Each aggregate-reconciled `AngledStep` produces an actionable warning and one `unsupported`
