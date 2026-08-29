@@ -125,7 +125,7 @@ def test_installed_package_contract_validates_without_a_sibling_checkout() -> No
     assert len(package["families"]) == len(declaration["families"]) == 25
 
 
-def test_rich_passage_contract_is_truthfully_deferred_with_its_projection() -> None:
+def test_rich_passage_contract_has_an_explicit_unsupported_completeness_outcome() -> None:
     """Pin the 0.4 physical record and compatibility projection to one decision."""
 
     assert INSTALLED_PACKAGE_VERSION == "0.4.5"
@@ -137,6 +137,7 @@ def test_rich_passage_contract_is_truthfully_deferred_with_its_projection() -> N
     passage_consumer = declaration["passages"]
 
     assert passage_package["introduced_in"] == "0.2.6"
+    assert passage_package["census_output"] == "RecognitionResult.section_passages"
     assert len(passage_package["records"]) == 6
     passage_record = next(
         record for record in passage_package["records"] if record["name"] == "Passage"
@@ -145,6 +146,11 @@ def test_rich_passage_contract_is_truthfully_deferred_with_its_projection() -> N
     assert passage_record["role"] == "projection"
     assert passage_record["schema_version"] == 1
     assert passage_record["aggregate_membership"] == ["RecognitionResult.passages"]
+    section_record = next(
+        record for record in passage_package["records"] if record["name"] == "SectionPassage"
+    )
+    assert section_record["role"] == "output"
+    assert section_record["aggregate_membership"] == ["RecognitionResult.section_passages"]
     assert passage_consumer["record_schemas"] == {
         "Passage": [1],
         "PassageEnds": [1],
@@ -164,12 +170,32 @@ def test_rich_passage_contract_is_truthfully_deferred_with_its_projection() -> N
             "drawing_consumer",
         )
     } == {"unsupported"}
-    assert passage_consumer["completeness"]["state"] == "deferred"
+    assert passage_consumer["completeness"] == {
+        "state": "unsupported",
+        "rationale": (
+            "Every authoritative SectionPassage occurrence produces a warning and an "
+            "unsupported completeness outcome; no drafting requirement is invented."
+        ),
+    }
     assert passage_consumer["documentation"] == {
         "state": "supported",
         "evidence": ["docs/reference/recogniser-capabilities.md"],
     }
     assert "passages" not in pending_family_declarations()
+    assert consumer_capability_declaration()["transitions"] == [
+        {
+            "boundary": "completeness",
+            "compatibility_evidence": [
+                "tests/test_issue_1245_passage_disposition.py",
+                "tests/test_recogniser_capabilities.py",
+            ],
+            "family": "passages",
+            "from": "deferred",
+            "release_notes": "CHANGELOG.md",
+            "to": "unsupported",
+            "version": importlib.metadata.version("draftwright"),
+        }
+    ]
 
 
 def test_runtime_adapter_inventory_is_derived_independently_and_exhaustive() -> None:

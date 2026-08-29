@@ -37,6 +37,7 @@ from draftwright.linting.flat_coverage import lint_flat_coverage
 from draftwright.linting.gear_coverage import lint_declared_gear_coverage
 from draftwright.linting.hole_coverage import lint_hole_coverage
 from draftwright.linting.issues import LintIssue
+from draftwright.linting.passage_coverage import lint_passage_coverage
 from draftwright.linting.pmi_coverage import (
     lint_pmi_extraction,
     lint_pmi_ignored,
@@ -71,6 +72,7 @@ __all__ = [
     "lint_declared_gear_coverage",
     "lint_slot_coverage",
     "lint_location_coverage",
+    "lint_passage_coverage",
     "lint_pmi_ignored",
     "lint_pmi_extraction",
     "lint_pmi_lowering",

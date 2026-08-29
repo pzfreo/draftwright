@@ -101,6 +101,7 @@ from draftwright.linting import (
     lint_flat_coverage,
     lint_hole_coverage,
     lint_location_coverage,
+    lint_passage_coverage,
     lint_pmi_extraction,
     lint_pmi_ignored,
     lint_pmi_lowering,
@@ -172,6 +173,7 @@ _GEOMETRY_AWARE_CODES = frozenset(
         "feature_not_located",
         "feature_no_centermark",
         "pad_footprint_not_defined",
+        "passage_requirement_unsupported",
         "pocket_not_located",
         "unrecognised_defining_geometry",
         "pmi_not_lowered",
@@ -3409,6 +3411,7 @@ class Drawing:
                 features=getattr(model, "features", ()) if model is not None else (),
                 recognition=recognition,
             )
+            issues += lint_passage_coverage(recognition)
             resolved_assembly = self.assembly
             if resolved_assembly is None:
                 resolved_assembly = len(self.part.solids()) > 1
@@ -3422,6 +3425,7 @@ class Drawing:
                     lint_principal_profile_coverage(
                         self.part,
                         assembly=resolved_assembly,
+                        section_passages=recognition.section_passages,
                     )
                 )
                 profile_cache = (self.part, resolved_assembly, profile_issues)

@@ -37,6 +37,12 @@
 
 ### Changed
 
+- Recognised prismatic passages now fail visibly instead of disappearing into an unscored
+  inventory. Each authoritative `SectionPassage` produces an actionable warning and an
+  `unsupported` completeness outcome; the legacy `Passage` compatibility projection is never
+  double-counted. Draftwright retains the family-level unsupported disposition rather than
+  claiming a regular-polygon callout represents the provider's complete line/arc schema (#1245).
+
 - Declared Double-D bore, countersink, chamfer, fillet, and groove geometry reads now use the
   stable `b123d_recognisers.inspection` namespace from the exact 0.4.5 wheel. A separate
   Draftwright-owned format-1 contract fails closed on changes to the consumed signatures, result

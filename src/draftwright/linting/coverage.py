@@ -606,20 +606,109 @@ def _pair_covers(
     )
 
 
+def _passage_matches_principal_wire(
+    passage,
+    wire,
+    axis: str,
+    plane_axes: tuple[str, str],
+    at: float,
+    tol: float,
+) -> bool:
+    """Whether *wire* is an endpoint of this authoritative Passage record.
+
+    Matching the endpoint geometry, rather than merely noticing that the part has some
+    Passage, lets the specific Passage diagnostic replace the generic profile diagnostic
+    without hiding an unrelated unsupported opening on the same part.
+    """
+
+    try:
+        frame = passage.frame
+        run = tuple(float(value) for value in frame.run)
+        axis_i = "xyz".index(axis)
+        if abs(abs(run[axis_i]) - 1.0) > tol or any(
+            abs(value) > tol for i, value in enumerate(run) if i != axis_i
+        ):
+            return False
+        matching_run = next(
+            (
+                float(run_at)
+                for run_at in passage.run_interval
+                if abs(float(frame.origin[axis_i]) + run[axis_i] * float(run_at) - at)
+                <= max(8 * tol, 1e-3)
+            ),
+            None,
+        )
+        if matching_run is None:
+            return False
+        boundary = tuple(passage.section.boundary)
+        vertices = tuple(wire.vertices())
+        edges = tuple(wire.edges())
+        if len(boundary) != len(vertices) or not boundary:
+            return False
+        if any(edge.geom_type not in (GeomType.LINE, GeomType.CIRCLE) for edge in edges):
+            return False
+        expected_arcs = sum(abs(float(vertex.bulge)) > tol for vertex in boundary)
+        actual_arcs = sum(edge.geom_type == GeomType.CIRCLE for edge in edges)
+        if expected_arcs != actual_arcs:
+            return False
+
+        expected: list[tuple[float, float]] = []
+        for vertex in boundary:
+            section_u, section_v = (float(value) for value in vertex.point)
+            world = tuple(
+                float(frame.origin[i])
+                + run[i] * matching_run
+                + float(frame.u[i]) * section_u
+                + float(frame.v[i]) * section_v
+                for i in range(3)
+            )
+            expected.append(
+                (
+                    world["xyz".index(plane_axes[0])],
+                    world["xyz".index(plane_axes[1])],
+                )
+            )
+        actual = [
+            tuple(float(getattr(vertex, name.upper())) for name in plane_axes)
+            for vertex in vertices
+        ]
+    except (AttributeError, TypeError, ValueError):
+        return False
+
+    match_tol = max(8 * tol, 1e-3)
+    unmatched = list(actual)
+    for point in expected:
+        match = next(
+            (
+                i
+                for i, candidate in enumerate(unmatched)
+                if all(abs(a - b) <= match_tol for a, b in zip(point, candidate, strict=True))
+            ),
+            None,
+        )
+        if match is None:
+            return False
+        unmatched.pop(match)
+    return not unmatched
+
+
 def _supported_inner_profile(
     wire,
     plane_axes: tuple[str, str],
     tol: float,
     *,
     axis: str | None = None,
+    at: float | None = None,
     double_d_bores=(),
+    section_passages=(),
     profile=_UNSET,
 ) -> bool:
-    """Whether an inner boundary loop has a profile the current IR can describe.
+    """Whether an inner boundary loop has a specific semantic owner.
 
     Circular holes, axis-aligned rectangles, true obrounds and proven double-D bores are the
-    supported principal opening vocabulary. The double-D correspondence is delegated to its
-    recogniser's profile reader, so critique cannot accept a shape the IR then omits.
+    supported principal opening vocabulary. An authoritative SectionPassage is also accounted
+    for, but remains unsupported and is reported by ``lint_passage_coverage``. The explicit
+    endpoint match prevents that specific diagnostic from silencing an unrelated profile.
     """
     edges = list(wire.edges())
     if not edges:
@@ -627,6 +716,15 @@ def _supported_inner_profile(
     types = [edge.geom_type for edge in edges]
     wbb = wire.bounding_box()
     ext = {axis: float(getattr(wbb.size, axis.upper())) for axis in plane_axes}
+    if (
+        axis is not None
+        and at is not None
+        and any(
+            _passage_matches_principal_wire(passage, wire, axis, plane_axes, at, tol)
+            for passage in section_passages
+        )
+    ):
+        return True
     profile = double_d_profile(wire, plane_axes, tol=tol) if profile is _UNSET else profile
     if profile is not None and axis is not None:
         axis_i = "xyz".index(axis)
@@ -808,7 +906,7 @@ def _supported_inner_profile(
     return arcs_match(expected, pi * radius / 2.0)
 
 
-def _has_unsupported_principal_inner_profile(part, bbox) -> bool:
+def _has_unsupported_principal_inner_profile(part, bbox, *, section_passages=()) -> bool:
     """Does a principal extremal face prove an internal profile outside the IR vocabulary?"""
     part_extent = (float(bbox.size.X), float(bbox.size.Y), float(bbox.size.Z))
     tol = max(1e-5, max(part_extent) * 1e-5)
@@ -821,7 +919,7 @@ def _has_unsupported_principal_inner_profile(part, bbox) -> bool:
         axis, plane_axes, at = boundary
         for wire in face.inner_wires():
             profile = double_d_profile(wire, plane_axes, tol=tol)
-            wires.append((axis, plane_axes, wire, profile))
+            wires.append((axis, plane_axes, at, wire, profile))
             if profile is not None:
                 openings.append((axis, at, profile, wire))
     double_d_bores = double_d_bores_from_openings(openings, bbox, part=part, tol=tol)
@@ -831,10 +929,12 @@ def _has_unsupported_principal_inner_profile(part, bbox) -> bool:
             plane_axes,
             tol,
             axis=axis,
+            at=at,
             double_d_bores=double_d_bores,
+            section_passages=section_passages,
             profile=profile,
         )
-        for axis, plane_axes, wire, profile in wires
+        for axis, plane_axes, at, wire, profile in wires
     )
 
 
@@ -897,19 +997,26 @@ def _radial_outer_arc_count(part, bbox) -> int | None:
     return best
 
 
-def lint_principal_profile_coverage(part, *, assembly=None) -> list:
+def lint_principal_profile_coverage(part, *, assembly=None, section_passages=()) -> list:
     """Report principal inner or outer profiles outside the current feature vocabulary.
 
     The scan owns its physical extent: there is deliberately no caller-supplied bounding box
     that could narrow the answer. The double-D correspondence is the recogniser's shared pure
-    correspondence proof over openings collected during this scan; lint accepts no foreign
-    aggregate nor reruns a public recogniser. :class:`Drawing` caches the returned issues
-    against the source part identity so repeated lint does not rescan the B-rep.
+    correspondence proof over openings collected during this scan; lint reruns no public
+    recogniser. ``section_passages`` is the explicit projection of the drawing's cached
+    authoritative result used only to replace a matched generic profile finding with the
+    specific unsupported-Passage finding. :class:`Drawing` caches the returned issues against
+    the source part identity so repeated lint does not rescan the B-rep.
     """
     solids = list(part.solids())
     sources = solids if len(solids) > 1 else [part]
     unsupported_inner = any(
-        _has_unsupported_principal_inner_profile(solid, solid.bounding_box()) for solid in sources
+        _has_unsupported_principal_inner_profile(
+            solid,
+            solid.bounding_box(),
+            section_passages=section_passages,
+        )
+        for solid in sources
     )
     radial_arc_count = max(
         (

@@ -80,9 +80,10 @@ The installed `b123d-recognisers==0.4.5` release contains the `passages` family 
 in 0.2.6. Version 0.4.0 makes `SectionPassage` the authoritative physical output and retains
 schema-v1 `Passage` as its compatibility projection. Draftwright declares all six public and nested
 record schemas exhaustively but deliberately keeps the family `unsupported`, with the drafting
-decision tracked by issue #1245. This is a truthful consumer disposition: both aggregate
-inventories are visible and explicitly unscored, while Draftwright does not invent an IR feature,
-DSL declaration, generated code, drawing annotation, or completeness requirement for them.
+decision recorded by issue #1245. This is a truthful consumer disposition: both aggregate
+inventories remain visible, but only authoritative `section_passages` contributes an explicitly
+`unsupported` completeness requirement. Draftwright does not invent an IR feature, DSL
+declaration, generated code, or drawing annotation for either inventory.
 
 The 0.4 contract is explicit:
 
@@ -94,5 +95,9 @@ The 0.4 contract is explicit:
   unsupported Passage family through `SLOT_SUPERSEDED_BY_PASSAGE`.
 
 The exact 0.4.5 pin, manifest-v2 validator and explicit unsupported inventories make that limitation
-fail-visible rather than silently treating rich passages as supported. Issue #1245 still owns the
-decision about what newly Passage-owned occurrences draw and how they participate in completeness.
+fail-visible rather than silently treating rich passages as supported. Draftwright deliberately
+does not claim that a regular-polygon `HEX … A/F THRU` callout covers the complete line/arc section
+schema. Each authoritative `RecognitionResult.section_passages` occurrence therefore emits
+`passage_requirement_unsupported` at warning severity and contributes an `unsupported` requirement
+to the completeness component. The accepted-only legacy `.passages` projection contributes neither
+a second issue nor a second requirement. Issue #1245 records this consumer decision.
