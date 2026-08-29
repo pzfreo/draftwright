@@ -15,6 +15,24 @@ construction recipes and nominal dimensions, not from recogniser output:
   rewritten with the same bijection. This changes file/topology traversal order without changing
   geometry or the oracle.
 
-The `FILE_NAME` timestamp is normalized. `corpus-v1.json` pins every fixture SHA-256 and records
+`corpus-hole-patterns-v1.json` is a separate arrangement corpus. It deliberately scores one
+grouping fact per pattern and does not repeat the member holes' diameters, depths, bottoms or
+individual location requirements, which remain owned by `corpus-v1.json`:
+
+- `pattern-grid.step` starts with a 120 × 100 × 12 mm centred block and subtracts six Ø6 through
+  cylinders at X = (-15, 0, 15) and Y = (-10, 10). The authored arrangement is a 2 × 3 grid with
+  20 mm row pitch and 15 mm column pitch.
+- `pattern-ambiguous.step` starts with an 80 × 50 × 12 mm centred block and subtracts three Ø6
+  through cylinders at X = (-20, 0, 21), Y = 0. Its adjacent gaps are 20 and 21 mm, so it is not a
+  constant-pitch linear array; collinearity also prevents treating the three points as a bolt
+  circle.
+- `pattern-topology-a.step` starts with a 140 × 90 × 12 mm centred block. Four Ø6 through holes
+  form a 32 mm bolt circle centred at (-35, 0), and three Ø4 through holes form an independent
+  vertical linear array at X = 35 with 18 mm pitch.
+- `pattern-topology-b.step` is geometrically identical to `pattern-topology-a.step`; every Part 21
+  entity identifier was bijectively renumbered and the entity records serialized in reverse order,
+  with references rewritten by the same bijection.
+
+The `FILE_NAME` timestamp is normalized. Each corpus manifest pins every fixture SHA-256 and records
 case-level provenance. A changed fixture therefore requires an explicit corpus-version decision;
 regenerating recognition output can never rewrite the expected facts silently.

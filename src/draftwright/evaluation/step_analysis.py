@@ -13,6 +13,11 @@ recognition-to-IR correspondence implementation for all four observations.  It i
 the benchmark denominator: the independently authored corpus remains the only source of
 expected facts.
 
+The hole-pattern slice (#1370) uses the same four boundaries through ``Sheet.pattern`` and the
+existing hole-requirement correspondence. Its separate corpus scores one arrangement fact per
+aggregate pattern. Member diameter/depth/bottom/location requirements stay solely in the hole
+corpus, so the derived N:1 group never becomes a second physical-hole denominator.
+
 Known limit of the drawing observation: it reads the ADR 0010 provenance seam, which
 ``registry.measurement_of`` carries and which is populated one render pass at a time (the set
 of tagged renderers is enumerated by ``tests/test_audit_differential.py``, not by prose here —
@@ -853,7 +858,7 @@ def _declared_hole_model(part, holes):
     return sheet.model()
 
 
-def _generated_hole_model(part, model):
+def _generated_sheet_model(part, model):
     """Execute generated Sheet code through its public declarations and return its IR."""
     from draftwright.sheet_emit import emit_sheet_script
 
@@ -862,6 +867,214 @@ def _generated_hole_model(part, model):
     namespace: dict[str, object] = {"part": part}
     exec(compile(prefix, "<draftwright-evaluation>", "exec"), namespace)  # noqa: S102
     return getattr(namespace["sheet"], "model")()
+
+
+def _pattern_kind(pattern) -> str:
+    if hasattr(pattern, "diameter") and hasattr(pattern, "center"):
+        return "bolt_circle"
+    if hasattr(pattern, "row_pitch"):
+        return "grid"
+    return "linear"
+
+
+def _pattern_members(pattern) -> tuple[tuple[float, float, float], ...]:
+    """Recognition-owned member sites in the production ledger's canonical space."""
+    from draftwright.linting.hole_coverage import canonical_hole_sites
+
+    return canonical_hole_sites(pattern)
+
+
+def _pattern_model_outcomes(patterns, recognition, features) -> list[Outcome]:
+    """Per recognised pattern: does *features* contain one exact IR owner?"""
+    from draftwright.linting.hole_coverage import hole_requirement_outcomes
+    from draftwright.registry import AnnotationRegistry
+
+    outcomes = hole_requirement_outcomes(recognition, features, AnnotationRegistry())
+    by_members: dict[tuple, list] = {}
+    for outcome in outcomes:
+        if outcome.source_kind == "hole_pattern":
+            by_members.setdefault(outcome.members, []).append(outcome)
+    result: list[Outcome] = []
+    for pattern in patterns:
+        matched = by_members.get(_pattern_members(pattern), ())
+        result.append(
+            "supported"
+            if matched and all(len(outcome.features) == 1 for outcome in matched)
+            else "unknown"
+        )
+    return result
+
+
+def _pattern_drawing_outcomes(patterns, drawing) -> list[Outcome]:
+    """Per recognised pattern: did its grouping grammar reach the placed drawing?"""
+    from draftwright.linting.evidence import verify_measurement_claims
+    from draftwright.linting.hole_coverage import hole_requirement_outcomes
+    from draftwright.model.compiled import compile_dimensions
+
+    recognition = drawing.recognition()
+    model = drawing.model()
+    plan = compile_dimensions(model)
+    outcomes = hole_requirement_outcomes(
+        recognition,
+        model.features,
+        drawing.registry,
+        plan.diagnostics,
+    )
+    unconfirmed = {
+        claim.measurement
+        for claim in verify_measurement_claims(drawing.registry, plan)
+        if claim.state != "confirmed" and claim.measurement is not None
+    }
+
+    def rendered_group_count(outcome) -> bool:
+        """Whether the exact owner's count-bearing callout actually renders ``N×``."""
+        for name, annotation in drawing.registry.iter_named():
+            measurements = drawing.registry.measurement_of(name)
+            owns_pattern_diameter = any(
+                getattr(measurement, "feature", None) in outcome.features
+                and str(getattr(measurement, "parameter", "")) == "bore.diameter"
+                for measurement in measurements
+            )
+            if not owns_pattern_diameter:
+                continue
+            if int(getattr(annotation, "covers_count", 1) or 1) != outcome.member_count:
+                continue
+            label = getattr(annotation, "label", None) or getattr(
+                annotation, "_annotate_label", None
+            )
+            match = re.match(r"^\s*(\d+)\s*[×x]\s", str(label or ""))
+            if match is not None and int(match.group(1)) == outcome.member_count:
+                return True
+        return False
+
+    def rendered_interval_count(outcome, expected: int) -> bool:
+        """Whether the exact pitch dimension renders its required interval multiplier."""
+        for name, annotation in drawing.registry.iter_named():
+            owns_pitch = any(
+                getattr(measurement, "feature", None) in outcome.features
+                and str(getattr(measurement, "parameter", "")) == outcome.parameter_id
+                for measurement in drawing.registry.measurement_of(name)
+            )
+            if not owns_pitch:
+                continue
+            label = getattr(annotation, "label", None) or getattr(
+                annotation, "_annotate_label", None
+            )
+            match = re.match(r"^\s*(\d+)\s*[×x]\s", str(label or ""))
+            if match is not None and int(match.group(1)) == expected:
+                return True
+        return False
+
+    def borne_out(outcome, pattern) -> bool:
+        """Whether placed dimensional evidence renders its compiler-approved value."""
+        if outcome.parameter_id == "grouping.count":
+            return rendered_group_count(outcome)
+        value_confirmed = not any(
+            getattr(claim, "feature", None) in outcome.features
+            and str(getattr(claim, "parameter", "")) == outcome.parameter_id
+            for claim in unconfirmed
+        )
+        if not value_confirmed:
+            return False
+        if outcome.parameter_id == "pitch.length":
+            interval_count = len(pattern.holes) - 1
+        elif outcome.parameter_id == "grid_pitch.length.row":
+            interval_count = pattern.rows - 1
+        elif outcome.parameter_id == "grid_pitch.length.col":
+            interval_count = pattern.cols - 1
+        else:
+            interval_count = None
+        return interval_count is None or rendered_interval_count(outcome, interval_count)
+
+    by_members: dict[tuple, list] = {}
+    for outcome in outcomes:
+        if outcome.source_kind == "hole_pattern":
+            by_members.setdefault(outcome.members, []).append(outcome)
+    expected_parameters = {
+        "bolt_circle": {"grouping.count", "bolt_circle.diameter"},
+        "linear": {"grouping.count", "pitch.length"},
+        "grid": {
+            "grouping.count",
+            "grid_pitch.length.row",
+            "grid_pitch.length.col",
+        },
+    }
+    placed = {"placed", "satisfied_by_structured_note"}
+    result: list[Outcome] = []
+    for pattern in patterns:
+        candidates = by_members.get(_pattern_members(pattern), ())
+        relevant = {
+            outcome.parameter_id: outcome
+            for outcome in candidates
+            if outcome.parameter_id in expected_parameters[_pattern_kind(pattern)]
+        }
+        expected = expected_parameters[_pattern_kind(pattern)]
+        if not candidates or any(len(outcome.features) != 1 for outcome in candidates):
+            result.append("unknown")
+        elif set(relevant) != expected or any(
+            outcome.state not in placed or not borne_out(outcome, pattern)
+            for outcome in relevant.values()
+        ):
+            result.append("unsupported")
+        else:
+            result.append("supported")
+    return result
+
+
+def _declared_pattern_model(part, patterns):
+    """Declare observed arrangements through public ``Sheet.pattern`` and return its IR."""
+    from b123d_recognisers import HoleSpec
+
+    from draftwright.model import hole
+    from draftwright.sheet import Sheet
+
+    sheet = Sheet(part)
+    sheet.authored_dimensions()
+
+    def recess(value):
+        return None if value is None else (value.diameter, value.depth)
+
+    for observed in patterns:
+        member = observed.holes[0]
+        spec = HoleSpec.from_hole(member)
+        axis = max(zip("xyz", spec.axis, strict=True), key=lambda item: abs(item[1]))[0]
+        declared_member = hole(
+            diameter=member.diameter,
+            at=member.location,
+            axis=axis,
+            through=spec.bottom == "through",
+            depth=member.depth,
+            cbore=recess(spec.cbore),
+            spotface=recess(spec.spotface),
+            csink=spec.csink,
+        )
+        members = tuple(item.location for item in observed.holes)
+        center = getattr(observed, "center", None)
+        if center is None:
+            center = tuple(
+                sum(point[index] for point in members) / len(members) for index in range(3)
+            )
+        kind = _pattern_kind(observed)
+        kwargs: dict[str, object] = {
+            "kind": kind,
+            "count": len(members),
+            "at": center,
+            "axis": axis,
+            "members": members,
+        }
+        if kind == "bolt_circle":
+            kwargs["bcd"] = observed.diameter
+        elif kind == "linear":
+            kwargs.update(pitch=observed.pitch, direction=observed.direction)
+        else:
+            kwargs.update(
+                grid=(observed.row_pitch, observed.col_pitch),
+                rows=observed.rows,
+                cols=observed.cols,
+                angle=observed.angle,
+            )
+        sheet.pattern(declared_member, **kwargs)
+    return sheet.model()
 
 
 def _default_observers() -> Mapping[str, Observer]:
@@ -948,7 +1161,7 @@ def _default_observers() -> Mapping[str, Observer]:
                     lambda: _hole_model_outcomes(
                         holes,
                         recognition,
-                        _generated_hole_model(part, drawing.model()).features,
+                        _generated_sheet_model(part, drawing.model()).features,
                     ),
                 ),
                 "drawing_consumer": observed_boundary(
@@ -972,7 +1185,107 @@ def _default_observers() -> Mapping[str, Observer]:
             for index, hole in enumerate(holes)
         )
 
-    return {"holes": observe_holes}
+    def observe_hole_patterns(part: object) -> Sequence[ObservedFact]:
+        from draftwright.builder import build_drawing
+
+        try:
+            drawing = build_drawing(part)  # type: ignore[arg-type]
+        except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
+            _log.warning(
+                "evaluation: drawing build failed (%s); scoring hole patterns as unknown", exc
+            )
+            return ()
+        try:
+            recognition = drawing.recognition()
+            if recognition is None:
+                raise ValueError("detected build has no build-owned recognition result")
+            patterns = tuple(recognition.hole_patterns)
+        except Exception as exc:  # noqa: BLE001 — no safe observed numerator remains
+            _log.warning(
+                "evaluation: recognition access failed (%s); observing no hole patterns", exc
+            )
+            return ()
+        unknown: list[Outcome] = ["unknown"] * len(patterns)
+
+        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
+            try:
+                result = observe()
+                if len(result) != len(patterns):
+                    raise ValueError(
+                        f"observed {len(result)} outcomes for {len(patterns)} recognised patterns"
+                    )
+                return result
+            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
+                _log.warning(
+                    "evaluation: %s observation failed (%s); scoring patterns as unknown",
+                    name,
+                    exc,
+                )
+                return list(unknown)
+
+        boundary_outcomes = {
+            "ir_adapter": observed_boundary(
+                "ir_adapter",
+                lambda: _pattern_model_outcomes(patterns, recognition, drawing.model().features),
+            ),
+            "dsl_declaration": observed_boundary(
+                "dsl_declaration",
+                lambda: _pattern_model_outcomes(
+                    patterns,
+                    recognition,
+                    _declared_pattern_model(part, patterns).features,
+                ),
+            ),
+            "generated_code": observed_boundary(
+                "generated_code",
+                lambda: _pattern_model_outcomes(
+                    patterns,
+                    recognition,
+                    _generated_sheet_model(part, drawing.model()).features,
+                ),
+            ),
+            "drawing_consumer": observed_boundary(
+                "drawing_consumer", lambda: _pattern_drawing_outcomes(patterns, drawing)
+            ),
+        }
+
+        def parameters(pattern) -> dict[str, Value]:
+            kind = _pattern_kind(pattern)
+            values: dict[str, Value] = {"count": len(pattern.holes)}
+            if kind == "bolt_circle":
+                values.update(center=pattern.center, diameter=pattern.diameter)
+            elif kind == "linear":
+                values.update(pitch=pattern.pitch, direction=pattern.direction)
+            else:
+                values.update(
+                    rows=pattern.rows,
+                    cols=pattern.cols,
+                    row_pitch=pattern.row_pitch,
+                    col_pitch=pattern.col_pitch,
+                    angle=pattern.angle,
+                    center=pattern.center,
+                )
+            return values
+
+        return tuple(
+            ObservedFact(
+                family="hole-patterns",
+                identity={
+                    "kind": _pattern_kind(pattern),
+                    "members": tuple(
+                        component for point in _pattern_members(pattern) for component in point
+                    ),
+                },
+                parameters=parameters(pattern),
+                downstream={
+                    boundary: boundary_outcomes[boundary][index]
+                    for boundary in _DOWNSTREAM_BOUNDARIES
+                },
+            )
+            for index, pattern in enumerate(patterns)
+        )
+
+    return {"holes": observe_holes, "hole-patterns": observe_hole_patterns}
 
 
 def evaluate_step_corpus(
@@ -984,7 +1297,13 @@ def evaluate_step_corpus(
     """Import every pinned STEP fixture and evaluate normalized family observations."""
     from build123d import import_step
 
-    registered: Mapping[str, Observer] = _default_observers() if observers is None else observers
+    if observers is None:
+        defaults = _default_observers()
+        registered: Mapping[str, Observer] = {
+            family: defaults[family] for family in corpus.scope if family in defaults
+        }
+    else:
+        registered = observers
     missing = set(corpus.scope) - set(registered)
     extra = set(registered) - set(corpus.scope)
     if missing or extra:

@@ -12,9 +12,10 @@ from `RecognitionResult`, `feature_census()`, a capability declaration, or the d
 An observer may only normalize actual evidence; `ObservedFact` deliberately has no oracle/case fact
 identifier. Expected and observed facts are matched by family plus authored physical identity fields.
 
-Format 1 currently proves the `holes` vertical slice. The observer reads released
-`b123d-recognisers` geometry records, builds the drawing, and reads the `drawing_consumer`
-outcome off that build through the ADR 0010 provenance seam.
+Format 1 currently proves independent `holes` and `hole-patterns` vertical slices. Each observer
+reads released `b123d-recognisers` geometry records, builds one drawing, and reads all four
+downstream outcomes from that build through the public IR, `Sheet`, generated-code and ADR 0010
+provenance seams.
 
 Since #1217 that outcome comes from the engine's own requirement ledger
 (`linting.hole_coverage.hole_requirement_outcomes`) rather than from a second correspondence
@@ -23,12 +24,11 @@ both that the engine recorded an annotation as carrying the hole's size *and* th
 renders the value the compiler approved, checked through `linting.evidence`. `unsupported` means
 the requirement was not placed, or the annotation contradicts it. `unknown` means the ledger
 declined to join the hole to a feature without guessing — it scores as a miss, so it is an honest
-label rather than an exemption (#1202, #1206). The
-other three downstream boundaries still come from the independently enforced Draftwright
-capability declaration, which is a claim that a code path exists rather than an
-observation. Adding another family requires its own independently authored fixtures, facts,
-identity fields, observer, downstream evidence, and corpus version change; copying a manifest name
-alone cannot enlarge the denominator.
+label rather than an exemption (#1202, #1206). Pattern arrangement dimensions follow the same
+ledger-pointer rule: placement provenance is insufficient unless the rendered pitch or BCD agrees
+with the compiler-approved value. Adding another family requires its own independently authored
+fixtures, facts, identity fields, observer, downstream evidence, and corpus version change; copying
+a manifest name alone cannot enlarge the denominator.
 
 ## Scores and units
 
@@ -62,16 +62,24 @@ can be complete within the corpus's stated family scope.
 
 ## Corpus and determinism
 
-The initial corpus lives in `tests/fixtures/evaluation/corpus-v1.json`. It contains positive,
-negative, ambiguous, compound, and topology-order-variant cases. Each STEP file is hash-pinned and
-CC0-licensed, and its construction-derived oracle is documented beside it. The topology pair has
-identical geometry and expected facts but bijectively renumbered, reverse-serialized Part 21
-entities. CI runs the same evaluator on every supported Python version; repeated evaluation and the
-pair must produce identical layer results.
+The initial hole corpus lives in `tests/fixtures/evaluation/corpus-v1.json`; the independent
+hole-pattern arrangement corpus lives beside it as `corpus-hole-patterns-v1.json`. Each contains
+positive, negative, ambiguous, compound, and topology-order-variant cases. Every STEP file is
+hash-pinned and CC0-licensed, and its construction-derived oracle is documented beside it. Each
+topology pair has identical geometry and expected facts but bijectively renumbered,
+reverse-serialized Part 21 entities. CI runs the same evaluator on every supported Python version;
+repeated evaluation and each pair must produce identical layer results.
 
 The anti-self-validation mutation replaces the real hole observer with an empty observer. Expected
 facts remain five, matches fall to zero, and recall falls from `1.0` to `0.0`. Weakening or deleting
 a recogniser therefore cannot shrink the benchmark denominator and preserve a perfect result.
+
+The pattern corpus owns one arrangement fact for each accepted group. Its identity contains the
+canonical member sites, while its scored parameters contain only the group grammar: count and BCD,
+linear pitch/direction, or grid rows/columns/pitches/angle/centre. It deliberately does not repeat
+member diameter, depth, bottom or individual-location requirements from the hole corpus. Provider
+patterns must reference the exact accepted aggregate `HoleRecord` members, and those member sets
+must be disjoint, so N:1 grouping cannot become a second physical-hole denominator.
 
 ```python
 from pathlib import Path
