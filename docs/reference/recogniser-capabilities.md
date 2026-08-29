@@ -165,9 +165,27 @@ exact segment-versus-label clearance rather than a false-blocking whole-ink hull
 provider patterns, weakening a nominal or orientation, corrupting a declaration or generated
 script, or deleting/corrupting placed evidence reduces the corresponding independent layer.
 
+## Groove completeness evidence
+
+The `grooves` completeness boundary is independently `supported` from
+`tests/fixtures/evaluation/corpus-grooves-v1.json`. Eight construction-authored cases contribute
+ten physical annular recesses, twenty parameter checks and forty downstream checks. The corpus
+covers a monotonic turned-step negative, all three principal axes, a narrow circlip ownership
+case, equal grooves on separate bodies and a geometrically identical pair created with reversed
+Boolean order.
+
+Axis and the physical axis-line/station anchor identify each occurrence; axial width and floor
+diameter are scored parameters. Each source must join exactly one `GrooveFeature` through
+automatic IR, public `Sheet.groove`, executed generated Sheet code and one placed semantic
+`{width} WIDE × ø{diameter}` callout carrying both compiler identities. Raw boss and turned-step
+inventories may see a reduced band, but Draftwright suppresses that floor from their IR paths so
+its diameter is drafted once. Removing provider grooves, changing width/diameter/axis/location,
+corrupting declaration or generated code, or severing either measurement claim reduces the
+corresponding independent layer.
+
 Remaining supported-family completeness work is tracked by family group rather than the closed
 shared design issue: #1370 retains countersinks and Double-D bores; #1371 covers
-channels, slots, slot patterns and polygonal stock; #1372 retains grooves, rectangular pads and
+channels, slots, slot patterns and polygonal stock; #1372 retains rectangular pads and
 polygonal bosses; #1373 covers plates, face levels and risers; and
 #1374 covers turned steps, chamfers and fillets.
 

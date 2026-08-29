@@ -33,6 +33,11 @@ The pocket-pattern slice (#1372) counts one grouped physical arrangement, never 
 pockets again. Its width, length, depth, count, lattice and centre are observed through the same
 four boundaries, including exact count/pitch/location ink backed by compiler provenance.
 
+The groove slice (#1372) counts one annular recess at each turning-axis station. Axis and physical
+anchor identify the occurrence; axial width and floor diameter are scored parameters and required
+drawing measurements. The drawing observation requires both compiler-approved identities on one
+exact semantic ``WIDE × ø`` callout, while the corpus remains independent of recognition output.
+
 Known limit of the drawing observation: it reads the ADR 0010 provenance seam, which
 ``registry.measurement_of`` carries and which is populated one render pass at a time (the set
 of tagged renderers is enumerated by ``tests/test_audit_differential.py``, not by prose here —
@@ -79,7 +84,7 @@ import json
 import logging
 import re
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from hashlib import sha256
 from math import isfinite
 from pathlib import Path
@@ -103,6 +108,14 @@ _DOWNSTREAM_BOUNDARIES = frozenset(
 
 class CorpusError(ValueError):
     """The independent benchmark corpus is malformed or its evidence changed."""
+
+
+class ObservationError(RuntimeError):
+    """A family observer could not distinguish an honest empty inventory from failure."""
+
+    def __init__(self, family: str, message: str) -> None:
+        super().__init__(message)
+        self.family = family
 
 
 @dataclass(frozen=True)
@@ -1233,6 +1246,223 @@ def _declared_flat_model(part, flats):
     return sheet.model()
 
 
+def _groove_point(groove) -> tuple[float, float, float]:
+    point = getattr(groove, "at", None)
+    if point is None:
+        point = groove.frame.origin
+    return tuple(round(float(component), 3) for component in point)  # type: ignore[return-value]
+
+
+def _groove_identity(groove) -> tuple[str, tuple[float, float, float]]:
+    return str(groove.axis), _groove_point(groove)
+
+
+def _groove_parameters(groove) -> dict[str, Value]:
+    return {
+        "width": round(float(groove.width), 3),
+        "diameter": round(float(groove.diameter), 3),
+    }
+
+
+def _groove_correspondence(grooves, recognition, features, registry=None, omissions=()):
+    """Per physical groove, retain exact IR and production-ledger evidence."""
+    from draftwright.linting.groove_coverage import groove_requirement_outcomes
+    from draftwright.registry import AnnotationRegistry
+
+    ledger = groove_requirement_outcomes(
+        recognition,
+        features,
+        AnnotationRegistry() if registry is None else registry,
+        omissions,
+    )
+    by_at: dict[tuple[float, float, float], list] = {}
+    for outcome in ledger:
+        by_at.setdefault(outcome.source_at, []).append(outcome)
+    result = []
+    expected_ids = {"groove.length", "groove.diameter"}
+    for source in grooves:
+        candidates = [
+            outcome
+            for outcome in by_at.get(_groove_point(source), ())
+            if outcome.features
+            and _groove_identity(outcome.features[0]) == _groove_identity(source)
+            and _groove_parameters(outcome.features[0]) == _groove_parameters(source)
+        ]
+        candidate_features = tuple(
+            dict.fromkeys(feature for outcome in candidates for feature in outcome.features)
+        )
+        exact = (
+            len(candidate_features) == 1
+            and len(candidates) == 2
+            and {outcome.parameter_id for outcome in candidates} == expected_ids
+            and all(outcome.features == candidate_features for outcome in candidates)
+        )
+        result.append((exact, candidate_features, tuple(candidates)))
+    return result
+
+
+def _groove_model_outcomes(grooves, recognition, features) -> list[Outcome]:
+    return [
+        "supported" if exact else "unknown"
+        for exact, _features, _outcomes in _groove_correspondence(grooves, recognition, features)
+    ]
+
+
+def _groove_expected_tolerance_suffix(tolerance, draft) -> str:
+    """Independently state the callout tolerance grammar used by the evidence oracle.
+
+    This deliberately does not call the production formatter: otherwise a renderer regression
+    changes both the ink and its expected answer and the completeness metric certifies itself.
+    """
+    from draftwright.fits import FitClass
+
+    if tolerance is None:
+        return ""
+    if isinstance(tolerance, FitClass):
+        if tolerance.show == "class":
+            return f" {tolerance.code}"
+
+        def deviation(value: float) -> str:
+            if abs(value) < 5e-5:
+                return "0"
+            text = f"{value:+.4f}"
+            return text[:-1] if text.endswith("0") else text
+
+        return f" {deviation(tolerance.upper)}/{deviation(tolerance.lower)}"
+    precision = draft.decimal_precision
+    if isinstance(tolerance, (int, float)):
+        return f" ±{round(tolerance, precision):.{precision}f}"
+    lower, upper = tolerance
+    return f" +{round(upper, precision):.{precision}f} -{round(lower, precision):.{precision}f}"
+
+
+def _groove_drawing_outcomes(grooves, drawing) -> list[Outcome]:
+    """Verify both exact measurement identities on one compiler-approved groove callout."""
+    from draftwright.linting.evidence import verify_measurement_claims
+    from draftwright.model.compiled import compile_dimensions
+
+    recognition = drawing.recognition()
+    model = drawing.model()
+    plan = compile_dimensions(model)
+    correspondence = _groove_correspondence(
+        grooves,
+        recognition,
+        model.features,
+        drawing.registry,
+        plan.diagnostics,
+    )
+    confirmed: dict[tuple[object, str], set[str]] = {}
+    for claim in verify_measurement_claims(drawing.registry, plan):
+        measurement = claim.measurement
+        if claim.state != "confirmed" or measurement is None:
+            continue
+        key = (
+            getattr(measurement, "feature", None),
+            str(getattr(measurement, "parameter", "")),
+        )
+        confirmed.setdefault(key, set()).add(claim.annotation)
+
+    expected_labels: dict[object, str] = {}
+    for group in plan.of_kind("groove"):
+        by_parameter = {
+            str(approved.id.parameter): approved
+            for approved in group.dims
+            if approved.id is not None
+        }
+        width = by_parameter.get("groove.length")
+        diameter = by_parameter.get("groove.diameter")
+        if width is None or diameter is None or width.id is None:
+            continue
+        width_text = width.value_text + _groove_expected_tolerance_suffix(
+            width.tolerance, drawing.draft
+        )
+        diameter_text = diameter.value_text + _groove_expected_tolerance_suffix(
+            diameter.tolerance, drawing.draft
+        )
+        expected_labels[width.id.feature] = f"{width_text} WIDE × ø{diameter_text}"
+
+    def rendered_label(name: str) -> str | None:
+        annotation = drawing.registry.named(name)
+        label = getattr(annotation, "label", None) or getattr(annotation, "_annotate_label", None)
+        return label if isinstance(label, str) else None
+
+    def leader_targets_groove(name: str, feature) -> bool:
+        """Observe the live arrow tip at the feature's projected profile-view station.
+
+        Semantic correspondence is already established above from provider and IR facts.  This
+        page-space comparison is therefore rendered-evidence validation, never feature identity:
+        retained registry metadata and correct text cannot certify a leader moved onto plain stock.
+        """
+        # Observe the drafting fact instead of re-spelling or importing the renderer's routing
+        # table: a profile projection preserves displacement along the groove's shaft axis.
+        # Prefer front when both principal profiles preserve it, matching the drawing convention.
+        # A mutation of the renderer's mutable routing can therefore move only the production
+        # ink; it cannot rewrite this evidence oracle along with the finished drawing.
+        try:
+            origin = tuple(float(value) for value in feature.frame.origin)
+            displaced = list(origin)
+            displaced["xyz".index(feature.axis)] += 1.0
+            expected_view = next(
+                view
+                for view in ("front", "side")
+                if any(
+                    abs(float(projected) - float(start)) > 1e-9
+                    for projected, start in zip(
+                        drawing.at(view, *displaced)[:2],
+                        drawing.at(view, *origin)[:2],
+                        strict=True,
+                    )
+                )
+            )
+        except (KeyError, StopIteration, ValueError):
+            expected_view = None
+        if expected_view is None or drawing.registry.view_of(name) != expected_view:
+            return False
+        annotation = drawing.registry.named(name)
+        try:
+            tip = annotation.tip
+            expected = drawing.at(expected_view, *feature.frame.origin)
+            return len(tip) >= 2 and all(
+                abs(float(tip[index]) - float(expected[index])) <= 1e-6 for index in range(2)
+            )
+        except Exception:  # noqa: BLE001 — malformed finished ink cannot earn credit
+            return False
+
+    result: list[Outcome] = []
+    for exact, features, outcomes in correspondence:
+        if not exact or len(features) != 1:
+            result.append("unknown")
+            continue
+        feature = features[0]
+        names = set.intersection(
+            *(confirmed.get((feature, outcome.parameter_id), set()) for outcome in outcomes)
+        )
+        supported = all(outcome.state == "placed" for outcome in outcomes) and any(
+            drawing.registry.feature_of(name) == feature
+            and rendered_label(name) == expected_labels.get(feature)
+            and leader_targets_groove(name, feature)
+            for name in names
+        )
+        result.append("supported" if supported else "unsupported")
+    return result
+
+
+def _declared_groove_model(part, grooves):
+    """Declare observed grooves through public ``Sheet.groove`` and return its IR."""
+    from draftwright.sheet import Sheet
+
+    sheet = Sheet(part)
+    sheet.authored_dimensions()
+    for observed in grooves:
+        sheet.groove(
+            axis=observed.axis,
+            width=observed.width,
+            diameter=observed.diameter,
+            at=observed.at,
+        )
+    return sheet.model()
+
+
 def _pocket_point(pocket) -> tuple[float, float, float]:
     point = getattr(pocket, "location", None)
     if point is None:
@@ -2082,6 +2312,80 @@ def _default_observers() -> Mapping[str, Observer]:
             for index, (identity, members) in enumerate(groups)
         )
 
+    def observe_grooves(part: object) -> Sequence[ObservedFact]:
+        from draftwright.builder import build_drawing
+
+        try:
+            drawing = build_drawing(part)  # type: ignore[arg-type]
+        except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
+            _log.warning("evaluation: drawing build failed (%s); scoring grooves as unknown", exc)
+            raise ObservationError("grooves", f"drawing build failed: {exc}") from exc
+        try:
+            recognition = drawing.recognition()
+            if recognition is None:
+                raise ValueError("detected build has no build-owned recognition result")
+            grooves = tuple(recognition.grooves)
+        except Exception as exc:  # noqa: BLE001 — no safe observed numerator remains
+            _log.warning("evaluation: recognition access failed (%s); observing no grooves", exc)
+            raise ObservationError("grooves", f"recognition access failed: {exc}") from exc
+        unknown: list[Outcome] = ["unknown"] * len(grooves)
+
+        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
+            try:
+                result = observe()
+                if len(result) != len(grooves):
+                    raise ValueError(
+                        f"observed {len(result)} outcomes for {len(grooves)} physical grooves"
+                    )
+                return result
+            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
+                _log.warning(
+                    "evaluation: %s observation failed (%s); scoring grooves as unknown",
+                    name,
+                    exc,
+                )
+                return list(unknown)
+
+        boundary_outcomes = {
+            "ir_adapter": observed_boundary(
+                "ir_adapter",
+                lambda: _groove_model_outcomes(grooves, recognition, drawing.model().features),
+            ),
+            "dsl_declaration": observed_boundary(
+                "dsl_declaration",
+                lambda: _groove_model_outcomes(
+                    grooves,
+                    recognition,
+                    _declared_groove_model(part, grooves).features,
+                ),
+            ),
+            "generated_code": observed_boundary(
+                "generated_code",
+                lambda: _groove_model_outcomes(
+                    grooves,
+                    recognition,
+                    _generated_sheet_model(part, drawing.model()).features,
+                ),
+            ),
+            "drawing_consumer": observed_boundary(
+                "drawing_consumer", lambda: _groove_drawing_outcomes(grooves, drawing)
+            ),
+        }
+
+        return tuple(
+            ObservedFact(
+                family="grooves",
+                identity={"axis": identity[0], "location": identity[1]},
+                parameters=_groove_parameters(groove),
+                downstream={
+                    boundary: boundary_outcomes[boundary][index]
+                    for boundary in _DOWNSTREAM_BOUNDARIES
+                },
+            )
+            for index, groove in enumerate(grooves)
+            for identity in (_groove_identity(groove),)
+        )
+
     def observe_pockets(part: object) -> Sequence[ObservedFact]:
         from draftwright.builder import build_drawing
 
@@ -2287,6 +2591,7 @@ def _default_observers() -> Mapping[str, Observer]:
 
     return {
         "flats": observe_flats,
+        "grooves": observe_grooves,
         "holes": observe_holes,
         "hole-patterns": observe_hole_patterns,
         "pocket-patterns": observe_pocket_patterns,
@@ -2324,16 +2629,36 @@ def evaluate_step_corpus(
     evaluations = []
     for case in corpus.cases:
         part = import_step(case.provenance["fixture"])
-        observations = tuple(
-            observation for family in corpus.scope for observation in registered[family](part)
-        )
-        evaluations.append(
-            evaluate_case(
-                case,
-                observations=observations,
-                outcome=resolved_outcomes.get(case.case_id, "supported"),
+        failure: ObservationError | None = None
+        try:
+            observations = tuple(
+                observation for family in corpus.scope for observation in registered[family](part)
             )
+        except ObservationError as exc:
+            failure = exc
+            observations = ()
+        evaluation = evaluate_case(
+            case,
+            observations=observations,
+            outcome=(
+                "unknown"
+                if failure is not None
+                else resolved_outcomes.get(case.case_id, "supported")
+            ),
         )
+        if failure is not None:
+            evaluation = replace(
+                evaluation,
+                diagnostics=(
+                    Diagnostic(
+                        "analysis",
+                        failure.family,
+                        f"observer failed: {failure}",
+                    ),
+                    *evaluation.diagnostics,
+                ),
+            )
+        evaluations.append(evaluation)
     return evaluate_corpus(evaluations, corpus_version=corpus.corpus_version)
 
 
@@ -2348,6 +2673,7 @@ __all__ = [
     "ExpectedFact",
     "LayerScore",
     "ObservedFact",
+    "ObservationError",
     "ParameterExpectation",
     "evaluate_case",
     "evaluate_corpus",

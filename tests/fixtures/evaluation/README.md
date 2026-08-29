@@ -94,6 +94,23 @@ their member pockets. Its construction facts are independent of recognition outp
   every Part 21 entity identifier was bijectively renumbered and the entity records serialized in
   reverse order, with references rewritten by the same bijection.
 
+`corpus-grooves-v1.json` is a separate physical turned-groove corpus. Each annular recess owns
+one axial-width requirement and one floor-diameter requirement:
+
+- `groove-monotonic-negative.step` joins diameter 20 and diameter 16 shaft segments with one
+  monotonic shoulder, so TurnedStep—not Groove—owns the geometry.
+- `groove-lone-z.step` cuts one 4 mm wide band to a diameter 16 floor in a diameter 20 shaft.
+- `groove-lone-x.step` and `groove-lone-y.step` rigidly rotate that construction onto the other
+  two principal axes without changing its physical measurements.
+- `groove-narrow.step` cuts a 1 mm wide circlip band to diameter 18. The reduced band is present
+  in raw boss and turned-step inventories, but the aggregate Draftwright model gives its width
+  and floor diameter to the Groove callout once.
+- `groove-compound.step` contains two disjoint parallel shafts with equal grooves at distinct
+  axis lines and stations, so equal sizes cannot collapse into one occurrence.
+- `groove-topology-a.step` cuts distinct grooves centred at Z=-15 and Z=16 in that order;
+  `groove-topology-b.step` applies the same two Boolean cuts in reverse order. Their STEP hashes
+  differ while their geometry and independently authored groove facts are identical.
+
 The `FILE_NAME` timestamp is normalized. Each corpus manifest pins every fixture SHA-256 and records
 case-level provenance. A changed fixture therefore requires an explicit corpus-version decision;
 regenerating recognition output can never rewrite the expected facts silently.

@@ -67,6 +67,12 @@
   member pockets. Diagonal pocket-pattern dimensions use exact label-ink clearance instead of a
   false-blocking hull; generated code preserves the member opening side and grouped callouts
   retain structured count provenance (#1372).
+- Groove completeness is now supported by an independently authored STEP corpus covering a
+  monotonic-step negative, all principal axes, a narrow circlip ownership contest, equal grooves
+  on separate bodies and reversed Boolean order. Each physical groove's width and floor diameter
+  pass independently through automatic IR, public `Sheet.groove`, executed generated code and
+  one exact compiler-backed `WIDE × ø` callout; mutations prove that recognition, identity,
+  parameters, provenance and printed syntax cannot disappear without lowering evidence (#1372).
 
 - Recognised angled blind steps now fail visibly instead of remaining an undecided inventory.
   Each aggregate-reconciled `AngledStep` produces an actionable warning and one `unsupported`
