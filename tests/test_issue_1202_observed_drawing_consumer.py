@@ -17,9 +17,9 @@ detect it.
 
 `drawing_consumer` is now derived from a real build: did this hole's size reach the sheet,
 by either sanctioned route — an `hc_*` callout, or the hole TABLE the engine substitutes
-above ~16 scattered holes. The other three boundaries remain declared and are tracked
-separately; they are the same shape one layer along, and pretending otherwise here would be
-its own overclaim.
+above ~16 scattered holes. #1369 later made the other three boundaries observed through
+their own IR, public Sheet-declaration and executed generated-code seams. They remain
+independent of drawing ink, which the regression below now states directly.
 
 `unknown` means no IR feature accounts for the hole. It is an honest label, not an
 exemption: `evaluate_case` credits a unit only when the state is `supported`, so downstream
@@ -572,12 +572,11 @@ class TestTheCorpusScoreMovesWithTheDrawing:
         )
 
 
-class TestTheRemainingBoundariesAreStillDeclared:
-    """Stated, not hidden. Three boundaries are still scored from a capability
-    declaration, and a reader must not infer from this PR that all four are observed."""
+class TestTheOtherBoundariesDoNotDependOnDrawingInk:
+    """Breaking drawing provenance must not falsify three separately observed artifacts."""
 
     @pytest.mark.parametrize("boundary", ["ir_adapter", "dsl_declaration", "generated_code"])
-    def test_a_declared_boundary_does_not_move_with_the_drawing(self, boundary, monkeypatch):
+    def test_an_independent_boundary_does_not_move_with_the_drawing(self, boundary, monkeypatch):
         from draftwright.evaluation.step_analysis import _default_observers
         from draftwright.registry import AnnotationRegistry
 

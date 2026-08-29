@@ -122,24 +122,56 @@ def _supported(implementation: str, evidence: str) -> dict[str, Any]:
     return {"state": "supported", "implementation": implementation, "evidence": [evidence]}
 
 
-def _deferred_completeness() -> dict[str, Any]:
+_COMPLETENESS_TRACKING = {
+    "chamfers": 1374,
+    "channels": 1371,
+    "countersinks": 1370,
+    "double-d-bores": 1370,
+    "face-levels": 1373,
+    "fillets": 1374,
+    "flats": 1371,
+    "grooves": 1372,
+    "hole-patterns": 1370,
+    "holes": 1369,
+    "plates": 1373,
+    "pocket-patterns": 1372,
+    "pockets": 1372,
+    "polygonal-bosses": 1372,
+    "polygonal-stock": 1371,
+    "rectangular-pads": 1372,
+    "risers": 1373,
+    "slot-patterns": 1371,
+    "slots": 1371,
+    "turned-steps": 1374,
+}
+
+
+def _deferred_completeness(family_id: str) -> dict[str, Any]:
     return {
         "state": "deferred",
         "rationale": (
             "The feature is consumed for drafting, but evidence-based completeness scoring is "
             "being specified separately rather than inferred from annotation presence."
         ),
-        "tracking": "https://github.com/pzfreo/draftwright/issues/1169",
+        "tracking": (
+            f"https://github.com/pzfreo/draftwright/issues/{_COMPLETENESS_TRACKING[family_id]}"
+        ),
     }
 
 
 def _family_declaration(family_id: str, spec: _FamilySpec) -> dict[str, Any]:
-    completeness = _deferred_completeness()
     if family_id == "bosses":
         completeness = _supported(
             "draftwright.linting.coverage.lint_boss_height_coverage",
             "tests/test_issue_885_prismatic_coverage.py",
         )
+    elif family_id == "holes":
+        completeness = _supported(
+            "draftwright.evaluation.step_analysis.evaluate_step_corpus",
+            "tests/test_issue_1369_hole_completeness_evidence.py",
+        )
+    else:
+        completeness = _deferred_completeness(family_id)
     return {
         "id": family_id,
         "record_schemas": _record_schema_versions(family_id, spec.records),
@@ -331,6 +363,19 @@ def consumer_capability_declaration() -> dict[str, Any]:
                 "from": "deferred",
                 "release_notes": "CHANGELOG.md",
                 "to": "unsupported",
+                "version": distribution_version("draftwright"),
+            },
+            {
+                "boundary": "completeness",
+                "compatibility_evidence": [
+                    "tests/test_issue_1369_hole_completeness_evidence.py",
+                    "tests/test_recogniser_capabilities.py",
+                    "tests/test_step_analysis_evaluation.py",
+                ],
+                "family": "holes",
+                "from": "deferred",
+                "release_notes": "CHANGELOG.md",
+                "to": "supported",
                 "version": distribution_version("draftwright"),
             },
             {
