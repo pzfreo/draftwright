@@ -46,6 +46,7 @@ from draftwright.linting.pmi_coverage import (
     pmi_stage_summary,
 )
 from draftwright.linting.polygonal_stock_coverage import lint_polygonal_stock_coverage
+from draftwright.linting.prismatic_pocket_coverage import lint_prismatic_pocket_coverage
 from draftwright.linting.profiled_bore_coverage import lint_profiled_bore_coverage
 from draftwright.linting.slot_coverage import lint_slot_coverage
 from draftwright.linting.structural import is_dimension_like, lint_drawing
@@ -61,6 +62,7 @@ __all__ = [
     "verify_measurement_claims",
     "lint_hole_coverage",
     "lint_polygonal_stock_coverage",
+    "lint_prismatic_pocket_coverage",
     "_suggest_fix",
     "lint_axial_coverage",
     "lint_boss_height_coverage",

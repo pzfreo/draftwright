@@ -109,6 +109,7 @@ from draftwright.linting import (
     lint_polygonal_stock_coverage,
     lint_principal_profile_coverage,
     lint_prismatic_coverage,
+    lint_prismatic_pocket_coverage,
     lint_profiled_bore_coverage,
     lint_slot_coverage,
     pmi_stage_summary,
@@ -174,6 +175,7 @@ _GEOMETRY_AWARE_CODES = frozenset(
         "feature_no_centermark",
         "pad_footprint_not_defined",
         "passage_requirement_unsupported",
+        "prismatic_pocket_requirement_unsupported",
         "pocket_not_located",
         "unrecognised_defining_geometry",
         "pmi_not_lowered",
@@ -3412,6 +3414,7 @@ class Drawing:
                 recognition=recognition,
             )
             issues += lint_passage_coverage(recognition)
+            issues += lint_prismatic_pocket_coverage(recognition)
             resolved_assembly = self.assembly
             if resolved_assembly is None:
                 resolved_assembly = len(self.part.solids()) > 1
@@ -3425,6 +3428,7 @@ class Drawing:
                     lint_principal_profile_coverage(
                         self.part,
                         assembly=resolved_assembly,
+                        prismatic_pockets=recognition.prismatic_pockets,
                         section_passages=recognition.section_passages,
                     )
                 )

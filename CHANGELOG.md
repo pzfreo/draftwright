@@ -37,6 +37,11 @@
 
 ### Changed
 
+- Aggregate-reconciled `PrismaticPocket` occurrences now fail visibly instead of
+  remaining an unscored inventory. Each produces an actionable warning and one `unsupported`
+  completeness outcome, without repeating the provider's cross-family reconciliation or
+  inventing width/length, across-flats, IR, Sheet, generated-code, or annotation semantics (#1246).
+
 - Recognised prismatic passages now fail visibly instead of disappearing into an unscored
   inventory. Each authoritative `SectionPassage` produces an actionable warning and an
   `unsupported` completeness outcome; the legacy `Passage` compatibility projection is never

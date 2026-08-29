@@ -102,6 +102,7 @@ _RECOGNISED_REQUIREMENT_FAMILIES = {
     "grooves": "grooves",
     "flats": "flats",
     "pockets": "pockets",
+    "prismatic_pockets": "prismatic_pockets",
     "pocket_patterns": "pocket_patterns",
     "pads": "pads",
     "repeating_radial_profiles": "repeating_radial_profiles",
@@ -142,12 +143,11 @@ _NON_REQUIREMENT_INVENTORIES = frozenset(
 #: merging them would let an undecided family look settled (#1244).
 #:
 #: The effect on the score is deliberate and worth stating: a drawing that omits a recognised
-#: prismatic pocket or angled step scores complete today. That is a blind spot — the register is
-#: what stops it being a silent one, and closing each issue closes the gap. Passage left this
-#: register when #1245 gave every authoritative occurrence an unsupported outcome.
+#: angled step scores complete today. That is a blind spot — the register is what stops it being
+#: a silent one, and closing the issue closes the gap. Passage and PrismaticPocket left this
+#: register when #1245/#1246 gave every authoritative occurrence an unsupported outcome.
 _UNDECIDED_INVENTORIES: dict[str, str] = {
     "angled_steps": "https://github.com/pzfreo/draftwright/issues/1247",
-    "prismatic_pockets": "https://github.com/pzfreo/draftwright/issues/1246",
 }
 
 _AUDITED_FAMILIES = (
@@ -157,6 +157,7 @@ _AUDITED_FAMILIES = (
     "holes",
     "passages",
     "polygonal_stock",
+    "prismatic_pockets",
     "slot_patterns",
     "slots",
 )
@@ -298,6 +299,7 @@ _UNSCORED_CODES = frozenset(
         "step_dim_withheld",
         "pattern_pitch_tolerance_withheld",
         "passage_requirement_unsupported",
+        "prismatic_pocket_requirement_unsupported",
         "pocket_not_located",
         "step_position_coincident_with_datum",
         # Neither confirmed nor refuted: the annotation renders no readable text, or the
@@ -599,13 +601,18 @@ def _completeness_component(recognition, features, registry, omissions, issues) 
             counts[outcome.state] += requirement_count
             family_count += requirement_count
         by_family[family] = family_count
-    # A recognised Passage is dimension-relevant physical evidence with an explicit
-    # unsupported outcome. Count only the authoritative rich inventory; the accepted-only
-    # legacy projection may contain the same occurrences and is never a second requirement.
-    passage_count = len(getattr(recognition, "section_passages", ()))
-    if passage_count:
-        counts["unsupported"] += passage_count
-        by_family["passages"] = passage_count
+    # These recognised physical occurrences have reviewed, explicit unsupported outcomes.  The
+    # Passage count uses only its authoritative rich inventory; the legacy projection is never a
+    # second requirement. PrismaticPocket uses the aggregate-reconciled inventory, after
+    # candidates also claimed by Pocket have yielded to that family.
+    for family, inventory in (
+        ("passages", "section_passages"),
+        ("prismatic_pockets", "prismatic_pockets"),
+    ):
+        unsupported_count = len(getattr(recognition, inventory, ()))
+        if unsupported_count:
+            counts["unsupported"] += unsupported_count
+            by_family[family] = unsupported_count
     requirements = sum(counts.values())
     recognised = {
         family

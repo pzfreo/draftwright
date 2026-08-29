@@ -194,8 +194,60 @@ def test_rich_passage_contract_has_an_explicit_unsupported_completeness_outcome(
             "release_notes": "CHANGELOG.md",
             "to": "unsupported",
             "version": importlib.metadata.version("draftwright"),
-        }
+        },
+        {
+            "boundary": "completeness",
+            "compatibility_evidence": [
+                "tests/test_issue_1246_prismatic_pocket_disposition.py",
+                "tests/test_recogniser_capabilities.py",
+            ],
+            "family": "prismatic-pockets",
+            "from": "deferred",
+            "release_notes": "CHANGELOG.md",
+            "to": "unsupported",
+            "version": importlib.metadata.version("draftwright"),
+        },
     ]
+
+
+def test_prismatic_pocket_contract_has_an_explicit_unsupported_completeness_outcome() -> None:
+    """Pin aggregate ownership and the arbitrary-polygon boundary to one decision."""
+
+    package = _families(recognition.capability_manifest())["prismatic-pockets"]
+    consumer = _families(consumer_capability_declaration())["prismatic-pockets"]
+
+    assert package["introduced_in"] == "0.2.6"
+    assert package["census_output"] == "RecognitionResult.prismatic_pockets"
+    assert len(package["records"]) == 1
+    record = package["records"][0]
+    assert record["name"] == "PrismaticPocket"
+    assert record["role"] == "output"
+    assert record["schema_version"] == 1
+    assert record["aggregate_membership"] == ["RecognitionResult.prismatic_pockets"]
+    assert consumer["record_schemas"] == {"PrismaticPocket": [1]}
+    assert consumer["disposition"] == "unsupported"
+    assert consumer["tracking"] == "https://github.com/pzfreo/draftwright/issues/1246"
+    assert {
+        consumer[name]["state"]
+        for name in (
+            "ir_adapter",
+            "dsl_declaration",
+            "generated_code",
+            "drawing_consumer",
+        )
+    } == {"unsupported"}
+    assert consumer["completeness"] == {
+        "state": "unsupported",
+        "rationale": (
+            "Every aggregate-reconciled PrismaticPocket occurrence produces a warning and an "
+            "unsupported completeness outcome; no polygonal drafting grammar is invented."
+        ),
+    }
+    assert consumer["documentation"] == {
+        "state": "supported",
+        "evidence": ["docs/reference/recogniser-capabilities.md"],
+    }
+    assert "prismatic-pockets" not in pending_family_declarations()
 
 
 def test_runtime_adapter_inventory_is_derived_independently_and_exhaustive() -> None:

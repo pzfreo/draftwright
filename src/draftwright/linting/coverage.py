@@ -692,6 +692,67 @@ def _passage_matches_principal_wire(
     return not unmatched
 
 
+def _prismatic_pocket_matches_principal_wire(
+    pocket,
+    wire,
+    axis: str,
+    plane_axes: tuple[str, str],
+    at: float,
+    tol: float,
+) -> bool:
+    """Whether *wire* is the open mouth of *pocket* on this principal face.
+
+    ``PrismaticPocket.section`` is expressed in the two non-depth axes, in axis order.  The
+    aggregate has already removed candidates also owned by ``Pocket``; this correlation
+    only replaces the generic unsupported-profile report for the exact surviving polygonal
+    recess.  It does not perform cross-family reconciliation itself.
+    """
+
+    try:
+        if pocket.axis != axis:
+            return False
+        axis_i = "xyz".index(axis)
+        open_sign = int(pocket.open_sign)
+        if open_sign not in (-1, 1):
+            return False
+        mouth = float(pocket.at[axis_i]) + open_sign * float(pocket.depth) / 2
+        match_tol = max(8 * tol, 1e-3)
+        if abs(mouth - at) > match_tol:
+            return False
+        section = tuple(tuple(float(value) for value in point) for point in pocket.section)
+        vertices = tuple(wire.vertices())
+        edges = tuple(wire.edges())
+        if (
+            not section
+            or int(pocket.sides) != len(section)
+            or len(section) != len(vertices)
+            or len(edges) != len(section)
+            or any(edge.geom_type != GeomType.LINE for edge in edges)
+        ):
+            return False
+        actual = [
+            tuple(float(getattr(vertex, name.upper())) for name in plane_axes)
+            for vertex in vertices
+        ]
+    except (AttributeError, TypeError, ValueError):
+        return False
+
+    unmatched = list(actual)
+    for point in section:
+        match = next(
+            (
+                i
+                for i, candidate in enumerate(unmatched)
+                if all(abs(a - b) <= match_tol for a, b in zip(point, candidate, strict=True))
+            ),
+            None,
+        )
+        if match is None:
+            return False
+        unmatched.pop(match)
+    return not unmatched
+
+
 def _supported_inner_profile(
     wire,
     plane_axes: tuple[str, str],
@@ -700,15 +761,17 @@ def _supported_inner_profile(
     axis: str | None = None,
     at: float | None = None,
     double_d_bores=(),
+    prismatic_pockets=(),
     section_passages=(),
     profile=_UNSET,
 ) -> bool:
     """Whether an inner boundary loop has a specific semantic owner.
 
     Circular holes, axis-aligned rectangles, true obrounds and proven double-D bores are the
-    supported principal opening vocabulary. An authoritative SectionPassage is also accounted
-    for, but remains unsupported and is reported by ``lint_passage_coverage``. The explicit
-    endpoint match prevents that specific diagnostic from silencing an unrelated profile.
+    supported principal opening vocabulary. Authoritative SectionPassage and aggregate-
+    reconciled PrismaticPocket occurrences are also accounted for, but remain unsupported and
+    are reported by their specific coverage checks. Exact boundary matching prevents either
+    diagnostic from silencing an unrelated profile.
     """
     edges = list(wire.edges())
     if not edges:
@@ -716,6 +779,15 @@ def _supported_inner_profile(
     types = [edge.geom_type for edge in edges]
     wbb = wire.bounding_box()
     ext = {axis: float(getattr(wbb.size, axis.upper())) for axis in plane_axes}
+    if (
+        axis is not None
+        and at is not None
+        and any(
+            _prismatic_pocket_matches_principal_wire(pocket, wire, axis, plane_axes, at, tol)
+            for pocket in prismatic_pockets
+        )
+    ):
+        return True
     if (
         axis is not None
         and at is not None
@@ -906,7 +978,13 @@ def _supported_inner_profile(
     return arcs_match(expected, pi * radius / 2.0)
 
 
-def _has_unsupported_principal_inner_profile(part, bbox, *, section_passages=()) -> bool:
+def _has_unsupported_principal_inner_profile(
+    part,
+    bbox,
+    *,
+    prismatic_pockets=(),
+    section_passages=(),
+) -> bool:
     """Does a principal extremal face prove an internal profile outside the IR vocabulary?"""
     part_extent = (float(bbox.size.X), float(bbox.size.Y), float(bbox.size.Z))
     tol = max(1e-5, max(part_extent) * 1e-5)
@@ -931,6 +1009,7 @@ def _has_unsupported_principal_inner_profile(part, bbox, *, section_passages=())
             axis=axis,
             at=at,
             double_d_bores=double_d_bores,
+            prismatic_pockets=prismatic_pockets,
             section_passages=section_passages,
             profile=profile,
         )
@@ -997,16 +1076,22 @@ def _radial_outer_arc_count(part, bbox) -> int | None:
     return best
 
 
-def lint_principal_profile_coverage(part, *, assembly=None, section_passages=()) -> list:
+def lint_principal_profile_coverage(
+    part,
+    *,
+    assembly=None,
+    prismatic_pockets=(),
+    section_passages=(),
+) -> list:
     """Report principal inner or outer profiles outside the current feature vocabulary.
 
     The scan owns its physical extent: there is deliberately no caller-supplied bounding box
     that could narrow the answer. The double-D correspondence is the recogniser's shared pure
     correspondence proof over openings collected during this scan; lint reruns no public
-    recogniser. ``section_passages`` is the explicit projection of the drawing's cached
-    authoritative result used only to replace a matched generic profile finding with the
-    specific unsupported-Passage finding. :class:`Drawing` caches the returned issues against
-    the source part identity so repeated lint does not rescan the B-rep.
+    recogniser. ``section_passages`` and ``prismatic_pockets`` are explicit projections of the
+    drawing's cached authoritative result used only to replace a matched generic profile finding
+    with the corresponding specific unsupported-family finding. :class:`Drawing` caches the
+    returned issues against the source part identity so repeated lint does not rescan the B-rep.
     """
     solids = list(part.solids())
     sources = solids if len(solids) > 1 else [part]
@@ -1014,6 +1099,7 @@ def lint_principal_profile_coverage(part, *, assembly=None, section_passages=())
         _has_unsupported_principal_inner_profile(
             solid,
             solid.bounding_box(),
+            prismatic_pockets=prismatic_pockets,
             section_passages=section_passages,
         )
         for solid in sources
