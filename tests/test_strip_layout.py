@@ -1502,3 +1502,93 @@ def test_a_rescued_dedup_winner_does_not_promote_its_loser():
     placed, promoted = _run(rescue=False)
     assert placed == set()
     assert promoted == ["loser"], "a genuinely absent winner must still hand over"
+
+
+def test_a_promoted_deferred_loser_receives_the_shared_measurement_identity(monkeypatch):
+    """#1372 review: restore provenance after the deferred retry creates its annotation."""
+    from types import SimpleNamespace
+
+    import draftwright.annotations._common as common
+    from draftwright.annotations._common import (
+        CorridorCandidate,
+        PlacementContext,
+        drain_corridors,
+        register_corridor,
+    )
+    from draftwright.registry import AnnotationRegistry
+
+    registry = AnnotationRegistry()
+    ctx = PlacementContext(registry=registry)
+    winner_owner, loser_owner = object(), object()
+    winner_measurement, loser_measurement = object(), object()
+    dwg = SimpleNamespace(annotations=registry.names)
+
+    # Force the real non-empty corridor path to reject its kept winner.  Its deferred
+    # retry then fails, so promotion happens during drain_corridors' first callback wave.
+    monkeypatch.setattr(
+        common,
+        "place_strip_candidates",
+        lambda _dwg, _strip, _view, _axis, pairs, _tier, **_kwargs: list(pairs),
+    )
+
+    def defer_winner_failure(_name):
+        ctx.post_drain.append(lambda: None)
+
+    def defer_loser_retry(name):
+        ctx.post_drain.append(
+            lambda: registry.add(
+                object(),
+                name,
+                "front",
+                feature=loser_owner,
+                measurement=loser_measurement,
+            )
+        )
+
+    shared_span = ("front", 0.0, 10.0)
+    register_corridor(
+        ctx,
+        ("front", "below"),
+        SimpleNamespace(anchor=0.0, direction=1.0, gap=1.0),
+        "front",
+        "y",
+        4.0,
+        CorridorCandidate(
+            name="winner",
+            build=lambda _pos: None,
+            order=(0, "winner"),
+            on_place=lambda _name: None,
+            on_drop=defer_winner_failure,
+            feature=winner_owner,
+            measurement=winner_measurement,
+            dedup=shared_span,
+            precedence=1,
+        ),
+    )
+    register_corridor(
+        ctx,
+        ("front", "below"),
+        SimpleNamespace(anchor=0.0, direction=1.0, gap=1.0),
+        "front",
+        "y",
+        4.0,
+        CorridorCandidate(
+            name="loser",
+            build=lambda _pos: None,
+            order=(0, "loser"),
+            on_place=lambda _name: None,
+            on_drop=defer_loser_retry,
+            feature=loser_owner,
+            measurement=loser_measurement,
+            dedup=shared_span,
+            precedence=0,
+        ),
+    )
+
+    drain_corridors(ctx, dwg)
+    assert ctx.post_drain == []
+    assert set(registry.measurement_of("loser")) == {
+        winner_measurement,
+        loser_measurement,
+    }
+    assert registry.feature_of("loser") is None  # genuinely shared by two owners

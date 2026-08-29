@@ -126,10 +126,28 @@ measurement-provenance boundary. Removing provider flats, weakening a nominal, c
 declaration or generated script, or losing the placed callout/provenance reduces the corresponding
 independent score.
 
+## Pocket completeness evidence
+
+The lone `pockets` completeness boundary is independently `supported` from
+`tests/fixtures/evaluation/corpus-pockets-v1.json`. Ten construction-authored cases contribute 13
+physical pockets, 52 parameter checks and 52 downstream checks. The corpus covers a through-slot
+negative, one off-centre pocket, an edge-anchored corner interruption, equal independent pockets,
+opposite openings, a principal side opening, a PrismaticPocket ownership negative, separate
+compound bodies and a reverse-serialized topology pair.
+
+Identity uses width/long/depth axes, opening sign and physical location; width, length, depth and
+edge anchoring are scored parameters. Interior pockets require three size outcomes plus two
+directional datum locations. Edge-anchored pockets intentionally require only their three sizes
+because the adjacent stock edges establish position. Pattern members are excluded rather than
+double-counted. Each fact must survive automatic IR, public `Sheet.pocket`, executed generated
+Sheet code and placed size/location provenance. The IR now retains provider `open_sign`, and the
+shared location renderer records which physical X/Y ordinate landed while preserving ADR 0016's
+single public `location` authoring unit.
+
 Remaining supported-family completeness work is tracked by family group rather than the closed
 shared design issue: #1370 retains countersinks and Double-D bores; #1371 covers
-channels, slots, slot patterns and polygonal stock; #1372 covers pockets, pocket patterns,
-grooves, rectangular pads and polygonal bosses; #1373 covers plates, face levels and risers; and
+channels, slots, slot patterns and polygonal stock; #1372 retains pocket patterns, grooves,
+rectangular pads and polygonal bosses; #1373 covers plates, face levels and risers; and
 #1374 covers turned steps, chamfers and fillets.
 
 ## Angled-step boundary

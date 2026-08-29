@@ -931,7 +931,14 @@ class PocketFeature:
     lo: float
     hi: float
     edge_anchored: bool = False
+    # Which depth end is the opening. Recognition retains this physical distinction;
+    # dropping it here makes equal opposed-face pockets indistinguishable to correspondence.
+    open_sign: int = 1
     kind: ClassVar[str] = "pocket"
+
+    def __post_init__(self) -> None:
+        if self.open_sign not in (-1, 1):
+            raise ValueError(f"pocket open_sign must be -1 or 1 (got {self.open_sign!r})")
 
     @property
     def depth_axis(self) -> str:

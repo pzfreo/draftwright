@@ -24,6 +24,11 @@ disjoint coaxial stock remain separate facts. Across-flats and the face anchors 
 not benchmark identity, so weakening either lowers fidelity instead of hiding as a detection
 mismatch.
 
+The lone-pocket slice (#1372) excludes members owned by pocket patterns and counts width, length,
+depth, plus two independently observed datum-location axes for an interior recess. Edge-anchored
+corner interruptions retain their three explicit sizes while their position is intentionally
+implicit. Opening side remains identity so opposed-face pockets cannot collapse at the IR waist.
+
 Known limit of the drawing observation: it reads the ADR 0010 provenance seam, which
 ``registry.measurement_of`` carries and which is populated one render pass at a time (the set
 of tagged renderers is enumerated by ``tests/test_audit_differential.py``, not by prose here —
@@ -1224,6 +1229,264 @@ def _declared_flat_model(part, flats):
     return sheet.model()
 
 
+def _pocket_point(pocket) -> tuple[float, float, float]:
+    point = getattr(pocket, "location", None)
+    if point is None:
+        point = pocket.frame.origin
+    return tuple(round(float(component), 3) for component in point)  # type: ignore[return-value]
+
+
+def _pocket_depth_axis(pocket) -> str:
+    return next(axis for axis in "xyz" if axis not in (pocket.width_axis, pocket.long_axis))
+
+
+def _pocket_identity(pocket) -> tuple:
+    return (
+        str(pocket.width_axis),
+        str(pocket.long_axis),
+        _pocket_depth_axis(pocket),
+        int(getattr(pocket, "open_sign", 1)),
+        _pocket_point(pocket),
+    )
+
+
+def _pocket_parameters(pocket) -> dict[str, Value]:
+    return {
+        "width": round(float(pocket.width), 3),
+        "length": round(float(pocket.length), 3),
+        "depth": round(float(pocket.depth), 3),
+        "edge_anchored": bool(getattr(pocket, "edge_anchored", False)),
+    }
+
+
+def _pocket_parameter_ids(pocket) -> tuple[str, ...]:
+    ids = (
+        "pocket_width.length",
+        "pocket_length.length",
+        "pocket_depth.length",
+    )
+    if _pocket_depth_axis(pocket) == "z":
+        locations: tuple[str, ...] = (
+            "location_pocket.location.x",
+            "location_pocket.location.y",
+        )
+    else:
+        locations = tuple(
+            f"location_pocket.{axis}" for axis in (pocket.long_axis, pocket.width_axis)
+        )
+    return (*ids, *locations)
+
+
+def _lone_pockets(recognition) -> tuple:
+    pattern_members = {
+        member for pattern in recognition.pocket_patterns for member in pattern.pockets
+    }
+    return tuple(pocket for pocket in recognition.pockets if pocket not in pattern_members)
+
+
+def _pocket_correspondence(pockets, recognition, features, registry=None, omissions=()):
+    """Per physical pocket, retain exact IR and production-ledger evidence."""
+    from draftwright.linting.pocket_coverage import pocket_requirement_outcomes
+    from draftwright.registry import AnnotationRegistry
+
+    ledger = pocket_requirement_outcomes(
+        recognition,
+        features,
+        AnnotationRegistry() if registry is None else registry,
+        omissions,
+    )
+    by_at: dict[tuple[float, float, float], list] = {}
+    for outcome in ledger:
+        by_at.setdefault(outcome.source_at, []).append(outcome)
+    result = []
+    for source in pockets:
+        at = _pocket_point(source)
+        expected_ids = set(_pocket_parameter_ids(source))
+        candidates = [
+            outcome
+            for outcome in by_at.get(at, ())
+            if outcome.features
+            and _pocket_identity(outcome.features[0]) == _pocket_identity(source)
+            and _pocket_parameters(outcome.features[0]) == _pocket_parameters(source)
+        ]
+        candidate_features = tuple(
+            dict.fromkeys(feature for outcome in candidates for feature in outcome.features)
+        )
+        exact = (
+            len(candidate_features) == 1
+            and len(candidates) == len(expected_ids)
+            and {outcome.parameter_id for outcome in candidates} == expected_ids
+        )
+        result.append((exact, candidate_features, tuple(candidates)))
+    return result
+
+
+def _pocket_model_outcomes(pockets, recognition, features) -> list[Outcome]:
+    return [
+        "supported" if exact else "unknown"
+        for exact, _features, _outcomes in _pocket_correspondence(pockets, recognition, features)
+    ]
+
+
+def _pocket_drawing_outcomes(pockets, drawing) -> list[Outcome]:
+    """Verify semantic size ink and directional location evidence per physical pocket."""
+    from draftwright._core import _decode_hole_location_fact, _tol_suffix
+    from draftwright._geometry import _fmt
+    from draftwright.linting.evidence import verify_measurement_claims
+    from draftwright.model.compiled import compile_dimensions
+
+    recognition = drawing.recognition()
+    model = drawing.model()
+    plan = compile_dimensions(model)
+    correspondence = _pocket_correspondence(
+        pockets,
+        recognition,
+        model.features,
+        drawing.registry,
+        plan.diagnostics,
+    )
+    confirmed = {
+        (claim.annotation, claim.measurement)
+        for claim in verify_measurement_claims(drawing.registry, plan)
+        if claim.state == "confirmed" and claim.measurement is not None
+    }
+    pocket_labels: dict[object, str] = {}
+    for group in plan.of_kind("pocket"):
+        by_parameter = {
+            str(approved.id.parameter): approved
+            for approved in group.dims
+            if approved.id is not None
+        }
+        width = by_parameter.get("pocket_width.length")
+        length = by_parameter.get("pocket_length.length")
+        depth = by_parameter.get("pocket_depth.length")
+        if width is None or length is None or depth is None or width.id is None:
+            continue
+        pocket_feature = width.id.feature
+        fields = tuple(
+            approved.value_text + _tol_suffix(approved.tolerance, drawing.draft)
+            for approved in (width, length, depth)
+        )
+        pocket_labels[pocket_feature] = f"{fields[0]} × {fields[1]} × {fields[2]} DEEP"
+
+    location_labels: dict[tuple[object, str], set[str]] = {}
+    for approved in plan.locations:
+        measurement = approved.id
+        location_feature = getattr(measurement, "feature", None)
+        parameter = str(getattr(measurement, "parameter", ""))
+        if getattr(location_feature, "kind", None) != "pocket":
+            continue
+        if parameter == "location_pocket.location" and approved.span is not None:
+            start, end = approved.span
+            for axis in ("x", "y"):
+                index = "xyz".index(axis)
+                label = _fmt(abs(float(end[index]) - float(start[index])))
+                location_labels.setdefault(
+                    (location_feature, f"location_pocket.location.{axis}"), set()
+                ).add(label)
+            continue
+        location_labels.setdefault((location_feature, parameter), set()).add(
+            approved.value_text + _tol_suffix(approved.tolerance, drawing.draft)
+        )
+
+    def rendered_label(name) -> str | None:
+        label = getattr(drawing.registry.named(name), "label", None)
+        return label if isinstance(label, str) else None
+
+    location_names: dict[tuple[object, str, tuple[float, float, float]], set[str]] = {}
+    for name in drawing.registry.names():
+        annotation = drawing.registry.named(name)
+        for fact in getattr(annotation, "covers_hole_locations", ()):
+            decoded = _decode_hole_location_fact(fact)
+            if decoded is None:
+                continue
+            fact_feature, parameter, point = decoded
+            if getattr(fact_feature, "kind", None) != "pocket":
+                continue
+            point_x, point_y, point_z = point
+            rounded_point = (
+                round(float(point_x), 3),
+                round(float(point_y), 3),
+                round(float(point_z), 3),
+            )
+            key = (fact_feature, parameter, rounded_point)
+            location_names.setdefault(key, set()).add(name)
+    placed = {"placed", "satisfied_by_structured_note", "inapplicable"}
+    result: list[Outcome] = []
+    for exact, features, outcomes in correspondence:
+        if not exact or len(features) != 1:
+            result.append("unknown")
+            continue
+        feature = features[0]
+        states_ok = all(outcome.state in placed for outcome in outcomes)
+        ink_ok = True
+        for outcome in outcomes:
+            if outcome.state != "placed":
+                continue
+            parameter = outcome.parameter_id
+            evidence_parameter = (
+                "location_pocket.location"
+                if parameter.startswith("location_pocket.location.")
+                else parameter
+            )
+            matching_claims = {
+                name
+                for name, claim in confirmed
+                if getattr(claim, "feature", None) == feature
+                and str(getattr(claim, "parameter", "")) == evidence_parameter
+            }
+            if parameter in {
+                "pocket_width.length",
+                "pocket_length.length",
+                "pocket_depth.length",
+            }:
+                expected_label = pocket_labels.get(feature)
+                matching_claims = {
+                    name for name in matching_claims if rendered_label(name) == expected_label
+                }
+            # A feature-level Z-normal location id has two rendered members.  Join each
+            # directional physical fact to the exact annotation that bears its value so
+            # one correct axis cannot confirm corrupted ink on the other (#1372 review).
+            if parameter.startswith("location_pocket.location."):
+                matching_claims &= location_names.get(
+                    (feature, parameter, outcome.source_at), set()
+                )
+            if parameter.startswith("location_pocket."):
+                expected_labels = location_labels.get((feature, parameter), set())
+                matching_claims = {
+                    name for name in matching_claims if rendered_label(name) in expected_labels
+                }
+            if not matching_claims:
+                ink_ok = False
+                break
+        result.append("supported" if states_ok and ink_ok else "unsupported")
+    return result
+
+
+def _declared_pocket_model(part, pockets):
+    """Declare observed lone pockets through public ``Sheet.pocket`` and return its IR."""
+    from draftwright.sheet import Sheet
+
+    sheet = Sheet(part)
+    sheet.authored_dimensions()
+    for observed in pockets:
+        sheet.pocket(
+            width=observed.width,
+            length=observed.length,
+            depth=observed.depth,
+            long_axis=observed.long_axis,
+            width_axis=observed.width_axis,
+            depth_axis=observed.depth_axis,
+            w_center=observed.w_center,
+            lo=observed.lo,
+            hi=observed.hi,
+            at=observed.location,
+            edge_anchored=observed.edge_anchored,
+            open_sign=observed.open_sign,
+        )
+    return sheet.model()
+
+
 def _default_observers() -> Mapping[str, Observer]:
     def observe_holes(part: object) -> Sequence[ObservedFact]:
         # Lazy for COST, not for layering: `evaluation` is rank 7 and `builder` rank 6, so
@@ -1511,10 +1774,91 @@ def _default_observers() -> Mapping[str, Observer]:
             for index, (identity, members) in enumerate(groups)
         )
 
+    def observe_pockets(part: object) -> Sequence[ObservedFact]:
+        from draftwright.builder import build_drawing
+
+        try:
+            drawing = build_drawing(part)  # type: ignore[arg-type]
+        except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
+            _log.warning("evaluation: drawing build failed (%s); scoring pockets as unknown", exc)
+            return ()
+        try:
+            recognition = drawing.recognition()
+            if recognition is None:
+                raise ValueError("detected build has no build-owned recognition result")
+            pockets = _lone_pockets(recognition)
+        except Exception as exc:  # noqa: BLE001 — no safe observed numerator remains
+            _log.warning("evaluation: recognition access failed (%s); observing no pockets", exc)
+            return ()
+        unknown: list[Outcome] = ["unknown"] * len(pockets)
+
+        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
+            try:
+                result = observe()
+                if len(result) != len(pockets):
+                    raise ValueError(
+                        f"observed {len(result)} outcomes for {len(pockets)} physical pockets"
+                    )
+                return result
+            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
+                _log.warning(
+                    "evaluation: %s observation failed (%s); scoring pockets as unknown",
+                    name,
+                    exc,
+                )
+                return list(unknown)
+
+        boundary_outcomes = {
+            "ir_adapter": observed_boundary(
+                "ir_adapter",
+                lambda: _pocket_model_outcomes(pockets, recognition, drawing.model().features),
+            ),
+            "dsl_declaration": observed_boundary(
+                "dsl_declaration",
+                lambda: _pocket_model_outcomes(
+                    pockets,
+                    recognition,
+                    _declared_pocket_model(part, pockets).features,
+                ),
+            ),
+            "generated_code": observed_boundary(
+                "generated_code",
+                lambda: _pocket_model_outcomes(
+                    pockets,
+                    recognition,
+                    _generated_sheet_model(part, drawing.model()).features,
+                ),
+            ),
+            "drawing_consumer": observed_boundary(
+                "drawing_consumer", lambda: _pocket_drawing_outcomes(pockets, drawing)
+            ),
+        }
+
+        return tuple(
+            ObservedFact(
+                family="pockets",
+                identity={
+                    "width_axis": identity[0],
+                    "long_axis": identity[1],
+                    "depth_axis": identity[2],
+                    "open_sign": identity[3],
+                    "location": identity[4],
+                },
+                parameters=_pocket_parameters(pocket),
+                downstream={
+                    boundary: boundary_outcomes[boundary][index]
+                    for boundary in _DOWNSTREAM_BOUNDARIES
+                },
+            )
+            for index, pocket in enumerate(pockets)
+            for identity in (_pocket_identity(pocket),)
+        )
+
     return {
         "flats": observe_flats,
         "holes": observe_holes,
         "hole-patterns": observe_hole_patterns,
+        "pockets": observe_pockets,
     }
 
 

@@ -168,7 +168,10 @@ def test_aggregate_reconciliation_counts_the_rectangular_recess_only_as_pocket()
     issues = lint_prismatic_pocket_coverage(recognition)
     assert len(issues) == 1
     completeness = build_drawing(part).lint_summary()["quality"]["completeness"]
-    assert completeness["requirements"] == completeness["unsupported"] == 1
+    assert completeness["requirements"] == 6
+    assert completeness["placed"] == 5
+    assert completeness["unsupported"] == 1
+    assert completeness["by_family"]["pockets"] == 5
     assert completeness["by_family"]["prismatic_pockets"] == 1
 
 

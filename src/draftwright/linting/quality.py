@@ -36,6 +36,7 @@ from draftwright.linting.channel_coverage import channel_requirement_outcomes
 from draftwright.linting.flat_coverage import flat_requirement_outcomes
 from draftwright.linting.hole_coverage import hole_requirement_outcomes
 from draftwright.linting.issues import LintIssue, is_placement_drop
+from draftwright.linting.pocket_coverage import pocket_requirement_outcomes
 from draftwright.linting.polygonal_stock_coverage import polygonal_stock_outcomes
 from draftwright.linting.slot_coverage import slot_requirement_outcomes
 
@@ -46,6 +47,7 @@ _OUTCOME_STATES = (
     "dropped",
     "missing",
     "unverifiable",
+    "inapplicable",
     "unsupported",
 )
 
@@ -154,6 +156,7 @@ _AUDITED_FAMILIES = (
     "holes",
     "passages",
     "polygonal_stock",
+    "pockets",
     "prismatic_pockets",
     "slot_patterns",
     "slots",
@@ -368,6 +371,7 @@ _UNSCORED_CODE_PREFIXES = (
     "flat_requirement_",
     "gear_requirement_",
     "hole_requirement_",
+    "pocket_requirement_",
     "polygonal_stock_requirement_",
     "slot_requirement_",
 )
@@ -578,6 +582,7 @@ def _completeness_component(recognition, features, registry, omissions, issues) 
         "holes": [],
         "hole_patterns": [],
         "polygonal_stock": polygonal_stock_outcomes(recognition, features, registry, omissions),
+        "pockets": pocket_requirement_outcomes(recognition, features, registry, omissions),
         "slots": [],
         "slot_patterns": [],
     }
@@ -597,7 +602,8 @@ def _completeness_component(recognition, features, registry, omissions, issues) 
         for outcome in family_outcomes:
             requirement_count = int(getattr(outcome, "requirement_count", 1))
             counts[outcome.state] += requirement_count
-            family_count += requirement_count
+            if outcome.state != "inapplicable":
+                family_count += requirement_count
         by_family[family] = family_count
     # These recognised physical occurrences have reviewed, explicit unsupported outcomes.  The
     # Passage count uses only its authoritative rich inventory; the legacy projection is never a
@@ -612,7 +618,7 @@ def _completeness_component(recognition, features, registry, omissions, issues) 
         if unsupported_count:
             counts["unsupported"] += unsupported_count
             by_family[family] = unsupported_count
-    requirements = sum(counts.values())
+    requirements = sum(count for state, count in counts.items() if state != "inapplicable")
     recognised = {
         family
         for attribute, family in _RECOGNISED_REQUIREMENT_FAMILIES.items()

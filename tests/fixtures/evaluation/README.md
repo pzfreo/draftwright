@@ -51,6 +51,26 @@ are one requirement, while separate lines or disjoint axial spans remain indepen
   identifier was bijectively renumbered and the entity records serialized in reverse order, with
   references rewritten by the same bijection.
 
+`corpus-pockets-v1.json` is a separate physical lone-pocket corpus. Pocket-pattern members are
+excluded because their grouped arrangement and callout belong to the pocket-pattern family:
+
+- `pocket-through-negative.step` is a rectangular removal through the complete stock and is owned
+  by Slot, not Pocket.
+- `pocket-lone.step` has one off-centre 30 × 12 × 6 mm +Z-opening blind recess.
+- `pocket-edge-anchored.step` crosses the +X/+Y stock corner, leaving one 15 × 15 × 6 mm recess
+  whose position is implicit in the two envelope edges.
+- `pocket-two-equal.step` has two equal 26 × 10 × 6 mm recesses at non-pattern positions.
+- `pocket-opposed.step` has equal recesses on opposite Z faces, retaining distinct `open_sign`
+  identities.
+- `pocket-side.step` rotates the lone construction 90° about Y to exercise a principal X opening.
+- `pocket-prismatic-negative.step` has a regular-hexagonal blind recess owned by PrismaticPocket,
+  not the rectangular Pocket family.
+- `pocket-compound.step` has one equal recess on each of two disjoint solids.
+- `pocket-topology-a.step` has two distinct blind recesses in canonical Part 21 entity order.
+- `pocket-topology-b.step` is geometrically identical to `pocket-topology-a.step`; every Part 21
+  entity identifier was bijectively renumbered and the entity records serialized in reverse order,
+  with references rewritten by the same bijection.
+
 The `FILE_NAME` timestamp is normalized. Each corpus manifest pins every fixture SHA-256 and records
 case-level provenance. A changed fixture therefore requires an explicit corpus-version decision;
 regenerating recognition output can never rewrite the expected facts silently.

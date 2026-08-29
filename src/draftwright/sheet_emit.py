@@ -764,6 +764,7 @@ def _feature_line(
             # placed from the projected geometry (#962). Same reasoning on `slot` above.
             f"lo={lo}, hi={hi}, w_center={_n(f.w_center)}, at={_pt(f.frame.origin)}"
             + (", edge_anchored=True" if f.edge_anchored else "")
+            + (", open_sign=-1" if f.open_sign == -1 else "")
             + ")"
         )
     if k == "channel":

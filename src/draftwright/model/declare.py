@@ -1232,6 +1232,7 @@ def pocket(
     hi=None,
     at=None,
     edge_anchored=False,
+    open_sign=1,
 ) -> PocketFeature:
     """A blind rectangular recess — a floored slot/pocket, dimensioned width × length ×
     depth (#148a). The blind counterpart of :func:`slot`: unlike a through-slot the depth
@@ -1302,6 +1303,8 @@ def pocket(
         raise ValueError(f"pocket() needs lo < hi (got lo={lo!r}, hi={hi!r})")
     if not math.isclose(hi - lo, length, rel_tol=1e-6, abs_tol=1e-6):
         raise ValueError(f"pocket() length={length!r} must equal hi - lo ({hi - lo!r})")
+    if open_sign not in (-1, 1):
+        raise ValueError(f"pocket() open_sign must be -1 or 1 (got {open_sign!r})")
     w_center = 0.0 if w_center is None else w_center
     if at is None:
         origin = [0.0, 0.0, 0.0]
@@ -1319,6 +1322,7 @@ def pocket(
         lo=lo,
         hi=hi,
         edge_anchored=bool(edge_anchored),
+        open_sign=int(open_sign),
     )
 
 

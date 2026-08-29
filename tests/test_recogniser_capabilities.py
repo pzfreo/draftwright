@@ -251,6 +251,19 @@ def test_rich_passage_contract_has_an_explicit_unsupported_completeness_outcome(
         {
             "boundary": "completeness",
             "compatibility_evidence": [
+                "tests/test_issue_1372_pocket_completeness_evidence.py",
+                "tests/test_recogniser_capabilities.py",
+                "tests/test_step_analysis_evaluation.py",
+            ],
+            "family": "pockets",
+            "from": "deferred",
+            "release_notes": "CHANGELOG.md",
+            "to": "supported",
+            "version": importlib.metadata.version("draftwright"),
+        },
+        {
+            "boundary": "completeness",
+            "compatibility_evidence": [
                 "tests/test_issue_1246_prismatic_pocket_disposition.py",
                 "tests/test_recogniser_capabilities.py",
             ],
@@ -293,6 +306,16 @@ def test_flat_completeness_is_supported_by_independent_physical_stock_facts() ->
     }
 
 
+def test_pocket_completeness_is_supported_by_independent_blind_recess_facts() -> None:
+    family = _families(consumer_capability_declaration())["pockets"]
+
+    assert family["completeness"] == {
+        "state": "supported",
+        "implementation": "draftwright.evaluation.step_analysis.evaluate_step_corpus",
+        "evidence": ["tests/test_issue_1372_pocket_completeness_evidence.py"],
+    }
+
+
 def test_each_deferred_supported_family_links_its_real_delivery_slice() -> None:
     expected = {
         "chamfers": 1374,
@@ -304,7 +327,6 @@ def test_each_deferred_supported_family_links_its_real_delivery_slice() -> None:
         "grooves": 1372,
         "plates": 1373,
         "pocket-patterns": 1372,
-        "pockets": 1372,
         "polygonal-bosses": 1372,
         "polygonal-stock": 1371,
         "rectangular-pads": 1372,
