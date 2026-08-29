@@ -708,29 +708,32 @@ _ORCHESTRATED_RECORDS: dict[type, str] = {
 }
 
 
-# Tier 4 — records the installed package proves and this consumer has NOT decided about. Not
-# "orchestrated": these are not nested sub-records or aggregated evidence, they are families
-# whose drafting meaning is an open question, declared `unsupported` in
-# `recogniser_contract._UNSUPPORTED` against the issue deciding each. Kept as its own tier so the
-# partition below stays honest — folding them into tier 3 would claim a design reason that does
-# not exist, and would hide them the day one is decided (#1244).
+# Tier 4 — records the installed package proves and this consumer deliberately does NOT convert.
+# Not "orchestrated": these are records from unsupported feature families, rather than nested
+# sub-records or aggregate substrate. Authoritative outputs remain dimension-relevant physical
+# evidence; accepted-only projections are identified individually below. Some dispositions remain
+# undecided and others are reviewed unsupported outcomes. Each is declared in
+# `recogniser_contract._UNSUPPORTED` against the issue recording that disposition. Kept as its own
+# tier so neither unsupported evidence nor its compatibility records disappear into substrate
+# merely because neither has an IR converter (#1244).
 _UNCONSUMED_RECORDS: dict[type, str] = {
     AngledStep: (
         "a step's slanted wall, split out of `chamfers` by 0.2.5 to stop it being reported as a "
         "chamfer; whether draftwright dimensions it is open (#1247)"
     ),
     Passage: (
-        "the compatibility projection of a prismatic through-opening; whether it is an IR kind "
-        "or refines `hole`, and what it draws, is open (#1245)"
+        "the accepted-only compatibility projection of authoritative SectionPassage; it is not "
+        "a second physical requirement and has no converter (#1245)"
     ),
     SectionPassage: (
-        "the authoritative physical prismatic-opening evidence introduced in 0.4.0; its IR kind, "
-        "section rendering and completeness semantics remain open (#1245)"
+        "the authoritative physical prismatic-opening evidence introduced in 0.4.0; its complete "
+        "line/arc section has no truthful general drafting grammar, so every occurrence has an "
+        "explicit unsupported completeness outcome (#1245)"
     ),
     PrismaticPocket: (
-        "a non-rectangular blind recess that OVERLAPS the supported `pockets` family — measured, "
-        "both recognisers claim a rectangular recess — so IR ownership must be settled before a "
-        "converter exists (#1246)"
+        "an aggregate-reconciled polygonal blind recess not owned by `Pocket`; its arbitrary "
+        "section has no truthful general Draftwright dimension grammar, so every occurrence has "
+        "an explicit unsupported completeness outcome (#1246)"
     ),
 }
 

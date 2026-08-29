@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 from b123d_recognisers import build_recognition_result
 from b123d_recognisers.profiled_bores import principal_boundary_plane
-from build123d import Box, GeomType, Pos, RegularPolygon, extrude
+from build123d import Box, Ellipse, GeomType, Pos, RegularPolygon, extrude
 
 from draftwright import build_drawing
 from draftwright.linting.coverage import _passage_matches_principal_wire
@@ -56,7 +56,7 @@ def test_a_recognised_passage_is_specific_actionable_and_non_info() -> None:
 
 def test_a_passage_does_not_hide_an_unrelated_unsupported_inner_profile() -> None:
     through = Pos(-10, 0, 0) * extrude(RegularPolygon(3, 6), amount=12, both=True)
-    blind = Pos(10, 0, 2) * extrude(RegularPolygon(3, 5), amount=4)
+    blind = Pos(10, 0, 2) * extrude(Ellipse(5, 3), amount=4)
     part = Box(40, 40, 10) - through - blind
     recognition = build_recognition_result(part)
 

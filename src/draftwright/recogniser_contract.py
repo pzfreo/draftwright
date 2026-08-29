@@ -233,10 +233,11 @@ _UNSUPPORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
     "prismatic-pockets": (
         ("PrismaticPocket",),
         "https://github.com/pzfreo/draftwright/issues/1246",
-        "Overlaps the supported `pockets` family: measured on a plate with one hexagonal and one "
-        "rectangular recess, `recognise_prismatic_pockets` claims BOTH and `recognise_pockets` "
-        "claims the rectangular one as well. Wiring it to a converter would double-count every "
-        "rectangular pocket in completeness, so ownership must be decided at the IR first.",
+        "The aggregate removes candidates also owned by the supported `pockets` family, so each "
+        "remaining PrismaticPocket is a distinct recess not superseded by Pocket. Its section may "
+        "be any planar polygon: width/length is false for triangles and a regular-polygon A/F "
+        "callout is incomplete in the general case. Draftwright therefore reports every "
+        "surviving occurrence as an unsupported completeness requirement.",
     ),
     "angled-steps": (
         ("AngledStep",),
@@ -253,20 +254,26 @@ def _unsupported_declaration(family_id: str) -> dict[str, Any]:
 
     Drafting boundaries remain ``unsupported``. Completeness stays ``deferred`` while its meaning
     is undecided, except where a reviewed consumer decision defines an explicit unsupported
-    outcome. That distinction keeps the inventory visible without inventing drafting semantics or,
-    for ``prismatic-pockets``, counting one physical recess twice.
+    outcome. That distinction keeps the inventory visible without inventing drafting semantics.
     """
     records, tracking, rationale = _UNSUPPORTED[family_id]
     unsupported = {"state": "unsupported", "rationale": rationale}
+    unsupported_completeness = {
+        "passages": (
+            "Every authoritative SectionPassage occurrence produces a warning and an "
+            "unsupported completeness outcome; no drafting requirement is invented."
+        ),
+        "prismatic-pockets": (
+            "Every aggregate-reconciled PrismaticPocket occurrence produces a warning and an "
+            "unsupported completeness outcome; no polygonal drafting grammar is invented."
+        ),
+    }
     completeness = (
         {
             "state": "unsupported",
-            "rationale": (
-                "Every authoritative SectionPassage occurrence produces a warning and an "
-                "unsupported completeness outcome; no drafting requirement is invented."
-            ),
+            "rationale": unsupported_completeness[family_id],
         }
-        if family_id == "passages"
+        if family_id in unsupported_completeness
         else {
             "state": "deferred",
             "rationale": rationale,
@@ -319,7 +326,19 @@ def consumer_capability_declaration() -> dict[str, Any]:
                 "release_notes": "CHANGELOG.md",
                 "to": "unsupported",
                 "version": distribution_version("draftwright"),
-            }
+            },
+            {
+                "boundary": "completeness",
+                "compatibility_evidence": [
+                    "tests/test_issue_1246_prismatic_pocket_disposition.py",
+                    "tests/test_recogniser_capabilities.py",
+                ],
+                "family": "prismatic-pockets",
+                "from": "deferred",
+                "release_notes": "CHANGELOG.md",
+                "to": "unsupported",
+                "version": distribution_version("draftwright"),
+            },
         ],
     }
 

@@ -74,6 +74,24 @@ pass.
 reference: it remains geometry-only critique evidence for a separately authored gear declaration,
 with no inferred gear feature added to fill the table.
 
+## Prismatic-pocket boundary
+
+The installed aggregate reconciles the two pocket inventories before Draftwright sees them. A
+candidate reported by both direct recognisers yields to the supported `Pocket` record;
+`RecognitionResult.prismatic_pockets` therefore contains occurrences not owned by `Pocket`.
+Draftwright consumes that aggregate policy and does not repeat provider reconciliation. This is an
+ownership statement, not a shape classification: for example, a rotated four-sided recess can
+remain a `PrismaticPocket` when the axis-paired `Pocket` recogniser does not accept it.
+
+The remaining `PrismaticPocket.section` may be any planar polygon. The rectangular pocket grammar
+`W × L × D DEEP` is false for a triangle, while an across-flats callout applies only to selected
+regular polygons and cannot represent the general record. Draftwright therefore retains the family
+disposition as `unsupported`: it creates no inferred IR feature, Sheet declaration, generated code,
+or drawing annotation. Each aggregate occurrence instead emits
+`prismatic_pocket_requirement_unsupported` at warning severity and contributes one `unsupported`
+completeness requirement. Exact mouth-to-section correlation replaces the generic unsupported-
+profile warning only for that occurrence, so an unrelated unrecognised profile remains visible.
+
 ## Passage compatibility boundary
 
 The installed `b123d-recognisers==0.4.5` release contains the `passages` family introduced

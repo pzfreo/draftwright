@@ -131,13 +131,13 @@ def test_orchestrated_records_document_their_residual_reason():
         assert isinstance(reason, str) and reason.strip(), f"{rec_type.__name__} needs a reason"
 
 
-def test_unconsumed_records_name_the_issue_deciding_them():
-    """Tier 4 is a WAITING ROOM, not a bin: each entry cites the issue that will empty it.
+def test_unconsumed_records_name_the_issue_recording_their_disposition():
+    """Tier 4 is an explicit consumer boundary, not a bin: every entry cites its decision.
 
-    Tier 3 entries have design reasons that will not change; these are open questions, and the
-    difference has to survive in the register or the two collapse into "we do not convert this"
-    (#1244). The issue reference is the thing that expires — when it closes, the record either
-    moves to a converter or its reason has to be rewritten as a permanent one.
+    Tier 3 entries are non-requirement substrate. Tier 4 entries belong to unsupported families:
+    an open issue may still decide their meaning, or a closed issue may record a reviewed
+    unsupported outcome. That distinction has to survive in the register or both tiers collapse
+    into an unexplained "we do not convert this" (#1244).
     """
     import re
 
