@@ -251,6 +251,30 @@ def test_chamfer_ledger_distinguishes_suppressed_dropped_and_orphan_evidence() -
     assert orphan[0].state == "unverifiable"
 
 
+def test_chamfer_ledger_distinguishes_structured_satisfaction() -> None:
+    from draftwright import build_drawing
+    from draftwright.linting.chamfer_coverage import chamfer_requirement_outcomes
+    from draftwright.model.compiled import DimensionId
+    from draftwright.registry import AnnotationRegistry
+
+    drawing = build_drawing(_lone())
+    recognition = drawing.recognition()
+    assert recognition is not None
+    feature = next(item for item in drawing.model().features if item.kind == "chamfer")
+    registry = AnnotationRegistry()
+    registry.add(
+        object(),
+        "structured_note",
+        "plan",
+        feature=feature,
+        satisfaction=DimensionId(feature, "chamfer.length"),
+    )
+
+    outcome = chamfer_requirement_outcomes(recognition, drawing.model().features, registry)[0]
+
+    assert outcome.state == "satisfied_by_structured_note"
+
+
 def test_every_chamfer_boundary_is_observed_supported_on_the_real_public_path() -> None:
     for boundary in ("ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"):
         assert _states(boundary) == {"supported"}
@@ -309,6 +333,21 @@ def test_observer_failure_cannot_pass_even_the_zero_chamfer_negative(monkeypatch
     assert [(issue.layer, issue.family) for issue in damaged.cases[0].diagnostics] == [
         ("analysis", "chamfers")
     ]
+
+
+def test_missing_build_owned_recognition_fails_closed(monkeypatch) -> None:
+    import draftwright.builder as builder
+
+    original = builder.build_drawing
+
+    def without_recognition(*args, **kwargs):
+        drawing = original(*args, **kwargs)
+        monkeypatch.setattr(type(drawing), "recognition", lambda _drawing: None)
+        return drawing
+
+    monkeypatch.setattr(builder, "build_drawing", without_recognition)
+    with pytest.raises(ObservationError, match="recognition access failed"):
+        _default_observers()["chamfers"](_lone())
 
 
 def test_corrupting_public_chamfer_declaration_loses_declaration_credit(monkeypatch) -> None:
@@ -371,6 +410,23 @@ def test_wrong_chamfer_ink_loses_drawing_credit(monkeypatch) -> None:
         return drawing
 
     monkeypatch.setattr(builder, "build_drawing", with_wrong_ink)
+    assert _states("drawing_consumer") == {"unsupported"}
+
+
+def test_wrong_chamfer_view_loses_drawing_credit(monkeypatch) -> None:
+    import draftwright.builder as builder
+
+    original = builder.build_drawing
+
+    def with_wrong_view(*args, **kwargs):
+        drawing = original(*args, **kwargs)
+        name = next(name for name in drawing.annotations() if name.startswith("m_chamfer_"))
+        identity = drawing.registry.identity_of(name)
+        identity["view"] = "side"
+        drawing.registry.reapply(name, identity)
+        return drawing
+
+    monkeypatch.setattr(builder, "build_drawing", with_wrong_view)
     assert _states("drawing_consumer") == {"unsupported"}
 
 
