@@ -1,0 +1,211 @@
+{
+  "format": "draftwright-step-analysis-corpus",
+  "format_version": 1,
+  "corpus_version": "1.0.0",
+  "metric_version": 1,
+  "scope": ["fillets"],
+  "cases": [
+    {
+      "id": "fillet-plain-negative",
+      "tags": ["negative"],
+      "fixture": "fillet-plain.step",
+      "sha256": "4ff66be42941e5693511a161e90f42b204782553326e7c4d00120fc048ba36fa",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored as a centred 60 x 40 x 30 mm rectangular solid with no rounded edge.",
+      "expected_outcome": "supported",
+      "facts": []
+    },
+    {
+      "id": "fillet-planar-z",
+      "tags": ["positive"],
+      "fixture": "fillet-planar-z.step",
+      "sha256": "85a4154591821952d7d91ae5d1f6e819f77611cb45748eadba06cf389391b9d6",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "A radius 4 mm round was authored on the +X/+Y edge of a centred 60 x 40 x 30 mm block.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "fillets",
+          "identity": {"axis": {"value": "z"}, "location": {"value": [28.828, 18.828, 0.0], "absolute_tolerance": 1e-6}, "turned": {"value": false}},
+          "parameters": {"radius": {"value": 4.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "fillet-planar-x",
+      "tags": ["positive", "rotated"],
+      "fixture": "fillet-planar-x.step",
+      "sha256": "5da76fbdf356a1d7bf6ac807adeaef34e5b682613ec80a58886cdb32ca540139",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "The planar-Z construction was rigidly rotated 90 degrees about world Y, preserving the radius 4 mm round on principal axis X.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "fillets",
+          "identity": {"axis": {"value": "x"}, "location": {"value": [0.0, 18.828, -28.828], "absolute_tolerance": 1e-6}, "turned": {"value": false}},
+          "parameters": {"radius": {"value": 4.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "fillet-planar-y",
+      "tags": ["positive", "rotated"],
+      "fixture": "fillet-planar-y.step",
+      "sha256": "6683fb67a902be442eb240947a3228e0e3a45e18855df984f66d4ef02d1bf5b2",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "The planar-Z construction was rigidly rotated 90 degrees about world X, preserving the radius 4 mm round on principal axis Y.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "fillets",
+          "identity": {"axis": {"value": "y"}, "location": {"value": [28.828, 0.0, 18.828], "absolute_tolerance": 1e-6}, "turned": {"value": false}},
+          "parameters": {"radius": {"value": 4.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "fillet-repeated-equal",
+      "tags": ["multiple-equal", "positive", "repeated-edge"],
+      "fixture": "fillet-repeated.step",
+      "sha256": "91abe0fedc014d6c06d2eda8198666ec697eb583cd31f041e3cd882e95aefa27",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "All four Z-running edges of the same block were rounded to radius 5 mm; one grouped callout must retain four physical identities.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "fillets",
+          "identity": {"axis": {"value": "z"}, "location": {"value": [-28.536, -18.536, 0.0], "absolute_tolerance": 1e-6}, "turned": {"value": false}},
+          "parameters": {"radius": {"value": 5.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        },
+        {
+          "family": "fillets",
+          "identity": {"axis": {"value": "z"}, "location": {"value": [-28.536, 18.536, 0.0], "absolute_tolerance": 1e-6}, "turned": {"value": false}},
+          "parameters": {"radius": {"value": 5.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        },
+        {
+          "family": "fillets",
+          "identity": {"axis": {"value": "z"}, "location": {"value": [28.536, -18.536, 0.0], "absolute_tolerance": 1e-6}, "turned": {"value": false}},
+          "parameters": {"radius": {"value": 5.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        },
+        {
+          "family": "fillets",
+          "identity": {"axis": {"value": "z"}, "location": {"value": [28.536, 18.536, 0.0], "absolute_tolerance": 1e-6}, "turned": {"value": false}},
+          "parameters": {"radius": {"value": 5.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "fillet-turned",
+      "tags": ["positive", "turned"],
+      "fixture": "fillet-turned.step",
+      "sha256": "f0d636e2f950cd9312e260c667ec52e6750bac62eaf7f6460fa4f0eb136ad5d6",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "A radius 3 mm toroidal round was authored on the +Z end of centred diameter 30 x 60 mm shaft stock.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "fillets",
+          "identity": {"axis": {"value": "z"}, "location": {"value": [-14.121, 0.0, 29.121], "absolute_tolerance": 1e-6}, "turned": {"value": true}},
+          "parameters": {"radius": {"value": 3.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "fillet-circular-step-overlap",
+      "tags": ["ambiguous", "negative", "overlapping-family"],
+      "fixture": "fillet-overlap.step",
+      "sha256": "5695e097c55cb0ddf66b534e959d3b1e282b7bdb0380a24fc65def4efc776f1a",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "A radius 8 x 5 mm quarter-cylindrical blind corner cut; direct fillet discovery sees its curved wall, but aggregate ownership belongs solely to CircularBlindStep.",
+      "expected_outcome": "supported",
+      "facts": []
+    },
+    {
+      "id": "fillet-compound-equal",
+      "tags": ["compound", "multiple-equal", "positive"],
+      "fixture": "fillet-compound.step",
+      "sha256": "957cbb2cbf3eca72f866747c95d2e200178d3de96b022364e8acb0fe46ed4bac",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Two disjoint translated copies of the planar-Z construction retain two equal physical rounds and one grouped 2x callout.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "fillets",
+          "identity": {"axis": {"value": "z"}, "location": {"value": [-31.172, 18.828, 0.0], "absolute_tolerance": 1e-6}, "turned": {"value": false}},
+          "parameters": {"radius": {"value": 4.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        },
+        {
+          "family": "fillets",
+          "identity": {"axis": {"value": "z"}, "location": {"value": [88.828, 18.828, 0.0], "absolute_tolerance": 1e-6}, "turned": {"value": false}},
+          "parameters": {"radius": {"value": 4.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "fillet-topology-a",
+      "tags": ["multiple", "positive", "topology-order-variant"],
+      "fixture": "fillet-topology-a.step",
+      "sha256": "2a5f1e650cb042a10f4af25dfa4402b05c93285d91a4f49cda14746dee75188c",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "A radius 4 mm +X/+Y round was authored before a radius 7 mm -X/-Y round on one block.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "fillets",
+          "identity": {"axis": {"value": "z"}, "location": {"value": [-37.95, -27.95, 0.0], "absolute_tolerance": 1e-6}, "turned": {"value": false}},
+          "parameters": {"radius": {"value": 7.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        },
+        {
+          "family": "fillets",
+          "identity": {"axis": {"value": "z"}, "location": {"value": [38.828, 28.828, 0.0], "absolute_tolerance": 1e-6}, "turned": {"value": false}},
+          "parameters": {"radius": {"value": 4.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "fillet-topology-b",
+      "tags": ["multiple", "positive", "topology-order-variant"],
+      "fixture": "fillet-topology-b.step",
+      "sha256": "cecedb6bb92e4e5036860bebec5fae65dc817143b9fa74110acaca99919cd9be",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Geometrically identical to topology-a, with the two round operations applied in reverse order.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "fillets",
+          "identity": {"axis": {"value": "z"}, "location": {"value": [-37.95, -27.95, 0.0], "absolute_tolerance": 1e-6}, "turned": {"value": false}},
+          "parameters": {"radius": {"value": 7.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        },
+        {
+          "family": "fillets",
+          "identity": {"axis": {"value": "z"}, "location": {"value": [38.828, 28.828, 0.0], "absolute_tolerance": 1e-6}, "turned": {"value": false}},
+          "parameters": {"radius": {"value": 4.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    }
+  ]
+}

@@ -79,6 +79,12 @@
   boundary. Each physical bevel is followed through exact IR, public `Sheet.chamfer`, executed
   generated code, compiler measurement provenance, callout syntax and its physical leader target;
   equal requirements may share ink without collapsing occurrence identity (#1374).
+- Fillet completeness is now supported by an independently authored STEP corpus covering all
+  principal axes, repeated equal rounds, turned toroidal treatments, separate bodies,
+  topology-order variants, a plain negative and the CircularBlindStep ownership boundary. Each
+  physical round is followed through exact IR, public `Sheet.fillet`, executed generated code,
+  compiler measurement provenance, `R`/`n× R` syntax and its physical leader target; grouped ink
+  retains every rounded edge's measurement identity (#1374).
 
 - Recognised angled blind steps now fail visibly instead of remaining an undecided inventory.
   Each aggregate-reconciled `AngledStep` produces an actionable warning and one `unsupported`

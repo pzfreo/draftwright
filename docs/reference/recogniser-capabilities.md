@@ -201,11 +201,29 @@ Equal specifications may share one `n×` callout only when every member measurem
 ink. Removing provider records, weakening a leg/angle, corrupting a declaration or generated line,
 moving the leader, changing its text or severing provenance reduces the corresponding layer.
 
+## Fillet completeness evidence
+
+The `fillets` completeness boundary is independently `supported` from
+`tests/fixtures/evaluation/corpus-fillets-v1.json`. Ten construction-authored cases contribute
+fourteen physical rounds, fourteen parameter checks and 56 downstream checks. The corpus covers a
+plain negative, equal planar rounds on all three principal axes, four repeated edges on one body, a
+turned toroidal treatment, equal occurrences on separate bodies, reversed Boolean-operation order
+and the CircularBlindStep/Fillet ownership contest.
+
+Axis, physical surface anchor and planar/turned form identify each occurrence; radius is the scored
+parameter. Each source must join exactly one `FilletFeature` through automatic IR, public
+`Sheet.fillet`, executed generated Sheet code and a placed semantic callout carrying its compiler
+identity. The drawing observation checks `R`/`n× R` syntax and the live leader's physical round or
+turned-profile station independently of annotation names. Equal radii may share one callout only
+when every member measurement remains on that ink. Removing provider records, changing radius,
+corrupting a declaration or generated line, moving the leader, changing its text or severing
+provenance reduces the corresponding layer.
+
 Remaining supported-family completeness work is tracked by family group rather than the closed
 shared design issue: #1370 retains countersinks and Double-D bores; #1371 covers
 channels, slots, slot patterns and polygonal stock; #1372 retains rectangular pads and
 polygonal bosses; #1373 covers plates, face levels and risers; and
-#1374 retains turned steps and fillets.
+#1374 retains turned steps.
 
 ## Angled-step boundary
 

@@ -35,6 +35,7 @@ from draftwright.linting.evidence import (
     lint_claimed_representations,
     verify_measurement_claims,
 )
+from draftwright.linting.fillet_coverage import lint_fillet_coverage
 from draftwright.linting.flat_coverage import lint_flat_coverage
 from draftwright.linting.gear_coverage import lint_declared_gear_coverage
 from draftwright.linting.groove_coverage import lint_groove_coverage
@@ -81,6 +82,7 @@ __all__ = [
     "lint_drawing",
     "lint_feature_coverage",
     "lint_flat_coverage",
+    "lint_fillet_coverage",
     "lint_declared_gear_coverage",
     "lint_slot_coverage",
     "lint_location_coverage",
