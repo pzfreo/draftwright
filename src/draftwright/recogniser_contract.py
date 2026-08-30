@@ -185,6 +185,11 @@ def _family_declaration(family_id: str, spec: _FamilySpec) -> dict[str, Any]:
             "draftwright.evaluation.step_analysis.evaluate_step_corpus",
             "tests/test_issue_1371_flat_completeness_evidence.py",
         )
+    elif family_id == "fillets":
+        completeness = _supported(
+            "draftwright.evaluation.step_analysis.evaluate_step_corpus",
+            "tests/test_issue_1374_fillet_completeness_evidence.py",
+        )
     elif family_id == "grooves":
         completeness = _supported(
             "draftwright.evaluation.step_analysis.evaluate_step_corpus",
@@ -427,6 +432,19 @@ def consumer_capability_declaration() -> dict[str, Any]:
                     "tests/test_step_analysis_evaluation.py",
                 ],
                 "family": "chamfers",
+                "from": "deferred",
+                "release_notes": "CHANGELOG.md",
+                "to": "supported",
+                "version": distribution_version("draftwright"),
+            },
+            {
+                "boundary": "completeness",
+                "compatibility_evidence": [
+                    "tests/test_issue_1374_fillet_completeness_evidence.py",
+                    "tests/test_recogniser_capabilities.py",
+                    "tests/test_step_analysis_evaluation.py",
+                ],
+                "family": "fillets",
                 "from": "deferred",
                 "release_notes": "CHANGELOG.md",
                 "to": "supported",

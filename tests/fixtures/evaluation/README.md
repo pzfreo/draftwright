@@ -130,6 +130,24 @@ one callout requirement even when equal specifications share ink:
   `chamfer-topology-b.step` applies the same operations in reverse order. Their geometry and
   authored requirements are identical while their STEP hashes differ.
 
+`corpus-fillets-v1.json` is a separate physical rounded-edge corpus. One cylindrical or toroidal
+round is one radius-callout requirement even when equal radii share ink:
+
+- `fillet-plain.step` is an unmodified 60 × 40 × 30 mm block and has no round requirement.
+- `fillet-planar-z.step` applies a 4 mm round to its +X/+Y edge; `fillet-planar-x.step` and
+  `fillet-planar-y.step` rigidly rotate that construction onto the other principal edge axes.
+- `fillet-repeated.step` rounds all four Z-running edges to 5 mm, proving grouped `4× R5` ink
+  retains four physical occurrences on one body.
+- `fillet-turned.step` applies a 3 mm toroidal round to the +Z end of diameter 30 × 60 mm shaft
+  stock.
+- `fillet-overlap.step` is a quarter-cylindrical blind corner cut. Direct fillet discovery sees
+  its curved wall, while the aggregate assigns that physical surface only to CircularBlindStep.
+- `fillet-compound.step` contains two translated copies of the equal planar round, proving that
+  grouped `2× R4` ink retains two physical occurrences on separate bodies.
+- `fillet-topology-a.step` applies 4 mm and 7 mm rounds to opposite edges in that order;
+  `fillet-topology-b.step` applies the same operations in reverse order. Their geometry and
+  authored requirements are identical while their STEP hashes differ.
+
 The `FILE_NAME` timestamp is normalized. Each corpus manifest pins every fixture SHA-256 and records
 case-level provenance. A changed fixture therefore requires an explicit corpus-version decision;
 regenerating recognition output can never rewrite the expected facts silently.

@@ -34,6 +34,7 @@ from collections import Counter
 
 from draftwright.linting.chamfer_coverage import chamfer_requirement_outcomes
 from draftwright.linting.channel_coverage import channel_requirement_outcomes
+from draftwright.linting.fillet_coverage import fillet_requirement_outcomes
 from draftwright.linting.flat_coverage import flat_requirement_outcomes
 from draftwright.linting.groove_coverage import groove_requirement_outcomes
 from draftwright.linting.hole_coverage import hole_requirement_outcomes
@@ -159,6 +160,7 @@ _AUDITED_FAMILIES = (
     "angled_steps",
     "chamfers",
     "channels",
+    "fillets",
     "flats",
     "grooves",
     "hole_patterns",
@@ -379,6 +381,7 @@ _STAGE_ROUTED_CODES = frozenset(
 _UNSCORED_CODE_PREFIXES = (
     "chamfer_requirement_",
     "channel_requirement_",
+    "fillet_requirement_",
     "flat_requirement_",
     "gear_requirement_",
     "groove_requirement_",
@@ -592,6 +595,7 @@ def _completeness_component(recognition, features, registry, omissions, issues) 
     outcomes = {
         "chamfers": chamfer_requirement_outcomes(recognition, features, registry, omissions),
         "channels": channel_requirement_outcomes(recognition, features, registry, omissions),
+        "fillets": fillet_requirement_outcomes(recognition, features, registry, omissions),
         "flats": flat_requirement_outcomes(recognition, features, registry, omissions),
         "grooves": groove_requirement_outcomes(recognition, features, registry, omissions),
         "holes": [],

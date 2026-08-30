@@ -13,7 +13,7 @@ An observer may only normalize actual evidence; `ObservedFact` deliberately has 
 identifier. Expected and observed facts are matched by family plus authored physical identity fields.
 
 Format 1 currently proves independent `holes`, `hole-patterns`, `flats`, `pockets`,
-`pocket-patterns`, `grooves` and `chamfers` vertical slices. Each observer reads released
+`pocket-patterns`, `grooves`, `chamfers` and `fillets` vertical slices. Each observer reads released
 `b123d-recognisers` geometry records, builds one drawing, and reads all four downstream outcomes
 from that build through the public IR, `Sheet`, generated-code and ADR 0010 provenance seams.
 
@@ -92,8 +92,10 @@ measurement provenance.
 The groove corpus owns one annular recess per shaft axis line and station, scoring axial width and
 floor diameter through one exact `WIDE × ø` statement. The chamfer corpus owns one planar or
 conical bevel per axis, physical anchor and surface form, scoring both legs and angle through exact
-`C` or `leg × angle` ink and a live physical leader target. Both include compound and topology-order
-controls; the chamfer corpus additionally pins the AngledStep ownership boundary.
+`C` or `leg × angle` ink. The fillet corpus owns one cylindrical or toroidal round per axis, physical
+surface anchor and form, scoring radius through exact `R` or grouped `n× R` ink. All three verify a
+live physical leader target and include compound and topology-order controls; the chamfer corpus
+additionally pins AngledStep ownership, while the fillet corpus pins CircularBlindStep ownership.
 
 ```python
 from pathlib import Path
