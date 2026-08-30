@@ -121,10 +121,11 @@ runs 28 public families once each; a turned aggregate runs 23, with five prismat
 families gated out by design.
 
 Ownership does not imply invented drafting semantics. Draftwright consumes the three new
-immutable inventories from the shared result and exposes any non-empty inventory as explicitly
-unscored completeness evidence. Their record-to-IR, declaration, annotation, and completeness
-outcomes remain evidence-gated under #1382. This preserves the one-inventory contract while
-preventing a newly recognised family from masquerading as a complete drawing.
+immutable inventories from the shared result. Paired ramps now have an evidence-gated record-to-IR,
+declaration, generated-code, annotation, and two-requirement completeness path under #1382.
+Circular blind and through steps remain explicitly unscored until their separate #1382 decisions.
+This preserves the one-inventory contract while preventing an undecided newly recognised family
+from masquerading as a complete drawing.
 
 ## Accepted Contract
 

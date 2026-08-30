@@ -67,6 +67,7 @@ from b123d_recognisers import (
     recognise_grooves,
     recognise_hole_patterns,
     recognise_holes,
+    recognise_paired_ramp_steps,
     recognise_plates,
     recognise_pocket_patterns,
     recognise_pockets,
@@ -102,6 +103,7 @@ from draftwright.model.ir import (
     HoleFeature,
     LevelSupport,
     PadFeature,
+    PairedRampStepFeature,
     PartModel,
     PatternFeature,
     PlateFeature,
@@ -642,6 +644,15 @@ def _convert_fillet(fl: Fillet, ctx: ConvContext) -> FilletFeature:
     )
 
 
+def _convert_paired_ramp_step(step: PairedRampStep, ctx: ConvContext) -> PairedRampStepFeature:
+    return PairedRampStepFeature(
+        frame=Frame((step.at[0], step.at[1], step.at[2]), step.axis),
+        axis=step.axis,
+        angle=step.angle,
+        length=step.length,
+    )
+
+
 def _convert_flat(flat: Flat, ctx: ConvContext) -> FlatFeature:
     at = flat.at
     return FlatFeature(
@@ -678,6 +689,7 @@ _CONVERTERS: dict[type, Converter] = {
     Plate: _convert_plate,
     Chamfer: _convert_chamfer,
     Fillet: _convert_fillet,
+    PairedRampStep: _convert_paired_ramp_step,
     Flat: _convert_flat,
     Groove: _convert_groove,
 }
@@ -744,10 +756,6 @@ _UNCONSUMED_RECORDS: dict[type, str] = {
         "a physical step family added in recognisers 0.4.6; Draftwright has not yet reviewed "
         "its feature, view, dimension, or completeness semantics (#1382)"
     ),
-    PairedRampStep: (
-        "a physical step family added in recognisers 0.4.6; Draftwright has not yet reviewed "
-        "its feature, view, dimension, or completeness semantics (#1382)"
-    ),
     ThroughStep: (
         "a physical step family added in recognisers 0.4.6; Draftwright has not yet reviewed "
         "its feature, view, dimension, or completeness semantics (#1382)"
@@ -786,6 +794,7 @@ def build_part_model(
     risers=None,
     chamfers=None,
     fillets=None,
+    paired_ramp_steps=None,
     plates=None,
     grooves=None,
     flats=None,
@@ -1110,6 +1119,16 @@ def build_part_model(
     # without a sibling rescan.
     for fl in fillets:
         features.append(convert(fl, ctx))
+
+    # Mirror-symmetric paired-ramp steps (#1382) — the aggregate proves two equal acute
+    # cross-section angles and one open-to-terminal run.  Consume the supplied aggregate
+    # inventory directly; standalone model detection invokes the same public family once.
+    if paired_ramp_steps is None:
+        # Match RecognitionResult applicability on the standalone path. A supplied aggregate
+        # inventory already embodies that one orchestration decision and is never re-filtered.
+        paired_ramp_steps = recognise_paired_ramp_steps(part) if orientation is None else ()
+    for ramp in paired_ramp_steps:
+        features.append(convert(ramp, ctx))
 
     # Machined flats on round stock (#148b) — a planar face truncating a cylinder,
     # called out by its across-flats size. Detected UNCONDITIONALLY (not gated by the

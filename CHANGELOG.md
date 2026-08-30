@@ -37,6 +37,13 @@
 
 ### Changed
 
+- Paired-ramp steps recognised by `b123d-recognisers` now have one complete consumer path:
+  exact IR conversion, explicit `Sheet.paired_ramp_step(...)` declaration, generated-code
+  round trip, end-view solver-placed `2× angle × run RUN` leader, independent angle/run
+  tolerances and authored suppression, and a two-requirement fail-closed completeness ledger.
+  Circular blind and rectangular through steps remain separately visible pending their own
+  #1382 semantic decisions (#1382).
+
 - Hole completeness is now supported by a versioned, independently authored STEP corpus rather
   than a Draftwright-derived census. Detection, parameter fidelity and downstream usefulness stay
   separate, while the IR adapter, public Sheet declaration, executed generated code and placed

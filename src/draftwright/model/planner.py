@@ -90,6 +90,9 @@ _CONVENTION = {
     ("chamfer", "length"): "leader",  # C{leg} / {leg}×{angle}° leader callout (#724)
     ("channel_width", "length"): "linear",
     ("fillet", "radius"): "leader",  # R{radius} (grouped n× R) leader callout (#725)
+    # One paired-ramp leader carries the two equal angles and their shared run (#1382).
+    ("ramp_angle", "angle"): "leader",
+    ("ramp_run", "length"): "leader",
     ("flat", "length"): "leader",  # {across} A/F across-flats leader callout (#726)
     # One groove callout carries BOTH params: {width} WIDE × ø{diameter} (#727)
     ("groove", "length"): "leader",

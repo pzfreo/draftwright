@@ -1039,6 +1039,7 @@ class TestTheBoundaryIsLoadBearing:
             "render_grooves",
             "render_height_ladder",
             "render_locations",
+            "render_paired_ramp_steps",
             "render_plates",
             "render_pocket_patterns",
             "render_pockets",

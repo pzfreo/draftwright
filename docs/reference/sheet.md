@@ -163,6 +163,25 @@ sheet.dimension(tapped_hole, "bore.diameter", view="plan", side="left")
 
 ## Multi-parameter handle
 
+Paired-ramp steps use a multi-parameter handle because the angle and run remain separately
+addressable even though the drawing normally combines them on one leader:
+
+```python
+ramp = sheet.paired_ramp_step(
+    axis="y",
+    angle=51.34,
+    length=25,
+    at=(10, 7.5, 0),  # midpoint of the shared ridge
+)
+sheet.authored_dimensions()
+sheet.dimension(ramp, "ramp_angle.angle")
+sheet.dimension(ramp, "ramp_run.length")
+```
+
+The declaration is explicit-only. A detached face or cutter does not prove that two ramps form
+one mirror-symmetric, open-to-terminal material-removal feature. Placement remains solver-owned;
+the engine selects the end-on view and positions the compound leader.
+
 ::: draftwright.sheet._Params
     options:
       filters: public

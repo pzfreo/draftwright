@@ -258,6 +258,7 @@ _SAME_PATH_AS_ENVELOPE = {
     "pad",
     "chamfer",
     "fillet",
+    "paired_ramp_step",
     "flat",
     "groove",
     "plate",

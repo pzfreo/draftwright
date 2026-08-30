@@ -318,6 +318,8 @@ DimensionParameterId = Literal[
     "pocket_length.length",
     "pocket_width.length",
     "polygon_across_flats.length",
+    "ramp_angle.angle",
+    "ramp_run.length",
     "stock_length.length",
     "profile_across_flats.length",
     "slot_length.length",
@@ -1542,6 +1544,52 @@ class FilletFeature:
 
     def parameters(self) -> list[DimParameter]:
         return [DimParameter("radius", "fillet", self.radius)]
+
+    def references(self) -> list[Datum]:
+        return []
+
+
+@dataclass(frozen=True)
+class PairedRampStepFeature:
+    """One mirror-symmetric two-ramp side step.
+
+    ``frame.origin`` is the midpoint of the original shared ridge and ``axis`` is the
+    ridge/run direction.  The public recogniser record proves two equal ramp angles and the
+    open-to-terminal run length; Draftwright communicates those two requirements with one
+    compound leader in the end-on view where the V profile is visible (#1382).
+    """
+
+    frame: Frame
+    axis: str
+    angle: float
+    length: float
+    kind: ClassVar[str] = "paired_ramp_step"
+
+    def __post_init__(self) -> None:
+        if self.axis not in ("x", "y", "z") or self.frame.axis != self.axis:
+            raise ValueError(
+                "paired-ramp axis must be x, y, or z and agree with the feature frame"
+            )
+        if isinstance(self.angle, bool) or not isfinite(self.angle) or not 0 < self.angle < 90:
+            raise ValueError("paired-ramp angle must be a finite acute angle")
+        if isinstance(self.length, bool) or not isfinite(self.length) or self.length <= 0:
+            raise ValueError("paired-ramp run length must be finite and positive")
+
+    @property
+    def span(self) -> tuple[Point, Point]:
+        """The original ridge's open-to-terminal run, centred on ``frame.origin``."""
+        index = "xyz".index(self.axis)
+        lo = list(self.frame.origin)
+        hi = list(self.frame.origin)
+        lo[index] -= self.length / 2
+        hi[index] += self.length / 2
+        return (tuple(lo), tuple(hi))  # type: ignore[return-value]
+
+    def parameters(self) -> list[DimParameter]:
+        return [
+            DimParameter("angle", "ramp_angle", self.angle),
+            DimParameter("length", "ramp_run", self.length, span=self.span),
+        ]
 
     def references(self) -> list[Datum]:
         return []

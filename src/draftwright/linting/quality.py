@@ -39,6 +39,7 @@ from draftwright.linting.flat_coverage import flat_requirement_outcomes
 from draftwright.linting.groove_coverage import groove_requirement_outcomes
 from draftwright.linting.hole_coverage import hole_requirement_outcomes
 from draftwright.linting.issues import LintIssue, is_placement_drop
+from draftwright.linting.paired_ramp_step_coverage import paired_ramp_step_requirement_outcomes
 from draftwright.linting.pocket_coverage import pocket_requirement_outcomes
 from draftwright.linting.pocket_pattern_coverage import pocket_pattern_requirement_outcomes
 from draftwright.linting.polygonal_stock_coverage import polygonal_stock_outcomes
@@ -116,6 +117,7 @@ _RECOGNISED_REQUIREMENT_FAMILIES = {
     "turned_steps": "turned_steps",
     "chamfers": "chamfers",
     "fillets": "fillets",
+    "paired_ramp_steps": "paired_ramp_steps",
     # The rich aggregate is the sole physical Passage authority. The legacy
     # ``passages`` projection is classified below as non-requirement compatibility data.
     "section_passages": "passages",
@@ -152,7 +154,6 @@ _NON_REQUIREMENT_INVENTORIES = frozenset(
 #: unsupported outcome.
 _UNDECIDED_INVENTORIES: dict[str, str] = {
     "circular_blind_steps": "https://github.com/pzfreo/draftwright/issues/1382",
-    "paired_ramp_steps": "https://github.com/pzfreo/draftwright/issues/1382",
     "through_steps": "https://github.com/pzfreo/draftwright/issues/1382",
 }
 
@@ -161,6 +162,7 @@ _AUDITED_FAMILIES = (
     "chamfers",
     "channels",
     "fillets",
+    "paired_ramp_steps",
     "flats",
     "grooves",
     "hole_patterns",
@@ -361,6 +363,7 @@ _STAGE_ROUTED_CODES = frozenset(
         "chamfer_dropped",
         "diameter_dropped",
         "fillet_dropped",
+        "paired_ramp_step_dropped",
         "flat_dropped",
         "groove_dropped",
         "pocket_dropped",
@@ -382,6 +385,7 @@ _UNSCORED_CODE_PREFIXES = (
     "chamfer_requirement_",
     "channel_requirement_",
     "fillet_requirement_",
+    "paired_ramp_step_requirement_",
     "flat_requirement_",
     "gear_requirement_",
     "groove_requirement_",
@@ -596,6 +600,9 @@ def _completeness_component(recognition, features, registry, omissions, issues) 
         "chamfers": chamfer_requirement_outcomes(recognition, features, registry, omissions),
         "channels": channel_requirement_outcomes(recognition, features, registry, omissions),
         "fillets": fillet_requirement_outcomes(recognition, features, registry, omissions),
+        "paired_ramp_steps": paired_ramp_step_requirement_outcomes(
+            recognition, features, registry, omissions
+        ),
         "flats": flat_requirement_outcomes(recognition, features, registry, omissions),
         "grooves": groove_requirement_outcomes(recognition, features, registry, omissions),
         "holes": [],

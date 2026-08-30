@@ -125,6 +125,7 @@ by #754 (Amendment 2): those labels are now planner-fed.
 | fillets (R{radius} / n× R leader, #725) | `from_model.render_fillets` | `plan_dimensions` |
 | flats ({across} A/F leader, #726) | `from_model.render_flats` | `plan_dimensions` |
 | grooves ({width} WIDE × ø{diameter} leader, #727) | `from_model.render_grooves` | `plan_dimensions` |
+| paired ramps (2× angle × run compound leader, #1382) | `from_model.render_paired_ramp_steps` | `plan_dimensions` |
 | pockets (W × L × D DEEP leader, #728) | `from_model.render_pockets` | `plan_dimensions` |
 | plates (thickness linear dim, #729) | `from_model.render_plates` | `plan_dimensions` |
 | slots (width/length linear dims, #730; the datum position dim stays model-derived — it is drawing state, not a feature parameter) | `from_model.render_slots` | `plan_dimensions` |

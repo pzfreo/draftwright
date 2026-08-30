@@ -855,6 +855,11 @@ def _feature_line(
             f'sheet.fillet(axis="{f.axis}", radius={_n(f.radius)}, '
             f"at={_pt(f.frame.origin)}{turned})"
         )
+    if k == "paired_ramp_step":
+        return (
+            f'sheet.paired_ramp_step(axis="{f.axis}", angle={_n(f.angle)}, '
+            f"length={_n(f.length)}, at={_pt(f.frame.origin)})"
+        )
     if k == "flat":
         # `axis_line`/`stock_span` are the stock identity (#1013). Emitted ALWAYS, not only
         # when non-default: they are what stops two same-sized flats on separate stock

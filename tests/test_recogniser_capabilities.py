@@ -278,6 +278,18 @@ def test_rich_passage_contract_has_an_explicit_unsupported_completeness_outcome(
         {
             "boundary": "completeness",
             "compatibility_evidence": [
+                "tests/test_issue_1382_paired_ramp_semantics.py",
+                "tests/test_recogniser_capabilities.py",
+            ],
+            "family": "paired-ramp-steps",
+            "from": "deferred",
+            "release_notes": "CHANGELOG.md",
+            "to": "supported",
+            "version": importlib.metadata.version("draftwright"),
+        },
+        {
+            "boundary": "completeness",
+            "compatibility_evidence": [
                 "tests/test_issue_1245_passage_disposition.py",
                 "tests/test_recogniser_capabilities.py",
             ],
@@ -332,7 +344,6 @@ def test_rich_passage_contract_has_an_explicit_unsupported_completeness_outcome(
     ("family_id", "record_name", "inventory"),
     [
         ("circular-blind-steps", "CircularBlindStep", "circular_blind_steps"),
-        ("paired-ramp-steps", "PairedRampStep", "paired_ramp_steps"),
         ("through-steps", "ThroughStep", "through_steps"),
     ],
 )
@@ -356,6 +367,25 @@ def test_046_step_families_are_explicit_downstream_decisions(
     } == {"unsupported"}
     assert consumer["completeness"]["state"] == "deferred"
     assert family_id not in pending_family_declarations()
+
+
+def test_paired_ramp_steps_are_supported_at_every_consumer_boundary() -> None:
+    family = _families(consumer_capability_declaration())["paired-ramp-steps"]
+
+    assert family["record_schemas"] == {"PairedRampStep": [1]}
+    assert family["disposition"] == "supported"
+    assert {
+        family[boundary]["state"]
+        for boundary in (
+            "ir_adapter",
+            "dsl_declaration",
+            "generated_code",
+            "drawing_consumer",
+            "completeness",
+            "documentation",
+        )
+    } == {"supported"}
+    assert "paired-ramp-steps" not in pending_family_declarations()
 
 
 def test_holes_completeness_is_supported_by_the_independent_observed_corpus() -> None:
@@ -627,6 +657,7 @@ def test_dsl_and_generated_code_inventories_are_derived_from_live_code() -> None
         "plates": "plate",
         "pocket-patterns": "pocket_pattern",
         "pockets": "pocket",
+        "paired-ramp-steps": "paired_ramp_step",
         "polygonal-bosses": "polygonal_boss",
         "polygonal-stock": "polygonal_stock",
         "rectangular-pads": "pad",

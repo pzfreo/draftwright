@@ -826,6 +826,7 @@ def _analyse(
             risers=list(recognition.risers) if recognition else None,
             chamfers=list(recognition.chamfers) if recognition else None,
             fillets=list(recognition.fillets) if recognition else None,
+            paired_ramp_steps=list(recognition.paired_ramp_steps) if recognition else None,
             plates=list(recognition.plates) if recognition else None,
             flats=list(recognition.flats) if recognition else None,
             pockets=pockets,
