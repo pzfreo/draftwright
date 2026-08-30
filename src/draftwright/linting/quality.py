@@ -44,6 +44,7 @@ from draftwright.linting.pocket_coverage import pocket_requirement_outcomes
 from draftwright.linting.pocket_pattern_coverage import pocket_pattern_requirement_outcomes
 from draftwright.linting.polygonal_stock_coverage import polygonal_stock_outcomes
 from draftwright.linting.slot_coverage import slot_requirement_outcomes
+from draftwright.linting.through_step_coverage import through_step_requirement_outcomes
 
 _OUTCOME_STATES = (
     "placed",
@@ -118,6 +119,7 @@ _RECOGNISED_REQUIREMENT_FAMILIES = {
     "chamfers": "chamfers",
     "fillets": "fillets",
     "paired_ramp_steps": "paired_ramp_steps",
+    "through_steps": "through_steps",
     # The rich aggregate is the sole physical Passage authority. The legacy
     # ``passages`` projection is classified below as non-requirement compatibility data.
     "section_passages": "passages",
@@ -154,7 +156,6 @@ _NON_REQUIREMENT_INVENTORIES = frozenset(
 #: unsupported outcome.
 _UNDECIDED_INVENTORIES: dict[str, str] = {
     "circular_blind_steps": "https://github.com/pzfreo/draftwright/issues/1382",
-    "through_steps": "https://github.com/pzfreo/draftwright/issues/1382",
 }
 
 _AUDITED_FAMILIES = (
@@ -174,6 +175,7 @@ _AUDITED_FAMILIES = (
     "prismatic_pockets",
     "slot_patterns",
     "slots",
+    "through_steps",
 )
 
 # What the audited score does not cover, emitted as data rather than left to prose. The
@@ -386,6 +388,7 @@ _UNSCORED_CODE_PREFIXES = (
     "channel_requirement_",
     "fillet_requirement_",
     "paired_ramp_step_requirement_",
+    "through_step_requirement_",
     "flat_requirement_",
     "gear_requirement_",
     "groove_requirement_",
@@ -591,7 +594,9 @@ def _empty_completeness(reason: str, unrecognised: int) -> dict:
     }
 
 
-def _completeness_component(recognition, features, registry, omissions, issues) -> dict:
+def _completeness_component(
+    recognition, features, registry, omissions, issues, *, dimension_plan=None
+) -> dict:
     unrecognised = sum(issue.code == _UNRECOGNISED_GEOMETRY_CODE for issue in issues)
     if recognition is None:
         return _empty_completeness("physical recognition inventory unavailable", unrecognised)
@@ -602,6 +607,13 @@ def _completeness_component(recognition, features, registry, omissions, issues) 
         "fillets": fillet_requirement_outcomes(recognition, features, registry, omissions),
         "paired_ramp_steps": paired_ramp_step_requirement_outcomes(
             recognition, features, registry, omissions
+        ),
+        "through_steps": through_step_requirement_outcomes(
+            recognition,
+            features,
+            registry,
+            omissions,
+            plan=dimension_plan,
         ),
         "flats": flat_requirement_outcomes(recognition, features, registry, omissions),
         "grooves": groove_requirement_outcomes(recognition, features, registry, omissions),
@@ -702,6 +714,7 @@ def quality_components(
     error_penalty: float,
     warning_penalty: float,
     has_asserted_content: bool,
+    dimension_plan=None,
     _aggregation=None,
 ) -> dict:
     """Return independently usable drawing-quality observations.
@@ -730,7 +743,12 @@ def quality_components(
     fidelity_issues = [issue for issue in issues if _is_fidelity_issue(issue)]
     return {
         "completeness": _completeness_component(
-            recognition, features, registry, omissions, issues
+            recognition,
+            features,
+            registry,
+            omissions,
+            issues,
+            dimension_plan=dimension_plan,
         ),
         "restraint": {
             "available": False,

@@ -91,6 +91,7 @@ from draftwright.model import slot as _slot
 from draftwright.model import slot_pattern as _slot_pattern
 from draftwright.model import step as _step
 from draftwright.model import step_level as _step_level
+from draftwright.model import through_step as _through_step
 from draftwright.model.declare import (
     _norm_axis,
     _read_cylinder,
@@ -704,13 +705,17 @@ class _Params(_Nameable):
         source_ids: tuple[str, ...] = (),
     ) -> _Params:
         """A ± tolerance: symmetric ``.tolerance(0.05)`` (→ ``±0.05``) or a limit pair
-        ``.tolerance(0.0, 0.1)`` (→ ``+0.1 -0.0``). ``on`` targets ONE parameter by role
-        (``on="depth"`` on a pocket → a role-keyed decoration); omit ``on`` to tolerance
-        every parameter of the feature alike (the kind-keyed form). ``source`` /
-        ``source_ids`` retain provenance on generated imported requirements."""
+        ``.tolerance(0.0, 0.1)`` (→ ``+0.1 -0.0``). ``on`` targets one parameter by its
+        full id or discriminator, or a parameter family by its shared role (``on="depth"``
+        on a pocket → a role-keyed decoration); omit ``on`` to tolerance every parameter
+        of the feature alike (the kind-keyed form). ``source`` / ``source_ids`` retain
+        provenance on generated imported requirements."""
         val = _tolerance_decoration(lo, hi, source=source, source_ids=source_ids)
-        roles = self._roles()
-        if not roles:
+        parameters = [
+            p for p in self._sheet._features[self._i].parameters() if p.kind != "location"
+        ]
+        roles = {p.role: p.kind for p in parameters}
+        if not parameters:
             # A feature with no dimensioned parameters has nothing to tolerance, and
             # accepting the call would drop a drafting instruction in silence — the failure
             # this codebase ranks below a visible raise (#630/#631). Reachable since #922
@@ -735,20 +740,36 @@ class _Params(_Nameable):
             for key in [
                 k
                 for k in self._sheet._tolerances
-                if len(k) == 3 and k[0] == self._token and k[1] != "nominal_requirement"
+                if len(k) in (3, 4) and k[0] == self._token and k[1] != "nominal_requirement"
             ]:
                 del self._sheet._tolerances[key]
             for kind in set(roles.values()):
                 self._sheet._tolerances[(self._token, kind)] = val
             return self
-        cands = [r for r in roles if r == on or r.rsplit("_", 1)[-1] == on]
+        exact = [p for p in parameters if on in (p.parameter_id, p.discriminator)]
+        if len(exact) == 1:
+            parameter = exact[0]
+            key = (self._token, parameter.kind, parameter.role)
+            if parameter.discriminator is not None:
+                key += (parameter.discriminator,)
+            self._sheet._tolerances[key] = val
+            return self
+        cands = [p for p in parameters if p.role == on or p.role.rsplit("_", 1)[-1] == on]
+        # Preserve the established family-wide spelling: grid_pitch selects both row and
+        # column, and through_step_leg selects both section legs. A full parameter id or
+        # discriminator above remains the independently addressable form.
+        families = {(p.kind, p.role) for p in cands}
+        if cands and len(families) == 1:
+            kind, role = families.pop()
+            self._sheet._tolerances[(self._token, kind, role)] = val
+            return self
         if len(cands) != 1:
             raise ValueError(
-                f"on={on!r} must name one parameter role of this feature; "
-                f"choose from {sorted(roles)}"
+                f"on={on!r} must name one parameter of this feature; "
+                f"choose from {sorted(p.parameter_id for p in parameters)}"
             )
-        role = cands[0]
-        self._sheet._tolerances[(self._token, roles[role], role)] = val
+        parameter = cands[0]
+        self._sheet._tolerances[(self._token, parameter.kind, parameter.role)] = val
         return self
 
     def requirement(
@@ -1538,6 +1559,16 @@ class Sheet:
         open-to-terminal run length and shared-ridge midpoint.  The form is explicit-only:
         a detached face or cutter cannot prove the paired material-removal topology."""
         self._features.append(_paired_ramp_step(**kw))
+        return _Params(self, len(self._features) - 1)
+
+    def through_step(self, **kw) -> _Params:
+        """Declare a rectangular open-profile step spanning its run axis.
+
+        The explicit ``section`` is ``(envelope endpoint, concave corner, envelope
+        endpoint)`` in the two non-run coordinates.  Its two legs are independently
+        dimensioned in the end-on view; the through run is already owned by the envelope.
+        """
+        self._features.append(_through_step(**kw))
         return _Params(self, len(self._features) - 1)
 
     def flat(self, obj=None, **kw) -> _Params:

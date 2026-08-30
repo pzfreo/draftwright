@@ -93,6 +93,7 @@ _CONVENTION = {
     # One paired-ramp leader carries the two equal angles and their shared run (#1382).
     ("ramp_angle", "angle"): "leader",
     ("ramp_run", "length"): "leader",
+    ("through_step_leg", "length"): "linear",
     ("flat", "length"): "leader",  # {across} A/F across-flats leader callout (#726)
     # One groove callout carries BOTH params: {width} WIDE × ø{diameter} (#727)
     ("groove", "length"): "leader",
@@ -501,7 +502,13 @@ def _decorated(model: PartModel, feature: Feature, param: DimParameter) -> DimPa
             f"{param.parameter_id}={param.value:g}"
         )
 
-    tol = model.decorations.get((feature, param.kind, param.role))
+    tol = (
+        model.decorations.get((feature, param.kind, param.role, param.discriminator))
+        if param.discriminator is not None
+        else None
+    )
+    if tol is None:
+        tol = model.decorations.get((feature, param.kind, param.role))
     if tol is None:
         tol = model.decorations.get((feature, param.kind))
     # Imported AP242 provenance belongs to the authored aspect, not to geometry and not to

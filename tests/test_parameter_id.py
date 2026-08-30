@@ -181,6 +181,9 @@ _SAMPLES: dict[str, ir.Feature] = {
     "ChamferFeature": ir.ChamferFeature(_F, "z", 2.0, 2.0, 45.0),
     "FilletFeature": ir.FilletFeature(_F, "z", 3.0),
     "PairedRampStepFeature": ir.PairedRampStepFeature(_F, "z", 45.0, 12.0),
+    "ThroughStepFeature": ir.ThroughStepFeature(
+        _F, "z", 12.0, ((-5.0, 5.0), (-5.0, -5.0), (5.0, -5.0))
+    ),
     "FlatFeature": ir.FlatFeature(_F, "z", 18.0),
     "GrooveFeature": ir.GrooveFeature(_F, "z", 3.0, 20.0),
     "StepLevelFeature": ir.StepLevelFeature(_F, 0.0, (5.0, 10.0, 15.0)),
@@ -265,6 +268,10 @@ _SAMPLE_BINDINGS = {
     "PairedRampStepFeature": (
         ("ramp_angle.angle", 45.0),
         ("ramp_run.length", 12.0),
+    ),
+    "ThroughStepFeature": (
+        ("through_step_leg.length.y", 10.0),
+        ("through_step_leg.length.x", 10.0),
     ),
     "FlatFeature": (("flat.length", 18.0),),
     "GrooveFeature": (("groove.length", 3.0), ("groove.diameter", 20.0)),

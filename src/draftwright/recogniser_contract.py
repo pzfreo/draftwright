@@ -107,6 +107,9 @@ _FAMILIES: dict[str, _FamilySpec] = {
         "render_slot_patterns",
     ),
     "slots": _FamilySpec(("Slot",), "_convert_slot", "slot", "render_slots"),
+    "through-steps": _FamilySpec(
+        ("ThroughStep",), "_convert_through_step", "through_step", "render_through_steps"
+    ),
     "turned-steps": _FamilySpec(
         ("TurnedProfile", "TurnedStep"), "_convert_step", "step", "render_step_lengths"
     ),
@@ -215,6 +218,11 @@ def _family_declaration(family_id: str, spec: _FamilySpec) -> dict[str, Any]:
         completeness = _supported(
             "draftwright.linting.paired_ramp_step_coverage.lint_paired_ramp_step_coverage",
             "tests/test_issue_1382_paired_ramp_semantics.py",
+        )
+    elif family_id == "through-steps":
+        completeness = _supported(
+            "draftwright.linting.through_step_coverage.lint_through_step_coverage",
+            "tests/test_issue_1382_through_step_semantics.py",
         )
     else:
         completeness = _deferred_completeness(family_id)
@@ -331,14 +339,6 @@ _UNSUPPORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
         "https://github.com/pzfreo/draftwright/issues/1382",
         "The provider proves a quarter-cylindrical blind corner step and supplies its radius, "
         "run and oriented section. Draftwright has not yet reviewed which feature, view and "
-        "dimension grammar truthfully expresses that manufacturing requirement, so every "
-        "consumer boundary remains unsupported and completeness remains explicitly deferred.",
-    ),
-    "through-steps": (
-        ("ThroughStep",),
-        "https://github.com/pzfreo/draftwright/issues/1382",
-        "The provider proves a principal-axis rectangular through step and supplies its run, "
-        "anchor and open section. Draftwright has not yet reviewed which feature, view and "
         "dimension grammar truthfully expresses that manufacturing requirement, so every "
         "consumer boundary remains unsupported and completeness remains explicitly deferred.",
     ),
@@ -567,6 +567,66 @@ def consumer_capability_declaration() -> dict[str, Any]:
                 "from": "deferred",
                 "release_notes": "CHANGELOG.md",
                 "to": "unsupported",
+                "version": distribution_version("draftwright"),
+            },
+            {
+                "boundary": "completeness",
+                "compatibility_evidence": [
+                    "tests/test_issue_1382_through_step_semantics.py",
+                    "tests/test_recogniser_capabilities.py",
+                ],
+                "family": "through-steps",
+                "from": "deferred",
+                "release_notes": "CHANGELOG.md",
+                "to": "supported",
+                "version": distribution_version("draftwright"),
+            },
+            {
+                "boundary": "drawing_consumer",
+                "compatibility_evidence": [
+                    "tests/test_issue_1382_through_step_semantics.py",
+                    "tests/test_recogniser_capabilities.py",
+                ],
+                "family": "through-steps",
+                "from": "unsupported",
+                "release_notes": "CHANGELOG.md",
+                "to": "supported",
+                "version": distribution_version("draftwright"),
+            },
+            {
+                "boundary": "dsl_declaration",
+                "compatibility_evidence": [
+                    "tests/test_issue_1382_through_step_semantics.py",
+                    "tests/test_recogniser_capabilities.py",
+                ],
+                "family": "through-steps",
+                "from": "unsupported",
+                "release_notes": "CHANGELOG.md",
+                "to": "supported",
+                "version": distribution_version("draftwright"),
+            },
+            {
+                "boundary": "generated_code",
+                "compatibility_evidence": [
+                    "tests/test_issue_1382_through_step_semantics.py",
+                    "tests/test_recogniser_capabilities.py",
+                ],
+                "family": "through-steps",
+                "from": "unsupported",
+                "release_notes": "CHANGELOG.md",
+                "to": "supported",
+                "version": distribution_version("draftwright"),
+            },
+            {
+                "boundary": "ir_adapter",
+                "compatibility_evidence": [
+                    "tests/test_issue_1382_through_step_semantics.py",
+                    "tests/test_recogniser_capabilities.py",
+                ],
+                "family": "through-steps",
+                "from": "unsupported",
+                "release_notes": "CHANGELOG.md",
+                "to": "supported",
                 "version": distribution_version("draftwright"),
             },
         ],

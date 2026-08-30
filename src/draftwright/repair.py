@@ -48,6 +48,8 @@ def _replace_dim(dwg, old, new):
     # "the same seam `_dw_scale` uses"; that was only true once it was carried here too.
     if getattr(old, "_dw_label_value", None) is not None:
         new._dw_label_value = old._dw_label_value
+    if getattr(old, "_dw_measurement_span", None) is not None:
+        new._dw_measurement_span = old._dw_measurement_span
     dwg.items[dwg.items.index(old)] = new
     dwg.registry.replace_object(old, new)
 

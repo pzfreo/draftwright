@@ -2375,6 +2375,8 @@ class PlacementContext:
         message,
         *,
         measurement=None,
+        measurement_span=None,
+        measurement_spans=(),
         hole_requirements=(),
         source=None,
         outcome_stage=None,
@@ -2388,6 +2390,11 @@ class PlacementContext:
             ids = tuple(item for item in measurement if item is not None)
         else:
             ids = (measurement,)
+        spans = (
+            tuple(measurement_spans)
+            if measurement_spans
+            else ((measurement_span,) if measurement_span is not None else ())
+        )
         if isinstance(source, (list, tuple)):
             source_ids = tuple(str(item) for item in source if item)
         else:
@@ -2401,6 +2408,7 @@ class PlacementContext:
                 hole_requirement_ids=tuple(hole_requirements),
                 source_ids=source_ids,
                 outcome_stage=outcome_stage,
+                measurement_spans=spans,
             )
         )
 

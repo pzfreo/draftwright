@@ -163,8 +163,8 @@ sheet.dimension(tapped_hole, "bore.diameter", view="plan", side="left")
 
 ## Multi-parameter handle
 
-Paired-ramp steps use a multi-parameter handle because the angle and run remain separately
-addressable even though the drawing normally combines them on one leader:
+Paired-ramp and through steps use a multi-parameter handle because their requirements remain
+separately addressable:
 
 ```python
 ramp = sheet.paired_ramp_step(
@@ -176,11 +176,28 @@ ramp = sheet.paired_ramp_step(
 sheet.authored_dimensions()
 sheet.dimension(ramp, "ramp_angle.angle")
 sheet.dimension(ramp, "ramp_run.length")
+
+step = sheet.through_step(
+    axis="z",
+    length=20,
+    at=(12.5, 7.5, 0),
+    section=((5, 15), (5, 0), (20, 0)),
+)
+sheet.dimension(step, "through_step_leg.length.x")
+sheet.dimension(step, "through_step_leg.length.y")
 ```
 
-The declaration is explicit-only. A detached face or cutter does not prove that two ramps form
-one mirror-symmetric, open-to-terminal material-removal feature. Placement remains solver-owned;
-the engine selects the end-on view and positions the compound leader.
+Both declarations are explicit-only. A detached face or cutter cannot prove the aggregate
+material-removal topology. Placement remains solver-owned; the engine selects the end-on view
+and positions the compound leader or linear section dimensions.
+
+An explicit through-step may use any principal run axis, and automatic detection supports the
+same three axes. Where an X/Y-run record's two exact physical intervals are already proved by the
+face-level plus shoulder/plate grammar and the envelope, that established grammar remains the
+owner. If even one leg is not proved, the aggregate local-leg grammar owns the occurrence and its
+exact matching lower-level fragments are removed, so one physical requirement reaches the sheet
+once. Completeness follows the chosen legacy dimensions too: their authored omission, placement
+drop, or missing ink is not hidden by the ownership choice.
 
 ::: draftwright.sheet._Params
     options:

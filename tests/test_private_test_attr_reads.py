@@ -86,6 +86,7 @@ _DRAWING_PRIVATES: frozenset[str] = frozenset(
         "_queue_dimension_intent",
         "_record_build_issue",
         "_replay_intent",
+        "_resolve_dimension_side",
         "_resolve_dimension_span",
         "_set_view_coordinates",
         "_user_dim_uses_corridor",

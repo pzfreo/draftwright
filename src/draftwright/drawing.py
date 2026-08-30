@@ -58,6 +58,7 @@ from draftwright._core import (
     _tol_suffix,
     place_annotation,
 )
+from draftwright._geometry import _END_ON
 from draftwright.annotations._common import (
     PlacementContext,
     _register_hole_table_coverage,
@@ -119,6 +120,7 @@ from draftwright.linting import (
     lint_prismatic_pocket_coverage,
     lint_profiled_bore_coverage,
     lint_slot_coverage,
+    lint_through_step_coverage,
     pmi_stage_summary,
 )
 from draftwright.linting.issues import _collect_issue_aggregation, _current_issue_aggregation
@@ -1201,6 +1203,7 @@ class Drawing:
         name=None,
         slot=8.0,
         feature=None,
+        measurement=None,
         **kwargs,
     ):
         """Raw page-coordinate dimension placement **primitive** (#817).
@@ -1258,11 +1261,15 @@ class Drawing:
             kwargs["label"] = _fmt(page_len / self.scale)
         kwargs["label"] = _font_safe_text(f"{kwargs['label']}{_tol_suffix(tolerance, draft)}")
         return self._add(
-            _dim(p1, p2, side, max(dist, 4.0), draft, **kwargs), name, feature=feature
+            _dim(p1, p2, side, max(dist, 4.0), draft, **kwargs),
+            name,
+            view=view,
+            feature=feature,
+            measurement=measurement,
         )
 
     # -- annotations ----------------------------------------------------------
-    def _add(self, obj, name=None, view=None, feature=None):
+    def _add(self, obj, name=None, view=None, feature=None, measurement=None):
         """Register an annotation so lint and export include it; returns ``obj``. The
         annotation-placement **primitive** (#817) — private, because the public door is the
         placement verbs (:meth:`callout`/:meth:`dimension`/:meth:`note`/:meth:`add_table`/…) and
@@ -1275,7 +1282,15 @@ class Drawing:
         block (#121); ``None`` for drawing-level marks. ``feature`` records the source IR feature
         (#398) so :meth:`drop` / :meth:`annotations_of` work by feature.
         """
-        return place_annotation(self._registry, self.items, obj, name, view, feature)
+        return place_annotation(
+            self._registry,
+            self.items,
+            obj,
+            name,
+            view,
+            feature,
+            measurement,
+        )
 
     @deprecated(
         "Drawing.add() is deprecated (#817): use the placement verbs (callout/dimension/note/"
@@ -1356,19 +1371,23 @@ class Drawing:
             raise ValueError(
                 f"view must be one of {_ortho}, not {view!r} (it foreshortens the span)"
             )
-        matches = [
-            q for q in feature.parameters() if q.kind == param and (role is None or q.role == role)
-        ]
+        parameters = feature.parameters()
+        exact = [q for q in parameters if param in (q.parameter_id, q.discriminator)]
+        matches = (
+            [q for q in exact if role is None or q.role == role]
+            if exact
+            else [q for q in parameters if q.kind == param and (role is None or q.role == role)]
+        )
         if not matches:
             r = f"/{role!r}" if role else ""
             raise ValueError(
                 f"{type(feature).__name__} has no '{param}'{r} parameter to dimension"
             )
         if len(matches) > 1:
-            roles = sorted(q.role for q in matches)
+            ids = sorted(q.parameter_id for q in matches)
             raise ValueError(
-                f"{type(feature).__name__} has {len(matches)} '{param}' params (roles {roles}) "
-                f"— pass role= to choose one"
+                f"{type(feature).__name__} has {len(matches)} '{param}' params {ids} — pass "
+                "role= or an exact parameter id/discriminator to choose one"
             )
         # A span-carrying param (a step length, a location) gives its endpoints directly;
         # a value-only linear param (a slot's dims) derives them from the feature geometry
@@ -1383,7 +1402,10 @@ class Drawing:
         (lo, hi) = span
         p1 = p2 = None
         chosen = view
-        for v in [view] if view else _ortho:
+        automatic_views: tuple[str, ...] = _ortho
+        if view is None and getattr(feature, "kind", None) == "through_step":
+            automatic_views = (_END_ON[feature.axis],)
+        for v in [view] if view else automatic_views:
             q1, q2 = self.at(v, *lo), self.at(v, *hi)
             if math.hypot(q2[0] - q1[0], q2[1] - q1[1]) > 1e-6:
                 chosen, p1, p2 = v, q1, q2
@@ -1395,14 +1417,28 @@ class Drawing:
             )
         return matches[0], chosen, p1, p2
 
+    def _resolve_dimension_side(self, feature, param, view, p1, p2, side):
+        """Choose a feature's natural corridor when the caller leaves ``side`` implicit."""
+        if side is not None:
+            return side
+        if getattr(feature, "kind", None) != "through_step":
+            return "above"
+        changed_axis = param.discriminator
+        perpendicular = next(axis for axis in "xyz" if axis not in (feature.axis, changed_axis))
+        outside = dict(feature.outside_directions)
+        probe_world = [(a + b) / 2 for a, b in zip(param.span[0], param.span[1], strict=True)]
+        probe_world["xyz".index(perpendicular)] += outside[perpendicular]
+        exterior = self.at(view, *probe_world)
+        if abs(p2[0] - p1[0]) >= abs(p2[1] - p1[1]):
+            return "above" if exterior[1] > (p1[1] + p2[1]) / 2 else "below"
+        return "right" if exterior[0] > (p1[0] + p2[0]) / 2 else "left"
+
     def _queue_dimension_intent(self, it, a, *, ctx, used_names=None) -> bool:
         """Queue a pinned/prioritized feature dimension into a shared corridor."""
         from draftwright.annotations._common import CorridorCandidate, register_corridor
 
-        side = it.kwargs.get("side", "above")
+        side = it.kwargs.get("side")
         view = it.kwargs.get("view")
-        if side not in ("above", "below", "left", "right"):
-            return False
         zones_name = {"front": "fv_zones", "plan": "pv_zones", "side": "sv_zones"}
         rec, view, p1, p2 = self._resolve_dimension_span(
             it.feature,
@@ -1410,6 +1446,13 @@ class Drawing:
             role=it.kwargs.get("role"),
             view=view,
         )
+        side = self._resolve_dimension_side(it.feature, rec, view, p1, p2, side)
+        if side not in ("above", "below", "left", "right"):
+            return False
+        from draftwright.model.compiled import DimensionId
+
+        measurement = DimensionId(it.feature, rec.parameter_id)
+        measurement_span = rec.span or self._derive_span(it.feature, rec)
         zones = getattr(a, zones_name.get(view, ""), None)
         strip = getattr(zones, side, None) if zones is not None else None
         if strip is None:
@@ -1452,12 +1495,22 @@ class Drawing:
         tier = self.draft.font_size + 2 * self.draft.pad_around_text
         p_lo, p_hi = sorted((p1[1 - ax], p2[1 - ax]))
 
-        def _build(pos, _p1=p1, _p2=p2, _side=side, _ax=ax, _kwargs=dim_kwargs):
+        def _build(
+            pos,
+            _p1=p1,
+            _p2=p2,
+            _side=side,
+            _ax=ax,
+            _kwargs=dim_kwargs,
+            _measurement_span=measurement_span,
+        ):
             if _side in ("right", "above"):
                 dist = pos - max(p[_ax] for p in (_p1, _p2))
             else:
                 dist = min(p[_ax] for p in (_p1, _p2)) - pos
-            return _dim(_p1, _p2, _side, max(dist, 4.0), self.draft, **_kwargs)
+            dim = _dim(_p1, _p2, _side, max(dist, 4.0), self.draft, **_kwargs)
+            dim._dw_measurement_span = _measurement_span
+            return dim
 
         def _placed(nm, _pin=it.kwargs.get("pin", False)):
             if _pin:
@@ -1468,6 +1521,8 @@ class Drawing:
                 "warning",
                 "dimension_dropped",
                 f"{nm} not placed (no room on the {view} {side} strip)",
+                measurement=measurement,
+                measurement_span=measurement_span,
             )
 
         priority = float(it.kwargs.get("priority", 0.0) or 0.0)
@@ -1492,6 +1547,7 @@ class Drawing:
                 anchored=bool(it.kwargs.get("pin")),
                 natural=natural,
                 feature=it.feature,
+                measurement=measurement,
             ),
         )
         return True
@@ -1502,7 +1558,7 @@ class Drawing:
         param,
         *,
         role=None,
-        side="above",
+        side=None,
         view=None,
         name=None,
         pin=False,
@@ -1512,22 +1568,26 @@ class Drawing:
         """Add a dimension for *feature*'s *param*, attributed to the feature (#398e).
 
         The feature-referenced **add** verb: pair to :meth:`drop`. *feature* is an IR
-        feature from :meth:`model`; *param* is a **linear** parameter kind it exposes — a
-        turned step's ``"length"`` or a slot's ``"length"``/``"width"`` (which the feature
-        carries as value-only geometry, derived here via :meth:`_derive_span`).
+        feature from :meth:`model`; *param* is a **linear** parameter kind, exact parameter
+        id, or discriminator it exposes — a turned step's ``"length"`` or a through step's
+        ``"through_step_leg.length.x"``/``"x"`` (value-only slot geometry is derived here
+        via :meth:`_derive_span`).
         The dimension is placed into free strip space and tagged with *feature*, so
         :meth:`drop` / :meth:`annotations_of` find it. Returns the annotation name.
 
         A feature may expose several params of one kind (an envelope's width/height/depth,
-        or a slot's ``slot_width``/``slot_length``, are all ``"length"``); pass ``role=`` to
-        pick one — a bare kind matching more than one raises rather than guessing.
+        or a slot's ``slot_width``/``slot_length``, are all ``"length"``); pass ``role=`` or
+        an exact parameter id/discriminator to pick one — an ambiguous kind raises rather
+        than guessing.
 
         ``view`` is chosen automatically as the orthographic view (``"front"``/``"plan"``/
         ``"side"``) where the span projects non-degenerate — a length along the turning
-        axis vanishes in its end-on view, so the view follows the geometry. Pass ``view=``
+        axis vanishes in its end-on view, so the view follows the geometry. Through-step legs
+        share their semantic axis end view and natural outside-corner sides. Pass ``view=``
         to force one of those three (a non-orthographic view foreshortens the span and is
-        rejected). ``side`` defaults to ``"above"``; ``kwargs`` forward to the dimension —
-        except ``tolerance=``, which is folded into the label (see :meth:`place_dim`),
+        rejected). An implicit ``side`` is ``"above"`` except for through-step legs, whose
+        missing corner selects the natural outside corridor. ``kwargs`` forward to the dimension
+        — except ``tolerance=``, which is folded into the label (see :meth:`place_dim`),
         because helpers discard a forwarded tolerance whenever a label is present.
         In deferred mode, ``pin=True`` anchors the dimension at its natural slot coordinate
         inside the shared corridor solve, and ``priority=`` controls over-capacity survival.
@@ -1557,12 +1617,16 @@ class Drawing:
                 )
             )
             return ""
-        _rec, view, p1, p2 = self._resolve_dimension_span(feature, param, role=role, view=view)
+        rec, view, p1, p2 = self._resolve_dimension_span(feature, param, role=role, view=view)
+        side = self._resolve_dimension_side(feature, rec, view, p1, p2, side)
+        from draftwright.model.compiled import DimensionId
+
+        measurement = DimensionId(feature, rec.parameter_id)
         if name is None:
             i = 0
             while (name := f"dim_{param}{i}") in self._registry:
                 i += 1
-        self._place_dim(
+        annotation = self._place_dim(
             p1,
             p2,
             side,
@@ -1570,8 +1634,13 @@ class Drawing:
             self.draft,
             name=name,
             feature=feature,
+            measurement=measurement,
             **kwargs,
         )
+        # A correlated ladder intentionally shares one public ``DimensionId`` across its
+        # members. Preserve the compiler-owned world span at the public edit boundary so
+        # completeness can tell which exact occurrence this visible replacement asserts.
+        annotation._dw_measurement_span = rec.span or self._derive_span(feature, rec)
         if pin:
             self.pin(name)
         return name
@@ -2138,7 +2207,10 @@ class Drawing:
             or it.kind != "dimension"
             or id(it) in already_routed
             or not (it.kwargs.get("pin") or it.kwargs.get("priority"))
-            or it.kwargs.get("side", "above") not in ("above", "below", "left", "right")
+            or (
+                it.kwargs.get("side") is not None
+                and it.kwargs.get("side") not in ("above", "below", "left", "right")
+            )
         ):
             return False
         try:
@@ -3237,11 +3309,22 @@ class Drawing:
         self.items = [o for o in self.items if id(o) in kept_ids]
         return removed
 
-    def _record_build_issue(self, severity, code, message):
+    def _record_build_issue(
+        self, severity, code, message, *, measurement=None, measurement_span=None
+    ):
         """Record a lint issue discovered during construction (e.g. an
         annotation the layout had to drop). Surfaced by :meth:`lint` so a
         dropped feature is never silent."""
-        self._registry.record_issue(LintIssue(severity=severity, code=code, message=message))
+        self._registry.record_issue(
+            LintIssue(
+                severity=severity,
+                code=code,
+                message=message,
+                measurement_ids=(measurement,) if measurement is not None else (),
+                outcome_stage="placement" if measurement is not None else None,
+                measurement_spans=(measurement_span,) if measurement_span is not None else (),
+            )
+        )
 
     # -- repair ---------------------------------------------------------------
     def repair(self, max_iter: int = 3):
@@ -3414,7 +3497,10 @@ class Drawing:
                 # (ADR 0016 Amendment 1).
                 from draftwright.model.compiled import compile_dimensions
 
-                issues += lint_claimed_representations(self._registry, compile_dimensions(model))
+                dimension_plan = compile_dimensions(model)
+                issues += lint_claimed_representations(self._registry, dimension_plan)
+            else:
+                dimension_plan = None
             # Turned bosses/bands remain in the OD + axial-step policy; this check is
             # specifically for a prismatic boss's independent projection height.
             if model is not None and (a is None or (not a.is_rotational and a.prof is None)):
@@ -3516,6 +3602,15 @@ class Drawing:
                 registry=self._registry,
                 omissions=self._build.omissions,
                 assembly=self.assembly,
+            )
+            issues += lint_through_step_coverage(
+                self.part,
+                recognition=recognition,
+                features=getattr(model, "features", ()) if model is not None else (),
+                registry=self._registry,
+                omissions=self._build.omissions,
+                assembly=self.assembly,
+                plan=dimension_plan,
             )
             issues += lint_slot_coverage(
                 self.part,
@@ -3654,6 +3749,8 @@ class Drawing:
             if self._analysis is not None
             else None
         )
+        from draftwright.model.compiled import compile_dimensions
+
         quality = quality_components(
             recognition=self._build.recognition,
             features=getattr(self._part_model, "features", ()),
@@ -3688,6 +3785,9 @@ class Drawing:
             ),
             error_penalty=_SCORE_ERROR_PENALTY,
             warning_penalty=_SCORE_WARNING_PENALTY,
+            dimension_plan=(
+                compile_dimensions(self._part_model) if self._part_model is not None else None
+            ),
             _aggregation=aggregation,
         )
         return {

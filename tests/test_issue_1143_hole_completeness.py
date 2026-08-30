@@ -278,6 +278,7 @@ def test_pattern_and_central_bore_have_a_complete_recognition_owned_ledger():
         "pocket_patterns": 0,
         "slots": 0,
         "slot_patterns": 0,
+        "through_steps": 0,
     }
     assert "holes" not in completeness["unscored_recognized_families"]
     assert "hole_patterns" not in completeness["unscored_recognized_families"]

@@ -135,6 +135,10 @@ def _paired_ramp_step():
     return Box(40, 40, 30) - Pos(20, 20, 0) * extrude(Plane.XZ * profile, 25)
 
 
+def _through_step():
+    return Box(40, 30, 20) - Pos(15, 10, 0) * Box(20, 20, 30)
+
+
 def _script_for(part, part_expr="part = PART", stem="drawing", **kw):
     return emit_sheet_script(detect_part_model(part), part_expr, stem, title="T", number="N", **kw)
 
@@ -2516,6 +2520,7 @@ class TestTheDimensionMirror:
             "chamfer": _chamfered_corner(bd_chamfer, 4),
             "fillet": _chamfered_corner(bd_fillet, 3),
             "paired ramp": _paired_ramp_step(),
+            "through step": _through_step(),
             "flat": Cylinder(10, 30) - Pos(10, 0, 0) * Box(10, 40, 40),  # D-shaft
             "groove": Cylinder(10, 40) - (Cylinder(10, 4) - Cylinder(8, 4)),  # circlip groove
             "plate": Box(80, 50, 8) + Pos(-36, 0, 29) * Box(8, 50, 50),  # base + upright
@@ -2554,6 +2559,7 @@ class TestTheDimensionMirror:
         "chamfer": {"chamfer"},
         "fillet": {"fillet"},
         "paired ramp": {"paired_ramp_step"},
+        "through step": {"through_step"},
         "flat": {"flat"},
         "groove": {"groove"},
         "plate": {"plate"},
@@ -2859,6 +2865,7 @@ _KIND_MIRROR_COVERAGE = {
     "chamfer": "corpus",
     "fillet": "corpus",
     "paired_ramp_step": "corpus",
+    "through_step": "corpus",
     "flat": "corpus",
     "groove": "corpus",
     "plate": "corpus",
@@ -3353,6 +3360,7 @@ _FIDELITY_ROUTE = {
     "chamfer": ("detected", "chamfer"),
     "fillet": ("detected", "fillet"),
     "paired_ramp_step": ("detected", "paired ramp"),
+    "through_step": ("detected", "through step"),
     "flat": ("detected", "flat"),
     "groove": ("detected", "groove"),
     "rotational": ("detected", "turned shaft"),
@@ -3598,6 +3606,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
             "chamfer": _chamfered_corner(bd_chamfer, 4),
             "fillet": _chamfered_corner(bd_fillet, 3),
             "paired ramp": _paired_ramp_step(),
+            "through step": _through_step(),
             "flat": Cylinder(10, 30) - Pos(10, 0, 0) * Box(10, 40, 40),
             "groove": Cylinder(10, 40) - (Cylinder(10, 4) - Cylinder(8, 4)),
             "pad": Box(80, 60, 10) + Pos(0, 0, 7) * Box(30, 20, 4),
@@ -3657,6 +3666,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
         "chamfer": {"chamfer"},
         "fillet": {"fillet"},
         "paired ramp": {"paired_ramp_step"},
+        "through step": {"through_step"},
         "flat": {"flat"},
         "groove": {"groove"},
         "pad": {"pad"},

@@ -2439,6 +2439,159 @@ def _paired_ramp_label(angle, run, draft) -> str:
     return " × ".join(parts)
 
 
+def render_through_steps(dwg, plan, a, *, ctx, only=None) -> int:
+    """Render both defining legs of each rectangular through step (#1382).
+
+    The provider supplies the canonical open section, so the renderer needs no geometry
+    inference: each approved leg span becomes one linear dimension in the end-on view.  The
+    missing rectangle's direction signs select the natural outside corridor; the shared
+    corridor solve owns the final coordinate, then a post-drain opposite-side retry gets one
+    final solver-owned chance before an explicit unavoidable drop is recorded.
+    """
+    draft = dwg.draft
+    tier = draft.font_size + 2 * draft.pad_around_text
+    zones_for_view = {"front": a.fv_zones, "side": a.sv_zones, "plan": a.pv_zones}
+    opposite = {"above": "below", "below": "above", "left": "right", "right": "left"}
+    count = 0
+    for index, group in enumerate(plan.of_kind("through_step")):
+        if only is not None and group.ref not in only:
+            continue
+        facts = group.facts
+        view = group.view
+        if view is None or dwg.view_bounds(view) is None:
+            continue
+        outside = dict(facts.outside_directions)
+        for approved in group.dims:
+            if approved.role != "through_step_leg" or approved.span is None:
+                continue
+            start = dwg.at(view, *approved.span[0])
+            end = dwg.at(view, *approved.span[1])
+            changed_axis = approved.discriminator
+            if changed_axis not in "xyz":
+                continue
+            perpendicular = next(axis for axis in "xyz" if axis not in (facts.axis, changed_axis))
+            probe_world = [
+                (a + b) / 2 for a, b in zip(approved.span[0], approved.span[1], strict=True)
+            ]
+            probe_world["xyz".index(perpendicular)] += outside[perpendicular]
+            exterior = dwg.at(view, *probe_world)
+            dx, dy = end[0] - start[0], end[1] - start[1]
+            if abs(dx) >= abs(dy):
+                side = "above" if exterior[1] > (start[1] + end[1]) / 2 else "below"
+                stack = "y"
+                edge = (start[1] + end[1]) / 2
+                pa, pb = (start[0], edge, 0), (end[0], edge, 0)
+            else:
+                side = "right" if exterior[0] > (start[0] + end[0]) / 2 else "left"
+                stack = "x"
+                edge = (start[0] + end[0]) / 2
+                pa, pb = (edge, start[1], 0), (edge, end[1], 0)
+            zones = zones_for_view[view]
+            strip = getattr(zones, side)
+            alternate_side = opposite[side]
+            alternate_strip = getattr(zones, alternate_side)
+            if strip is None:
+                side, strip = alternate_side, alternate_strip
+                alternate_side, alternate_strip = opposite[side], None
+            label = approved.value_text + _tol_suffix(approved.tolerance, draft)
+            discriminator = approved.discriminator or "leg"
+            name = f"dim_through_step_{facts.axis}{index}_{discriminator}"
+
+            def _build(pos, pa=pa, pb=pb, side=side, edge=edge, label=label):
+                return _dim(pa, pb, side, pos - edge, draft, label=label)
+
+            def _foot(pos, pa=pa, pb=pb, side=side, edge=edge, label=label):
+                return dim_footprint(pa, pb, side, pos - edge, draft, label)
+
+            def _drop(
+                dropped_name,
+                *,
+                value=approved.value,
+                view=view,
+                side=side,
+                alternate_side=alternate_side,
+                alternate_strip=alternate_strip,
+                pa=pa,
+                pb=pb,
+                edge=edge,
+                label=label,
+                stack=stack,
+                feature=group.ref,
+                measurement=approved.id,
+            ):
+                def _retry() -> None:
+                    if alternate_strip is not None:
+
+                        def _alternate_build(position):
+                            return _dim(
+                                pa,
+                                pb,
+                                alternate_side,
+                                position - edge,
+                                draft,
+                                label=label,
+                            )
+
+                        def _alternate_foot(position):
+                            return dim_footprint(
+                                pa,
+                                pb,
+                                alternate_side,
+                                position - edge,
+                                draft,
+                                label,
+                            )
+
+                        left = place_strip_candidates(
+                            dwg,
+                            alternate_strip,
+                            view,
+                            stack,
+                            [(dropped_name, _alternate_build)],
+                            tier,
+                            ctx=ctx,
+                            force=True,
+                            features={dropped_name: feature},
+                            measurements={dropped_name: measurement},
+                            footprints={dropped_name: _alternate_foot},
+                            trace=ctx.trace,
+                            trace_label=f"through_step_{alternate_side}_fallthrough",
+                        )
+                        if not left:
+                            return
+                    ctx.record_issue(
+                        "warning",
+                        "through_step_dim_dropped",
+                        f"through-step leg {_fmt(value)} not dimensioned "
+                        f"({view} {side}/{alternate_side}-strips full)",
+                        measurement=measurement,
+                    )
+
+                ctx.post_drain.append(_retry)
+
+            register_corridor(
+                ctx,
+                (view, side),
+                strip,
+                view,
+                stack,
+                tier,
+                CorridorCandidate(
+                    name=name,
+                    build=_build,
+                    order=(_SIZE_SUBCHAIN, index, discriminator, name),
+                    on_place=lambda _name: None,
+                    on_drop=_drop,
+                    force=True,
+                    feature=group.ref,
+                    measurement=approved.id,
+                    footprint=_foot,
+                ),
+            )
+            count += 1
+    return count
+
+
 def render_paired_ramp_steps(dwg, plan, a, *, ctx, only=None) -> int:
     """Render each recognised paired-ramp step as one solver-placed compound leader.
 
@@ -3268,13 +3421,27 @@ def render_plates(dwg, plan, a, *, ctx) -> int:
             alt = None
         name = f"dim_plate_{axis}{i}"
 
-        def _build(pos, pa=pa, pb=pb, side=side, edge=edge, lbl=lbl):
-            return _dim(pa, pb, side, pos - edge, draft, label=lbl)
+        def _build_plate(
+            pos, pa=pa, pb=pb, side=side, edge=edge, lbl=lbl, measurement_span=pd.span
+        ):
+            dim = _dim(pa, pb, side, pos - edge, draft, label=lbl)
+            dim._dw_measurement_span = measurement_span
+            return dim
 
         def _foot(pos, pa=pa, pb=pb, side=side, edge=edge, lbl=lbl):
             return dim_footprint(pa, pb, side, pos - edge, draft, lbl)
 
-        def _drop(nm, val=val, lbl=lbl, view=view, stack=stack, alt=alt, feat=g.ref, mid=pd.id):  # noqa: B008
+        def _drop(
+            nm,
+            val=val,
+            lbl=lbl,
+            view=view,
+            stack=stack,
+            alt=alt,
+            feat=g.ref,
+            mid=pd.id,
+            measurement_span=pd.span,
+        ):  # noqa: B008
             # Opposite-strip fallthrough (mirrors the GD&T #481 pattern), DEFERRED to
             # ctx.post_drain so it runs after EVERY corridor has drained (#684 review):
             # a mid-drain carve could occupy a corner a later sibling's force candidate
@@ -3283,7 +3450,15 @@ def render_plates(dwg, plan, a, *, ctx) -> int:
             # loop's variable and these retries run post-drain, so reading it live would
             # record the LAST plate's identity on every one of them (#1002).
             def _retry(
-                nm=nm, val=val, lbl=lbl, view=view, stack=stack, alt=alt, feat=feat, mid=mid
+                nm=nm,
+                val=val,
+                lbl=lbl,
+                view=view,
+                stack=stack,
+                alt=alt,
+                feat=feat,
+                mid=mid,
+                measurement_span=measurement_span,
             ):
                 for view2, side2, strip2, axis2, qa, qb, edge2 in alt or ():
                     if strip2 is None:
@@ -3298,6 +3473,7 @@ def render_plates(dwg, plan, a, *, ctx) -> int:
                         # contract as the corridor's validation fallback). A miss
                         # tries the next alternate.
                         dim = _dim(qa, qb, side2, pos - edge2, draft, label=lbl)
+                        dim._dw_measurement_span = measurement_span
                         real = _geom_box(dim)
                         page = (_MARGIN, _MARGIN, a.PAGE_W - _MARGIN, a.PAGE_H - _MARGIN)
                         if real is None or (
@@ -3316,6 +3492,8 @@ def render_plates(dwg, plan, a, *, ctx) -> int:
                     "warning",
                     "plate_thickness_dropped",
                     f"plate thickness {_fmt(val)} not dimensioned ({view} {stack}-strip full)",
+                    measurement=mid,
+                    measurement_span=measurement_span,
                 )
 
             # Queued retries run in registration order (deterministic; plates sort by
@@ -3338,7 +3516,7 @@ def render_plates(dwg, plan, a, *, ctx) -> int:
             tier,
             CorridorCandidate(
                 name=name,
-                build=_build,
+                build=_build_plate,
                 order=(_SIZE_SUBCHAIN, i, name),
                 on_place=lambda nm: None,
                 on_drop=_drop,
@@ -3491,8 +3669,21 @@ def render_envelope(dwg, plan, a, *, ctx) -> int:
         build,
         footprint=None,
         measurement=None,
+        measurement_span=None,
     ):
-        def _report(nm, _view=view, _strip=strip, _above=above_strip, _mid=measurement):
+        def _tagged_build(pos, _build=build, _span=measurement_span):
+            dim = _build(pos)
+            dim._dw_measurement_span = _span
+            return dim
+
+        def _report(
+            nm,
+            _view=view,
+            _strip=strip,
+            _above=above_strip,
+            _mid=measurement,
+            _span=measurement_span,
+        ):
             # An overall extent is the one dimension every drawing must carry, and until
             # #1216 review r9 its drop was the only one in the engine that reported NOTHING:
             # `on_drop` was `lambda _nm: None`, so a starved strip removed the width from the
@@ -3528,9 +3719,23 @@ def render_envelope(dwg, plan, a, *, ctx) -> int:
                 occupants = strip_occupants(dwg, side_strip, _view, "y") if side_strip else []
                 if occupants:
                     msg = f"{msg[:-1]}; {side_name} occupied by: {', '.join(occupants)})"
-            ctx.record_issue("error", "overall_dim_withheld", msg, measurement=_mid)
+            ctx.record_issue(
+                "error",
+                "overall_dim_withheld",
+                msg,
+                measurement=_mid,
+                measurement_span=_span,
+            )
 
-        def _drop(nm, _view=view, _above=above_strip, _mid=measurement, _xs=xs, _label=label):
+        def _drop(
+            nm,
+            _view=view,
+            _above=above_strip,
+            _mid=measurement,
+            _xs=xs,
+            _label=label,
+            _span=measurement_span,
+        ):
             # Opposite-strip fallthrough (#1236). A feature leader placed before the drain —
             # a polygonal boss's A/F callout on CTC-01, slot width dims on CTC-04 — can span
             # the whole below corridor, and no corridor-side fix reaches it: the leader is not
@@ -3549,6 +3754,19 @@ def render_envelope(dwg, plan, a, *, ctx) -> int:
                 bounds = dwg.view_bounds(_view)
                 if _above is not None and bounds is not None:
                     lift = bounds[3] + _WITNESS_LIFT_MM
+
+                    def _fallback_build(pos, _l=lift):
+                        dim = _dim(
+                            (_xs[0], _l, 0),
+                            (_xs[1], _l, 0),
+                            "above",
+                            pos - _l,
+                            dwg.draft,
+                            label=_label,
+                        )
+                        dim._dw_measurement_span = _span
+                        return dim
+
                     if not place_strip_candidates(
                         dwg,
                         _above,
@@ -3557,14 +3775,7 @@ def render_envelope(dwg, plan, a, *, ctx) -> int:
                         [
                             (
                                 nm,
-                                lambda pos, _l=lift: _dim(
-                                    (_xs[0], _l, 0),
-                                    (_xs[1], _l, 0),
-                                    "above",
-                                    pos - _l,
-                                    dwg.draft,
-                                    label=_label,
-                                ),
+                                _fallback_build,
                             )
                         ],
                         tier,
@@ -3587,7 +3798,7 @@ def render_envelope(dwg, plan, a, *, ctx) -> int:
             tier,
             CorridorCandidate(
                 name=name,
-                build=build,
+                build=_tagged_build,
                 order=(_OVERALL_SUBCHAIN, distance, name),
                 on_place=lambda _nm: None,
                 on_drop=_drop,
@@ -3626,6 +3837,7 @@ def render_envelope(dwg, plan, a, *, ctx) -> int:
                 f"overall {role} cannot be shown: no planned view lays the {axis} axis "
                 f"out horizontally (planned: {tuple(dwg.views)})",
                 measurement=extent.id,
+                measurement_span=extent.span,
             )
             continue
         index = "xyz".index(axis)
@@ -3667,6 +3879,7 @@ def render_envelope(dwg, plan, a, *, ctx) -> int:
                 dim_footprint((_p1[0], _w, 0), (_p2[0], _w, 0), "below", _w - pos, dwg.draft, _v)
             ),
             measurement=extent.id,
+            measurement_span=extent.span,
         )
         n += 1
     return n
@@ -4354,6 +4567,7 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
                 # rule the turned-step collapse follows (#28 / P2a). The plain rungs below each
                 # state their own measurement and do carry it (#1234 review r5).
                 None,
+                rep.span,
             )
         )
     elif rungs:
@@ -4393,8 +4607,10 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
                 # satisfied by any other absence-shaped code in the same build — which is
                 # exactly what the first cut of that guard did (#1216 review r9, F2).
                 measurement=[rung.id for rung in withheld if rung.id is not None],
+                measurement_spans=[rung.span for rung in withheld if rung.id is not None],
             )
         if n_close:
+            crowded = tuple(rung for rung in rungs if rung.span[1][2] not in kept_level_set)
             # When detail recovery is enabled the enlarged view owns the omitted rungs.
             # Report the source-view drop only when no recovery was requested; a failed
             # detail records ``detail_unplaceable`` instead.
@@ -4404,6 +4620,9 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
                     "step_dim_dropped",
                     f"{n_close} step height(s) too closely spaced to dimension at this scale "
                     "(use a detail view)",
+                    measurement=[rung.id for rung in crowded if rung.id is not None],
+                    measurement_spans=[rung.span for rung in crowded if rung.id is not None],
+                    outcome_stage="placement",
                 )
             # First-class escalation alongside the lint code (ADR 0009 Amdt 1, #351 PR-4b) —
             # `_request_prismatic_detail` (sections.py) consumes this instead of recomputing
@@ -4414,7 +4633,7 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
                     view="front",
                     feature=step,
                     reason="illegible",
-                    targets=tuple(rung for rung in rungs if rung.span[1][2] not in kept_level_set),
+                    targets=crowded,
                 )
             )
         kept = [r for r in rungs if r.span[1][2] in kept_level_set]
@@ -4434,6 +4653,7 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
                     rung.id,
                     None,  # no `N×` prefix: the label states the span itself
                     rung.tolerance,
+                    rung.span,
                 )
             )
 
@@ -4450,6 +4670,7 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
                 height.id,
                 None,  # no `N×` prefix
                 height.tolerance,
+                height.span,
             )
         )
 
@@ -4466,7 +4687,18 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
 
     names = [c[0] for c in chain]
     solved: dict[str, float] = {}
-    for k, (name, zbase, ztop, label, _tsize, drop_msg, mid, per_unit, _rt) in enumerate(chain):
+    for k, (
+        name,
+        zbase,
+        ztop,
+        label,
+        _tsize,
+        drop_msg,
+        mid,
+        per_unit,
+        _rt,
+        measurement_span,
+    ) in enumerate(chain):
 
         def _build(
             pos,
@@ -4477,6 +4709,7 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
             k=k,
             per_unit=per_unit,
             _tol=_tolerances.get(name),
+            measurement_span=measurement_span,
         ):
             base = edge2
             for pn in reversed(names[:k]):  # nearest already-built predecessor's line
@@ -4498,6 +4731,7 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
                 # conventions here and the string cannot tell them apart: this one is ONE
                 # step, while a hole pitch spans the whole run. Same seam as `_dw_scale`.
                 dim._dw_label_value = per_unit
+            dim._dw_measurement_span = measurement_span
             return dim
 
         # The footprint measures the RENDERED string, so it carries the same suffix the
@@ -4524,12 +4758,25 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
                 (base, zbase, 0), (base, ztop, 0), "right", pos - base, draft, label
             )
 
-        def _drop(nm, drop_msg=drop_msg, name=name):
+        def _drop(
+            nm,
+            drop_msg=drop_msg,
+            name=name,
+            measurement=mid,
+            measurement_span=measurement_span,
+        ):
             solved.pop(name, None)
             # Name what filled the strip (#736): the #733 diagnosis becomes a glance at the
             # lint message.
             msg = full_strip_message(drop_msg, dwg, strip, "front", "x")
-            ctx.record_issue("error", "placement_unsatisfiable", msg)
+            ctx.record_issue(
+                "error",
+                "placement_unsatisfiable",
+                msg,
+                measurement=measurement,
+                measurement_span=measurement_span,
+                outcome_stage="placement",
+            )
 
         register_corridor(
             ctx,
@@ -4572,8 +4819,8 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
         # by another route, and it dropped the tolerance (#1234 review r6).
         label = rung.final_label + _tol_suffix(rung.tolerance, draft)
 
-        def _build_left(pos, zbase=zbase, ztop=ztop, label=label):
-            return _dim(
+        def _build_left(pos, zbase=zbase, ztop=ztop, label=label, measurement_span=rung.span):
+            dim = _dim(
                 (left_edge, zbase, 0),
                 (left_edge, ztop, 0),
                 "left",
@@ -4581,8 +4828,10 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
                 draft,
                 label=label,
             )
+            dim._dw_measurement_span = measurement_span
+            return dim
 
-        def _drop_left(nm):
+        def _drop_left(nm, measurement=rung.id, measurement_span=rung.span):
             msg = full_strip_message(
                 "short step-height dimension dropped (front-view left strip full)",
                 dwg,
@@ -4590,7 +4839,14 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
                 "front",
                 "x",
             )
-            ctx.record_issue("error", "placement_unsatisfiable", msg)
+            ctx.record_issue(
+                "error",
+                "placement_unsatisfiable",
+                msg,
+                measurement=measurement,
+                measurement_span=measurement_span,
+                outcome_stage="placement",
+            )
 
         register_corridor(
             ctx,
@@ -4693,8 +4949,16 @@ def render_step_positions(dwg, plan, frame, *, ctx) -> int:
         # tolerance like any other (#1234 review r6).
         shoulder_label = rung.final_label + _tol_suffix(rung.tolerance, draft)
 
-        def _build(pos, p1=p1, p2=p2, edge=edge, label=shoulder_label, direction=direction):
-            return _dim(
+        def _build(
+            pos,
+            p1=p1,
+            p2=p2,
+            edge=edge,
+            label=shoulder_label,
+            direction=direction,
+            measurement_span=rung.span,
+        ):
+            dim = _dim(
                 (p1[0], edge, 0),
                 (p2[0], edge, 0),
                 direction,
@@ -4702,12 +4966,23 @@ def render_step_positions(dwg, plan, frame, *, ctx) -> int:
                 draft,
                 label=label,
             )
+            dim._dw_measurement_span = measurement_span
+            return dim
 
-        def _drop(nm, label=rung.final_label, view=view, direction=direction):
+        def _drop(
+            nm,
+            label=rung.final_label,
+            view=view,
+            direction=direction,
+            measurement=rung.id,
+            measurement_span=rung.span,
+        ):
             ctx.record_issue(
                 "warning",
                 "step_position_dropped",
                 f"step position {label} not dimensioned ({view} {direction}-strip full)",
+                measurement=measurement,
+                measurement_span=measurement_span,
             )
 
         # ADR 0009 corridor candidate (#636): a shoulder position is a datum-referenced

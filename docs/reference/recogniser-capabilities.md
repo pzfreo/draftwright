@@ -233,8 +233,32 @@ carries both compiler measurement identities. An authored set may retain either 
 without resurrecting the omitted one, and tolerances remain attached to their own numeric value.
 The completeness ledger follows each requirement independently to placed, structured-note,
 suppressed, dropped, missing or unverifiable outcomes; duplicate source/IR correspondence fails
-closed rather than choosing by order. Circular blind steps and rectangular through steps remain
-separate undecided families under #1382.
+closed rather than choosing by order. Circular blind steps remain a separate undecided family
+under #1382.
+
+## Through-step completeness evidence
+
+The `through-steps` family is supported from the public `ThroughStep` record. Exact principal
+axis, removed-prism midpoint, through length and the complete three-point open section identify
+one occurrence. Automatic lowering supports every principal run axis. An X/Y-run occurrence is
+left with the established face-level plus shoulder/plate grammar only when that grammar proves
+both exact physical leg intervals (including an envelope-defined complementary interval); a
+partially covered occurrence instead lowers as one aggregate and replaces its exact matching
+legacy fragments. Explicit `Sheet.through_step(...)` declarations choose the same local two-leg
+grammar on any principal axis. Both paths preserve their correspondence facts in generated Sheet
+code without a second geometry scan.
+
+The two orthogonal section legs become independently addressable
+`through_step_leg.length.<axis>` requirements. The through length remains structural because the
+part envelope already states that extent; printing it again would double-dimension the part.
+Both legs are solver-placed in the axis end view, outside the missing corner, and carry their own
+compiler identities and tolerances. The fail-closed ledger follows each selected leg through
+placed, structured-note, suppressed, dropped, missing or unverifiable outcomes; duplicate or
+mutated source/IR correspondence is never paired by order. A coordinate-proven complete legacy
+projection is `inapplicable` only while its exact alternate measurement identities are actually
+placed or structurally satisfied. Authored omission and placement failure remain `suppressed` or
+`dropped`; missing alternate ink remains `missing`. Axis or family presence alone can never claim
+an outcome. Circular blind steps remain the only undecided 0.4.6 step family under #1382.
 
 Remaining supported-family completeness work is tracked by family group rather than the closed
 shared design issue: #1370 retains countersinks and Double-D bores; #1371 covers
@@ -314,11 +338,12 @@ The 0.4.6 provider manifest adds `circular-blind-steps`, `paired-ramp-steps`, an
 section or angle. Those facts do not by themselves choose Draftwright's manufacturing requirement,
 semantic view, or dimension grammar, so each family receives a separate reviewed disposition.
 
-Paired ramps now have the complete supported path described above: explicit IR and Sheet surfaces,
-generated-code parity, one solver-placed compound leader, and independently scored angle/run
-requirements. Circular blind and rectangular through steps remain unsupported at the IR, Sheet,
-generated-code, and drawing-consumer boundaries with completeness explicitly `deferred`. A
-non-empty inventory for either undecided family is reported in
+Paired ramps and rectangular through steps now have the complete supported paths described
+above. Through-step automatic ownership supports every principal run axis while retaining an
+X/Y occurrence's existing Z-up grammar only when both physical legs and their actual outcomes
+are proved; the explicit Sheet surface likewise supports all principal axes. Circular blind
+steps remain unsupported at the IR, Sheet, generated-code, and drawing-consumer boundaries with
+completeness explicitly `deferred`. A non-empty circular-blind-step inventory is reported in
 `quality.completeness.unscored_recognized_families`, so the completeness component cannot
-misrepresent it as a clean zero-requirement inventory. Issue #1382 retains their reviewed
+misrepresent it as a clean zero-requirement inventory. Issue #1382 retains its reviewed
 downstream disposition.

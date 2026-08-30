@@ -77,7 +77,9 @@ from b123d_recognisers import (
     recognise_risers,
     recognise_slot_patterns,
     recognise_slots,
+    recognise_through_steps,
     recognise_turned_steps,
+    step_level_records,
 )
 
 from draftwright._geometry import (
@@ -117,6 +119,7 @@ from draftwright.model.ir import (
     SlotPatternFeature,
     StepFeature,
     StepLevelFeature,
+    ThroughStepFeature,
 )
 
 
@@ -653,6 +656,15 @@ def _convert_paired_ramp_step(step: PairedRampStep, ctx: ConvContext) -> PairedR
     )
 
 
+def _convert_through_step(step: ThroughStep, ctx: ConvContext) -> ThroughStepFeature:
+    return ThroughStepFeature(
+        frame=Frame((step.at[0], step.at[1], step.at[2]), step.axis),
+        axis=step.axis,
+        length=step.length,
+        section=step.section,
+    )
+
+
 def _convert_flat(flat: Flat, ctx: ConvContext) -> FlatFeature:
     at = flat.at
     return FlatFeature(
@@ -690,6 +702,7 @@ _CONVERTERS: dict[type, Converter] = {
     Chamfer: _convert_chamfer,
     Fillet: _convert_fillet,
     PairedRampStep: _convert_paired_ramp_step,
+    ThroughStep: _convert_through_step,
     Flat: _convert_flat,
     Groove: _convert_groove,
 }
@@ -756,10 +769,6 @@ _UNCONSUMED_RECORDS: dict[type, str] = {
         "a physical step family added in recognisers 0.4.6; Draftwright has not yet reviewed "
         "its feature, view, dimension, or completeness semantics (#1382)"
     ),
-    ThroughStep: (
-        "a physical step family added in recognisers 0.4.6; Draftwright has not yet reviewed "
-        "its feature, view, dimension, or completeness semantics (#1382)"
-    ),
 }
 
 
@@ -779,6 +788,93 @@ def convert(record, ctx: ConvContext) -> Feature:
     return conv(record, ctx)
 
 
+def _through_step_leg_spans(steps) -> tuple[tuple[str, float, float], ...]:
+    """Physical transverse intervals owned by aggregate ThroughStep records."""
+    spans = []
+    for step in steps:
+        axes = tuple(axis for axis in "xyz" if axis != step.axis)
+        for start, end in zip(step.section, step.section[1:]):
+            changed = next(index for index in (0, 1) if start[index] != end[index])
+            lo, hi = sorted((float(start[changed]), float(end[changed])))
+            spans.append((axes[changed], lo, hi))
+    return tuple(spans)
+
+
+def _through_step_level_zs(steps) -> tuple[float, ...]:
+    """Z transitions whose higher-level owner is an X/Y-run ThroughStep."""
+    levels = []
+    for step in steps:
+        axes = tuple(axis for axis in "xyz" if axis != step.axis)
+        if "z" in axes:
+            levels.append(float(step.section[1][axes.index("z")]))
+    return tuple(levels)
+
+
+def _through_step_shoulder_sites(steps, bbox) -> tuple[tuple[str, float], ...]:
+    """Legacy datum-shoulder sites made redundant by aggregate local-leg ownership."""
+    bounds = {
+        "x": (float(bbox.min.X), float(bbox.max.X)),
+        "y": (float(bbox.min.Y), float(bbox.max.Y)),
+    }
+    sites = []
+    for axis, lo, hi in _through_step_leg_spans(steps):
+        if axis not in bounds:
+            continue
+        bound_lo, bound_hi = bounds[axis]
+        if abs(lo - bound_lo) < 0.5:
+            sites.append((axis, hi))
+        elif abs(hi - bound_hi) < 0.5:
+            sites.append((axis, lo))
+    return tuple(sites)
+
+
+def _through_step_legacy_complete(
+    step, bbox, step_zs, shoulders, plates, *, envelope_emittable: bool
+) -> bool:
+    """Whether the established Z-up grammar directly defines both open-section legs.
+
+    A face level or shoulder is measured from the part's minimum datum; only when the envelope
+    is itself emittable does that pair also define the complementary maximum-side interval.
+    Plate thicknesses are already direct intervals, with the same envelope requirement for a
+    complement. This is deliberately coordinate-exact drafting evidence, not an axis-only
+    family preference: if either physical leg has no owner the aggregate record must lower
+    instead of disappearing from completeness (#1382).
+    """
+    bounds = {
+        "x": (float(bbox.min.X), float(bbox.max.X)),
+        "y": (float(bbox.min.Y), float(bbox.max.Y)),
+        "z": (float(bbox.min.Z), float(bbox.max.Z)),
+    }
+    intervals: list[tuple[str, float, float]] = []
+    for z in step_zs or ():
+        intervals.append(("z", *sorted((bounds["z"][0], z))))
+        if envelope_emittable:
+            intervals.append(("z", *sorted((z, bounds["z"][1]))))
+    for shoulder in shoulders:
+        lo, hi = bounds[shoulder.axis]
+        intervals.append((shoulder.axis, *sorted((lo, shoulder.position))))
+        if envelope_emittable:
+            intervals.append((shoulder.axis, *sorted((shoulder.position, hi))))
+    for plate in plates or ():
+        axis = plate.axis
+        plate_lo, plate_hi = sorted((plate.lo, plate.hi))
+        intervals.append((axis, plate_lo, plate_hi))
+        if envelope_emittable:
+            bound_lo, bound_hi = bounds[axis]
+            if abs(plate_lo - bound_lo) < 0.5:
+                intervals.append((axis, plate_hi, bound_hi))
+            if abs(plate_hi - bound_hi) < 0.5:
+                intervals.append((axis, bound_lo, plate_lo))
+
+    def _owned(axis: str, lo: float, hi: float) -> bool:
+        return any(
+            owner_axis == axis and abs(owner_lo - lo) < 0.5 and abs(owner_hi - hi) < 0.5
+            for owner_axis, owner_lo, owner_hi in intervals
+        )
+
+    return all(_owned(axis, lo, hi) for axis, lo, hi in _through_step_leg_spans((step,)))
+
+
 def build_part_model(
     part,
     *,
@@ -795,6 +891,7 @@ def build_part_model(
     chamfers=None,
     fillets=None,
     paired_ramp_steps=None,
+    through_steps=None,
     plates=None,
     grooves=None,
     flats=None,
@@ -855,6 +952,22 @@ def build_part_model(
             include_cylindrical=orientation is None,
         )
     ctx = ConvContext(bbox=bbox, orientation=orientation)
+    # A legacy min-datum measurement proves its complementary max-side interval only together
+    # with the overall envelope. Establish whether that feature will really cross the IR waist
+    # before aggregate ownership is decided; the bbox alone is private geometry, not ink.
+    if bosses is None:
+        bosses = recognise_bosses(part, cyls=cyls)
+    bosses_d = _distinct_by_diameter(bosses)
+    if polygonal_stock is None:
+        polygonal_stock = recognise_polygonal_stock(part)
+    envelope_emittable = bool(
+        prof is None and not _is_round(bbox, bosses_d) and not polygonal_stock
+    )
+    if through_steps is None:
+        # Match RecognitionResult applicability on the standalone path. A supplied aggregate
+        # inventory already embodies that one orchestration decision and is never re-filtered.
+        through_steps = recognise_through_steps(part) if orientation is None else ()
+    through_steps = tuple(through_steps)
 
     if channels is None:
         channels = recognise_channels(part)
@@ -866,6 +979,115 @@ def build_part_model(
     if prof is None and rotational is None and plates is None:
         plates = recognise_plates(part)
     multi_plate = has_multi_axis_plates(plates or ())
+    # Ownership evidence must be eligible to cross the recognition→IR boundary.  A lone
+    # single-axis plate is deliberately not emitted below (it is staircase evidence, not the
+    # multi-plate bracket grammar), so letting it preempt a ThroughStep would leave the claimed
+    # leg with no IR owner at all.
+    ownership_plates = (
+        tuple(plates or ()) if prof is None and rotational is None and multi_plate else ()
+    )
+    # Pocket recognition is consumed later, but its edge-open floors participate in the
+    # step-level emission gate. Detect once up front so aggregate takeover is decided against
+    # the same final legacy inventory that will actually cross the IR boundary.
+    if pockets is None:
+        pockets = recognise_pockets(part)
+    edge_floor_zs = {
+        pk.d_lo if pk.open_sign > 0 else pk.d_hi
+        for pk in pockets
+        if pk.depth_axis == "z" and pk.edge_anchored
+    }
+    plate_zs_at_base = {
+        round(pl.hi, 3)
+        for pl in ownership_plates
+        if pl.axis == "z" and abs(pl.lo - bbox.min.Z) < 0.5
+    }
+    if risers is None:
+        risers = recognise_risers(part)
+    # The detected orchestration supplies its filtered aggregate levels. A standalone
+    # ``build_part_model`` has no aggregate, so obtain the same records once and use them for
+    # BOTH ownership and emitted IR.  Suppressing a ThroughStep because a legacy owner exists
+    # only as private evidence would return a model containing neither owner.
+    if step_zs is None:
+        standalone_face_levels = tuple(step_level_records(part))
+        step_zs = tuple(level.z for level in standalone_face_levels)
+        if face_levels is None:
+            face_levels = standalone_face_levels
+    ownership_step_zs = (
+        tuple(
+            z
+            for z in step_zs
+            if round(z, 3) not in plate_zs_at_base
+            and not any(abs(z - floor) < 0.5 for floor in edge_floor_zs)
+        )
+        if prof is None
+        else ()
+    )
+    shoulders = project_step_shoulders(risers, levels=list(ownership_step_zs))
+    # Z-run records are the native through-step projection. X/Y-run records remain with the
+    # established Z-up grammar only when that grammar proves BOTH exact physical legs; a
+    # partial legacy projection is replaced by the complete aggregate owner.
+    lowered_through_steps = tuple(
+        step
+        for step in through_steps
+        if step.axis == "z"
+        or not _through_step_legacy_complete(
+            step,
+            bbox,
+            ownership_step_zs,
+            shoulders,
+            ownership_plates,
+            envelope_emittable=envelope_emittable,
+        )
+    )
+    # Ownership is a fixed point, not a per-record vote over the unfiltered inventory. One
+    # aggregate occurrence can remove a globally shared legacy level/shoulder/plate that a
+    # sibling occurrence initially relied on. Promote every newly uncovered sibling and repeat
+    # until the surviving legacy grammar still proves both legs for every preempted record.
+    while True:
+        owned_spans = _through_step_leg_spans(lowered_through_steps)
+        owned_levels = _through_step_level_zs(lowered_through_steps)
+        owned_shoulders = _through_step_shoulder_sites(lowered_through_steps, bbox)
+        remaining_levels = tuple(
+            z for z in ownership_step_zs if not any(abs(z - owned) < 0.5 for owned in owned_levels)
+        )
+        # Re-project after removing aggregate-owned levels. A riser is a shoulder only while
+        # its foot remains in the emitted level set; filtering the original shoulders by site
+        # alone could preserve an owner that the final StepLevelFeature never receives.
+        remaining_shoulders = tuple(
+            shoulder
+            for shoulder in project_step_shoulders(risers, levels=list(remaining_levels))
+            if not any(
+                shoulder.axis == axis and abs(shoulder.position - position) < 0.5
+                for axis, position in owned_shoulders
+            )
+        )
+        remaining_plates = tuple(
+            plate
+            for plate in ownership_plates
+            if not any(
+                plate.axis == axis and abs(plate.lo - lo) <= 1e-6 and abs(plate.hi - hi) <= 1e-6
+                for axis, lo, hi in owned_spans
+            )
+        )
+        promoted = tuple(
+            step
+            for step in through_steps
+            if step not in lowered_through_steps
+            and not _through_step_legacy_complete(
+                step,
+                bbox,
+                remaining_levels,
+                remaining_shoulders,
+                remaining_plates,
+                envelope_emittable=envelope_emittable,
+            )
+        )
+        if not promoted:
+            break
+        lowered_through_steps += promoted
+    through_leg_spans = _through_step_leg_spans(lowered_through_steps)
+    through_level_zs = _through_step_level_zs(lowered_through_steps)
+    through_shoulder_sites = _through_step_shoulder_sites(lowered_through_steps, bbox)
     if prof is None and rotational is None and multi_plate:
         features.extend(convert(channel, ctx) for channel in channels)
 
@@ -938,8 +1160,6 @@ def build_part_model(
     # identical pockets becomes ONE PocketPatternFeature (count× W×L×D + pitch, #841); its
     # member pockets are NOT also emitted individually — the same grouped-callout rule as
     # hole patterns above (member exclusion by id()).
-    if pockets is None:
-        pockets = recognise_pockets(part)
     if pocket_patterns is None:
         pocket_patterns = recognise_pocket_patterns(pockets)
     # Exclude members by VALUE, not id(): `Pocket` is a frozen (hashable) value record and two
@@ -971,8 +1191,6 @@ def build_part_model(
 
     # A whole regular polygonal prism is stock, not a boss: it owns the form/A-F
     # definition and its axial stock length independently of attachment evidence.
-    if polygonal_stock is None:
-        polygonal_stock = recognise_polygonal_stock(part)
     features.extend(convert(stock, ctx) for stock in polygonal_stock)
 
     # Turned / circlip grooves (#148c) — recognised up front so the turned-step chain can
@@ -1009,15 +1227,12 @@ def build_part_model(
         # floor is likewise a narrow reduced band, but the groove callout already carries its
         # ø, so it is suppressed here (_boss_is_groove_floor) to avoid a duplicate boss ø.
         step_dias = [s.diameter for s in prof.steps]
-        raw_bosses = recognise_bosses(part, cyls=cyls) if bosses is None else bosses
-        for b in _distinct_by_diameter(raw_bosses):
+        for b in bosses_d:
             if all(
                 abs(b.diameter - d) > _DIA_TOL for d in step_dias
             ) and not _boss_is_groove_floor(b, grooves):
                 features.append(convert(b, ctx))
     else:
-        raw_bosses = recognise_bosses(part, cyls=cyls) if bosses is None else bosses
-        bosses_d = _distinct_by_diameter(raw_bosses)
         for b in bosses_d:
             # A grooved round body can still fail the turned-step squareness gate (e.g. a
             # shaft with a rectangular flange) and land here with prof=None. Suppress the
@@ -1048,31 +1263,35 @@ def build_part_model(
     # stack (a base slab under a smaller stacked block) is a *staircase*, owned by the
     # step-height ladder; treating its base as a "plate" would wrongly suppress the step
     # dim (#559 review). This keeps the plate feature to the issue's stated domain.
-    plate_zs_at_base: set = set()
     if prof is None and rotational is None:
         plates = recognise_plates(part) if plates is None else plates
         if multi_plate:
             for pl in plates:
+                if any(
+                    pl.axis == axis and abs(pl.lo - lo) <= 1e-6 and abs(pl.hi - hi) <= 1e-6
+                    for axis, lo, hi in through_leg_spans
+                ):
+                    # The aggregate open section is the higher-level owner of this exact
+                    # thickness interval. Keeping the plate too prints one physical leg twice.
+                    continue
                 features.append(convert(pl, ctx))
-                # A Z base plate (bottom == part base) IS the first step level; suppress
-                # it from the step ladder so the two don't both dimension base→hi.
-                if pl.axis == "z" and abs(pl.lo - bbox.min.Z) < 0.5:
-                    plate_zs_at_base.add(round(pl.hi, 3))
 
     # Prismatic step-height ladder — horizontal face levels on a NON-turned part
     # (a turned part's steps are StepFeatures, dimensioned by the IR length chain).
     if prof is None and step_zs:
         c = bbox.center()
-        _levels = tuple(sorted(z for z in step_zs if round(z, 3) not in plate_zs_at_base))
+        _levels = tuple(
+            sorted(
+                z
+                for z in step_zs
+                if round(z, 3) not in plate_zs_at_base
+                and not any(abs(z - owned) < 0.5 for owned in through_level_zs)
+            )
+        )
         if _levels:
             # An edge-open blind interruption owns its floor through the pocket
             # depth callout; it is not a global profile level. Interior pockets
             # retain the established level IR for compatibility.
-            edge_floor_zs = {
-                pk.d_lo if pk.open_sign > 0 else pk.d_hi
-                for pk in pockets or ()
-                if pk.depth_axis == "z" and pk.edge_anchored
-            }
             _levels = tuple(
                 z for z in _levels if not any(abs(z - floor) < 0.5 for floor in edge_floor_zs)
             )
@@ -1092,8 +1311,12 @@ def build_part_model(
             _shoulders = tuple(
                 (s.axis, s.position)
                 for s in project_step_shoulders(
-                    recognise_risers(part) if risers is None else risers,
+                    risers,
                     levels=list(_levels),
+                )
+                if not any(
+                    s.axis == owner_axis and abs(s.position - owner_position) < 0.5
+                    for owner_axis, owner_position in through_shoulder_sites
                 )
             )
             features.append(
@@ -1129,6 +1352,16 @@ def build_part_model(
         paired_ramp_steps = recognise_paired_ramp_steps(part) if orientation is None else ()
     for ramp in paired_ramp_steps:
         features.append(convert(ramp, ctx))
+
+    # Rectangular open-profile through steps (#1382).  The aggregate record owns the exact
+    # run/anchor/section correspondence; Draftwright lowers its two transverse section legs
+    # without rescanning the body or inventing a third through-length requirement.
+    #
+    # Aggregate ownership precedes its lower-level face-level/riser/plate fragments above: the
+    # exact matching transition/thickness is removed from those legacy projections so the local
+    # two-leg grammar reaches the sheet once, on every principal run axis.
+    for through in lowered_through_steps:
+        features.append(convert(through, ctx))
 
     # Machined flats on round stock (#148b) — a planar face truncating a cylinder,
     # called out by its across-flats size. Detected UNCONDITIONALLY (not gated by the
