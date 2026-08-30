@@ -93,6 +93,7 @@ from draftwright.linting import (
     lint_angled_step_coverage,
     lint_axial_coverage,
     lint_boss_height_coverage,
+    lint_chamfer_coverage,
     lint_channel_coverage,
     lint_claimed_representations,
     lint_declaration_reconciliation,
@@ -3467,6 +3468,14 @@ class Drawing:
                 assembly=self.assembly,
             )
             issues += lint_groove_coverage(
+                self.part,
+                recognition=recognition,
+                features=getattr(model, "features", ()) if model is not None else (),
+                registry=self._registry,
+                omissions=self._build.omissions,
+                assembly=self.assembly,
+            )
+            issues += lint_chamfer_coverage(
                 self.part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),

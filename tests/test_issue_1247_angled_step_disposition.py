@@ -90,9 +90,11 @@ def test_angled_step_is_one_explicit_unsupported_completeness_outcome() -> None:
 
     assert len(lint_angled_step_coverage(drawing.recognition())) == 1
     assert completeness["available"] is True
-    assert completeness["audited_score"] == 0.0
-    assert completeness["requirements"] == 1
+    assert completeness["audited_score"] == 0.5
+    assert completeness["requirements"] == 2
+    assert completeness["placed"] == 1
     assert completeness["unsupported"] == 1
     assert completeness["by_family"]["angled_steps"] == 1
+    assert completeness["by_family"]["chamfers"] == 1
     assert "angled_steps" not in completeness["unscored_recognized_families"]
-    assert completeness["unscored_recognized_families"] == ["chamfers"]
+    assert completeness["unscored_recognized_families"] == []

@@ -1,0 +1,200 @@
+{
+  "format": "draftwright-step-analysis-corpus",
+  "format_version": 1,
+  "corpus_version": "1.0.0",
+  "metric_version": 1,
+  "scope": ["chamfers"],
+  "cases": [
+    {
+      "id": "chamfer-plain-negative",
+      "tags": ["negative"],
+      "fixture": "chamfer-plain.step",
+      "sha256": "98f0c04041c5ad6cc8d85f53b4ef7da65e6319cfed5ae99d5c8c8cde47753b32",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored as a centred 60 x 40 x 30 mm rectangular solid with no bevelled edge.",
+      "expected_outcome": "supported",
+      "facts": []
+    },
+    {
+      "id": "chamfer-planar-z",
+      "tags": ["positive"],
+      "fixture": "chamfer-planar-z.step",
+      "sha256": "c70bd9ad74fc322f5954aae472389216256e762f214039687854d9956f6921c2",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "A 6 mm equal-leg bevel was authored on the +X/+Y edge of a centred 60 x 40 x 30 mm block.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "chamfers",
+          "identity": {"axis": {"value": "z"}, "location": {"value": [27.0, 17.0, 0.0], "absolute_tolerance": 1e-6}, "turned": {"value": false}},
+          "parameters": {"leg1": {"value": 6.0, "absolute_tolerance": 1e-6}, "leg2": {"value": 6.0, "absolute_tolerance": 1e-6}, "angle": {"value": 45.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "chamfer-planar-x",
+      "tags": ["positive", "rotated"],
+      "fixture": "chamfer-planar-x.step",
+      "sha256": "af0bb0a50e4000ea6c616f7e5ec2031ffe880337f46e658ce2412cd5390dc07c",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "The planar-Z construction was rigidly rotated 90 degrees about world Y, preserving the 6 mm bevel on principal axis X.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "chamfers",
+          "identity": {"axis": {"value": "x"}, "location": {"value": [0.0, 17.0, -27.0], "absolute_tolerance": 1e-6}, "turned": {"value": false}},
+          "parameters": {"leg1": {"value": 6.0, "absolute_tolerance": 1e-6}, "leg2": {"value": 6.0, "absolute_tolerance": 1e-6}, "angle": {"value": 45.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "chamfer-planar-y",
+      "tags": ["positive", "rotated"],
+      "fixture": "chamfer-planar-y.step",
+      "sha256": "aaf62b431ab999f0f30fafd378d3ca06ffbe98da66b1ea709c46f6f61d435967",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "The planar-Z construction was rigidly rotated 90 degrees about world X, preserving the 6 mm bevel on principal axis Y.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "chamfers",
+          "identity": {"axis": {"value": "y"}, "location": {"value": [27.0, 0.0, 17.0], "absolute_tolerance": 1e-6}, "turned": {"value": false}},
+          "parameters": {"leg1": {"value": 6.0, "absolute_tolerance": 1e-6}, "leg2": {"value": 6.0, "absolute_tolerance": 1e-6}, "angle": {"value": 45.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "chamfer-asymmetric",
+      "tags": ["asymmetric", "positive"],
+      "fixture": "chamfer-asymmetric.step",
+      "sha256": "58a805bd3ee3b8514cdfc7aaec653846013c0f42361f97980e82ae093df52246",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "A 4 x 8 mm asymmetric bevel was authored on the +X/+Y edge of the same block; its construction angle is atan(4/8).",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "chamfers",
+          "identity": {"axis": {"value": "z"}, "location": {"value": [26.0, 18.0, 0.0], "absolute_tolerance": 1e-6}, "turned": {"value": false}},
+          "parameters": {"leg1": {"value": 8.0, "absolute_tolerance": 1e-6}, "leg2": {"value": 4.0, "absolute_tolerance": 1e-6}, "angle": {"value": 26.57, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "chamfer-turned",
+      "tags": ["positive", "turned"],
+      "fixture": "chamfer-turned.step",
+      "sha256": "06f813c9491c6ee64d5a2b4941338b1f4bedb4db0d065a27d6724cef4968c441",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "A 3 mm conical edge treatment was authored on the +Z end of a centred diameter 30 x 60 mm shaft.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "chamfers",
+          "identity": {"axis": {"value": "z"}, "location": {"value": [-13.5, 0.0, 28.5], "absolute_tolerance": 1e-6}, "turned": {"value": true}},
+          "parameters": {"leg1": {"value": 3.0, "absolute_tolerance": 1e-6}, "leg2": {"value": 3.0, "absolute_tolerance": 1e-6}, "angle": {"value": 45.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "chamfer-angled-step-overlap",
+      "tags": ["ambiguous", "overlapping-family", "positive"],
+      "fixture": "chamfer-overlap.step",
+      "sha256": "78eff2f9d9dec4cac0f20b43c5d0e60a5d874e5f7ef486e14cabe9b74db1cebf",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "A partial-width ramp with triangular blind ends and a separate full-length 3 mm bevel; the ramp slant is AngledStep-owned and only the independent X-edge is a chamfer requirement.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "chamfers",
+          "identity": {"axis": {"value": "x"}, "location": {"value": [25.0, 48.5, 23.5], "absolute_tolerance": 1e-6}, "turned": {"value": false}},
+          "parameters": {"leg1": {"value": 3.0, "absolute_tolerance": 1e-6}, "leg2": {"value": 3.0, "absolute_tolerance": 1e-6}, "angle": {"value": 45.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "chamfer-compound-equal",
+      "tags": ["compound", "multiple-equal", "positive"],
+      "fixture": "chamfer-compound.step",
+      "sha256": "64018ef844df527a5be49bac3643febe98165e0ee79ccd1f930d2ec7a3c70c66",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Two disjoint translated copies of the planar-Z construction retain two equal physical bevels and one grouped 2x callout.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "chamfers",
+          "identity": {"axis": {"value": "z"}, "location": {"value": [-33.0, 17.0, 0.0], "absolute_tolerance": 1e-6}, "turned": {"value": false}},
+          "parameters": {"leg1": {"value": 6.0, "absolute_tolerance": 1e-6}, "leg2": {"value": 6.0, "absolute_tolerance": 1e-6}, "angle": {"value": 45.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        },
+        {
+          "family": "chamfers",
+          "identity": {"axis": {"value": "z"}, "location": {"value": [87.0, 17.0, 0.0], "absolute_tolerance": 1e-6}, "turned": {"value": false}},
+          "parameters": {"leg1": {"value": 6.0, "absolute_tolerance": 1e-6}, "leg2": {"value": 6.0, "absolute_tolerance": 1e-6}, "angle": {"value": 45.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "chamfer-topology-a",
+      "tags": ["multiple", "positive", "topology-order-variant"],
+      "fixture": "chamfer-topology-a.step",
+      "sha256": "8c37c418083db4543816e3085af99438d22b797701ad30ea823b39721a51f810",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "A 4 mm +X/+Y edge bevel was authored before a 7 mm -X/-Y edge bevel on one block.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "chamfers",
+          "identity": {"axis": {"value": "z"}, "location": {"value": [-26.5, -16.5, 0.0], "absolute_tolerance": 1e-6}, "turned": {"value": false}},
+          "parameters": {"leg1": {"value": 7.0, "absolute_tolerance": 1e-6}, "leg2": {"value": 7.0, "absolute_tolerance": 1e-6}, "angle": {"value": 45.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        },
+        {
+          "family": "chamfers",
+          "identity": {"axis": {"value": "z"}, "location": {"value": [28.0, 18.0, 0.0], "absolute_tolerance": 1e-6}, "turned": {"value": false}},
+          "parameters": {"leg1": {"value": 4.0, "absolute_tolerance": 1e-6}, "leg2": {"value": 4.0, "absolute_tolerance": 1e-6}, "angle": {"value": 45.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "chamfer-topology-b",
+      "tags": ["multiple", "positive", "topology-order-variant"],
+      "fixture": "chamfer-topology-b.step",
+      "sha256": "dbd1bebfa862922a14c9d33b309d5246883014acb613b2c706857f6c3806fee0",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Geometrically identical to topology-a, with the two bevel operations applied in reverse order.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "chamfers",
+          "identity": {"axis": {"value": "z"}, "location": {"value": [-26.5, -16.5, 0.0], "absolute_tolerance": 1e-6}, "turned": {"value": false}},
+          "parameters": {"leg1": {"value": 7.0, "absolute_tolerance": 1e-6}, "leg2": {"value": 7.0, "absolute_tolerance": 1e-6}, "angle": {"value": 45.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        },
+        {
+          "family": "chamfers",
+          "identity": {"axis": {"value": "z"}, "location": {"value": [28.0, 18.0, 0.0], "absolute_tolerance": 1e-6}, "turned": {"value": false}},
+          "parameters": {"leg1": {"value": 4.0, "absolute_tolerance": 1e-6}, "leg2": {"value": 4.0, "absolute_tolerance": 1e-6}, "angle": {"value": 45.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    }
+  ]
+}

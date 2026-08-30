@@ -32,6 +32,7 @@ from __future__ import annotations
 
 from collections import Counter
 
+from draftwright.linting.chamfer_coverage import chamfer_requirement_outcomes
 from draftwright.linting.channel_coverage import channel_requirement_outcomes
 from draftwright.linting.flat_coverage import flat_requirement_outcomes
 from draftwright.linting.groove_coverage import groove_requirement_outcomes
@@ -156,6 +157,7 @@ _UNDECIDED_INVENTORIES: dict[str, str] = {
 
 _AUDITED_FAMILIES = (
     "angled_steps",
+    "chamfers",
     "channels",
     "flats",
     "grooves",
@@ -375,6 +377,7 @@ _STAGE_ROUTED_CODES = frozenset(
 #: individually, so the prefix register governs only the interpolating sites — it can never
 #: reclassify a code somebody spelled out.
 _UNSCORED_CODE_PREFIXES = (
+    "chamfer_requirement_",
     "channel_requirement_",
     "flat_requirement_",
     "gear_requirement_",
@@ -587,6 +590,7 @@ def _completeness_component(recognition, features, registry, omissions, issues) 
         return _empty_completeness("physical recognition inventory unavailable", unrecognised)
 
     outcomes = {
+        "chamfers": chamfer_requirement_outcomes(recognition, features, registry, omissions),
         "channels": channel_requirement_outcomes(recognition, features, registry, omissions),
         "flats": flat_requirement_outcomes(recognition, features, registry, omissions),
         "grooves": groove_requirement_outcomes(recognition, features, registry, omissions),
