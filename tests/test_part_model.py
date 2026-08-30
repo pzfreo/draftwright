@@ -298,7 +298,8 @@ def test_feature_detection_runs_once_per_build(monkeypatch):
     """ADR 0008 Amendment 5 / #244 — one aggregate inventory per build.
 
     The recogniser package owns its internal family orchestration; Draftwright's contract is
-    the single public ``build_recognition_result`` call whose result every consumer reuses.
+    the single public ``build_framed_recognition_result`` call whose result every consumer
+    reuses together with its exact local working solid (#1357).
     """
     from build123d import Cylinder, Pos, Rotation
 
@@ -306,17 +307,20 @@ def test_feature_detection_runs_once_per_build(monkeypatch):
     from draftwright import build_drawing
 
     calls = 0
-    original = amod.build_recognition_result
+    original = amod.build_framed_recognition_result
 
     def wrap(*args, **kwargs):
         nonlocal calls
         calls += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(amod, "build_recognition_result", wrap)
+    monkeypatch.setattr(amod, "build_framed_recognition_result", wrap)
 
     # A turned X shaft exercises the detected path, including a repack when required.
-    build_drawing(Rotation(0, 90, 0) * (Cylinder(15, 30) + Pos(0, 0, 30) * Cylinder(8, 30)))
+    build_drawing(
+        Rotation(0, 90, 0) * (Cylinder(15, 30) + Pos(0, 0, 30) * Cylinder(8, 30)),
+        framed_recognition=True,
+    )
     assert calls == 1
 
 

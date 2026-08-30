@@ -501,8 +501,8 @@ def test_one_ladder_rule_serves_sizing_and_critique():
     part they coincide and this would assert nothing.
     """
     part = _turned_shaft_with_blind_bore()
-    rec = build_recognition_result(part)
     bb = part.bounding_box()
+    rec = build_recognition_result(part)
 
     ladder = rec.step_ladder_for_z_span(bb.min.Z, bb.max.Z)
     raw_level_zs = [level.z for level in rec.step_levels]
@@ -544,7 +544,6 @@ def test_sizing_and_critique_adapt_the_part_bounds_to_the_scalar_ladder_boundary
 ):
     """Both production callers pass only the independently measured Z envelope."""
     part = Pos(0, 0, 17) * _turned_shaft_with_blind_bore()
-    bb = part.bounding_box()
     calls: list[tuple[float, float]] = []
     original = RecognitionResult.step_ladder_for_z_span
 
@@ -554,12 +553,15 @@ def test_sizing_and_critique_adapt_the_part_bounds_to_the_scalar_ladder_boundary
 
     monkeypatch.setattr(RecognitionResult, "step_ladder_for_z_span", recording_projection)
 
-    drawing = build_drawing(part)
+    drawing = build_drawing(part, framed_recognition=True)
     sizing_calls = list(calls)
     calls.clear()
     drawing.lint()
     critique_calls = list(calls)
 
+    # Automatic detection compiles the provider's local working solid. Its scalar ladder and
+    # critique must use THAT solid's bounds, not the caller-space source bounds (#1357).
+    bb = drawing.working_part.bounding_box()
     expected = (bb.min.Z, bb.max.Z)
     assert sizing_calls and all(call == expected for call in sizing_calls)
     assert critique_calls and all(call == expected for call in critique_calls)

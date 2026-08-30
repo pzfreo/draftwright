@@ -10,7 +10,8 @@ keep that table, this document, and `CLAUDE.md`'s compact map in step. The
 
 The dependency graph is a DAG (the #138 / ADR 0005 split is complete). Bottom to
 top: leaf modules (`layout.py`, `registry.py`, `fonts.py`, `_geometry.py`,
-`fits.py`, `intents.py`, `recognition_cache.py`, and the `linting/` subpackage) →
+`fits.py`, `intents.py`, `recognition_cache.py`, `recognition_frame.py`, and the `linting/`
+subpackage) →
 `_core.py` → stage modules (`export.py`,
 `repair.py`, `projection.py`, `compose.py`, `analysis.py`, `drawing.py`, the
 `model/` IR subpackage, the `annotations/` subpackage) → `builder.py` → the
@@ -201,6 +202,10 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
 - **`recognition_cache.py`** — Draftwright's ADR 0017 one-result lifecycle owner. It calls
   external `build_recognition_result(part)` at most once for a build/lazy-critique run; the
   package owns recognition, while Draftwright owns when the result is computed and reused.
+- **`recognition_frame.py`** — the ADR 0020 / #1357 consumer boundary for framed recognition. It binds
+  the provider's topology-preserving local working solid to the aggregate produced from that
+  exact solid, retains the caller-space source and `PartFrame` as provenance, and owns the
+  explicit legacy/refusal fallback decision.
 - **`recogniser_contract.py`** — the fail-closed cross-repository capability join. It consumes
   only the installed `b123d-recognisers` public manifest, then validates Draftwright-owned IR,
   `Sheet`, generated-code, drawing, completeness, and documentation declarations. It is rank 7
@@ -545,6 +550,14 @@ policy) live in `CLAUDE.md`. This is the per-ADR status trail; each ADR's
   off-centre slots plus N:1 slot patterns. Each new semantic guard needs the mutation that
   breaks its claimed contract; a green suite alone is not evidence that the guard is
   load-bearing.
+
+- **0020** — **Accepted for explicit opt-in rollout** (#1357): automatic framed builds pair
+  the provider's exact local working solid with its one aggregate behind
+  `recognition_frame.adapt_recognition`. `Drawing.part` retains caller-space provenance;
+  `Drawing.working_part` supplies IR, projection and physical lint. `PartFrame` plus an
+  explicit decision records successful gauges and typed legacy fallbacks. Declared/Sheet
+  builds and the public default retain caller coordinates until platform and representative
+  real-part evidence reviews the legacy-to-framed view/layout transitions.
 
 - **0019** — **Proposed**: **display-complete labels and a dimension-outcome ledger** —
   finishing the 0016 Amdt 1 boundary after epic #1215/#1216's ten review rounds showed its

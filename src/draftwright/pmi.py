@@ -239,6 +239,89 @@ class PmiRecord:
     cylindrical_refs: tuple[CylindricalReference, ...] = ()
 
 
+def _frame_direction(direction, frame) -> tuple[float, float, float]:
+    """Rotate a caller-space direction into *frame* without applying its origin."""
+
+    return tuple(
+        sum(float(direction[index]) * float(axis[index]) for index in range(3))
+        for axis in (frame.x, frame.y, frame.z)
+    )  # type: ignore[return-value]
+
+
+def _frame_axis(axis: str, frame) -> str:
+    if axis.upper() not in {"X", "Y", "Z"}:
+        return "?" if axis else ""
+    unit = tuple(1.0 if index == "XYZ".index(axis.upper()) else 0.0 for index in range(3))
+    local = _frame_direction(unit, frame)
+    dominant = max(range(3), key=lambda index: abs(local[index]))
+    if abs(abs(local[dominant]) - 1.0) > 1e-6 or any(
+        abs(local[index]) > 1e-6 for index in range(3) if index != dominant
+    ):
+        return "?"
+    return "XYZ"[dominant]
+
+
+def _frame_bbox(bbox, frame) -> tuple[float, float, float, float, float, float] | None:
+    if bbox is None:
+        return None
+    corners = tuple(
+        frame.to_local((bbox[ix], bbox[iy], bbox[iz]))
+        for ix in (0, 3)
+        for iy in (1, 4)
+        for iz in (2, 5)
+    )
+    return tuple(
+        min(point[index] for point in corners) for index in range(3)
+    ) + tuple(max(point[index] for point in corners) for index in range(3))
+
+
+def _frame_cylinder(reference: CylindricalReference, frame) -> CylindricalReference:
+    start = tuple(
+        reference.axis_origin[index]
+        + reference.axial_interval[0] * reference.axis_direction[index]
+        for index in range(3)
+    )
+    finish = tuple(
+        reference.axis_origin[index]
+        + reference.axial_interval[1] * reference.axis_direction[index]
+        for index in range(3)
+    )
+    local_start = frame.to_local(start)
+    local_finish = frame.to_local(finish)
+    direction = tuple(local_finish[index] - local_start[index] for index in range(3))
+    length = math.sqrt(sum(component * component for component in direction))
+    return CylindricalReference.canonical(
+        axis_point=local_start,
+        axis_direction=direction,
+        radius=reference.radius,
+        local_interval=(0.0, length),
+        sense=reference.sense,
+    )
+
+
+def reframe_pmi_records(records, frame) -> list[PmiRecord]:
+    """Map AP242 geometry facts from caller space into the framed working solid.
+
+    This is the only source→working coordinate conversion in Draftwright. Numeric requirement
+    values and source identities are unchanged; points, support bounds, axes, and finite-cylinder
+    provenance move together so PMI lowering never correlates caller-space facts with local IR.
+    """
+
+    return [
+        replace(
+            record,
+            ref_pts=tuple(frame.to_local(point) for point in record.ref_pts),
+            ref_bbox=_frame_bbox(record.ref_bbox, frame),
+            dominant_axis=_frame_axis(record.dominant_axis, frame),
+            reference_axis=_frame_axis(record.reference_axis, frame),
+            cylindrical_refs=tuple(
+                _frame_cylinder(reference, frame) for reference in record.cylindrical_refs
+            ),
+        )
+        for record in records
+    ]
+
+
 PmiExtractionOutcome = Literal[
     "extracted", "partially_extracted", "presentation_only", "not_extracted"
 ]

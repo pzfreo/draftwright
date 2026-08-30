@@ -1189,6 +1189,16 @@ class Analysis:
     # from the effective mode so the ignored-PMI diagnostic can distinguish that default from
     # an explicit opt-out without widening the three-mode renderer contract (#623).
     pmi_defaulted: bool
+    #: Caller-space solids-only body. Automatic framed detection may compile a normalized local
+    #: ``part``; this retains the public/source coordinate authority without mixing it into
+    #: local IR, projection, or lint. None preserves compatibility for hand-built Analysis.
+    source_part: Shape | None = None
+    #: Provider-owned mapping from ``source_part`` coordinates to the automatic build's local
+    #: working ``part``. None for declared, legacy, refused, and hand-built analyses.
+    recognition_frame: object | None = None
+    #: JSON-friendly framed/legacy/refusal decision. Kept beside the frame so callers never
+    #: infer a fallback from its absence.
+    recognition_frame_decision: object | None = None
     # Standing ISO 7200 title-block fields (#766) — defaulted, so they sit after the
     # non-default fields above. Defaults preserve the prior output: revision "A", the rest
     # blank (the TitleBlock helper's own defaults).

@@ -27,6 +27,7 @@ from b123d_recognisers import (
     recognise_bosses,
     recognise_chamfers,
     recognise_channels,
+    recognise_circular_blind_steps,
     recognise_countersinks,
     recognise_double_d_bores,
     recognise_fillets,
@@ -34,6 +35,7 @@ from b123d_recognisers import (
     recognise_grooves,
     recognise_hole_patterns,
     recognise_holes,
+    recognise_paired_ramp_steps,
     recognise_passages,
     recognise_plates,
     recognise_pocket_patterns,
@@ -47,6 +49,7 @@ from b123d_recognisers import (
     recognise_section_passages,
     recognise_slot_patterns,
     recognise_slots,
+    recognise_through_steps,
     recognise_turned_steps,
     step_level_records,
 )
@@ -59,8 +62,10 @@ from build123d import (
     Cone,
     Cylinder,
     Plane,
+    Polygon,
     Pos,
     RegularPolygon,
+    Rot,
     extrude,
     import_step,
 )
@@ -216,11 +221,31 @@ def _hexagonal_pocket_plate():
     return plate - Pos(-30, 0, 0) * tool.part - Pos(30, 0, 4) * Box(30, 24, 20)
 
 
+def _rectangular_through_step():
+    """A rectangular full-depth shoulder owned by the 0.4.6 through-step family."""
+    return Box(40, 30, 20) - Pos(15, 10, 0) * Box(20, 20, 30)
+
+
+def _paired_ramp_step():
+    """A paired triangular ramp subtraction owned by the 0.4.6 ramp-step family."""
+    profile = Polygon((0, -8), (0, 8), (-10, 0))
+    cutter = Pos(20, 20, 0) * extrude(Plane.XZ * profile, 25)
+    return Box(40, 40, 30) - cutter
+
+
+def _circular_blind_step():
+    """A side-entering stopped cylinder owned by the 0.4.6 circular-step family."""
+    return Box(40, 30, 20) - Pos(7.5, 15, 10) * Rot(0, 90, 0) * Cylinder(4, 25)
+
+
 _ORACLE_FIXTURES = [
     ("bolt circle with countersinks", _bolt_circle_with_countersinks),
     ("angled blind step", _angled_blind_step),
     ("hexagonal passage", _hexagonal_passage_plate),
     ("hexagonal pocket", _hexagonal_pocket_plate),
+    ("rectangular through step", _rectangular_through_step),
+    ("paired ramp step", _paired_ramp_step),
+    ("circular blind step", _circular_blind_step),
     ("slot grid", _slot_grid_plate),
     ("pocket grid", _pocket_grid_plate),
     ("stepped shaft", _stepped_shaft),
@@ -338,7 +363,10 @@ def test_no_deferred_family_is_reachable_from_the_orchestration():
 #: aggregate now recognises their conical/toroidal turned forms (#1254/#1281).
 _CLASSIFICATION_GATED = (
     "recognise_angled_steps",
+    "recognise_circular_blind_steps",
+    "recognise_paired_ramp_steps",
     "recognise_plates",
+    "recognise_through_steps",
 )
 
 
@@ -468,6 +496,11 @@ def _expected_inventory(part, *, rotational: bool = False) -> dict:
         # still hold what its recognisers produced: an inventory nobody converts is exactly where
         # an empty tuple would go unnoticed (#1244).
         "angled_steps": tuple(recognise_angled_steps(part)) if not rotational else (),
+        "circular_blind_steps": (
+            tuple(recognise_circular_blind_steps(part)) if not rotational else ()
+        ),
+        "paired_ramp_steps": tuple(recognise_paired_ramp_steps(part)) if not rotational else (),
+        "through_steps": tuple(recognise_through_steps(part)) if not rotational else (),
         "passages": tuple(recognise_passages(part)),
         "section_passages": tuple(recognise_section_passages(part)),
         "prismatic_pockets": tuple(recognise_prismatic_pockets(part)),
@@ -488,7 +521,9 @@ def _expected_inventory(part, *, rotational: bool = False) -> dict:
 #: For these the assertion is SUBSET, not equality: the aggregate may drop a candidate to
 #: another family, and may never invent one. Equality is still demanded everywhere else, so the
 #: "ran it and stored ()" failure this test exists for is still caught for every other field.
-_RECONCILED_FIELDS = frozenset({"chamfers", "passages", "prismatic_pockets", "section_passages"})
+_RECONCILED_FIELDS = frozenset(
+    {"chamfers", "fillets", "passages", "prismatic_pockets", "section_passages"}
+)
 
 
 def test_the_aggregate_carries_what_its_recognisers_returned():

@@ -92,6 +92,7 @@ _DRAWING_PRIVATES: frozenset[str] = frozenset(
         "_view_edge_cache",
         "_write_dxf",
         "_write_svg",
+        "_working_part",
     }
 )
 

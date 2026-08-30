@@ -9,7 +9,7 @@ tests pin the declaration as the one source, fail-closed.
 import dataclasses
 
 import pytest
-from build123d import Box, Cylinder, Pos
+from build123d import Align, Box, Cylinder, Pos
 
 from draftwright.model.planner import _LOCATABLE, location_datum, location_role
 
@@ -200,7 +200,11 @@ def test_a_subclass_is_not_silently_locatable(feature):
         pytest.param(
             "hole",
             "HoleFeature",
-            lambda: Box(80, 60, 10) - Pos(20, 10, 0) * Cylinder(4, 20),
+            # Framed recognition owns the working axes. This asymmetric tall body resolves a
+            # FULL frame whose physical bore is local-Z; a conventional thin source plate is
+            # deliberately local-X and exercises the off-axis compiler instead (#1357).
+            lambda: Box(20, 50, 80, align=(Align.CENTER,) * 3)
+            - Pos(8, 12, 0) * Cylinder(3, 120, align=(Align.CENTER,) * 3),
             id="hole-z",
         ),
         pytest.param(
@@ -347,25 +351,42 @@ def test_the_on_axis_bore_skip_reads_the_declaration_on_both_surfaces():
     and a stronger one than asking the analysis whether the part is rotational.
     """
     from draftwright import build_drawing
-    from draftwright.model import HoleFeature
+    from draftwright.model import Datum, Frame, HoleFeature, PartModel
     from draftwright.model.compiled import compile_dimensions
 
     part = Cylinder(20, 40) - Cylinder(6, 60)
+    bb = part.bounding_box()
+    centre = bb.center()
+    hole = HoleFeature(
+        Frame((centre.X, centre.Y, centre.Z), "z"),
+        diameter=12,
+        depth=40,
+        through=True,
+    )
+    model = PartModel(
+        bb,
+        "z",
+        [hole],
+        [Datum("datum_xy", "point", (bb.min.X, bb.min.Y, bb.min.Z))],
+    )
     original = HoleFeature.LOCATION_STEM
     try:
         HoleFeature.LOCATION_STEM = "location_canary"
-        auto = build_drawing(part)
+        # A declared model retains caller-space Z. Framed automatic detection of the same
+        # axial body intentionally compiles local-X, so it cannot exercise the locate() Z
+        # surface this regression guards (#1357).
+        auto = build_drawing(part, model=model)
         auto_ids = {
             key["parameter_id"]
             for n, _a in auto.iter_annotations()
             for key in auto.measurement_keys(n)
             if key["feature"].startswith("hole")
         }
-        dwg = build_drawing(part, auto_dims=False)
-        model = dwg.model()
-        hole = next(f for f in model.features if isinstance(f, HoleFeature))
-        approved = [loc.id.parameter for loc in compile_dimensions(model).locations]
-        names = dwg.locate(hole)
+        dwg = build_drawing(part, model=model, auto_dims=False)
+        built_model = dwg.model()
+        built_hole = next(f for f in built_model.features if isinstance(f, HoleFeature))
+        approved = [loc.id.parameter for loc in compile_dimensions(built_model).locations]
+        names = dwg.locate(built_hole)
     finally:
         HoleFeature.LOCATION_STEM = original
 
@@ -384,7 +405,7 @@ def test_the_on_axis_bore_skip_reads_the_declaration_on_both_surfaces():
     )
 
 
-def test_location_role_answers_for_an_eligible_feature_and_none_for_an_ineligible_one():
+def test_location_role_answers_for_principal_axis_holes_and_patterns():
     """Both directions, unlike the first cut — which was named "...answers none where no
     location is planned" and then asserted the opposite on a feature that IS locatable,
     ending with `assert model is not None`, which cannot fail after ordinary construction."""
@@ -396,5 +417,5 @@ def test_location_role_answers_for_an_eligible_feature_and_none_for_an_ineligibl
 
     member = HoleFeature(Frame((0.0, 0.0, 0.0), "x"), 6.0, depth=None, through=True)
     off_axis = PatternFeature(Frame((0.0, 0.0, 0.0), "x"), "linear", 3, member)
-    assert location_datum(off_axis) is None, "an off-axis pattern has never been drawn"
-    assert location_role(off_axis) is None, "so the vocabulary must not accept it"
+    assert location_datum(off_axis) == "bbox"
+    assert location_role(off_axis) == "location_pattern"

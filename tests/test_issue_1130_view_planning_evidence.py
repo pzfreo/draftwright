@@ -162,8 +162,9 @@ class TestTheFixedTopologyForcesTheSheet:
         ran `_scale_blockers` and the automatic path did not.
 
         The blockers are real, not an artefact of the stricter path: the automatic drawing
-        still carries `slot_dim_dropped` and `hole_requirement_missing`, so it IS the
-        incomplete drawing the explicit gate exists to prevent.
+        still carries `slot_dim_dropped`, so it IS the incomplete drawing the explicit gate
+        exists to prevent. The former off-axis pattern-location loss was fixed by #1357;
+        retaining it here would make an improvement invalidate the scale-gate evidence.
 
         ADR 0018's evidence list requires: "A forced small sheet/large scale that drops a
         requirement is rejected, not accepted with a warning-only incomplete drawing." The
@@ -180,7 +181,7 @@ class TestTheFixedTopologyForcesTheSheet:
             "the automatic path is reporting success again — #1250 has regressed"
         )
         dropped = {issue.code for issue in automatic.lint()}
-        assert {"slot_dim_dropped", "hole_requirement_missing"} <= dropped, (
+        assert "slot_dim_dropped" in dropped, (
             f"the automatic drawing no longer loses requirements, so there is nothing "
             f"inconsistent about accepting it: {sorted(dropped)}"
         )

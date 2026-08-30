@@ -22,6 +22,7 @@ from b123d_recognisers import (
     TurnedProfile,
     TurnedStep,
     analyse_cylinders,
+    build_framed_recognition_result,
     build_recognition_result,
     full_cylinders,
 )
@@ -55,6 +56,7 @@ from draftwright.compose import (
 from draftwright.model import build_part_model
 from draftwright.model.ir import Datum, PartModel, StepFeature, StepLevelFeature
 from draftwright.model.planner import plan_dimensions
+from draftwright.recognition_frame import adapt_recognition
 from draftwright.view_plan import ViewConstraints, arrangement_of
 
 _log = logging.getLogger(__name__)
@@ -491,11 +493,13 @@ class _GeomClass:
     is_rotational: bool
 
 
-def _classify_geometry(part, x_size, y_size, z_size, cx, cy, cz) -> _GeomClass:
+def _classify_geometry(
+    part, x_size, y_size, z_size, cx, cy, cz, *, cylinders=None
+) -> _GeomClass:
     """Analyse *part*'s cylinders and classify its OD / rotational orientation (#590 split of
     :func:`_analyse`). Partial (fillet) faces are excluded — they would pollute the OD, the bore
     leaders, and the rotational test alike (#81)."""
-    z_cyls, cross_cyls = analyse_cylinders(part)
+    z_cyls, cross_cyls = analyse_cylinders(part) if cylinders is None else cylinders
     full_z = full_cylinders(z_cyls)
     z_diams = dedup_diams(full_z)
     cross_diams = dedup_diams(full_cylinders(cross_cyls))
@@ -645,6 +649,7 @@ def _analyse(
     _views: tuple[str, ...] | None = None,
     _include_iso: bool = True,
     _view_constraints=None,
+    _framed_recognition: bool = False,
 ) -> Analysis:
     """Load STEP or use a build123d Shape, analyse geometry, compute layout.
 
@@ -656,11 +661,17 @@ def _analyse(
     # placement both reserve room for the border. Computed up front so the choose_scale inside
     # step-count convergence sees it too.
     margin = _content_margin(frame)
+    recognition: RecognitionResult | None
+    recognition_frame: object | None
+    recognition_frame_decision: object
     if _reuse is not None:
         # Explicit-scale fallback changes only page-space layout. Reuse the immutable geometry,
         # STEP/PMI census, classification, and recognition waist from the requested trial rather
         # than importing and recognising the same part up to fifteen more times (#1146).
         part = _reuse.part
+        source_part = _reuse.source_part if _reuse.source_part is not None else part
+        recognition_frame = _reuse.recognition_frame
+        recognition_frame_decision = _reuse.recognition_frame_decision
         src = str(_reuse.step_file)
         pmi_defaulted = _reuse.pmi_defaulted
         pmi_mode = _reuse.pmi_mode
@@ -683,6 +694,7 @@ def _analyse(
             part = _import_step(step_file)
             src = str(step_file)
         part = _solids_body(part, src)
+        source_part = part
 
         pmi_defaulted = pmi is None
         pmi_mode = "off" if pmi_defaulted else pmi
@@ -703,6 +715,37 @@ def _analyse(
                 _log.warning("PMI extraction failed: %s", exc)
                 pmi_report = PmiExtractionReport(error=f"{type(exc).__name__}: {exc}")
 
+        # ADR 0011: a declaration keeps the caller's coordinate authority and performs no
+        # recognition. Automatic detection instead consumes the provider's exact normalized
+        # working solid and result as ONE coordinate pair (#1357). The source body above is
+        # retained separately; no downstream stage is allowed to combine it with local facts.
+        layout_model = _coerce_layout_model(model, part, decorations)
+        recognition = None
+        recognition_frame = None
+        recognition_frame_decision = {
+            "status": "declared",
+            "gauge": None,
+            "refusal_reason": None,
+        }
+        if layout_model is None and _framed_recognition:
+            adapted = adapt_recognition(
+                part,
+                # Classification is derived below in the returned local coordinates. The
+                # provider's False/default aggregate is deliberately complete; Draftwright's
+                # own is_rotational fact gates the IR families that consume it (ADR 0017 §4).
+                rotational=False,
+                framed_builder=build_framed_recognition_result,
+                legacy_builder=build_recognition_result,
+            )
+            part = adapted.part
+            recognition = adapted.result
+            recognition_frame = adapted.frame
+            recognition_frame_decision = adapted.decision
+            if adapted.frame is not None and pmi_records:
+                from draftwright.pmi import reframe_pmi_records
+
+                pmi_records = reframe_pmi_records(pmi_records, adapted.frame)
+
         bb = part.bounding_box()
         x_size = bb.max.X - bb.min.X
         y_size = bb.max.Y - bb.min.Y
@@ -714,10 +757,33 @@ def _analyse(
 
         _log.info("Loaded %s  bbox: %.2f × %.2f × %.2f mm", src, x_size, y_size, z_size)
 
-        _gc = _classify_geometry(part, x_size, y_size, z_size, cx, cy, cz)
+        _gc = _classify_geometry(
+            part,
+            x_size,
+            y_size,
+            z_size,
+            cx,
+            cy,
+            cz,
+            cylinders=recognition.cylinders if recognition is not None else None,
+        )
         z_cyls, cross_cyls = _gc.z_cyls, _gc.cross_cyls
         z_diams, cross_diams = _gc.z_diams, _gc.cross_diams
         od_diam, od_axis, is_rotational = _gc.od_diam, _gc.od_axis, _gc.is_rotational
+        if layout_model is None and not _framed_recognition:
+            # Compatibility/default route: preserve the exact pre-#1357 ordering and
+            # classification-gated aggregate. The framed path must earn promotion through
+            # platform/canary evidence; opting in above is the separately reviewable rollout.
+            adapted = adapt_recognition(
+                part,
+                rotational=is_rotational,
+                framed=False,
+                cylinders=(z_cyls, cross_cyls),
+                framed_builder=build_framed_recognition_result,
+                legacy_builder=build_recognition_result,
+            )
+            recognition = adapted.result
+            recognition_frame_decision = adapted.decision
 
     # Step Z-levels feed both the step-height ladder and the page-sizing step
     # count. For a vertical (Z-axis) turned part, take them from the unified
@@ -730,8 +796,8 @@ def _analyse(
     # ADR 0011 / ADR 0017 §6: a declared model skips detection (#1022).  The gate has to sit
     # here, ABOVE the aggregate, which is why `_coerce_layout_model` moved up from its old
     # place below — it is pure (IR in, IR out) and reads nothing this block computes.
-    layout_model = _coerce_layout_model(model, part, decorations)
-    recognition: RecognitionResult | None
+    if _reuse is not None:
+        layout_model = _coerce_layout_model(model, part, decorations)
     _turned: TurnedProfile | None
     step_zs: list[float]
     if _reuse is not None:
@@ -747,9 +813,9 @@ def _analyse(
         _turned = _declared_turned_profile(layout_model)
         step_zs = _declared_step_zs(layout_model, _turned, bb)
     else:
-        recognition = build_recognition_result(
-            part, cylinders=(z_cyls, cross_cyls), rotational=is_rotational
-        )
+        # Filled above by the one framed adapter before local bbox/classification. A successful
+        # framed run, or the adapter's explicit legacy fallback, always supplies an aggregate.
+        assert recognition is not None
         _turned = TurnedProfile.from_steps(list(recognition.turned_steps))
         # The aggregate's own rule (#578 review; hoisted there by #1022, shared with critique
         # by #1025). Both callers deriving this separately let lint project over a different
@@ -1023,6 +1089,9 @@ def _analyse(
         planned_iso_scale=planned_iso_scale,
         view_constraints=_view_constraints,
         part=part,
+        source_part=source_part,
+        recognition_frame=recognition_frame,
+        recognition_frame_decision=recognition_frame_decision,
         recognition=recognition,
         bb=bb,
         x_size=x_size,

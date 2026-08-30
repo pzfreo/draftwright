@@ -228,7 +228,7 @@ profile warning only for that occurrence, so an unrelated unrecognised profile r
 
 ## Passage compatibility boundary
 
-The installed `b123d-recognisers==0.4.5` release contains the `passages` family introduced
+The installed `b123d-recognisers==0.4.6` release contains the `passages` family introduced
 in 0.2.6. Version 0.4.0 makes `SectionPassage` the authoritative physical output and retains
 schema-v1 `Passage` as its compatibility projection. Draftwright declares all six public and nested
 record schemas exhaustively but deliberately keeps the family `unsupported`, with the drafting
@@ -246,10 +246,23 @@ The 0.4 contract is explicit:
 - rich split-junction passages can supersede a Slot claim, moving physical ownership to the
   unsupported Passage family through `SLOT_SUPERSEDED_BY_PASSAGE`.
 
-The exact 0.4.5 pin, manifest-v2 validator and explicit unsupported inventories make that limitation
+The exact 0.4.6 pin, manifest-v2 validator and explicit unsupported inventories make that limitation
 fail-visible rather than silently treating rich passages as supported. Draftwright deliberately
 does not claim that a regular-polygon `HEX … A/F THRU` callout covers the complete line/arc section
 schema. Each authoritative `RecognitionResult.section_passages` occurrence therefore emits
 `passage_requirement_unsupported` at warning severity and contributes an `unsupported` requirement
 to the completeness component. The accepted-only legacy `.passages` projection contributes neither
 a second issue nor a second requirement. Issue #1245 records this consumer decision.
+
+## Step families introduced in recognisers 0.4.6
+
+The 0.4.6 provider manifest adds `circular-blind-steps`, `paired-ramp-steps`, and
+`through-steps`. Their typed records expose physical axes, locations, run lengths, and the relevant
+section or angle; no provider API change is currently required. Those facts do not by themselves
+choose Draftwright's manufacturing requirement, semantic view, or dimension grammar.
+
+Draftwright therefore declares all three families unsupported at the IR, Sheet, generated-code,
+and drawing-consumer boundaries, creates no inferred feature or annotation, and keeps their
+completeness state explicitly `deferred`. Their aggregate inventories remain classified as
+undecided physical families rather than being hidden among non-requirement substrate. Issue #1382
+owns the reviewed downstream disposition for all three families.

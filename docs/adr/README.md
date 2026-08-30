@@ -36,6 +36,7 @@ architecture** table; open retired or superseded records only for design history
 | [0017](0017-recognition-inventory-correspondence-and-measurement-provenance.md) | One recognition result per run; correspondence is evidence-gated | Produce one external immutable recognition result held by Draftwright's per-run cache; require vertical-slice evidence before generalising correspondence, identity, requirements, outcomes, or reconciliation. | Accepted; external cache ownership clarified, extensions gated by #1018 | `test_external_recognition_boundary.py`, `test_recognition_manifest.py`, `test_declared_recognition_gate.py` |
 | [0018](0018-requirement-driven-view-planning-and-editable-sheet-layout.md) | Requirement-driven view planning and editable sheet layout | Use one `ViewSpec` vocabulary and planner with distinct authored `ViewConstraints` and immutable `ResolvedViewPlan`; jointly validate views, typography, convention, scale, paper and layout against requirement survival. Supersedes ADR 0004's fixed-topology assumption while retaining compose-then-pack. | Accepted 2026-08-16; partially implemented (`ViewSpec`, `ResolvedViewPlan`, `ViewCoverage`, arrangement choice and requirement gate); tracked by #1130/#1259-#1262 | Required guards are listed in the ADR |
 | [0019](0019-display-complete-labels-and-dimension-outcomes.md) | Display-complete labels and a dimension-outcome ledger | The compiled plan carries the full label text (tolerance and collapse wording included) so renderers render and never compose; dimension outcomes reconcile at one seam on both build routes; ladder rungs get per-mark identity. Finishes the ADR 0016 Amdt 1 boundary; supersedes Amdt 6's enforcement mechanism. | Proposed | `test_issue_1215_no_approved_tolerance_is_dropped.py` reduces to plan-equality when implemented |
+| [0020](0020-provider-owned-local-frame-for-automatic-recognition.md) | Provider-owned local frame for automatic recognition | Keep the provider's exact local working solid and aggregate together behind one Draftwright adapter; retain source geometry as provenance, keep declarations in caller coordinates, and roll the framed route out explicitly before any default transition. | Accepted for explicit opt-in rollout | `test_issue_1357_framed_recognition.py`, `test_part_model.py`, `test_declared_recognition_gate.py`, `test_import_boundaries.py` |
 
 ## Historical records
 
@@ -52,6 +53,6 @@ architecture** table; open retired or superseded records only for design history
 - Layout and placement: 0004 → 0014 → 0012 → 0018.
 - Declared intent and the editable surface: 0001 → 0011 → 0012 → 0016 → 0018 → 0019.
 - Quality and correction: 0002, with provenance from 0010.
-- Recognition correspondence and completeness: 0007 → 0013 → 0015 → 0017.
+- Recognition correspondence, frames, and completeness: 0007 → 0013 → 0015 → 0017 → 0020.
 
 Tracking issue: #745.

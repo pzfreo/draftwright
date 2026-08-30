@@ -9407,7 +9407,7 @@ class TestTurnedDiameters:
                 distance = math.hypot(cx - (ax + t * vx), cy - (ay + t * vy))
                 assert distance > radius
 
-    def test_issue_881_y_axis_steps_render_without_half_envelope_locations(self):
+    def test_issue_881_y_axis_steps_keep_pattern_locations_but_not_bore_locations(self):
         dwg = build_drawing(self._issue_881_y_step_flange())
 
         steps = [f for f in dwg.model().features if f.kind == "step"]
@@ -9438,13 +9438,15 @@ class TestTurnedDiameters:
             expected = 4 if dwg.get_annotation(name).label == "4× 2" else 1
             assert len(dwg.measurement_keys(name)) == expected
 
-        # The central Y-axis bore shares the detected turned-profile axis. Its
-        # centreline locates it; generic minimum-edge offsets would redundantly
-        # show half the 46 mm envelope in both X and Z (#881).
+        # The central Y-axis bore shares the detected turned-profile axis. Its centreline
+        # locates it, so generic minimum-edge offsets remain suppressed (#881). The bolt
+        # pattern is a distinct physical feature: its relative pitch/count do not state its
+        # absolute centre, and #1357 now places both of those formerly missing requirements.
         assert dwg.view_of("centerline_side") == "side"
         assert dwg.view_of("centerline_plan") == "plan"
-        assert not any(n.startswith("dim_loc_front_") for n in dwg.annotations())
-        assert not any(n.startswith("dim_loc_side_") for n in dwg.annotations())
+        locations = [n for n in dwg.annotations() if n.startswith("dim_loc_")]
+        assert {dwg.view_of(n) for n in locations} == {"front", "side"}
+        assert {dwg.registry.feature_of(n).kind for n in locations} == {"pattern"}
 
         codes = {issue.code for issue in dwg.lint()}
         assert "feature_not_dimensioned" not in codes
@@ -9663,9 +9665,9 @@ class TestTurnedDiameters:
 
         Retargeted onto the Sheet script by #940. This fixture also carries what
         `test_issue_881_generated_script_emits_y_step_intents` used to assert about the
-        imperative script's TEXT: that suite's executable half — side/plan centrelines, no
-        front/side location dims, the step-length chain on the side view — is folded in
-        below, since the source-text half described a file that no longer exists.
+        imperative script's TEXT: that suite's executable half — side/plan centrelines,
+        pattern-owned front/side location dims, the step-length chain on the side view — is
+        folded in below, since the source-text half described a file that no longer exists.
         """
         part = self._issue_881_y_step_flange()
         assert not any(f.kind == "envelope" for f in build_drawing(part).model().features), (
@@ -9686,10 +9688,9 @@ class TestTurnedDiameters:
         assert (
             auto.get_annotation("dim_height").label == replayed.get_annotation("dim_height").label
         )
-        # The off-axis four-hole pattern has relative pitch/count but no absolute X/Z
-        # location dimensions. The hole-family ledger added by #1143 reports those two
-        # physical requirements honestly on both paths; reconstruction must preserve the
-        # same critique as well as the same annotation set.
+        # The off-axis four-hole pattern's relative pitch/count do not state its absolute X/Z
+        # position. #1357 now places those dimensions on both paths; reconstruction must
+        # preserve the same clean hole ledger as well as the same annotation set.
         # The `leader_crosses_silhouette` entry is the #798 bolt-circle cut described in
         # test_issue_881_...; it appears on BOTH paths, which is what this test is
         # actually about — the replay reproduces the same critique, defects included.
@@ -9700,7 +9701,6 @@ class TestTurnedDiameters:
             auto.lint_summary()["by_code"]
             == replayed.lint_summary()["by_code"]
             == {
-                "hole_requirement_missing": 2,
                 "leader_crosses_silhouette": 1,
             }
         )
@@ -9708,7 +9708,9 @@ class TestTurnedDiameters:
         # ── from #881: the Y-step furniture lands in the right views on the replay ──
         assert replayed.view_of("centerline_side") == "side"
         assert replayed.view_of("centerline_plan") == "plan"
-        assert not any(n.startswith(("dim_loc_front_", "dim_loc_side_")) for n in replay)
+        locations = [n for n in replay if n.startswith("dim_loc_")]
+        assert {replayed.view_of(n) for n in locations} == {"front", "side"}
+        assert {replayed.registry.feature_of(n).kind for n in locations} == {"pattern"}
         assert {replayed.view_of(n) for n in replay if n.startswith("m_steplen")} == {"side"}
 
     @pytest.mark.parametrize(("axis_z", "rotation"), [(0.0, 90), (17.0, 90), (-11.0, -90)])

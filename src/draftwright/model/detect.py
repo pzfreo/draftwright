@@ -24,6 +24,7 @@ from b123d_recognisers import (
     BossRecord,
     Chamfer,
     Channel,
+    CircularBlindStep,
     CounterSink,
     DoubleDBore,
     FaceLevel,
@@ -33,6 +34,7 @@ from b123d_recognisers import (
     HoleRecord,
     HoleSpec,
     LinearArray,
+    PairedRampStep,
     Passage,
     Plate,
     Pocket,
@@ -50,6 +52,7 @@ from b123d_recognisers import (
     SlotArray,
     SlotGrid,
     StepShoulder,
+    ThroughStep,
     TurnedProfile,
     TurnedStep,
     has_multi_axis_plates,
@@ -736,6 +739,18 @@ _UNCONSUMED_RECORDS: dict[type, str] = {
         "an aggregate-reconciled polygonal blind recess not owned by `Pocket`; its arbitrary "
         "section has no truthful general Draftwright dimension grammar, so every occurrence has "
         "an explicit unsupported completeness outcome (#1246)"
+    ),
+    CircularBlindStep: (
+        "a physical step family added in recognisers 0.4.6; Draftwright has not yet reviewed "
+        "its feature, view, dimension, or completeness semantics (#1382)"
+    ),
+    PairedRampStep: (
+        "a physical step family added in recognisers 0.4.6; Draftwright has not yet reviewed "
+        "its feature, view, dimension, or completeness semantics (#1382)"
+    ),
+    ThroughStep: (
+        "a physical step family added in recognisers 0.4.6; Draftwright has not yet reviewed "
+        "its feature, view, dimension, or completeness semantics (#1382)"
     ),
 }
 

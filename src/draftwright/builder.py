@@ -445,7 +445,13 @@ def detect_part_model(part, *, pmi="off") -> PartModel:
     seed path behind :meth:`draftwright.Sheet.from_part`, so pure feature inspection no longer
     pays for a full drawing (nor its layout/rendering failure modes)."""
     a = _analyse(
-        part, title="", number="", tolerance="ISO 2768-m", drawn_by="", out="model", pmi=pmi
+        part,
+        title="",
+        number="",
+        tolerance="ISO 2768-m",
+        drawn_by="",
+        out="model",
+        pmi=pmi,
     )
     # `_analyse` already detected and stored the model, so calling `build_model(a)`
     # unconditionally re-ran every detector `build_part_model` doesn't take by injection —
@@ -491,7 +497,8 @@ def _assemble(
         dist=dist,
         centroid=(a.cx, a.cy, a.cz),
         out=out,
-        part=a.part,
+        part=a.source_part if a.source_part is not None else a.part,
+        working_part=a.part,
         cyls=a.cyls,
         assembly=assembly,
         reproducible=reproducible,
@@ -1092,6 +1099,7 @@ def _build_drawing_once(
     projection: str | None = None,
     zones: bool = False,
     reproducible: bool = False,
+    framed_recognition: bool = False,
     _analysis_base=None,
     _analysis_sink: Callable[[Analysis], None] | None = None,
     _critique_recognition=None,
@@ -1141,6 +1149,14 @@ def _build_drawing_once(
             because it is not free: settling the element order costs roughly a third
             of DXF export time again (one bounding box and one edge walk per part),
             while the metadata pinning it also turns on is ~1 ms.
+        framed_recognition: opt into provider-owned part-relative recognition for an
+            automatically detected build. On success the returned drawing keeps the caller
+            solid as :attr:`Drawing.part`, compiles and projects the exact normalized solid as
+            :attr:`Drawing.working_part`, and exposes the mapping and JSON-friendly decision as
+            ``recognition_frame`` / ``recognition_frame_decision``. A typed provider refusal
+            takes an explicit legacy fallback. The default remains ``False`` while the framed
+            route completes platform and representative-part rollout evidence. Supplying
+            ``model=`` remains a declared caller-coordinate build and performs no recognition.
         model: a caller-supplied IR (ADR 0011) — a :class:`PartModel`, or a sequence
             of :class:`Feature`\\ s (declared with :func:`draftwright.model.hole`,
             ``boss``, ``step``, … from the objects you built). When given, **feature
@@ -1214,6 +1230,7 @@ def _build_drawing_once(
             _views=views,
             _include_iso=_include_iso,
             _view_constraints=_view_constraints,
+            _framed_recognition=framed_recognition,
         )
 
     a = analyse(reuse=_analysis_base, views=_views)
@@ -1745,6 +1762,7 @@ def build_drawing(
     zones: bool = False,
     scale_policy: Literal["strict", "fallback", "permissive"] = "fallback",
     reproducible: bool = False,
+    framed_recognition: bool = False,
     _post_build: Callable[[Drawing], Drawing] | None = None,
     _required_tables=(),
     _views: tuple[str, ...] | None = None,
@@ -1793,6 +1811,7 @@ def build_drawing(
         projection=projection,
         zones=zones,
         reproducible=reproducible,
+        framed_recognition=framed_recognition,
         _required_tables=_required_tables,
         _include_iso=_include_iso,
         _view_constraints=_view_constraints,
@@ -2633,6 +2652,7 @@ def make_drawing(
     zones: bool = False,
     scale_policy: Literal["strict", "fallback", "permissive"] = "fallback",
     reproducible: bool = False,
+    framed_recognition: bool = False,
 ) -> tuple[str, str]:
     """Generate a 4-view technical drawing from a STEP file or build123d object.
 
@@ -2661,6 +2681,10 @@ def make_drawing(
         reproducible: make repeated exports from the returned drawing byte-identical
             on the same Draftwright version. Off by default because canonical DXF
             ordering has a measurable export-time cost.
+        framed_recognition: opt into part-relative automatic recognition. The returned
+            drawing retains caller-space ``part`` plus the provider-owned local
+            ``working_part`` and frame decision. Default ``False`` during evidence-gated
+            rollout; declared ``model=`` builds remain in caller coordinates.
 
     Returns:
         Tuple of ``(svg_path, dxf_path)`` for the generated files.
@@ -2697,6 +2721,7 @@ def make_drawing(
         projection=projection,
         zones=zones,
         reproducible=reproducible,
+        framed_recognition=framed_recognition,
         scale_policy=scale_policy,
     ).export(formats=("svg", "dxf"))
     assert isinstance(_paths, dict)  # formats=... always returns the {format: path} dict
