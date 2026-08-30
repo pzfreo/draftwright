@@ -317,6 +317,7 @@ _MACHINED_CALLOUT_KINDS = (
     "paired_ramp_step",
     "flat",
     "pocket",
+    "pad",
     "groove",
 )
 
@@ -1660,7 +1661,7 @@ class Drawing:
 
         Raises ``ValueError`` if *feature* exposes no callout (use :meth:`dimension` for a
         linear param). A machined-feature callout
-        (pocket/circular-blind-step/fillet/paired-ramp/flat/chamfer/groove) is
+        (pocket/pad-height/circular-blind-step/fillet/paired-ramp/flat/chamfer/groove) is
         auto-named and placed in its characteristic view by the kind's renderer, so
         ``view=``/``name=`` are unsupported for those kinds and raise ``ValueError`` rather
         than being silently ignored (Codex #811). Placed reasonably, not via the auto-pass's
@@ -1715,6 +1716,7 @@ class Drawing:
                 render_fillets,
                 render_flats,
                 render_grooves,
+                render_pad_heights,
                 render_paired_ramp_steps,
                 render_pockets,
             )
@@ -1726,6 +1728,7 @@ class Drawing:
                 "paired_ramp_step": render_paired_ramp_steps,
                 "flat": render_flats,
                 "pocket": render_pockets,
+                "pad": render_pad_heights,
                 "groove": render_grooves,
             }
             # Return the placed annotation's name (Codex #811) so pin()/drop() can address it.
@@ -2136,7 +2139,8 @@ class Drawing:
         # Rotational furniture intent (#424/#426): the whole-model render_rotational —
         # no per-feature subset, so just the id set; it drains at the "rotational" slot.
         rotational_ids = {id(it) for it in self._intents if routable and it.kind == "rotational"}
-        # Machined-feature leader callout intents (#148): pocket/fillet/paired-ramp/flat/chamfer/groove
+        # Machined-feature leader callout intents (#148): pocket/pad-height/fillet/
+        # paired-ramp/flat/chamfer/groove
         # callout()s (plate is a spanned dimension, routed via dimension(), not here). Bucketed
         # per kind so each drains at its own _PASS_SEQUENCE stage, restricted to the recorded
         # features via only= (per-feature, #811). The id union also joins `routed` so
@@ -2392,6 +2396,7 @@ class Drawing:
             render_height_ladder,
             render_local_turned_centerlines,
             render_locations,
+            render_pad_heights,
             render_paired_ramp_steps,
             render_pockets,
             render_rotational,
@@ -2736,6 +2741,9 @@ class Drawing:
         def _s_pockets():
             _s_machined("pocket", render_pockets)
 
+        def _s_pad_heights():
+            _s_machined("pad", render_pad_heights)
+
         def _s_grooves():
             _s_machined("groove", render_grooves)
 
@@ -2912,6 +2920,7 @@ class Drawing:
                 "paired_ramp_steps": _s_paired_ramp_steps,
                 "flats": _s_flats,
                 "pockets": _s_pockets,
+                "pad_heights": _s_pad_heights,
                 "grooves": _s_grooves,
                 "feature_leaders": _s_feature_leaders,
                 "section": _s_section,

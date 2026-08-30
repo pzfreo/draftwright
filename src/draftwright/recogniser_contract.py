@@ -99,7 +99,7 @@ _FAMILIES: dict[str, _FamilySpec] = {
         "polygonal_stock",
         "render_polygonal_stock",
     ),
-    "rectangular-pads": _FamilySpec(("RaisedPad",), "_convert_pad", "pad", "render_diameters"),
+    "rectangular-pads": _FamilySpec(("RaisedPad",), "_convert_pad", "pad", "render_slots"),
     "risers": _FamilySpec(
         ("RiserEvidence", "StepShoulder"),
         "build_part_model",
@@ -126,6 +126,7 @@ _FAMILIES: dict[str, _FamilySpec] = {
 _RECORD_SCHEMA_VERSIONS: dict[tuple[str, str], tuple[int, ...]] = {
     ("chamfers", "Chamfer"): (2,),
     ("fillets", "Fillet"): (2,),
+    ("rectangular-pads", "RaisedPad"): (2,),
 }
 
 

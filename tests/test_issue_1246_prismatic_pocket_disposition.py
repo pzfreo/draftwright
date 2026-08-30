@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 from b123d_recognisers import (
-    build_recognition_result,
+    build_raw_recognition_result,
     recognise_pockets,
     recognise_prismatic_pockets,
 )
@@ -66,7 +66,7 @@ def _matched_mouth(part, pocket):
 
 def test_a_prismatic_pocket_is_specific_actionable_and_non_info() -> None:
     part = _hexagonal_pocket_part()
-    recognition = build_recognition_result(part)
+    recognition = build_raw_recognition_result(part)
 
     assert len(recognition.prismatic_pockets) == 1
     assert recognition.pockets == ()
@@ -84,7 +84,7 @@ def test_a_prismatic_pocket_is_specific_actionable_and_non_info() -> None:
 
 def test_a_prismatic_pocket_does_not_hide_an_unrelated_unsupported_profile() -> None:
     part = _hexagonal_pocket_part(ellipse=True)
-    recognition = build_recognition_result(part)
+    recognition = build_raw_recognition_result(part)
 
     assert len(recognition.prismatic_pockets) == 1
     codes = [issue.code for issue in build_drawing(part).lint()]
@@ -106,7 +106,7 @@ def test_a_prismatic_pocket_does_not_hide_an_unrelated_unsupported_profile() -> 
 )
 def test_prismatic_pocket_profile_correlation_fails_closed(case: str) -> None:
     part = _hexagonal_pocket_part()
-    pocket = build_recognition_result(part).prismatic_pockets[0]
+    pocket = build_raw_recognition_result(part).prismatic_pockets[0]
     wire, axis, plane_axes, at, tol = _matched_mouth(part, pocket)
     candidate = pocket
     candidate_wire = wire
@@ -161,7 +161,7 @@ def test_aggregate_reconciliation_counts_the_rectangular_recess_only_as_pocket()
 
     assert len(recognise_prismatic_pockets(part)) == 2, "direct calls precede reconciliation"
     assert len(recognise_pockets(part)) == 1
-    recognition = build_recognition_result(part)
+    recognition = build_raw_recognition_result(part)
     assert len(recognition.prismatic_pockets) == 1
     assert len(recognition.pockets) == 1
 
@@ -178,7 +178,7 @@ def test_aggregate_reconciliation_counts_the_rectangular_recess_only_as_pocket()
 def test_a_four_sided_survivor_is_unsupported_not_misclassified_as_non_rectangular() -> None:
     part = Box(80, 80, 20) - Pos(0, 0, 4) * Rot(0, 0, 30) * Box(30, 24, 20)
 
-    recognition = build_recognition_result(part)
+    recognition = build_raw_recognition_result(part)
     assert recognition.pockets == ()
     assert len(recognition.prismatic_pockets) == 1
     assert recognition.prismatic_pockets[0].sides == 4

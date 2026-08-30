@@ -1,7 +1,7 @@
 """A declared build recognises nothing; critique on that path recognises once (#1022).
 
 ADR 0011 says a caller-supplied ``PartModel`` skips detection, and ADR 0017 §6 restates it for
-the aggregate. Neither held: ``_analyse`` ran ``build_recognition_result`` before it knew
+the aggregate. Neither held: ``_analyse`` ran ``build_raw_recognition_result`` before it knew
 whether a model had been declared, so a declared build recognised the full inventory and threw
 most of it away.
 
@@ -22,7 +22,7 @@ from types import SimpleNamespace
 import pytest
 from b123d_recognisers import (
     RecognitionResult,
-    build_recognition_result,
+    build_raw_recognition_result,
     project_step_shoulders,
     recognise_risers,
     step_level_zs,
@@ -400,7 +400,7 @@ def test_the_critique_rejects_an_assembled_shoulder_inventory():
 
     **What this does NOT establish**, deliberately named rather than implied: the type check
     proves neither provenance nor correspondence with *part*. A caller can still pass
-    ``build_recognition_result(some_other_solid)``, or construct a valid frozen result with
+    ``build_raw_recognition_result(some_other_solid)``, or construct a valid frozen result with
     empty inventories, and this function will use it (Codex #1031 r2). That is true of every
     injected inventory in the engine — `holes=`, `pockets=`, `pads=` — and is the accepted
     cost of ADR 0008 Amdt 5 dependency injection, not something specific to this parameter.
@@ -427,7 +427,9 @@ def test_the_critique_rejects_an_assembled_shoulder_inventory():
 
     # And the real thing still works — the guard rejects impostors, not the parameter.
     assert isinstance(
-        lint_prismatic_coverage(part, [], features=(), recognition=build_recognition_result(part)),
+        lint_prismatic_coverage(
+            part, [], features=(), recognition=build_raw_recognition_result(part)
+        ),
         list,
     )
 
@@ -501,7 +503,7 @@ def test_one_ladder_rule_serves_sizing_and_critique():
     part they coincide and this would assert nothing.
     """
     part = _turned_shaft_with_blind_bore()
-    rec = build_recognition_result(part)
+    rec = build_raw_recognition_result(part)
     bb = part.bounding_box()
 
     ladder = rec.step_ladder_for_z_span(bb.min.Z, bb.max.Z)

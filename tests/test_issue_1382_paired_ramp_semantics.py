@@ -6,7 +6,7 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
-from b123d_recognisers import build_recognition_result
+from b123d_recognisers import build_raw_recognition_result
 from build123d import Box, Compound, Plane, Polygon, Pos, Rot, extrude
 
 from draftwright import Sheet, build_drawing
@@ -234,7 +234,7 @@ def test_authored_partial_sets_and_tolerances_do_not_resurrect_omitted_content(
     parameter, tolerance_role, expected, suppressed
 ) -> None:
     part = _paired_ramp_part()
-    recognition = build_recognition_result(part)
+    recognition = build_raw_recognition_result(part)
     source = recognition.paired_ramp_steps[0]
     sheet = Sheet(part)
     handle = sheet.paired_ramp_step(

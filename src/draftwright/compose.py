@@ -53,6 +53,7 @@ from draftwright._core import (
     _tol_suffix,
     _wrap_rows,
 )
+from draftwright._geometry import _END_ON
 from draftwright.layout import fit_box
 from draftwright.model.callout import hole_callout_spec, hole_callout_suffix
 from draftwright.model.ir import authored_dimension_target_view
@@ -348,6 +349,7 @@ class StripDepths:
     pv_bottom: float = 0.0
     sv_top: float = 0.0
     sv_bottom: float = 0.0
+    sv_right: float = 0.0  # band outside the rightmost side view
 
 
 def _measure_strips(
@@ -382,7 +384,8 @@ class AnnoBox:
     """A composed annotation band as a page-mm box (#112, ADR 0004 Step 4).
 
     ``side`` is the view side the band sits on (``"right"``/``"left"`` of the
-    front/plan views, or ``"plan_halo"`` for the balloon standoff ring);
+    front/plan views, ``"side_right"`` outside the side view, or ``"plan_halo"``
+    for the balloon standoff ring);
     ``depth`` is the band's perpendicular extent from the view edge.  A view's
     footprint is the deepest band per side — see ``_footprint_from_boxes``.
 
@@ -464,6 +467,48 @@ def _compose_anno_boxes(
         for target_side in sides:
             _reserve(target_view, target_side)
 
+    # A side-normal pad contributes up to two footprint and two in-plane-location candidates
+    # in its end-on view.  They consume the ordinary strips and therefore must participate in
+    # the compose-before-pack footprint.  In an authored set, however, omission is suppression
+    # (ADR 0016): reserve only the independently addressed sizes/location, never phantom bands
+    # for measurements the author omitted.  Automatic mode retains the complete four-band
+    # grammar. Z pads retain the established footprint/location layout: their location ladder
+    # already has dedicated plan/side sizing, while their HIGH callout uses the same
+    # solver-owned leader clearance as the other machined-feature leaders.
+    for feature in model.features:
+        if getattr(feature, "kind", None) != "pad" or feature.frame.axis == "z":
+            continue
+        view = _END_ON[feature.frame.axis]
+        horizontal_axis = {"x": "y", "y": "x"}[feature.frame.axis]
+
+        def _pad_parameter_is_authored(parameter_id: str) -> bool:
+            if model.authored_dimensions is None:
+                return True
+            role = parameter_id.split(".", 1)[0]
+            return any(
+                request.feature is feature and request.role in (role, parameter_id)
+                for request in model.authored_dimensions
+            )
+
+        # Canonical end-on projections put the horizontal measurement above and the vertical
+        # one right. Both bands change the feasible scale: notably an X-normal pad's end-on
+        # side view is the rightmost principal block, so its right band expands the sheet
+        # footprint rather than disappearing outside it (#1392).
+        for parameter_id, axis in (
+            ("pad_width.length", feature.width_axis),
+            ("pad_length.length", feature.long_axis),
+        ):
+            if _pad_parameter_is_authored(parameter_id):
+                _reserve(view, "above" if axis == horizontal_axis else "right")
+        if model.authored_dimensions is None or any(
+            request.feature is feature and request.role == "location"
+            for request in model.authored_dimensions
+        ):
+            # One authored location intent compiles to the two independently observable
+            # in-plane ordinates, one in each strip.
+            _reserve(view, "above")
+            _reserve(view, "right")
+
     slot = _SLOT_DIM_STEP + _STRIP_SPACING
     # Front and plan occupy disjoint vertical ranges, so their left/right tiers are
     # reusable. Reserve the deepest one-view stack, not the sum of independent corridors.
@@ -482,6 +527,8 @@ def _compose_anno_boxes(
         )
     if plan_right := authored_corridors.get(("plan", "right"), 0):
         boxes.append(AnnoBox("right", _STRIP_GAP + plan_right * slot))
+    if side_right := authored_corridors.get(("side", "right"), 0):
+        boxes.append(AnnoBox("side_right", _STRIP_GAP + side_right * slot))
     vertical_box_side = {
         ("front", "above"): "front_above",
         ("front", "below"): "front_below",
@@ -522,6 +569,7 @@ def _footprint_from_boxes(boxes: list[AnnoBox]) -> StripDepths:
         pv_bottom=deepest("plan_below"),
         sv_top=deepest("side_above"),
         sv_bottom=deepest("side_below"),
+        sv_right=deepest("side_right"),
     )
 
 
@@ -957,7 +1005,11 @@ def _compose_view_blocks(
     pv_top = (max(DIM_PAD, strip_top) + halo) if halo > 0 else DIM_PAD
     if strips is not None:
         pv_top = max(pv_top, strips.pv_authored_top)
-    sv_right_band = max(DIM_PAD, strips.right if (section and strips) else DIM_PAD)
+    sv_right_band = max(
+        DIM_PAD,
+        strips.sv_right if strips else 0.0,
+        strips.right if (section and strips) else 0.0,
+    )
 
     return {
         "front": ViewBlock(
@@ -1186,7 +1238,12 @@ def _layout_geometry(
     # estimator path (fv.right == pv.right == col_right, sv.left == 0).
     SV_X = FV_X + fv.hw + col_right + sv.left + sv.hw
     SV_Y = FV_Y
-    sv_right = SV_X + sv.hw + sv.right
+    # Keep the side geometry edge separate from the packed outer footprint.  The
+    # right strip starts at the former and consumes the reserved ``sv.right`` band;
+    # anchoring it at the latter would move the strip out again on every measured
+    # repack and make the reservation impossible to use.
+    sv_geometry_right = SV_X + sv.hw
+    sv_right = sv_geometry_right + sv.right
     SECTION_X = SV_X + sv.hw + sv.right + 10.0 + section_hw
     SECTION_Y = FV_Y
     sv_right_wall = (
@@ -1346,6 +1403,7 @@ def _layout_geometry(
         SV_Y=SV_Y,
         SECTION_X=SECTION_X,
         SECTION_Y=SECTION_Y,
+        sv_geometry_right=sv_geometry_right,
         sv_right=sv_right,
         sv_right_wall=sv_right_wall,
         iso_left=iso_left,
@@ -1418,9 +1476,9 @@ def _build_zones(g, margin, page_h):
     )
     sv_bottom_edge = SV_Y - fv_hh  # same as fv_bottom_edge; side and front share Z height
     sv_zones = ViewZones(
-        # sv_right already includes DIM_PAD; anchor here so the strip never
-        # places annotations inside that gap
-        right=Strip(g.sv_right, g.sv_right_wall, direction=1),
+        # The strip consumes the band compose reserved outside the side geometry.
+        # ``g.sv_right`` is the packed outer footprint, not its inner anchor.
+        right=Strip(g.sv_geometry_right, g.sv_right_wall, direction=1),
         left=None,  # immediately abuts the front view's right edge
         above=Strip(sv_top_edge, page_h - margin, direction=1),
         below=Strip(sv_bottom_edge, margin, direction=-1),

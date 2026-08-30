@@ -59,9 +59,9 @@ def _part():
 
 
 def _recognised(part):
-    from b123d_recognisers import build_recognition_result
+    from b123d_recognisers import build_raw_recognition_result
 
-    return build_recognition_result(part).holes
+    return build_raw_recognition_result(part).holes
 
 
 def _size_callouts(drawing):

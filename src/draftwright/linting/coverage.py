@@ -28,7 +28,7 @@ from b123d_recognisers import (
     RecognitionResult,
     TurnedProfile,
     analyse_cylinders,
-    build_recognition_result,
+    build_raw_recognition_result,
     feature_diameters,
     project_step_shoulders,
     recognise_double_d_bores,
@@ -1167,12 +1167,31 @@ def lint_prismatic_coverage(
     severity: Literal["info", "warning"] = "info" if assembly else "warning"
     pairs_by_view: dict[str, list] = {}
     registry = getattr(dwg, "registry", None)
-    satisfied_ids = satisfaction_ids(registry)
+    placed_ids = (
+        {identity for name in registry.names() for identity in registry.measurement_of(name)}
+        if registry is not None
+        else set()
+    )
+    structured_ids = satisfaction_ids(registry)
+    satisfied_ids = structured_ids | placed_ids
 
     def satisfied(feature, parameter: str) -> bool:
         return any(
-            identity.feature == feature and identity.parameter == parameter
+            identity.feature == feature
+            and (
+                identity.parameter == parameter
+                or (
+                    identity.parameter == "location"
+                    and parameter.startswith(f"{feature.LOCATION_STEM}.")
+                )
+            )
             for identity in satisfied_ids
+        )
+
+    def location_note_satisfied(feature) -> bool:
+        return any(
+            identity.feature == feature and identity.parameter == "location"
+            for identity in structured_ids
         )
 
     def pairs(view: str):
@@ -1184,6 +1203,49 @@ def lint_prismatic_coverage(
         bb = bbox if bbox is not None else part.bounding_box()
         undefined = 0
         for pad in pad_inventory:
+            record_bounds = {
+                "x": (pad.x0, pad.x1),
+                "y": (pad.y0, pad.y1),
+                "z": (pad.z0, pad.z1),
+            }
+            owner = next(
+                (
+                    f
+                    for f in getattr(dwg.model(), "features", ())
+                    if getattr(f, "kind", None) == "pad"
+                    and f.frame.axis == pad.axis
+                    and f.direction == pad.direction
+                    and all(
+                        abs(actual - expected) <= tol
+                        for axis in "xyz"
+                        for actual, expected in zip(
+                            f.bounds(axis), record_bounds[axis], strict=True
+                        )
+                    )
+                ),
+                None,
+            )
+            if owner is None:
+                undefined += 1
+                continue
+            if pad.axis != "z":
+                complete = all(
+                    satisfied(owner, parameter)
+                    for parameter in (
+                        "pad_width.length",
+                        "pad_length.length",
+                        "pad_height.length",
+                        f"{owner.LOCATION_STEM}.{owner.long_axis}",
+                        f"{owner.LOCATION_STEM}.{owner.width_axis}",
+                    )
+                )
+                if not complete:
+                    undefined += 1
+                continue
+
+            # Legacy Z-normal drawings may predate structured satisfaction authority, so
+            # retain the geometric fallback for their footprint/location marks. The local
+            # pad height is new compiler-owned evidence and must retain its exact identity.
             yc = (pad.y0 + pad.y1) / 2
             xc = (pad.x0 + pad.x1) / 2
             x0, _, *_ = dwg.at("plan", pad.x0, yc, pad.z1)
@@ -1199,61 +1261,32 @@ def lint_prismatic_coverage(
             sby0, _, *_ = dwg.at("side", xc, bb.min.Y, pad.z1)
             sby1, _, *_ = dwg.at("side", xc, bb.max.Y, pad.z1)
             ps = pairs("plan")
-            owner = next(
-                (
-                    f
-                    for f in getattr(dwg.model(), "features", ())
-                    if getattr(f, "kind", None) == "pad"
-                    and abs(f.lo - pad.x0) <= tol
-                    and abs(f.hi - pad.x1) <= tol
-                    and abs(f.w_center - yc) <= tol
-                    and abs(f.width - (pad.y1 - pad.y0)) <= tol
-                ),
-                None,
+            size_x = _pair_covers(ps, 0, x0, x1, tol, owner=owner) or satisfied(
+                owner, "pad_length.length"
             )
-            parameter_by_axis = (
-                {
-                    owner.long_axis: "pad_length.length",
-                    owner.width_axis: "pad_width.length",
-                }
-                if owner is not None
-                else {}
+            size_y = _pair_covers(ps, 1, y0, y1, tol, owner=owner) or satisfied(
+                owner, "pad_width.length"
             )
-            size_x = owner is not None and (
-                _pair_covers(ps, 0, x0, x1, tol, owner=owner)
-                or satisfied(owner, parameter_by_axis["x"])
-            )
-            size_y = owner is not None and (
-                _pair_covers(ps, 1, y0, y1, tol, owner=owner)
-                or satisfied(owner, parameter_by_axis["y"])
-            )
-            located_x = (
-                owner is not None
-                and satisfied(owner, "location")
-                or (
-                    abs(pad.x0 - bb.min.X) <= tol
-                    or abs(pad.x1 - bb.max.X) <= tol
-                    or any(
-                        _pair_covers(ps, 0, edge, bound, tol)
-                        for edge in (bx0, bx1)
-                        for bound in (x0, x1, xc_page)
-                    )
+            located_x = location_note_satisfied(owner) or (
+                abs(pad.x0 - bb.min.X) <= tol
+                or abs(pad.x1 - bb.max.X) <= tol
+                or any(
+                    _pair_covers(ps, 0, edge, bound, tol)
+                    for edge in (bx0, bx1)
+                    for bound in (x0, x1, xc_page)
                 )
             )
-            located_y = (
-                owner is not None
-                and satisfied(owner, "location")
-                or (
-                    abs(pad.y0 - bb.min.Y) <= tol
-                    or abs(pad.y1 - bb.max.Y) <= tol
-                    or any(
-                        _pair_covers(pairs("side"), 0, edge, bound, tol)
-                        for edge in (sby0, sby1)
-                        for bound in (sy0, sy1, syc)
-                    )
+            located_y = location_note_satisfied(owner) or (
+                abs(pad.y0 - bb.min.Y) <= tol
+                or abs(pad.y1 - bb.max.Y) <= tol
+                or any(
+                    _pair_covers(pairs("side"), 0, edge, bound, tol)
+                    for edge in (sby0, sby1)
+                    for bound in (sy0, sy1, syc)
                 )
             )
-            if not (size_x and size_y and located_x and located_y):
+            height = satisfied(owner, "pad_height.length")
+            if not (size_x and size_y and height and located_x and located_y):
                 undefined += 1
         if undefined:
             issues.append(
@@ -1261,8 +1294,8 @@ def lint_prismatic_coverage(
                     severity=severity,
                     code="pad_footprint_not_defined",
                     message=(
-                        f"{undefined} rectangular raised pad(s) lack footprint size "
-                        "or X/Y location dimensions"
+                        f"{undefined} rectangular raised pad(s) lack footprint size, "
+                        "attachment-axis height, or in-plane location dimensions"
                     ),
                 )
             )
@@ -1408,7 +1441,7 @@ def lint_prismatic_coverage(
             f"{type(recognition).__name__}. A completeness check must not accept a "
             "caller-assembled inventory: an empty stand-in silences it."
         )
-    _rec = build_recognition_result(part) if recognition is None else recognition
+    _rec = build_raw_recognition_result(part) if recognition is None else recognition
     ladder_bounds = bbox if bbox is not None else part.bounding_box()
     source_shoulders = project_step_shoulders(
         _rec.risers,

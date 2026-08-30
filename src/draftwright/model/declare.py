@@ -35,6 +35,7 @@ from draftwright._geometry import (
     _radial_axis_in_view,
     _solids_body,
     plane_axes,
+    plane_axis_names,
 )
 from draftwright.model.ir import (
     AUTHORED_DIMENSION_KINDS,
@@ -1496,12 +1497,19 @@ def pad(
     z0=None,
     z1=None,
     at=None,
+    axis="z",
+    direction=1,
 ) -> PadFeature:
-    """A bounded rectangular raised pad, dimensioned by footprint and location.
+    """A bounded principal-axis raised pad, dimensioned by footprint and location.
 
     ``pad(pad_solid)`` reads its axis-aligned bounding box; the explicit flavour
-    accepts the six bounds used by generated Sheet scripts.
+    accepts the six world bounds used by generated Sheet scripts. ``axis`` is the
+    attachment-to-terminal coordinate and ``direction`` selects its positive or negative
+    material-outward end; the defaults preserve the historical +Z declaration.
     """
+    axis = _norm_axis(axis)
+    if direction not in (-1, 1):
+        raise ValueError("pad() direction must be -1 or 1")
     if obj is not None:
         bb = obj.bounding_box()
         x0 = bb.min.X if x0 is None else x0
@@ -1517,17 +1525,23 @@ def pad(
     if at is None:
         at = ((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2)
     _require_point("at", at)
+    bounds = {"x": (x0, x1), "y": (y0, y1), "z": (z0, z1)}
+    long_axis, width_axis = plane_axis_names(axis)
+    long_lo, long_hi = bounds[long_axis]
+    width_lo, width_hi = bounds[width_axis]
+    normal_lo, normal_hi = bounds[axis]
     return PadFeature(
-        frame=Frame(at, "z"),
-        width_axis="y",
-        long_axis="x",
-        width=y1 - y0,
-        length=x1 - x0,
-        w_center=(y0 + y1) / 2,
-        lo=x0,
-        hi=x1,
-        z0=z0,
-        z1=z1,
+        frame=Frame(at, axis),
+        width_axis=width_axis,
+        long_axis=long_axis,
+        width=width_hi - width_lo,
+        length=long_hi - long_lo,
+        w_center=(width_lo + width_hi) / 2,
+        lo=long_lo,
+        hi=long_hi,
+        z0=normal_lo,
+        z1=normal_hi,
+        direction=direction,
     )
 
 

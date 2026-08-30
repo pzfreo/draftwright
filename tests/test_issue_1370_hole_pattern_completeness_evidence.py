@@ -62,12 +62,12 @@ def test_real_pattern_corpus_scores_all_layers_and_topology_variants() -> None:
 
 
 def test_pattern_projection_owns_disjoint_groups_without_recounting_members() -> None:
-    from b123d_recognisers import build_recognition_result
+    from b123d_recognisers import build_raw_recognition_result
     from build123d import import_step
 
     compound = import_step(CORPUS.parent / "pattern-topology-a.step")
     for part, hole_count, pattern_count in ((_grid_part(), 6, 1), (compound, 7, 2)):
-        recognition = build_recognition_result(part)
+        recognition = build_raw_recognition_result(part)
         assert len(recognition.holes) == hole_count
         assert len(recognition.hole_patterns) == pattern_count
         aggregate_holes = {id(hole) for hole in recognition.holes}
@@ -293,13 +293,13 @@ def test_wrong_placed_group_count_ink_loses_drawing_credit(monkeypatch) -> None:
 def test_deleting_provider_patterns_cannot_shrink_the_independent_denominator(monkeypatch) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_recognition_result
+    original = analysis.build_raw_recognition_result
 
     def without_patterns(*args, **kwargs):
         result = original(*args, **kwargs)
         return replace(result, hole_patterns=())
 
-    monkeypatch.setattr(analysis, "build_recognition_result", without_patterns)
+    monkeypatch.setattr(analysis, "build_raw_recognition_result", without_patterns)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))
 
     assert damaged.detection.matched == 0
@@ -311,7 +311,7 @@ def test_deleting_provider_patterns_cannot_shrink_the_independent_denominator(mo
 def test_weakening_provider_arrangement_values_reduces_parameter_fidelity(monkeypatch) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_recognition_result
+    original = analysis.build_raw_recognition_result
 
     def weakened_patterns(*args, **kwargs):
         result = original(*args, **kwargs)
@@ -325,7 +325,7 @@ def test_weakening_provider_arrangement_values_reduces_parameter_fidelity(monkey
                 changed.append(replace(pattern, diameter=pattern.diameter + 1.0))
         return replace(result, hole_patterns=tuple(changed))
 
-    monkeypatch.setattr(analysis, "build_recognition_result", weakened_patterns)
+    monkeypatch.setattr(analysis, "build_raw_recognition_result", weakened_patterns)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))
 
     assert damaged.detection.recall == 1.0

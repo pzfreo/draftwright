@@ -71,14 +71,14 @@ def test_real_flat_corpus_scores_all_layers_and_topology_variants() -> None:
 
 
 def test_flat_projection_groups_faces_but_not_distinct_stock() -> None:
-    from b123d_recognisers import build_recognition_result
+    from b123d_recognisers import build_raw_recognition_result
 
     fixtures = CORPUS.parent
     double_d = import_step(fixtures / "flat-double-d.step")
     parallel = import_step(fixtures / "flat-topology-a.step")
     coaxial = import_step(fixtures / "flat-coaxial.step")
 
-    assert len(build_recognition_result(double_d).flats) == 2
+    assert len(build_raw_recognition_result(double_d).flats) == 2
     (grouped,) = _default_observers()["flats"](double_d)
     assert grouped.parameters == {
         "across": 15.0,
@@ -107,7 +107,7 @@ def test_every_flat_boundary_is_observed_supported_on_the_real_public_path() -> 
 def test_flat_observer_uses_one_build_owned_recognition_aggregate(monkeypatch) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_recognition_result
+    original = analysis.build_raw_recognition_result
     calls = 0
 
     def counted(*args, **kwargs):
@@ -115,7 +115,7 @@ def test_flat_observer_uses_one_build_owned_recognition_aggregate(monkeypatch) -
         calls += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(analysis, "build_recognition_result", counted)
+    monkeypatch.setattr(analysis, "build_raw_recognition_result", counted)
     assert _default_observers()["flats"](_double_d())
     assert calls == 1
 
@@ -252,13 +252,13 @@ def test_severing_flat_measurement_provenance_loses_drawing_credit(monkeypatch) 
 def test_deleting_provider_flats_cannot_shrink_the_independent_denominator(monkeypatch) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_recognition_result
+    original = analysis.build_raw_recognition_result
 
     def without_flats(*args, **kwargs):
         result = original(*args, **kwargs)
         return replace(result, flats=())
 
-    monkeypatch.setattr(analysis, "build_recognition_result", without_flats)
+    monkeypatch.setattr(analysis, "build_raw_recognition_result", without_flats)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))
 
     assert damaged.detection.matched == 0
@@ -270,14 +270,14 @@ def test_deleting_provider_flats_cannot_shrink_the_independent_denominator(monke
 def test_weakening_provider_across_values_reduces_parameter_fidelity(monkeypatch) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_recognition_result
+    original = analysis.build_raw_recognition_result
 
     def weakened_flats(*args, **kwargs):
         result = original(*args, **kwargs)
         flats = tuple(replace(flat, across=flat.across + 1.0) for flat in result.flats)
         return replace(result, flats=flats)
 
-    monkeypatch.setattr(analysis, "build_recognition_result", weakened_flats)
+    monkeypatch.setattr(analysis, "build_raw_recognition_result", weakened_flats)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))
 
     assert damaged.detection.recall == 1.0

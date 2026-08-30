@@ -780,11 +780,14 @@ def _feature_line(
             f"at={_pt(f.frame.origin)})"
         )
     if k == "pad":
-        half = f.width / 2
+        x0, x1 = f.bounds("x")
+        y0, y1 = f.bounds("y")
+        z0, z1 = f.bounds("z")
         return (
-            f"sheet.pad(x0={_n(f.lo)}, x1={_n(f.hi)}, "
-            f"y0={_n(f.w_center - half)}, y1={_n(f.w_center + half)}, "
-            f"z0={_n(f.z0)}, z1={_n(f.z1)})"
+            f"sheet.pad(x0={_n(x0)}, x1={_n(x1)}, "
+            f"y0={_n(y0)}, y1={_n(y1)}, "
+            f"z0={_n(z0)}, z1={_n(z1)}, axis={f.frame.axis!r}, "
+            f"direction={f.direction}, at={_pt(f.frame.origin)})"
         )
     if k == "pattern":
         # Defining dims for the furniture (BCD centreline / pitch / grid dims) PLUS the exact
@@ -1575,10 +1578,13 @@ def _feature_block(
                     show = "" if tolerance.show == "class" else f", show={tolerance.show!r}"
                     line += f".fit({tolerance.code!r}{show})"
 
-            if f.kind == "through_step":
-                # Preserve the EFFECTIVE decoration of each independently addressable leg.
-                # Serialising both as canonical full ids is deliberately lossless even when
-                # the source used one family-wide call: replay compiles to the same two
+            if f.kind in ("through_step", "pad"):
+                # Preserve the EFFECTIVE decoration of each independently addressable
+                # through-step leg / pad extent.  Pad height is a new independent public
+                # parameter; replay must not lose its tolerance merely because all three
+                # extents share the generic ``length`` kind (#1392).
+                # Serialising each as a canonical full id is deliberately lossless even when
+                # the source used one family-wide call: replay compiles to the same effective
                 # tolerances without depending on fluent call order.
                 for parameter in f.parameters():
                     tolerance = (decorations or {}).get(

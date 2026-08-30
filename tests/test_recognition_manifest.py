@@ -22,7 +22,7 @@ import b123d_recognisers.result as result_module
 from b123d_recognisers import (
     RecognitionResult,
     analyse_cylinders,
-    build_recognition_result,
+    build_raw_recognition_result,
     recognise_angled_steps,
     recognise_bosses,
     recognise_chamfers,
@@ -280,7 +280,7 @@ def test_every_public_recogniser_is_migrated_or_deferred_with_a_reason():
     unclassified = families - classified
     assert not unclassified, (
         f"recogniser(s) missing from the ADR 0017 manifest: {sorted(unclassified)}. "
-        "Add each to MIGRATED (and run it in build_recognition_result) or to DEFERRED "
+        "Add each to MIGRATED (and run it in build_raw_recognition_result) or to DEFERRED "
         "with the design constraint that stops it."
     )
     stale = classified - families
@@ -345,12 +345,12 @@ def test_no_deferred_family_is_reachable_from_the_orchestration():
     assert not reachable, (
         f"DEFERRED but imported by the orchestration: {reachable}. "
         "Either migrate the family (move it to MIGRATED and run it in "
-        "build_recognition_result) or stop importing it."
+        "build_raw_recognition_result) or stop importing it."
     )
     # By behaviour as well as by import form: `import chamfers as c; c.recognise_chamfers()`
     # reaches a DEFERRED family without ever making it an attribute of this module.
     with _counting_every_family() as counts:
-        build_recognition_result(_pocketed_plate())
+        build_raw_recognition_result(_pocketed_plate())
     ran = sorted(name for name in DEFERRED if name in counts)
     assert not ran, f"the orchestration called DEFERRED famil(ies): {ran}"
 
@@ -423,7 +423,7 @@ def test_a_gated_family_still_runs_for_the_class_that_consumes_it():
 
 def test_the_migrated_families_are_the_ones_the_orchestration_actually_runs():
     """Guards the manifest against the failure that makes it worthless: a name listed as
-    MIGRATED that ``build_recognition_result`` never calls. Checked by *running* the
+    MIGRATED that ``build_raw_recognition_result`` never calls. Checked by *running* the
     orchestration with each family instrumented, not by reading its source.
 
     Counted by code object rather than by patching ``result_module``'s bindings. The binding
@@ -436,7 +436,7 @@ def test_the_migrated_families_are_the_ones_the_orchestration_actually_runs():
     # is that the ORCHESTRATION invokes each family, which holds for any solid — a family
     # that finds nothing was still asked.
     with recognition_family_calls(MIGRATED) as called:
-        result_module.build_recognition_result(Box(40, 30, 10))
+        result_module.build_raw_recognition_result(Box(40, 30, 10))
 
     assert set(called) == MIGRATED, (
         f"listed as migrated but never called: {sorted(MIGRATED - set(called))}"
@@ -533,7 +533,7 @@ def test_circular_blind_step_owns_the_corner_instead_of_a_second_fillet():
     part = _circular_blind_step()
     direct_fillets = recognise_fillets(part)
     direct_steps = recognise_circular_blind_steps(part)
-    result = build_recognition_result(part)
+    result = build_raw_recognition_result(part)
 
     assert len(direct_fillets) == 1, "fixture no longer exercises the reconciliation loser"
     assert len(direct_steps) == 1, "fixture no longer exercises the new physical owner"
@@ -565,7 +565,7 @@ def test_the_aggregate_carries_what_its_recognisers_returned():
         assert set(expected) == {f.name for f in fields(RecognitionResult)}, (
             "RecognitionResult grew a field with no oracle — add it to _expected_inventory"
         )
-        result = build_recognition_result(part, rotational=rotational)
+        result = build_raw_recognition_result(part, rotational=rotational)
         for field, want in expected.items():
             got = getattr(result, field)
             if field in _RECONCILED_FIELDS:
@@ -625,7 +625,7 @@ def test_an_automatic_build_runs_each_family_exactly_once_and_lint_runs_no_migra
 
     Counted end to end at each recogniser's definition, so it covers every call site rather
     than the one `test_model_construction_does_not_rescan_a_migrated_family` watches. A
-    second `build_recognition_result` anywhere in the pipeline, or a consumer bypassing the
+    second `build_raw_recognition_result` anywhere in the pipeline, or a consumer bypassing the
     aggregate, shows up here.
 
     Two things it does NOT catch, both covered elsewhere. A DEFERRED family newly appearing

@@ -114,6 +114,7 @@ from draftwright.model.ir import (
     FilletFeature,
     HoleFeature,
     KnurlRequirement,
+    PadFeature,
     PatternFeature,
     PocketFeature,
     SlotFeature,
@@ -333,10 +334,11 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
     # approved location consumed by render_locations, including non-Z openings.
     # Keyed by (feature, MEASURED axis): a non-Z pocket is approved one entry per in-plane
     # coordinate, so keying by feature alone would keep whichever came last.
-    pocket_locations = {
+    in_plane_locations = {
         (loc.ref, loc.discriminator): loc
         for loc in plan.locations
-        if loc.role == PocketFeature.LOCATION_STEM and loc.discriminator is not None
+        if loc.role in (PocketFeature.LOCATION_STEM, PadFeature.LOCATION_STEM)
+        and loc.discriminator is not None
     }
     # A slot's own position dim — datum→near-end along its long axis. Compiled, not
     # computed from `a.bb`: it prints a number, so an authored set that does not name the
@@ -445,17 +447,24 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
             # on the generated key. (`_MANDATORY_OVERALL_PRIORITY` is the envelope dims'
             # rank, not this ladder's — the base trace records both height candidates at 0.)
             #
-            # SCOPED TO THE FRONT VIEW deliberately. The plan/side right-left case keeps
-            # the immediate path, because the corridor carve is strictly more conservative:
+            # SCOPED TO THE FRONT VIEW for the established slot/pocket grammar. The plan/side
+            # right-left case keeps the immediate path there because the corridor carve is
+            # strictly more conservative:
             # it marks a region obstructed from FULL annotation geometry, where a label can
-            # legitimately sit between two extension lines. Routing those dims through it
-            # cost #885's part two pad size dims that place cleanly today — verified by
-            # label-box measurement, not inferred. Closing that gap needs the carve to
-            # reason about label boxes, which is its own change; tracked on #894.
+            # legitimately sit between two extension lines. An earlier attempt to migrate the
+            # whole population cost #885's part two pad size dims. #1392 now sizes and guards
+            # the pad corridors independently, but does not silently widen that behavioural
+            # change to the established slot/pocket population; its migration remains #894.
             # The plan/side horizontal case has been corridor-routed since #345/#346 and
             # stays that way; the front view joins it here. Only plan/side right-left
-            # keeps the immediate path.
-            use_corridor = vw[0] == "front" or (meas_axis == ha and vw[0] in ("plan", "side"))
+            # keeps the immediate path. RaisedPad v2 is new output and has no such compatibility
+            # exemption: every pad footprint/location candidate joins the shared collect-then-
+            # solve batch on all three end-on views (ADR 0014, #1392).
+            use_corridor = (
+                s.kind == "pad"
+                or vw[0] == "front"
+                or (meas_axis == ha and vw[0] in ("plan", "side"))
+            )
             if not use_corridor:
                 for side, strip, hi in sides:
                     if strip is None:
@@ -498,12 +507,10 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
                 # use): placing mid-drain could occupy space a later sibling's force
                 # candidate needs, since that sibling has not solved yet.
                 #
-                # The plan/side path keeps placing synchronously, as it has since
-                # #345/#346. Deferring it too is the architecturally consistent end state
-                # and was tried — it costs #885's part a pad length dim, because by the
-                # time a post-drain retry runs the opposite strip has filled. Changing
-                # behaviour that was not broken, at a measured cost, is not this PR's job;
-                # the migration is tracked on #894.
+                # The plan/side opposite-strip path keeps placing synchronously, as it has
+                # since #345/#346. The primary candidate is nevertheless a member of the
+                # shared solve above; alternate-side fallthrough in ``on_drop`` is the
+                # assignment model ADR 0014 explicitly retains.
                 def _retry(_fs=_fs, _fsd=_fsd, _fh=_fh, _ax=_ax, _feat=_feat, _dw=_dw) -> None:
                     if _fs is not None and not place_strip_candidates(
                         dwg,
@@ -628,17 +635,17 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
                 # fires shows 12 nameless position drops across nist_ctc_03 and nist_ctc_04,
                 # all from here (#1231 review, finding 1).
                 _record_slot_drop(ctx, dwg, "position", i, name, s, pos.id)
-        elif s.kind == "pocket" and s.frame.axis != "z":
-            # Side-/front-opening pockets need two in-plane coordinates in their
+        elif s.kind in ("pocket", "pad") and s.frame.axis != "z":
+            # Side-/front-opening pockets and pads need two in-plane coordinates in their
             # end-on view.  The compiler approves one entry PER coordinate, each with its
-            # own value and span; Z-opening pockets use render_locations' X(plan)/Y(side)
+            # own value and span; Z-normal features use render_locations' X(plan)/Y(side)
             # ladder instead.
             width_lo, width_hi = s.w_center - half, s.w_center + half
             for axis, perp_lo, perp_hi, kind in (
                 (s.long_axis, width_lo, width_hi, "pos_long"),
                 (s.width_axis, s.lo, s.hi, "pos_width"),
             ):
-                entry = pocket_locations.get((FeatureRef(s), axis))
+                entry = in_plane_locations.get((FeatureRef(s), axis))
                 if entry is None:
                     continue  # not approved
                 index = "xyz".index(axis)
@@ -770,7 +777,14 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
     *pinned* carries the #511 first slice: deferred user ``locate(..., pin=True)`` calls
     remain first-class corridor candidates, but get higher survival/dedup priority and
     pin their placed names instead of being hand-added after the solve."""
-    approved = plan.locations
+    # This ladder consumes only Z-normal feature locations.  Non-Z pocket/pad entries
+    # carry axis-local in-plane spans whose first endpoint is deliberately not the global
+    # XY datum on both coordinates.  Derive the ladder datum only after excluding those
+    # entries; taking it from ``plan.locations[0]`` lets feature ordering shift every
+    # later Z-pad ordinate (#1392).
+    approved = [
+        loc for loc in plan.locations if loc.axis == "z" and loc.role != SlotFeature.LOCATION_STEM
+    ]
     if not approved:
         return 0
     draft = dwg.draft
@@ -779,11 +793,6 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
     refs = []
     for loc in approved:
         if only_refs is not None and loc.ref not in only_refs:  # #426: recorded subset only
-            continue
-        # This ladder is specifically plan-X / side-Y for Z-normal features.
-        # Non-Z pockets are still compiler-backed, but their two in-plane spans
-        # are rendered in their end-on view by render_slots.
-        if loc.axis != "z":
             continue
         rx, ry = loc.span[1][0], loc.span[1][1]
         # A rotational part's on-axis (concentric) *hole* bore is located by the
@@ -806,8 +815,6 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
         # is the LONG axis — so a Z-long slot fell through and an X- or Y-long one did not.
         # The same feature type getting a plan location dim or not, depending on which way
         # it happens to run, is the incoherence; every slot is now handled the one way (#1219).
-        if loc.role == SlotFeature.LOCATION_STEM:
-            continue
         # Provenance (ADR 0010): the located feature. `resolve_feature` is the sanctioned
         # seam for exactly this — the corridor's feature map keys drop()/annotations_of().
         # `loc.id` rides along as the measurement identity (#1002): the compiler already
@@ -2870,6 +2877,11 @@ def _pocket_label(width_text, length_text, depth_text, wsfx="", lsfx="", dsfx=""
     return f"{width_text}{wsfx} × {length_text}{lsfx} × {depth_text}{dsfx} DEEP"
 
 
+def _pad_height_label(height_text, suffix="") -> str:
+    """The font-safe attachment-axis height callout for a side-normal pad."""
+    return f"{height_text}{suffix} HIGH"
+
+
 def _slot_label(width_text, length_text, wsfx="", lsfx="") -> str:
     """The grouped slot-array callout string: ``SLOT {width} × {length}`` (#841). A slot has no
     depth, so — unlike :func:`_pocket_label` — there is no ``× depth DEEP``; the ``SLOT`` prefix
@@ -2895,6 +2907,19 @@ _POCKET_LEAD_DIRS = (
 # footprint into adjacent-view ink; the diagonal set keeps auto, live and deferred placement
 # on the same local wall corridor (#1382).
 _CIRCULAR_STEP_LEAD_DIRS = _POCKET_LEAD_DIRS[:4]
+
+# A side-view pad height belongs in the exterior upper-right quadrant.  Keeping its
+# leader there prevents it from entering the adjacent front view, which a view-scoped
+# feature-leader solve deliberately does not own.  The lower-right ray is excluded too:
+# the side-below overall/location ladder can otherwise run through the HIGH label even
+# though the shared solver legitimately retains the required leader under Policy B.
+# Front and plan pads retain the established full fan; those views already participate in
+# the fixed-ink solve without the side/front adjacency that motivated this constraint.
+_PAD_HEIGHT_LEAD_DIRS = {
+    "x": ((1, 1), (1, 0)),
+    "y": _POCKET_LEAD_DIRS,
+    "z": _POCKET_LEAD_DIRS,
+}
 
 
 def _circular_step_candidates(dwg, view, bounds, feature, reach, label, *, provenance=None):
@@ -3105,6 +3130,86 @@ def render_pockets(dwg, plan, a, *, ctx, only=None) -> int:
         jobs,
         noun="pocket",
         drop_code="pocket_dropped",
+        ctx=ctx,
+        joint=True,
+    )
+
+
+def render_pad_heights(dwg, plan, a, *, ctx, only=None) -> int:
+    """Place pad heights as solver-owned leaders in each pad's end-on view.
+
+    The existing footprint dimensions remain linear corridor candidates.  The arrow targets
+    the terminal footprint boundary and every printed value comes from the compiled plan
+    (ADR 0015/0016).  A Z profile level is datum-to-attachment evidence, not the pad's local
+    terminal-to-attachment height, so Z pads reach this pass too.
+    """
+    draft = dwg.draft
+    reach = _leader_callout_reach(draft)
+    jobs = []
+    groups = sorted(
+        plan.of_kind("pad"), key=lambda group: (group.facts.frame.axis, group.facts.frame.origin)
+    )
+    for index, group in enumerate(groups):
+        if only is not None and group.ref not in only:
+            continue
+        by_key = {(item.role, item.kind): item for item in group.dims}
+        height = by_key.get(("pad_height", "length"))
+        if height is None:
+            continue
+        # Structural placement facts come through the compiled boundary.  Resolving the
+        # opaque provenance handle here would let this renderer recover measurements the
+        # compiler withheld under authored intent (ADR 0015/0016).
+        pad = group.facts
+        view = _END_ON[pad.frame.axis]
+        bounds = dwg.view_bounds(view)
+        if bounds is None:
+            continue
+        # An authored set may request the independently addressable height while omitting
+        # both footprint measurements.  In that case the terminal face centre is still a
+        # complete structural leader target; do not recover the suppressed sizes through
+        # provenance merely to move the arrow to the rim (ADR 0015/0016).  When both approved
+        # sizes are present, their values may refine that same target to the footprint edge.
+        width = by_key.get(("pad_width", "length"))
+        length = by_key.get(("pad_length", "length"))
+        source_bounds = (
+            _pocket_rim_bounds(
+                dwg,
+                view,
+                pad,
+                length=length.value,
+                width=width.value,
+            )
+            if width is not None and length is not None
+            else None
+        )
+        jobs.append(
+            (
+                f"m_pad_height_{pad.frame.axis}{index}",
+                view,
+                bounds,
+                _pad_height_label(
+                    height.value_text,
+                    _tol_suffix(height.tolerance, draft),
+                ),
+                _radial_candidates(
+                    dwg,
+                    view,
+                    bounds,
+                    pad,
+                    reach,
+                    source_bounds=source_bounds,
+                    directions=_PAD_HEIGHT_LEAD_DIRS[pad.frame.axis],
+                    provenance=group.ref,
+                ),
+                (height.id,),
+            )
+        )
+    return place_machined_leader_jobs(
+        dwg,
+        a,
+        jobs,
+        noun="pad height",
+        drop_code="pad_height_dropped",
         ctx=ctx,
         joint=True,
     )

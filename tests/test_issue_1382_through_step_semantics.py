@@ -6,8 +6,16 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
-from b123d_recognisers import BossRecord, PolygonalStock, TurnedProfile, build_recognition_result
+from b123d_recognisers import (
+    BossRecord,
+    PolygonalStock,
+    TurnedProfile,
+    build_raw_recognition_result,
+)
 from b123d_recognisers import Plate as RecognisedPlate
+from b123d_recognisers import (
+    Pocket as RecognisedPocket,
+)
 from build123d import Align, Box, Compound, Pos, Rot
 
 from draftwright import Sheet, build_drawing
@@ -297,7 +305,7 @@ def test_mixed_legacy_and_aggregate_ownership_reaches_a_fixed_point() -> None:
 
 def test_fixed_point_reprojects_shoulders_after_an_owned_level_disappears() -> None:
     part = Rot(90, 0, 0) * _through_step_part()
-    recognition = build_recognition_result(part)
+    recognition = build_raw_recognition_result(part)
     source = recognition.through_steps[0]
     aggregate_owned = replace(
         source,
@@ -351,7 +359,7 @@ def test_standalone_model_emits_the_legacy_owner_that_preempts_the_aggregate() -
 
 def test_only_emittable_plates_may_preempt_the_aggregate_owner() -> None:
     part = Rot(90, 0, 0) * _through_step_part()
-    source = build_recognition_result(part).through_steps[0]
+    source = build_raw_recognition_result(part).through_steps[0]
     model = build_part_model(
         part,
         through_steps=(source,),
@@ -372,7 +380,7 @@ def test_only_emittable_plates_may_preempt_the_aggregate_owner() -> None:
     assert len(tuple(compile_dimensions(model).of_kind("through_step"))) == 1
 
 
-def test_edge_pocket_floor_cannot_preempt_then_erase_the_aggregate_owner() -> None:
+def test_048_edge_open_pocket_orientation_keeps_a_complete_legacy_owner() -> None:
     base = Rot(90, 0, 0) * _through_step_part()
     edge_pocket = Pos(-20, -10, 0) * Box(
         8,
@@ -381,7 +389,7 @@ def test_edge_pocket_floor_cannot_preempt_then_erase_the_aggregate_owner() -> No
         align=(Align.MIN, Align.MIN, Align.MIN),
     )
     part = base - edge_pocket
-    recognition = build_recognition_result(part)
+    recognition = build_raw_recognition_result(part)
     drawing = build_drawing(part)
     outcomes = through_step_requirement_outcomes(
         recognition,
@@ -390,6 +398,63 @@ def test_edge_pocket_floor_cannot_preempt_then_erase_the_aggregate_owner() -> No
     )
 
     assert len(recognition.through_steps) == 1
+    assert [(p.depth_axis, p.open_sign) for p in recognition.pockets] == [("y", -1)]
+    assert [feature.kind for feature in drawing.model().features].count("through_step") == 0
+    assert [outcome.state for outcome in outcomes] == ["inapplicable", "inapplicable"]
+    assert not [issue for issue in drawing.lint() if "through_step" in issue.code]
+
+
+def test_edge_pocket_floor_cannot_preempt_then_erase_the_aggregate_owner() -> None:
+    """Keep the ownership fixed-point guard after 0.4.8 corrected this fixture's direct axis.
+
+    The provider now truthfully reads the shallow edge opening above as Y-normal, so it no
+    longer supplies the Z floor needed to exercise this consumer boundary. Inject the exact
+    public Pocket condition instead: Draftwright must promote the aggregate ThroughStep before
+    filtering that floor from the final StepLevelFeature, never end with neither owner.
+    """
+    base = Rot(90, 0, 0) * _through_step_part()
+    edge_pocket = Pos(-20, -10, 0) * Box(
+        8,
+        6,
+        15,
+        align=(Align.MIN, Align.MIN, Align.MIN),
+    )
+    part = base - edge_pocket
+    recognition = build_raw_recognition_result(part)
+    source_pocket = recognition.pockets[0]
+    z_floor_owner = RecognisedPocket(
+        width_axis="y",
+        long_axis="x",
+        width=6,
+        length=8,
+        depth=15,
+        w_center=-7,
+        lo=-20,
+        hi=-12,
+        d_lo=0,
+        d_hi=15,
+        open_sign=1,
+        edge_anchored=True,
+        body_key=source_pocket.body_key,
+    )
+    model = build_part_model(
+        part,
+        through_steps=recognition.through_steps,
+        step_zs=tuple(level.z for level in recognition.step_levels),
+        face_levels=recognition.step_levels,
+        risers=recognition.risers,
+        plates=recognition.plates,
+        pockets=(z_floor_owner,),
+        prof=None,
+        rotational=None,
+    )
+    drawing = build_drawing(part, model=model)
+    outcomes = through_step_requirement_outcomes(
+        recognition,
+        drawing.model().features,
+        drawing.registry,
+    )
+
     assert [feature.kind for feature in drawing.model().features].count("through_step") == 1
     assert [outcome.state for outcome in outcomes] == ["placed", "placed"]
     assert not [issue for issue in drawing.lint() if "through_step" in issue.code]
@@ -397,7 +462,7 @@ def test_edge_pocket_floor_cannot_preempt_then_erase_the_aggregate_owner() -> No
 
 def test_base_plate_filter_cannot_erase_the_only_transverse_shoulder_owner() -> None:
     part = Rot(90, 0, 0) * _through_step_part()
-    recognition = build_recognition_result(part)
+    recognition = build_raw_recognition_result(part)
     model = build_part_model(
         part,
         through_steps=recognition.through_steps,
@@ -425,7 +490,7 @@ def test_base_plate_filter_cannot_erase_the_only_transverse_shoulder_owner() -> 
 
 def test_injected_turned_classification_cannot_hide_a_supplied_aggregate() -> None:
     part = Rot(90, 0, 0) * _through_step_part()
-    recognition = build_recognition_result(part)
+    recognition = build_raw_recognition_result(part)
     model = build_part_model(
         part,
         through_steps=recognition.through_steps,
@@ -446,7 +511,7 @@ def test_injected_turned_classification_cannot_hide_a_supplied_aggregate() -> No
 @pytest.mark.parametrize("suppressor", ["round-boss", "polygonal-stock"])
 def test_complement_owner_requires_an_emitted_envelope(suppressor) -> None:
     part = Rot(90, 0, 0) * (Box(20, 30, 20) - Pos(7.5, 10, 0) * Box(10, 20, 30))
-    recognition = build_recognition_result(part)
+    recognition = build_raw_recognition_result(part)
     kwargs = {
         "bosses": (),
         "polygonal_stock": (),
@@ -488,7 +553,7 @@ def test_complement_owner_requires_an_emitted_envelope(suppressor) -> None:
 
 def test_direct_min_datum_owners_do_not_require_an_envelope() -> None:
     part = Rot(90, 0, 0) * (Box(20, 30, 20) - Pos(7.5, 10, 0) * Box(10, 20, 30))
-    recognition = build_recognition_result(part)
+    recognition = build_raw_recognition_result(part)
     direct_source = replace(
         recognition.through_steps[0],
         at=(-6.25, 0, -7.5),
@@ -1013,7 +1078,7 @@ def test_detail_redraw_drops_are_not_counted_again_as_a_request_failure(monkeypa
     ],
 )
 def test_explicit_declaration_can_choose_local_leg_grammar_on_every_axis(part, axis, view) -> None:
-    source = build_recognition_result(part).through_steps[0]
+    source = build_raw_recognition_result(part).through_steps[0]
     sheet = Sheet(part).authored_dimensions()
     handle = sheet.through_step(
         axis=source.axis,
@@ -1068,7 +1133,7 @@ def test_compound_preserves_body_ownership_and_four_independent_requirements() -
 
 def test_authored_dimension_set_can_select_and_tolerance_one_leg_without_resurrection() -> None:
     part = _through_step_part()
-    recognition = build_recognition_result(part)
+    recognition = build_raw_recognition_result(part)
     source = recognition.through_steps[0]
     sheet = Sheet(part)
     handle = sheet.through_step(
@@ -1131,7 +1196,7 @@ def test_compiled_boundary_cannot_reconstruct_a_suppressed_unequal_leg() -> None
 
 def _declared_through_step_sheet():
     part = _through_step_part()
-    source = build_recognition_result(part).through_steps[0]
+    source = build_raw_recognition_result(part).through_steps[0]
     sheet = Sheet(part).authored_dimensions()
     handle = sheet.through_step(
         axis=source.axis,

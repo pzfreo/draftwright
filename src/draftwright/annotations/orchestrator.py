@@ -68,6 +68,7 @@ from draftwright.annotations.from_model import (
     render_height_ladder,
     render_local_turned_centerlines,
     render_locations,
+    render_pad_heights,
     render_paired_ramp_steps,
     render_plates,
     render_pmi,
@@ -273,6 +274,7 @@ _PASS_SEQUENCE: tuple[str, ...] = (
     "paired_ramp_steps",
     "flats",
     "pockets",
+    "pad_heights",
     "grooves",
     # One compatible same-view feature-leader inventory (#1166): side/plan
     # hole leaders collected before the corridor drain and the six machined
@@ -672,6 +674,12 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # Planner-fed (#728): consumes the DimensionGroups so authored tolerances render.
         render_pockets(dwg, _compiled, a, ctx=ctx)
 
+    def _s_pad_heights():
+        # A raised pad's local attachment-to-terminal rise is independent of any global
+        # datum-to-level ladder. Its HIGH leader is a first-class post-drain candidate,
+        # sharing the machined leader assignment rather than bypassing the solve.
+        render_pad_heights(dwg, _compiled, a, ctx=ctx)
+
     def _s_pocket_patterns():
         # Grouped blind-pocket-array callouts (#841): ONE count× W × L × D DEEP leader + the
         # (n-1)× pitch dim(s), instead of N competing per-pocket size dims. Placed after
@@ -865,6 +873,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
             "paired_ramp_steps": _s_paired_ramp_steps,
             "flats": _s_flats,
             "pockets": _s_pockets,
+            "pad_heights": _s_pad_heights,
             "pocket_patterns": _s_pocket_patterns,
             "slot_patterns": _s_slot_patterns,
             "through_steps": _s_through_steps,

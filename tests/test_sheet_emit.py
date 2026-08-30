@@ -2480,7 +2480,11 @@ class TestTheDimensionMirror:
             for x in (-18, 18):
                 for y in (-18, 18):
                     part -= Pos(x, y, 0) * Cylinder(2, 10)
-            return part.rotate(Axis.X, 90)
+            part = part.rotate(Axis.X, 90)
+            # A genuine Z boss keeps the plan view semantically required, so this corpus
+            # continues to observe Y-axis ``centerline_plan`` furniture after RaisedPad v2
+            # stopped misclassifying two rotated lugs as pads.
+            return part + Pos(0, 0, 21) * Cylinder(4, 5)
 
         return {
             "plate+hole": Box(80, 50, 8) - Pos(-20, 0, 0) * Cylinder(4, 20),
@@ -2547,7 +2551,10 @@ class TestTheDimensionMirror:
     #: only an envelope) and "slot" (detected a pocket) until #947's review counted them.
     _EXPECTED_KINDS = {
         "plate+hole": {"hole"},
-        "flange (no envelope feature)": {"hole", "pattern", "pad", "step"},
+        # RaisedPad v2 no longer treats two of the flange's end lugs as +Z pads after the
+        # whole part is rotated. They are the four genuine Y-opening edge pockets below;
+        # the dedicated "pad" fixture remains this corpus's pad mirror evidence.
+        "flange (no envelope feature)": {"boss", "hole", "pattern", "pocket", "step"},
         "stepped": {"step_level"},
         "slot": {"slot"},
         "pocket": {"pocket"},

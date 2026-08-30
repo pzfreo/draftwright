@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from b123d_recognisers import build_recognition_result
+from b123d_recognisers import build_raw_recognition_result
 from build123d import Box, Compound, Cylinder, Plane, Polygon, Pos, Rot, extrude
 
 from draftwright import build_drawing
@@ -24,7 +24,7 @@ def _circular_blind_step():
 
 def test_circular_blind_step_is_visible_as_two_audited_requirements() -> None:
     part = _circular_blind_step()
-    recognition = build_recognition_result(part)
+    recognition = build_raw_recognition_result(part)
     assert recognition.circular_blind_steps
 
     completeness = build_drawing(part).lint_summary()["quality"]["completeness"]

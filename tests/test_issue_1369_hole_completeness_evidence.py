@@ -136,7 +136,7 @@ def test_a_missing_build_owned_recognition_result_does_not_rescan(monkeypatch) -
     monkeypatch.setattr(
         builder, "build_drawing", lambda *_args, **_kwargs: RecognitionUnavailable()
     )
-    monkeypatch.setattr(b123d_recognisers, "build_recognition_result", forbidden_rescan)
+    monkeypatch.setattr(b123d_recognisers, "build_raw_recognition_result", forbidden_rescan)
 
     assert _default_observers()["holes"](_part()) == ()
     assert provider_calls == []
@@ -151,13 +151,13 @@ def test_deleting_provider_holes_cannot_shrink_the_independent_denominator(monke
     """
     import draftwright.analysis as analysis
 
-    original = analysis.build_recognition_result
+    original = analysis.build_raw_recognition_result
 
     def without_holes(*args, **kwargs):
         result = original(*args, **kwargs)
         return replace(result, holes=(), hole_patterns=())
 
-    monkeypatch.setattr(analysis, "build_recognition_result", without_holes)
+    monkeypatch.setattr(analysis, "build_raw_recognition_result", without_holes)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))
 
     assert damaged.detection.matched == 0

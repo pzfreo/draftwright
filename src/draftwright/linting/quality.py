@@ -350,10 +350,11 @@ _UNSCORED_CODES = frozenset(
 #: can check rather than assume. It found `section_dropped` scoring nowhere while a comment
 #: beside its emission asserted the opposite.
 #:
-#: Eleven of these — every entry except `gdt_dropped` and `pmi_dropped` — are codes handed
+#: Fourteen of these — every entry except `gdt_dropped` and `pmi_dropped` — are codes handed
 #: to a leader job as ``drop_code`` data: `leaders.py`'s one drop recorder stages them
 #: ``"validation"`` on a rendered-geometry failure and ``"placement"`` otherwise, so all
-#: eleven have the `section_dropped` shape. TEN of them were invisible to the first audit,
+#: fourteen have the `section_dropped` shape. Ten of the original thirteen were invisible
+#: to the first audit,
 #: which read only codes written as literals AT a producer call, and were new to these
 #: registers; `callout_dropped` is the eleventh and was neither — it is also written as a
 #: literal at three producer calls, so the audit always saw it (#1176 review r5, corrected
@@ -372,6 +373,7 @@ _STAGE_ROUTED_CODES = frozenset(
         "paired_ramp_step_dropped",
         "flat_dropped",
         "groove_dropped",
+        "pad_height_dropped",
         "pocket_dropped",
         "polygonal_boss_dropped",
         "polygonal_stock_dropped",

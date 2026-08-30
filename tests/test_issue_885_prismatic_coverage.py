@@ -90,7 +90,7 @@ def test_auto_drawing_defines_pad_footprints_and_pocket_locations():
     assert tuple(detected.features) == tuple(drawing.model().features)
     assert [f.kind for f in drawing.model().features].count("pad") == 4
     names = set(drawing.annotations())
-    assert len({name for name in names if name.startswith("m_pad")}) == 8
+    assert len({name for name in names if name.startswith("m_pad")}) == 12
     assert {"m_locy1", "m_locy3"} <= names  # pocket centres at Y=30 and Y=90
     summary = drawing.lint_summary()
     assert "pad_footprint_not_defined" not in summary["by_code"]

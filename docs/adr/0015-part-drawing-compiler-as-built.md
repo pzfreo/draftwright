@@ -129,6 +129,7 @@ by #754 (Amendment 2): those labels are now planner-fed.
 | paired ramps (2× angle × run compound leader, #1382) | `from_model.render_paired_ramp_steps` | `plan_dimensions` |
 | rectangular through steps (two open-section leg dimensions, #1382) | `from_model.render_through_steps` | `plan_dimensions` |
 | pockets (W × L × D DEEP leader, #728) | `from_model.render_pockets` | `plan_dimensions` |
+| rectangular pads (footprint dimensions + HIGH leader, #1392) | `from_model.render_slots`, `from_model.render_pad_heights` | `plan_dimensions` |
 | plates (thickness linear dim, #729) | `from_model.render_plates` | `plan_dimensions` |
 | slots (width/length linear dims, #730; the datum position dim stays model-derived — it is drawing state, not a feature parameter) | `from_model.render_slots` | `plan_dimensions` |
 | section trigger + cut plane | `sections._add_section_view` etc. | `plan_sections` → `SectionPlan` |

@@ -16,7 +16,7 @@ from b123d_recognisers.inspection import inspection_api_manifest
 CONSUMER_INSPECTION_FORMAT = "draftwright-inspection-api"
 CONSUMER_INSPECTION_FORMAT_VERSION = 1
 SUPPORTED_INSPECTION_API_MAJOR = 1
-SUPPORTED_RECOGNISER_VERSION = "0.4.6"
+SUPPORTED_RECOGNISER_VERSION = "0.4.8"
 _DISTRIBUTION = "b123d-recognisers"
 _PROVIDER_FORMAT = "b123d-recognisers-inspection-api"
 _NAMESPACE = "b123d_recognisers.inspection"

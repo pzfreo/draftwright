@@ -102,7 +102,7 @@ def test_public_framed_route_preserves_arbitrarily_rotated_planar_and_turned_rou
 
 def test_circular_blind_step_curved_wall_has_one_aggregate_owner() -> None:
     from b123d_recognisers import (
-        build_recognition_result,
+        build_raw_recognition_result,
         recognise_circular_blind_steps,
         recognise_fillets,
     )
@@ -110,7 +110,7 @@ def test_circular_blind_step_curved_wall_has_one_aggregate_owner() -> None:
     part = import_step(CORPUS.parent / "fillet-overlap.step")
     direct_fillets = recognise_fillets(part)
     direct_steps = recognise_circular_blind_steps(part)
-    recognition = build_recognition_result(part)
+    recognition = build_raw_recognition_result(part)
 
     assert len(direct_fillets) == len(direct_steps) == 1
     assert direct_fillets[0].radius == direct_steps[0].radius == 8.0
@@ -159,12 +159,12 @@ def test_fillet_ledger_tracks_one_callout_per_physical_round_and_fails_closed() 
 
 
 def test_fillet_ledger_rejects_foreign_results_and_malformed_ir_without_guessing() -> None:
-    from b123d_recognisers import build_recognition_result
+    from b123d_recognisers import build_raw_recognition_result
 
     from draftwright.linting.fillet_coverage import fillet_requirement_outcomes
     from draftwright.registry import AnnotationRegistry
 
-    recognition = build_recognition_result(_lone())
+    recognition = build_raw_recognition_result(_lone())
     source = recognition.fillets[0]
 
     class MalformedFillet:
@@ -256,7 +256,7 @@ def test_every_fillet_boundary_is_observed_supported_on_the_real_public_path() -
 def test_fillet_observer_uses_one_build_owned_recognition_aggregate(monkeypatch) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_recognition_result
+    original = analysis.build_raw_recognition_result
     calls = 0
 
     def counted(*args, **kwargs):
@@ -264,7 +264,7 @@ def test_fillet_observer_uses_one_build_owned_recognition_aggregate(monkeypatch)
         calls += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(analysis, "build_recognition_result", counted)
+    monkeypatch.setattr(analysis, "build_raw_recognition_result", counted)
     assert _default_observers()["fillets"](_lone())
     assert calls == 1
 
@@ -483,13 +483,13 @@ def test_severing_fillet_measurement_provenance_loses_drawing_credit(monkeypatch
 def test_deleting_provider_fillets_cannot_shrink_independent_denominator(monkeypatch) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_recognition_result
+    original = analysis.build_raw_recognition_result
 
     def without_fillets(*args, **kwargs):
         result = original(*args, **kwargs)
         return replace(result, fillets=())
 
-    monkeypatch.setattr(analysis, "build_recognition_result", without_fillets)
+    monkeypatch.setattr(analysis, "build_raw_recognition_result", without_fillets)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))
 
     assert damaged.detection.matched == 0
@@ -501,14 +501,14 @@ def test_deleting_provider_fillets_cannot_shrink_independent_denominator(monkeyp
 def test_weakening_provider_fillet_radius_reduces_fidelity(monkeypatch) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_recognition_result
+    original = analysis.build_raw_recognition_result
 
     def weakened(*args, **kwargs):
         result = original(*args, **kwargs)
         values = tuple(replace(item, radius=item.radius + 0.5) for item in result.fillets)
         return replace(result, fillets=values)
 
-    monkeypatch.setattr(analysis, "build_recognition_result", weakened)
+    monkeypatch.setattr(analysis, "build_raw_recognition_result", weakened)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))
 
     assert damaged.detection.recall == 1.0

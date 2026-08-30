@@ -10,7 +10,7 @@ from b123d_recognisers.polygonal_bosses import (
     PolygonalStock,
     recognise_polygonal_stock,
 )
-from b123d_recognisers.result import build_recognition_result
+from b123d_recognisers.result import build_raw_recognition_result
 from build123d import Box, Compound, Cylinder, Polygon, Pos, RegularPolygon, Rot, extrude
 
 from draftwright import build_drawing
@@ -162,7 +162,7 @@ def test_duplicate_stock_ir_correspondence_is_ambiguous_not_first_match_wins():
     )
 
     outcomes = polygonal_stock_outcomes(
-        build_recognition_result(part),
+        build_raw_recognition_result(part),
         (stock, stock),
         drawing.registry,
     )

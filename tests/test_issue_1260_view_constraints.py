@@ -7,7 +7,7 @@ import warnings
 from types import SimpleNamespace
 
 import pytest
-from build123d import Box, Compound, Cylinder, Pos
+from build123d import Align, Box, Compound, Cylinder, Pos
 
 import draftwright.builder as builder_mod
 import draftwright.projection as projection_mod
@@ -358,6 +358,35 @@ class TestBuildEffects:
         impossible.view("front").pin((-1000, origin[1]))
         with pytest.raises(ValueError, match="pin.*infeasible.*not relaxed"):
             impossible.build()
+
+    def test_a_pin_translates_the_side_right_strip_with_the_principal_views(self):
+        part = Box(50, 30, 10) - Cylinder(
+            3,
+            60,
+            rotation=(0, 90, 0),
+            align=(Align.CENTER, Align.CENTER, Align.CENTER),
+        )
+
+        def declared(*, pin=None):
+            sheet = Sheet(part, page="A3").authored_dimensions()
+            bore = sheet.hole(diameter=6, at=(0, 0, 0), axis="x").through()
+            sheet.dimension(bore, "bore.diameter")
+            sheet.dimension(bore, "location")
+            front = sheet.view("front")
+            sheet.view("plan")
+            sheet.view("side")
+            if pin is not None:
+                front.pin(pin)
+            return sheet
+
+        baseline = declared().build()
+        origin = baseline.at("front", 0, 0, 0)[:2]
+        target = (origin[0] + 10, origin[1])
+
+        moved = declared(pin=target).build()
+
+        assert moved.at("front", 0, 0, 0)[:2] == pytest.approx(target)
+        assert not [issue for issue in moved.lint() if issue.severity != "info"]
 
     def test_contradictory_and_nonprincipal_pins_are_refused(self):
         baseline_sheet = _sheet()
