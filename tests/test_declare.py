@@ -1089,7 +1089,7 @@ class TestPlate:
 
     def test_declared_plates_render_thickness_dims(self):
         # An L-bracket declared as two plates renders both thickness dims — assert the
-        # dims actually LAND (named + labelled + lint-clean), not just that the model
+        # dims actually LAND (named + labelled), not just that the model
         # echoes back what we handed it (detection is skipped for a declared model).
         lbr = Box(80, 50, 8) + Pos(-36, 0, 29) * Box(8, 50, 50)
         model = [plate(Box(80, 50, 8)), plate(axis="x", lo=-40, hi=-32, u=0, v=27)]
@@ -1099,7 +1099,12 @@ class TestPlate:
         }
         assert sorted(plate_dims) == ["dim_plate_x0", "dim_plate_z0"]  # both slabs dimensioned
         assert sorted(plate_dims.values()) == ["8", "8"]  # each 8 thick
-        assert [i for i in dwg.lint() if i.severity != "info"] == []
+        # These declarations intentionally omit the 80 mm overall width required to prove
+        # the recognised through-step's X complement.  A sparse declared drawing must report
+        # that real completeness gap rather than credit an unrelated thickness dimension.
+        issues = [i for i in dwg.lint() if i.severity != "info"]
+        assert [issue.code for issue in issues] == ["through_step_requirement_missing"]
+        assert "through_step_leg.length.x" in issues[0].message
 
     def test_same_axis_plate_names_follow_thickness_axis_not_in_plane_position(self):
         """Stable annotation identity follows the old axis/lo/hi order.
@@ -1201,7 +1206,11 @@ class TestStepLevel:
         assert dwg.get_annotation("dim_shoulder_x0").label == expected
         assert dwg.view_of("dim_shoulder_x0") == "plan"
         assert "dim_height" in dwg.annotations()
-        assert [i for i in dwg.lint() if i.severity != "info"] == []
+        # Height + step-height prove the vertical complement, but this declared model does
+        # not request overall width, so its recognised horizontal complement remains missing.
+        issues = [i for i in dwg.lint() if i.severity != "info"]
+        assert [issue.code for issue in issues] == ["through_step_requirement_missing"]
+        assert "through_step_leg.length.x" in issues[0].message
 
     def test_needs_base_and_levels(self):
         with pytest.raises(ValueError, match="base= and levels="):

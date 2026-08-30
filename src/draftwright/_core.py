@@ -925,6 +925,8 @@ class DetailRequest:
                       narrow profile strip when enlarging the full radial extent
                       would not fit on the sheet.
         kind:         short label for logging.
+        measurement_ids/measurement_spans: exact compiler-owned requirements the detail
+                      is recovering. Empty for purely geometric/authored details.
     """
 
     axis: str
@@ -951,6 +953,8 @@ class DetailRequest:
     #: dimension. Automatic recovery details retain the historical "no dimension, no view" gate.
     keep_without_annotations: bool = False
     source: object | None = None
+    measurement_ids: tuple = ()
+    measurement_spans: tuple = ()
 
 
 @dataclass(frozen=True)

@@ -265,6 +265,49 @@ class TestTheRendererCannotSeeContent:
             "compiled plan's approved entries, whose spans carry every coordinate it needs"
         )
 
+    def test_through_step_renderer_cannot_resolve_its_provenance_handle(self):
+        """Its outside corner is a compiled placement fact, not a raw-feature escape."""
+        from draftwright.annotations.from_model import render_through_steps
+
+        tree = ast.parse(inspect.getsource(render_through_steps))
+        calls = {
+            node.func.id
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        }
+        assert "resolve_feature" not in calls
+
+    def test_no_new_plan_renderer_can_resolve_a_provenance_handle(self):
+        """Global ratchet: every direct FeatureRef escape is named existing debt."""
+        actual: dict[tuple[str, str], int] = {}
+        root = pathlib.Path(__file__).resolve().parents[1] / "src" / "draftwright" / "annotations"
+        for module in ("from_model", "holes"):
+            tree = ast.parse((root / f"{module}.py").read_text(encoding="utf-8"))
+            for node in tree.body:
+                if not isinstance(node, ast.FunctionDef) or not node.name.startswith("render_"):
+                    continue
+                args = {arg.arg for arg in node.args.args} | {
+                    arg.arg for arg in node.args.kwonlyargs
+                }
+                if "plan" not in args:
+                    continue
+                count = sum(
+                    isinstance(call, ast.Call)
+                    and isinstance(call.func, ast.Name)
+                    and call.func.id == "resolve_feature"
+                    for call in ast.walk(node)
+                )
+                if count:
+                    actual[module, node.name] = count
+
+        # Slots still resolve structural witness geometry; locations resolve only annotation
+        # ownership. Both predate this ratchet and are separately visible migration debt. No
+        # new plan renderer may silently join them, and neither count may grow.
+        assert actual == {
+            ("from_model", "render_locations"): 1,
+            ("from_model", "render_slots"): 1,
+        }
+
     def test_the_provenance_handle_exposes_no_measurement(self):
         """Carrying the `Feature` on an approved entry left the bypass one attribute access
         away — `.feature.levels` rebuilds exactly what the compiler withheld (#923 review).
@@ -1050,6 +1093,7 @@ class TestTheBoundaryIsLoadBearing:
             "render_slots",
             "render_step_lengths",
             "render_step_positions",
+            "render_through_steps",
         ], "the migrated set changed — update this and the ADR's inventory together"
 
         assert by_contract["groups"] == [], (

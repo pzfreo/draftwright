@@ -121,11 +121,23 @@ runs 28 public families once each; a turned aggregate runs 23, with five prismat
 families gated out by design.
 
 Ownership does not imply invented drafting semantics. Draftwright consumes the three new
-immutable inventories from the shared result. Paired ramps now have an evidence-gated record-to-IR,
-declaration, generated-code, annotation, and two-requirement completeness path under #1382.
-Circular blind and through steps remain explicitly unscored until their separate #1382 decisions.
+immutable inventories from the shared result. Paired ramps and through steps now have
+evidence-gated record-to-IR, declaration, generated-code, annotation, and two-requirement
+completeness paths under #1382. Circular blind steps remain explicitly unscored until their
+separate #1382 decision.
 This preserves the one-inventory contract while preventing an undecided newly recognised family
 from masquerading as a complete drawing.
+
+Consumer ordering remains a drafting-policy decision. Automatic through-step lowering supports
+every principal run axis. For X/Y runs, face levels plus shoulders/plates retain ownership only
+when their coordinate intervals (including an envelope-defined complement) prove both physical
+legs. That complete alternate projection is `inapplicable`; axis or family presence alone is not
+evidence, and the alternate owner's exact measurement identities must themselves be placed or
+structurally satisfied. Its authored suppression, placement drop, or missing ink remains visible
+as that outcome instead of becoming `inapplicable`. A partially covered occurrence instead lowers
+as the aggregate owner and removes exact matching legacy fragments. The explicit Sheet declaration
+permits the same local two-leg grammar on every principal axis. This is a pure projection of the
+shared aggregate, not a second recognition scan.
 
 ## Accepted Contract
 

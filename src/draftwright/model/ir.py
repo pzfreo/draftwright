@@ -332,6 +332,9 @@ DimensionParameterId = Literal[
     "step_position.length",
     "thread.depth",
     "thickness.length",
+    "through_step_leg.length.x",
+    "through_step_leg.length.y",
+    "through_step_leg.length.z",
     "width.length",
     # synthesised, not a DimParameter (see above)
     "location",
@@ -1590,6 +1593,122 @@ class PairedRampStepFeature:
             DimParameter("angle", "ramp_angle", self.angle),
             DimParameter("length", "ramp_run", self.length, span=self.span),
         ]
+
+    def references(self) -> list[Datum]:
+        return []
+
+
+@dataclass(frozen=True)
+class ThroughStepFeature:
+    """One rectangular open-profile step spanning the part along ``axis`` (#1382).
+
+    The provider's canonical ``section`` is ``(envelope endpoint, concave corner,
+    envelope endpoint)`` in the two non-run coordinates.  Its two orthogonal legs are
+    independently dimensioned in the end-on view.  ``length`` and ``frame.origin`` retain
+    exact physical correspondence to the removed through prism; the full-span run is already
+    stated by the part envelope and is therefore structural rather than a third requirement.
+    """
+
+    frame: Frame
+    axis: str
+    length: float
+    section: tuple[tuple[float, float], tuple[float, float], tuple[float, float]]
+    kind: ClassVar[str] = "through_step"
+
+    def __post_init__(self) -> None:
+        if self.axis not in ("x", "y", "z") or self.frame.axis != self.axis:
+            raise ValueError(
+                "through-step axis must be x, y, or z and agree with the feature frame"
+            )
+        if isinstance(self.length, bool) or not isfinite(self.length) or self.length <= 0:
+            raise ValueError("through-step run length must be finite and positive")
+        try:
+            if any(isinstance(value, bool) for point in self.section for value in point):
+                raise ValueError
+            section = tuple(tuple(float(value) for value in point) for point in self.section)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("through-step section must contain three finite 2D points") from exc
+        if (
+            len(section) != 3
+            or any(len(point) != 2 for point in section)
+            or not all(isfinite(value) for point in section for value in point)
+        ):
+            raise ValueError("through-step section must contain three finite 2D points")
+        first_changes = [i for i in (0, 1) if section[0][i] != section[1][i]]
+        second_changes = [i for i in (0, 1) if section[1][i] != section[2][i]]
+        if (
+            len(first_changes) != 1
+            or len(second_changes) != 1
+            or first_changes[0] == second_changes[0]
+        ):
+            raise ValueError("through-step section must be two non-zero orthogonal legs")
+        object.__setattr__(self, "section", section)
+
+    @property
+    def transverse_axes(self) -> tuple[str, str]:
+        return tuple(axis for axis in "xyz" if axis != self.axis)  # type: ignore[return-value]
+
+    @property
+    def section_points(self) -> tuple[Point, Point, Point]:
+        run_index = "xyz".index(self.axis)
+        transverse = [index for index in (0, 1, 2) if index != run_index]
+        points = []
+        for pair in self.section:
+            point = list(self.frame.origin)
+            point[transverse[0]], point[transverse[1]] = pair
+            points.append(tuple(point))
+        return tuple(points)  # type: ignore[return-value]
+
+    @property
+    def exterior_corner(self) -> Point:
+        first, corner, last = self.section_points
+        return tuple(a + b - c for a, b, c in zip(first, last, corner, strict=True))  # type: ignore[return-value]
+
+    @property
+    def outside_directions(self) -> tuple[tuple[str, int], tuple[str, int]]:
+        """Topology-only signs from the concave corner toward the missing rectangle.
+
+        Unlike :attr:`exterior_corner`, these signs carry no distance. They are safe compiled
+        placement facts when an authored set withholds either dimensional leg (ADR 0016).
+        """
+        first, corner, last = self.section
+        directions = []
+        for index, axis in enumerate(self.transverse_axes):
+            delta = next(
+                point[index] - corner[index]
+                for point in (first, last)
+                if point[index] != corner[index]
+            )
+            directions.append((axis, 1 if delta > 0 else -1))
+        return tuple(directions)  # type: ignore[return-value]
+
+    def parameters(self) -> list[DimParameter]:
+        points = self.section_points
+        axes = self.transverse_axes
+        parameters = []
+        for start, end in zip(points, points[1:]):
+            changed = next(
+                axis for axis in axes if start["xyz".index(axis)] != end["xyz".index(axis)]
+            )
+            index = "xyz".index(changed)
+            value = abs(end[index] - start[index])
+            # Spell the closed discriminator vocabulary at the construction sites. Besides
+            # making the public Literal statically auditable, this rejects an accidental
+            # non-principal discriminator instead of laundering it through a free string.
+            if changed == "x":
+                parameter = DimParameter(
+                    "length", "through_step_leg", value, span=(start, end), discriminator="x"
+                )
+            elif changed == "y":
+                parameter = DimParameter(
+                    "length", "through_step_leg", value, span=(start, end), discriminator="y"
+                )
+            else:
+                parameter = DimParameter(
+                    "length", "through_step_leg", value, span=(start, end), discriminator="z"
+                )
+            parameters.append(parameter)
+        return parameters
 
     def references(self) -> list[Datum]:
         return []

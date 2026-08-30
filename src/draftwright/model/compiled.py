@@ -286,6 +286,10 @@ _FACTS: dict[str, tuple[str, ...]] = {
     # Structural placement facts only.  The printed angle and run remain addressable
     # parameters, so authored omission/tolerance policy cannot be bypassed (#1382).
     "paired_ramp_step": ("frame", "axis"),
+    # Topology-only direction signs select each outside placement corridor. Absolute section
+    # points would let one approved leg reconstruct the suppressed other leg (ADR 0016), so
+    # both leg values and witnesses travel only as approved spans.
+    "through_step": ("axis", "outside_directions"),
     # These are STRUCTURE, not measurements: together they say which piece of stock a flat
     # belongs to, so the renderer can tell one double-D's two faces from independent aligned
     # or slanted regions (#1013/#1036). The drawing prints none of them.

@@ -71,6 +71,7 @@ from draftwright.model.ir import (
     SlotPatternFeature,
     StepFeature,
     StepLevelFeature,
+    ThroughStepFeature,
     validate_authored_dimension_placement,
 )
 
@@ -704,6 +705,32 @@ def paired_ramp_step(*, axis, angle, length, at) -> PairedRampStepFeature:
         axis=axis,
         angle=round(float(angle), 2),
         length=round(float(length), 3),
+    )
+
+
+def through_step(*, axis, length, at, section) -> ThroughStepFeature:
+    """Declare one rectangular open-profile through step (#1382).
+
+    Explicit-only: a detached cutter cannot prove that the recess spans the owning body.
+    ``section`` is the provider's canonical three-point open polyline in the two non-run
+    coordinates: envelope endpoint, concave corner, envelope endpoint.
+    """
+    axis = _norm_axis(axis)
+    _require_positive(length=length)
+    _require_point("at", at)
+    try:
+        if any(isinstance(value, bool) for point in section for value in point):
+            raise ValueError
+        canonical_section = tuple(
+            tuple(round(float(value), 3) for value in point) for point in section
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError("through_step section must contain three finite 2D points") from exc
+    return ThroughStepFeature(
+        frame=Frame(origin=at, axis=axis),
+        axis=axis,
+        length=round(float(length), 3),
+        section=canonical_section,  # type: ignore[arg-type]
     )
 
 

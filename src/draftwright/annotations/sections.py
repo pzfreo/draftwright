@@ -857,14 +857,31 @@ def _resolve_details(dwg, a: Analysis, *, ctx) -> None:
     if len(reserved) != sum(req.label is not None for req in reqs):
         raise ValueError("authored detail labels must be unique")
     used: set[str] = set()
+
+    def _record_prismatic_failure(req, message):
+        if req.kind != "prismatic-steps":
+            return
+        ctx.record_issue(
+            "warning",
+            "detail_unplaceable",
+            message,
+            measurement=req.measurement_ids,
+            measurement_spans=req.measurement_spans,
+        )
+
     for req in reqs:
         letter = req.label or next(
             (candidate for candidate in _DETAIL_LETTERS if candidate not in reserved | used), None
         )
         if letter is None:
             _log.info("detail request '%s' dropped: detail letters A–H exhausted", req.kind)
+            _record_prismatic_failure(
+                req,
+                f"{req.kind} detail view requested but detail letters A–H are exhausted",
+            )
             continue
         view_name = req.view_name or f"detail_{letter.lower()}"
+        issue_start = len(ctx.registry.issues)
         placed = _render_detail(dwg, a, req, view_name, letter, ctx=ctx)
         hname = (
             _overall_height_name(dwg, a) if not placed and req.kind == "prismatic-steps" else None
@@ -911,13 +928,20 @@ def _resolve_details(dwg, a: Analysis, *, ctx) -> None:
             # The automatic turned-head requests (queued unconditionally by
             # render_step_lengths) are independent of that setting; their bail-out is the
             # normal path (the main view locates the head/block inline), so they stay silent.
-            ctx.record_issue(
-                "warning",
-                "detail_unplaceable",
-                f"{req.kind} detail view requested but could not be placed legibly on this "
-                "sheet (the crowded band is too wide to enlarge and still fit); dimension the "
-                "feature manually or move it onto its own sheet",
+            # A redraw can fail one rung at a time. Those exact placement outcomes are the
+            # complete account of the failed recovery; adding one request-wide issue as well
+            # would charge the same missing dimensions twice in quality and completeness.
+            exact_redraw_drops = any(
+                issue.code == "detail_step_dim_dropped"
+                for issue in ctx.registry.issues[issue_start:]
             )
+            if not exact_redraw_drops:
+                _record_prismatic_failure(
+                    req,
+                    f"{req.kind} detail view requested but could not be placed legibly on this "
+                    "sheet (the crowded band is too wide to enlarge and still fit); dimension "
+                    "the feature manually or move it onto its own sheet",
+                )
 
 
 def _overall_height_name(dwg, a: Analysis) -> str | None:
@@ -1082,6 +1106,10 @@ def _request_prismatic_detail(dwg, a: Analysis, *, ctx, plan) -> None:
             0.0,
         )
 
+    # A retry after overall-height demotion reuses the same closure. Retain the exact rungs
+    # already reported so one failed compiler outcome cannot become two lint findings.
+    reported_redraw_failures: set[tuple] = set()
+
     def redraw(
         dwg, view, coords, detail_scale
     ):  # returns the count placed (#840: 0 → not committed)
@@ -1145,6 +1173,7 @@ def _request_prismatic_detail(dwg, a: Analysis, *, ctx, plan) -> None:
                         label=label,
                     )
                 det_dim._dw_scale = detail_scale  # detail scale, for label-vs-measured lint (#42)
+                det_dim._dw_measurement_span = rung.span
                 ctx.place(
                     det_dim,
                     f"dim_{view}_step{i}",
@@ -1156,6 +1185,20 @@ def _request_prismatic_detail(dwg, a: Analysis, *, ctx, plan) -> None:
                 placed += 1
             except Exception as exc:  # noqa: BLE001 — placement may fail on degenerate geometry
                 _log.info("detail step dim %d skipped (%s)", i, exc)
+                # The resolver may retry after deliberately demoting the unpinned overall
+                # height. The same redraw closure serves both attempts, so retain one exact
+                # outcome per compiler rung rather than reporting the retry as another loss.
+                failure_key = (getattr(rung.id, "parameter", None), rung.span)
+                if failure_key not in reported_redraw_failures:
+                    reported_redraw_failures.add(failure_key)
+                    ctx.record_issue(
+                        "warning",
+                        "detail_step_dim_dropped",
+                        f"detail step dimension {rung.final_label} not placed ({exc})",
+                        measurement=rung.id,
+                        measurement_span=rung.span,
+                        outcome_stage="placement",
+                    )
         return placed
 
     ctx.detail_requests.append(
@@ -1174,5 +1217,7 @@ def _request_prismatic_detail(dwg, a: Analysis, *, ctx, plan) -> None:
             cross_lo=crop_xs[0] if x_stations else None,
             cross_hi=crop_xs[1] if x_stations else None,
             kind="prismatic-steps",
+            measurement_ids=tuple(rung.id for rung in rungs if rung.id is not None),
+            measurement_spans=tuple(rung.span for rung in rungs if rung.id is not None),
         )
     )

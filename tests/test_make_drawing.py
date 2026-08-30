@@ -7318,6 +7318,38 @@ class TestFeatureEdits:
         assert dwg.get_annotation("user_width")._dw_spec.distance == 12
         assert dwg._intents == []
 
+    def test_finalize_resolves_an_implicit_side_before_corridor_routing(self, tmp_path):
+        # #1382 review: `dimension()` now leaves the natural side unresolved as None. The
+        # routing predicate must accept that state so pin/priority reach the shared solve;
+        # `_queue_dimension_intent` resolves the side from the exact parameter span.
+        dwg = build_drawing(
+            Box(80, 50, 20),
+            auto_dims=False,
+            out=str(tmp_path / "implicit-side"),
+            trace=True,
+        )
+        env = next(f for f in dwg.model().features if f.kind == "envelope")
+        with dwg.deferred():
+            dwg.dimension(
+                env,
+                "length",
+                role="width",
+                name="implicit_side_width",
+                pin=True,
+                priority=25,
+            )
+
+        assert dwg.registry.is_pinned("implicit_side_width")
+        assert dwg.get_annotation("implicit_side_width")._dw_spec.side == "above"
+        candidate = next(
+            candidate
+            for solve in dwg.solve_trace.solves
+            for candidate in solve["candidates"]
+            if candidate["name"] == "implicit_side_width"
+        )
+        assert candidate["priority"] == 100
+        assert candidate["anchored"] is True
+
     def test_finalize_mixed_corridor_batch_places_each_exactly_once(self):
         # #699 slice b (Codex review): the drain stages now run in the auto-pass's
         # canonical _PASS_SEQUENCE order, which moved the register-only height-ladder /

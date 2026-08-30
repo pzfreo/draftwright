@@ -27,7 +27,6 @@ def _circular_blind_step():
     ("inventory", "part_factory"),
     [
         ("circular_blind_steps", _circular_blind_step),
-        ("through_steps", _through_step),
     ],
 )
 def test_each_046_step_inventory_is_visible_in_runtime_completeness(inventory, part_factory):
@@ -67,17 +66,14 @@ def test_paired_ramps_left_the_undecided_inventory_with_two_audited_requirements
     assert completeness["requirements"] == completeness["placed"] == 2
 
 
-def test_undecided_evidence_stays_visible_beside_a_perfect_audited_family():
+def test_newly_audited_through_step_stays_visible_beside_an_existing_family():
     pocket = Box(80, 60, 20) - Pos(20, 0, 5) * Box(20, 10, 12)
     mixed = Compound([Pos(-70, 0, 0) * _through_step(), Pos(70, 0, 0) * pocket])
 
     completeness = build_drawing(mixed).lint_summary()["quality"]["completeness"]
 
-    assert completeness["unscored_recognized_families"] == ["through_steps"]
-    assert completeness["requirements"] == 5
-    assert completeness["placed"] == 5
+    assert completeness["unscored_recognized_families"] == []
+    assert completeness["requirements"] == 7
+    assert completeness["placed"] == 7
     assert completeness["audited_score"] == 1.0
-    assert completeness["reason"] == (
-        "audited_score covers recognized requirements in audited families only; it is "
-        "not evidence that the drawing is complete"
-    )
+    assert completeness["by_family"]["through_steps"] == 2

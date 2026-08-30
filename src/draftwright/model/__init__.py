@@ -51,6 +51,7 @@ from draftwright.model.declare import (
     slot_pattern,
     step,
     step_level,
+    through_step,
 )
 from draftwright.model.detect import build_part_model, build_pmi_features
 from draftwright.model.ir import (
@@ -94,6 +95,7 @@ from draftwright.model.ir import (
     StepLevelFeature,
     ThreadOperation,
     ThreadRequirement,
+    ThroughStepFeature,
     ToleranceDecoration,
     display,
 )
@@ -153,6 +155,7 @@ __all__ = [
     "PolygonalBossFeature",
     "PolygonalStockFeature",
     "StepLevelFeature",
+    "ThroughStepFeature",
     "ThreadOperation",
     "ThreadRequirement",
     "ToleranceDecoration",
@@ -186,6 +189,7 @@ __all__ = [
     "slot_pattern",
     "step",
     "step_level",
+    "through_step",
     "display",
     "SectionPlan",
     "plan_dimensions",

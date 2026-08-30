@@ -337,6 +337,66 @@ def test_rich_passage_contract_has_an_explicit_unsupported_completeness_outcome(
             "to": "unsupported",
             "version": importlib.metadata.version("draftwright"),
         },
+        {
+            "boundary": "completeness",
+            "compatibility_evidence": [
+                "tests/test_issue_1382_through_step_semantics.py",
+                "tests/test_recogniser_capabilities.py",
+            ],
+            "family": "through-steps",
+            "from": "deferred",
+            "release_notes": "CHANGELOG.md",
+            "to": "supported",
+            "version": importlib.metadata.version("draftwright"),
+        },
+        {
+            "boundary": "drawing_consumer",
+            "compatibility_evidence": [
+                "tests/test_issue_1382_through_step_semantics.py",
+                "tests/test_recogniser_capabilities.py",
+            ],
+            "family": "through-steps",
+            "from": "unsupported",
+            "release_notes": "CHANGELOG.md",
+            "to": "supported",
+            "version": importlib.metadata.version("draftwright"),
+        },
+        {
+            "boundary": "dsl_declaration",
+            "compatibility_evidence": [
+                "tests/test_issue_1382_through_step_semantics.py",
+                "tests/test_recogniser_capabilities.py",
+            ],
+            "family": "through-steps",
+            "from": "unsupported",
+            "release_notes": "CHANGELOG.md",
+            "to": "supported",
+            "version": importlib.metadata.version("draftwright"),
+        },
+        {
+            "boundary": "generated_code",
+            "compatibility_evidence": [
+                "tests/test_issue_1382_through_step_semantics.py",
+                "tests/test_recogniser_capabilities.py",
+            ],
+            "family": "through-steps",
+            "from": "unsupported",
+            "release_notes": "CHANGELOG.md",
+            "to": "supported",
+            "version": importlib.metadata.version("draftwright"),
+        },
+        {
+            "boundary": "ir_adapter",
+            "compatibility_evidence": [
+                "tests/test_issue_1382_through_step_semantics.py",
+                "tests/test_recogniser_capabilities.py",
+            ],
+            "family": "through-steps",
+            "from": "unsupported",
+            "release_notes": "CHANGELOG.md",
+            "to": "supported",
+            "version": importlib.metadata.version("draftwright"),
+        },
     ]
 
 
@@ -344,7 +404,6 @@ def test_rich_passage_contract_has_an_explicit_unsupported_completeness_outcome(
     ("family_id", "record_name", "inventory"),
     [
         ("circular-blind-steps", "CircularBlindStep", "circular_blind_steps"),
-        ("through-steps", "ThroughStep", "through_steps"),
     ],
 )
 def test_046_step_families_are_explicit_downstream_decisions(
@@ -386,6 +445,25 @@ def test_paired_ramp_steps_are_supported_at_every_consumer_boundary() -> None:
         )
     } == {"supported"}
     assert "paired-ramp-steps" not in pending_family_declarations()
+
+
+def test_through_steps_are_supported_at_every_consumer_boundary() -> None:
+    family = _families(consumer_capability_declaration())["through-steps"]
+
+    assert family["record_schemas"] == {"ThroughStep": [1]}
+    assert family["disposition"] == "supported"
+    assert {
+        family[boundary]["state"]
+        for boundary in (
+            "ir_adapter",
+            "dsl_declaration",
+            "generated_code",
+            "drawing_consumer",
+            "completeness",
+            "documentation",
+        )
+    } == {"supported"}
+    assert "through-steps" not in pending_family_declarations()
 
 
 def test_holes_completeness_is_supported_by_the_independent_observed_corpus() -> None:
@@ -664,6 +742,7 @@ def test_dsl_and_generated_code_inventories_are_derived_from_live_code() -> None
         "risers": "step_level",
         "slot-patterns": "slot_pattern",
         "slots": "slot",
+        "through-steps": "through_step",
         "turned-steps": "step",
     }
     assert {family["id"] for family in supported} == set(family_kinds)

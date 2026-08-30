@@ -58,6 +58,7 @@ from draftwright.linting.profiled_bore_coverage import lint_profiled_bore_covera
 from draftwright.linting.slot_coverage import lint_slot_coverage
 from draftwright.linting.structural import is_dimension_like, lint_drawing
 from draftwright.linting.suggest import _suggest_fix
+from draftwright.linting.through_step_coverage import lint_through_step_coverage
 
 __all__ = [
     "ClaimOutcome",
@@ -86,6 +87,7 @@ __all__ = [
     "lint_fillet_coverage",
     "lint_declared_gear_coverage",
     "lint_slot_coverage",
+    "lint_through_step_coverage",
     "lint_location_coverage",
     "lint_passage_coverage",
     "lint_paired_ramp_step_coverage",

@@ -77,6 +77,7 @@ from draftwright.annotations.from_model import (
     render_slots,
     render_step_lengths,
     render_step_positions,
+    render_through_steps,
 )
 from draftwright.annotations.holes import (
     _annotate_holes,
@@ -254,6 +255,7 @@ _PASS_SEQUENCE: tuple[str, ...] = (
     "pocket_patterns",  # a pocket ARRAY: grouped callout + pitch dim, placed pre-drain like a
     # hole pattern (the pitch dim needs strip room the post-drain decoration slots lack)
     "slot_patterns",  # a through-slot ARRAY: same grouped callout + pitch, same pre-drain reason
+    "through_steps",  # two section legs register with the shared corridor before its drain
     "user_dims",  # finalize-only: pin/priority dims queue into the shared corridor
     "gdt",
     "pmi",
@@ -367,6 +369,7 @@ def build_model(a: Analysis):
         chamfers=a.recognition.chamfers,
         fillets=a.recognition.fillets,
         paired_ramp_steps=a.recognition.paired_ramp_steps,
+        through_steps=a.recognition.through_steps,
         plates=a.recognition.plates,
         flats=a.recognition.flats,
         pockets=a.recognition.pockets,
@@ -648,6 +651,10 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # Two equal ramp angles + their run share one solver-owned leader (#1382).
         render_paired_ramp_steps(dwg, _compiled, a, ctx=ctx)
 
+    def _s_through_steps():
+        # Two transverse open-section legs, independently identified and corridor-placed.
+        render_through_steps(dwg, _compiled, a, ctx=ctx)
+
     def _s_flats():
         # Machined-flat callouts (#148b): {across} A/F via a leader off each flat on round stock.
         # Planner-fed (#726): consumes the DimensionGroups so an authored tolerance renders.
@@ -852,6 +859,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
             "pockets": _s_pockets,
             "pocket_patterns": _s_pocket_patterns,
             "slot_patterns": _s_slot_patterns,
+            "through_steps": _s_through_steps,
             "off_axis_across": _s_off_axis_across,
             "envelope": _s_envelope,
             "detail_request": _s_detail_request,

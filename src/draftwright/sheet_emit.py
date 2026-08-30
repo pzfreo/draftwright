@@ -860,6 +860,12 @@ def _feature_line(
             f'sheet.paired_ramp_step(axis="{f.axis}", angle={_n(f.angle)}, '
             f"length={_n(f.length)}, at={_pt(f.frame.origin)})"
         )
+    if k == "through_step":
+        section = "(" + ", ".join(_pt(point) for point in f.section) + ")"
+        return (
+            f'sheet.through_step(axis="{f.axis}", length={_n(f.length)}, '
+            f"at={_pt(f.frame.origin)}, section={section})"
+        )
     if k == "flat":
         # `axis_line`/`stock_span` are the stock identity (#1013). Emitted ALWAYS, not only
         # when non-default: they are what stops two same-sized flats on separate stock
@@ -1560,6 +1566,38 @@ def _feature_block(
                 elif isinstance(tolerance, FitClass) and f.kind == "hole":
                     show = "" if tolerance.show == "class" else f", show={tolerance.show!r}"
                     line += f".fit({tolerance.code!r}{show})"
+
+            if f.kind == "through_step":
+                # Preserve the EFFECTIVE decoration of each independently addressable leg.
+                # Serialising both as canonical full ids is deliberately lossless even when
+                # the source used one family-wide call: replay compiles to the same two
+                # tolerances without depending on fluent call order.
+                for parameter in f.parameters():
+                    tolerance = (decorations or {}).get(
+                        (f, parameter.kind, parameter.role, parameter.discriminator)
+                    )
+                    if tolerance is None:
+                        tolerance = (decorations or {}).get((f, parameter.kind, parameter.role))
+                    if tolerance is None:
+                        tolerance = (decorations or {}).get((f, parameter.kind))
+                    if not isinstance(tolerance, ToleranceDecoration | int | float | tuple):
+                        continue
+                    value = (
+                        tolerance.value
+                        if isinstance(tolerance, ToleranceDecoration)
+                        else tolerance
+                    )
+                    args = (
+                        f"{_authored_n(value[0])}, {_authored_n(value[1])}"
+                        if isinstance(value, tuple)
+                        else _authored_n(value)
+                    )
+                    provenance = ""
+                    if isinstance(tolerance, ToleranceDecoration):
+                        provenance = f", source={tolerance.source!r}"
+                        if tolerance.source_ids:
+                            provenance += f", source_ids={tolerance.source_ids!r}"
+                    line += f".tolerance({args}, on={parameter.parameter_id!r}{provenance})"
 
             if isinstance(nominal, NominalRequirement):
                 provenance = f"source={nominal.source!r}, source_ids={nominal.source_ids!r}"

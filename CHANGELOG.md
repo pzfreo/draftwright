@@ -41,8 +41,17 @@
   exact IR conversion, explicit `Sheet.paired_ramp_step(...)` declaration, generated-code
   round trip, end-view solver-placed `2× angle × run RUN` leader, independent angle/run
   tolerances and authored suppression, and a two-requirement fail-closed completeness ledger.
-  Circular blind and rectangular through steps remain separately visible pending their own
-  #1382 semantic decisions (#1382).
+  Circular blind steps remain separately visible pending their own #1382 semantic decision
+  (#1382).
+
+- Rectangular through steps recognised by `b123d-recognisers` now lower without rescanning to
+  an explicit-only IR/Sheet feature. Automatic and explicit lowering support every principal
+  axis; an X/Y occurrence stays with the established face-level and shoulder/plate grammar only
+  when that grammar proves both exact leg intervals, avoiding both silent loss and duplicate
+  dimensions. The two
+  orthogonal open-section legs are independently addressable, tolerance-aware, solver-placed in
+  the end view, preserved by generated code and scored by a fail-closed two-requirement
+  completeness ledger. The through extent stays owned by the envelope (#1382).
 
 - Hole completeness is now supported by a versioned, independently authored STEP corpus rather
   than a Draftwright-derived census. Detection, parameter fidelity and downstream usefulness stay
