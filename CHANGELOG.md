@@ -73,6 +73,12 @@
   pass independently through automatic IR, public `Sheet.groove`, executed generated code and
   one exact compiler-backed `WIDE × ø` callout; mutations prove that recognition, identity,
   parameters, provenance and printed syntax cannot disappear without lowering evidence (#1372).
+- Chamfer completeness is now supported by an independently authored STEP corpus covering all
+  principal axes, equal and asymmetric planar bevels, conical turned treatments, equal features
+  on separate bodies, topology-order variants, a plain negative and the AngledStep ownership
+  boundary. Each physical bevel is followed through exact IR, public `Sheet.chamfer`, executed
+  generated code, compiler measurement provenance, callout syntax and its physical leader target;
+  equal requirements may share ink without collapsing occurrence identity (#1374).
 
 - Recognised angled blind steps now fail visibly instead of remaining an undecided inventory.
   Each aggregate-reconciled `AngledStep` produces an actionable warning and one `unsupported`

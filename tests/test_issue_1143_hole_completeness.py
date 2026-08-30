@@ -265,6 +265,7 @@ def test_pattern_and_central_bore_have_a_complete_recognition_owned_ledger():
     assert completeness["audited_score"] == 1.0
     assert completeness["requirements"] == completeness["placed"] == 10
     assert completeness["by_family"] == {
+        "chamfers": 0,
         "channels": 0,
         "flats": 0,
         "grooves": 0,

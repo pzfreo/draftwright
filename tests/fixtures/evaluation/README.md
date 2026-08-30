@@ -111,6 +111,25 @@ one axial-width requirement and one floor-diameter requirement:
   `groove-topology-b.step` applies the same two Boolean cuts in reverse order. Their STEP hashes
   differ while their geometry and independently authored groove facts are identical.
 
+`corpus-chamfers-v1.json` is a separate physical bevel corpus. One planar or conical treatment is
+one callout requirement even when equal specifications share ink:
+
+- `chamfer-plain.step` is an unmodified 60 × 40 × 30 mm block and has no bevel requirement.
+- `chamfer-planar-z.step` applies a 6 mm equal-leg bevel to its +X/+Y edge;
+  `chamfer-planar-x.step` and `chamfer-planar-y.step` rigidly rotate that construction onto the
+  other principal edge axes without changing its physical size.
+- `chamfer-asymmetric.step` applies a 4 × 8 mm bevel whose construction angle is atan(4/8).
+- `chamfer-turned.step` applies a 3 mm conical treatment to the +Z end of diameter 30 × 60 mm
+  shaft stock.
+- `chamfer-overlap.step` contains a partial-width ramp with triangular blind ends and a separate
+  3 mm full-length bevel. The ramp slant is AngledStep-owned; only the independent X edge enters
+  this corpus's chamfer denominator.
+- `chamfer-compound.step` contains two translated copies of the equal planar bevel, proving that
+  grouped `2× C6` ink retains two physical occurrences.
+- `chamfer-topology-a.step` applies 4 mm and 7 mm bevels to opposite edges in that order;
+  `chamfer-topology-b.step` applies the same operations in reverse order. Their geometry and
+  authored requirements are identical while their STEP hashes differ.
+
 The `FILE_NAME` timestamp is normalized. Each corpus manifest pins every fixture SHA-256 and records
 case-level provenance. A changed fixture therefore requires an explicit corpus-version decision;
 regenerating recognition output can never rewrite the expected facts silently.

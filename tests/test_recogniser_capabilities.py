@@ -198,6 +198,19 @@ def test_rich_passage_contract_has_an_explicit_unsupported_completeness_outcome(
         {
             "boundary": "completeness",
             "compatibility_evidence": [
+                "tests/test_issue_1374_chamfer_completeness_evidence.py",
+                "tests/test_recogniser_capabilities.py",
+                "tests/test_step_analysis_evaluation.py",
+            ],
+            "family": "chamfers",
+            "from": "deferred",
+            "release_notes": "CHANGELOG.md",
+            "to": "supported",
+            "version": importlib.metadata.version("draftwright"),
+        },
+        {
+            "boundary": "completeness",
+            "compatibility_evidence": [
                 "tests/test_flat_completeness.py",
                 "tests/test_flat_stock_identity.py",
                 "tests/test_issue_1371_flat_completeness_evidence.py",
@@ -342,6 +355,16 @@ def test_holes_completeness_is_supported_by_the_independent_observed_corpus() ->
     }
 
 
+def test_chamfer_completeness_is_supported_by_independent_physical_bevel_facts() -> None:
+    family = _families(consumer_capability_declaration())["chamfers"]
+
+    assert family["completeness"] == {
+        "state": "supported",
+        "implementation": "draftwright.evaluation.step_analysis.evaluate_step_corpus",
+        "evidence": ["tests/test_issue_1374_chamfer_completeness_evidence.py"],
+    }
+
+
 def test_hole_pattern_completeness_is_supported_without_recounting_member_holes() -> None:
     family = _families(consumer_capability_declaration())["hole-patterns"]
 
@@ -394,7 +417,6 @@ def test_pocket_pattern_completeness_is_supported_without_recounting_members() -
 
 def test_each_deferred_supported_family_links_its_real_delivery_slice() -> None:
     expected = {
-        "chamfers": 1374,
         "channels": 1371,
         "countersinks": 1370,
         "double-d-bores": 1370,
@@ -857,7 +879,7 @@ def test_state_transition_requires_version_release_notes_and_compatibility_evide
         {
             "boundary": "completeness",
             "compatibility_evidence": ["tests/test_recogniser_capabilities.py"],
-            "family": "chamfers",
+            "family": "fillets",
             "from": "supported",
             "release_notes": "CHANGELOG.md",
             "to": "deferred",
@@ -999,7 +1021,7 @@ def _transition() -> dict[str, object]:
     return {
         "boundary": "completeness",
         "compatibility_evidence": ["tests/test_recogniser_capabilities.py"],
-        "family": "chamfers",
+        "family": "fillets",
         "from": "supported",
         "release_notes": "CHANGELOG.md",
         "to": "deferred",

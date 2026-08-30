@@ -12,10 +12,10 @@ from `RecognitionResult`, `feature_census()`, a capability declaration, or the d
 An observer may only normalize actual evidence; `ObservedFact` deliberately has no oracle/case fact
 identifier. Expected and observed facts are matched by family plus authored physical identity fields.
 
-Format 1 currently proves independent `holes`, `hole-patterns` and `flats` vertical slices. Each
-observer reads released `b123d-recognisers` geometry records, builds one drawing, and reads all four
-downstream outcomes from that build through the public IR, `Sheet`, generated-code and ADR 0010
-provenance seams.
+Format 1 currently proves independent `holes`, `hole-patterns`, `flats`, `pockets`,
+`pocket-patterns`, `grooves` and `chamfers` vertical slices. Each observer reads released
+`b123d-recognisers` geometry records, builds one drawing, and reads all four downstream outcomes
+from that build through the public IR, `Sheet`, generated-code and ADR 0010 provenance seams.
 
 Since #1217 that outcome comes from the engine's own requirement ledger
 (`linting.hole_coverage.hole_requirement_outcomes`) rather than from a second correspondence
@@ -88,6 +88,12 @@ form identity; across-flats size, contributing face count and face anchors are s
 The observer reads the build-owned recognition aggregate once and follows each group through the
 automatic IR, public `Sheet.flat` declaration, executed generated Sheet code and placed semantic
 measurement provenance.
+
+The groove corpus owns one annular recess per shaft axis line and station, scoring axial width and
+floor diameter through one exact `WIDE × ø` statement. The chamfer corpus owns one planar or
+conical bevel per axis, physical anchor and surface form, scoring both legs and angle through exact
+`C` or `leg × angle` ink and a live physical leader target. Both include compound and topology-order
+controls; the chamfer corpus additionally pins the AngledStep ownership boundary.
 
 ```python
 from pathlib import Path
