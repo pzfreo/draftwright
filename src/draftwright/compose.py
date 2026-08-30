@@ -53,6 +53,7 @@ from draftwright._core import (
     _tol_suffix,
     _wrap_rows,
 )
+from draftwright._geometry import _END_ON
 from draftwright.layout import fit_box
 from draftwright.model.callout import hole_callout_spec, hole_callout_suffix
 from draftwright.model.ir import authored_dimension_target_view
@@ -463,6 +464,25 @@ def _compose_anno_boxes(
             sides = ("left", "right")
         for target_side in sides:
             _reserve(target_view, target_side)
+
+    # A side-normal pad contributes two footprint and two in-plane-location candidates in
+    # its end-on view.  These are automatic semantic requirements, not authored placement
+    # hints, but they consume the same strips and therefore must participate in the same
+    # compose-before-pack footprint. Z pads retain the established footprint/location layout:
+    # their location ladder already has dedicated plan/side sizing, while their HIGH callout
+    # uses the same solver-owned leader clearance as the other machined-feature leaders.
+    for feature in model.features:
+        if getattr(feature, "kind", None) != "pad" or feature.frame.axis == "z":
+            continue
+        view = _END_ON[feature.frame.axis]
+        # Canonical end-on projections put one footprint size + its coordinate horizontally
+        # (above) and the other vertically (right). The side view is already the rightmost
+        # principal block, so only its inter-row top band changes the packed footprint.
+        _reserve(view, "above")
+        _reserve(view, "above")
+        if view == "front":
+            _reserve(view, "right")
+            _reserve(view, "right")
 
     slot = _SLOT_DIM_STEP + _STRIP_SPACING
     # Front and plan occupy disjoint vertical ranges, so their left/right tiers are

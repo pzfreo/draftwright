@@ -313,6 +313,7 @@ DimensionParameterId = Literal[
     "groove.length",
     "height.length",
     "od.diameter",
+    "pad_height.length",
     "pad_length.length",
     "pad_width.length",
     "pitch.length",
@@ -1011,13 +1012,22 @@ class ChannelFeature:
         return []
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class PadFeature:
-    """A bounded rectangular raised island.
+    """A bounded, principal-axis rectangular raised island.
 
     The footprint mirrors the slot vocabulary so the shared in-plane dimension
-    renderer can place its two sizes. Height remains owned by the correlated
-    prismatic level ladder, avoiding double-dimensioning the same Z rise.
+    renderer can place its two sizes.  ``normal_lo``/``normal_hi`` are the ascending
+    attachment-axis bounds and ``direction`` says which end is terminal/material-outward.
+    Every orientation owns an explicit ``pad_height.length`` parameter.  A Z pad may also
+    create an attachment level in the general prismatic profile, but that level measures the
+    body from the drawing datum rather than the pad's terminal-to-attachment height; it is
+    not a substitute for the pad requirement.
+
+    The explicit initializer retains the historical positional/``z0=``/``z1=`` spelling
+    for source compatibility, but only for a Z-normal pad.  New orientation-aware code
+    uses ``normal_lo=``/``normal_hi=``.  The read-only ``x0`` … ``z1`` properties always
+    mean world-coordinate bounds, independent of orientation.
     """
 
     #: The compiled stem this feature's position is minted under — see
@@ -1032,15 +1042,119 @@ class PadFeature:
     w_center: float
     lo: float
     hi: float
-    z0: float
-    z1: float
+    normal_lo: float
+    normal_hi: float
+    direction: int = 1
     kind: ClassVar[str] = "pad"
 
+    def __init__(
+        self,
+        frame: Frame,
+        width_axis: str,
+        long_axis: str,
+        width: float,
+        length: float,
+        w_center: float,
+        lo: float,
+        hi: float,
+        z0: float | None = None,
+        z1: float | None = None,
+        *,
+        normal_lo: float | None = None,
+        normal_hi: float | None = None,
+        direction: int = 1,
+    ) -> None:
+        legacy = z0 is not None or z1 is not None
+        semantic = normal_lo is not None or normal_hi is not None
+        if legacy and semantic:
+            raise ValueError("PadFeature: use z0=/z1= or normal_lo=/normal_hi=, not both")
+        if legacy:
+            if frame.axis != "z":
+                raise ValueError(
+                    "PadFeature: legacy z0=/z1= bounds are valid only for a Z-normal pad; "
+                    "use normal_lo=/normal_hi= for an X/Y pad"
+                )
+            normal_lo, normal_hi = z0, z1
+        if normal_lo is None or normal_hi is None:
+            raise ValueError("PadFeature needs normal_lo=/normal_hi= (or legacy z0=/z1= for Z)")
+        axes = {frame.axis, width_axis, long_axis}
+        if axes != {"x", "y", "z"}:
+            raise ValueError("PadFeature frame/width/long axes must be distinct x/y/z axes")
+        if direction not in (-1, 1):
+            raise ValueError("PadFeature direction must be -1 or 1")
+        if width <= 0 or length <= 0 or not lo < hi or not normal_lo < normal_hi:
+            raise ValueError("PadFeature dimensions and bounds must increase")
+        for name, value in (
+            ("frame", frame),
+            ("width_axis", width_axis),
+            ("long_axis", long_axis),
+            ("width", float(width)),
+            ("length", float(length)),
+            ("w_center", float(w_center)),
+            ("lo", float(lo)),
+            ("hi", float(hi)),
+            ("normal_lo", float(normal_lo)),
+            ("normal_hi", float(normal_hi)),
+            ("direction", direction),
+        ):
+            object.__setattr__(self, name, value)
+
+    def bounds(self, axis: str) -> tuple[float, float]:
+        """Return this occurrence's ascending bounds on one world axis."""
+        if axis == self.long_axis:
+            return self.lo, self.hi
+        if axis == self.width_axis:
+            half = self.width / 2
+            return self.w_center - half, self.w_center + half
+        if axis == self.frame.axis:
+            return self.normal_lo, self.normal_hi
+        raise ValueError(f"unknown pad axis {axis!r}")
+
+    @property
+    def x0(self) -> float:
+        return self.bounds("x")[0]
+
+    @property
+    def x1(self) -> float:
+        return self.bounds("x")[1]
+
+    @property
+    def y0(self) -> float:
+        return self.bounds("y")[0]
+
+    @property
+    def y1(self) -> float:
+        return self.bounds("y")[1]
+
+    @property
+    def z0(self) -> float:
+        return self.bounds("z")[0]
+
+    @property
+    def z1(self) -> float:
+        return self.bounds("z")[1]
+
+    @property
+    def height(self) -> float:
+        return self.normal_hi - self.normal_lo
+
+    def _normal_span(self) -> tuple[Point, Point]:
+        start = list(self.frame.origin)
+        end = list(self.frame.origin)
+        axis_index = "xyz".index(self.frame.axis)
+        start[axis_index] = self.normal_lo if self.direction > 0 else self.normal_hi
+        end[axis_index] = self.normal_hi if self.direction > 0 else self.normal_lo
+        return (tuple(start), tuple(end))  # type: ignore[return-value]
+
     def parameters(self) -> list[DimParameter]:
-        return [
+        parameters = [
             DimParameter("length", "pad_width", self.width),
             DimParameter("length", "pad_length", self.length),
         ]
+        parameters.append(
+            DimParameter("length", "pad_height", self.height, span=self._normal_span())
+        )
+        return parameters
 
     def references(self) -> list[Datum]:
         return []

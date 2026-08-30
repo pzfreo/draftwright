@@ -105,7 +105,7 @@ def test_public_framed_route_preserves_arbitrarily_rotated_planar_and_turned_bev
 
 def test_angled_step_slant_and_independent_chamfer_have_one_owner_each() -> None:
     from b123d_recognisers import (
-        build_recognition_result,
+        build_raw_recognition_result,
         recognise_angled_steps,
         recognise_chamfers,
     )
@@ -113,7 +113,7 @@ def test_angled_step_slant_and_independent_chamfer_have_one_owner_each() -> None
     part = import_step(CORPUS.parent / "chamfer-overlap.step")
     direct_chamfers = recognise_chamfers(part)
     direct_steps = recognise_angled_steps(part)
-    recognition = build_recognition_result(part)
+    recognition = build_raw_recognition_result(part)
 
     assert len(direct_chamfers) == 2
     assert len(direct_steps) == 1
@@ -176,12 +176,12 @@ def test_chamfer_ledger_tracks_one_callout_per_physical_bevel_and_fails_closed()
 
 
 def test_chamfer_ledger_rejects_foreign_results_and_malformed_ir_without_guessing() -> None:
-    from b123d_recognisers import build_recognition_result
+    from b123d_recognisers import build_raw_recognition_result
 
     from draftwright.linting.chamfer_coverage import chamfer_requirement_outcomes
     from draftwright.registry import AnnotationRegistry
 
-    recognition = build_recognition_result(_lone())
+    recognition = build_raw_recognition_result(_lone())
     source = recognition.chamfers[0]
 
     class MalformedChamfer:
@@ -283,7 +283,7 @@ def test_every_chamfer_boundary_is_observed_supported_on_the_real_public_path() 
 def test_chamfer_observer_uses_one_build_owned_recognition_aggregate(monkeypatch) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_recognition_result
+    original = analysis.build_raw_recognition_result
     calls = 0
 
     def counted(*args, **kwargs):
@@ -291,7 +291,7 @@ def test_chamfer_observer_uses_one_build_owned_recognition_aggregate(monkeypatch
         calls += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(analysis, "build_recognition_result", counted)
+    monkeypatch.setattr(analysis, "build_raw_recognition_result", counted)
     assert _default_observers()["chamfers"](_lone())
     assert calls == 1
 
@@ -512,13 +512,13 @@ def test_severing_chamfer_measurement_provenance_loses_drawing_credit(monkeypatc
 def test_deleting_provider_chamfers_cannot_shrink_independent_denominator(monkeypatch) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_recognition_result
+    original = analysis.build_raw_recognition_result
 
     def without_chamfers(*args, **kwargs):
         result = original(*args, **kwargs)
         return replace(result, chamfers=())
 
-    monkeypatch.setattr(analysis, "build_recognition_result", without_chamfers)
+    monkeypatch.setattr(analysis, "build_raw_recognition_result", without_chamfers)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))
 
     assert damaged.detection.matched == 0
@@ -531,7 +531,7 @@ def test_deleting_provider_chamfers_cannot_shrink_independent_denominator(monkey
 def test_weakening_provider_chamfer_parameters_reduces_fidelity(monkeypatch, field) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_recognition_result
+    original = analysis.build_raw_recognition_result
 
     def weakened(*args, **kwargs):
         result = original(*args, **kwargs)
@@ -540,7 +540,7 @@ def test_weakening_provider_chamfer_parameters_reduces_fidelity(monkeypatch, fie
         )
         return replace(result, chamfers=values)
 
-    monkeypatch.setattr(analysis, "build_recognition_result", weakened)
+    monkeypatch.setattr(analysis, "build_raw_recognition_result", weakened)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))
 
     assert damaged.detection.recall == 1.0

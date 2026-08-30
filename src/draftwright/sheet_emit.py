@@ -780,11 +780,11 @@ def _feature_line(
             f"at={_pt(f.frame.origin)})"
         )
     if k == "pad":
-        half = f.width / 2
         return (
-            f"sheet.pad(x0={_n(f.lo)}, x1={_n(f.hi)}, "
-            f"y0={_n(f.w_center - half)}, y1={_n(f.w_center + half)}, "
-            f"z0={_n(f.z0)}, z1={_n(f.z1)})"
+            f"sheet.pad(x0={_n(f.x0)}, x1={_n(f.x1)}, "
+            f"y0={_n(f.y0)}, y1={_n(f.y1)}, "
+            f"z0={_n(f.z0)}, z1={_n(f.z1)}, axis={f.frame.axis!r}, "
+            f"direction={f.direction}, at={_pt(f.frame.origin)})"
         )
     if k == "pattern":
         # Defining dims for the furniture (BCD centreline / pitch / grid dims) PLUS the exact

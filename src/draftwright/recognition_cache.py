@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from b123d_recognisers import RecognitionResult, build_recognition_result
+from b123d_recognisers import RecognitionResult, build_raw_recognition_result
 
 
 @dataclass
@@ -22,5 +22,5 @@ class RecognitionCache:
         """Return this drawing's result, recognising *part* only when still empty."""
 
         if self.result is None:
-            self.result = build_recognition_result(part)
+            self.result = build_raw_recognition_result(part)
         return self.result

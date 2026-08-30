@@ -197,7 +197,7 @@ cylinder diameter, and concentricity. Drafting consumes the classification for v
 just as it consumes a recognised hole diameter; that does not turn the geometric fact into
 drafting policy.
 
-`build_recognition_result` currently receives that classification because
+`build_raw_recognition_result` currently receives that classification because
 `_classify_geometry` still lives in analysis. Moving its derivation is correct tidying (#1037),
 but it is not required by the accepted ownership contract and carries no user outcome on its
 own.

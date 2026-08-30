@@ -74,12 +74,14 @@ def test_attached_pad_remains_recognised_once():
         name: drawing.get_annotation(name).label
         for name in drawing.annotations()
         if name.startswith("m_pad")
-    } == {"m_pad0_width": "20", "m_pad0_length": "30"}
+    } == {
+        "m_pad0_width": "20",
+        "m_pad0_length": "30",
+        "m_pad_height_z0": "4 HIGH",
+    }
     assert not [name for name in drawing.annotations() if name.startswith("m_slot")]
-    # The pad's own height above the plate is a `step_level` the compiler approves and the
-    # legibility floor discards — 9 mm of page against a 12.4 mm minimum — so this drawing gives
-    # the pad a width and a length and no height. That was invisible until `step_dim_withheld`
-    # (#1216); the assertion was `== []` and the missing dimension was part of what it blessed.
+    # The general datum-to-level rung remains below its legibility floor, but the pad's local
+    # terminal-to-attachment height is now an independent, solver-placed requirement.
     assert [(issue.severity, issue.code) for issue in drawing.lint()] == [
         ("info", "step_dim_withheld")
     ]

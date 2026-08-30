@@ -114,6 +114,7 @@ from draftwright.model.ir import (
     FilletFeature,
     HoleFeature,
     KnurlRequirement,
+    PadFeature,
     PatternFeature,
     PocketFeature,
     SlotFeature,
@@ -333,10 +334,11 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
     # approved location consumed by render_locations, including non-Z openings.
     # Keyed by (feature, MEASURED axis): a non-Z pocket is approved one entry per in-plane
     # coordinate, so keying by feature alone would keep whichever came last.
-    pocket_locations = {
+    in_plane_locations = {
         (loc.ref, loc.discriminator): loc
         for loc in plan.locations
-        if loc.role == PocketFeature.LOCATION_STEM and loc.discriminator is not None
+        if loc.role in (PocketFeature.LOCATION_STEM, PadFeature.LOCATION_STEM)
+        and loc.discriminator is not None
     }
     # A slot's own position dim — datum→near-end along its long axis. Compiled, not
     # computed from `a.bb`: it prints a number, so an authored set that does not name the
@@ -628,17 +630,17 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
                 # fires shows 12 nameless position drops across nist_ctc_03 and nist_ctc_04,
                 # all from here (#1231 review, finding 1).
                 _record_slot_drop(ctx, dwg, "position", i, name, s, pos.id)
-        elif s.kind == "pocket" and s.frame.axis != "z":
-            # Side-/front-opening pockets need two in-plane coordinates in their
+        elif s.kind in ("pocket", "pad") and s.frame.axis != "z":
+            # Side-/front-opening pockets and pads need two in-plane coordinates in their
             # end-on view.  The compiler approves one entry PER coordinate, each with its
-            # own value and span; Z-opening pockets use render_locations' X(plan)/Y(side)
+            # own value and span; Z-normal features use render_locations' X(plan)/Y(side)
             # ladder instead.
             width_lo, width_hi = s.w_center - half, s.w_center + half
             for axis, perp_lo, perp_hi, kind in (
                 (s.long_axis, width_lo, width_hi, "pos_long"),
                 (s.width_axis, s.lo, s.hi, "pos_width"),
             ):
-                entry = pocket_locations.get((FeatureRef(s), axis))
+                entry = in_plane_locations.get((FeatureRef(s), axis))
                 if entry is None:
                     continue  # not approved
                 index = "xyz".index(axis)
@@ -2870,6 +2872,11 @@ def _pocket_label(width_text, length_text, depth_text, wsfx="", lsfx="", dsfx=""
     return f"{width_text}{wsfx} × {length_text}{lsfx} × {depth_text}{dsfx} DEEP"
 
 
+def _pad_height_label(height_text, suffix="") -> str:
+    """The font-safe attachment-axis height callout for a side-normal pad."""
+    return f"{height_text}{suffix} HIGH"
+
+
 def _slot_label(width_text, length_text, wsfx="", lsfx="") -> str:
     """The grouped slot-array callout string: ``SLOT {width} × {length}`` (#841). A slot has no
     depth, so — unlike :func:`_pocket_label` — there is no ``× depth DEEP``; the ``SLOT`` prefix
@@ -3105,6 +3112,75 @@ def render_pockets(dwg, plan, a, *, ctx, only=None) -> int:
         jobs,
         noun="pocket",
         drop_code="pocket_dropped",
+        ctx=ctx,
+        joint=True,
+    )
+
+
+def render_pad_heights(dwg, plan, a, *, ctx, only=None) -> int:
+    """Place pad heights as solver-owned leaders in each pad's end-on view.
+
+    The existing footprint dimensions remain linear corridor candidates.  The arrow targets
+    the terminal footprint boundary and every printed value comes from the compiled plan
+    (ADR 0015/0016).  A Z profile level is datum-to-attachment evidence, not the pad's local
+    terminal-to-attachment height, so Z pads reach this pass too.
+    """
+    draft = dwg.draft
+    reach = _leader_callout_reach(draft)
+    jobs = []
+    groups = sorted(
+        plan.of_kind("pad"), key=lambda group: (group.facts.frame.axis, group.facts.frame.origin)
+    )
+    for index, group in enumerate(groups):
+        if only is not None and group.ref not in only:
+            continue
+        by_key = {(item.role, item.kind): item for item in group.dims}
+        width = by_key.get(("pad_width", "length"))
+        length = by_key.get(("pad_length", "length"))
+        height = by_key.get(("pad_height", "length"))
+        if width is None or length is None or height is None:
+            continue
+        # Structural placement facts come through the compiled boundary.  Resolving the
+        # opaque provenance handle here would let this renderer recover measurements the
+        # compiler withheld under authored intent (ADR 0015/0016).
+        pad = group.facts
+        view = _END_ON[pad.frame.axis]
+        bounds = dwg.view_bounds(view)
+        if bounds is None:
+            continue
+        jobs.append(
+            (
+                f"m_pad_height_{pad.frame.axis}{index}",
+                view,
+                bounds,
+                _pad_height_label(
+                    height.value_text,
+                    _tol_suffix(height.tolerance, draft),
+                ),
+                _radial_candidates(
+                    dwg,
+                    view,
+                    bounds,
+                    pad,
+                    reach,
+                    source_bounds=_pocket_rim_bounds(
+                        dwg,
+                        view,
+                        pad,
+                        length=length.value,
+                        width=width.value,
+                    ),
+                    provenance=group.ref,
+                ),
+                (height.id,),
+            )
+        )
+    return place_machined_leader_jobs(
+        dwg,
+        a,
+        jobs,
+        noun="pad height",
+        drop_code="pad_height_dropped",
         ctx=ctx,
         joint=True,
     )

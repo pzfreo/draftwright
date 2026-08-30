@@ -58,6 +58,7 @@ from draftwright.model.ir import (
     Feature,
     HoleFeature,
     Note,
+    PadFeature,
     PartModel,
     PatternFeature,
     PocketFeature,
@@ -267,7 +268,7 @@ _FACTS: dict[str, tuple[str, ...]] = {
         "rows",
         "cols",
     ),
-    "pad": ("frame", "width_axis", "long_axis"),
+    "pad": ("frame", "width_axis", "long_axis", "direction"),
     "boss": ("frame", "thread", "knurl"),
     "polygonal_boss": ("frame", "side_count", "flat_directions", "flat_centres"),
     "polygonal_stock": ("frame", "side_count", "flat_directions", "flat_centres"),
@@ -1195,10 +1196,10 @@ def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[
                     )
                 )
             continue
-        if isinstance(feature, PocketFeature) and axis != "z":
-            # A non-Z pocket's two in-plane coordinates are drawn as TWO dims in its end-on
-            # view (`render_slots`), so they are approved as two entries carrying their own
-            # values — the same shape `_compile_off_axis_hole_locations` uses.
+        if isinstance(feature, PocketFeature | PadFeature) and axis != "z":
+            # A non-Z pocket/pad's two in-plane coordinates are drawn as TWO dims in its
+            # end-on view (`render_slots`), so they are approved as two entries carrying
+            # their own values — the same shape `_compile_off_axis_hole_locations` uses.
             #
             # One entry with `value_text=""` made the renderer subtract the span's endpoints
             # itself to get each axis's number, which is the compiler's job done twice; the
@@ -1216,7 +1217,7 @@ def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[
                             parameter_id,
                             value,
                             POCKET_LOCATION_DATUM_COINCIDENT,
-                            code="pocket_location_coincident_with_datum",
+                            code=f"{feature.kind}_location_coincident_with_datum",
                         )
                     )
                     continue

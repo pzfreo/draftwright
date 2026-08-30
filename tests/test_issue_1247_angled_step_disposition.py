@@ -6,7 +6,7 @@ from pathlib import Path
 
 from b123d_recognisers import (
     AngledStep,
-    build_recognition_result,
+    build_raw_recognition_result,
     recognise_angled_steps,
     recognise_chamfers,
 )
@@ -28,7 +28,7 @@ def test_corpus_fixture_pins_angled_step_chamfer_ownership() -> None:
     part = _angled_step_part()
     direct_steps = recognise_angled_steps(part)
     direct_chamfers = recognise_chamfers(part)
-    recognition = build_recognition_result(part)
+    recognition = build_raw_recognition_result(part)
 
     assert len(part.faces()) == 10
     assert abs(part.volume - 60975.0) < 0.01
@@ -67,7 +67,7 @@ def test_corpus_fixture_pins_angled_step_chamfer_ownership() -> None:
 
 def test_angled_step_is_specific_actionable_and_non_info() -> None:
     part = _angled_step_part()
-    recognition = build_recognition_result(part)
+    recognition = build_raw_recognition_result(part)
     drawing = build_drawing(part)
 
     assert len(recognition.angled_steps) == 1

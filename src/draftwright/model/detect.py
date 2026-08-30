@@ -56,7 +56,7 @@ from b123d_recognisers import (
     TurnedProfile,
     TurnedStep,
     analyse_cylinders,
-    build_recognition_result,
+    build_raw_recognition_result,
     has_multi_axis_plates,
     project_step_shoulders,
     recognise_bosses,
@@ -75,7 +75,6 @@ from b123d_recognisers import (
     recognise_pockets,
     recognise_polygonal_bosses,
     recognise_polygonal_stock,
-    recognise_rectangular_pads,
     recognise_risers,
     recognise_slot_patterns,
     recognise_slots,
@@ -89,6 +88,7 @@ from draftwright._geometry import (
     _classify_rotational_cylinders,
     _is_principal_axis,
     _xyz,
+    plane_axis_names,
 )
 from draftwright.model.declare import circular_blind_step, control_frame, datum
 from draftwright.model.ir import (
@@ -491,20 +491,30 @@ def _convert_channel(channel: Channel, ctx: ConvContext) -> ChannelFeature:
 
 def _convert_pad(pad: RaisedPad, ctx: ConvContext) -> PadFeature:
     """A recognised bounded island → the dimensioning IR."""
+    bounds = {
+        "x": (pad.x0, pad.x1),
+        "y": (pad.y0, pad.y1),
+        "z": (pad.z0, pad.z1),
+    }
+    long_axis, width_axis = plane_axis_names(pad.axis)
+    long_lo, long_hi = bounds[long_axis]
+    width_lo, width_hi = bounds[width_axis]
+    normal_lo, normal_hi = bounds[pad.axis]
     return PadFeature(
         frame=Frame(
             ((pad.x0 + pad.x1) / 2, (pad.y0 + pad.y1) / 2, (pad.z0 + pad.z1) / 2),
-            "z",
+            pad.axis,
         ),
-        width_axis="y",
-        long_axis="x",
-        width=pad.y1 - pad.y0,
-        length=pad.x1 - pad.x0,
-        w_center=(pad.y0 + pad.y1) / 2,
-        lo=pad.x0,
-        hi=pad.x1,
-        z0=pad.z0,
-        z1=pad.z1,
+        width_axis=width_axis,
+        long_axis=long_axis,
+        width=width_hi - width_lo,
+        length=long_hi - long_lo,
+        w_center=(width_lo + width_hi) / 2,
+        lo=long_lo,
+        hi=long_hi,
+        normal_lo=normal_lo,
+        normal_hi=normal_hi,
+        direction=pad.direction,
     )
 
 
@@ -995,7 +1005,7 @@ def build_part_model(
             sizes=(bbox.size.X, bbox.size.Y, bbox.size.Z),
             centre=(centre.X, centre.Y, centre.Z),
         )
-        recognition = build_recognition_result(
+        recognition = build_raw_recognition_result(
             part,
             cylinders=cyls,
             rotational=(
@@ -1150,6 +1160,12 @@ def build_part_model(
     }
     if risers is None:
         risers = recognise_risers(part)
+    # RaisedPad v2 is an all-principal-axis occurrence. Resolve it before lowering the legacy
+    # Z-level grammar so a side-normal pad's two Z footprint edges cannot masquerade as
+    # prismatic HEIGHT levels. Any omitted inventory was filled from the one aggregate above;
+    # do not add a family rescan at this consumer boundary (ADR 0017).
+    assert pads is not None
+    pads = tuple(pads)
     # The detected orchestration supplies its filtered aggregate levels. A standalone
     # ``build_part_model`` has no aggregate, so obtain the same records once and use them for
     # BOTH ownership and emitted IR.  Suppressing a ThroughStep because a legacy owner exists
@@ -1159,11 +1175,40 @@ def build_part_model(
         step_zs = tuple(level.z for level in standalone_face_levels)
         if face_levels is None:
             face_levels = standalone_face_levels
+    face_levels = tuple(face_levels or ())
+
+    def _side_pad_owns_level(level: FaceLevel, pad: RaisedPad) -> bool:
+        if pad.axis == "z" or level.x_span is None or level.y_span is None:
+            return False
+        return (
+            any(abs(level.z - bound) < 0.5 for bound in (pad.z0, pad.z1))
+            and all(
+                abs(actual - expected) < 0.5
+                for actual, expected in zip(level.x_span, (pad.x0, pad.x1), strict=True)
+            )
+            and all(
+                abs(actual - expected) < 0.5
+                for actual, expected in zip(level.y_span, (pad.y0, pad.y1), strict=True)
+            )
+        )
+
+    # Remove a Z level only when every physical support record at that ordinate belongs to a
+    # side-normal pad. A genuine independent stair sharing the same Z remains an owner.
+    side_pad_level_zs = {
+        level.z
+        for level in face_levels
+        if any(_side_pad_owns_level(level, pad) for pad in pads)
+        and not any(
+            other.z == level.z and not any(_side_pad_owns_level(other, pad) for pad in pads)
+            for other in face_levels
+        )
+    }
     ownership_step_zs = (
         tuple(
             z
             for z in step_zs
             if round(z, 3) not in plate_zs_at_base
+            and not any(abs(z - owned) < 0.5 for owned in side_pad_level_zs)
             and not any(abs(z - floor) < 0.5 for floor in edge_floor_zs)
         )
         if prof is None
@@ -1323,10 +1368,9 @@ def build_part_model(
             continue
         features.append(convert(pk, ctx))
 
-    # Bounded rectangular raised pads: footprint sizing + X/Y location; their
-    # height remains in the correlated StepLevelFeature ladder.
-    if pads is None:
-        pads = recognise_rectangular_pads(part)
+    # Bounded rectangular raised pads: footprint sizing, attachment-axis height, and
+    # two in-plane locations. A Z attachment level may also enter the general profile
+    # ladder, but that datum-to-level fact does not replace the pad's local rise.
     features.extend(convert(pad, ctx) for pad in pads)
 
     # Bounded regular polygonal bosses own an across-flats callout and their direct axial
@@ -1432,6 +1476,7 @@ def build_part_model(
                 z
                 for z in step_zs
                 if round(z, 3) not in plate_zs_at_base
+                and not any(abs(z - owned) < 0.5 for owned in side_pad_level_zs)
                 and not any(abs(z - owned) < 0.5 for owned in through_level_zs)
             )
         )

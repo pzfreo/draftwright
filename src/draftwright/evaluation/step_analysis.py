@@ -2623,7 +2623,7 @@ def _default_observers() -> Mapping[str, Observer]:
 
         # ONE drawing per fixture, and ONE recognition: the records scored here come from
         # the build's own aggregate (ADR 0017's single owner per run), not a second
-        # `build_recognition_result` call, so the facts being scored and the features they
+        # `build_raw_recognition_result` call, so the facts being scored and the features they
         # are matched against cannot come from different recognition runs.
         try:
             drawing = build_drawing(part)  # type: ignore[arg-type]
@@ -2640,9 +2640,9 @@ def _default_observers() -> Mapping[str, Observer]:
             # recognises must still yield a scored non-answer rather than a traceback out
             # of the middle of a corpus run.
             try:
-                from b123d_recognisers import build_recognition_result
+                from b123d_recognisers import build_raw_recognition_result
 
-                holes = tuple(build_recognition_result(part).holes)  # type: ignore[arg-type]
+                holes = tuple(build_raw_recognition_result(part).holes)  # type: ignore[arg-type]
             except Exception:  # noqa: BLE001 — an unanalysable fixture observes nothing
                 return ()
             boundary_outcomes: dict[str, list[Outcome]] = {

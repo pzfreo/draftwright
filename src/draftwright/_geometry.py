@@ -344,6 +344,19 @@ def plane_axes(axis) -> tuple[tuple[float, float, float], tuple[float, float, fl
     return _PLANE_AXES[letter]
 
 
+def plane_axis_names(axis) -> tuple[str, str]:
+    """Return the world-axis names of :func:`plane_axes`' canonical ``(u, v)`` basis.
+
+    Principal rectangular features carry scalar bounds rather than oriented vectors.  This
+    names the same shared basis without making each record-to-IR adapter re-spell a second
+    axis table (and eventually transpose one orientation again, as happened before #969).
+    """
+    return tuple(
+        "xyz"[next(index for index, component in enumerate(vector) if component)]
+        for vector in plane_axes(axis)
+    )  # type: ignore[return-value]
+
+
 def _axis_letter_of(axis) -> str:
     """Letter of a bare 3-vector's dominant component (:func:`_axis_letter` takes an object)."""
     return max(zip("xyz", axis, strict=True), key=lambda t: abs(t[1]))[0]

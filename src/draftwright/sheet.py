@@ -1529,10 +1529,11 @@ class Sheet:
         return _Params(self, len(self._features) - 1)
 
     def pad(self, obj=None, **kw) -> _Params:
-        """Declare a bounded rectangular raised pad (footprint + X/Y location).
+        """Declare a bounded rectangular raised pad (footprint + in-plane location).
 
-        Its Z height is shared with the prismatic level ladder, so it is not
-        independently double-dimensioned.
+        Every pad owns its terminal-to-attachment height; a Z profile level measures a
+        different datum-to-attachment fact and does not replace it. ``axis=`` and
+        ``direction=`` preserve all six signed principal orientations.
         """
         self._features.append(_pad(obj, **kw))
         return _Params(self, len(self._features) - 1)

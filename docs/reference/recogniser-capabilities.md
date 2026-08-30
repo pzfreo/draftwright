@@ -282,9 +282,29 @@ an outcome.
 
 Remaining supported-family completeness work is tracked by family group rather than the closed
 shared design issue: #1370 retains countersinks and Double-D bores; #1371 covers
-channels, slots, slot patterns and polygonal stock; #1372 retains rectangular pads and
-polygonal bosses; #1373 covers plates, face levels and risers; and
+channels, slots, slot patterns and polygonal stock; #1372 retains the independent rectangular-pad
+and polygonal-boss benchmark corpora; #1373 covers plates, face levels and risers; and
 #1374 retains turned steps.
+
+## Recognisers 0.4.8 raw boundary and RaisedPad v2
+
+Draftwright exactly pins the published `b123d-recognisers==0.4.8` wheel. Production deliberately
+calls `build_raw_recognition_result`: records remain in the caller/world coordinate system until
+#1357 introduces one reviewed framed-result adapter. Tests use the public framed API only as
+release evidence for upstream #331, #332, and #334; they do not add a fallback, a second aggregate,
+or a family rescan. Face levels, risers, and turned profiles remain outside framed production
+pending their separately released upstream fixes.
+
+`RaisedPad` schema v2 makes a pad normal and its material-outward sign explicit. Draftwright maps
+the six signed principal orientations into one `PadFeature`: world bounds and direction survive
+automatic recognition, `Sheet.pad(axis=..., direction=...)`, and executed generated code. The
+compiler assigns one end-on semantic view and stable identities for footprint width, footprint
+length, terminal-to-attachment height, and both in-plane locations. Footprint/location dimensions
+and the `… HIGH` leader are placed by the ordinary shared solve; no annotation accepts a raw page
+position. Removing any one of those five physical facts produces
+`pad_footprint_not_defined`. This is complete consumer semantics, but #1372 still owns the
+independently authored rectangular-pad detection/parameter/downstream benchmark corpus required
+before claiming family-level completeness.
 
 ## Angled-step boundary
 
@@ -325,7 +345,7 @@ profile warning only for that occurrence, so an unrelated unrecognised profile r
 
 ## Passage compatibility boundary
 
-The installed `b123d-recognisers==0.4.6` release contains the `passages` family introduced
+The installed `b123d-recognisers==0.4.8` release contains the `passages` family introduced
 in 0.2.6. Version 0.4.0 makes `SectionPassage` the authoritative physical output and retains
 schema-v1 `Passage` as its compatibility projection. Draftwright declares all six public and nested
 record schemas exhaustively but deliberately keeps the family `unsupported`, with the drafting
@@ -343,7 +363,7 @@ The 0.4 contract is explicit:
 - rich split-junction passages can supersede a Slot claim, moving physical ownership to the
   unsupported Passage family through `SLOT_SUPERSEDED_BY_PASSAGE`.
 
-The exact 0.4.6 pin, manifest-v2 validator and explicit unsupported inventories make that limitation
+The exact 0.4.8 pin, manifest-v2 validator and explicit unsupported inventories make that limitation
 fail-visible rather than silently treating rich passages as supported. Draftwright deliberately
 does not claim that a regular-polygon `HEX … A/F THRU` callout covers the complete line/arc section
 schema. Each authoritative `RecognitionResult.section_passages` occurrence therefore emits

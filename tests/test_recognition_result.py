@@ -5,7 +5,7 @@ from dataclasses import FrozenInstanceError
 import pytest
 from b123d_recognisers import (
     RecognitionResult,
-    build_recognition_result,
+    build_raw_recognition_result,
     recognise_plates,
 )
 from build123d import Align, Axis, Box, Cylinder, Pos, chamfer, fillet
@@ -21,7 +21,7 @@ def _plate_with_holes():
 
 
 def test_recognition_result_is_frozen_and_owns_tuple_inventories():
-    result = build_recognition_result(_plate_with_holes())
+    result = build_raw_recognition_result(_plate_with_holes())
 
     assert isinstance(result, RecognitionResult)
     assert len(result.holes) == 2
@@ -53,8 +53,8 @@ def test_built_drawing_exposes_its_recognition_result_without_private_state(monk
     def forbidden(*args, **kwargs):
         raise AssertionError("Drawing.recognition() re-ran recognition instead of handing back")
 
-    monkeypatch.setattr(result_module, "build_recognition_result", forbidden)
-    monkeypatch.setattr(analysis_module, "build_recognition_result", forbidden)
+    monkeypatch.setattr(result_module, "build_raw_recognition_result", forbidden)
+    monkeypatch.setattr(analysis_module, "build_raw_recognition_result", forbidden)
     assert drawing.recognition() is result
 
 
@@ -137,7 +137,7 @@ def test_injecting_the_aggregate_builds_the_same_model_as_detecting(name, build)
     one that silently stops holding when a recogniser's contract drifts.
     """
     part = build()
-    rec = build_recognition_result(part)
+    rec = build_raw_recognition_result(part)
     bb = part.bounding_box()
 
     detected = build_part_model(part)
@@ -190,13 +190,13 @@ def test_the_gate_is_the_orchestrations_not_the_call_sites():
     prismatic = Box(80, 40, 8) + Pos(-36, 0, 24) * Box(8, 40, 40)
     turned = Cylinder(20, 60)
 
-    assert build_recognition_result(prismatic, rotational=False).rotational is False
-    assert build_recognition_result(turned, rotational=True).rotational is True
+    assert build_raw_recognition_result(prismatic, rotational=False).rotational is False
+    assert build_raw_recognition_result(turned, rotational=True).rotational is True
 
     # Same solid, both classifications: only the gate differs, so the plate inventory change
     # is the gate's doing and not the geometry's.
-    ungated = build_recognition_result(prismatic, rotational=False)
-    gated = build_recognition_result(prismatic, rotational=True)
+    ungated = build_raw_recognition_result(prismatic, rotational=False)
+    gated = build_raw_recognition_result(prismatic, rotational=True)
 
     assert gated.plates == (), "a rotational classification must gate prismatic plates away"
     assert ungated.plates, "fixture stopped producing plates, so the gate proves nothing here"
@@ -223,7 +223,7 @@ def test_the_plates_gate_needs_both_halves_not_just_the_rotational_one():
     shaft = Cylinder(20, 30) + Pos(0, 0, 30) * Cylinder(14, 30)
 
     with counting_calls({"plates": recognise_plates}) as counts:
-        rec = build_recognition_result(shaft, rotational=False)
+        rec = build_raw_recognition_result(shaft, rotational=False)
 
     assert rec.turned_steps, "fixture stopped producing a turned profile — the gate's other half"
     assert counts.get("plates", 0) == 0, (

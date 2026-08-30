@@ -199,8 +199,11 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   `_QUOTED_RE` (a lint-message label regex shared with the
   repair loop) lives in `_core`.
 - **`recognition_cache.py`** — Draftwright's ADR 0017 one-result lifecycle owner. It calls
-  external `build_recognition_result(part)` at most once for a build/lazy-critique run; the
-  package owns recognition, while Draftwright owns when the result is computed and reused.
+  external `build_raw_recognition_result(part)` at most once for a build/lazy-critique run.
+  The explicit name records that today's production IR consumes caller/world coordinates;
+  the package owns recognition, while Draftwright owns when the result is computed and reused.
+  The public framed route is exercised as release evidence but does not enter production until
+  #1357 supplies one reviewed frame-to-IR adapter.
 - **`recogniser_contract.py`** — the fail-closed cross-repository capability join. It consumes
   only the installed `b123d-recognisers` public manifest, then validates Draftwright-owned IR,
   `Sheet`, generated-code, drawing, completeness, and documentation declarations. It is rank 7
@@ -533,12 +536,18 @@ policy) live in `CLAUDE.md`. This is the per-ADR status trail; each ADR's
   **`DEFERRED` is now empty** — every public `recognise_*` family is owned by the one
   orchestration. The mechanism stays fail-closed (a new family must still be classified, and
   every `Deferral` member survives for a future one); what went was each deferral, as its
-  stated constraint stopped being true. Measured per family with 0.4.6: a prismatic build runs
+  stated constraint stopped being true. Measured per family with the current 0.4.8 pin: a
+  prismatic build runs
   28 once each, a turned build 23 (the five prismatic-only families excluded), and a declared
   build/render **zero**. Physical critique or export may then obtain one cached aggregate. The
   three 0.4.6 step inventories are owned by that aggregate and now have evidence-backed,
   scored consumer semantics under #1382. Their framed-coordinate parity remains a separate
   #1357 acceptance item.
+  `RaisedPad` schema v2 is likewise adapted only after the shared aggregate: axis and signed
+  attachment direction are IR data, all six orientations use the same footprint/height/location
+  compiler grammar and placement solve, and a side-normal footprint is filtered from the legacy
+  Z-level projection only when exact support correspondence proves that ownership. No renderer
+  consumes the provider record or places an annotation at a caller-supplied page coordinate.
   The accepted contract stops there. `BuildState` proves result-to-build provenance; it does
   **not** yet provide recognition-record→IR-feature→requirement correspondence. The original
   four-type identity taxonomy, shared requirements module, general outcome ledger,

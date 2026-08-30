@@ -37,6 +37,21 @@
 
 ### Changed
 
+- Updated the immutable `b123d-recognisers` pin and lock to 0.4.8. Draftwright now names
+  its existing caller/world-coordinate aggregate boundary explicitly with
+  `build_raw_recognition_result`; framed recognition remains disabled until #1357's
+  frame-to-IR adapter is reviewed end to end. Installed-wheel tests exercise the public
+  framed fixes for rectangular pads, polygonal bosses, and nested multi-body plates without
+  making that API the production path (#1392).
+
+- Rectangular pads now consume `RaisedPad` schema v2 without assuming +Z. The IR, public
+  `Sheet.pad`, generated code, compiler, semantic-view planner, shared placement solve, and
+  lint correspondence preserve the exact footprint, terminal-to-attachment height, two
+  in-plane locations, axis, direction, and world bounds for all six signed principal
+  orientations. Every height uses one solver-placed `… HIGH` leader with stable measurement
+  identity; side-normal pad footprints no longer leak into the unrelated Z-level grammar
+  (#1392).
+
 - Circular blind steps recognised by `b123d-recognisers` now have a complete consumer path.
   The oriented terminal-to-open centreline and transverse quarter-arc lower without rescanning
   to an explicit-only IR/Sheet feature; generated code preserves the full correspondence.

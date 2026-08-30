@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import pytest
 from b123d_recognisers import (
     analyse_cylinders,
-    build_recognition_result,
+    build_raw_recognition_result,
     recognise_fillets,
     recognise_turned_steps,
 )
@@ -147,7 +147,7 @@ def test_detected_build_consumes_aggregate_inventory_without_rescanning() -> Non
 
 
 def test_partial_models_use_the_aggregate_single_owner_decision() -> None:
-    recognition = build_recognition_result(_part())
+    recognition = build_raw_recognition_result(_part())
     assert len(recognition.circular_blind_steps) == 1
     assert recognition.fillets == ()
 
@@ -201,7 +201,7 @@ def test_explicit_fillet_inventory_survives_an_unrelated_circular_step_owner() -
         key=lambda item: item.center().X + item.center().Y,
     )[-1]
     part = Compound([_part(), Pos(80, 0, 0) * fillet(edge, 2)])
-    recognition = build_recognition_result(part)
+    recognition = build_raw_recognition_result(part)
 
     assert len(recognition.circular_blind_steps) == len(recognition.fillets) == 1
     suppressed = build_part_model(part, fillets=())
@@ -213,13 +213,13 @@ def test_standalone_model_runs_one_aggregate_and_one_cylinder_scan(monkeypatch) 
     import draftwright.model.detect as detect
 
     rotational_flags = []
-    real_build = detect.build_recognition_result
+    real_build = detect.build_raw_recognition_result
 
     def recording_build(*args, **kwargs):
         rotational_flags.append(kwargs["rotational"])
         return real_build(*args, **kwargs)
 
-    monkeypatch.setattr(detect, "build_recognition_result", recording_build)
+    monkeypatch.setattr(detect, "build_raw_recognition_result", recording_build)
     with counting_calls(
         {"turned_steps": recognise_turned_steps, "cylinders": analyse_cylinders}
     ) as counts:
@@ -241,14 +241,14 @@ def test_standalone_model_runs_one_aggregate_and_one_cylinder_scan(monkeypatch) 
     ],
 )
 def test_supplied_malformed_records_fail_at_the_public_model_boundary(malformed) -> None:
-    source = build_recognition_result(_part()).circular_blind_steps[0]
+    source = build_raw_recognition_result(_part()).circular_blind_steps[0]
 
     with pytest.raises(ValueError):
         build_part_model(_part(), circular_blind_steps=(malformed(source),))
 
 
 def test_explicit_declaration_and_generated_line_round_trip_every_fact() -> None:
-    source = build_recognition_result(_part()).circular_blind_steps[0]
+    source = build_raw_recognition_result(_part()).circular_blind_steps[0]
     declared = _declare(source)
     line = _feature_line(declared)
     assert line == (
@@ -305,7 +305,7 @@ def test_generated_line_preserves_sub_millimetre_correspondence_exactly() -> Non
     ],
 )
 def test_declaration_rejects_invalid_sizes_without_numeric_exceptions(bad) -> None:
-    source = build_recognition_result(_part()).circular_blind_steps[0]
+    source = build_raw_recognition_result(_part()).circular_blind_steps[0]
     with pytest.raises(ValueError):
         circular_blind_step(
             axis=source.axis,
@@ -325,7 +325,7 @@ def test_declaration_rejects_invalid_sizes_without_numeric_exceptions(bad) -> No
 
 
 def test_ir_rejects_malformed_or_inconsistent_correspondence() -> None:
-    source = build_recognition_result(_part()).circular_blind_steps[0]
+    source = build_raw_recognition_result(_part()).circular_blind_steps[0]
     valid = _declare(source)
 
     with pytest.raises(ValueError, match="agree with the feature frame"):
@@ -407,7 +407,7 @@ def test_ir_rejects_malformed_or_inconsistent_correspondence() -> None:
 def test_max_finite_geometry_derives_a_finite_exactly_joinable_anchor() -> None:
     radius = float_info.max
     source = replace(
-        build_recognition_result(_part()).circular_blind_steps[0],
+        build_raw_recognition_result(_part()).circular_blind_steps[0],
         radius=radius,
         length=1.7e308 - 8e307,
         centreline=((8e307, 0.0, 0.0), (1.7e308, 0.0, 0.0)),
@@ -428,7 +428,7 @@ def test_max_finite_geometry_derives_a_finite_exactly_joinable_anchor() -> None:
             DimensionId(feature, "circular_step_depth.length"),
         ),
     )
-    recognition = replace(build_recognition_result(_part()), circular_blind_steps=(source,))
+    recognition = replace(build_raw_recognition_result(_part()), circular_blind_steps=(source,))
     assert [
         outcome.state
         for outcome in circular_blind_step_requirement_outcomes(recognition, (feature,), registry)
@@ -436,7 +436,7 @@ def test_max_finite_geometry_derives_a_finite_exactly_joinable_anchor() -> None:
 
 
 def test_declaration_reports_malformed_record_geometry_at_its_boundary() -> None:
-    source = build_recognition_result(_part()).circular_blind_steps[0]
+    source = build_raw_recognition_result(_part()).circular_blind_steps[0]
     with pytest.raises(ValueError, match="centreline must contain"):
         circular_blind_step(
             axis=source.axis,
@@ -645,7 +645,7 @@ def test_authored_partial_sets_do_not_resurrect_omitted_content(
     parameter, tolerance_role, expected, suppressed
 ) -> None:
     part = _part()
-    recognition = build_recognition_result(part)
+    recognition = build_raw_recognition_result(part)
     source = recognition.circular_blind_steps[0]
     sheet = Sheet(part)
     handle = sheet.circular_blind_step(
@@ -834,7 +834,7 @@ def test_ledger_rejects_wrong_runs_and_malformed_correspondence() -> None:
 
 
 def test_ledger_validates_source_and_ir_schemas_before_crediting_matching_ink() -> None:
-    recognition = build_recognition_result(_part())
+    recognition = build_raw_recognition_result(_part())
     source = recognition.circular_blind_steps[0]
     translated_misaligned = replace(
         source,
@@ -892,7 +892,7 @@ def test_ledger_validates_source_and_ir_schemas_before_crediting_matching_ink() 
 
 
 def test_ledger_validates_ir_frame_before_crediting_matching_source() -> None:
-    recognition = build_recognition_result(_part())
+    recognition = build_raw_recognition_result(_part())
     source = recognition.circular_blind_steps[0]
     feature = _declare(source)
     malformed_frames = (
@@ -916,7 +916,7 @@ def test_ledger_validates_ir_frame_before_crediting_matching_source() -> None:
 
 
 def test_ledger_does_not_round_distinct_valid_occurrences_into_one_identity() -> None:
-    recognition = build_recognition_result(_part())
+    recognition = build_raw_recognition_result(_part())
     source = recognition.circular_blind_steps[0]
     shifted_centreline = tuple(
         (point[0] + 0.0004, point[1], point[2]) for point in source.centreline

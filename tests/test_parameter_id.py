@@ -240,7 +240,11 @@ _SAMPLE_BINDINGS = {
     ),
     "EnvelopeFeature": (("width.length", 80.0), ("height.length", 8.0), ("depth.length", 50.0)),
     "SlotFeature": (("slot_width.length", 8.0), ("slot_length.length", 30.0)),
-    "PadFeature": (("pad_width.length", 8.0), ("pad_length.length", 30.0)),
+    "PadFeature": (
+        ("pad_width.length", 8.0),
+        ("pad_length.length", 30.0),
+        ("pad_height.length", 8.0),
+    ),
     "PocketFeature": (
         ("pocket_width.length", 8.0),
         ("pocket_length.length", 30.0),

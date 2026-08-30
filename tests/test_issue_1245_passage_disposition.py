@@ -6,7 +6,7 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
-from b123d_recognisers import build_recognition_result
+from b123d_recognisers import build_raw_recognition_result
 from b123d_recognisers.profiled_bores import principal_boundary_plane
 from build123d import Box, Ellipse, GeomType, Pos, RegularPolygon, extrude
 
@@ -38,7 +38,7 @@ def _matched_mouth(part, passage):
 
 def test_a_recognised_passage_is_specific_actionable_and_non_info() -> None:
     part = _hex_passage_part()
-    recognition = build_recognition_result(part)
+    recognition = build_raw_recognition_result(part)
     drawing = build_drawing(part)
 
     assert len(recognition.section_passages) == 1
@@ -58,7 +58,7 @@ def test_a_passage_does_not_hide_an_unrelated_unsupported_inner_profile() -> Non
     through = Pos(-10, 0, 0) * extrude(RegularPolygon(3, 6), amount=12, both=True)
     blind = Pos(10, 0, 2) * extrude(Ellipse(5, 3), amount=4)
     part = Box(40, 40, 10) - through - blind
-    recognition = build_recognition_result(part)
+    recognition = build_raw_recognition_result(part)
 
     assert len(recognition.section_passages) == 1
     codes = [issue.code for issue in build_drawing(part).lint()]
@@ -80,7 +80,7 @@ def test_a_passage_does_not_hide_an_unrelated_unsupported_inner_profile() -> Non
 )
 def test_passage_profile_correlation_fails_closed(case: str) -> None:
     part = _hex_passage_part()
-    passage = build_recognition_result(part).section_passages[0]
+    passage = build_raw_recognition_result(part).section_passages[0]
     wire, axis, plane_axes, at, tol = _matched_mouth(part, passage)
     candidate = passage
     candidate_wire = wire
@@ -156,7 +156,7 @@ def test_a_passage_is_an_explicit_unsupported_completeness_outcome() -> None:
 
 
 def test_only_the_authoritative_rich_inventory_contributes_a_requirement() -> None:
-    recognition = build_recognition_result(_hex_passage_part())
+    recognition = build_raw_recognition_result(_hex_passage_part())
     assert recognition.section_passages and recognition.passages
     legacy_only = replace(recognition, section_passages=())
 

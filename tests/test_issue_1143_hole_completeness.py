@@ -9,7 +9,7 @@ from b123d_recognisers import (
     BoltCircle,
     HoleRecord,
     LinearArray,
-    build_recognition_result,
+    build_raw_recognition_result,
     recognise_hole_patterns,
 )
 from build123d import Align, Box, Compound, Cone, Cylinder, Pos, Rot
@@ -1222,7 +1222,7 @@ def test_default_linear_direction_matches_recogniser_accepted_step_noise(locatio
         for feature in model.features
     )
     recognition = replace(
-        build_recognition_result(part),
+        build_raw_recognition_result(part),
         holes=holes,
         hole_patterns=tuple(patterns),
         countersinks=(),
@@ -2632,7 +2632,7 @@ def test_blind_bolt_circle_tool_center_projects_members_and_center_together():
     base_model = build_drawing(part, auto_dims=False).model()
     drawing = build_drawing(part, model=replace(base_model, features=[declared_pattern]))
     recognition = replace(
-        build_recognition_result(part),
+        build_raw_recognition_result(part),
         holes=holes,
         hole_patterns=(physical_pattern,),
         countersinks=(),
@@ -2661,7 +2661,7 @@ def test_oblique_recognised_hole_cannot_be_certified_by_lossy_principal_axis_ir(
     model = build_part_model(part, holes=(oblique,), patterns=())
     drawing = build_drawing(part, model=model)
     recognition = replace(
-        build_recognition_result(part),
+        build_raw_recognition_result(part),
         holes=(oblique,),
         hole_patterns=(),
         countersinks=(),
@@ -2698,7 +2698,7 @@ def test_distinct_oblique_drilling_axes_remain_distinct_physical_sources():
         ),
     )
     recognition = replace(
-        build_recognition_result(part),
+        build_raw_recognition_result(part),
         holes=holes,
         hole_patterns=(),
         countersinks=(),
