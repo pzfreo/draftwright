@@ -1645,21 +1645,86 @@ def _chamfer_drawing_outcomes(chamfers, drawing) -> list[Outcome]:
                     abs(float(tip[index]) - float(projected[index])) <= 1e-6
                     for index in range(2)
                 )
-            displaced = list(origin)
-            displaced["xyz".index(feature.axis)] += 1.0
-            projected_displaced = drawing.at(view, *displaced)
-            direction = tuple(
-                float(projected_displaced[index]) - float(projected[index]) for index in range(2)
-            )
-            length = math.hypot(*direction)
-            if length <= 1e-9:
+
+            # Independently derive the physical profile point from the provider's public
+            # finite-cylinder substrate.  Do not call the production
+            # ``_turned_profile_site`` helper: this observer must be able to catch a broken
+            # placement implementation rather than repeat its answer by construction.
+            from b123d_recognisers import full_cylinders
+
+            axis_i = "xyz".index(feature.axis)
+            radial = tuple(index for index in range(3) if index != axis_i)
+            candidates = []
+            for group in recognition.cylinders:
+                for cylinder in full_cylinders(list(group)):
+                    if not cylinder.get("external") or cylinder.get("axis") != feature.axis:
+                        continue
+                    centre = tuple(float(value) for value in cylinder["axis_xyz"])
+                    radial_distance = math.hypot(
+                        origin[radial[0]] - centre[radial[0]],
+                        origin[radial[1]] - centre[radial[1]],
+                    )
+                    radius = float(cylinder["diameter"]) / 2.0
+                    surface_gap = abs(radial_distance - radius)
+                    direction = tuple(float(value) for value in cylinder["dir_xyz"])
+                    station = sum(value * component for value, component in zip(origin, direction))
+                    s_lo = float(cylinder["s_lo"])
+                    s_hi = float(cylinder["s_hi"])
+                    axial_gap = max(s_lo - station, 0.0, station - s_hi)
+                    patch_distance = math.hypot(surface_gap, axial_gap)
+                    if patch_distance > radius:
+                        continue
+                    candidates.append(
+                        (
+                            (
+                                patch_distance,
+                                axial_gap,
+                                surface_gap,
+                                radial_distance,
+                                int(cylinder["solid_idx"]),
+                                centre[radial[0]],
+                                centre[radial[1]],
+                            ),
+                            centre,
+                        )
+                    )
+            if not candidates:
                 return False
-            unit = tuple(component / length for component in direction)
-            # Circumferential normalization may change the radial page coordinate, but never
-            # the axial station of the physical conical bevel.
-            return abs(
-                sum((float(tip[index]) - float(projected[index])) * unit[index] for index in range(2))
-            ) <= 1e-6
+            _score, centre = min(candidates, key=lambda candidate: candidate[0])
+
+            # A profile view projects exactly one of the two radial axes.  Determine that
+            # axis from the drawing transform itself, then rotate the recogniser's arbitrary
+            # circumferential representative onto the visible shaft silhouette while
+            # preserving both its radius and axial station.
+            visible = []
+            for index in radial:
+                displaced = list(origin)
+                displaced[index] += 1.0
+                page = drawing.at(view, *displaced)
+                magnitude = math.hypot(
+                    float(page[0]) - float(projected[0]),
+                    float(page[1]) - float(projected[1]),
+                )
+                if magnitude > 1e-9:
+                    visible.append(index)
+            if len(visible) != 1:
+                return False
+            visible_i = visible[0]
+            hidden_i = next(index for index in radial if index != visible_i)
+            visible_delta = origin[visible_i] - centre[visible_i]
+            hidden_delta = origin[hidden_i] - centre[hidden_i]
+            radius = math.hypot(visible_delta, hidden_delta)
+            sign_source = visible_delta if abs(visible_delta) > 1e-12 else hidden_delta
+            expected_world = list(origin)
+            expected_world[visible_i] = centre[visible_i] + math.copysign(
+                radius, sign_source or 1.0
+            )
+            expected_world[hidden_i] = centre[hidden_i]
+            expected_tip = drawing.at(view, *expected_world)
+            return all(
+                abs(float(tip[index]) - float(expected_tip[index])) <= 1e-6
+                for index in range(2)
+            )
         except Exception:  # noqa: BLE001 — malformed finished ink cannot earn credit
             return False
 

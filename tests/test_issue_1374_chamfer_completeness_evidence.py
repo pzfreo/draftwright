@@ -26,8 +26,8 @@ def _lone():
     return chamfer(edge, 6)
 
 
-def _states(boundary: str) -> set[str]:
-    observed = _default_observers()["chamfers"](_lone())
+def _states(boundary: str, part=None) -> set[str]:
+    observed = _default_observers()["chamfers"](_lone() if part is None else part)
     assert len(observed) == 1
     return {fact.downstream[boundary] for fact in observed}
 
@@ -381,6 +381,22 @@ def test_moving_chamfer_leader_off_the_physical_bevel_loses_drawing_credit(monke
 
     monkeypatch.setattr(builder, "build_drawing", with_wrong_tip)
     assert _states("drawing_consumer") == {"unsupported"}
+
+
+def test_moving_turned_chamfer_leader_off_the_profile_loses_drawing_credit(monkeypatch) -> None:
+    import draftwright.builder as builder
+
+    original = builder.build_drawing
+
+    def with_wrong_radial_tip(*args, **kwargs):
+        drawing = original(*args, **kwargs)
+        name = next(name for name in drawing.annotations() if name.startswith("m_chamfer_"))
+        drawing.registry.named(name).position = (50.0, 0.0, 0.0)
+        return drawing
+
+    monkeypatch.setattr(builder, "build_drawing", with_wrong_radial_tip)
+    part = import_step(CORPUS.parent / "chamfer-turned.step")
+    assert _states("drawing_consumer", part) == {"unsupported"}
 
 
 def test_severing_chamfer_measurement_provenance_loses_drawing_credit(monkeypatch) -> None:
