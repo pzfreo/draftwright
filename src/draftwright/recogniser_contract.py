@@ -221,6 +221,11 @@ def _family_declaration(family_id: str, spec: _FamilySpec) -> dict[str, Any]:
             "draftwright.evaluation.step_analysis.evaluate_step_corpus",
             "tests/test_issue_1372_pocket_pattern_completeness_evidence.py",
         )
+    elif family_id == "rectangular-pads":
+        completeness = _supported(
+            "draftwright.evaluation.step_analysis.evaluate_step_corpus",
+            "tests/test_issue_1372_pad_completeness_evidence.py",
+        )
     elif family_id == "paired-ramp-steps":
         completeness = _supported(
             "draftwright.linting.paired_ramp_step_coverage.lint_paired_ramp_step_coverage",
@@ -631,6 +636,19 @@ def consumer_capability_declaration() -> dict[str, Any]:
                 "from": "deferred",
                 "release_notes": "CHANGELOG.md",
                 "to": "unsupported",
+                "version": distribution_version("draftwright"),
+            },
+            {
+                "boundary": "completeness",
+                "compatibility_evidence": [
+                    "tests/test_issue_1372_pad_completeness_evidence.py",
+                    "tests/test_recogniser_capabilities.py",
+                    "tests/test_step_analysis_evaluation.py",
+                ],
+                "family": "rectangular-pads",
+                "from": "deferred",
+                "release_notes": "CHANGELOG.md",
+                "to": "supported",
                 "version": distribution_version("draftwright"),
             },
             {

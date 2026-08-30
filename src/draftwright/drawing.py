@@ -107,6 +107,7 @@ from draftwright.linting import (
     lint_groove_coverage,
     lint_hole_coverage,
     lint_location_coverage,
+    lint_pad_coverage,
     lint_paired_ramp_step_coverage,
     lint_passage_coverage,
     lint_pmi_extraction,
@@ -209,6 +210,9 @@ _GEOMETRY_AWARE_CODES = frozenset(
         "hole_requirement_suppressed",
         "hole_requirement_missing",
         "hole_requirement_unverifiable",
+        "pad_requirement_suppressed",
+        "pad_requirement_missing",
+        "pad_requirement_unverifiable",
         "pocket_requirement_suppressed",
         "pocket_requirement_missing",
         "pocket_requirement_unverifiable",
@@ -3547,6 +3551,14 @@ class Drawing:
                 bbox=a.bb if a is not None else None,
                 features=getattr(model, "features", ()) if model is not None else (),
                 recognition=recognition,
+            )
+            issues += lint_pad_coverage(
+                self.part,
+                recognition=recognition,
+                features=getattr(model, "features", ()) if model is not None else (),
+                registry=self._registry,
+                omissions=self._build.omissions,
+                assembly=self.assembly,
             )
             issues += lint_passage_coverage(recognition)
             issues += lint_prismatic_pocket_coverage(recognition)

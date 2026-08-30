@@ -111,6 +111,23 @@ one axial-width requirement and one floor-diameter requirement:
   `groove-topology-b.step` applies the same two Boolean cuts in reverse order. Their STEP hashes
   differ while their geometry and independently authored groove facts are identical.
 
+`corpus-rectangular-pads-v1.json` is a separate physical raised-pad corpus. Every retained pad
+owns two footprint-size requirements, one terminal-to-attachment height, and two in-plane
+locations:
+
+- `pad-x-positive.step` through `pad-z-negative.step` directly author all six signed principal
+  orientations from asymmetric stock and protrusion boxes; no expected axis, sign, attachment,
+  size, or height is read from recognition output.
+- `pad-compound-equal.step` contains two disjoint padded bodies with equal pad sizes at distinct
+  physical sites, so value equality cannot collapse body-local occurrences.
+- `pad-topology-a.step` adds two unequal pads in one Boolean order; `pad-topology-b.step` applies
+  the same additions in reverse. Their STEP hashes differ while their independently authored
+  physical facts are identical.
+- `pad-full-span-ledge-negative.step` is step-owned because its upper ledge spans the stock's
+  full Y extent; `pad-nested-staircase-negative.step` contains successively narrower connected
+  tiers rather than independent pads; `pad-detached-body-negative.step` proves that projected
+  overlap across two solids cannot manufacture attachment.
+
 `corpus-chamfers-v1.json` is a separate physical bevel corpus. One planar or conical treatment is
 one callout requirement even when equal specifications share ink:
 

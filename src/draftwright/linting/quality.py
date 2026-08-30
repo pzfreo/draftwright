@@ -42,6 +42,7 @@ from draftwright.linting.flat_coverage import flat_requirement_outcomes
 from draftwright.linting.groove_coverage import groove_requirement_outcomes
 from draftwright.linting.hole_coverage import hole_requirement_outcomes
 from draftwright.linting.issues import LintIssue, is_placement_drop
+from draftwright.linting.pad_coverage import pad_requirement_outcomes
 from draftwright.linting.paired_ramp_step_coverage import paired_ramp_step_requirement_outcomes
 from draftwright.linting.pocket_coverage import pocket_requirement_outcomes
 from draftwright.linting.pocket_pattern_coverage import pocket_pattern_requirement_outcomes
@@ -172,6 +173,7 @@ _AUDITED_FAMILIES = (
     "hole_patterns",
     "holes",
     "passages",
+    "pads",
     "polygonal_stock",
     "pockets",
     "pocket_patterns",
@@ -400,6 +402,7 @@ _UNSCORED_CODE_PREFIXES = (
     "gear_requirement_",
     "groove_requirement_",
     "hole_requirement_",
+    "pad_requirement_",
     "pocket_requirement_",
     "pocket_pattern_requirement_",
     "polygonal_stock_requirement_",
@@ -629,6 +632,7 @@ def _completeness_component(
         "grooves": groove_requirement_outcomes(recognition, features, registry, omissions),
         "holes": [],
         "hole_patterns": [],
+        "pads": pad_requirement_outcomes(recognition, features, registry, omissions),
         "polygonal_stock": polygonal_stock_outcomes(recognition, features, registry, omissions),
         "pockets": pocket_requirement_outcomes(recognition, features, registry, omissions),
         "pocket_patterns": pocket_pattern_requirement_outcomes(

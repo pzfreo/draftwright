@@ -400,6 +400,19 @@ def test_rich_passage_contract_has_an_explicit_unsupported_completeness_outcome(
         {
             "boundary": "completeness",
             "compatibility_evidence": [
+                "tests/test_issue_1372_pad_completeness_evidence.py",
+                "tests/test_recogniser_capabilities.py",
+                "tests/test_step_analysis_evaluation.py",
+            ],
+            "family": "rectangular-pads",
+            "from": "deferred",
+            "release_notes": "CHANGELOG.md",
+            "to": "supported",
+            "version": importlib.metadata.version("draftwright"),
+        },
+        {
+            "boundary": "completeness",
+            "compatibility_evidence": [
                 "tests/test_issue_1382_through_step_semantics.py",
                 "tests/test_recogniser_capabilities.py",
             ],
@@ -582,6 +595,16 @@ def test_groove_completeness_is_supported_by_independent_annular_recess_facts() 
     }
 
 
+def test_pad_completeness_is_supported_by_independent_protrusion_facts() -> None:
+    family = _families(consumer_capability_declaration())["rectangular-pads"]
+
+    assert family["completeness"] == {
+        "state": "supported",
+        "implementation": "draftwright.evaluation.step_analysis.evaluate_step_corpus",
+        "evidence": ["tests/test_issue_1372_pad_completeness_evidence.py"],
+    }
+
+
 def test_pocket_completeness_is_supported_by_independent_blind_recess_facts() -> None:
     family = _families(consumer_capability_declaration())["pockets"]
 
@@ -611,7 +634,6 @@ def test_each_deferred_supported_family_links_its_real_delivery_slice() -> None:
         "plates": 1373,
         "polygonal-bosses": 1372,
         "polygonal-stock": 1371,
-        "rectangular-pads": 1372,
         "risers": 1373,
         "slot-patterns": 1371,
         "slots": 1371,
