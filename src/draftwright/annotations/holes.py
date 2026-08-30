@@ -1405,7 +1405,13 @@ def _add_grid_pitch_dims(
                 diffs.append((length, dx, dy))
     if not diffs:
         return
-    diffs.sort()
+    # Equal lattice edges are interchangeable geometry. b123d-recognisers 0.4.6 rounds member
+    # coordinates more consistently, which changed their last few floating-point bits and made
+    # the raw tuple sort select a different physical row. That row is later used as the placement
+    # witness, so a numerically meaningless tie could drop the second pitch dimension. Quantise
+    # only the ordering key (never the measured vector) at a scale far below drafting precision;
+    # stable sort then retains the recogniser's deterministic member order for equal edges.
+    diffs.sort(key=lambda vector: tuple(round(component, 6) for component in vector))
     l1, ax, ay = diffs[0]
     u1 = (ax / l1, ay / l1)
     basis2 = next(
@@ -1449,19 +1455,45 @@ def _add_grid_pitch_dims(
         def across(idx):
             return pts[idx][0] * perp[0] + pts[idx][1] * perp[1]
 
-        lo = min(range(len(pts)), key=along)
-        # Keep the dimension on ONE lattice line: of the holes sharing lo's
-        # perpendicular coordinate, take the far one along u. Picking the global
-        # max-projection hole instead lands on the opposite diagonal corner and
-        # draws the pitch dim diagonally across the grid (#92).
+        # Keep the dimension on ONE lattice line. In plan/front, choose the OUTER line on
+        # the same page side `_place_pitch_dim` prefers. The former `min(..., key=along)`
+        # leaves the perpendicular tie to sub-ulp coordinate noise; 0.4.6 consequently chose
+        # a central short-axis row that occupied the only clear corridor for the long pitch.
+        # Side-view placement uses the same nearest-part-side policy as `_place_pitch_dim`.
+        if view == "side":
+            corner_across = [
+                a.proj.side_x(y) * perp[0] + a.proj.side_z(z) * perp[1]
+                for y in (a.bb.min.Y, a.bb.max.Y)
+                for z in (a.bb.min.Z, a.bb.max.Z)
+            ]
+            point_across = [across(idx) for idx in range(len(pts))]
+            positive_reach = max(corner_across) - max(point_across)
+            negative_reach = min(point_across) - min(corner_across)
+            extremum = max if positive_reach <= negative_reach else min
+            anchor = extremum(
+                range(len(pts)),
+                key=lambda idx: (across(idx), along(idx)),
+            )
+        else:
+            preferred = (-0.3, 1.0) if view == "plan" else (-0.3, -1.0)
+            toward_positive = perp[0] * preferred[0] + perp[1] * preferred[1] >= 0.0
+            extremum = max if toward_positive else min
+            anchor = extremum(
+                range(len(pts)),
+                key=lambda idx: (across(idx), along(idx)),
+            )
+        # Of the holes sharing the selected perpendicular coordinate, take both extremes
+        # along u. Picking the global max-projection hole instead lands on the opposite
+        # diagonal corner and draws the pitch dim diagonally across the grid (#92).
         # Tolerance must be below the PERPENDICULAR lattice-line spacing — which
         # is the *other* axis' pitch, so use the smaller of the two pitches.
         # (pitch_page * 0.25 fails on a high-aspect grid: for the long axis the
         # perpendicular lines are only the short pitch apart, and a quarter of
         # the long pitch can exceed that, merging two lines → diagonal again.)
-        lo_across = across(lo)
+        lo_across = across(anchor)
         line_tol = min(l1, l2) * 0.25
         line = [idx for idx in range(len(pts)) if abs(across(idx) - lo_across) < line_tol]
+        lo = min(line, key=along)
         hi = max(line, key=along)
         # The holes this dim actually spans, in the order it spans them. `members[lo:hi+1]`
         # is a slice of the IR's member order, which on a grid walks the lattice in neither

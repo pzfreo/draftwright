@@ -26,7 +26,7 @@ def _manifest() -> dict:
 def test_installed_pypi_wheel_satisfies_the_inspection_contract() -> None:
     distribution = importlib.metadata.distribution("b123d-recognisers")
 
-    assert distribution.version == "0.4.5"
+    assert distribution.version == "0.4.6"
     assert distribution.read_text("direct_url.json") is None
     assert Path(inspect.getfile(inspection)).resolve().is_relative_to(ROOT / ".venv")
     validate_inspection_contract()
@@ -43,7 +43,7 @@ def test_consumer_declaration_is_an_isolated_value() -> None:
     ("path", "replacement"),
     [
         (("format_version",), 2),
-        (("package", "version"), "0.4.6"),
+        (("package", "version"), "0.4.5"),
         (("api", "major"), 2),
         (("api", "namespace"), "b123d_recognisers.experimental_geometry"),
     ],

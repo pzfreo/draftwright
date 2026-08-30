@@ -2,7 +2,8 @@
 
 - **Status:** Accepted; narrowed after phase 1 (Amendment 1, 2026-08-05), with
   external-package/cache ownership clarified by Amendment 2 (2026-08-15) and turned
-  edge-treatment applicability widened by Amendment 3 (2026-08-22)
+  edge-treatment applicability widened by Amendment 3 (2026-08-22), and the 0.4.6
+  prismatic step inventories incorporated by Amendment 4 (2026-08-30)
 - **Date:** 2026-08-03
 - **Deciders:** Paul Fremantle (pzfreo)
 
@@ -111,6 +112,20 @@ record it may rotate the physical circumferential anchor about the nearest exter
 axis from the shared substrate onto the selected profile plane, preserving its axial station
 and radius.
 
+## Amendment 4 — 0.4.6 adds three prismatic-only step inventories
+
+`b123d-recognisers` 0.4.6 adds circular blind steps, paired ramp steps, and through steps to
+the aggregate. Like plates and angled prismatic steps, those inventories are inapplicable to a
+turned build and remain gated inside the one orchestration. A prismatic aggregate therefore
+runs 28 public families once each; a turned aggregate runs 23, with five prismatic-only
+families gated out by design.
+
+Ownership does not imply invented drafting semantics. Draftwright consumes the three new
+immutable inventories from the shared result and exposes any non-empty inventory as explicitly
+unscored completeness evidence. Their record-to-IR, declaration, annotation, and completeness
+outcomes remain evidence-gated under #1382. This preserves the one-inventory contract while
+preventing a newly recognised family from masquerading as a complete drawing.
+
 ## Accepted Contract
 
 ### 1. One orchestration owns the recognition universe
@@ -129,7 +144,8 @@ reason code and, where applicable, the issue that removes its constraint.
 
 Owning a family is distinct from always running it. Applicability gates live inside the one
 orchestration. Since Amendment 3, chamfers and fillets run for both prismatic and turned
-solids; plates and angled prismatic steps remain gated away from turned parts.
+solids; plates, angled prismatic steps, circular blind steps, paired ramp steps, and through
+steps remain gated away from turned parts.
 
 ### 2. Consumers reuse the result; they do not rescan per concern
 
@@ -200,8 +216,8 @@ critique because it logs its diagnostics. Therefore the observable call contract
 
 | path | recognition calls |
 |---|---|
-| automatic prismatic build | 25 families, once each |
-| automatic turned build | 23 families; two prismatic-only families gated out by design |
+| automatic prismatic build | 28 families, once each |
+| automatic turned build | 23 families; five prismatic-only families gated out by design |
 | declared build/render | zero |
 | first physical critique/export of a declared drawing | at most one aggregate |
 | subsequent lint of the same drawing | zero additional calls |

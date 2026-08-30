@@ -4,7 +4,7 @@ Draftwright's selected F7 workflow was the existing `fillet(face)` declaration. 
 spike replaced Draftwright's direct `BRepAdaptor_Surface` read and recogniser-specific
 `fillet_anchor` call with graph-independent face inspection. That experiment graduated into
 `b123d_recognisers.inspection` in recognisers 0.4.4; Draftwright adopts its completed format-1
-contract from the immutable 0.4.5 wheel (#1362).
+contract from the immutable 0.4.6 wheel (#1362).
 
 The result is semantically successful: the same principal axis, radius and on-round anchor are
 produced; planar faces refuse with the existing user-facing error; existing declared/detected

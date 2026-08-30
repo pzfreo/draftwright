@@ -148,7 +148,11 @@ _NON_REQUIREMENT_INVENTORIES = frozenset(
 #: merging them would let an undecided family look settled (#1244). Passage, PrismaticPocket and
 #: AngledStep left this register when #1245/#1246/#1247 gave every authoritative occurrence an
 #: unsupported outcome.
-_UNDECIDED_INVENTORIES: dict[str, str] = {}
+_UNDECIDED_INVENTORIES: dict[str, str] = {
+    "circular_blind_steps": "https://github.com/pzfreo/draftwright/issues/1382",
+    "paired_ramp_steps": "https://github.com/pzfreo/draftwright/issues/1382",
+    "through_steps": "https://github.com/pzfreo/draftwright/issues/1382",
+}
 
 _AUDITED_FAMILIES = (
     "angled_steps",
@@ -634,7 +638,14 @@ def _completeness_component(recognition, features, registry, omissions, issues) 
         for attribute, family in _RECOGNISED_REQUIREMENT_FAMILIES.items()
         if getattr(recognition, attribute, ())
     }
-    unaudited = sorted(recognised - set(_AUDITED_FAMILIES))
+    # Undecided physical inventories have no requirement grammar yet, so they cannot enter
+    # the denominator. They must nevertheless remain visible at runtime: classifying them only
+    # in a static exhaustiveness register would let a real occurrence produce a clean-looking
+    # zero-requirement drawing (#1382).
+    undecided = {
+        inventory for inventory in _UNDECIDED_INVENTORIES if getattr(recognition, inventory, ())
+    }
+    unaudited = sorted((recognised - set(_AUDITED_FAMILIES)) | undecided)
     covered = counts["placed"] + counts["satisfied_by_structured_note"]
     audited_score = covered / requirements if requirements else None
     if requirements:
