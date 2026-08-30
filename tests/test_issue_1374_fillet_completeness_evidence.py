@@ -443,6 +443,26 @@ def test_partial_od_turned_fillets_keep_their_physical_source_target() -> None:
     assert all(fact.downstream["drawing_consumer"] == "supported" for fact in observed)
 
 
+def test_moving_partial_od_fillet_leader_off_source_loses_credit(monkeypatch) -> None:
+    import draftwright.builder as builder
+
+    original = builder.build_drawing
+
+    def with_wrong_tip(*args, **kwargs):
+        drawing = original(*args, **kwargs)
+        name = next(name for name in drawing.annotations() if name.startswith("m_fillet_"))
+        drawing.registry.named(name).position = (50.0, 0.0, 0.0)
+        return drawing
+
+    monkeypatch.setattr(builder, "build_drawing", with_wrong_tip)
+    half_shaft = Cylinder(10, 40) & (Pos(-10, 0, 0) * Box(20, 10, 40))
+    circular_edges = [edge for edge in half_shaft.edges() if edge.geom_type == GeomType.CIRCLE]
+    observed = _default_observers()["fillets"](fillet(circular_edges, 1))
+
+    assert len(observed) == 2
+    assert all(fact.downstream["drawing_consumer"] == "unsupported" for fact in observed)
+
+
 def test_severing_fillet_measurement_provenance_loses_drawing_credit(monkeypatch) -> None:
     import draftwright.builder as builder
 
