@@ -11,7 +11,17 @@ import sys
 from pathlib import Path
 
 import pytest
-from build123d import Box, Cylinder, Pos, RegularPolygon, Shape, export_step, extrude
+from build123d import (
+    Box,
+    Cylinder,
+    Plane,
+    Polygon,
+    Pos,
+    RegularPolygon,
+    Shape,
+    export_step,
+    extrude,
+)
 from build123d import chamfer as bd_chamfer
 from build123d import fillet as bd_fillet
 
@@ -118,6 +128,11 @@ def _polygonal_boss_plate():
 
 def _polygonal_stock():
     return extrude(RegularPolygon(20, 6), 30)
+
+
+def _paired_ramp_step():
+    profile = Polygon((0, -8), (0, 8), (-10, 0))
+    return Box(40, 40, 30) - Pos(20, 20, 0) * extrude(Plane.XZ * profile, 25)
 
 
 def _script_for(part, part_expr="part = PART", stem="drawing", **kw):
@@ -2500,6 +2515,7 @@ class TestTheDimensionMirror:
             # roster stops saying "untested".
             "chamfer": _chamfered_corner(bd_chamfer, 4),
             "fillet": _chamfered_corner(bd_fillet, 3),
+            "paired ramp": _paired_ramp_step(),
             "flat": Cylinder(10, 30) - Pos(10, 0, 0) * Box(10, 40, 40),  # D-shaft
             "groove": Cylinder(10, 40) - (Cylinder(10, 4) - Cylinder(8, 4)),  # circlip groove
             "plate": Box(80, 50, 8) + Pos(-36, 0, 29) * Box(8, 50, 50),  # base + upright
@@ -2537,6 +2553,7 @@ class TestTheDimensionMirror:
         "slot pattern": {"slot_pattern"},
         "chamfer": {"chamfer"},
         "fillet": {"fillet"},
+        "paired ramp": {"paired_ramp_step"},
         "flat": {"flat"},
         "groove": {"groove"},
         "plate": {"plate"},
@@ -2841,6 +2858,7 @@ _KIND_MIRROR_COVERAGE = {
     "pmi": "declared — raw AP242, emitted as sheet.add(PmiFeature(...)) (ADR 0016)",
     "chamfer": "corpus",
     "fillet": "corpus",
+    "paired_ramp_step": "corpus",
     "flat": "corpus",
     "groove": "corpus",
     "plate": "corpus",
@@ -3334,6 +3352,7 @@ _FIDELITY_ROUTE = {
     "channel": ("detected", "channel"),
     "chamfer": ("detected", "chamfer"),
     "fillet": ("detected", "fillet"),
+    "paired_ramp_step": ("detected", "paired ramp"),
     "flat": ("detected", "flat"),
     "groove": ("detected", "groove"),
     "rotational": ("detected", "turned shaft"),
@@ -3578,6 +3597,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
             # these are the same fixtures the mirror corpus already uses.
             "chamfer": _chamfered_corner(bd_chamfer, 4),
             "fillet": _chamfered_corner(bd_fillet, 3),
+            "paired ramp": _paired_ramp_step(),
             "flat": Cylinder(10, 30) - Pos(10, 0, 0) * Box(10, 40, 40),
             "groove": Cylinder(10, 40) - (Cylinder(10, 4) - Cylinder(8, 4)),
             "pad": Box(80, 60, 10) + Pos(0, 0, 7) * Box(30, 20, 4),
@@ -3636,6 +3656,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
         "stepped": {"step_level"},
         "chamfer": {"chamfer"},
         "fillet": {"fillet"},
+        "paired ramp": {"paired_ramp_step"},
         "flat": {"flat"},
         "groove": {"groove"},
         "pad": {"pad"},

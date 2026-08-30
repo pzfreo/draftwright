@@ -2425,6 +2425,79 @@ def render_fillets(dwg, plan, a, *, ctx, only=None) -> int:
     )
 
 
+def _paired_ramp_label(angle, run, draft) -> str:
+    """Format only the paired-ramp requirements approved by the compiled plan.
+
+    Either parameter can be deliberately omitted by an authored dimension set, so the
+    compound leader must degrade without resurrecting that omitted requirement (#1382).
+    """
+    parts = []
+    if angle is not None:
+        parts.append(f"2× {angle.value_text}{_tol_suffix(angle.tolerance, draft)}°")
+    if run is not None:
+        parts.append(f"{run.value_text}{_tol_suffix(run.tolerance, draft)} RUN")
+    return " × ".join(parts)
+
+
+def render_paired_ramp_steps(dwg, plan, a, *, ctx, only=None) -> int:
+    """Render each recognised paired-ramp step as one solver-placed compound leader.
+
+    The provider's stable ridge midpoint is the arrow anchor.  The planner selects the
+    end-on view where the mirror-symmetric V profile is visible, while the label states the
+    two equal acute angles and the shared open-to-terminal run.  Both parameter identities
+    ride the one annotation so completeness can score them independently (#1382).
+    """
+    draft = dwg.draft
+    reach = _leader_callout_reach(draft)
+    jobs = []
+    for index, group in enumerate(plan.of_kind("paired_ramp_step")):
+        if only is not None and group.ref not in only:
+            continue
+        angle = next(
+            (d for d in group.dims if (d.role, d.kind) == ("ramp_angle", "angle")),
+            None,
+        )
+        run = next(
+            (d for d in group.dims if (d.role, d.kind) == ("ramp_run", "length")),
+            None,
+        )
+        if angle is None and run is None:
+            continue
+        view = group.view
+        if view is None:
+            continue
+        bounds = dwg.view_bounds(view)
+        if bounds is None:
+            continue
+        label = _paired_ramp_label(angle, run, draft)
+        jobs.append(
+            (
+                f"m_paired_ramp_{group.facts.axis}{index}",
+                view,
+                bounds,
+                label,
+                _radial_candidates(
+                    dwg,
+                    view,
+                    bounds,
+                    group.facts,
+                    reach,
+                    provenance=group.ref,
+                ),
+                tuple(d.id for d in (angle, run) if d is not None),
+            )
+        )
+    return place_machined_leader_jobs(
+        dwg,
+        a,
+        jobs,
+        noun="paired-ramp step",
+        drop_code="paired_ramp_step_dropped",
+        ctx=ctx,
+        joint=True,
+    )
+
+
 def _flat_label(across_text, sfx="") -> str:
     """The machined-flat callout string: ``{across} A/F`` (across flats) — the standard
     abbreviation for a spanner-flat / D / hex size (#148b). *across* is the PLANNED value

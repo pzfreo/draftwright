@@ -1,4 +1,4 @@
-"""#1382: recognisers 0.4.6 step families stay visible pending a semantic decision."""
+"""#1382: undecided recognisers 0.4.6 step families stay visible at runtime."""
 
 from __future__ import annotations
 
@@ -27,7 +27,6 @@ def _circular_blind_step():
     ("inventory", "part_factory"),
     [
         ("circular_blind_steps", _circular_blind_step),
-        ("paired_ramp_steps", _paired_ramp_step),
         ("through_steps", _through_step),
     ],
 )
@@ -58,6 +57,14 @@ def test_absent_046_step_families_do_not_pollute_an_ordinary_part():
         "paired_ramp_steps",
         "through_steps",
     } & set(completeness["unscored_recognized_families"])
+
+
+def test_paired_ramps_left_the_undecided_inventory_with_two_audited_requirements():
+    completeness = build_drawing(_paired_ramp_step()).lint_summary()["quality"]["completeness"]
+
+    assert completeness["unscored_recognized_families"] == []
+    assert completeness["by_family"]["paired_ramp_steps"] == 2
+    assert completeness["requirements"] == completeness["placed"] == 2
 
 
 def test_undecided_evidence_stays_visible_beside_a_perfect_audited_family():

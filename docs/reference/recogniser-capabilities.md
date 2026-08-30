@@ -219,6 +219,23 @@ when every member measurement remains on that ink. Removing provider records, ch
 corrupting a declaration or generated line, moving the leader, changing its text or severing
 provenance reduces the corresponding layer.
 
+## Paired-ramp-step completeness evidence
+
+The `paired-ramp-steps` family is supported as a complete consumer path from the public
+`PairedRampStep` record. Exact principal axis, shared-ridge midpoint, equal acute angle and
+open-to-terminal run identify one occurrence. Draftwright lowers it to one
+`PairedRampStepFeature` with independently addressable `ramp_angle.angle` and
+`ramp_run.length` requirements, exposes the explicit-only `Sheet.paired_ramp_step(...)`
+declaration, and preserves the same feature through generated Sheet code.
+
+One solver-placed compound leader in the axis end view communicates `2× angle × run RUN` and
+carries both compiler measurement identities. An authored set may retain either requirement
+without resurrecting the omitted one, and tolerances remain attached to their own numeric value.
+The completeness ledger follows each requirement independently to placed, structured-note,
+suppressed, dropped, missing or unverifiable outcomes; duplicate source/IR correspondence fails
+closed rather than choosing by order. Circular blind steps and rectangular through steps remain
+separate undecided families under #1382.
+
 Remaining supported-family completeness work is tracked by family group rather than the closed
 shared design issue: #1370 retains countersinks and Double-D bores; #1371 covers
 channels, slots, slot patterns and polygonal stock; #1372 retains rectangular pads and
@@ -295,11 +312,13 @@ a second issue nor a second requirement. Issue #1245 records this consumer decis
 The 0.4.6 provider manifest adds `circular-blind-steps`, `paired-ramp-steps`, and
 `through-steps`. Their typed records expose physical axes, locations, run lengths, and the relevant
 section or angle. Those facts do not by themselves choose Draftwright's manufacturing requirement,
-semantic view, or dimension grammar.
+semantic view, or dimension grammar, so each family receives a separate reviewed disposition.
 
-Draftwright therefore declares all three families unsupported at the IR, Sheet, generated-code,
-and drawing-consumer boundaries, creates no inferred feature or annotation, and keeps their
-completeness state explicitly `deferred`. A non-empty inventory is reported in
+Paired ramps now have the complete supported path described above: explicit IR and Sheet surfaces,
+generated-code parity, one solver-placed compound leader, and independently scored angle/run
+requirements. Circular blind and rectangular through steps remain unsupported at the IR, Sheet,
+generated-code, and drawing-consumer boundaries with completeness explicitly `deferred`. A
+non-empty inventory for either undecided family is reported in
 `quality.completeness.unscored_recognized_families`, so the completeness component cannot
-misrepresent it as a clean zero-requirement inventory. Issue #1382 owns the reviewed downstream
-disposition for all three families.
+misrepresent it as a clean zero-requirement inventory. Issue #1382 retains their reviewed
+downstream disposition.

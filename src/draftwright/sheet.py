@@ -79,6 +79,7 @@ from draftwright.model import hole as _hole
 from draftwright.model import measured_dimension as _measured_dimension
 from draftwright.model import note as _declare_note
 from draftwright.model import pad as _pad
+from draftwright.model import paired_ramp_step as _paired_ramp_step
 from draftwright.model import pattern as _pattern
 from draftwright.model import plate as _plate
 from draftwright.model import pocket as _pocket
@@ -1530,6 +1531,13 @@ class Sheet:
         ``n× R`` for equal radii). ``turned=True`` declares that ``axis`` is the shaft axis
         and selects its profile view; generated Sheet programs preserve this flag."""
         self._features.append(_fillet(obj, **kw))
+        return _Params(self, len(self._features) - 1)
+
+    def paired_ramp_step(self, **kw) -> _Params:
+        """Declare a mirror-symmetric paired-ramp step by its axis, equal acute angle,
+        open-to-terminal run length and shared-ridge midpoint.  The form is explicit-only:
+        a detached face or cutter cannot prove the paired material-removal topology."""
+        self._features.append(_paired_ramp_step(**kw))
         return _Params(self, len(self._features) - 1)
 
     def flat(self, obj=None, **kw) -> _Params:

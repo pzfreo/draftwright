@@ -105,6 +105,7 @@ from draftwright.linting import (
     lint_groove_coverage,
     lint_hole_coverage,
     lint_location_coverage,
+    lint_paired_ramp_step_coverage,
     lint_passage_coverage,
     lint_pmi_extraction,
     lint_pmi_ignored,
@@ -297,15 +298,23 @@ def _ir_hole_groups(model, target_axis: str) -> list[tuple]:
     return groups
 
 
-# Machined-feature LEADER callouts (#148): a chamfer/fillet/flat/pocket/groove exposes no
-# linear-dim param (its params carry no span — it is a Leader callout, not a Dimension), so
-# the reconstruction can't route it through dimension(). callout(f) records a per-feature
+# Machined-feature LEADER callouts (#148): these features use semantic leader callouts. Most
+# expose no spanned linear parameter; paired-ramp's run is explicitly part of its compound
+# leader convention. The reconstruction therefore can't route them through dimension().
+# callout(f) records a per-feature
 # intent that the matching per-kind finalize stage renders through the kind's auto-pass
 # renderer, restricted to that feature (only=), at the canonical _PASS_SEQUENCE slot. Each
 # name is BOTH the feature.kind and the stage/sequence key. Plate is deliberately EXCLUDED —
 # it IS a spanned dimension (corridor-registered + drained, not a direct leader), so it
 # reconstructs through dimension(f, "length", role="thickness"), not callout() (#811 review).
-_MACHINED_CALLOUT_KINDS = ("chamfer", "fillet", "flat", "pocket", "groove")
+_MACHINED_CALLOUT_KINDS = (
+    "chamfer",
+    "fillet",
+    "paired_ramp_step",
+    "flat",
+    "pocket",
+    "groove",
+)
 
 
 @dataclass(frozen=True)
@@ -1579,7 +1588,8 @@ class Drawing:
         so :meth:`drop` / :meth:`annotations_of` find it. Returns the annotation name.
 
         Raises ``ValueError`` if *feature* exposes no callout (use :meth:`dimension` for a
-        linear param). A machined-feature callout (pocket/fillet/flat/chamfer/groove) is
+        linear param). A machined-feature callout
+        (pocket/fillet/paired-ramp/flat/chamfer/groove) is
         auto-named and placed in its characteristic view by the kind's renderer, so
         ``view=``/``name=`` are unsupported for those kinds and raise ``ValueError`` rather
         than being silently ignored (Codex #811). Placed reasonably, not via the auto-pass's
@@ -1633,12 +1643,14 @@ class Drawing:
                 render_fillets,
                 render_flats,
                 render_grooves,
+                render_paired_ramp_steps,
                 render_pockets,
             )
 
             renderers = {
                 "chamfer": render_chamfers,
                 "fillet": render_fillets,
+                "paired_ramp_step": render_paired_ramp_steps,
                 "flat": render_flats,
                 "pocket": render_pockets,
                 "groove": render_grooves,
@@ -2051,7 +2063,7 @@ class Drawing:
         # Rotational furniture intent (#424/#426): the whole-model render_rotational —
         # no per-feature subset, so just the id set; it drains at the "rotational" slot.
         rotational_ids = {id(it) for it in self._intents if routable and it.kind == "rotational"}
-        # Machined-feature leader callout intents (#148): pocket/fillet/flat/chamfer/groove
+        # Machined-feature leader callout intents (#148): pocket/fillet/paired-ramp/flat/chamfer/groove
         # callout()s (plate is a spanned dimension, routed via dimension(), not here). Bucketed
         # per kind so each drains at its own _PASS_SEQUENCE stage, restricted to the recorded
         # features via only= (per-feature, #811). The id union also joins `routed` so
@@ -2303,6 +2315,7 @@ class Drawing:
             render_height_ladder,
             render_local_turned_centerlines,
             render_locations,
+            render_paired_ramp_steps,
             render_pockets,
             render_rotational,
             render_slots,
@@ -2634,6 +2647,9 @@ class Drawing:
         def _s_fillets():
             _s_machined("fillet", render_fillets)
 
+        def _s_paired_ramp_steps():
+            _s_machined("paired_ramp_step", render_paired_ramp_steps)
+
         def _s_flats():
             _s_machined("flat", render_flats)
 
@@ -2812,6 +2828,7 @@ class Drawing:
                 "drain": _s_drain,
                 "chamfers": _s_chamfers,
                 "fillets": _s_fillets,
+                "paired_ramp_steps": _s_paired_ramp_steps,
                 "flats": _s_flats,
                 "pockets": _s_pockets,
                 "grooves": _s_grooves,
@@ -3485,6 +3502,14 @@ class Drawing:
                 assembly=self.assembly,
             )
             issues += lint_fillet_coverage(
+                self.part,
+                recognition=recognition,
+                features=getattr(model, "features", ()) if model is not None else (),
+                registry=self._registry,
+                omissions=self._build.omissions,
+                assembly=self.assembly,
+            )
+            issues += lint_paired_ramp_step_coverage(
                 self.part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),

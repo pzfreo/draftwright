@@ -58,6 +58,7 @@ from draftwright.model.ir import (
     LevelSupport,
     Note,
     PadFeature,
+    PairedRampStepFeature,
     PatternFeature,
     PlateFeature,
     PocketFeature,
@@ -676,6 +677,33 @@ def fillet(obj=None, *, axis=None, radius=None, at=None, turned=False) -> Fillet
         axis=axis,
         radius=round(radius, 3),
         turned=bool(turned),
+    )
+
+
+def paired_ramp_step(*, axis, angle, length, at) -> PairedRampStepFeature:
+    """Declare one mirror-symmetric paired-ramp side step (#1382).
+
+    This is deliberately explicit-only.  A detached face or cutter does not prove the
+    paired, material-removal, open-to-terminal topology owned by the recogniser, so an object
+    form would be a second recognition path.  ``at`` is the midpoint of the shared ridge,
+    ``axis`` its run direction, ``angle`` either equal ramp angle, and ``length`` the
+    open-to-terminal run.
+    """
+    axis = _norm_axis(axis)
+    _require_positive(length=length)
+    _require_point("at", at)
+    if (
+        isinstance(angle, bool)
+        or not isinstance(angle, int | float)
+        or not math.isfinite(angle)
+        or not 0 < angle < 90
+    ):
+        raise ValueError(f"paired_ramp_step angle must be a finite acute angle (got {angle!r})")
+    return PairedRampStepFeature(
+        frame=Frame(origin=at, axis=axis),
+        axis=axis,
+        angle=round(float(angle), 2),
+        length=round(float(length), 3),
     )
 
 

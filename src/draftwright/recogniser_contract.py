@@ -77,6 +77,12 @@ _FAMILIES: dict[str, _FamilySpec] = {
         "pocket_pattern",
         "render_pocket_patterns",
     ),
+    "paired-ramp-steps": _FamilySpec(
+        ("PairedRampStep",),
+        "_convert_paired_ramp_step",
+        "paired_ramp_step",
+        "render_paired_ramp_steps",
+    ),
     "pockets": _FamilySpec(("Pocket",), "_convert_pocket", "pocket", "render_pockets"),
     "polygonal-bosses": _FamilySpec(
         ("PolygonalBoss",), "_convert_polygonal_boss", "polygonal_boss", "render_polygonal_bosses"
@@ -205,6 +211,11 @@ def _family_declaration(family_id: str, spec: _FamilySpec) -> dict[str, Any]:
             "draftwright.evaluation.step_analysis.evaluate_step_corpus",
             "tests/test_issue_1372_pocket_pattern_completeness_evidence.py",
         )
+    elif family_id == "paired-ramp-steps":
+        completeness = _supported(
+            "draftwright.linting.paired_ramp_step_coverage.lint_paired_ramp_step_coverage",
+            "tests/test_issue_1382_paired_ramp_semantics.py",
+        )
     else:
         completeness = _deferred_completeness(family_id)
     return {
@@ -322,14 +333,6 @@ _UNSUPPORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
         "run and oriented section. Draftwright has not yet reviewed which feature, view and "
         "dimension grammar truthfully expresses that manufacturing requirement, so every "
         "consumer boundary remains unsupported and completeness remains explicitly deferred.",
-    ),
-    "paired-ramp-steps": (
-        ("PairedRampStep",),
-        "https://github.com/pzfreo/draftwright/issues/1382",
-        "The provider proves a mirror-symmetric two-sided ramp and supplies its angle, run and "
-        "ridge anchor. Draftwright has not yet reviewed which feature, view and dimension "
-        "grammar truthfully expresses that manufacturing requirement, so every consumer "
-        "boundary remains unsupported and completeness remains explicitly deferred.",
     ),
     "through-steps": (
         ("ThroughStep",),
@@ -499,6 +502,18 @@ def consumer_capability_declaration() -> dict[str, Any]:
                     "tests/test_step_analysis_evaluation.py",
                 ],
                 "family": "holes",
+                "from": "deferred",
+                "release_notes": "CHANGELOG.md",
+                "to": "supported",
+                "version": distribution_version("draftwright"),
+            },
+            {
+                "boundary": "completeness",
+                "compatibility_evidence": [
+                    "tests/test_issue_1382_paired_ramp_semantics.py",
+                    "tests/test_recogniser_capabilities.py",
+                ],
+                "family": "paired-ramp-steps",
                 "from": "deferred",
                 "release_notes": "CHANGELOG.md",
                 "to": "supported",

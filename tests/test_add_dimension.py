@@ -1294,6 +1294,7 @@ class TestEveryFeatureVerbIsNameable:
         "envelope": {},
         "chamfer": dict(axis="z", leg=2, at=(0, 0, 0)),
         "fillet": dict(axis="z", radius=2, at=(0, 0, 0)),
+        "paired_ramp_step": dict(axis="z", angle=45, length=10, at=(0, 0, 0)),
         "flat": dict(axis="z", across=15, at=(0, 0, 0)),
         "groove": dict(axis="z", width=3, diameter=16, at=(0, 0, 0)),
         "plate": dict(axis="z", lo=0, hi=4, u=10, v=5),

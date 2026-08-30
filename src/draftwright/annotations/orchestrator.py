@@ -67,6 +67,7 @@ from draftwright.annotations.from_model import (
     render_height_ladder,
     render_local_turned_centerlines,
     render_locations,
+    render_paired_ramp_steps,
     render_plates,
     render_pmi,
     render_pockets,
@@ -265,11 +266,12 @@ _PASS_SEQUENCE: tuple[str, ...] = (
     # and yields (drops with a warning) where a principal dim now sits.
     "chamfers",
     "fillets",
+    "paired_ramp_steps",
     "flats",
     "pockets",
     "grooves",
     # One compatible same-view feature-leader inventory (#1166): side/plan
-    # hole leaders collected before the corridor drain and the five machined
+    # hole leaders collected before the corridor drain and the six machined
     # leader passes collected after it commit together here.
     "feature_leaders",
     "section",
@@ -364,6 +366,7 @@ def build_model(a: Analysis):
         risers=a.recognition.risers,
         chamfers=a.recognition.chamfers,
         fillets=a.recognition.fillets,
+        paired_ramp_steps=a.recognition.paired_ramp_steps,
         plates=a.recognition.plates,
         flats=a.recognition.flats,
         pockets=a.recognition.pockets,
@@ -641,6 +644,10 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # Planner-fed (#725): consumes the DimensionGroups so an authored tolerance renders.
         render_fillets(dwg, _compiled, a, ctx=ctx)
 
+    def _s_paired_ramp_steps():
+        # Two equal ramp angles + their run share one solver-owned leader (#1382).
+        render_paired_ramp_steps(dwg, _compiled, a, ctx=ctx)
+
     def _s_flats():
         # Machined-flat callouts (#148b): {across} A/F via a leader off each flat on round stock.
         # Planner-fed (#726): consumes the DimensionGroups so an authored tolerance renders.
@@ -840,6 +847,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
             "step_positions": _s_step_positions,
             "chamfers": _s_chamfers,
             "fillets": _s_fillets,
+            "paired_ramp_steps": _s_paired_ramp_steps,
             "flats": _s_flats,
             "pockets": _s_pockets,
             "pocket_patterns": _s_pocket_patterns,
