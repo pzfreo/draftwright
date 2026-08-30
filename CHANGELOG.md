@@ -52,6 +52,13 @@
   identity; side-normal pad footprints no longer leak into the unrelated Z-level grammar
   (#1392).
 
+- Rectangular-pad completeness is now independently evidenced by a hash-pinned 12-case STEP
+  corpus covering all six signed principal orientations, equal compound occurrences, topology
+  order, and ledge/staircase/detached-body negatives. Detection, width/length/height fidelity,
+  and four downstream boundaries are scored separately; a five-requirement fail-closed ledger
+  follows both footprint sizes, height and directional location evidence through the shared
+  compiler and placement solve (#1372).
+
 - Circular blind steps recognised by `b123d-recognisers` now have a complete consumer path.
   The oriented terminal-to-open centreline and transverse quarter-arc lower without rescanning
   to an explicit-only IR/Sheet feature; generated code preserves the full correspondence.

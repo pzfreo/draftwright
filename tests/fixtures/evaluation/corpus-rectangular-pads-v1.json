@@ -1,0 +1,222 @@
+{
+  "format": "draftwright-step-analysis-corpus",
+  "format_version": 1,
+  "corpus_version": "1.0.0",
+  "metric_version": 1,
+  "scope": ["rectangular-pads"],
+  "cases": [
+    {
+      "id": "pad-x-positive",
+      "tags": ["positive", "principal-orientation", "signed-direction"],
+      "fixture": "pad-x-positive.step",
+      "sha256": "5175a9364e5f7197178c42f2c95d79c84559563318b3dba71c45a7f66323dbcd",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored from a 10 × 30 × 40 mm stock body and a 5 × 10 × 15 mm protrusion attached to its +X face.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "rectangular-pads",
+          "identity": {"axis": {"value": "x"}, "direction": {"value": 1}, "attachment": {"value": [10.0, 13.0, 12.5], "absolute_tolerance": 1e-6}},
+          "parameters": {"width": {"value": 15.0, "absolute_tolerance": 1e-6}, "length": {"value": 10.0, "absolute_tolerance": 1e-6}, "height": {"value": 5.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "pad-x-negative",
+      "tags": ["positive", "principal-orientation", "signed-direction"],
+      "fixture": "pad-x-negative.step",
+      "sha256": "a33f941174fcb559909501204998496f47fc403a30937346f2f1e9ea7540125c",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored from the same asymmetric X-axis construction with the protrusion attached to the stock's -X face.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "rectangular-pads",
+          "identity": {"axis": {"value": "x"}, "direction": {"value": -1}, "attachment": {"value": [5.0, 13.0, 12.5], "absolute_tolerance": 1e-6}},
+          "parameters": {"width": {"value": 15.0, "absolute_tolerance": 1e-6}, "length": {"value": 10.0, "absolute_tolerance": 1e-6}, "height": {"value": 5.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "pad-y-positive",
+      "tags": ["positive", "principal-orientation", "signed-direction"],
+      "fixture": "pad-y-positive.step",
+      "sha256": "da048de042a1b57bd16eab55dfbcb5939808336e247166f00729a1e658964a84",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored from a 40 × 10 × 30 mm stock body and a 15 × 5 × 10 mm protrusion attached to its +Y face.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "rectangular-pads",
+          "identity": {"axis": {"value": "y"}, "direction": {"value": 1}, "attachment": {"value": [12.5, 10.0, 13.0], "absolute_tolerance": 1e-6}},
+          "parameters": {"width": {"value": 15.0, "absolute_tolerance": 1e-6}, "length": {"value": 10.0, "absolute_tolerance": 1e-6}, "height": {"value": 5.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "pad-y-negative",
+      "tags": ["positive", "principal-orientation", "signed-direction"],
+      "fixture": "pad-y-negative.step",
+      "sha256": "208b369de13bfa4248ddb9e366a6a9dcdef74a016e28a606691a9d54e29061aa",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored from the same asymmetric Y-axis construction with the protrusion attached to the stock's -Y face.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "rectangular-pads",
+          "identity": {"axis": {"value": "y"}, "direction": {"value": -1}, "attachment": {"value": [12.5, 5.0, 13.0], "absolute_tolerance": 1e-6}},
+          "parameters": {"width": {"value": 15.0, "absolute_tolerance": 1e-6}, "length": {"value": 10.0, "absolute_tolerance": 1e-6}, "height": {"value": 5.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "pad-z-positive",
+      "tags": ["positive", "principal-orientation", "signed-direction"],
+      "fixture": "pad-z-positive.step",
+      "sha256": "087d3081e3c0780b90c9cc8a9c42979b54e9afb487f91e7f9e3afc66d932e695",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored from a 40 × 30 × 10 mm stock body and a 15 × 10 × 5 mm protrusion attached to its +Z face.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "rectangular-pads",
+          "identity": {"axis": {"value": "z"}, "direction": {"value": 1}, "attachment": {"value": [12.5, 13.0, 10.0], "absolute_tolerance": 1e-6}},
+          "parameters": {"width": {"value": 10.0, "absolute_tolerance": 1e-6}, "length": {"value": 15.0, "absolute_tolerance": 1e-6}, "height": {"value": 5.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "pad-z-negative",
+      "tags": ["positive", "principal-orientation", "signed-direction"],
+      "fixture": "pad-z-negative.step",
+      "sha256": "c3a437b014b054096275642c2e4210a69383f92f9f3e3b6a2ddeb3f7e3b052e8",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored from the same asymmetric Z-axis construction with the protrusion attached to the stock's -Z face.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "rectangular-pads",
+          "identity": {"axis": {"value": "z"}, "direction": {"value": -1}, "attachment": {"value": [12.5, 13.0, 5.0], "absolute_tolerance": 1e-6}},
+          "parameters": {"width": {"value": 10.0, "absolute_tolerance": 1e-6}, "length": {"value": 15.0, "absolute_tolerance": 1e-6}, "height": {"value": 5.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "pad-compound-equal",
+      "tags": ["compound", "multiple", "multiple-equal", "positive"],
+      "fixture": "pad-compound-equal.step",
+      "sha256": "0b8604ddb4f9ec269c21e574337ab487230a7a4e0502c5c91338feba22194a25",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored from two disjoint 50 × 40 × 10 mm bodies; each owns one equal 15 × 14 × 5 mm +Z pad at a distinct body-local position.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "rectangular-pads",
+          "identity": {"axis": {"value": "z"}, "direction": {"value": 1}, "attachment": {"value": [17.5, 17.0, 10.0], "absolute_tolerance": 1e-6}},
+          "parameters": {"width": {"value": 14.0, "absolute_tolerance": 1e-6}, "length": {"value": 15.0, "absolute_tolerance": 1e-6}, "height": {"value": 5.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        },
+        {
+          "family": "rectangular-pads",
+          "identity": {"axis": {"value": "z"}, "direction": {"value": 1}, "attachment": {"value": [97.5, 17.0, 10.0], "absolute_tolerance": 1e-6}},
+          "parameters": {"width": {"value": 14.0, "absolute_tolerance": 1e-6}, "length": {"value": 15.0, "absolute_tolerance": 1e-6}, "height": {"value": 5.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "pad-topology-a",
+      "tags": ["multiple", "positive", "topology-order-variant"],
+      "fixture": "pad-topology-a.step",
+      "sha256": "4621745dcc61c0716e009132f31a441a797b0b83f89377d954454420156f8dc6",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored by adding a 20 × 12 × 6 mm pad before a 16 × 18 × 8 mm pad to one 100 × 70 × 10 mm stock body.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "rectangular-pads",
+          "identity": {"axis": {"value": "z"}, "direction": {"value": 1}, "attachment": {"value": [20.0, 16.0, 10.0], "absolute_tolerance": 1e-6}},
+          "parameters": {"width": {"value": 12.0, "absolute_tolerance": 1e-6}, "length": {"value": 20.0, "absolute_tolerance": 1e-6}, "height": {"value": 6.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        },
+        {
+          "family": "rectangular-pads",
+          "identity": {"axis": {"value": "z"}, "direction": {"value": 1}, "attachment": {"value": [68.0, 51.0, 10.0], "absolute_tolerance": 1e-6}},
+          "parameters": {"width": {"value": 18.0, "absolute_tolerance": 1e-6}, "length": {"value": 16.0, "absolute_tolerance": 1e-6}, "height": {"value": 8.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "pad-topology-b",
+      "tags": ["multiple", "positive", "topology-order-variant"],
+      "fixture": "pad-topology-b.step",
+      "sha256": "12a6a05fca5389ac966aa1928457591d7f99776c2b448476155c0d122cd30cc9",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Geometrically identical to pad-topology-a but authored with its two Boolean additions applied in reverse order.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "rectangular-pads",
+          "identity": {"axis": {"value": "z"}, "direction": {"value": 1}, "attachment": {"value": [20.0, 16.0, 10.0], "absolute_tolerance": 1e-6}},
+          "parameters": {"width": {"value": 12.0, "absolute_tolerance": 1e-6}, "length": {"value": 20.0, "absolute_tolerance": 1e-6}, "height": {"value": 6.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        },
+        {
+          "family": "rectangular-pads",
+          "identity": {"axis": {"value": "z"}, "direction": {"value": 1}, "attachment": {"value": [68.0, 51.0, 10.0], "absolute_tolerance": 1e-6}},
+          "parameters": {"width": {"value": 18.0, "absolute_tolerance": 1e-6}, "length": {"value": 16.0, "absolute_tolerance": 1e-6}, "height": {"value": 8.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "pad-full-span-ledge-negative",
+      "tags": ["ambiguous", "negative", "overlapping-family"],
+      "fixture": "pad-full-span-ledge-negative.step",
+      "sha256": "095c3739f02a0c5c7e239add6d20596ffa51a9dc9ae8693bb9362e2125dd9527",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored as a 40 mm upper ledge spanning the full Y extent of 100 × 60 × 20 mm stock; the step family, not RaisedPad, owns it.",
+      "expected_outcome": "supported",
+      "facts": []
+    },
+    {
+      "id": "pad-nested-staircase-negative",
+      "tags": ["ambiguous", "negative", "overlapping-family"],
+      "fixture": "pad-nested-staircase-negative.step",
+      "sha256": "854aba1b08129d7a4fe2876ce463a8755bfd1a1d1dbcf4fadacc1f7de9f367ca",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored as five successively narrower connected tiers above a 20 × 16 × 6 mm base; nested staircase ledges are not independent pads.",
+      "expected_outcome": "supported",
+      "facts": []
+    },
+    {
+      "id": "pad-detached-body-negative",
+      "tags": ["compound", "negative"],
+      "fixture": "pad-detached-body-negative.step",
+      "sha256": "e7b0a2e23c3c0788c7e0338c4cc15597725af7eac592e12e3a0f571d002e579c",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored as disjoint 80 × 60 × 10 mm and 30 × 20 × 4 mm solids whose projected faces resemble an attached pad but share no physical body.",
+      "expected_outcome": "supported",
+      "facts": []
+    }
+  ]
+}

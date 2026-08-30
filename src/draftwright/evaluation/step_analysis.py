@@ -38,6 +38,12 @@ anchor identify the occurrence; axial width and floor diameter are scored parame
 drawing measurements. The drawing observation requires both compiler-approved identities on one
 exact semantic ``WIDE × ø`` callout, while the corpus remains independent of recognition output.
 
+The rectangular-pad slice (#1372) counts one bounded protrusion at each signed attachment-plane
+centre. Principal axis, material-outward direction, and attachment point identify the occurrence;
+footprint width/length and local height are scored parameters. The drawing observation follows all
+five physical requirements through compiler measurement identities and structured directional
+location facts without treating the older geometric coverage fallback as semantic evidence.
+
 The chamfer slice (#1374) counts one planar or conical bevel per physical anchor. Axis, anchor and
 surface form identify the occurrence; both legs and angle are scored parameters. One compiler
 identity reaches exact ``C`` or ``leg × angle`` ink and a live leader on the bevel/profile station;
@@ -96,7 +102,7 @@ import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from hashlib import sha256
-from math import isfinite
+from math import isclose, isfinite
 from pathlib import Path
 from typing import Any, Literal, TypeAlias, cast
 
@@ -1252,6 +1258,233 @@ def _declared_flat_model(part, flats):
             axis_line=observed.axis_line,
             stock_span=observed.stock_span,
             axis_direction=observed.axis_direction,
+        )
+    return sheet.model()
+
+
+_PAD_PLANE_AXES = {"x": ("y", "z"), "y": ("z", "x"), "z": ("x", "y")}
+
+
+def _pad_pair(values) -> tuple[float, float]:
+    lo, hi = values
+    return round(float(lo), 3), round(float(hi), 3)
+
+
+def _pad_bounds(pad) -> dict[str, tuple[float, float]]:
+    if hasattr(pad, "bounds"):
+        return {axis: _pad_pair(pad.bounds(axis)) for axis in "xyz"}
+    return {
+        axis: (
+            round(float(getattr(pad, f"{axis}0")), 3),
+            round(float(getattr(pad, f"{axis}1")), 3),
+        )
+        for axis in "xyz"
+    }
+
+
+def _pad_axis(pad) -> str:
+    axis = getattr(pad, "axis", None)
+    if axis is None:
+        axis = pad.frame.axis
+    return str(axis)
+
+
+def _pad_identity(pad) -> tuple[str, int, tuple[float, float, float]]:
+    from draftwright.linting.pad_coverage import pad_attachment_point
+
+    return _pad_axis(pad), int(pad.direction), pad_attachment_point(pad)
+
+
+def _pad_parameters(pad) -> dict[str, Value]:
+    axis = _pad_axis(pad)
+    long_axis, width_axis = _PAD_PLANE_AXES[axis]
+    bounds = _pad_bounds(pad)
+    return {
+        "width": round(bounds[width_axis][1] - bounds[width_axis][0], 3),
+        "length": round(bounds[long_axis][1] - bounds[long_axis][0], 3),
+        "height": round(bounds[axis][1] - bounds[axis][0], 3),
+    }
+
+
+def _pad_expected_parameters(pad) -> set[str]:
+    axis = _pad_axis(pad)
+    long_axis, width_axis = _PAD_PLANE_AXES[axis]
+    locations = (
+        {"location_pad.location.x", "location_pad.location.y"}
+        if axis == "z"
+        else {f"location_pad.{long_axis}", f"location_pad.{width_axis}"}
+    )
+    return {"pad_width.length", "pad_length.length", "pad_height.length", *locations}
+
+
+def _pad_correspondence(pads, recognition, features, registry=None, omissions=()):
+    """Per physical pad, retain exact IR and production-ledger evidence."""
+    from draftwright.linting.pad_coverage import (
+        pad_attachment_point,
+        pad_key,
+        pad_requirement_outcomes,
+    )
+    from draftwright.registry import AnnotationRegistry
+
+    ledger = pad_requirement_outcomes(
+        recognition,
+        features,
+        AnnotationRegistry() if registry is None else registry,
+        omissions,
+    )
+    by_at: dict[tuple[float, float, float], list] = {}
+    for outcome in ledger:
+        by_at.setdefault(outcome.source_at, []).append(outcome)
+    result = []
+    for source in pads:
+        candidates = [
+            outcome
+            for outcome in by_at.get(pad_attachment_point(source), ())
+            if outcome.features and pad_key(outcome.features[0]) == pad_key(source)
+        ]
+        candidate_features = tuple(
+            dict.fromkeys(feature for outcome in candidates for feature in outcome.features)
+        )
+        exact = (
+            len(candidate_features) == 1
+            and len(candidates) == 5
+            and {outcome.parameter_id for outcome in candidates}
+            == _pad_expected_parameters(source)
+            and all(outcome.features == candidate_features for outcome in candidates)
+        )
+        result.append((exact, candidate_features, tuple(candidates)))
+    return result
+
+
+def _pad_model_outcomes(pads, recognition, features) -> list[Outcome]:
+    return [
+        "supported" if exact else "unknown"
+        for exact, _features, _outcomes in _pad_correspondence(pads, recognition, features)
+    ]
+
+
+def _pad_drawing_outcomes(pads, drawing) -> list[Outcome]:
+    """Verify all five pad requirements through exact semantic drawing evidence."""
+    from draftwright._core import _decode_hole_location_fact
+    from draftwright.linting.evidence import (
+        compiled_values,
+        rendered_numbers,
+        verify_measurement_claims,
+    )
+    from draftwright.linting.pad_coverage import pad_center
+    from draftwright.model.compiled import DimensionId, compile_dimensions
+
+    recognition = drawing.recognition()
+    model = drawing.model()
+    plan = compile_dimensions(model)
+    correspondence = _pad_correspondence(
+        pads,
+        recognition,
+        model.features,
+        drawing.registry,
+        plan.diagnostics,
+    )
+    claims = verify_measurement_claims(drawing.registry, plan)
+    approved_by_id = compiled_values(plan)
+    confirmed = {
+        (claim.annotation, claim.measurement)
+        for claim in claims
+        if claim.state == "confirmed" and claim.measurement is not None
+    }
+    location_names: dict[tuple[object, str, tuple[float, float, float]], set[str]] = {}
+    for name in drawing.registry.names():
+        annotation = drawing.registry.named(name)
+        for fact in getattr(annotation, "covers_hole_locations", ()):
+            decoded = _decode_hole_location_fact(fact)
+            if decoded is None:
+                continue
+            feature, parameter, point = decoded
+            if getattr(feature, "kind", None) != "pad":
+                continue
+            point_x, point_y, point_z = point
+            rounded_point = (
+                round(float(point_x), 3),
+                round(float(point_y), 3),
+                round(float(point_z), 3),
+            )
+            location_names.setdefault((feature, parameter, rounded_point), set()).add(name)
+    accepted_states = {"placed", "satisfied_by_structured_note", "inapplicable"}
+    result: list[Outcome] = []
+    for exact, features, outcomes in correspondence:
+        if not exact or len(features) != 1:
+            result.append("unknown")
+            continue
+        feature = features[0]
+        states_ok = all(outcome.state in accepted_states for outcome in outcomes)
+        ink_ok = True
+        for outcome in outcomes:
+            if outcome.state != "placed":
+                continue
+            parameter = outcome.parameter_id
+            evidence_parameter = (
+                "location_pad.location"
+                if parameter.startswith("location_pad.location.")
+                else parameter
+            )
+            matching_claims = {
+                name
+                for name, claim in confirmed
+                if getattr(claim, "feature", None) == feature
+                and str(getattr(claim, "parameter", "")) == evidence_parameter
+            }
+            if parameter.startswith("location_pad.location."):
+                measured_axis = parameter.rsplit(".", 1)[-1]
+                directional_approvals = tuple(
+                    approved
+                    for approved in approved_by_id.get(
+                        DimensionId(feature, "location_pad.location"), ()
+                    )
+                    if approved.discriminator == measured_axis
+                )
+                expected_text = (
+                    directional_approvals[0].value_text if len(directional_approvals) == 1 else ""
+                )
+                try:
+                    expected_value = float(expected_text)
+                except (TypeError, ValueError):
+                    matching_claims = set()
+                else:
+                    matching_claims = {
+                        name
+                        for name in matching_claims
+                        if (numbers := rendered_numbers(drawing.registry.named(name))) is not None
+                        and any(
+                            isclose(number, expected_value, rel_tol=0.0, abs_tol=1e-6)
+                            for number in numbers
+                        )
+                    }
+                matching_claims &= location_names.get(
+                    (feature, parameter, pad_center(feature)), set()
+                )
+            if not matching_claims:
+                ink_ok = False
+                break
+        result.append("supported" if states_ok and ink_ok else "unsupported")
+    return result
+
+
+def _declared_pad_model(part, pads):
+    """Declare observed pads through public ``Sheet.pad`` and return its IR."""
+    from draftwright.sheet import Sheet
+
+    sheet = Sheet(part)
+    sheet.authored_dimensions()
+    for observed in pads:
+        bounds = _pad_bounds(observed)
+        sheet.pad(
+            x0=bounds["x"][0],
+            x1=bounds["x"][1],
+            y0=bounds["y"][0],
+            y1=bounds["y"][1],
+            z0=bounds["z"][0],
+            z1=bounds["z"][1],
+            axis=_pad_axis(observed),
+            direction=observed.direction,
         )
     return sheet.model()
 
@@ -2972,6 +3205,92 @@ def _default_observers() -> Mapping[str, Observer]:
             for identity in (_groove_identity(groove),)
         )
 
+    def observe_pads(part: object) -> Sequence[ObservedFact]:
+        from draftwright.builder import build_drawing
+
+        try:
+            drawing = build_drawing(part)  # type: ignore[arg-type]
+        except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
+            _log.warning(
+                "evaluation: drawing build failed (%s); scoring rectangular pads as unknown",
+                exc,
+            )
+            raise ObservationError("rectangular-pads", f"drawing build failed: {exc}") from exc
+        try:
+            recognition = drawing.recognition()
+            if recognition is None:
+                raise ValueError("detected build has no build-owned recognition result")
+            pads = tuple(recognition.pads)
+        except Exception as exc:  # noqa: BLE001 — no safe observed numerator remains
+            _log.warning(
+                "evaluation: recognition access failed (%s); observing no rectangular pads",
+                exc,
+            )
+            raise ObservationError(
+                "rectangular-pads", f"recognition access failed: {exc}"
+            ) from exc
+        unknown: list[Outcome] = ["unknown"] * len(pads)
+
+        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
+            try:
+                result = observe()
+                if len(result) != len(pads):
+                    raise ValueError(
+                        f"observed {len(result)} outcomes for {len(pads)} physical pads"
+                    )
+                return result
+            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
+                _log.warning(
+                    "evaluation: %s observation failed (%s); scoring rectangular pads as unknown",
+                    name,
+                    exc,
+                )
+                return list(unknown)
+
+        boundary_outcomes = {
+            "ir_adapter": observed_boundary(
+                "ir_adapter",
+                lambda: _pad_model_outcomes(pads, recognition, drawing.model().features),
+            ),
+            "dsl_declaration": observed_boundary(
+                "dsl_declaration",
+                lambda: _pad_model_outcomes(
+                    pads,
+                    recognition,
+                    _declared_pad_model(part, pads).features,
+                ),
+            ),
+            "generated_code": observed_boundary(
+                "generated_code",
+                lambda: _pad_model_outcomes(
+                    pads,
+                    recognition,
+                    _generated_sheet_model(part, drawing.model()).features,
+                ),
+            ),
+            "drawing_consumer": observed_boundary(
+                "drawing_consumer", lambda: _pad_drawing_outcomes(pads, drawing)
+            ),
+        }
+
+        return tuple(
+            ObservedFact(
+                family="rectangular-pads",
+                identity={
+                    "axis": identity[0],
+                    "direction": identity[1],
+                    "attachment": identity[2],
+                },
+                parameters=_pad_parameters(pad),
+                downstream={
+                    boundary: boundary_outcomes[boundary][index]
+                    for boundary in _DOWNSTREAM_BOUNDARIES
+                },
+            )
+            for index, pad in enumerate(pads)
+            for identity in (_pad_identity(pad),)
+        )
+
     def observe_chamfers(part: object) -> Sequence[ObservedFact]:
         from draftwright.builder import build_drawing
 
@@ -3332,6 +3651,7 @@ def _default_observers() -> Mapping[str, Observer]:
         "hole-patterns": observe_hole_patterns,
         "pocket-patterns": observe_pocket_patterns,
         "pockets": observe_pockets,
+        "rectangular-pads": observe_pads,
     }
 
 

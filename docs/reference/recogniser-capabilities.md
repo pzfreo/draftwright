@@ -183,6 +183,23 @@ its diameter is drafted once. Removing provider grooves, changing width/diameter
 corrupting declaration or generated code, or severing either measurement claim reduces the
 corresponding independent layer.
 
+## Rectangular-pad completeness evidence
+
+The `rectangular-pads` completeness boundary is independently `supported` from
+`tests/fixtures/evaluation/corpus-rectangular-pads-v1.json`. Twelve construction-authored cases
+contribute twelve physical pads, 36 parameter checks and 48 downstream checks. The corpus covers
+all six signed principal orientations, equal pads on separate bodies, reversed Boolean order,
+and full-span ledge, nested-staircase and detached-body negatives.
+
+Axis, signed material direction and attachment-plane centre identify each occurrence; footprint
+width/length and terminal-to-attachment height are scored parameters. Each source must join one
+exact `PadFeature` through automatic IR, public `Sheet.pad`, executed generated Sheet code, and
+five compiler-owned drawing requirements: both footprint sizes, height and two directional
+locations. The final observer follows compiler identities and structured directional facts to
+the exact placed ink without using annotation names, views or page coordinates. Removing provider
+pads, changing an identity or measurement, corrupting declaration or generated code, or severing
+a measurement claim or directional fact reduces the corresponding independent layer.
+
 ## Chamfer completeness evidence
 
 The `chamfers` completeness boundary is independently `supported` from

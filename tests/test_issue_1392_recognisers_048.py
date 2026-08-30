@@ -403,7 +403,8 @@ def test_authored_pad_height_does_not_reserve_suppressed_side_pad_bands(monkeypa
     assert set(measured_side_strips) == {(0.0, 0.0)}
     assert parameter_ids == {"pad_height.length"}
     assert {issue.code for issue in drawing.lint() if issue.severity in {"warning", "error"}} == {
-        "pad_footprint_not_defined"
+        "pad_footprint_not_defined",
+        "pad_requirement_suppressed",
     }
 
 

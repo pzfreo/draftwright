@@ -13,9 +13,10 @@ An observer may only normalize actual evidence; `ObservedFact` deliberately has 
 identifier. Expected and observed facts are matched by family plus authored physical identity fields.
 
 Format 1 currently proves independent `holes`, `hole-patterns`, `flats`, `pockets`,
-`pocket-patterns`, `grooves`, `chamfers` and `fillets` vertical slices. Each observer reads released
-`b123d-recognisers` geometry records, builds one drawing, and reads all four downstream outcomes
-from that build through the public IR, `Sheet`, generated-code and ADR 0010 provenance seams.
+`pocket-patterns`, `grooves`, `rectangular-pads`, `chamfers` and `fillets` vertical slices. Each
+observer reads released `b123d-recognisers` geometry records, builds one drawing, and reads all
+four downstream outcomes from that build through the public IR, `Sheet`, generated-code and ADR
+0010 provenance seams.
 
 Since #1217 that outcome comes from the engine's own requirement ledger
 (`linting.hole_coverage.hole_requirement_outcomes`) rather than from a second correspondence
