@@ -55,6 +55,8 @@ from b123d_recognisers import (
     ThroughStep,
     TurnedProfile,
     TurnedStep,
+    analyse_cylinders,
+    build_recognition_result,
     has_multi_axis_plates,
     project_step_shoulders,
     recognise_bosses,
@@ -84,16 +86,18 @@ from b123d_recognisers import (
 
 from draftwright._geometry import (
     _axis_letter,
+    _classify_rotational_cylinders,
     _is_principal_axis,
     _xyz,
 )
-from draftwright.model.declare import control_frame, datum
+from draftwright.model.declare import circular_blind_step, control_frame, datum
 from draftwright.model.ir import (
     AUTHORED_DIMENSION_KINDS,
     AuthoredDimension,
     BossFeature,
     ChamferFeature,
     ChannelFeature,
+    CircularBlindStepFeature,
     ControlFrame,
     Datum,
     DatumRef,
@@ -647,6 +651,18 @@ def _convert_fillet(fl: Fillet, ctx: ConvContext) -> FilletFeature:
     )
 
 
+def _convert_circular_blind_step(
+    step: CircularBlindStep, ctx: ConvContext
+) -> CircularBlindStepFeature:
+    return circular_blind_step(
+        axis=step.axis,
+        radius=step.radius,
+        length=step.length,
+        centreline=step.centreline,
+        section=step.section,
+    )
+
+
 def _convert_paired_ramp_step(step: PairedRampStep, ctx: ConvContext) -> PairedRampStepFeature:
     return PairedRampStepFeature(
         frame=Frame((step.at[0], step.at[1], step.at[2]), step.axis),
@@ -701,6 +717,7 @@ _CONVERTERS: dict[type, Converter] = {
     Plate: _convert_plate,
     Chamfer: _convert_chamfer,
     Fillet: _convert_fillet,
+    CircularBlindStep: _convert_circular_blind_step,
     PairedRampStep: _convert_paired_ramp_step,
     ThroughStep: _convert_through_step,
     Flat: _convert_flat,
@@ -764,10 +781,6 @@ _UNCONSUMED_RECORDS: dict[type, str] = {
         "an aggregate-reconciled polygonal blind recess not owned by `Pocket`; its arbitrary "
         "section has no truthful general Draftwright dimension grammar, so every occurrence has "
         "an explicit unsupported completeness outcome (#1246)"
-    ),
-    CircularBlindStep: (
-        "a physical step family added in recognisers 0.4.6; Draftwright has not yet reviewed "
-        "its feature, view, dimension, or completeness semantics (#1382)"
     ),
 }
 
@@ -890,6 +903,7 @@ def build_part_model(
     risers=None,
     chamfers=None,
     fillets=None,
+    circular_blind_steps=None,
     paired_ramp_steps=None,
     through_steps=None,
     plates=None,
@@ -921,16 +935,149 @@ def build_part_model(
 
     ``cyls`` is a precomputed ``analyse_cylinders(part)`` result threaded into every
     cylinder-substrate recogniser called here (holes/bosses/turned/grooves/flats), so
-    the solid is scanned once per build (#703); omitted, each recogniser scans for
-    itself. ``lower_pmi=False`` retains extracted PMI as materialised/report-only IR;
+    the solid is scanned once per build (#703); a standalone/partial call derives it once
+    before its aggregate run. ``lower_pmi=False`` retains extracted PMI as materialised/report-only IR;
     annotate mode uses the default and correlates supported requirements onto canonical
     feature parameters (#1116)."""
+    fillets_supplied = fillets is not None
+    circular_blind_steps_supplied = circular_blind_steps is not None
+    derive_hole_patterns = holes is not None and patterns is None
+    derive_slot_patterns = slots is not None and slot_patterns is None
+    derive_pocket_patterns = pockets is not None and pocket_patterns is None
+    needs_aggregate = (
+        prof is _UNSET
+        or step_zs is None
+        or face_levels is None
+        or any(
+            inventory is None
+            for inventory in (
+                holes,
+                double_d_bores,
+                patterns,
+                bosses,
+                polygonal_bosses,
+                polygonal_stock,
+                channels,
+                slots,
+                slot_patterns,
+                risers,
+                chamfers,
+                fillets,
+                circular_blind_steps,
+                paired_ramp_steps,
+                through_steps,
+                plates,
+                grooves,
+                flats,
+                pockets,
+                pocket_patterns,
+                pads,
+            )
+        )
+    )
     bbox = part.bounding_box()
     features: list[Feature] = []
 
     # Turned-profile classification up front so the shared convert-context carries the
     # part's turning axis (the StepFeature span axis). Pure detection — no feature is
     # emitted here; the turned/boss branch below reads the same `prof`.
+    #
+    # Any omitted family or classification input is filled from one public RecognitionResult,
+    # preserving cross-family ownership for documented partial-inventory calls.  Derive the
+    # aggregate's applicability flag from the shared cylinder substrate rather than probing a
+    # public family first; the aggregate remains the only family orchestration (ADR 0017).
+    if needs_aggregate:
+        if cyls is None:
+            cyls = analyse_cylinders(part)
+        centre = bbox.center()
+        cylinder_class = _classify_rotational_cylinders(
+            cyls,
+            sizes=(bbox.size.X, bbox.size.Y, bbox.size.Z),
+            centre=(centre.X, centre.Y, centre.Z),
+        )
+        recognition = build_recognition_result(
+            part,
+            cylinders=cyls,
+            rotational=(
+                rotational is not None
+                or (prof is not _UNSET and prof is not None)
+                or cylinder_class.is_rotational
+            ),
+        )
+        # A circular blind step and its legacy fillet projection compete for the same
+        # curved wall.  The aggregate resolves that ownership atomically.  A partial caller
+        # may still supply either inventory when it agrees with the aggregate (or when no
+        # competing aggregate owner exists), but a divergent one-sided override is ambiguous:
+        # accepting it could emit two radius requirements or silently emit neither.  Require
+        # both inventories for an intentional ownership override and fail closed otherwise.
+        if fillets_supplied and not circular_blind_steps_supplied:
+            fillets = tuple(fillets)
+            aggregate_fillets = tuple(recognition.fillets)
+            if recognition.circular_blind_steps and any(
+                record not in aggregate_fillets for record in fillets
+            ):
+                raise ValueError(
+                    "fillets and circular_blind_steps must be supplied together when "
+                    "overriding aggregate ownership"
+                )
+        elif circular_blind_steps_supplied and not fillets_supplied:
+            circular_blind_steps = tuple(circular_blind_steps)
+            if (
+                recognition.circular_blind_steps or recognition.fillets
+            ) and circular_blind_steps != tuple(recognition.circular_blind_steps):
+                raise ValueError(
+                    "fillets and circular_blind_steps must be supplied together when "
+                    "overriding aggregate ownership"
+                )
+        holes = recognition.holes if holes is None else holes
+        double_d_bores = recognition.double_d_bores if double_d_bores is None else double_d_bores
+        patterns = recognition.hole_patterns if patterns is None else patterns
+        bosses = recognition.bosses if bosses is None else bosses
+        polygonal_bosses = (
+            recognition.polygonal_bosses if polygonal_bosses is None else polygonal_bosses
+        )
+        polygonal_stock = (
+            recognition.polygonal_stock if polygonal_stock is None else polygonal_stock
+        )
+        channels = recognition.channels if channels is None else channels
+        slots = recognition.slots if slots is None else slots
+        slot_patterns = recognition.slot_patterns if slot_patterns is None else slot_patterns
+        risers = recognition.risers if risers is None else risers
+        chamfers = recognition.chamfers if chamfers is None else chamfers
+        fillets = recognition.fillets if fillets is None else fillets
+        circular_blind_steps = (
+            recognition.circular_blind_steps
+            if circular_blind_steps is None
+            else circular_blind_steps
+        )
+        paired_ramp_steps = (
+            recognition.paired_ramp_steps if paired_ramp_steps is None else paired_ramp_steps
+        )
+        through_steps = recognition.through_steps if through_steps is None else through_steps
+        plates = recognition.plates if plates is None else plates
+        grooves = recognition.grooves if grooves is None else grooves
+        flats = recognition.flats if flats is None else flats
+        pockets = recognition.pockets if pockets is None else pockets
+        pocket_patterns = (
+            recognition.pocket_patterns if pocket_patterns is None else pocket_patterns
+        )
+        pads = recognition.pads if pads is None else pads
+        # Pattern inventories are projections of their supplied member inventories.  Preserve
+        # that documented partial-input relationship instead of combining caller-owned members
+        # with patterns derived from the aggregate's separately detected members.
+        if derive_hole_patterns:
+            patterns = recognise_hole_patterns(holes)
+        if derive_slot_patterns:
+            slot_patterns = recognise_slot_patterns(slots)
+        if derive_pocket_patterns:
+            pocket_patterns = recognise_pocket_patterns(pockets)
+        if prof is _UNSET:
+            prof = TurnedProfile.from_steps(recognition.turned_steps)
+        if step_zs is None:
+            step_zs = recognition.step_ladder_for_z_span(bbox.min.Z, bbox.max.Z)
+        if face_levels is None:
+            face_levels = recognition.step_levels
+        cyls = recognition.cylinders
     if prof is _UNSET:
         prof = TurnedProfile.from_steps(recognise_turned_steps(part, cyls=cyls))
     # ``rotational`` is the classification fallback for a single-diameter turned body whose
@@ -1342,6 +1489,12 @@ def build_part_model(
     # without a sibling rescan.
     for fl in fillets:
         features.append(convert(fl, ctx))
+
+    # Quarter-cylindrical corner cuts with one blind terminal (#1382). The aggregate
+    # supplies the oriented centreline and transverse quarter arc, so radius and depth
+    # lower without topology access or a sibling scan.
+    for circular_step in circular_blind_steps:
+        features.append(convert(circular_step, ctx))
 
     # Mirror-symmetric paired-ramp steps (#1382) — the aggregate proves two equal acute
     # cross-section angles and one open-to-terminal run.  Consume the supplied aggregate

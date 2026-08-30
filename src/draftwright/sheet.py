@@ -66,6 +66,7 @@ from draftwright.model import DimensionParameterId, Feature
 from draftwright.model import boss as _boss
 from draftwright.model import chamfer as _chamfer
 from draftwright.model import channel as _channel
+from draftwright.model import circular_blind_step as _circular_blind_step
 from draftwright.model import control_frame as _declare_control
 from draftwright.model import datum as _declare_datum
 from draftwright.model import double_d_bore as _double_d_bore
@@ -1559,6 +1560,13 @@ class Sheet:
         open-to-terminal run length and shared-ridge midpoint.  The form is explicit-only:
         a detached face or cutter cannot prove the paired material-removal topology."""
         self._features.append(_paired_ramp_step(**kw))
+        return _Params(self, len(self._features) - 1)
+
+    def circular_blind_step(self, **kw) -> _Params:
+        """Declare a quarter-cylindrical corner cut by radius, stopped depth, oriented
+        terminal-to-open ``centreline`` and canonical transverse quarter-arc ``section``.
+        The form is explicit-only because one detached face cannot prove the blind cut."""
+        self._features.append(_circular_blind_step(**kw))
         return _Params(self, len(self._features) - 1)
 
     def through_step(self, **kw) -> _Params:

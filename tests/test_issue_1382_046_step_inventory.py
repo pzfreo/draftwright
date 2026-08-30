@@ -1,8 +1,7 @@
-"""#1382: undecided recognisers 0.4.6 step families stay visible at runtime."""
+"""#1382: all recognisers 0.4.6 step families stay visible and audited at runtime."""
 
 from __future__ import annotations
 
-import pytest
 from b123d_recognisers import build_recognition_result
 from build123d import Box, Compound, Cylinder, Plane, Polygon, Pos, Rot, extrude
 
@@ -23,29 +22,17 @@ def _circular_blind_step():
     return Box(40, 30, 20) - Pos(7.5, 15, 10) * Rot(0, 90, 0) * Cylinder(4, 25)
 
 
-@pytest.mark.parametrize(
-    ("inventory", "part_factory"),
-    [
-        ("circular_blind_steps", _circular_blind_step),
-    ],
-)
-def test_each_046_step_inventory_is_visible_in_runtime_completeness(inventory, part_factory):
-    """Static registration is insufficient: a real occurrence must reach public quality data."""
-
-    part = part_factory()
+def test_circular_blind_step_is_visible_as_two_audited_requirements() -> None:
+    part = _circular_blind_step()
     recognition = build_recognition_result(part)
-    assert getattr(recognition, inventory), "fixture stopped exercising its provider family"
+    assert recognition.circular_blind_steps
 
     completeness = build_drawing(part).lint_summary()["quality"]["completeness"]
 
-    assert completeness["unscored_recognized_families"] == [inventory]
-    assert completeness["requirements"] == 0
-    assert completeness["available"] is False
-    assert completeness["audited_score"] is None
-    assert completeness["unsupported"] == 0
-    assert inventory not in completeness["by_family"], (
-        "undecided evidence is visible but must not invent a requirement denominator"
-    )
+    assert completeness["unscored_recognized_families"] == []
+    assert completeness["by_family"]["circular_blind_steps"] == 2
+    assert completeness["requirements"] == completeness["placed"] == 2
+    assert completeness["audited_score"] == 1.0
 
 
 def test_absent_046_step_families_do_not_pollute_an_ordinary_part():

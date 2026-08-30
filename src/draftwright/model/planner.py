@@ -90,6 +90,9 @@ _CONVENTION = {
     ("chamfer", "length"): "leader",  # C{leg} / {leg}×{angle}° leader callout (#724)
     ("channel_width", "length"): "linear",
     ("fillet", "radius"): "leader",  # R{radius} (grouped n× R) leader callout (#725)
+    # One circular blind-step leader carries the quarter-cylinder radius and stopped depth.
+    ("circular_step_radius", "radius"): "leader",
+    ("circular_step_depth", "length"): "leader",
     # One paired-ramp leader carries the two equal angles and their shared run (#1382).
     ("ramp_angle", "angle"): "leader",
     ("ramp_run", "length"): "leader",

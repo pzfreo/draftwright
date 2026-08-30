@@ -181,10 +181,11 @@ def _pt(p) -> str:
 
 
 def _authored_n(value) -> str:
-    """Lossless numeric spelling for source-authored requirements.
+    """Lossless spelling for normative values and linked correspondence facts.
 
     Detected geometry is intentionally made readable at 3 dp by :func:`_n`; an
-    authored normative value must instead survive an emit/execute round trip.
+    authored normative value or a set of mutually constrained record facts must instead
+    survive an emit/execute round trip.
     """
     value = float(value)
     return str(int(value)) if value.is_integer() else repr(value)
@@ -859,6 +860,13 @@ def _feature_line(
         return (
             f'sheet.paired_ramp_step(axis="{f.axis}", angle={_n(f.angle)}, '
             f"length={_n(f.length)}, at={_pt(f.frame.origin)})"
+        )
+    if k == "circular_blind_step":
+        centreline = "(" + ", ".join(_authored_pt(point) for point in f.centreline) + ")"
+        section = "(" + ", ".join(_authored_pt(point) for point in f.section) + ")"
+        return (
+            f'sheet.circular_blind_step(axis="{f.axis}", radius={_authored_n(f.radius)}, '
+            f"length={_authored_n(f.length)}, centreline={centreline}, section={section})"
         )
     if k == "through_step":
         section = "(" + ", ".join(_pt(point) for point in f.section) + ")"

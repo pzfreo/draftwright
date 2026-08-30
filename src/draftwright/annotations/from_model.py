@@ -63,7 +63,7 @@ from draftwright._core import (
     _title_block_box,
     _tol_suffix,
 )
-from draftwright._geometry import _turned_profile_site
+from draftwright._geometry import _segment_clips_box, _turned_profile_site
 from draftwright.annotations._common import (
     CROSSABLE_TYPES,
     PRIORITY,
@@ -2054,6 +2054,7 @@ def place_machined_leader_jobs(
     ctx,
     geom_clear=False,
     joint=False,
+    expand_lanes=True,
     source_ids_by_name=None,
 ) -> int:
     """Lower every machined callout to the one shared ``FeatureLeaderJob`` path.
@@ -2164,7 +2165,9 @@ def place_machined_leader_jobs(
                 view=view,
                 silhouette=silhouette,
                 label=label,
-                candidates=_lane_candidates() if late_inventory else joint_candidates,
+                candidates=(
+                    _lane_candidates() if late_inventory and expand_lanes else joint_candidates
+                ),
                 build=_build,
                 analytical_geometry=_analytical_geometry,
                 measurement=tuple(measurement),
@@ -2437,6 +2440,76 @@ def _paired_ramp_label(angle, run, draft) -> str:
     if run is not None:
         parts.append(f"{run.value_text}{_tol_suffix(run.tolerance, draft)} RUN")
     return " × ".join(parts)
+
+
+def _circular_blind_step_label(radius, depth, draft) -> str:
+    """Format only approved quarter-cylinder radius and blind-depth requirements."""
+    parts = []
+    if radius is not None:
+        parts.append(f"R{radius.value_text}{_tol_suffix(radius.tolerance, draft)}")
+    if depth is not None:
+        parts.append(f"{depth.value_text}{_tol_suffix(depth.tolerance, draft)} DEEP")
+    return " × ".join(parts)
+
+
+def render_circular_blind_steps(dwg, plan, a, *, ctx, only=None) -> int:
+    """Render each quarter-cylindrical blind corner cut as one solver-owned leader.
+
+    The feature frame is the physical midpoint of the curved wall. The axis end view shows
+    the quarter arc, while the compound text communicates its radius and stopped depth.
+    Both approved measurement identities ride the annotation independently (#1382).
+    """
+    draft = dwg.draft
+    reach = _leader_callout_reach(draft)
+    jobs = []
+    for index, group in enumerate(plan.of_kind("circular_blind_step")):
+        if only is not None and group.ref not in only:
+            continue
+        radius = next(
+            (d for d in group.dims if (d.role, d.kind) == ("circular_step_radius", "radius")),
+            None,
+        )
+        depth = next(
+            (d for d in group.dims if (d.role, d.kind) == ("circular_step_depth", "length")),
+            None,
+        )
+        if radius is None and depth is None:
+            continue
+        view = group.view
+        if view is None:
+            continue
+        bounds = dwg.view_bounds(view)
+        if bounds is None:
+            continue
+        label = _circular_blind_step_label(radius, depth, draft)
+        jobs.append(
+            (
+                f"m_circular_blind_step_{group.facts.axis}{index}",
+                view,
+                bounds,
+                label,
+                _circular_step_candidates(
+                    dwg,
+                    view,
+                    bounds,
+                    group.facts,
+                    reach,
+                    label,
+                    provenance=group.ref,
+                ),
+                tuple(d.id for d in (radius, depth) if d is not None),
+            )
+        )
+    return place_machined_leader_jobs(
+        dwg,
+        a,
+        jobs,
+        noun="circular blind step",
+        drop_code="circular_blind_step_dropped",
+        ctx=ctx,
+        joint=True,
+        expand_lanes=False,
+    )
 
 
 def render_through_steps(dwg, plan, a, *, ctx, only=None) -> int:
@@ -2816,6 +2889,61 @@ _POCKET_LEAD_DIRS = (
     (-1, 0),
     (0, -1),
 )
+
+# The feature anchor lies on a quarter-cylindrical wall, so only the four outward diagonal
+# normals are physically meaningful.  Axial page rays can escape the composed end-view
+# footprint into adjacent-view ink; the diagonal set keeps auto, live and deferred placement
+# on the same local wall corridor (#1382).
+_CIRCULAR_STEP_LEAD_DIRS = _POCKET_LEAD_DIRS[:4]
+
+
+def _circular_step_candidates(dwg, view, bounds, feature, reach, label, *, provenance=None):
+    """Yield solver candidates whose complete analytical leader clears every other view.
+
+    The shared feature-leader solve is deliberately decomposed by semantic view.  A live
+    single-feature replay therefore cannot rely on another view's annotations to represent
+    that view's footprint.  Circular-step end-view leaders are one bounded four-candidate
+    family, so reject routes whose label or shaft enters another composed view before handing
+    the survivors to the same solver used by automatic and deferred placement (#1382).
+    """
+    width, height = _text_size(
+        str(label),
+        float(dwg.draft.font_size),
+        getattr(dwg.draft, "font_path", DEFAULT_FONT_PATH),
+        getattr(dwg.draft, "font", "Arial"),
+    )
+    callout_box = (0.0, 0.0, width, height)
+    pad = max(float(dwg.draft.line_width), float(dwg.draft.arrow_length)) / 2
+    other_views = []
+    for other_view in dwg.views:
+        if other_view == view:
+            continue
+        other = dwg.view_bounds(other_view)
+        if other is not None:
+            other_views.append((other[0] - pad, other[1] - pad, other[2] + pad, other[3] + pad))
+
+    for tip, elbow, owner in _radial_candidates(
+        dwg,
+        view,
+        bounds,
+        feature,
+        reach,
+        provenance=provenance,
+        directions=_CIRCULAR_STEP_LEAD_DIRS,
+    ):
+        geometry = leader_callout_geometry(tip, elbow, dwg.draft, callout_box=callout_box)
+        if geometry is None:
+            continue
+        label_box, segments = geometry
+        if label_box is None or _box_hits(label_box, other_views):
+            continue
+        if any(
+            _segment_clips_box(first, second, other)
+            for first, second in segments
+            for other in other_views
+        ):
+            continue
+        yield tip, elbow, owner
 
 
 def _radial_candidates(

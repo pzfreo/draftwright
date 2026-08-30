@@ -283,6 +283,9 @@ _FACTS: dict[str, tuple[str, ...]] = {
     # changes output, and a migration that claims byte-identity is the wrong place for it.
     "chamfer": ("frame", "axis", "leg2", "angle", "turned"),
     "fillet": ("frame", "axis", "turned"),
+    # The frame origin is the physical curved-wall arrow anchor. Radius and depth remain
+    # approved dimensions, so neither can be reconstructed when authored intent omits it.
+    "circular_blind_step": ("frame", "axis"),
     # Structural placement facts only.  The printed angle and run remain addressable
     # parameters, so authored omission/tolerance policy cannot be bypassed (#1382).
     "paired_ramp_step": ("frame", "axis"),

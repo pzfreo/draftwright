@@ -51,6 +51,12 @@ _FAMILIES: dict[str, _FamilySpec] = {
     "bosses": _FamilySpec(("BossRecord",), "_convert_boss", "boss", "render_boss_diameters"),
     "chamfers": _FamilySpec(("Chamfer",), "_convert_chamfer", "chamfer", "render_chamfers"),
     "channels": _FamilySpec(("Channel",), "_convert_channel", "channel", "render_slots"),
+    "circular-blind-steps": _FamilySpec(
+        ("CircularBlindStep",),
+        "_convert_circular_blind_step",
+        "circular_blind_step",
+        "render_circular_blind_steps",
+    ),
     "countersinks": _FamilySpec(("CounterSink",), "build_part_model", "hole", "_annotate_holes"),
     "double-d-bores": _FamilySpec(
         ("DoubleDBore",), "_convert_double_d_bore", "double_d_bore", "_annotate_holes"
@@ -219,6 +225,11 @@ def _family_declaration(family_id: str, spec: _FamilySpec) -> dict[str, Any]:
             "draftwright.linting.paired_ramp_step_coverage.lint_paired_ramp_step_coverage",
             "tests/test_issue_1382_paired_ramp_semantics.py",
         )
+    elif family_id == "circular-blind-steps":
+        completeness = _supported(
+            "draftwright.linting.circular_blind_step_coverage.lint_circular_blind_step_coverage",
+            "tests/test_issue_1382_circular_blind_step_semantics.py",
+        )
     elif family_id == "through-steps":
         completeness = _supported(
             "draftwright.linting.through_step_coverage.lint_through_step_coverage",
@@ -334,14 +345,6 @@ _UNSUPPORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
         "requirements or section/detail view are required. Draftwright therefore reports every "
         "occurrence as an unsupported completeness requirement.",
     ),
-    "circular-blind-steps": (
-        ("CircularBlindStep",),
-        "https://github.com/pzfreo/draftwright/issues/1382",
-        "The provider proves a quarter-cylindrical blind corner step and supplies its radius, "
-        "run and oriented section. Draftwright has not yet reviewed which feature, view and "
-        "dimension grammar truthfully expresses that manufacturing requirement, so every "
-        "consumer boundary remains unsupported and completeness remains explicitly deferred.",
-    ),
 }
 
 
@@ -436,6 +439,66 @@ def consumer_capability_declaration() -> dict[str, Any]:
                 ],
                 "family": "chamfers",
                 "from": "deferred",
+                "release_notes": "CHANGELOG.md",
+                "to": "supported",
+                "version": distribution_version("draftwright"),
+            },
+            {
+                "boundary": "completeness",
+                "compatibility_evidence": [
+                    "tests/test_issue_1382_circular_blind_step_semantics.py",
+                    "tests/test_recogniser_capabilities.py",
+                ],
+                "family": "circular-blind-steps",
+                "from": "deferred",
+                "release_notes": "CHANGELOG.md",
+                "to": "supported",
+                "version": distribution_version("draftwright"),
+            },
+            {
+                "boundary": "drawing_consumer",
+                "compatibility_evidence": [
+                    "tests/test_issue_1382_circular_blind_step_semantics.py",
+                    "tests/test_recogniser_capabilities.py",
+                ],
+                "family": "circular-blind-steps",
+                "from": "unsupported",
+                "release_notes": "CHANGELOG.md",
+                "to": "supported",
+                "version": distribution_version("draftwright"),
+            },
+            {
+                "boundary": "dsl_declaration",
+                "compatibility_evidence": [
+                    "tests/test_issue_1382_circular_blind_step_semantics.py",
+                    "tests/test_recogniser_capabilities.py",
+                ],
+                "family": "circular-blind-steps",
+                "from": "unsupported",
+                "release_notes": "CHANGELOG.md",
+                "to": "supported",
+                "version": distribution_version("draftwright"),
+            },
+            {
+                "boundary": "generated_code",
+                "compatibility_evidence": [
+                    "tests/test_issue_1382_circular_blind_step_semantics.py",
+                    "tests/test_recogniser_capabilities.py",
+                ],
+                "family": "circular-blind-steps",
+                "from": "unsupported",
+                "release_notes": "CHANGELOG.md",
+                "to": "supported",
+                "version": distribution_version("draftwright"),
+            },
+            {
+                "boundary": "ir_adapter",
+                "compatibility_evidence": [
+                    "tests/test_issue_1382_circular_blind_step_semantics.py",
+                    "tests/test_recogniser_capabilities.py",
+                ],
+                "family": "circular-blind-steps",
+                "from": "unsupported",
                 "release_notes": "CHANGELOG.md",
                 "to": "supported",
                 "version": distribution_version("draftwright"),

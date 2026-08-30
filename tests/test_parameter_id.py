@@ -52,6 +52,12 @@ def _feature_classes() -> dict[str, type]:
 
 
 _F = ir.Frame((0.0, 0.0, 0.0), "z")
+_CBS_CENTRELINE = ((0.0, 0.0, -5.0), (0.0, 0.0, 5.0))
+_CBS_SECTION = ((-4.0, 0.0), (0.0, 0.0), (0.0, -4.0))
+_CBS_FRAME = ir.Frame(
+    ir.CircularBlindStepFeature.anchor_for("z", 4.0, _CBS_CENTRELINE, _CBS_SECTION),
+    "z",
+)
 _BBOX = Box(80, 50, 12).bounding_box()  # some planner rules consult the footprint
 
 
@@ -180,6 +186,9 @@ _SAMPLES: dict[str, ir.Feature] = {
     ),
     "ChamferFeature": ir.ChamferFeature(_F, "z", 2.0, 2.0, 45.0),
     "FilletFeature": ir.FilletFeature(_F, "z", 3.0),
+    "CircularBlindStepFeature": ir.CircularBlindStepFeature(
+        _CBS_FRAME, "z", 4.0, 10.0, _CBS_CENTRELINE, _CBS_SECTION
+    ),
     "PairedRampStepFeature": ir.PairedRampStepFeature(_F, "z", 45.0, 12.0),
     "ThroughStepFeature": ir.ThroughStepFeature(
         _F, "z", 12.0, ((-5.0, 5.0), (-5.0, -5.0), (5.0, -5.0))
@@ -265,6 +274,10 @@ _SAMPLE_BINDINGS = {
     "ExternalSpurGearFeature": (),
     "ChamferFeature": (("chamfer.length", 2.0),),
     "FilletFeature": (("fillet.radius", 3.0),),
+    "CircularBlindStepFeature": (
+        ("circular_step_radius.radius", 4.0),
+        ("circular_step_depth.length", 10.0),
+    ),
     "PairedRampStepFeature": (
         ("ramp_angle.angle", 45.0),
         ("ramp_run.length", 12.0),

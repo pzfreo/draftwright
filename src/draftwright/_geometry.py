@@ -43,6 +43,108 @@ _EDGE_ON = {"x": "front", "y": "side", "z": "front"}
 # requested view can actually show (#1276).
 _VIEW_AXES = {"plan": ("x", "y"), "front": ("x", "z"), "side": ("y", "z")}
 
+# Turned-part classification is shared by the full analysis pipeline and the standalone
+# record-to-IR adapter.  Keeping it below both prevents the adapter from probing the turned-step
+# recogniser before the aggregate merely to obtain an applicability flag (ADR 0017).
+_SQUARENESS_TOL = 0.05
+_OD_FILL_MIN = 0.8
+_OD_AXIS_TOL = 0.05
+
+
+@dataclass(frozen=True)
+class _CylinderClassification:
+    z_diams: tuple[float, ...]
+    cross_diams: tuple[float, ...]
+    od_diam: float | None
+    od_axis: str
+    is_rotational: bool
+
+
+def dedup_diams(cyls, tol: float = 0.15) -> list[float]:
+    """Return sorted-descending cylinder diameters merged within *tol*."""
+    raw = sorted({c["diameter"] for c in cyls}, reverse=True)
+    merged: list[float] = []
+    for diameter in raw:
+        if not merged or abs(diameter - merged[-1]) > tol:
+            merged.append(round(diameter, 2))
+    return merged
+
+
+def _is_rotational(x_size, y_size, od_diam, od_axis_offset) -> bool:
+    """Return whether one external cylinder fills a concentric square envelope."""
+    if od_diam is None:
+        return False
+    envelope = max(x_size, y_size)
+    return bool(
+        abs(x_size - y_size) <= _SQUARENESS_TOL * envelope
+        and od_diam >= _OD_FILL_MIN * envelope
+        and od_axis_offset <= _OD_AXIS_TOL * envelope
+    )
+
+
+def _classify_rotational_cylinders(
+    cylinders,
+    *,
+    sizes: tuple[float, float, float],
+    centre: tuple[float, float, float],
+) -> _CylinderClassification:
+    """Classify one shared public cylinder inventory without another topology scan."""
+    z_cyls, cross_cyls = cylinders
+    full_z = full_cylinders(z_cyls)
+    z_diams = dedup_diams(full_z)
+    cross_full = full_cylinders(cross_cyls)
+    cross_diams = dedup_diams(cross_full)
+    size = dict(zip("xyz", sizes, strict=True))
+    origin = dict(zip("xyz", centre, strict=True))
+
+    od_cyl = max(
+        (cylinder for cylinder in full_z if cylinder["external"]),
+        key=lambda cylinder: cylinder["diameter"],
+        default=None,
+    )
+    od_diam = None
+    if od_cyl:
+        raw_od = od_cyl["diameter"]
+        od_diam = min(z_diams, key=lambda diameter: abs(diameter - raw_od))
+    od_axis_offset = (
+        math.hypot(
+            od_cyl["axis_xyz"][0] - origin["x"],
+            od_cyl["axis_xyz"][1] - origin["y"],
+        )
+        if od_cyl
+        else 0.0
+    )
+    is_rotational = _is_rotational(size["x"], size["y"], od_diam, od_axis_offset)
+    od_axis = "z"
+    if not is_rotational:
+        for axis in ("x", "y"):
+            external = [
+                cylinder
+                for cylinder in cross_full
+                if cylinder.get("axis") == axis and cylinder["external"]
+            ]
+            if len({round(cylinder["diameter"], 1) for cylinder in external}) != 1:
+                continue
+            candidate = max(external, key=lambda cylinder: cylinder["diameter"], default=None)
+            if candidate is None:
+                continue
+            p0, p1 = (coordinate for coordinate in "xyz" if coordinate != axis)
+            offset = math.hypot(
+                candidate["axis_xyz"]["xyz".index(p0)] - origin[p0],
+                candidate["axis_xyz"]["xyz".index(p1)] - origin[p1],
+            )
+            if _is_rotational(size[p0], size[p1], candidate["diameter"], offset):
+                od_diam, od_axis, is_rotational = candidate["diameter"], axis, True
+                break
+
+    return _CylinderClassification(
+        tuple(z_diams),
+        tuple(cross_diams),
+        od_diam,
+        od_axis,
+        is_rotational,
+    )
+
 
 def _radial_axis_in_view(axis: str, view: str) -> str:
     """Return a principal radial axis visible in *view* for a shaft along *axis*.

@@ -1294,6 +1294,13 @@ class TestEveryFeatureVerbIsNameable:
         "envelope": {},
         "chamfer": dict(axis="z", leg=2, at=(0, 0, 0)),
         "fillet": dict(axis="z", radius=2, at=(0, 0, 0)),
+        "circular_blind_step": dict(
+            axis="z",
+            radius=4,
+            length=10,
+            centreline=((0, 0, -5), (0, 0, 5)),
+            section=((-4, 0), (0, 0), (0, -4)),
+        ),
         "paired_ramp_step": dict(axis="z", angle=45, length=10, at=(0, 0, 0)),
         "through_step": dict(
             axis="z",

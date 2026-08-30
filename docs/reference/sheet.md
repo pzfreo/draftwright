@@ -163,8 +163,8 @@ sheet.dimension(tapped_hole, "bore.diameter", view="plan", side="left")
 
 ## Multi-parameter handle
 
-Paired-ramp and through steps use a multi-parameter handle because their requirements remain
-separately addressable:
+Circular-blind, paired-ramp and through steps use a multi-parameter handle because their
+requirements remain separately addressable:
 
 ```python
 ramp = sheet.paired_ramp_step(
@@ -177,6 +177,16 @@ sheet.authored_dimensions()
 sheet.dimension(ramp, "ramp_angle.angle")
 sheet.dimension(ramp, "ramp_run.length")
 
+circular = sheet.circular_blind_step(
+    axis="x",
+    radius=4,
+    length=25,
+    centreline=((-5, 15, 10), (20, 15, 10)),  # blind terminal → open envelope
+    section=((11, 10), (15, 10), (15, 6)),   # arc endpoint, centre, endpoint
+)
+sheet.dimension(circular, "circular_step_radius.radius")
+sheet.dimension(circular, "circular_step_depth.length")
+
 step = sheet.through_step(
     axis="z",
     length=20,
@@ -187,7 +197,7 @@ sheet.dimension(step, "through_step_leg.length.x")
 sheet.dimension(step, "through_step_leg.length.y")
 ```
 
-Both declarations are explicit-only. A detached face or cutter cannot prove the aggregate
+All three declarations are explicit-only. A detached face or cutter cannot prove the aggregate
 material-removal topology. Placement remains solver-owned; the engine selects the end-on view
 and positions the compound leader or linear section dimensions.
 
