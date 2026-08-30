@@ -81,6 +81,7 @@ def _hole_location_coverage_fact(location):
         in {
             "location.location",
             "location_pattern.location",
+            "location_pad.location",
             "location_pocket.location",
             "location_pocket_pattern.location",
         }

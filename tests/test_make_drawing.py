@@ -4169,12 +4169,12 @@ class TestPrismaticClassification:
         dwg = build_drawing(part)
         xlocs = {n for n in dwg.annotations() if n.startswith("dim_loc_front_x")}
         assert len(xlocs) == 2, f"both side-drilled holes must be located, got {xlocs}"
-        # The X offsets are the #225 subject and both land. Their two Z-height companions do
-        # not: `off_axis_location_dropped` records that loss at info severity, so #1250 must
-        # keep the automatic drawing from reporting success over it.
+        # The X offsets are the #225 subject and both land. The corrected side-right strip
+        # also admits one Z-height companion; the other still records an info-level
+        # `off_axis_location_dropped`, so #1250 must not report success over that loss.
         issues = dwg.lint()
         assert [i.code for i in issues if i.severity == "error"] == ["plan_incomplete"]
-        assert [i.code for i in issues].count("off_axis_location_dropped") == 2
+        assert [i.code for i in issues].count("off_axis_location_dropped") == 1
 
     @pytest.mark.timeout(60)
     def test_corner_fillets_do_not_make_a_plate_rotational(self):
@@ -4617,13 +4617,13 @@ class TestAutoHoleAnnotations:
         )
         dwg = build_drawing(part)
         assert len([n for n in dwg.annotations() if n.startswith("hc_front")]) == 2
-        # Both callouts and both X offsets land, but the two Z-height companions do not.
-        # Their info-level placement drops are required outcomes, so the #1250 summary keeps
-        # this automatic sheet from claiming a clean verdict while preserving this test's
-        # subject: both front-view callouts fit.
+        # Both callouts and both X offsets land. The corrected side-right strip admits one
+        # Z-height companion; the remaining info-level placement drop is still a required
+        # outcome, so #1250 keeps this sheet from claiming a clean verdict while preserving
+        # this test's subject: both front-view callouts fit.
         issues = dwg.lint()
         assert [i.code for i in issues if i.severity == "error"] == ["plan_incomplete"]
-        assert [i.code for i in issues].count("off_axis_location_dropped") == 2
+        assert [i.code for i in issues].count("off_axis_location_dropped") == 1
 
     @pytest.mark.timeout(60)
     def test_all_distinct_bores_get_callouts(self):

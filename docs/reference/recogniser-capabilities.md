@@ -291,9 +291,10 @@ and polygonal-boss benchmark corpora; #1373 covers plates, face levels and riser
 Draftwright exactly pins the published `b123d-recognisers==0.4.8` wheel. Production deliberately
 calls `build_raw_recognition_result`: records remain in the caller/world coordinate system until
 #1357 introduces one reviewed framed-result adapter. Tests use the public framed API only as
-release evidence for upstream #331, #332, and #334; they do not add a fallback, a second aggregate,
-or a family rescan. Face levels, risers, and turned profiles remain outside framed production
-pending their separately released upstream fixes.
+release evidence for upstream #331, #332, and #334, comparing each aggregate inventory with the
+corresponding public family call on the exact returned local solid. Production adds no fallback,
+second aggregate, or family rescan. Face levels, risers, and turned profiles remain outside framed
+production pending their separately released upstream fixes.
 
 `RaisedPad` schema v2 makes a pad normal and its material-outward sign explicit. Draftwright maps
 the six signed principal orientations into one `PadFeature`: world bounds and direction survive

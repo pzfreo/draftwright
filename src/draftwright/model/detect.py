@@ -512,8 +512,8 @@ def _convert_pad(pad: RaisedPad, ctx: ConvContext) -> PadFeature:
         w_center=(width_lo + width_hi) / 2,
         lo=long_lo,
         hi=long_hi,
-        normal_lo=normal_lo,
-        normal_hi=normal_hi,
+        z0=normal_lo,
+        z1=normal_hi,
         direction=pad.direction,
     )
 

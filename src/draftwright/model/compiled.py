@@ -1139,7 +1139,11 @@ def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[
         directional_location = (
             isinstance(
                 feature,
-                HoleFeature | PatternFeature | PocketPatternFeature | SlotPatternFeature,
+                HoleFeature
+                | PadFeature
+                | PatternFeature
+                | PocketPatternFeature
+                | SlotPatternFeature,
             )
             and feature.frame.axis == "z"
         )
@@ -1254,7 +1258,7 @@ def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[
         approved.append(
             ApprovedDimension(
                 id=_dim_id(feature, pd.param.parameter_id),
-                #: Pocket/pad Z-normal ladders remain one location entry with no per-axis value:
+                #: Pocket Z-normal ladders remain one location entry with no per-axis value:
                 #: `render_locations` groups refs ACROSS features and dedups per axis before
                 #: it knows which dims exist, so an entry per axis would be approving a mark
                 #: whose existence the renderer decides. Splitting it needs that grouping to

@@ -1201,6 +1201,7 @@ def _build_drawing_once(
             pmi=pmi,
             model=model,
             decorations=decorations,
+            authored=authored,
             material=material,
             date=date,
             revision=revision,

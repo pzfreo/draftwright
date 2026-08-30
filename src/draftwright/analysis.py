@@ -134,6 +134,7 @@ def _apply_principal_view_pins(
     geometry.PV_Y += dy
     geometry.SV_X += dx
     geometry.SV_Y += dy
+    geometry.sv_geometry_right += dx
     geometry.sv_right += dx
     geometry.sv_right_wall += dx
     # Geometry bounds are the minimum pre-projection feasibility gate. Annotation bands use
@@ -576,6 +577,7 @@ def _analyse(
     pmi=None,
     model=None,
     decorations=None,
+    authored=None,
     material="",
     date="",
     revision="A",
@@ -787,6 +789,17 @@ def _analyse(
             cyls=shared_cyls,
         )
     )
+    # Authored omission affects annotation FOOTPRINT sizing, but the analysis model retains
+    # its historical automatic requirement inventory for view-feasibility preflight.  The
+    # builder applies the same authored tuple to the render model later.  Keeping this as a
+    # strip-only copy avoids letting a sparse authored dimension set erase semantic view
+    # requirements (for example the parent view needed by an authored detail), while ensuring
+    # suppressed pad bands cannot reduce the selected scale (#1392).
+    strip_sizing_model = (
+        replace(sizing_model, authored_dimensions=tuple(authored))
+        if authored is not None
+        else sizing_model
+    )
     # ADR 0018 Phase 5.5: prove the chosen principal set can carry every approved
     # dimension before scale selection or projection.  A reduced view set is therefore a
     # re-plan, not the fixed three-view plan rendered into fewer views.
@@ -818,7 +831,7 @@ def _analyse(
     # converges in a couple of rounds.
     def _measure_for_step_count(n_steps_i: int) -> StripDepths:
         return _measure_strips(
-            sizing_model,
+            strip_sizing_model,
             n_steps_i,
             bb,
             arrow_length=_arrow_length,
@@ -880,7 +893,7 @@ def _analyse(
     # Refine: apply the same legibility gate _auto_annotate uses for dim_step.
     n_steps = len(_legible_steps(step_zs, bb.min.Z, SCALE)[0])
     strips = _measure_strips(
-        sizing_model,
+        strip_sizing_model,
         n_steps,
         bb,
         arrow_length=_arrow_length,
