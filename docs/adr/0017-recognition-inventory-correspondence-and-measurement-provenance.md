@@ -3,7 +3,8 @@
 - **Status:** Accepted; narrowed after phase 1 (Amendment 1, 2026-08-05), with
   external-package/cache ownership clarified by Amendment 2 (2026-08-15) and turned
   edge-treatment applicability widened by Amendment 3 (2026-08-22), and the 0.4.6
-  prismatic step inventories incorporated by Amendment 4 (2026-08-30)
+  prismatic step inventories incorporated by Amendment 4 (2026-08-30). Amendment 5 names
+  the raw-coordinate production boundary during framed-recognition adoption.
 - **Date:** 2026-08-03
 - **Deciders:** Paul Fremantle (pzfreo)
 
@@ -138,6 +139,21 @@ as that outcome instead of becoming `inapplicable`. A partially covered occurren
 as the aggregate owner and removes exact matching legacy fragments. The explicit Sheet declaration
 permits the same local two-leg grammar on every principal axis. This is a pure projection of the
 shared aggregate, not a second recognition scan.
+
+## Amendment 5 — raw coordinates are explicit while framed adoption is incomplete
+
+Draftwright's 0.4.8 adoption replaces every production call of the historical ambiguous
+`build_recognition_result` alias with `build_raw_recognition_result`. This is a naming change,
+not a coordinate change: `PartModel`, declared features, view planning, annotations, and public
+`Sheet` values remain in caller/world coordinates. The one Draftwright-owned cache and one shared
+cylinder inventory are unchanged.
+
+`build_framed_recognition_result` is a public provider-evidence route until #1357 lands one owned
+frame-to-IR adapter. Tests may inspect the returned exact local working solid and its result; no
+production path may mix those local records with caller-coordinate geometry, automatically fall
+back on refusal, or run a second aggregate to compare them. RaisedPad schema v2 is accepted only
+after signed X/Y/Z orientation, footprint, height, location, occurrence identity, declaration,
+generated code, placement, and critique cross the existing compiler boundaries together.
 
 ## Accepted Contract
 

@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 from b123d_recognisers import (
-    build_recognition_result,
+    build_raw_recognition_result,
     recognise_double_d_bores,
     recognise_repeating_radial_profiles,
 )
@@ -570,7 +570,7 @@ def test_real_wheel_no_longer_gets_a_confident_envelope_only_result(wheel_drawin
 
 def test_synthetic_double_d_profile_is_recognised_without_lint_rescans():
     detected = detect_part_model(_double_d_bore())
-    with counting_calls({"orchestration": build_recognition_result}) as calls:
+    with counting_calls({"orchestration": build_raw_recognition_result}) as calls:
         drawing = build_drawing(_double_d_bore())
         assert tuple(detected.features) == tuple(drawing.model().features)
         assert calls == {"orchestration": 1}
@@ -715,7 +715,7 @@ def test_opposed_blind_recesses_do_not_prove_a_through_bore():
 def test_declared_object_and_explicit_forms_preserve_profile_and_skip_recognition():
     part = Box(30, 30, 10, align=_CENTER)
     cutter = _double_d_cutter()
-    with counting_calls({"orchestration": build_recognition_result}) as calls:
+    with counting_calls({"orchestration": build_raw_recognition_result}) as calls:
         sheet = Sheet(part)
         object_handle = sheet.double_d_bore(cutter)
         explicit_handle = sheet.double_d_bore(
@@ -793,7 +793,7 @@ def test_declared_model_cannot_omit_a_physical_double_d_bore_cleanly():
 
 def test_a_dropped_profile_only_suppresses_the_exact_physical_requirement():
     part = _double_d_bore()
-    recognition = build_recognition_result(part)
+    recognition = build_raw_recognition_result(part)
     exact = ("double_d", "z", True, 10.0, 7.2, (1.0, 0.0, 0.0))
     wrong_af = ("double_d", "z", True, 10.0, 6.8, (1.0, 0.0, 0.0))
     assert (
@@ -831,7 +831,7 @@ def test_profile_coverage_rejects_unowned_results_and_canonicalises_directions()
         0.0,
     )
 
-    recognition = build_recognition_result(part)
+    recognition = build_raw_recognition_result(part)
     issues = lint_profiled_bore_coverage(part, [], recognition=recognition, assembly=True)
     assert [issue.severity for issue in issues] == ["info"]
 

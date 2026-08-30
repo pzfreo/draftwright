@@ -325,7 +325,7 @@ profile warning only for that occurrence, so an unrelated unrecognised profile r
 
 ## Passage compatibility boundary
 
-The installed `b123d-recognisers==0.4.6` release contains the `passages` family introduced
+The installed `b123d-recognisers==0.4.8` release contains the `passages` family introduced
 in 0.2.6. Version 0.4.0 makes `SectionPassage` the authoritative physical output and retains
 schema-v1 `Passage` as its compatibility projection. Draftwright declares all six public and nested
 record schemas exhaustively but deliberately keeps the family `unsupported`, with the drafting
@@ -343,7 +343,7 @@ The 0.4 contract is explicit:
 - rich split-junction passages can supersede a Slot claim, moving physical ownership to the
   unsupported Passage family through `SLOT_SUPERSEDED_BY_PASSAGE`.
 
-The exact 0.4.6 pin, manifest-v2 validator and explicit unsupported inventories make that limitation
+The exact 0.4.8 pin, manifest-v2 validator and explicit unsupported inventories make that limitation
 fail-visible rather than silently treating rich passages as supported. Draftwright deliberately
 does not claim that a regular-polygon `HEX … A/F THRU` callout covers the complete line/arc section
 schema. Each authoritative `RecognitionResult.section_passages` occurrence therefore emits
@@ -365,3 +365,18 @@ are proved; the explicit Sheet surface likewise supports all principal axes. Cir
 steps retain their oriented centreline/quarter-arc correspondence and communicate independently
 addressable radius and stopped-depth requirements in one end-view leader. Issue #1382 records
 the reviewed downstream dispositions.
+
+## Explicit raw-coordinate boundary and RaisedPad schema v2 in 0.4.8
+
+Draftwright production calls `build_raw_recognition_result()` explicitly. This preserves the
+established caller/world-coordinate IR while making the boundary reviewable; no refusal path
+silently falls back from framed to raw recognition. The public framed route is exercised only as
+provider-contract evidence until #1357 supplies one owned frame-to-IR adapter.
+
+`RaisedPad` schema v2 adds `axis` and `direction`. Draftwright accepts only schema v2 at this pin
+and carries all six signed principal orientations through one covariant IR/declaration/compiler
+path. Footprint, direct height, two in-plane locations, and a stable occurrence ordinal remain
+distinct measurement/ownership facts. Equal-looking pads on separate solids therefore cannot
+collapse at the structural `FeatureRef` seam. Polygonal-boss covariance and Plate body locality
+are pinned through the same installed public framed result, but their downstream completeness
+slices remain separately owned by #1372/#1373.

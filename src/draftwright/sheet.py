@@ -1529,11 +1529,7 @@ class Sheet:
         return _Params(self, len(self._features) - 1)
 
     def pad(self, obj=None, **kw) -> _Params:
-        """Declare a bounded rectangular raised pad (footprint + X/Y location).
-
-        Its Z height is shared with the prismatic level ladder, so it is not
-        independently double-dimensioned.
-        """
+        """Declare a signed principal-axis rectangular raised pad."""
         self._features.append(_pad(obj, **kw))
         return _Params(self, len(self._features) - 1)
 

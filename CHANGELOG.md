@@ -37,6 +37,21 @@
 
 ### Changed
 
+- Adopted the exact PyPI `b123d-recognisers==0.4.8` contract while deliberately retaining
+  caller/world-coordinate production behavior through the explicitly named
+  `build_raw_recognition_result()` route. RaisedPad schema v2 now preserves signed X/Y/Z
+  orientation and occurrence identity through IR, `Sheet.pad`, generated code, requirement-driven
+  views, solver-placed footprint/height/location dimensions, and physical completeness. Public
+  framed-contract regressions for rectangular pads, polygonal bosses, and body-local Plates are
+  pinned independently; framed production remains deferred to #1357 (#1392).
+  Two caller-coordinate inventory transitions are accepted explicitly: a rolled edge opening now
+  retains its physical Y depth axis instead of being interpreted as a Z-floor owner, and the
+  rolled flange corpus no longer misclassifies box-ended lobes as attached rectangular pads.
+  The corrected turned/flange inventory can also prove a formerly retained plan projection
+  redundant, so its plan-axis furniture is now omitted with that view as required by #1262.
+  Existing downstream ownership/emitter tests now assert those corrected meanings rather than
+  preserving the former orientation artefacts.
+
 - Circular blind steps recognised by `b123d-recognisers` now have a complete consumer path.
   The oriented terminal-to-open centreline and transverse quarter-arc lower without rescanning
   to an explicit-only IR/Sheet feature; generated code preserves the full correspondence.

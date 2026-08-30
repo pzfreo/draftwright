@@ -256,7 +256,7 @@ def test_every_fillet_boundary_is_observed_supported_on_the_real_public_path() -
 def test_fillet_observer_uses_one_build_owned_recognition_aggregate(monkeypatch) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_recognition_result
+    original = analysis.build_raw_recognition_result
     calls = 0
 
     def counted(*args, **kwargs):
@@ -264,7 +264,7 @@ def test_fillet_observer_uses_one_build_owned_recognition_aggregate(monkeypatch)
         calls += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(analysis, "build_recognition_result", counted)
+    monkeypatch.setattr(analysis, "build_raw_recognition_result", counted)
     assert _default_observers()["fillets"](_lone())
     assert calls == 1
 
@@ -483,13 +483,13 @@ def test_severing_fillet_measurement_provenance_loses_drawing_credit(monkeypatch
 def test_deleting_provider_fillets_cannot_shrink_independent_denominator(monkeypatch) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_recognition_result
+    original = analysis.build_raw_recognition_result
 
     def without_fillets(*args, **kwargs):
         result = original(*args, **kwargs)
         return replace(result, fillets=())
 
-    monkeypatch.setattr(analysis, "build_recognition_result", without_fillets)
+    monkeypatch.setattr(analysis, "build_raw_recognition_result", without_fillets)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))
 
     assert damaged.detection.matched == 0
@@ -501,14 +501,14 @@ def test_deleting_provider_fillets_cannot_shrink_independent_denominator(monkeyp
 def test_weakening_provider_fillet_radius_reduces_fidelity(monkeypatch) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_recognition_result
+    original = analysis.build_raw_recognition_result
 
     def weakened(*args, **kwargs):
         result = original(*args, **kwargs)
         values = tuple(replace(item, radius=item.radius + 0.5) for item in result.fillets)
         return replace(result, fillets=values)
 
-    monkeypatch.setattr(analysis, "build_recognition_result", weakened)
+    monkeypatch.setattr(analysis, "build_raw_recognition_result", weakened)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))
 
     assert damaged.detection.recall == 1.0

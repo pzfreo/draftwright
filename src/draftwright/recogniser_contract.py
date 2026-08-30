@@ -126,6 +126,7 @@ _FAMILIES: dict[str, _FamilySpec] = {
 _RECORD_SCHEMA_VERSIONS: dict[tuple[str, str], tuple[int, ...]] = {
     ("chamfers", "Chamfer"): (2,),
     ("fillets", "Fillet"): (2,),
+    ("rectangular-pads", "RaisedPad"): (2,),
 }
 
 

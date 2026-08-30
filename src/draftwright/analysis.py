@@ -22,7 +22,7 @@ from b123d_recognisers import (
     TurnedProfile,
     TurnedStep,
     analyse_cylinders,
-    build_recognition_result,
+    build_raw_recognition_result,
     full_cylinders,
 )
 from build123d import Compound, Shape
@@ -691,7 +691,7 @@ def _analyse(
         _turned = _declared_turned_profile(layout_model)
         step_zs = _declared_step_zs(layout_model, _turned, bb)
     else:
-        recognition = build_recognition_result(
+        recognition = build_raw_recognition_result(
             part, cylinders=(z_cyls, cross_cyls), rotational=is_rotational
         )
         _turned = TurnedProfile.from_steps(list(recognition.turned_steps))

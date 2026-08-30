@@ -2547,7 +2547,9 @@ class TestTheDimensionMirror:
     #: only an envelope) and "slot" (detected a pocket) until #947's review counted them.
     _EXPECTED_KINDS = {
         "plate+hole": {"hole"},
-        "flange (no envelope feature)": {"hole", "pattern", "pad", "step"},
+        # 0.4.8 no longer treats the flange's four box-ended lobes as attached rectangular
+        # pads after the part is rolled; the dedicated pad fixture below owns that route.
+        "flange (no envelope feature)": {"hole", "pattern", "step"},
         "stepped": {"step_level"},
         "slot": {"slot"},
         "pocket": {"pocket"},
@@ -2771,7 +2773,6 @@ class TestTheDimensionMirror:
 _SCRIPT_FURNITURE = {
     "m_cm": "centre marks — sized off the hole they mark, not a printed value (#875)",
     "centerline_front": "shows where the front view's axis is; no measurement",
-    "centerline_plan": "shows where the plan view's axis is; no measurement",
     "centerline_side": "shows where the side view's axis is; no measurement",
     "bc_": "a bolt circle's centreline — geometry, like a centre mark",
     "note_iso_nts": "the ISO NTS caption — a sheet-level statement, not a feature's",

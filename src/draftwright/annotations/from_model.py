@@ -114,6 +114,7 @@ from draftwright.model.ir import (
     FilletFeature,
     HoleFeature,
     KnurlRequirement,
+    PadFeature,
     PatternFeature,
     PocketFeature,
     SlotFeature,
@@ -333,10 +334,11 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
     # approved location consumed by render_locations, including non-Z openings.
     # Keyed by (feature, MEASURED axis): a non-Z pocket is approved one entry per in-plane
     # coordinate, so keying by feature alone would keep whichever came last.
-    pocket_locations = {
+    planar_feature_locations = {
         (loc.ref, loc.discriminator): loc
         for loc in plan.locations
-        if loc.role == PocketFeature.LOCATION_STEM and loc.discriminator is not None
+        if loc.role in {PocketFeature.LOCATION_STEM, PadFeature.LOCATION_STEM}
+        and loc.discriminator is not None
     }
     # A slot's own position dim — datum→near-end along its long axis. Compiled, not
     # computed from `a.bb`: it prints a number, so an authored set that does not name the
@@ -628,8 +630,8 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
                 # fires shows 12 nameless position drops across nist_ctc_03 and nist_ctc_04,
                 # all from here (#1231 review, finding 1).
                 _record_slot_drop(ctx, dwg, "position", i, name, s, pos.id)
-        elif s.kind == "pocket" and s.frame.axis != "z":
-            # Side-/front-opening pockets need two in-plane coordinates in their
+        elif s.kind in {"pocket", "pad"} and s.frame.axis != "z":
+            # Side-/front-opening pockets and pads need two in-plane coordinates in their
             # end-on view.  The compiler approves one entry PER coordinate, each with its
             # own value and span; Z-opening pockets use render_locations' X(plan)/Y(side)
             # ladder instead.
@@ -638,7 +640,7 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
                 (s.long_axis, width_lo, width_hi, "pos_long"),
                 (s.width_axis, s.lo, s.hi, "pos_width"),
             ):
-                entry = pocket_locations.get((FeatureRef(s), axis))
+                entry = planar_feature_locations.get((FeatureRef(s), axis))
                 if entry is None:
                     continue  # not approved
                 index = "xyz".index(axis)
@@ -3360,7 +3362,7 @@ def render_polygonal_stock(dwg, plan, a, *, ctx) -> int:
 
 
 def render_boss_heights(dwg, plan, a, *, ctx) -> int:
-    """Queue prismatic boss heights and polygonal-stock lengths in a profile corridor."""
+    """Queue prismatic boss/pad heights and polygonal-stock lengths in profile corridors."""
     if a.is_rotational or a.prof is not None:
         return 0
     tier = dwg.draft.font_size + 2 * dwg.draft.pad_around_text
@@ -3376,16 +3378,28 @@ def render_boss_heights(dwg, plan, a, *, ctx) -> int:
                 *plan.of_kind("boss"),
                 *plan.of_kind("polygonal_boss"),
                 *plan.of_kind("polygonal_stock"),
+                *plan.of_kind("pad"),
             ],
             key=lambda g: (g.facts.frame.axis, g.facts.frame.origin),
         )
     ):
         b = g.facts
-        role = "stock_length" if g.ref.kind == "polygonal_stock" else "boss_height"
+        role = {
+            "polygonal_stock": "stock_length",
+            "pad": "pad_height",
+        }.get(g.ref.kind, "boss_height")
         pd = next((d for d in g.dims if (d.role, d.kind) == (role, "length")), None)
         if pd is None or pd.span is None:
             continue
-        spec = specs.get(b.frame.axis)
+        # A Z-pad's direct height would otherwise compete with the mandatory overall
+        # height in the same right-hand profile corridor.  Keep the established boss/stock
+        # routes, but put the pad's nested axial extent on the opposite side where its
+        # endpoints remain equally visible (#1392).
+        spec = (
+            ("front", "left", a.fv_zones.left, "x")
+            if g.ref.kind == "pad" and b.frame.axis == "z"
+            else specs.get(b.frame.axis)
+        )
         if spec is None:
             continue
         view, side, strip, stack = spec
@@ -3393,7 +3407,10 @@ def render_boss_heights(dwg, plan, a, *, ctx) -> int:
         p2 = dwg.at(view, *pd.span[1])
         edge = max(p1[0], p2[0]) if side == "right" else max(p1[1], p2[1])
         label = pd.value_text + _tol_suffix(pd.tolerance, dwg.draft)
-        prefix = "m_stocklength" if g.ref.kind == "polygonal_stock" else "m_bossheight"
+        prefix = {
+            "polygonal_stock": "m_stocklength",
+            "pad": "m_padheight",
+        }.get(g.ref.kind, "m_bossheight")
         name = f"{prefix}_{b.frame.axis}{bi}"
 
         def build(pos, p1=p1, p2=p2, side=side, edge=edge, label=label):
@@ -3402,12 +3419,25 @@ def render_boss_heights(dwg, plan, a, *, ctx) -> int:
         def footprint(pos, p1=p1, p2=p2, side=side, edge=edge, label=label):
             return dim_footprint(p1, p2, side, abs(pos - edge), dwg.draft, label)
 
-        def dropped(_name, *, stock=g.ref.kind == "polygonal_stock", measurement=pd.id):
+        def dropped(
+            _name,
+            *,
+            stock=g.ref.kind == "polygonal_stock",
+            pad=g.ref.kind == "pad",
+            measurement=pd.id,
+        ):
             if stock:
                 ctx.record_issue(
                     "warning",
                     "polygonal_stock_length_dropped",
                     "polygonal stock axial length was not placed (profile strip full)",
+                    measurement=measurement,
+                )
+            elif pad:
+                ctx.record_issue(
+                    "warning",
+                    "pad_height_dropped",
+                    "rectangular pad height was not placed (profile strip full)",
                     measurement=measurement,
                 )
 

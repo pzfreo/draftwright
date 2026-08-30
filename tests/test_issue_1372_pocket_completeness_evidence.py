@@ -169,7 +169,7 @@ def test_every_pocket_boundary_is_observed_supported_on_the_real_public_path() -
 def test_pocket_observer_uses_one_build_owned_recognition_aggregate(monkeypatch) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_recognition_result
+    original = analysis.build_raw_recognition_result
     calls = 0
 
     def counted(*args, **kwargs):
@@ -177,7 +177,7 @@ def test_pocket_observer_uses_one_build_owned_recognition_aggregate(monkeypatch)
         calls += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(analysis, "build_recognition_result", counted)
+    monkeypatch.setattr(analysis, "build_raw_recognition_result", counted)
     assert _default_observers()["pockets"](_lone())
     assert calls == 1
 
@@ -399,13 +399,13 @@ def test_side_opening_authored_location_omission_is_suppressed_not_missing() -> 
 def test_deleting_provider_pockets_cannot_shrink_independent_denominator(monkeypatch) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_recognition_result
+    original = analysis.build_raw_recognition_result
 
     def without_pockets(*args, **kwargs):
         result = original(*args, **kwargs)
         return replace(result, pockets=(), pocket_patterns=())
 
-    monkeypatch.setattr(analysis, "build_recognition_result", without_pockets)
+    monkeypatch.setattr(analysis, "build_raw_recognition_result", without_pockets)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))
 
     assert damaged.detection.matched == 0
@@ -417,14 +417,14 @@ def test_deleting_provider_pockets_cannot_shrink_independent_denominator(monkeyp
 def test_weakening_provider_widths_reduces_parameter_fidelity(monkeypatch) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_recognition_result
+    original = analysis.build_raw_recognition_result
 
     def weakened_pockets(*args, **kwargs):
         result = original(*args, **kwargs)
         pockets = tuple(replace(pocket, width=pocket.width + 1.0) for pocket in result.pockets)
         return replace(result, pockets=pockets)
 
-    monkeypatch.setattr(analysis, "build_recognition_result", weakened_pockets)
+    monkeypatch.setattr(analysis, "build_raw_recognition_result", weakened_pockets)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))
 
     assert damaged.detection.recall == 1.0

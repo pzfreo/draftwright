@@ -74,14 +74,13 @@ def test_attached_pad_remains_recognised_once():
         name: drawing.get_annotation(name).label
         for name in drawing.annotations()
         if name.startswith("m_pad")
-    } == {"m_pad0_width": "20", "m_pad0_length": "30"}
+    } == {"m_pad0_width": "20", "m_pad0_length": "30", "m_padheight_z0": "4"}
     assert not [name for name in drawing.annotations() if name.startswith("m_slot")]
-    # The pad's own height above the plate is a `step_level` the compiler approves and the
-    # legibility floor discards — 9 mm of page against a 12.4 mm minimum — so this drawing gives
-    # the pad a width and a length and no height. That was invisible until `step_dim_withheld`
-    # (#1216); the assertion was `== []` and the missing dimension was part of what it blessed.
+    # The pad's direct height now occupies the left profile corridor, opposite the mandatory
+    # overall height.  The same short span remains part of the legacy step-level ladder, whose
+    # 12.4 mm legibility floor withholds that redundant route; pad completeness itself is met.
     assert [(issue.severity, issue.code) for issue in drawing.lint()] == [
-        ("info", "step_dim_withheld")
+        ("info", "step_dim_withheld"),
     ]
 
 

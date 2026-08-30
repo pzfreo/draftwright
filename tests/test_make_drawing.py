@@ -9492,11 +9492,14 @@ class TestTurnedDiameters:
             expected = 4 if dwg.get_annotation(name).label == "4× 2" else 1
             assert len(dwg.measurement_keys(name)) == expected
 
-        # The central Y-axis bore shares the detected turned-profile axis. Its
-        # centreline locates it; generic minimum-edge offsets would redundantly
-        # show half the 46 mm envelope in both X and Z (#881).
+        # The central Y-axis bore shares the detected turned-profile axis. Its side-view
+        # centreline locates it; generic minimum-edge offsets would redundantly show half
+        # the 46 mm envelope in both X and Z (#881).  With the corrected 0.4.8 inventory,
+        # automatic view selection can prove the plan projection redundant; #1262 requires
+        # furniture for an omitted view to be omitted with it.
         assert dwg.view_of("centerline_side") == "side"
-        assert dwg.view_of("centerline_plan") == "plan"
+        assert "plan" not in dwg.views
+        assert dwg.view_of("centerline_plan") is None
         assert not any(n.startswith("dim_loc_front_") for n in dwg.annotations())
         assert not any(n.startswith("dim_loc_side_") for n in dwg.annotations())
 
@@ -9717,7 +9720,7 @@ class TestTurnedDiameters:
 
         Retargeted onto the Sheet script by #940. This fixture also carries what
         `test_issue_881_generated_script_emits_y_step_intents` used to assert about the
-        imperative script's TEXT: that suite's executable half — side/plan centrelines, no
+        imperative script's TEXT: that suite's executable half — axis furniture, no
         front/side location dims, the step-length chain on the side view — is folded in
         below, since the source-text half described a file that no longer exists.
         """
@@ -9761,7 +9764,8 @@ class TestTurnedDiameters:
 
         # ── from #881: the Y-step furniture lands in the right views on the replay ──
         assert replayed.view_of("centerline_side") == "side"
-        assert replayed.view_of("centerline_plan") == "plan"
+        assert "plan" not in replayed.views
+        assert replayed.view_of("centerline_plan") is None
         assert not any(n.startswith(("dim_loc_front_", "dim_loc_side_")) for n in replay)
         assert {replayed.view_of(n) for n in replay if n.startswith("m_steplen")} == {"side"}
 

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import Any, cast
 
 from b123d_recognisers import (
     AngledStep,
@@ -56,7 +56,7 @@ from b123d_recognisers import (
     TurnedProfile,
     TurnedStep,
     analyse_cylinders,
-    build_recognition_result,
+    build_raw_recognition_result,
     has_multi_axis_plates,
     project_step_shoulders,
     recognise_bosses,
@@ -491,20 +491,31 @@ def _convert_channel(channel: Channel, ctx: ConvContext) -> ChannelFeature:
 
 def _convert_pad(pad: RaisedPad, ctx: ConvContext) -> PadFeature:
     """A recognised bounded island → the dimensioning IR."""
+    transverse = tuple(axis for axis in "xyz" if axis != pad.axis)
+    long_axis, width_axis = transverse
+    bounds = {
+        "x": (pad.x0, pad.x1),
+        "y": (pad.y0, pad.y1),
+        "z": (pad.z0, pad.z1),
+    }
+    lo, hi = bounds[long_axis]
+    width_lo, width_hi = bounds[width_axis]
+    axis_lo, axis_hi = bounds[pad.axis]
     return PadFeature(
         frame=Frame(
             ((pad.x0 + pad.x1) / 2, (pad.y0 + pad.y1) / 2, (pad.z0 + pad.z1) / 2),
-            "z",
+            pad.axis,
         ),
-        width_axis="y",
-        long_axis="x",
-        width=pad.y1 - pad.y0,
-        length=pad.x1 - pad.x0,
-        w_center=(pad.y0 + pad.y1) / 2,
-        lo=pad.x0,
-        hi=pad.x1,
-        z0=pad.z0,
-        z1=pad.z1,
+        width_axis=width_axis,
+        long_axis=long_axis,
+        width=width_hi - width_lo,
+        length=hi - lo,
+        w_center=(width_lo + width_hi) / 2,
+        lo=lo,
+        hi=hi,
+        z0=axis_lo,
+        z1=axis_hi,
+        direction=pad.direction,
     )
 
 
@@ -995,7 +1006,7 @@ def build_part_model(
             sizes=(bbox.size.X, bbox.size.Y, bbox.size.Z),
             centre=(centre.X, centre.Y, centre.Z),
         )
-        recognition = build_recognition_result(
+        recognition = build_raw_recognition_result(
             part,
             cylinders=cyls,
             rotational=(
@@ -1323,11 +1334,15 @@ def build_part_model(
             continue
         features.append(convert(pk, ctx))
 
-    # Bounded rectangular raised pads: footprint sizing + X/Y location; their
-    # height remains in the correlated StepLevelFeature ladder.
+    # Bounded rectangular raised pads retain their complete signed principal-axis
+    # occurrence.  The occurrence ordinal prevents equal records on distinct solids
+    # from collapsing at the structural FeatureRef boundary.
     if pads is None:
         pads = recognise_rectangular_pads(part)
-    features.extend(convert(pad, ctx) for pad in pads)
+    features.extend(
+        replace(cast(PadFeature, convert(pad, ctx)), occurrence=occurrence)
+        for occurrence, pad in enumerate(pads)
+    )
 
     # Bounded regular polygonal bosses own an across-flats callout and their direct axial
     # height. They are distinct from circular bosses (diameter semantics) and rectangular

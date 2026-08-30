@@ -45,14 +45,16 @@ def test_embedded_implementation_is_gone_and_compatibility_is_identity_preservin
 
 def test_recognition_cache_is_consumer_owned_and_runs_once(monkeypatch) -> None:
     calls = 0
-    original = external.build_recognition_result
+    original = external.build_raw_recognition_result
 
     def counting_build(part):
         nonlocal calls
         calls += 1
         return original(part)
 
-    monkeypatch.setattr("draftwright.recognition_cache.build_recognition_result", counting_build)
+    monkeypatch.setattr(
+        "draftwright.recognition_cache.build_raw_recognition_result", counting_build
+    )
     cache = RecognitionCache()
     part = Box(10, 10, 10)
 

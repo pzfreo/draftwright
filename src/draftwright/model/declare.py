@@ -1495,12 +1495,16 @@ def pad(
     y1=None,
     z0=None,
     z1=None,
+    axis="z",
+    direction=1,
+    occurrence=0,
     at=None,
 ) -> PadFeature:
-    """A bounded rectangular raised pad, dimensioned by footprint and location.
+    """A signed principal-axis rectangular pad, dimensioned completely.
 
     ``pad(pad_solid)`` reads its axis-aligned bounding box; the explicit flavour
-    accepts the six bounds used by generated Sheet scripts.
+    accepts the six world-coordinate bounds plus its height ``axis`` and outward
+    ``direction`` used by generated Sheet scripts.
     """
     if obj is not None:
         bb = obj.bounding_box()
@@ -1514,20 +1518,33 @@ def pad(
         raise ValueError("pad() needs an object, or explicit x0=/x1=/y0=/y1=/z0=/z1=")
     if not (x0 < x1 and y0 < y1 and z0 < z1):
         raise ValueError("pad() bounds must increase on every axis")
+    if axis not in "xyz":
+        raise ValueError("pad() axis must be 'x', 'y', or 'z'")
+    if direction not in (-1, 1):
+        raise ValueError("pad() direction must be -1 or 1")
+    if type(occurrence) is not int or occurrence < 0:
+        raise ValueError("pad() occurrence must be a non-negative integer")
     if at is None:
         at = ((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2)
     _require_point("at", at)
+    bounds = {"x": (x0, x1), "y": (y0, y1), "z": (z0, z1)}
+    long_axis, width_axis = tuple(candidate for candidate in "xyz" if candidate != axis)
+    lo, hi = bounds[long_axis]
+    width_lo, width_hi = bounds[width_axis]
+    axis_lo, axis_hi = bounds[axis]
     return PadFeature(
-        frame=Frame(at, "z"),
-        width_axis="y",
-        long_axis="x",
-        width=y1 - y0,
-        length=x1 - x0,
-        w_center=(y0 + y1) / 2,
-        lo=x0,
-        hi=x1,
-        z0=z0,
-        z1=z1,
+        frame=Frame(at, axis),
+        width_axis=width_axis,
+        long_axis=long_axis,
+        width=width_hi - width_lo,
+        length=hi - lo,
+        w_center=(width_lo + width_hi) / 2,
+        lo=lo,
+        hi=hi,
+        z0=axis_lo,
+        z1=axis_hi,
+        direction=direction,
+        occurrence=occurrence,
     )
 
 

@@ -199,7 +199,9 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   `_QUOTED_RE` (a lint-message label regex shared with the
   repair loop) lives in `_core`.
 - **`recognition_cache.py`** — Draftwright's ADR 0017 one-result lifecycle owner. It calls
-  external `build_recognition_result(part)` at most once for a build/lazy-critique run; the
+  external `build_raw_recognition_result(part)` at most once for a build/lazy-critique run. The
+  explicit name records that the current production IR remains in caller/world coordinates;
+  `build_framed_recognition_result()` is evidence-only until #1357 owns the frame-to-IR adapter. The
   package owns recognition, while Draftwright owns when the result is computed and reused.
 - **`recogniser_contract.py`** — the fail-closed cross-repository capability join. It consumes
   only the installed `b123d-recognisers` public manifest, then validates Draftwright-owned IR,

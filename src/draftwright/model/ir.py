@@ -315,6 +315,7 @@ DimensionParameterId = Literal[
     "od.diameter",
     "pad_length.length",
     "pad_width.length",
+    "pad_height.length",
     "pitch.length",
     "pocket_depth.length",
     "pocket_length.length",
@@ -1013,11 +1014,13 @@ class ChannelFeature:
 
 @dataclass(frozen=True)
 class PadFeature:
-    """A bounded rectangular raised island.
+    """A bounded, principal-axis rectangular raised island.
 
-    The footprint mirrors the slot vocabulary so the shared in-plane dimension
-    renderer can place its two sizes. Height remains owned by the correlated
-    prismatic level ladder, avoiding double-dimensioning the same Z rise.
+    ``long_axis`` and ``width_axis`` span the footprint; ``frame.axis`` is the
+    outward height axis.  ``z0``/``z1`` retain their historical public names but
+    are the ordered bounds on that height axis for every orientation.  Direction
+    preserves which bound is the attachment plane, and occurrence keeps equal-
+    valued pads on distinct solids independently addressable.
     """
 
     #: The compiled stem this feature's position is minted under — see
@@ -1034,12 +1037,25 @@ class PadFeature:
     hi: float
     z0: float
     z1: float
+    direction: int = 1
+    occurrence: int = 0
     kind: ClassVar[str] = "pad"
 
     def parameters(self) -> list[DimParameter]:
+        origin = list(self.frame.origin)
+        axis_i = "xyz".index(self.frame.axis)
+        origin[axis_i] = self.z0
+        tip = list(origin)
+        tip[axis_i] = self.z1
         return [
             DimParameter("length", "pad_width", self.width),
             DimParameter("length", "pad_length", self.length),
+            DimParameter(
+                "length",
+                "pad_height",
+                self.z1 - self.z0,
+                span=((origin[0], origin[1], origin[2]), (tip[0], tip[1], tip[2])),
+            ),
         ]
 
     def references(self) -> list[Datum]:

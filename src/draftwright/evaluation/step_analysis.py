@@ -2640,9 +2640,9 @@ def _default_observers() -> Mapping[str, Observer]:
             # recognises must still yield a scored non-answer rather than a traceback out
             # of the middle of a corpus run.
             try:
-                from b123d_recognisers import build_recognition_result
+                from b123d_recognisers import build_raw_recognition_result
 
-                holes = tuple(build_recognition_result(part).holes)  # type: ignore[arg-type]
+                holes = tuple(build_raw_recognition_result(part).holes)  # type: ignore[arg-type]
             except Exception:  # noqa: BLE001 — an unanalysable fixture observes nothing
                 return ()
             boundary_outcomes: dict[str, list[Outcome]] = {

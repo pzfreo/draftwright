@@ -182,7 +182,7 @@ def test_every_groove_boundary_is_observed_supported_on_the_real_public_path() -
 def test_groove_observer_uses_one_build_owned_recognition_aggregate(monkeypatch) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_recognition_result
+    original = analysis.build_raw_recognition_result
     calls = 0
 
     def counted(*args, **kwargs):
@@ -190,7 +190,7 @@ def test_groove_observer_uses_one_build_owned_recognition_aggregate(monkeypatch)
         calls += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(analysis, "build_recognition_result", counted)
+    monkeypatch.setattr(analysis, "build_raw_recognition_result", counted)
     assert _default_observers()["grooves"](_lone())
     assert calls == 1
 
@@ -488,13 +488,13 @@ def test_incomplete_compiler_group_cannot_certify_groove_ink(monkeypatch) -> Non
 def test_deleting_provider_grooves_cannot_shrink_independent_denominator(monkeypatch) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_recognition_result
+    original = analysis.build_raw_recognition_result
 
     def without_grooves(*args, **kwargs):
         result = original(*args, **kwargs)
         return replace(result, grooves=())
 
-    monkeypatch.setattr(analysis, "build_recognition_result", without_grooves)
+    monkeypatch.setattr(analysis, "build_raw_recognition_result", without_grooves)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))
 
     assert damaged.detection.matched == 0
@@ -507,7 +507,7 @@ def test_deleting_provider_grooves_cannot_shrink_independent_denominator(monkeyp
 def test_weakening_provider_measurements_reduces_parameter_fidelity(monkeypatch, field) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_recognition_result
+    original = analysis.build_raw_recognition_result
 
     def weakened_grooves(*args, **kwargs):
         result = original(*args, **kwargs)
@@ -516,7 +516,7 @@ def test_weakening_provider_measurements_reduces_parameter_fidelity(monkeypatch,
         )
         return replace(result, grooves=grooves)
 
-    monkeypatch.setattr(analysis, "build_recognition_result", weakened_grooves)
+    monkeypatch.setattr(analysis, "build_raw_recognition_result", weakened_grooves)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))
 
     assert damaged.detection.recall == 1.0
@@ -530,7 +530,7 @@ def test_weakening_provider_measurements_reduces_parameter_fidelity(monkeypatch,
 def test_weakening_provider_identity_reduces_detection_recall(monkeypatch, field) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_recognition_result
+    original = analysis.build_raw_recognition_result
 
     def weakened_grooves(*args, **kwargs):
         result = original(*args, **kwargs)
@@ -546,7 +546,7 @@ def test_weakening_provider_identity_reduces_detection_recall(monkeypatch, field
             )
         return replace(result, grooves=values)
 
-    monkeypatch.setattr(analysis, "build_recognition_result", weakened_grooves)
+    monkeypatch.setattr(analysis, "build_raw_recognition_result", weakened_grooves)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))
 
     assert damaged.detection.recall == 0.0

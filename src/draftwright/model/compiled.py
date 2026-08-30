@@ -58,6 +58,7 @@ from draftwright.model.ir import (
     Feature,
     HoleFeature,
     Note,
+    PadFeature,
     PartModel,
     PatternFeature,
     PocketFeature,
@@ -267,7 +268,7 @@ _FACTS: dict[str, tuple[str, ...]] = {
         "rows",
         "cols",
     ),
-    "pad": ("frame", "width_axis", "long_axis"),
+    "pad": ("frame", "width_axis", "long_axis", "direction", "occurrence"),
     "boss": ("frame", "thread", "knurl"),
     "polygonal_boss": ("frame", "side_count", "flat_directions", "flat_centres"),
     "polygonal_stock": ("frame", "side_count", "flat_directions", "flat_centres"),
@@ -1195,10 +1196,12 @@ def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[
                     )
                 )
             continue
-        if isinstance(feature, PocketFeature) and axis != "z":
-            # A non-Z pocket's two in-plane coordinates are drawn as TWO dims in its end-on
-            # view (`render_slots`), so they are approved as two entries carrying their own
-            # values — the same shape `_compile_off_axis_hole_locations` uses.
+        if isinstance(feature, PadFeature) or (isinstance(feature, PocketFeature) and axis != "z"):
+            # A pad in every orientation, and a non-Z pocket, has two independently required
+            # in-plane coordinates.  They are drawn as TWO dims in the face-on/end-on view,
+            # so approve two entries carrying their own values — the same shape
+            # `_compile_off_axis_hole_locations` uses.  Keeping Z pads on the historical
+            # feature-level location id allowed either ordinate to falsely satisfy both.
             #
             # One entry with `value_text=""` made the renderer subtract the span's endpoints
             # itself to get each axis's number, which is the compiler's job done twice; the
@@ -1216,18 +1219,26 @@ def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[
                             parameter_id,
                             value,
                             POCKET_LOCATION_DATUM_COINCIDENT,
-                            code="pocket_location_coincident_with_datum",
+                            code=f"{feature.kind}_location_coincident_with_datum",
                         )
                     )
                     continue
                 start = list(span[1])
                 start[index] = span[0][index]
+                approved_span = (
+                    span
+                    if isinstance(feature, PadFeature) and axis == "z"
+                    else ((start[0], start[1], start[2]), span[1])
+                )
                 approved.append(
                     ApprovedDimension(
                         id=_dim_id(feature, parameter_id),
                         value_text=_fmt(value),
                         value=value,
-                        span=((start[0], start[1], start[2]), span[1]),
+                        # `render_locations` groups Z-normal refs before it separates their
+                        # X/Y entries, so both copies must retain the full datum→centre span.
+                        # End-on rendering for non-Z features consumes the narrowed span.
+                        span=approved_span,
                         ref=FeatureRef(feature),
                         kind="location",
                         role=pd.param.role,
@@ -1253,7 +1264,7 @@ def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[
         approved.append(
             ApprovedDimension(
                 id=_dim_id(feature, pd.param.parameter_id),
-                #: Pocket/pad Z-normal ladders remain one location entry with no per-axis value:
+                #: Pocket Z-normal ladders remain one location entry with no per-axis value:
                 #: `render_locations` groups refs ACROSS features and dedups per axis before
                 #: it knows which dims exist, so an entry per axis would be approving a mark
                 #: whose existence the renderer decides. Splitting it needs that grouping to

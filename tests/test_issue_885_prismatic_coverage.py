@@ -90,12 +90,18 @@ def test_auto_drawing_defines_pad_footprints_and_pocket_locations():
     assert tuple(detected.features) == tuple(drawing.model().features)
     assert [f.kind for f in drawing.model().features].count("pad") == 4
     names = set(drawing.annotations())
-    assert len({name for name in names if name.startswith("m_pad")}) == 8
+    assert len({name for name in names if name.startswith("m_pad") and "height" not in name}) == 8
+    assert any(name.startswith("m_padheight_") for name in names)
     assert {"m_locy1", "m_locy3"} <= names  # pocket centres at Y=30 and Y=90
     summary = drawing.lint_summary()
     assert "pad_footprint_not_defined" not in summary["by_code"]
     assert "pocket_not_located" not in summary["by_code"]
-    assert summary["score"] == 1.0
+    # The default 1:1 layout has room for one of the four equal pad-height
+    # dimensions.  The other three must remain explicit placement outcomes;
+    # silently crediting them from a dimension attached to a different pad
+    # would violate per-occurrence measurement provenance.
+    assert summary["by_code"]["pad_height_dropped"] == 3
+    assert summary["score"] < 1.0
 
 
 def test_removing_one_pad_size_is_not_credited_from_an_aligned_sibling():

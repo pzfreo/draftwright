@@ -28,7 +28,7 @@ from b123d_recognisers import (
     RecognitionResult,
     TurnedProfile,
     analyse_cylinders,
-    build_recognition_result,
+    build_raw_recognition_result,
     feature_diameters,
     project_step_shoulders,
     recognise_double_d_bores,
@@ -1168,6 +1168,10 @@ def lint_prismatic_coverage(
     pairs_by_view: dict[str, list] = {}
     registry = getattr(dwg, "registry", None)
     satisfied_ids = satisfaction_ids(registry)
+    if registry is not None:
+        satisfied_ids.update(
+            identity for name in registry.names() for identity in registry.measurement_of(name)
+        )
 
     def satisfied(feature, parameter: str) -> bool:
         return any(
@@ -1181,9 +1185,19 @@ def lint_prismatic_coverage(
     issues = []
     pad_inventory = recognise_rectangular_pads(part) if pads is None else pads
     if pad_inventory:
+
+        def pad_bounds(feature) -> tuple[float, ...]:
+            half = feature.width / 2
+            by_axis = {
+                feature.long_axis: (feature.lo, feature.hi),
+                feature.width_axis: (feature.w_center - half, feature.w_center + half),
+                feature.frame.axis: (feature.z0, feature.z1),
+            }
+            return tuple(value for axis in "xyz" for value in by_axis[axis])
+
         bb = bbox if bbox is not None else part.bounding_box()
         undefined = 0
-        for pad in pad_inventory:
+        for occurrence, pad in enumerate(pad_inventory):
             yc = (pad.y0 + pad.y1) / 2
             xc = (pad.x0 + pad.x1) / 2
             x0, _, *_ = dwg.at("plan", pad.x0, yc, pad.z1)
@@ -1204,56 +1218,81 @@ def lint_prismatic_coverage(
                     f
                     for f in getattr(dwg.model(), "features", ())
                     if getattr(f, "kind", None) == "pad"
-                    and abs(f.lo - pad.x0) <= tol
-                    and abs(f.hi - pad.x1) <= tol
-                    and abs(f.w_center - yc) <= tol
-                    and abs(f.width - (pad.y1 - pad.y0)) <= tol
+                    and f.frame.axis == pad.axis
+                    and f.direction == pad.direction
+                    and f.occurrence == occurrence
+                    and all(
+                        abs(actual - expected) <= tol
+                        for actual, expected in zip(
+                            pad_bounds(f),
+                            (pad.x0, pad.x1, pad.y0, pad.y1, pad.z0, pad.z1),
+                            strict=True,
+                        )
+                    )
                 ),
                 None,
             )
-            parameter_by_axis = (
-                {
-                    owner.long_axis: "pad_length.length",
-                    owner.width_axis: "pad_width.length",
-                }
-                if owner is not None
-                else {}
+            footprint = owner is not None and all(
+                satisfied(owner, parameter)
+                for parameter in ("pad_length.length", "pad_width.length")
             )
-            size_x = owner is not None and (
-                _pair_covers(ps, 0, x0, x1, tol, owner=owner)
-                or satisfied(owner, parameter_by_axis["x"])
+            axis_i = "xyz".index(pad.axis)
+            centre = [xc, yc, (pad.z0 + pad.z1) / 2]
+            low = list(centre)
+            high = list(centre)
+            bounds = {
+                "x": (pad.x0, pad.x1),
+                "y": (pad.y0, pad.y1),
+                "z": (pad.z0, pad.z1),
+            }
+            low[axis_i], high[axis_i] = bounds[pad.axis]
+            height_view, page_axis = {
+                "x": ("front", 0),
+                "y": ("side", 0),
+                "z": ("front", 1),
+            }[pad.axis]
+            low_page = dwg.at(height_view, *low)[page_axis]
+            high_page = dwg.at(height_view, *high)[page_axis]
+            height = owner is not None and (
+                satisfied(owner, "pad_height.length")
+                or _pair_covers(pairs(height_view), page_axis, low_page, high_page, tol)
             )
-            size_y = owner is not None and (
-                _pair_covers(ps, 1, y0, y1, tol, owner=owner)
-                or satisfied(owner, parameter_by_axis["y"])
-            )
-            located_x = (
-                owner is not None
-                and satisfied(owner, "location")
-                or (
-                    abs(pad.x0 - bb.min.X) <= tol
-                    or abs(pad.x1 - bb.max.X) <= tol
-                    or any(
-                        _pair_covers(ps, 0, edge, bound, tol)
-                        for edge in (bx0, bx1)
-                        for bound in (x0, x1, xc_page)
-                    )
+            located = owner is not None and (
+                satisfied(owner, "location")
+                or all(
+                    satisfied(owner, f"location_pad.{axis}")
+                    for axis in (owner.long_axis, owner.width_axis)
                 )
             )
-            located_y = (
-                owner is not None
-                and satisfied(owner, "location")
-                or (
-                    abs(pad.y0 - bb.min.Y) <= tol
-                    or abs(pad.y1 - bb.max.Y) <= tol
-                    or any(
-                        _pair_covers(pairs("side"), 0, edge, bound, tol)
-                        for edge in (sby0, sby1)
-                        for bound in (sy0, sy1, syc)
+            if owner is not None and pad.axis == "z":
+                footprint = (
+                    _pair_covers(ps, 0, x0, x1, tol, owner=owner)
+                    or satisfied(owner, "pad_length.length")
+                ) and (
+                    _pair_covers(ps, 1, y0, y1, tol, owner=owner)
+                    or satisfied(owner, "pad_width.length")
+                )
+                located = located or (
+                    (
+                        abs(pad.x0 - bb.min.X) <= tol
+                        or abs(pad.x1 - bb.max.X) <= tol
+                        or any(
+                            _pair_covers(ps, 0, edge, bound, tol)
+                            for edge in (bx0, bx1)
+                            for bound in (x0, x1, xc_page)
+                        )
+                    )
+                    and (
+                        abs(pad.y0 - bb.min.Y) <= tol
+                        or abs(pad.y1 - bb.max.Y) <= tol
+                        or any(
+                            _pair_covers(pairs("side"), 0, edge, bound, tol)
+                            for edge in (sby0, sby1)
+                            for bound in (sy0, sy1, syc)
+                        )
                     )
                 )
-            )
-            if not (size_x and size_y and located_x and located_y):
+            if not (footprint and height and located):
                 undefined += 1
         if undefined:
             issues.append(
@@ -1261,8 +1300,8 @@ def lint_prismatic_coverage(
                     severity=severity,
                     code="pad_footprint_not_defined",
                     message=(
-                        f"{undefined} rectangular raised pad(s) lack footprint size "
-                        "or X/Y location dimensions"
+                        f"{undefined} rectangular raised pad(s) lack footprint, height, "
+                        "or in-plane location dimensions"
                     ),
                 )
             )
@@ -1408,7 +1447,7 @@ def lint_prismatic_coverage(
             f"{type(recognition).__name__}. A completeness check must not accept a "
             "caller-assembled inventory: an empty stand-in silences it."
         )
-    _rec = build_recognition_result(part) if recognition is None else recognition
+    _rec = build_raw_recognition_result(part) if recognition is None else recognition
     ladder_bounds = bbox if bbox is not None else part.bounding_box()
     source_shoulders = project_step_shoulders(
         _rec.risers,

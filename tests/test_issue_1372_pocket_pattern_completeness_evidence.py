@@ -284,7 +284,7 @@ def test_every_pocket_pattern_boundary_is_observed_on_the_real_public_path() -> 
 def test_pocket_pattern_observer_uses_one_build_owned_recognition_aggregate(monkeypatch) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_recognition_result
+    original = analysis.build_raw_recognition_result
     calls = 0
 
     def counted(*args, **kwargs):
@@ -292,7 +292,7 @@ def test_pocket_pattern_observer_uses_one_build_owned_recognition_aggregate(monk
         calls += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(analysis, "build_recognition_result", counted)
+    monkeypatch.setattr(analysis, "build_raw_recognition_result", counted)
     assert _default_observers()["pocket-patterns"](_grid_part())
     assert calls == 1
 
@@ -823,13 +823,13 @@ def test_pitch_fallback_rejects_unverifiable_real_geometry(
 def test_deleting_provider_patterns_cannot_shrink_independent_denominator(monkeypatch) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_recognition_result
+    original = analysis.build_raw_recognition_result
 
     def without_patterns(*args, **kwargs):
         result = original(*args, **kwargs)
         return replace(result, pocket_patterns=())
 
-    monkeypatch.setattr(analysis, "build_recognition_result", without_patterns)
+    monkeypatch.setattr(analysis, "build_raw_recognition_result", without_patterns)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))
 
     assert damaged.detection.matched == 0
@@ -841,7 +841,7 @@ def test_deleting_provider_patterns_cannot_shrink_independent_denominator(monkey
 def test_weakening_provider_pitch_reduces_parameter_fidelity(monkeypatch) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_recognition_result
+    original = analysis.build_raw_recognition_result
 
     def weakened_patterns(*args, **kwargs):
         result = original(*args, **kwargs)
@@ -853,7 +853,7 @@ def test_weakening_provider_pitch_reduces_parameter_fidelity(monkeypatch) -> Non
                 changed.append(replace(pattern, pitch=pattern.pitch + 1.0))
         return replace(result, pocket_patterns=tuple(changed))
 
-    monkeypatch.setattr(analysis, "build_recognition_result", weakened_patterns)
+    monkeypatch.setattr(analysis, "build_raw_recognition_result", weakened_patterns)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))
 
     assert damaged.detection.recall == 1.0
@@ -866,7 +866,7 @@ def test_weakening_provider_pitch_reduces_parameter_fidelity(monkeypatch) -> Non
 def test_hardcoding_arrangement_orientation_reduces_parameter_fidelity(monkeypatch) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_recognition_result
+    original = analysis.build_raw_recognition_result
 
     def axis_aligned_patterns(*args, **kwargs):
         result = original(*args, **kwargs)
@@ -878,7 +878,7 @@ def test_hardcoding_arrangement_orientation_reduces_parameter_fidelity(monkeypat
                 changed.append(replace(pattern, direction=(0.0, 1.0, 0.0)))
         return replace(result, pocket_patterns=tuple(changed))
 
-    monkeypatch.setattr(analysis, "build_recognition_result", axis_aligned_patterns)
+    monkeypatch.setattr(analysis, "build_raw_recognition_result", axis_aligned_patterns)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))
 
     assert damaged.detection.recall == 1.0

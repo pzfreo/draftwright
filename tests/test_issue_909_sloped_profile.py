@@ -55,7 +55,7 @@ def test_case_study_pad_reaches_the_drawing_with_complete_owned_footprint():
     } == {
         "pad_width.length",
         "pad_length.length",
-        "location_pad.location",
+        "location_pad.x",
     }
     detail_labels = Counter(
         annotation.label
@@ -100,7 +100,7 @@ def test_case_study_detail_rungs_keep_their_compiled_measurement_identity():
 
 @pytest.mark.parametrize(
     ("name_prefix", "parameter_id"),
-    [("m_pad", "pad_length.length"), ("m_locx", "location_pad.location")],
+    [("m_pad", "pad_length.length"), ("m_locx", "location_pad.x")],
 )
 def test_removing_a_required_pad_dimension_reports_the_real_requirement(name_prefix, parameter_id):
     drawing = build_drawing(_ISSUE_909, detail_view=True)

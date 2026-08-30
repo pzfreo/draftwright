@@ -372,7 +372,7 @@ def test_only_emittable_plates_may_preempt_the_aggregate_owner() -> None:
     assert len(tuple(compile_dimensions(model).of_kind("through_step"))) == 1
 
 
-def test_edge_pocket_floor_cannot_preempt_then_erase_the_aggregate_owner() -> None:
+def test_covariant_edge_pocket_keeps_the_complete_legacy_owner() -> None:
     base = Rot(90, 0, 0) * _through_step_part()
     edge_pocket = Pos(-20, -10, 0) * Box(
         8,
@@ -390,8 +390,13 @@ def test_edge_pocket_floor_cannot_preempt_then_erase_the_aggregate_owner() -> No
     )
 
     assert len(recognition.through_steps) == 1
-    assert [feature.kind for feature in drawing.model().features].count("through_step") == 1
-    assert [outcome.state for outcome in outcomes] == ["placed", "placed"]
+    # 0.4.8 correctly reports this post-rotation opening along Y.  Its floor therefore
+    # cannot erase the Z level + X shoulder that already state the two transverse legs;
+    # retaining a second ThroughStep owner would double-dimension the same section.
+    assert recognition.pockets[0].depth_axis == "y"
+    assert [feature.kind for feature in drawing.model().features].count("through_step") == 0
+    assert [feature.kind for feature in drawing.model().features].count("step_level") == 1
+    assert [outcome.state for outcome in outcomes] == ["inapplicable", "inapplicable"]
     assert not [issue for issue in drawing.lint() if "through_step" in issue.code]
 
 
