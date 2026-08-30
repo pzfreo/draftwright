@@ -37,11 +37,17 @@
 
 ### Changed
 
+- Circular blind steps recognised by `b123d-recognisers` now have a complete consumer path.
+  The oriented terminal-to-open centreline and transverse quarter-arc lower without rescanning
+  to an explicit-only IR/Sheet feature; generated code preserves the full correspondence.
+  Radius and stopped depth remain independently addressable and tolerance-aware while sharing
+  one solver-placed end-view `R… × … DEEP` leader, and a fail-closed two-requirement ledger
+  follows each outcome without parsing labels or guessing by order (#1382).
+
 - Paired-ramp steps recognised by `b123d-recognisers` now have one complete consumer path:
   exact IR conversion, explicit `Sheet.paired_ramp_step(...)` declaration, generated-code
   round trip, end-view solver-placed `2× angle × run RUN` leader, independent angle/run
-  tolerances and authored suppression, and a two-requirement fail-closed completeness ledger.
-  Circular blind steps remain separately visible pending their own #1382 semantic decision
+  tolerances and authored suppression, and a two-requirement fail-closed completeness ledger
   (#1382).
 
 - Rectangular through steps recognised by `b123d-recognisers` now lower without rescanning to
@@ -124,9 +130,10 @@
   Draftwright-owned format-1 contract fails closed on changes to the consumed signatures, result
   schemas, units, bevel rejection reasons, or cylindrical surface layout (#1362).
 
-- Updated the exact `b123d-recognisers` production lock to 0.4.6. Circular blind, paired ramp,
-  and through-step inventories are now carried from the one aggregate and surfaced as unscored
-  completeness evidence pending #1382 semantics. Rectangular-grid pitch placement also uses a
+- Updated the exact `b123d-recognisers` production lock to 0.4.6. At adoption time, circular
+  blind, paired ramp, and through-step inventories were carried from the one aggregate and
+  surfaced as unscored completeness evidence pending the #1382 semantic slices now recorded
+  above. Rectangular-grid pitch placement also uses a
   deterministic outer witness line across plan, front, and side views despite the release's
   coordinate-rounding differences.
 

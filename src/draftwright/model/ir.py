@@ -297,6 +297,8 @@ DimensionParameterId = Literal[
     "boss.diameter",
     "boss_height.length",
     "chamfer.length",
+    "circular_step_depth.length",
+    "circular_step_radius.radius",
     "channel_width.length",
     "counterbore.depth",
     "counterbore.diameter",
@@ -1547,6 +1549,205 @@ class FilletFeature:
 
     def parameters(self) -> list[DimParameter]:
         return [DimParameter("radius", "fillet", self.radius)]
+
+    def references(self) -> list[Datum]:
+        return []
+
+
+@dataclass(frozen=True)
+class CircularBlindStepFeature:
+    """One quarter-cylindrical corner cut with a blind terminal (#1382).
+
+    ``centreline`` is ordered from the blind terminal to the open stock envelope.
+    ``section`` is the provider's canonical transverse arc endpoint, cylinder centre and
+    other arc endpoint.  Together they retain the occupied quadrant and run direction
+    without exposing provider topology.  Radius and blind depth are independently
+    addressable requirements carried by one compound callout in the axis end view.
+    """
+
+    frame: Frame
+    axis: str
+    radius: float
+    length: float
+    centreline: tuple[Point, Point]
+    section: tuple[tuple[float, float], tuple[float, float], tuple[float, float]]
+    kind: ClassVar[str] = "circular_blind_step"
+
+    def __post_init__(self) -> None:
+        if self.axis not in ("x", "y", "z") or self.frame.axis != self.axis:
+            raise ValueError(
+                "circular-blind-step axis must be x, y, or z and agree with the feature frame"
+            )
+        if type(self.radius) not in (int, float):
+            raise ValueError("circular-blind-step radius must be finite and positive")
+        try:
+            radius = float(self.radius)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("circular-blind-step radius must be finite and positive") from exc
+        if not isfinite(radius) or radius <= 0:
+            raise ValueError("circular-blind-step radius must be finite and positive")
+        if type(self.length) not in (int, float):
+            raise ValueError("circular-blind-step depth must be finite and positive")
+        try:
+            length = float(self.length)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("circular-blind-step depth must be finite and positive") from exc
+        if not isfinite(length) or length <= 0:
+            raise ValueError("circular-blind-step depth must be finite and positive")
+        try:
+            if any(
+                type(value) not in (int, float) for point in self.centreline for value in point
+            ):
+                raise ValueError
+            centreline = tuple(tuple(float(value) for value in point) for point in self.centreline)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError(
+                "circular-blind-step centreline must contain two finite 3D points"
+            ) from exc
+        if (
+            len(centreline) != 2
+            or any(len(point) != 3 for point in centreline)
+            or not all(isfinite(value) for point in centreline for value in point)
+        ):
+            raise ValueError("circular-blind-step centreline must contain two finite 3D points")
+        run_index = "xyz".index(self.axis)
+        if any(
+            not isclose(
+                centreline[0][index],
+                centreline[1][index],
+                rel_tol=0.0,
+                abs_tol=1e-9,
+            )
+            for index in range(3)
+            if index != run_index
+        ) or not isclose(
+            abs(centreline[1][run_index] - centreline[0][run_index]),
+            length,
+            rel_tol=0.0,
+            abs_tol=1e-6,
+        ):
+            raise ValueError(
+                "circular-blind-step centreline must be an axis-aligned terminal-to-open span matching depth"
+            )
+        try:
+            if any(type(value) not in (int, float) for point in self.section for value in point):
+                raise ValueError
+            section = tuple(tuple(float(value) for value in point) for point in self.section)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError(
+                "circular-blind-step section must contain three finite 2D points"
+            ) from exc
+        if (
+            len(section) != 3
+            or any(len(point) != 2 for point in section)
+            or not all(isfinite(value) for point in section for value in point)
+        ):
+            raise ValueError("circular-blind-step section must contain three finite 2D points")
+        first, centre, last = section
+        first_delta = (first[0] - centre[0], first[1] - centre[1])
+        last_delta = (last[0] - centre[0], last[1] - centre[1])
+        first_changes = [
+            index
+            for index, value in enumerate(first_delta)
+            if not isclose(value, 0.0, rel_tol=0.0, abs_tol=1e-9)
+        ]
+        last_changes = [
+            index
+            for index, value in enumerate(last_delta)
+            if not isclose(value, 0.0, rel_tol=0.0, abs_tol=1e-9)
+        ]
+        canonical = (
+            len(first_changes) == len(last_changes) == 1
+            and first_changes[0] != last_changes[0]
+            and isclose(hypot(*first_delta), radius, rel_tol=0.0, abs_tol=1e-6)
+            and isclose(hypot(*last_delta), radius, rel_tol=0.0, abs_tol=1e-6)
+        )
+        if not canonical:
+            raise ValueError(
+                "circular-blind-step section must be a canonical quarter arc matching radius"
+            )
+        transverse = [index for index in range(3) if index != run_index]
+        if any(
+            not isclose(
+                centreline[0][axis],
+                centre[pair],
+                rel_tol=0.0,
+                abs_tol=1e-6,
+            )
+            for pair, axis in enumerate(transverse)
+        ):
+            raise ValueError("circular-blind-step section centre must agree with the centreline")
+        object.__setattr__(self, "centreline", centreline)
+        object.__setattr__(self, "section", section)
+        object.__setattr__(self, "radius", radius)
+        object.__setattr__(self, "length", length)
+        try:
+            origin = tuple(self.frame.origin)
+        except TypeError as exc:
+            raise ValueError(
+                "circular-blind-step frame origin must contain three finite numeric coordinates"
+            ) from exc
+        if len(origin) != 3 or any(type(value) not in (int, float) for value in origin):
+            raise ValueError(
+                "circular-blind-step frame origin must contain three finite numeric coordinates"
+            )
+        try:
+            numeric_origin = tuple(float(value) for value in origin)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError(
+                "circular-blind-step frame origin must contain three finite numeric coordinates"
+            ) from exc
+        if not all(isfinite(value) for value in numeric_origin):
+            raise ValueError(
+                "circular-blind-step frame origin must contain three finite numeric coordinates"
+            )
+        if any(
+            not isclose(a, b, rel_tol=0.0, abs_tol=1e-6)
+            for a, b in zip(numeric_origin, self.arc_anchor, strict=True)
+        ):
+            raise ValueError(
+                "circular-blind-step frame origin must be the curved-wall leader anchor"
+            )
+
+    @property
+    def arc_anchor(self) -> Point:
+        """A physical point halfway around and along the quarter-cylindrical wall."""
+        return self.anchor_for(self.axis, self.radius, self.centreline, self.section)
+
+    @staticmethod
+    def anchor_for(axis, radius, centreline, section) -> Point:
+        """Derive the curved-wall leader anchor from canonical public record facts."""
+        first, centre, last = section
+        radial = (
+            (first[0] - centre[0]) + (last[0] - centre[0]),
+            (first[1] - centre[1]) + (last[1] - centre[1]),
+        )
+        radial_scale = max(abs(radial[0]), abs(radial[1]))
+        if not isfinite(radial_scale) or radial_scale == 0:
+            raise ValueError("circular-blind-step section cannot define a finite wall anchor")
+        unit = (radial[0] / radial_scale, radial[1] / radial_scale)
+        unit_norm = hypot(*unit)
+        radial_distance = radius / unit_norm
+        section_point = (
+            centre[0] + unit[0] * radial_distance,
+            centre[1] + unit[1] * radial_distance,
+        )
+        run_index = "xyz".index(axis)
+        transverse = [index for index in range(3) if index != run_index]
+        point = [
+            a + (b - a) / 2 if (a >= 0) == (b >= 0) else (a + b) / 2
+            for a, b in zip(centreline[0], centreline[1], strict=True)
+        ]
+        point[transverse[0]], point[transverse[1]] = section_point
+        if not all(isfinite(value) for value in point):
+            raise ValueError("circular-blind-step section cannot define a finite wall anchor")
+        return tuple(point)
+
+    def parameters(self) -> list[DimParameter]:
+        return [
+            DimParameter("radius", "circular_step_radius", self.radius),
+            DimParameter("length", "circular_step_depth", self.length, span=self.centreline),
+        ]
 
     def references(self) -> list[Datum]:
         return []

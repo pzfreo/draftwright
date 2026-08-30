@@ -119,6 +119,15 @@ def test_injected_value_equal_pattern_still_excludes_members():
     assert kinds.count("slot") == 0  # value-equal copies still excluded
 
 
+def test_injected_slots_derive_an_omitted_pattern_from_that_inventory():
+    slots = recognise_slots(_slot_row(n=4, pitch=30.0))
+    pm = build_part_model(Box(200, 200, 20), slots=slots)
+    kinds = [feature.kind for feature in pm.features]
+
+    assert kinds.count("slot_pattern") == 1
+    assert kinds.count("slot") == 0
+
+
 def test_sheet_emit_round_trips_the_pattern(tmp_path):
     from draftwright.sheet_emit import generate_sheet_script
 

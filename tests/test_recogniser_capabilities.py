@@ -211,6 +211,66 @@ def test_rich_passage_contract_has_an_explicit_unsupported_completeness_outcome(
         {
             "boundary": "completeness",
             "compatibility_evidence": [
+                "tests/test_issue_1382_circular_blind_step_semantics.py",
+                "tests/test_recogniser_capabilities.py",
+            ],
+            "family": "circular-blind-steps",
+            "from": "deferred",
+            "release_notes": "CHANGELOG.md",
+            "to": "supported",
+            "version": importlib.metadata.version("draftwright"),
+        },
+        {
+            "boundary": "drawing_consumer",
+            "compatibility_evidence": [
+                "tests/test_issue_1382_circular_blind_step_semantics.py",
+                "tests/test_recogniser_capabilities.py",
+            ],
+            "family": "circular-blind-steps",
+            "from": "unsupported",
+            "release_notes": "CHANGELOG.md",
+            "to": "supported",
+            "version": importlib.metadata.version("draftwright"),
+        },
+        {
+            "boundary": "dsl_declaration",
+            "compatibility_evidence": [
+                "tests/test_issue_1382_circular_blind_step_semantics.py",
+                "tests/test_recogniser_capabilities.py",
+            ],
+            "family": "circular-blind-steps",
+            "from": "unsupported",
+            "release_notes": "CHANGELOG.md",
+            "to": "supported",
+            "version": importlib.metadata.version("draftwright"),
+        },
+        {
+            "boundary": "generated_code",
+            "compatibility_evidence": [
+                "tests/test_issue_1382_circular_blind_step_semantics.py",
+                "tests/test_recogniser_capabilities.py",
+            ],
+            "family": "circular-blind-steps",
+            "from": "unsupported",
+            "release_notes": "CHANGELOG.md",
+            "to": "supported",
+            "version": importlib.metadata.version("draftwright"),
+        },
+        {
+            "boundary": "ir_adapter",
+            "compatibility_evidence": [
+                "tests/test_issue_1382_circular_blind_step_semantics.py",
+                "tests/test_recogniser_capabilities.py",
+            ],
+            "family": "circular-blind-steps",
+            "from": "unsupported",
+            "release_notes": "CHANGELOG.md",
+            "to": "supported",
+            "version": importlib.metadata.version("draftwright"),
+        },
+        {
+            "boundary": "completeness",
+            "compatibility_evidence": [
                 "tests/test_issue_1374_fillet_completeness_evidence.py",
                 "tests/test_recogniser_capabilities.py",
                 "tests/test_step_analysis_evaluation.py",
@@ -400,31 +460,27 @@ def test_rich_passage_contract_has_an_explicit_unsupported_completeness_outcome(
     ]
 
 
-@pytest.mark.parametrize(
-    ("family_id", "record_name", "inventory"),
-    [
-        ("circular-blind-steps", "CircularBlindStep", "circular_blind_steps"),
-    ],
-)
-def test_046_step_families_are_explicit_downstream_decisions(
-    family_id: str, record_name: str, inventory: str
-) -> None:
-    """The dependency bump cannot silently turn new physical families into substrate."""
-
+def test_circular_blind_steps_are_supported_at_every_consumer_boundary() -> None:
+    family_id = "circular-blind-steps"
     package = _families(recognition.capability_manifest())[family_id]
     consumer = _families(consumer_capability_declaration())[family_id]
 
     assert package["introduced_in"] == "0.4.6"
-    assert package["census_output"] == f"RecognitionResult.{inventory}"
-    assert [record["name"] for record in package["records"]] == [record_name]
-    assert consumer["record_schemas"] == {record_name: [1]}
-    assert consumer["tracking"] == "https://github.com/pzfreo/draftwright/issues/1382"
-    assert consumer["disposition"] == "unsupported"
+    assert package["census_output"] == "RecognitionResult.circular_blind_steps"
+    assert [record["name"] for record in package["records"]] == ["CircularBlindStep"]
+    assert consumer["record_schemas"] == {"CircularBlindStep": [1]}
+    assert consumer["disposition"] == "supported"
     assert {
         consumer[boundary]["state"]
-        for boundary in ("ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer")
-    } == {"unsupported"}
-    assert consumer["completeness"]["state"] == "deferred"
+        for boundary in (
+            "ir_adapter",
+            "dsl_declaration",
+            "generated_code",
+            "drawing_consumer",
+            "completeness",
+            "documentation",
+        )
+    } == {"supported"}
     assert family_id not in pending_family_declarations()
 
 
@@ -724,6 +780,7 @@ def test_dsl_and_generated_code_inventories_are_derived_from_live_code() -> None
         "bosses": "boss",
         "chamfers": "chamfer",
         "channels": "channel",
+        "circular-blind-steps": "circular_blind_step",
         "countersinks": "hole",
         "double-d-bores": "hole",
         "face-levels": "step_level",

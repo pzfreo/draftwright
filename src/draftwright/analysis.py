@@ -42,7 +42,16 @@ from draftwright._core import (
     _legible_steps,
     _Projector,
 )
-from draftwright._geometry import _solids_body
+from draftwright._geometry import (
+    _classify_rotational_cylinders,
+    _solids_body,
+)
+from draftwright._geometry import (
+    _is_rotational as _is_rotational,
+)
+from draftwright._geometry import (
+    dedup_diams as dedup_diams,
+)
 from draftwright.compose import (
     StripDepths,
     _build_zones,
@@ -59,12 +68,6 @@ from draftwright.view_plan import ViewConstraints, arrangement_of
 
 _log = logging.getLogger(__name__)
 
-# Turned-part classification (#81): a rotational part's bounding box is square
-# in XY to within _SQUARENESS_TOL, and its OD (largest full external Z cylinder)
-# fills >= _OD_FILL_MIN of that envelope, axis within _OD_AXIS_TOL of centre.
-_SQUARENESS_TOL = 0.05
-_OD_FILL_MIN = 0.8
-_OD_AXIS_TOL = 0.05
 _ScalePick = tuple[float, float, float, float]
 
 
@@ -333,34 +336,6 @@ def _import_step(path) -> Compound:
 # ---------------------------------------------------------------------------
 
 
-def dedup_diams(cyls, tol: float = 0.15) -> list:
-    """Return sorted-descending deduplicated diameter list from cylinder records."""
-    raw = sorted({c["diameter"] for c in cyls}, reverse=True)
-    merged: list[float] = []
-    for d in raw:
-        if not merged or abs(d - merged[-1]) > tol:
-            merged.append(round(d, 2))
-    return merged
-
-
-def _is_rotational(x_size, y_size, od_diam, od_axis_offset) -> bool:
-    """True for turned parts: an outward-facing Z cylinder, concentric with
-    the bounding box, filling a square envelope.
-
-    ``od_diam`` is the largest full *external* Z-cylinder diameter (``None``
-    when there is none — bores never qualify as an OD) and
-    ``od_axis_offset`` that cylinder's axis distance from the bbox centre.
-    """
-    if od_diam is None:
-        return False
-    envelope = max(x_size, y_size)
-    return bool(
-        abs(x_size - y_size) <= _SQUARENESS_TOL * envelope
-        and od_diam >= _OD_FILL_MIN * envelope
-        and od_axis_offset <= _OD_AXIS_TOL * envelope
-    )
-
-
 def _converge_step_sizing(
     initial_steps: int,
     measure_strips: Callable[[int], StripDepths],
@@ -496,52 +471,21 @@ def _classify_geometry(part, x_size, y_size, z_size, cx, cy, cz) -> _GeomClass:
     :func:`_analyse`). Partial (fillet) faces are excluded — they would pollute the OD, the bore
     leaders, and the rotational test alike (#81)."""
     z_cyls, cross_cyls = analyse_cylinders(part)
-    full_z = full_cylinders(z_cyls)
-    z_diams = dedup_diams(full_z)
-    cross_diams = dedup_diams(full_cylinders(cross_cyls))
+    classification = _classify_rotational_cylinders(
+        (z_cyls, cross_cyls),
+        sizes=(x_size, y_size, z_size),
+        centre=(cx, cy, cz),
+    )
+    z_diams = list(classification.z_diams)
+    cross_diams = list(classification.cross_diams)
 
     _log.info("Z-axis diameters: %s", z_diams)
     if cross_diams:
         _log.info("Cross-hole diams: %s", cross_diams)
 
-    od_cyl = max((c for c in full_z if c["external"]), key=lambda c: c["diameter"], default=None)
-    od_diam = None
-    if od_cyl:
-        # Snap to the dedup_diams representative so comparisons against z_diams entries
-        # (bore-leader exclusion, labels) are exact even if the cylinder records ever carry
-        # unrounded OCCT diameters (#86)
-        raw_od = od_cyl["diameter"]
-        od_diam = min(z_diams, key=lambda d: abs(d - raw_od))
-    od_axis_offset = (
-        math.hypot(od_cyl["axis_xyz"][0] - cx, od_cyl["axis_xyz"][1] - cy) if od_cyl else 0.0
-    )
-    is_rotational = _is_rotational(x_size, y_size, od_diam, od_axis_offset)
-    od_axis = "z"
-    if not is_rotational:
-        # Fallback: a *horizontal* (X/Y) round body — its OD is a cross-axis cylinder
-        # filling the square envelope perpendicular to that axis (#222). The Z check
-        # above is untouched, so vertical parts classify exactly as before; this only
-        # fires when Z-rotational fails and a cross-axis round body is present.
-        sizes = {"x": x_size, "y": y_size, "z": z_size}
-        ctr = {"x": cx, "y": cy, "z": cz}
-        cross_full = full_cylinders(cross_cyls)
-        for ax in ("x", "y"):
-            ext = [c for c in cross_full if c.get("axis") == ax and c["external"]]
-            # #222 targets a *single-OD* round body. A stepped shaft (multiple distinct
-            # cross diameters) stays on the turned-diameter path, not the OD furniture.
-            if len({round(c["diameter"], 1) for c in ext}) != 1:
-                continue
-            oc = max(ext, key=lambda c: c["diameter"], default=None)
-            if oc is None:
-                continue
-            p0, p1 = (a for a in "xyz" if a != ax)
-            off = math.hypot(
-                oc["axis_xyz"]["xyz".index(p0)] - ctr[p0],
-                oc["axis_xyz"]["xyz".index(p1)] - ctr[p1],
-            )
-            if _is_rotational(sizes[p0], sizes[p1], oc["diameter"], off):
-                od_diam, od_axis_offset, od_axis, is_rotational = oc["diameter"], off, ax, True
-                break
+    od_diam = classification.od_diam
+    od_axis = classification.od_axis
+    is_rotational = classification.is_rotational
     if z_diams and not is_rotational:
         _log.info("Part classified prismatic; skipping OD/centreline/bore annotations")
     return _GeomClass(z_cyls, cross_cyls, z_diams, cross_diams, od_diam, od_axis, is_rotational)
@@ -826,6 +770,7 @@ def _analyse(
             risers=list(recognition.risers) if recognition else None,
             chamfers=list(recognition.chamfers) if recognition else None,
             fillets=list(recognition.fillets) if recognition else None,
+            circular_blind_steps=(list(recognition.circular_blind_steps) if recognition else None),
             paired_ramp_steps=list(recognition.paired_ramp_steps) if recognition else None,
             through_steps=list(recognition.through_steps) if recognition else None,
             plates=list(recognition.plates) if recognition else None,

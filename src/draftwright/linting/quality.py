@@ -34,6 +34,9 @@ from collections import Counter
 
 from draftwright.linting.chamfer_coverage import chamfer_requirement_outcomes
 from draftwright.linting.channel_coverage import channel_requirement_outcomes
+from draftwright.linting.circular_blind_step_coverage import (
+    circular_blind_step_requirement_outcomes,
+)
 from draftwright.linting.fillet_coverage import fillet_requirement_outcomes
 from draftwright.linting.flat_coverage import flat_requirement_outcomes
 from draftwright.linting.groove_coverage import groove_requirement_outcomes
@@ -106,6 +109,7 @@ _RECOGNISED_REQUIREMENT_FAMILIES = {
     "polygonal_bosses": "polygonal_bosses",
     "polygonal_stock": "polygonal_stock",
     "channels": "channels",
+    "circular_blind_steps": "circular_blind_steps",
     "slots": "slots",
     "slot_patterns": "slot_patterns",
     "grooves": "grooves",
@@ -154,14 +158,13 @@ _NON_REQUIREMENT_INVENTORIES = frozenset(
 #: merging them would let an undecided family look settled (#1244). Passage, PrismaticPocket and
 #: AngledStep left this register when #1245/#1246/#1247 gave every authoritative occurrence an
 #: unsupported outcome.
-_UNDECIDED_INVENTORIES: dict[str, str] = {
-    "circular_blind_steps": "https://github.com/pzfreo/draftwright/issues/1382",
-}
+_UNDECIDED_INVENTORIES: dict[str, str] = {}
 
 _AUDITED_FAMILIES = (
     "angled_steps",
     "chamfers",
     "channels",
+    "circular_blind_steps",
     "fillets",
     "paired_ramp_steps",
     "flats",
@@ -363,6 +366,7 @@ _STAGE_ROUTED_CODES = frozenset(
         "pmi_dropped",
         "boss_dia_dropped",
         "chamfer_dropped",
+        "circular_blind_step_dropped",
         "diameter_dropped",
         "fillet_dropped",
         "paired_ramp_step_dropped",
@@ -386,6 +390,7 @@ _STAGE_ROUTED_CODES = frozenset(
 _UNSCORED_CODE_PREFIXES = (
     "chamfer_requirement_",
     "channel_requirement_",
+    "circular_blind_step_requirement_",
     "fillet_requirement_",
     "paired_ramp_step_requirement_",
     "through_step_requirement_",
@@ -604,6 +609,9 @@ def _completeness_component(
     outcomes = {
         "chamfers": chamfer_requirement_outcomes(recognition, features, registry, omissions),
         "channels": channel_requirement_outcomes(recognition, features, registry, omissions),
+        "circular_blind_steps": circular_blind_step_requirement_outcomes(
+            recognition, features, registry, omissions
+        ),
         "fillets": fillet_requirement_outcomes(recognition, features, registry, omissions),
         "paired_ramp_steps": paired_ramp_step_requirement_outcomes(
             recognition, features, registry, omissions

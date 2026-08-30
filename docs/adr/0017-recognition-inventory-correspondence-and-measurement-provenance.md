@@ -121,12 +121,12 @@ runs 28 public families once each; a turned aggregate runs 23, with five prismat
 families gated out by design.
 
 Ownership does not imply invented drafting semantics. Draftwright consumes the three new
-immutable inventories from the shared result. Paired ramps and through steps now have
-evidence-gated record-to-IR, declaration, generated-code, annotation, and two-requirement
-completeness paths under #1382. Circular blind steps remain explicitly unscored until their
-separate #1382 decision.
-This preserves the one-inventory contract while preventing an undecided newly recognised family
-from masquerading as a complete drawing.
+immutable inventories from the shared result. All three now have evidence-gated record-to-IR,
+declaration, generated-code, annotation, and two-requirement completeness paths under #1382.
+Circular blind steps retain their oriented terminal-to-open centreline and transverse quarter
+arc as correspondence evidence; radius and depth share one solver-owned end-view leader while
+remaining independently addressable. This preserves the one-inventory contract without
+re-performing recognition or parsing rendered labels for completeness.
 
 Consumer ordering remains a drafting-policy decision. Automatic through-step lowering supports
 every principal run axis. For X/Y runs, face levels plus shoulders/plates retain ownership only

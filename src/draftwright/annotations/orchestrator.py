@@ -58,6 +58,7 @@ from draftwright.annotations.from_model import (
     render_boss_heights,
     render_centermarks,
     render_chamfers,
+    render_circular_blind_steps,
     render_diameters,
     render_envelope,
     render_fillets,
@@ -268,6 +269,7 @@ _PASS_SEQUENCE: tuple[str, ...] = (
     # and yields (drops with a warning) where a principal dim now sits.
     "chamfers",
     "fillets",
+    "circular_blind_steps",
     "paired_ramp_steps",
     "flats",
     "pockets",
@@ -368,6 +370,7 @@ def build_model(a: Analysis):
         risers=a.recognition.risers,
         chamfers=a.recognition.chamfers,
         fillets=a.recognition.fillets,
+        circular_blind_steps=a.recognition.circular_blind_steps,
         paired_ramp_steps=a.recognition.paired_ramp_steps,
         through_steps=a.recognition.through_steps,
         plates=a.recognition.plates,
@@ -651,6 +654,10 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # Two equal ramp angles + their run share one solver-owned leader (#1382).
         render_paired_ramp_steps(dwg, _compiled, a, ctx=ctx)
 
+    def _s_circular_blind_steps():
+        # Quarter-cylinder radius + stopped depth share one solver-owned end-view leader.
+        render_circular_blind_steps(dwg, _compiled, a, ctx=ctx)
+
     def _s_through_steps():
         # Two transverse open-section legs, independently identified and corridor-placed.
         render_through_steps(dwg, _compiled, a, ctx=ctx)
@@ -854,6 +861,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
             "step_positions": _s_step_positions,
             "chamfers": _s_chamfers,
             "fillets": _s_fillets,
+            "circular_blind_steps": _s_circular_blind_steps,
             "paired_ramp_steps": _s_paired_ramp_steps,
             "flats": _s_flats,
             "pockets": _s_pockets,

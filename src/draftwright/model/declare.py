@@ -42,6 +42,7 @@ from draftwright.model.ir import (
     BossFeature,
     ChamferFeature,
     ChannelFeature,
+    CircularBlindStepFeature,
     ControlFrame,
     CylindricalReference,
     DatumRef,
@@ -678,6 +679,59 @@ def fillet(obj=None, *, axis=None, radius=None, at=None, turned=False) -> Fillet
         axis=axis,
         radius=round(radius, 3),
         turned=bool(turned),
+    )
+
+
+def circular_blind_step(*, axis, radius, length, centreline, section) -> CircularBlindStepFeature:
+    """Declare one quarter-cylindrical corner cut with a blind terminal (#1382).
+
+    Explicit-only: a detached cylindrical face cannot prove the two open corner joins, the
+    blind terminal or which transverse quadrant was removed. ``centreline`` is ordered from
+    the blind terminal to the open stock envelope; ``section`` is the canonical transverse
+    arc endpoint, centre and other endpoint.
+    """
+    axis = _norm_axis(axis)
+    if type(radius) not in (int, float) or type(length) not in (int, float):
+        raise ValueError("radius and length must be finite positive numbers")
+    try:
+        _require_positive(radius=radius, length=length)
+    except OverflowError as exc:
+        raise ValueError("radius and length must be finite positive numbers") from exc
+    try:
+        if any(type(value) not in (int, float) for point in centreline for value in point):
+            raise ValueError
+        canonical_centreline = tuple(
+            tuple(float(value) for value in point) for point in centreline
+        )
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(
+            "circular_blind_step centreline must contain two finite 3D points"
+        ) from exc
+    try:
+        if any(type(value) not in (int, float) for point in section for value in point):
+            raise ValueError
+        canonical_section = tuple(tuple(float(value) for value in point) for point in section)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(
+            "circular_blind_step section must contain three finite 2D points"
+        ) from exc
+    canonical_radius = float(radius)
+    canonical_length = float(length)
+    try:
+        anchor = CircularBlindStepFeature.anchor_for(
+            axis, canonical_radius, canonical_centreline, canonical_section
+        )
+    except (IndexError, TypeError, ValueError, ZeroDivisionError) as exc:
+        raise ValueError(
+            "circular_blind_step needs a valid centreline and canonical quarter-arc section"
+        ) from exc
+    return CircularBlindStepFeature(
+        frame=Frame(origin=anchor, axis=axis),
+        axis=axis,
+        radius=canonical_radius,
+        length=canonical_length,
+        centreline=canonical_centreline,  # type: ignore[arg-type]
+        section=canonical_section,  # type: ignore[arg-type]
     )
 
 

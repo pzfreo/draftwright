@@ -19,6 +19,7 @@ from __future__ import annotations
 from draftwright.linting.angled_step_coverage import lint_angled_step_coverage
 from draftwright.linting.chamfer_coverage import lint_chamfer_coverage
 from draftwright.linting.channel_coverage import lint_channel_coverage
+from draftwright.linting.circular_blind_step_coverage import lint_circular_blind_step_coverage
 from draftwright.linting.coverage import (
     EXAMINABLE_DECLARED_KINDS,
     CoverageState,
@@ -79,6 +80,7 @@ __all__ = [
     "lint_axial_coverage",
     "lint_boss_height_coverage",
     "lint_channel_coverage",
+    "lint_circular_blind_step_coverage",
     "lint_chamfer_coverage",
     "lint_declaration_reconciliation",
     "lint_drawing",

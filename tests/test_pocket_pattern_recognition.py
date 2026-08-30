@@ -172,6 +172,15 @@ def test_injected_value_equal_pattern_still_excludes_members():
     assert kinds.count("pocket") == 0  # value-equal copies still excluded
 
 
+def test_injected_pockets_derive_an_omitted_pattern_from_that_inventory():
+    pockets = recognise_pockets(_pocket_row(n=4, pitch=30.0))
+    pm = build_part_model(Box(200, 200, 20), pockets=pockets)
+    kinds = [feature.kind for feature in pm.features]
+
+    assert kinds.count("pocket_pattern") == 1
+    assert kinds.count("pocket") == 0
+
+
 def test_build_part_model_groups_and_excludes_members():
     part = _pocket_row(n=4, pitch=30.0)
     pm = build_part_model(part)

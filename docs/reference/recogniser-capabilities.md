@@ -219,6 +219,27 @@ when every member measurement remains on that ink. Removing provider records, ch
 corrupting a declaration or generated line, moving the leader, changing its text or severing
 provenance reduces the corresponding layer.
 
+## Circular-blind-step completeness evidence
+
+The `circular-blind-steps` family is supported from the public `CircularBlindStep` record.
+Exact principal run axis, quarter-cylinder radius, terminal-to-open centreline and canonical
+transverse arc endpoint/centre/endpoint section identify one occurrence. Draftwright retains the
+complete oriented geometry in one `CircularBlindStepFeature`, exposes the explicit-only
+`Sheet.circular_blind_step(...)` declaration, and preserves the same correspondence through
+generated Sheet code without rescanning topology.
+
+Radius and stopped depth become independently addressable `circular_step_radius.radius` and
+`circular_step_depth.length` requirements. One solver-placed leader points to the physical curved
+wall in the axis end view and communicates `R… × … DEEP`; an authored set may retain either term
+without resurrecting the other, and each numeric value keeps its own tolerance. The fail-closed
+ledger follows each requirement to placed, structured-note, suppressed, dropped, missing or
+unverifiable outcomes. Duplicate or malformed source/IR correspondence is never paired by order.
+The aggregate ownership contest is preserved: the curved wall belongs to CircularBlindStep rather
+than also yielding a Fillet requirement. Partial model construction preserves that atomic decision:
+a caller may supply one of the two inventories when it agrees with the aggregate, but an intentional
+override must supply both `fillets` and `circular_blind_steps`; a divergent one-sided override fails
+closed instead of producing duplicate or missing radius semantics.
+
 ## Paired-ramp-step completeness evidence
 
 The `paired-ramp-steps` family is supported as a complete consumer path from the public
@@ -233,8 +254,7 @@ carries both compiler measurement identities. An authored set may retain either 
 without resurrecting the omitted one, and tolerances remain attached to their own numeric value.
 The completeness ledger follows each requirement independently to placed, structured-note,
 suppressed, dropped, missing or unverifiable outcomes; duplicate source/IR correspondence fails
-closed rather than choosing by order. Circular blind steps remain a separate undecided family
-under #1382.
+closed rather than choosing by order.
 
 ## Through-step completeness evidence
 
@@ -258,7 +278,7 @@ mutated source/IR correspondence is never paired by order. A coordinate-proven c
 projection is `inapplicable` only while its exact alternate measurement identities are actually
 placed or structurally satisfied. Authored omission and placement failure remain `suppressed` or
 `dropped`; missing alternate ink remains `missing`. Axis or family presence alone can never claim
-an outcome. Circular blind steps remain the only undecided 0.4.6 step family under #1382.
+an outcome.
 
 Remaining supported-family completeness work is tracked by family group rather than the closed
 shared design issue: #1370 retains countersinks and Double-D bores; #1371 covers
@@ -338,12 +358,10 @@ The 0.4.6 provider manifest adds `circular-blind-steps`, `paired-ramp-steps`, an
 section or angle. Those facts do not by themselves choose Draftwright's manufacturing requirement,
 semantic view, or dimension grammar, so each family receives a separate reviewed disposition.
 
-Paired ramps and rectangular through steps now have the complete supported paths described
-above. Through-step automatic ownership supports every principal run axis while retaining an
+All three step families now have complete supported paths. Through-step automatic ownership
+supports every principal run axis while retaining an
 X/Y occurrence's existing Z-up grammar only when both physical legs and their actual outcomes
 are proved; the explicit Sheet surface likewise supports all principal axes. Circular blind
-steps remain unsupported at the IR, Sheet, generated-code, and drawing-consumer boundaries with
-completeness explicitly `deferred`. A non-empty circular-blind-step inventory is reported in
-`quality.completeness.unscored_recognized_families`, so the completeness component cannot
-misrepresent it as a clean zero-requirement inventory. Issue #1382 retains its reviewed
-downstream disposition.
+steps retain their oriented centreline/quarter-arc correspondence and communicate independently
+addressable radius and stopped-depth requirements in one end-view leader. Issue #1382 records
+the reviewed downstream dispositions.

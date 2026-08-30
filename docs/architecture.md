@@ -536,8 +536,9 @@ policy) live in `CLAUDE.md`. This is the per-ADR status trail; each ADR's
   stated constraint stopped being true. Measured per family with 0.4.6: a prismatic build runs
   28 once each, a turned build 23 (the five prismatic-only families excluded), and a declared
   build/render **zero**. Physical critique or export may then obtain one cached aggregate. The
-  three 0.4.6 step inventories are owned by that aggregate but remain explicitly unscored in
-  Draftwright completeness until #1382 supplies evidence-backed consumer semantics.
+  three 0.4.6 step inventories are owned by that aggregate and now have evidence-backed,
+  scored consumer semantics under #1382. Their framed-coordinate parity remains a separate
+  #1357 acceptance item.
   The accepted contract stops there. `BuildState` proves result-to-build provenance; it does
   **not** yet provide recognition-record→IR-feature→requirement correspondence. The original
   four-type identity taxonomy, shared requirements module, general outcome ledger,

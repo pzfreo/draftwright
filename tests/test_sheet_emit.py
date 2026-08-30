@@ -18,6 +18,7 @@ from build123d import (
     Polygon,
     Pos,
     RegularPolygon,
+    Rot,
     Shape,
     export_step,
     extrude,
@@ -133,6 +134,10 @@ def _polygonal_stock():
 def _paired_ramp_step():
     profile = Polygon((0, -8), (0, 8), (-10, 0))
     return Box(40, 40, 30) - Pos(20, 20, 0) * extrude(Plane.XZ * profile, 25)
+
+
+def _circular_blind_step():
+    return Box(40, 30, 20) - Pos(7.5, 15, 10) * Rot(0, 90, 0) * Cylinder(4, 25)
 
 
 def _through_step():
@@ -2519,6 +2524,7 @@ class TestTheDimensionMirror:
             # roster stops saying "untested".
             "chamfer": _chamfered_corner(bd_chamfer, 4),
             "fillet": _chamfered_corner(bd_fillet, 3),
+            "circular blind step": _circular_blind_step(),
             "paired ramp": _paired_ramp_step(),
             "through step": _through_step(),
             "flat": Cylinder(10, 30) - Pos(10, 0, 0) * Box(10, 40, 40),  # D-shaft
@@ -2558,6 +2564,7 @@ class TestTheDimensionMirror:
         "slot pattern": {"slot_pattern"},
         "chamfer": {"chamfer"},
         "fillet": {"fillet"},
+        "circular blind step": {"circular_blind_step"},
         "paired ramp": {"paired_ramp_step"},
         "through step": {"through_step"},
         "flat": {"flat"},
@@ -2864,6 +2871,7 @@ _KIND_MIRROR_COVERAGE = {
     "pmi": "declared — raw AP242, emitted as sheet.add(PmiFeature(...)) (ADR 0016)",
     "chamfer": "corpus",
     "fillet": "corpus",
+    "circular_blind_step": "corpus",
     "paired_ramp_step": "corpus",
     "through_step": "corpus",
     "flat": "corpus",
@@ -3359,6 +3367,7 @@ _FIDELITY_ROUTE = {
     "channel": ("detected", "channel"),
     "chamfer": ("detected", "chamfer"),
     "fillet": ("detected", "fillet"),
+    "circular_blind_step": ("detected", "circular blind step"),
     "paired_ramp_step": ("detected", "paired ramp"),
     "through_step": ("detected", "through step"),
     "flat": ("detected", "flat"),
@@ -3605,6 +3614,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
             # these are the same fixtures the mirror corpus already uses.
             "chamfer": _chamfered_corner(bd_chamfer, 4),
             "fillet": _chamfered_corner(bd_fillet, 3),
+            "circular blind step": _circular_blind_step(),
             "paired ramp": _paired_ramp_step(),
             "through step": _through_step(),
             "flat": Cylinder(10, 30) - Pos(10, 0, 0) * Box(10, 40, 40),
@@ -3665,6 +3675,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
         "stepped": {"step_level"},
         "chamfer": {"chamfer"},
         "fillet": {"fillet"},
+        "circular blind step": {"circular_blind_step"},
         "paired ramp": {"paired_ramp_step"},
         "through step": {"through_step"},
         "flat": {"flat"},
