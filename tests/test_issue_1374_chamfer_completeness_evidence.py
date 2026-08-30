@@ -20,9 +20,9 @@ CORPUS = Path(__file__).parent / "fixtures" / "evaluation" / "corpus-chamfers-v1
 
 def _lone():
     part = Box(60, 40, 30)
-    edge = part.edges().filter_by(Axis.Z).sort_by(lambda item: item.center().X + item.center().Y)[
-        -1
-    ]
+    edge = (
+        part.edges().filter_by(Axis.Z).sort_by(lambda item: item.center().X + item.center().Y)[-1]
+    )
     return chamfer(edge, 6)
 
 
@@ -82,7 +82,10 @@ def test_public_framed_route_preserves_arbitrarily_rotated_planar_and_turned_bev
 
     shaft = Cylinder(15, 60)
     end = shaft.edges().filter_by(GeomType.CIRCLE).sort_by(lambda edge: edge.center().Z)[-1]
-    fixtures = ((Rot(23, 37, 11) * _lone(), False, 6.0), (Rot(17, 31, 43) * chamfer(end, 3), True, 3.0))
+    fixtures = (
+        (Rot(23, 37, 11) * _lone(), False, 6.0),
+        (Rot(17, 31, 43) * chamfer(end, 3), True, 3.0),
+    )
 
     for part, turned, leg in fixtures:
         framed = build_framed_recognition_result(part)
@@ -115,14 +118,17 @@ def test_angled_step_slant_and_independent_chamfer_have_one_owner_each() -> None
     assert len(direct_chamfers) == 2
     assert len(direct_steps) == 1
     step = direct_steps[0]
-    assert len(
-        [
-            item
-            for item in direct_chamfers
-            if (item.axis, item.leg1, item.leg2, item.angle, item.at)
-            == (step.axis, step.leg1, step.leg2, step.angle, step.at)
-        ]
-    ) == 1
+    assert (
+        len(
+            [
+                item
+                for item in direct_chamfers
+                if (item.axis, item.leg1, item.leg2, item.angle, item.at)
+                == (step.axis, step.leg1, step.leg2, step.angle, step.at)
+            ]
+        )
+        == 1
+    )
     assert len(recognition.chamfers) == 1
     assert len(recognition.angled_steps) == 1
 
@@ -152,17 +158,21 @@ def test_chamfer_ledger_tracks_one_callout_per_physical_bevel_and_fails_closed()
     outcomes = chamfer_requirement_outcomes(
         recognition, drawing.model().features, drawing.registry
     )
-    assert [(item.parameter_id, item.state) for item in outcomes] == [
-        ("chamfer.length", "placed")
-    ]
-    assert chamfer_requirement_outcomes(
-        recognition, drawing.model().features, AnnotationRegistry()
-    )[0].state == "missing"
-    assert chamfer_requirement_outcomes(
-        recognition,
-        [feature for feature in drawing.model().features if feature.kind != "chamfer"],
-        AnnotationRegistry(),
-    )[0].state == "unverifiable"
+    assert [(item.parameter_id, item.state) for item in outcomes] == [("chamfer.length", "placed")]
+    assert (
+        chamfer_requirement_outcomes(recognition, drawing.model().features, AnnotationRegistry())[
+            0
+        ].state
+        == "missing"
+    )
+    assert (
+        chamfer_requirement_outcomes(
+            recognition,
+            [feature for feature in drawing.model().features if feature.kind != "chamfer"],
+            AnnotationRegistry(),
+        )[0].state
+        == "unverifiable"
+    )
 
 
 def test_chamfer_ledger_rejects_foreign_results_and_malformed_ir_without_guessing() -> None:
@@ -232,16 +242,12 @@ def test_chamfer_ledger_distinguishes_suppressed_dropped_and_orphan_evidence() -
             measurement_ids=(DimensionId(feature, "chamfer.length"),),
         )
     )
-    dropped = chamfer_requirement_outcomes(
-        recognition, drawing.model().features, dropped_registry
-    )
+    dropped = chamfer_requirement_outcomes(recognition, drawing.model().features, dropped_registry)
     assert dropped[0].state == "dropped"
 
     orphan_registry = AnnotationRegistry()
     orphan_registry.add(object(), "orphan", "plan", feature=feature)
-    orphan = chamfer_requirement_outcomes(
-        recognition, drawing.model().features, orphan_registry
-    )
+    orphan = chamfer_requirement_outcomes(recognition, drawing.model().features, orphan_registry)
     assert orphan[0].state == "unverifiable"
 
 

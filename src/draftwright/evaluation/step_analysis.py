@@ -1526,9 +1526,7 @@ def _chamfer_correspondence(chamfers, recognition, features, registry=None, omis
 def _chamfer_model_outcomes(chamfers, recognition, features) -> list[Outcome]:
     return [
         "supported" if exact else "unknown"
-        for exact, _features, _outcomes in _chamfer_correspondence(
-            chamfers, recognition, features
-        )
+        for exact, _features, _outcomes in _chamfer_correspondence(chamfers, recognition, features)
     ]
 
 
@@ -1577,7 +1575,10 @@ def _chamfer_drawing_outcomes(chamfers, drawing) -> list[Outcome]:
         )
         if approved is None:
             continue
-        feature = approved.id.feature
+        approved_id = approved.id
+        if approved_id is None:  # narrowed explicitly for the static checker
+            continue
+        feature = approved_id.feature
         facts = group.facts
         spec = (
             round(float(approved.value), 3),
@@ -1642,8 +1643,7 @@ def _chamfer_drawing_outcomes(chamfers, drawing) -> list[Outcome]:
             projected = drawing.at(view, *origin)
             if not feature.turned:
                 return all(
-                    abs(float(tip[index]) - float(projected[index])) <= 1e-6
-                    for index in range(2)
+                    abs(float(tip[index]) - float(projected[index])) <= 1e-6 for index in range(2)
                 )
 
             # Independently derive the physical profile point from the provider's public
@@ -1722,8 +1722,7 @@ def _chamfer_drawing_outcomes(chamfers, drawing) -> list[Outcome]:
             expected_world[hidden_i] = centre[hidden_i]
             expected_tip = drawing.at(view, *expected_world)
             return all(
-                abs(float(tip[index]) - float(expected_tip[index])) <= 1e-6
-                for index in range(2)
+                abs(float(tip[index]) - float(expected_tip[index])) <= 1e-6 for index in range(2)
             )
         except Exception:  # noqa: BLE001 — malformed finished ink cannot earn credit
             return False
@@ -2728,9 +2727,7 @@ def _default_observers() -> Mapping[str, Observer]:
         boundary_outcomes = {
             "ir_adapter": observed_boundary(
                 "ir_adapter",
-                lambda: _chamfer_model_outcomes(
-                    chamfers, recognition, drawing.model().features
-                ),
+                lambda: _chamfer_model_outcomes(chamfers, recognition, drawing.model().features),
             ),
             "dsl_declaration": observed_boundary(
                 "dsl_declaration",
