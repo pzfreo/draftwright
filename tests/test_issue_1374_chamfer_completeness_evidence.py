@@ -6,7 +6,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from build123d import Axis, Box, chamfer, import_step
+from build123d import Axis, Box, Cylinder, GeomType, Pos, chamfer, import_step
 
 from draftwright.evaluation.step_analysis import (
     ObservationError,
@@ -403,6 +403,37 @@ def test_moving_turned_chamfer_leader_off_the_profile_loses_drawing_credit(monke
     monkeypatch.setattr(builder, "build_drawing", with_wrong_radial_tip)
     part = import_step(CORPUS.parent / "chamfer-turned.step")
     assert _states("drawing_consumer", part) == {"unsupported"}
+
+
+def test_partial_od_turned_chamfers_keep_their_physical_source_target() -> None:
+    half_shaft = Cylinder(10, 40) & (Pos(-10, 0, 0) * Box(20, 10, 40))
+    circular_edges = [edge for edge in half_shaft.edges() if edge.geom_type == GeomType.CIRCLE]
+    part = chamfer(circular_edges, 1)
+
+    observed = _default_observers()["chamfers"](part)
+
+    assert len(observed) == 2
+    assert all(fact.downstream["drawing_consumer"] == "supported" for fact in observed)
+
+
+def test_moving_partial_od_chamfer_leader_off_source_loses_credit(monkeypatch) -> None:
+    import draftwright.builder as builder
+
+    original = builder.build_drawing
+
+    def with_wrong_tip(*args, **kwargs):
+        drawing = original(*args, **kwargs)
+        name = next(name for name in drawing.annotations() if name.startswith("m_chamfer_"))
+        drawing.registry.named(name).position = (50.0, 0.0, 0.0)
+        return drawing
+
+    monkeypatch.setattr(builder, "build_drawing", with_wrong_tip)
+    half_shaft = Cylinder(10, 40) & (Pos(-10, 0, 0) * Box(20, 10, 40))
+    circular_edges = [edge for edge in half_shaft.edges() if edge.geom_type == GeomType.CIRCLE]
+    observed = _default_observers()["chamfers"](chamfer(circular_edges, 1))
+
+    assert len(observed) == 2
+    assert all(fact.downstream["drawing_consumer"] == "unsupported" for fact in observed)
 
 
 def test_severing_chamfer_measurement_provenance_loses_drawing_credit(monkeypatch) -> None:

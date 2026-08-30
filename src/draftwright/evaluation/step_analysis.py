@@ -1689,7 +1689,13 @@ def _chamfer_drawing_outcomes(chamfers, drawing) -> list[Outcome]:
                         )
                     )
             if not candidates:
-                return False
+                # A cone can adjoin a partial OD (for example a D- or half-shaft) that the
+                # public substrate filter correctly declines to call a complete cylinder.
+                # In that case production preserves the recogniser's already-physical site;
+                # independently require the finished leader to preserve that projected point.
+                return all(
+                    abs(float(tip[index]) - float(projected[index])) <= 1e-6 for index in range(2)
+                )
             _score, centre = min(candidates, key=lambda candidate: candidate[0])
 
             # A profile view projects exactly one of the two radial axes.  Determine that
