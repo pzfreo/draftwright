@@ -270,7 +270,7 @@ def _geometry_only_declaration() -> dict[str, Any]:
 #: have a live decision issue, while a settled unsupported boundary must carry an explicit
 #: outcome such as Passage completeness below. ``pending_family_declarations`` reports anything
 #: absent from BOTH this map and ``_FAMILIES``, so the next new family fails closed exactly as
-#: these three did (#1244).
+#: the first three did (#1244), and the 0.4.6 step families do now (#1382).
 _UNSUPPORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
     "passages": (
         (
@@ -304,6 +304,30 @@ _UNSUPPORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
         "AngledStep, but its angle, legs and run length do not themselves decide which drawing "
         "requirements or section/detail view are required. Draftwright therefore reports every "
         "occurrence as an unsupported completeness requirement.",
+    ),
+    "circular-blind-steps": (
+        ("CircularBlindStep",),
+        "https://github.com/pzfreo/draftwright/issues/1382",
+        "The provider proves a quarter-cylindrical blind corner step and supplies its radius, "
+        "run and oriented section. Draftwright has not yet reviewed which feature, view and "
+        "dimension grammar truthfully expresses that manufacturing requirement, so every "
+        "consumer boundary remains unsupported and completeness remains explicitly deferred.",
+    ),
+    "paired-ramp-steps": (
+        ("PairedRampStep",),
+        "https://github.com/pzfreo/draftwright/issues/1382",
+        "The provider proves a mirror-symmetric two-sided ramp and supplies its angle, run and "
+        "ridge anchor. Draftwright has not yet reviewed which feature, view and dimension "
+        "grammar truthfully expresses that manufacturing requirement, so every consumer "
+        "boundary remains unsupported and completeness remains explicitly deferred.",
+    ),
+    "through-steps": (
+        ("ThroughStep",),
+        "https://github.com/pzfreo/draftwright/issues/1382",
+        "The provider proves a principal-axis rectangular through step and supplies its run, "
+        "anchor and open section. Draftwright has not yet reviewed which feature, view and "
+        "dimension grammar truthfully expresses that manufacturing requirement, so every "
+        "consumer boundary remains unsupported and completeness remains explicitly deferred.",
     ),
 }
 

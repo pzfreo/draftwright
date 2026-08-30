@@ -119,16 +119,16 @@ def test_installed_package_contract_validates_without_a_sibling_checkout() -> No
     _validate()
     package = recognition.capability_manifest(format_version=2)
     declaration = consumer_capability_declaration()
-    # 25 since 0.2.6 added angled-steps, passages and prismatic-pockets (#1244). A literal,
+    # 28 since 0.4.6 added three step families (#1382). A literal,
     # not a length comparison against the package: the point is that BOTH sides changed
-    # together, so an upgrade that declared nothing would leave this at 22 and fail.
-    assert len(package["families"]) == len(declaration["families"]) == 25
+    # together, so an upgrade that declared nothing would leave this at 25 and fail.
+    assert len(package["families"]) == len(declaration["families"]) == 28
 
 
 def test_rich_passage_contract_has_an_explicit_unsupported_completeness_outcome() -> None:
     """Pin the 0.4 physical record and compatibility projection to one decision."""
 
-    assert INSTALLED_PACKAGE_VERSION == "0.4.5"
+    assert INSTALLED_PACKAGE_VERSION == "0.4.6"
     installed = tuple(int(component) for component in INSTALLED_PACKAGE_VERSION.split("."))
     assert (0, 4, 0) <= installed < (0, 5, 0)
     package = _families(recognition.capability_manifest())
@@ -300,6 +300,36 @@ def test_rich_passage_contract_has_an_explicit_unsupported_completeness_outcome(
             "version": importlib.metadata.version("draftwright"),
         },
     ]
+
+
+@pytest.mark.parametrize(
+    ("family_id", "record_name", "inventory"),
+    [
+        ("circular-blind-steps", "CircularBlindStep", "circular_blind_steps"),
+        ("paired-ramp-steps", "PairedRampStep", "paired_ramp_steps"),
+        ("through-steps", "ThroughStep", "through_steps"),
+    ],
+)
+def test_046_step_families_are_explicit_downstream_decisions(
+    family_id: str, record_name: str, inventory: str
+) -> None:
+    """The dependency bump cannot silently turn new physical families into substrate."""
+
+    package = _families(recognition.capability_manifest())[family_id]
+    consumer = _families(consumer_capability_declaration())[family_id]
+
+    assert package["introduced_in"] == "0.4.6"
+    assert package["census_output"] == f"RecognitionResult.{inventory}"
+    assert [record["name"] for record in package["records"]] == [record_name]
+    assert consumer["record_schemas"] == {record_name: [1]}
+    assert consumer["tracking"] == "https://github.com/pzfreo/draftwright/issues/1382"
+    assert consumer["disposition"] == "unsupported"
+    assert {
+        consumer[boundary]["state"]
+        for boundary in ("ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer")
+    } == {"unsupported"}
+    assert consumer["completeness"]["state"] == "deferred"
+    assert family_id not in pending_family_declarations()
 
 
 def test_holes_completeness_is_supported_by_the_independent_observed_corpus() -> None:

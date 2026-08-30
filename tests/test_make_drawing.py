@@ -16,7 +16,7 @@ from b123d_recognisers import (
     recognise_pockets,
     recognise_slots,
 )
-from build123d import Align, Axis, Box, Compound, Cylinder, Edge, Pos, Rotation, export_step
+from build123d import Align, Axis, Box, Compound, Cylinder, Edge, Pos, Rot, Rotation, export_step
 from build123d_drafting import HoleCallout, Leader, ViewCoordinates, view_axes
 
 from draftwright import Drawing, build_drawing, make_drawing
@@ -3161,6 +3161,28 @@ class TestHolePatternCallouts:
             assert abs(span - expected) < 1.0, (
                 f"{n} ({dim.label!r}) endpoint span {span:.1f} ≠ {expected:.1f} — drawn diagonally"
             )
+
+    @pytest.mark.timeout(120)
+    def test_x_axis_rect_grid_keeps_both_pitches_in_the_side_view(self):
+        """0.4.6 coordinate rounding must not select an interior side-view witness row."""
+
+        ang = math.radians(25)
+        ca, sa = math.cos(ang), math.sin(ang)
+        centre = (Align.CENTER, Align.CENTER, Align.CENTER)
+        part = Box(12, 220, 120, align=centre)
+        cutter = Rot(0, 90, 0) * Cylinder(4, 20, align=centre)
+        for r in range(2):
+            for c in range(5):
+                y, z = (c - 2) * 45, (r - 0.5) * 10
+                part -= Pos(0, y * ca - z * sa, y * sa + z * ca) * cutter
+
+        dwg = build_drawing(part)
+        pitch = [name for name in dwg.annotations() if name.startswith("dim_pitch_")]
+
+        assert len(pitch) == 2, f"expected two side-grid pitch dims, got {pitch}"
+        assert {dwg.view_of(name) for name in pitch} == {"side"}
+        assert {dwg.get_annotation(name).label for name in pitch} == {"1× 10", "4× 45"}
+        assert "hole_pattern_dim_dropped" not in {issue.code for issue in dwg.lint()}
 
     @pytest.mark.timeout(120)
     def test_rect_grid_coverage_lint_quiet(self):

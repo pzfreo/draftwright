@@ -92,9 +92,15 @@
   claiming a regular-polygon callout represents the provider's complete line/arc schema (#1245).
 
 - Declared Double-D bore, countersink, chamfer, fillet, and groove geometry reads now use the
-  stable `b123d_recognisers.inspection` namespace from the exact 0.4.5 wheel. A separate
+  stable `b123d_recognisers.inspection` namespace from the exact 0.4.6 wheel. A separate
   Draftwright-owned format-1 contract fails closed on changes to the consumed signatures, result
   schemas, units, bevel rejection reasons, or cylindrical surface layout (#1362).
+
+- Updated the exact `b123d-recognisers` production lock to 0.4.6. Circular blind, paired ramp,
+  and through-step inventories are now carried from the one aggregate and surfaced as unscored
+  completeness evidence pending #1382 semantics. Rectangular-grid pitch placement also uses a
+  deterministic outer witness line across plan, front, and side views despite the release's
+  coordinate-rounding differences.
 
 - `annotation_overlap` now reports the whole defect when the same pair also draws
   line-work through one of the two labels: the message names the crosser, the label
