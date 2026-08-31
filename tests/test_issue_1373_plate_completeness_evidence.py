@@ -447,6 +447,13 @@ def test_exact_overlapping_family_owners_do_not_create_a_second_plate_denominato
             source,
             flat_centres=((10**10000, *source.flat_centres[0][1:]), *source.flat_centres[1:]),
         ),
+        replace(
+            source,
+            flat_directions=(
+                (*source.flat_directions[0][:2], 0.0004),
+                *source.flat_directions[1:],
+            ),
+        ),
     ):
         malformed = replace(boss_recognition, polygonal_bosses=(corrupted,))
         (failed_closed,) = plate_requirement_outcomes(
@@ -478,6 +485,7 @@ def test_raw_slot_owner_requires_one_schema_for_every_member() -> None:
         replace(member, long_axis=member.width_axis),
         replace(member, d_hi=member.d_hi + 1),
         replace(member, length=member.length + 7),
+        replace(member, w_center=member.w_center + 5),
         replace(member, width=10**10000),
         replace(member, body_key=(10**10000, *member.body_key[1:])),
     )
@@ -496,6 +504,14 @@ def test_raw_slot_owner_requires_one_schema_for_every_member() -> None:
         )
         assert len(outcomes) == 5
         assert {outcome.state for outcome in outcomes} == {"unverifiable"}
+        compiled_outcomes = plate_requirement_outcomes(
+            malformed,
+            drawing.model().features,
+            drawing.registry,
+            part=part,
+        )
+        assert len(compiled_outcomes) == 5
+        assert {outcome.state for outcome in compiled_outcomes} == {"unverifiable"}
 
     malformed = replace(
         recognition,
@@ -672,6 +688,34 @@ def test_bored_boss_uses_material_supports_for_same_solid_ownership() -> None:
     boss = Pos(0, 0, 5) * extrude(RegularPolygon(20, 6), 30)
     bore = Pos(0, 0, -5) * Cylinder(3, 45, align=_CENTER_MIN)
     part = base + boss - bore
+    drawing = build_drawing(part)
+    recognition = drawing.recognition()
+    assert recognition is not None
+    assert len(recognition.polygonal_bosses) == 1
+    assert len(recognition.holes) == 1
+    envelope_only = tuple(
+        feature for feature in drawing.model().features if feature.kind == "envelope"
+    )
+
+    (outcome,) = plate_requirement_outcomes(
+        recognition,
+        envelope_only,
+        AnnotationRegistry(),
+        part=part,
+    )
+
+    assert outcome.state == "inapplicable"
+
+
+def test_offcentre_boss_ownership_does_not_require_material_at_plate_centroid() -> None:
+    from draftwright import build_drawing
+    from draftwright.linting.plate_coverage import plate_requirement_outcomes
+    from draftwright.registry import AnnotationRegistry
+
+    base = Box(100, 80, 10, align=(Align.CENTER, Align.CENTER, Align.CENTER))
+    boss = Pos(20, 0, 5) * extrude(RegularPolygon(10, 6), 20)
+    unrelated_bore = Pos(0, 0, -5) * Cylinder(3, 45, align=_CENTER_MIN)
+    part = base + boss - unrelated_bore
     drawing = build_drawing(part)
     recognition = drawing.recognition()
     assert recognition is not None

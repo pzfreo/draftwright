@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from dataclasses import dataclass
-from math import isfinite
+from math import cos, hypot, isclose, isfinite, radians, sin
 from typing import Literal
 
 from b123d_recognisers import RecognitionResult
@@ -193,12 +193,13 @@ def _slot_pattern_supports_source(source, pattern) -> bool:
         return False
 
 
-def _recognised_slot_pattern_supports_source(source, slots) -> bool:
+def _recognised_slot_pattern_supports_source(source, pattern) -> bool:
     """Use the public source-body bounds retained on provider Slot records."""
     try:
-        representative = _validated_recognised_slots(slots)
+        representative = _validated_recognised_pattern(pattern)
         if representative is None:
             return False
+        slots = tuple(pattern.slots)
         depth_axis = _depth_axis(representative.width_axis, representative.long_axis)
         assert depth_axis is not None
         point = plate_center(source)
@@ -284,6 +285,149 @@ def _validated_recognised_slots(slots):
         if len(locations) != len(values):
             return None
         return representative
+    except (AttributeError, IndexError, OverflowError, TypeError, ValueError):
+        return None
+
+
+def _slot_location(slot) -> Point:
+    values = tuple(float(value) for value in slot.location)
+    if len(values) != 3 or not all(isfinite(value) for value in values):
+        raise ValueError("a slot location must be one finite 3-vector")
+    return values
+
+
+def _validated_recognised_pattern(pattern):
+    """Validate the aggregate lattice as well as every provider Slot member."""
+    try:
+        slots = tuple(pattern.slots)
+        representative = _validated_recognised_slots(slots)
+        if representative is None:
+            return None
+        locations = tuple(_slot_location(slot) for slot in slots)
+        depth_axis = _depth_axis(representative.width_axis, representative.long_axis)
+        assert depth_axis is not None
+        depth_index = "xyz".index(depth_axis)
+        tolerance = 2e-3
+
+        is_linear = all(hasattr(pattern, name) for name in ("pitch", "direction"))
+        is_grid = all(
+            hasattr(pattern, name)
+            for name in ("rows", "cols", "row_pitch", "col_pitch", "angle", "center")
+        )
+        if is_linear == is_grid:
+            return None
+
+        if is_linear:
+            pitch = float(pattern.pitch)
+            direction = tuple(float(value) for value in pattern.direction)
+            if (
+                len(direction) != 3
+                or not all(isfinite(value) for value in (*direction, pitch))
+                or pitch <= 0
+            ):
+                return None
+            norm = hypot(*direction)
+            if not isclose(norm, 1.0, abs_tol=1e-3) or abs(direction[depth_index]) > 1e-6:
+                return None
+            unit = tuple(value / norm for value in direction)
+            origin = locations[0]
+            projections = []
+            for location in locations:
+                delta = tuple(value - base for value, base in zip(location, origin, strict=True))
+                projection = sum(
+                    value * component for value, component in zip(delta, unit, strict=True)
+                )
+                residual = tuple(
+                    value - projection * component
+                    for value, component in zip(delta, unit, strict=True)
+                )
+                if hypot(*residual) > tolerance:
+                    return None
+                projections.append(projection)
+            ordered = sorted(projections)
+            if any(
+                not isclose(current - previous, pitch, abs_tol=tolerance)
+                for previous, current in zip(ordered, ordered[1:])
+            ):
+                return None
+            return representative
+
+        rows, cols = pattern.rows, pattern.cols
+        if (
+            type(rows) is not int
+            or type(cols) is not int
+            or rows < 2
+            or cols < 2
+            or max(rows, cols) < 3
+            or rows * cols != len(slots)
+        ):
+            return None
+        row_pitch = float(pattern.row_pitch)
+        col_pitch = float(pattern.col_pitch)
+        angle = float(pattern.angle)
+        center = tuple(float(value) for value in pattern.center)
+        if (
+            len(center) != 3
+            or not all(isfinite(value) for value in (*center, row_pitch, col_pitch, angle))
+            or row_pitch <= 0
+            or col_pitch <= 0
+        ):
+            return None
+        mean = tuple(
+            sum(point[index] for point in locations) / len(locations) for index in range(3)
+        )
+        if any(
+            not isclose(value, expected, abs_tol=tolerance)
+            for value, expected in zip(mean, center, strict=True)
+        ):
+            return None
+
+        plane_axes = {
+            "x": ((0.0, 1.0, 0.0), (0.0, 0.0, 1.0)),
+            "y": ((0.0, 0.0, 1.0), (1.0, 0.0, 0.0)),
+            "z": ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0)),
+        }
+        first, second = plane_axes[depth_axis]
+        theta = radians(angle % 180.0)
+        col_direction = tuple(
+            cos(theta) * u + sin(theta) * v for u, v in zip(first, second, strict=True)
+        )
+        row_direction = tuple(
+            -sin(theta) * u + cos(theta) * v for u, v in zip(first, second, strict=True)
+        )
+        expected = []
+        for row in range(rows):
+            row_offset = (row - (rows - 1) / 2) * row_pitch
+            for col in range(cols):
+                col_offset = (col - (cols - 1) / 2) * col_pitch
+                expected.append(
+                    tuple(
+                        center[index]
+                        + row_offset * row_direction[index]
+                        + col_offset * col_direction[index]
+                        for index in range(3)
+                    )
+                )
+        unmatched = list(expected)
+        for location in locations:
+            match = next(
+                (
+                    candidate
+                    for candidate in unmatched
+                    if hypot(
+                        *(
+                            value - wanted
+                            for value, wanted in zip(location, candidate, strict=True)
+                        )
+                    )
+                    <= tolerance
+                ),
+                None,
+            )
+            if match is None:
+                return None
+            unmatched.remove(match)
+        return representative if not unmatched else None
     except (AttributeError, IndexError, OverflowError, TypeError, ValueError):
         return None
 
@@ -388,8 +532,6 @@ def _shares_one_solid(membership, source, boss) -> bool:
         source_center_owners = membership.owners(plate_center(source))
         if source_center_owners:
             return len(source_center_owners) == 1 and source_center_owners == boss_owners[0]
-        if not _polygonal_boss_supports_source(source, boss):
-            return False
         axis_index = "xyz".index(str(source.axis))
         plate_axis_value = (float(source.lo) + float(source.hi)) / 2
         source_witnesses = []
@@ -587,8 +729,7 @@ def _without_provider_owned_ir(recognition, features) -> tuple:
             continue
     slot_sources = tuple(recognition.slot_patterns)
     slot_inventory_untrusted = any(
-        _validated_recognised_slots(getattr(source, "slots", ())) is None
-        for source in slot_sources
+        _validated_recognised_pattern(source) is None for source in slot_sources
     )
     remaining = []
     for feature in features:
@@ -686,10 +827,10 @@ def _recognition_owner_supersedes_plate(source, recognition, features, membershi
 
         for pattern in recognition.slot_patterns:
             slots = tuple(pattern.slots)
-            representative = _validated_recognised_slots(slots)
+            representative = _validated_recognised_pattern(pattern)
             if representative is None or str(representative.width_axis) != axis:
                 continue
-            if not _recognised_slot_pattern_supports_source(source, slots):
+            if not _recognised_slot_pattern_supports_source(source, pattern):
                 continue
             body_key = tuple(representative.body_key)
             pattern_interval = (_rounded(body_key[index]), _rounded(body_key[index + 3]))

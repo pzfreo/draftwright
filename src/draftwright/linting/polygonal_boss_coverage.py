@@ -106,12 +106,16 @@ def _validate_polygonal_boss_source(boss: PolygonalBoss) -> None:
         or not isclose(center[axis_index], (base + top) / 2, abs_tol=2e-3)
     ):
         raise ValueError("the polygonal-boss provider contract requires finite physical bounds")
-    ring = _canonical_support_ring(boss.flat_directions, boss.flat_centres)
+    directions = tuple(tuple(float(value) for value in point) for point in boss.flat_directions)
+    centres = tuple(tuple(float(value) for value in point) for point in boss.flat_centres)
+    if any(len(point) != 3 for point in (*directions, *centres)) or not all(
+        isfinite(value) for point in (*directions, *centres) for value in point
+    ):
+        raise ValueError("the polygonal-boss provider contract requires finite supports")
+    ring = _canonical_support_ring(directions, centres)
     if len(ring) != side_count:
         raise ValueError("the polygonal-boss provider contract requires six paired supports")
-    directions = _points(boss.flat_directions)
-    centres = _points(boss.flat_centres)
-    if len(set(directions)) != side_count or len(set(centres)) != side_count:
+    if len(set(_points(directions))) != side_count or len(set(_points(centres))) != side_count:
         raise ValueError("the polygonal-boss provider contract requires distinct supports")
     angles = []
     angle_tol = pi / 90 + 2e-3
