@@ -424,6 +424,13 @@ def test_exact_overlapping_family_owners_do_not_create_a_second_plate_denominato
         malformed, envelope_only, AnnotationRegistry(), part=boss_part
     )
     assert failed_closed.state == "unverifiable"
+    (failed_closed_with_compiled_ir,) = plate_requirement_outcomes(
+        malformed,
+        boss_drawing.model().features,
+        boss_drawing.registry,
+        part=boss_part,
+    )
+    assert failed_closed_with_compiled_ir.state == "unverifiable"
     source = boss_recognition.polygonal_bosses[0]
     for corrupted in (
         replace(source, side_count=5),
@@ -489,6 +496,62 @@ def test_raw_slot_owner_requires_one_schema_for_every_member() -> None:
         )
         assert len(outcomes) == 5
         assert {outcome.state for outcome in outcomes} == {"unverifiable"}
+
+    malformed = replace(
+        recognition,
+        slot_patterns=(replace(pattern, slots=(object(), *pattern.slots[1:])),),
+    )
+    outcomes = plate_requirement_outcomes(
+        malformed,
+        drawing.model().features,
+        drawing.registry,
+        part=part,
+    )
+    assert len(outcomes) == 5
+    assert {outcome.state for outcome in outcomes} == {"unverifiable"}
+
+    too_short = replace(
+        recognition,
+        slot_patterns=(replace(pattern, slots=pattern.slots[:2]),),
+    )
+    outcomes = plate_requirement_outcomes(
+        too_short,
+        drawing.model().features,
+        drawing.registry,
+        part=part,
+    )
+    assert len(outcomes) == 5
+    assert {outcome.state for outcome in outcomes} == {"unverifiable"}
+
+
+def test_raw_slot_grid_uses_only_members_crossing_each_plate_witness() -> None:
+    from draftwright import build_drawing
+    from draftwright.linting.plate_coverage import plate_requirement_outcomes
+    from draftwright.registry import AnnotationRegistry
+
+    part = Box(140, 180, 20)
+    for x in (-40, 0, 40):
+        for y in (-45, -15, 15, 45):
+            part -= Pos(x, y, 0) * Box(24, 8, 20)
+    drawing = build_drawing(part)
+    recognition = drawing.recognition()
+    assert recognition is not None
+    assert len(recognition.slot_patterns) == 1
+    assert len(recognition.slot_patterns[0].slots) == 12
+    assert len(recognition.plates) == 5
+    envelope_only = tuple(
+        feature for feature in drawing.model().features if feature.kind == "envelope"
+    )
+
+    outcomes = plate_requirement_outcomes(
+        recognition,
+        envelope_only,
+        AnnotationRegistry(),
+        part=part,
+    )
+
+    assert len(outcomes) == 5
+    assert {outcome.state for outcome in outcomes} == {"inapplicable"}
 
 
 def test_overlapping_family_ownership_cannot_cross_disconnected_bodies() -> None:
@@ -750,6 +813,18 @@ def test_unrelated_provider_hexagon_does_not_disable_public_octagon_ownership() 
 
     assert len(outcomes) == 2
     assert {outcome.state for outcome in outcomes} == {"inapplicable"}
+    without_public_owner = plate_requirement_outcomes(
+        recognition,
+        (envelope, provider_hex),
+        AnnotationRegistry(),
+        part=part,
+    )
+    assert {outcome.state for outcome in without_public_owner if outcome.source_at[0] < 0} == {
+        "unverifiable"
+    }
+    assert {outcome.state for outcome in without_public_owner if outcome.source_at[0] > 0} == {
+        "inapplicable"
+    }
 
 
 def test_step_level_alternate_must_land_before_plate_intervals_are_inapplicable() -> None:

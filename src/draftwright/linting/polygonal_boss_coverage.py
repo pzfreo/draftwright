@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
+from math import atan2, cos, hypot, isclose, isfinite, pi
 from typing import Literal
 
 from b123d_recognisers import PolygonalBoss, RecognitionResult
@@ -89,13 +90,64 @@ def _validate_polygonal_boss_source(boss: PolygonalBoss) -> None:
     side_count = boss.side_count
     if type(side_count) is not int or side_count != 6:
         raise ValueError("the polygonal-boss provider contract requires exactly six sides")
+    axis = str(boss.axis)
+    if axis not in {"x", "y", "z"}:
+        raise ValueError("the polygonal-boss provider contract requires a principal axis")
+    axis_index = "xyz".index(axis)
+    in_plane = [index for index in range(3) if index != axis_index]
+    center = tuple(float(value) for value in boss.center)
+    across_flats = float(boss.across_flats)
+    base, top = float(boss.base), float(boss.top)
+    if (
+        len(center) != 3
+        or not all(isfinite(value) for value in (*center, across_flats, base, top))
+        or across_flats <= 0
+        or top <= base
+        or not isclose(center[axis_index], (base + top) / 2, abs_tol=2e-3)
+    ):
+        raise ValueError("the polygonal-boss provider contract requires finite physical bounds")
     ring = _canonical_support_ring(boss.flat_directions, boss.flat_centres)
     if len(ring) != side_count:
         raise ValueError("the polygonal-boss provider contract requires six paired supports")
-    directions = tuple(direction for direction, _centre in ring)
-    centres = tuple(centre for _direction, centre in ring)
+    directions = _points(boss.flat_directions)
+    centres = _points(boss.flat_centres)
     if len(set(directions)) != side_count or len(set(centres)) != side_count:
         raise ValueError("the polygonal-boss provider contract requires distinct supports")
+    angles = []
+    angle_tol = pi / 90 + 2e-3
+    for direction, flat_center in zip(directions, centres, strict=True):
+        norm = hypot(*direction)
+        support = sum(
+            (flat_center[index] - center[index]) * direction[index] for index in in_plane
+        )
+        if (
+            not all(isfinite(value) for value in (*direction, *flat_center))
+            or abs(norm - 1.0) > 1e-3
+            or abs(direction[axis_index]) > 1e-6
+            or not isclose(support, across_flats / 2, rel_tol=1e-3, abs_tol=0.202)
+            or not base - 1e-6 <= flat_center[axis_index] <= top + 1e-6
+        ):
+            raise ValueError("the polygonal-boss provider contract requires physical supports")
+        angles.append(atan2(direction[in_plane[1]], direction[in_plane[0]]) % (2 * pi))
+    expected = 2 * pi / side_count
+    gaps = [
+        (angles[(index + 1) % side_count] - angles[index]) % (2 * pi)
+        for index in range(side_count)
+    ]
+    counter_clockwise = all(abs(gap - expected) <= angle_tol for gap in gaps)
+    clockwise = all(abs(gap - (2 * pi - expected)) <= angle_tol for gap in gaps)
+    opposed = all(
+        sum(
+            directions[index][component] * directions[index + side_count // 2][component]
+            for component in range(3)
+        )
+        <= -cos(angle_tol)
+        * hypot(*directions[index])
+        * hypot(*directions[index + side_count // 2])
+        for index in range(side_count // 2)
+    )
+    if not ((counter_clockwise or clockwise) and opposed):
+        raise ValueError("the polygonal-boss provider contract requires one regular support ring")
     area_vector = tuple(
         sum(
             start[(index + 1) % 3] * end[(index + 2) % 3]

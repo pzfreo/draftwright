@@ -206,16 +206,14 @@ def _recognised_slot_pattern_supports_source(source, slots) -> bool:
         if len(body_key) < 6:
             return False
         body_bounds = tuple(zip(body_key[:3], body_key[3:6], strict=True))
-        return (
+        return any(
             _between(
-                point["xyz".index(str(representative.long_axis))],
-                (representative.lo, representative.hi),
+                point["xyz".index(str(slot.long_axis))],
+                (slot.lo, slot.hi),
             )
-            and _between(
-                point["xyz".index(depth_axis)], (representative.d_lo, representative.d_hi)
-            )
-            and all(_between(point[index], bounds) for index, bounds in enumerate(body_bounds))
-        )
+            and _between(point["xyz".index(depth_axis)], (slot.d_lo, slot.d_hi))
+            for slot in slots
+        ) and all(_between(point[index], bounds) for index, bounds in enumerate(body_bounds))
     except (AttributeError, IndexError, KeyError, OverflowError, TypeError, ValueError):
         return False
 
@@ -224,7 +222,7 @@ def _validated_recognised_slots(slots):
     """Return one representative only when every provider member has one body-local schema."""
     try:
         values = tuple(slots)
-        if len(values) < 2:
+        if len(values) < 3:
             return None
         representative = values[0]
         width_axis = str(representative.width_axis)
@@ -244,49 +242,46 @@ def _validated_recognised_slots(slots):
             width_axis,
             long_axis,
             body_key,
-            _rounded(representative.lo),
-            _rounded(representative.hi),
-            _rounded(representative.d_lo),
-            _rounded(representative.d_hi),
             _rounded(representative.width),
             _rounded(representative.length),
         )
-        if (
-            shared[3] > shared[4]
-            or shared[5] > shared[6]
-            or shared[7] <= 0
-            or shared[8] <= 0
-            or not _same(shared[8], shared[4] - shared[3])
-        ):
+        if shared[3] <= 0 or shared[4] <= 0:
             return None
         width_index = "xyz".index(width_axis)
-        cuts = []
+        long_index = "xyz".index(long_axis)
+        depth_index = "xyz".index(depth_axis)
+        locations = set()
         for slot in values:
+            lo, hi = _rounded(slot.lo), _rounded(slot.hi)
+            d_lo, d_hi = _rounded(slot.d_lo), _rounded(slot.d_hi)
             current = (
                 str(slot.width_axis),
                 str(slot.long_axis),
                 tuple(_rounded(value) for value in slot.body_key),
-                _rounded(slot.lo),
-                _rounded(slot.hi),
-                _rounded(slot.d_lo),
-                _rounded(slot.d_hi),
                 _rounded(slot.width),
                 _rounded(slot.length),
             )
-            width = current[7]
+            width = current[3]
             center = float(slot.w_center)
             cut = (center - width / 2, center + width / 2)
             if (
                 current != shared
                 or _depth_axis(slot.width_axis, slot.long_axis) != depth_axis
-                or not all(isfinite(value) for value in (*current[2], *current[3:], width, center))
+                or not all(
+                    isfinite(value)
+                    for value in (*current[2], *current[3:], lo, hi, d_lo, d_hi, center)
+                )
                 or width <= 0
+                or lo > hi
+                or d_lo > d_hi
+                or not _same(current[4], hi - lo)
                 or not bounds[width_index][0] <= cut[0] < cut[1] <= bounds[width_index][1]
+                or not bounds[long_index][0] <= lo < hi <= bounds[long_index][1]
+                or not bounds[depth_index][0] <= d_lo < d_hi <= bounds[depth_index][1]
             ):
                 return None
-            cuts.append(cut)
-        cuts.sort()
-        if any(left[1] >= right[0] for left, right in zip(cuts, cuts[1:], strict=False)):
+            locations.add((_rounded(center), _rounded((lo + hi) / 2), _rounded((d_lo + d_hi) / 2)))
+        if len(locations) != len(values):
             return None
         return representative
     except (AttributeError, IndexError, OverflowError, TypeError, ValueError):
@@ -333,26 +328,8 @@ def _valid_polygonal_boss_source(boss) -> bool:
         from draftwright.linting.polygonal_boss_coverage import (
             _validate_polygonal_boss_source,
         )
-        from draftwright.model import polygonal_boss
 
         _validate_polygonal_boss_source(boss)
-        axis = str(boss.axis)
-        axis_index = "xyz".index(axis)
-        center = tuple(float(value) for value in boss.center)
-        start = list(center)
-        end = list(center)
-        start[axis_index] = float(boss.base)
-        end[axis_index] = float(boss.top)
-        polygonal_boss(
-            side_count=boss.side_count,
-            across_flats=boss.across_flats,
-            height=float(boss.top) - float(boss.base),
-            at=center,
-            axis=axis,
-            span=(tuple(start), tuple(end)),
-            flat_directions=boss.flat_directions,
-            flat_centres=boss.flat_centres,
-        )
         return True
     except (AttributeError, OverflowError, TypeError, ValueError):
         return False
@@ -408,9 +385,14 @@ def _shares_one_solid(membership, source, boss) -> bool:
         boss_owners = tuple(membership.owners(point) for point in witnesses)
         if any(len(owners) != 1 or owners != boss_owners[0] for owners in boss_owners):
             return False
+        source_center_owners = membership.owners(plate_center(source))
+        if source_center_owners:
+            return len(source_center_owners) == 1 and source_center_owners == boss_owners[0]
+        if not _polygonal_boss_supports_source(source, boss):
+            return False
         axis_index = "xyz".index(str(source.axis))
         plate_axis_value = (float(source.lo) + float(source.hi)) / 2
-        source_witnesses = [plate_center(source)]
+        source_witnesses = []
         for witness in witnesses:
             projected = list(witness)
             projected[axis_index] = plate_axis_value
@@ -592,22 +574,34 @@ def _without_provider_owned_ir(recognition, features) -> tuple:
     from draftwright.linting.polygonal_boss_coverage import polygonal_boss_key
 
     boss_keys = []
-    for source in recognition.polygonal_bosses:
+    boss_sources = tuple(recognition.polygonal_bosses)
+    boss_inventory_untrusted = False
+    for source in boss_sources:
         try:
+            if not _valid_polygonal_boss_source(source):
+                boss_inventory_untrusted = True
+                continue
             boss_keys.append(polygonal_boss_key(source))
-        except (AttributeError, IndexError, OverflowError, TypeError, ValueError):
+        except (AttributeError, IndexError, KeyError, OverflowError, TypeError, ValueError):
+            boss_inventory_untrusted = True
             continue
+    slot_sources = tuple(recognition.slot_patterns)
+    slot_inventory_untrusted = any(
+        _validated_recognised_slots(getattr(source, "slots", ())) is None
+        for source in slot_sources
+    )
     remaining = []
     for feature in features:
         kind = getattr(feature, "kind", None)
         try:
-            provider_owned = (
-                kind == "polygonal_boss" and polygonal_boss_key(feature) in boss_keys
-            ) or (
+            provider_owned = bool(
+                kind == "polygonal_boss"
+                and (boss_inventory_untrusted or polygonal_boss_key(feature) in boss_keys)
+            ) or bool(
                 kind == "slot_pattern"
-                and any(
-                    _slot_pattern_corresponds(source, feature)
-                    for source in recognition.slot_patterns
+                and (
+                    slot_inventory_untrusted
+                    or any(_slot_pattern_corresponds(source, feature) for source in slot_sources)
                 )
             )
         except (AttributeError, IndexError, KeyError, OverflowError, TypeError, ValueError):
@@ -674,11 +668,7 @@ def _recognition_owner_supersedes_plate(source, recognition, features, membershi
         source_interval = (_rounded(source.lo), _rounded(source.hi))
 
         for boss in recognition.polygonal_bosses:
-            if (
-                str(boss.axis) != axis
-                or not _valid_polygonal_boss_source(boss)
-                or not _shares_one_solid(membership, source, boss)
-            ):
+            if str(boss.axis) != axis or not _valid_polygonal_boss_source(boss):
                 continue
             boss_interval = (_rounded(boss.base), _rounded(boss.top))
             supports_below = (
@@ -691,7 +681,7 @@ def _recognition_owner_supersedes_plate(source, recognition, features, membershi
                 and boss_interval[1] == source_interval[0]
                 and source_interval[1] == envelope_interval[1]
             )
-            if supports_below or supports_above:
+            if (supports_below or supports_above) and _shares_one_solid(membership, source, boss):
                 return True
 
         for pattern in recognition.slot_patterns:
@@ -703,13 +693,29 @@ def _recognition_owner_supersedes_plate(source, recognition, features, membershi
                 continue
             body_key = tuple(representative.body_key)
             pattern_interval = (_rounded(body_key[index]), _rounded(body_key[index + 3]))
-            cuts = sorted(
-                (
-                    _rounded(slot.w_center - slot.width / 2),
-                    _rounded(slot.w_center + slot.width / 2),
-                )
+            point = plate_center(source)
+            depth_axis = _depth_axis(representative.width_axis, representative.long_axis)
+            if depth_axis is None:
+                continue
+            long_index = "xyz".index(str(representative.long_axis))
+            depth_index = "xyz".index(depth_axis)
+            crossing = (
+                slot
                 for slot in slots
+                if _between(point[long_index], (slot.lo, slot.hi))
+                and _between(point[depth_index], (slot.d_lo, slot.d_hi))
             )
+            cuts = sorted(
+                {
+                    (
+                        _rounded(slot.w_center - slot.width / 2),
+                        _rounded(slot.w_center + slot.width / 2),
+                    )
+                    for slot in crossing
+                }
+            )
+            if not cuts:
+                continue
             material = []
             cursor = pattern_interval[0]
             for cut_lo, cut_hi in cuts:
