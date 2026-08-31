@@ -116,6 +116,7 @@ from draftwright.linting import (
     lint_pmi_rendering,
     lint_pocket_coverage,
     lint_pocket_pattern_coverage,
+    lint_polygonal_boss_coverage,
     lint_polygonal_stock_coverage,
     lint_principal_profile_coverage,
     lint_prismatic_coverage,
@@ -213,6 +214,9 @@ _GEOMETRY_AWARE_CODES = frozenset(
         "pad_requirement_suppressed",
         "pad_requirement_missing",
         "pad_requirement_unverifiable",
+        "polygonal_boss_requirement_suppressed",
+        "polygonal_boss_requirement_missing",
+        "polygonal_boss_requirement_unverifiable",
         "pocket_requirement_suppressed",
         "pocket_requirement_missing",
         "pocket_requirement_unverifiable",
@@ -3581,6 +3585,14 @@ class Drawing:
                 recognition=recognition,
             )
             issues += lint_pad_coverage(
+                working_part,
+                recognition=recognition,
+                features=getattr(model, "features", ()) if model is not None else (),
+                registry=self._registry,
+                omissions=self._build.omissions,
+                assembly=self.assembly,
+            )
+            issues += lint_polygonal_boss_coverage(
                 working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),

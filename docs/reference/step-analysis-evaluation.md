@@ -13,10 +13,10 @@ An observer may only normalize actual evidence; `ObservedFact` deliberately has 
 identifier. Expected and observed facts are matched by family plus authored physical identity fields.
 
 Format 1 currently proves independent `holes`, `hole-patterns`, `flats`, `pockets`,
-`pocket-patterns`, `grooves`, `rectangular-pads`, `chamfers` and `fillets` vertical slices. Each
-observer reads released `b123d-recognisers` geometry records, builds one drawing, and reads all
-four downstream outcomes from that build through the public IR, `Sheet`, generated-code and ADR
-0010 provenance seams.
+`pocket-patterns`, `grooves`, `rectangular-pads`, `polygonal-bosses`, `chamfers` and `fillets`
+vertical slices. Each observer reads released `b123d-recognisers` geometry records, builds one
+drawing, and reads all four downstream outcomes from that build through the public IR, `Sheet`,
+generated-code and ADR 0010 provenance seams.
 
 Since #1217 that outcome comes from the engine's own requirement ledger
 (`linting.hole_coverage.hole_requirement_outcomes`) rather than from a second correspondence
@@ -97,6 +97,15 @@ conical bevel per axis, physical anchor and surface form, scoring both legs and 
 surface anchor and form, scoring radius through exact `R` or grouped `n× R` ink. All three verify a
 live physical leader target and include compound and topology-order controls; the chamfer corpus
 additionally pins AngledStep ownership, while the fillet corpus pins CircularBlindStep ownership.
+
+The polygonal-boss corpus owns one attached regular hexagonal prism per principal axis and physical
+centre. It scores the provider's six-side schema invariant, across-flats, height and canonical
+physical flat-support pairs while keeping
+whole polygonal stock, recesses, detached prisms, circular bosses and rectangular pads outside the
+family denominator. Both A/F and height must survive through exact compiler identities. The
+finished A/F arrow is checked against a retained flat centre only after source-to-IR semantic
+correspondence is established, so rendered page geometry validates usefulness but never selects
+the feature owner.
 
 ```python
 from pathlib import Path

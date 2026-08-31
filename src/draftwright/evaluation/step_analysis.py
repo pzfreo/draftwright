@@ -44,6 +44,12 @@ footprint width/length and local height are scored parameters. The drawing obser
 five physical requirements through compiler measurement identities and structured directional
 location facts without treating the older geometric coverage fallback as semantic evidence.
 
+The polygonal-boss slice (#1372) counts one attached regular prism per principal axis and physical
+centre. Side count, A/F, height, ordered flat directions and physical flat centres are scored
+parameters. Automatic IR, public declaration and executed generated code must retain the complete
+prism record; the drawing must carry the exact A/F and height compiler identities, valid statement
+ink and a live A/F leader on one retained physical support face.
+
 The chamfer slice (#1374) counts one planar or conical bevel per physical anchor. Axis, anchor and
 surface form identify the occurrence; both legs and angle are scored parameters. One compiler
 identity reaches exact ``C`` or ``leg × angle`` ink and a live leader on the bevel/profile station;
@@ -1334,7 +1340,8 @@ def _pad_correspondence(pads, recognition, features, registry=None, omissions=()
     )
     by_at: dict[tuple[float, float, float], list] = {}
     for outcome in ledger:
-        by_at.setdefault(outcome.source_at, []).append(outcome)
+        if outcome.source_at is not None:
+            by_at.setdefault(outcome.source_at, []).append(outcome)
     result = []
     for source in pads:
         candidates = [
@@ -1485,6 +1492,217 @@ def _declared_pad_model(part, pads):
             z1=bounds["z"][1],
             axis=_pad_axis(observed),
             direction=observed.direction,
+        )
+    return sheet.model()
+
+
+def _polygonal_boss_center(boss) -> tuple[float, float, float]:
+    from draftwright.linting.polygonal_boss_coverage import polygonal_boss_center
+
+    return polygonal_boss_center(boss)
+
+
+def _polygonal_boss_identity(boss) -> tuple[str, tuple[float, float, float]]:
+    axis = getattr(boss, "axis", None)
+    if axis is None:
+        axis = boss.frame.axis
+    return str(axis), _polygonal_boss_center(boss)
+
+
+def _polygonal_boss_parameters(boss) -> dict[str, Value]:
+    supports = sorted(
+        (
+            tuple(round(float(component), 3) for component in direction),
+            tuple(round(float(component), 3) for component in centre),
+        )
+        for direction, centre in zip(boss.flat_directions, boss.flat_centres, strict=True)
+    )
+    return {
+        "side_count": int(boss.side_count),
+        "across_flats": round(float(boss.across_flats), 3),
+        "height": round(float(boss.height), 3),
+        "flat_supports": tuple(
+            component
+            for direction, centre in supports
+            for point in (direction, centre)
+            for component in point
+        ),
+    }
+
+
+def _polygonal_boss_correspondence(bosses, recognition, features, registry=None, omissions=()):
+    """Per physical prism, retain exact IR and production-ledger evidence."""
+    from draftwright.linting.polygonal_boss_coverage import (
+        polygonal_boss_key,
+        polygonal_boss_requirement_outcomes,
+    )
+    from draftwright.registry import AnnotationRegistry
+
+    ledger = polygonal_boss_requirement_outcomes(
+        recognition,
+        features,
+        AnnotationRegistry() if registry is None else registry,
+        omissions,
+    )
+    by_at: dict[tuple[float, float, float], list] = {}
+    for outcome in ledger:
+        if outcome.source_at is not None:
+            by_at.setdefault(outcome.source_at, []).append(outcome)
+    result = []
+    expected_ids = {"polygon_across_flats.length", "boss_height.length"}
+    for source in bosses:
+        candidates = [
+            outcome
+            for outcome in by_at.get(_polygonal_boss_center(source), ())
+            if outcome.features
+            and polygonal_boss_key(outcome.features[0]) == polygonal_boss_key(source)
+        ]
+        candidate_features = tuple(
+            dict.fromkeys(feature for outcome in candidates for feature in outcome.features)
+        )
+        exact = (
+            len(candidate_features) == 1
+            and len(candidates) == 2
+            and {outcome.parameter_id for outcome in candidates} == expected_ids
+            and all(outcome.features == candidate_features for outcome in candidates)
+        )
+        result.append((exact, candidate_features, tuple(candidates)))
+    return result
+
+
+def _polygonal_boss_model_outcomes(bosses, recognition, features) -> list[Outcome]:
+    return [
+        "supported" if exact else "unknown"
+        for exact, _features, _outcomes in _polygonal_boss_correspondence(
+            bosses, recognition, features
+        )
+    ]
+
+
+def _polygonal_boss_drawing_outcomes(bosses, drawing) -> list[Outcome]:
+    """Verify exact A/F and height identities plus finished semantic ink."""
+    from build123d_drafting import Dimension, Leader
+
+    from draftwright.linting.evidence import verify_measurement_claims
+    from draftwright.model.compiled import compile_dimensions
+
+    recognition = drawing.recognition()
+    model = drawing.model()
+    plan = compile_dimensions(model)
+    correspondence = _polygonal_boss_correspondence(
+        bosses,
+        recognition,
+        model.features,
+        drawing.registry,
+        plan.diagnostics,
+    )
+    confirmed: dict[tuple[object, str], set[str]] = {}
+    for claim in verify_measurement_claims(drawing.registry, plan):
+        measurement = claim.measurement
+        if claim.state != "confirmed" or measurement is None:
+            continue
+        key = (
+            getattr(measurement, "feature", None),
+            str(getattr(measurement, "parameter", "")),
+        )
+        confirmed.setdefault(key, set()).add(claim.annotation)
+
+    af_labels: dict[object, str] = {}
+    for group in plan.of_kind("polygonal_boss"):
+        approved = next(
+            (
+                item
+                for item in group.dims
+                if (item.role, item.kind) == ("polygon_across_flats", "length")
+                and item.id is not None
+            ),
+            None,
+        )
+        if approved is None or approved.id is None:
+            continue
+        prefix = "HEX" if group.facts.side_count == 6 else f"{group.facts.side_count}-SIDED"
+        suffix = _groove_expected_tolerance_suffix(approved.tolerance, drawing.draft)
+        af_labels[approved.id.feature] = f"{prefix} {approved.value_text}{suffix} A/F"
+
+    def rendered_label(name: str) -> str | None:
+        annotation = drawing.registry.named(name)
+        label = getattr(annotation, "label", None) or getattr(annotation, "_annotate_label", None)
+        return label if isinstance(label, str) else None
+
+    def leader_targets_flat(name: str, feature) -> bool:
+        """Validate rendered ink after semantic correspondence is already established."""
+        from draftwright._geometry import _END_ON
+
+        view = _END_ON.get(feature.frame.axis)
+        if view is None or drawing.registry.view_of(name) != view:
+            return False
+        annotation = drawing.registry.named(name)
+        try:
+            tip = annotation.tip
+            projected = (drawing.at(view, *centre) for centre in feature.flat_centres)
+            return any(
+                len(tip) >= 2
+                and all(
+                    abs(float(tip[index]) - float(expected[index])) <= 1e-6 for index in range(2)
+                )
+                for expected in projected
+            )
+        except Exception:  # noqa: BLE001 — malformed finished ink cannot earn credit
+            return False
+
+    result: list[Outcome] = []
+    for exact, features, outcomes in correspondence:
+        if not exact or len(features) != 1:
+            result.append("unknown")
+            continue
+        feature = features[0]
+        states_ok = all(outcome.state == "placed" for outcome in outcomes)
+        af_names = confirmed.get((feature, "polygon_across_flats.length"), set())
+        height_names = confirmed.get((feature, "boss_height.length"), set())
+        af_ok = any(
+            drawing.registry.feature_of(name) == feature
+            and isinstance(drawing.registry.named(name), Leader)
+            and rendered_label(name) == af_labels.get(feature)
+            and leader_targets_flat(name, feature)
+            for name in af_names
+        )
+        height_ok = any(
+            drawing.registry.feature_of(name) == feature
+            and isinstance(drawing.registry.named(name), Dimension)
+            for name in height_names
+        )
+        result.append("supported" if states_ok and af_ok and height_ok else "unsupported")
+    return result
+
+
+def _declared_polygonal_boss_model(part, bosses):
+    """Declare observed prisms through public ``Sheet.polygonal_boss``."""
+    from draftwright.sheet import Sheet
+
+    sheet = Sheet(part)
+    sheet.authored_dimensions()
+    for observed in bosses:
+        axis = getattr(observed, "axis", None)
+        if axis is None:
+            axis = observed.frame.axis
+        center = _polygonal_boss_center(observed)
+        span = getattr(observed, "span", None)
+        if span is None:
+            axis_index = "xyz".index(str(axis))
+            start = list(center)
+            end = list(center)
+            start[axis_index] = observed.base
+            end[axis_index] = observed.top
+            span = (tuple(start), tuple(end))
+        sheet.polygonal_boss(
+            side_count=observed.side_count,
+            across_flats=observed.across_flats,
+            height=observed.height,
+            at=center,
+            axis=axis,
+            span=span,
+            flat_directions=observed.flat_directions,
+            flat_centres=observed.flat_centres,
         )
     return sheet.model()
 
@@ -3291,6 +3509,91 @@ def _default_observers() -> Mapping[str, Observer]:
             for identity in (_pad_identity(pad),)
         )
 
+    def observe_polygonal_bosses(part: object) -> Sequence[ObservedFact]:
+        from draftwright.builder import build_drawing
+
+        try:
+            drawing = build_drawing(part)  # type: ignore[arg-type]
+        except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
+            _log.warning(
+                "evaluation: drawing build failed (%s); scoring polygonal bosses as unknown",
+                exc,
+            )
+            raise ObservationError("polygonal-bosses", f"drawing build failed: {exc}") from exc
+        try:
+            recognition = drawing.recognition()
+            if recognition is None:
+                raise ValueError("detected build has no build-owned recognition result")
+            bosses = tuple(recognition.polygonal_bosses)
+        except Exception as exc:  # noqa: BLE001 — no safe observed numerator remains
+            _log.warning(
+                "evaluation: recognition access failed (%s); observing no polygonal bosses",
+                exc,
+            )
+            raise ObservationError(
+                "polygonal-bosses", f"recognition access failed: {exc}"
+            ) from exc
+        unknown: list[Outcome] = ["unknown"] * len(bosses)
+
+        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
+            try:
+                result = observe()
+                if len(result) != len(bosses):
+                    raise ValueError(
+                        f"observed {len(result)} outcomes for {len(bosses)} polygonal bosses"
+                    )
+                return result
+            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
+                _log.warning(
+                    "evaluation: %s observation failed (%s); scoring polygonal bosses as unknown",
+                    name,
+                    exc,
+                )
+                return list(unknown)
+
+        boundary_outcomes = {
+            "ir_adapter": observed_boundary(
+                "ir_adapter",
+                lambda: _polygonal_boss_model_outcomes(
+                    bosses, recognition, drawing.model().features
+                ),
+            ),
+            "dsl_declaration": observed_boundary(
+                "dsl_declaration",
+                lambda: _polygonal_boss_model_outcomes(
+                    bosses,
+                    recognition,
+                    _declared_polygonal_boss_model(part, bosses).features,
+                ),
+            ),
+            "generated_code": observed_boundary(
+                "generated_code",
+                lambda: _polygonal_boss_model_outcomes(
+                    bosses,
+                    recognition,
+                    _generated_sheet_model(part, drawing.model()).features,
+                ),
+            ),
+            "drawing_consumer": observed_boundary(
+                "drawing_consumer",
+                lambda: _polygonal_boss_drawing_outcomes(bosses, drawing),
+            ),
+        }
+
+        return tuple(
+            ObservedFact(
+                family="polygonal-bosses",
+                identity={"axis": identity[0], "center": identity[1]},
+                parameters=_polygonal_boss_parameters(boss),
+                downstream={
+                    boundary: boundary_outcomes[boundary][index]
+                    for boundary in _DOWNSTREAM_BOUNDARIES
+                },
+            )
+            for index, boss in enumerate(bosses)
+            for identity in (_polygonal_boss_identity(boss),)
+        )
+
     def observe_chamfers(part: object) -> Sequence[ObservedFact]:
         from draftwright.builder import build_drawing
 
@@ -3651,6 +3954,7 @@ def _default_observers() -> Mapping[str, Observer]:
         "hole-patterns": observe_hole_patterns,
         "pocket-patterns": observe_pocket_patterns,
         "pockets": observe_pockets,
+        "polygonal-bosses": observe_polygonal_bosses,
         "rectangular-pads": observe_pads,
     }
 

@@ -1,0 +1,939 @@
+{
+  "format": "draftwright-step-analysis-corpus",
+  "format_version": 1,
+  "corpus_version": "1.0.0",
+  "metric_version": 1,
+  "scope": [
+    "polygonal-bosses"
+  ],
+  "cases": [
+    {
+      "id": "polygonal-boss-x",
+      "tags": [
+        "positive",
+        "principal-orientation"
+      ],
+      "fixture": "polygonal-boss-x.step",
+      "sha256": "c275dcbec42462e9fb9764d851f06d4816e29487d83c19e92fbb0f6c2a58ac99",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored by rigidly mapping a 100 \u00d7 80 \u00d7 10 mm stock body and its attached 6-sided regular prism onto principal X; construction parameters, not recognition output, define the oracle.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "polygonal-bosses",
+          "identity": {
+            "axis": {
+              "value": "x"
+            },
+            "center": {
+              "value": [
+                20,
+                -7,
+                -13
+              ],
+              "absolute_tolerance": 1e-06
+            }
+          },
+          "parameters": {
+            "side_count": {
+              "value": 6
+            },
+            "across_flats": {
+              "value": 34.641,
+              "absolute_tolerance": 0.002
+            },
+            "height": {
+              "value": 30,
+              "absolute_tolerance": 1e-06
+            },
+            "flat_supports": {
+              "value": [
+                0.0,
+                -0.982,
+                -0.191,
+                20,
+                -24.002,
+                -16.305,
+                0.0,
+                -0.656,
+                0.755,
+                20,
+                -18.363,
+                0.072,
+                0.0,
+                -0.326,
+                -0.946,
+                20,
+                -12.639,
+                -29.377,
+                0.0,
+                0.326,
+                0.946,
+                20,
+                -1.361,
+                3.377,
+                0.0,
+                0.656,
+                -0.755,
+                20,
+                4.363,
+                -26.072,
+                0.0,
+                0.982,
+                0.191,
+                20,
+                10.002,
+                -9.695
+              ],
+              "absolute_tolerance": 0.002
+            }
+          },
+          "required_downstream": [
+            "ir_adapter",
+            "dsl_declaration",
+            "generated_code",
+            "drawing_consumer"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "polygonal-boss-y",
+      "tags": [
+        "positive",
+        "principal-orientation"
+      ],
+      "fixture": "polygonal-boss-y.step",
+      "sha256": "ff967b0a450f4883763c801af4cb413b1d92d542110ac70c5e0d64f1d25d4ac7",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored by rigidly mapping the same asymmetric attached prism onto principal Y.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "polygonal-bosses",
+          "identity": {
+            "axis": {
+              "value": "y"
+            },
+            "center": {
+              "value": [
+                13,
+                20,
+                7
+              ],
+              "absolute_tolerance": 1e-06
+            }
+          },
+          "parameters": {
+            "side_count": {
+              "value": 6
+            },
+            "across_flats": {
+              "value": 34.641,
+              "absolute_tolerance": 0.002
+            },
+            "height": {
+              "value": 30,
+              "absolute_tolerance": 1e-06
+            },
+            "flat_supports": {
+              "value": [
+                -0.946,
+                0.0,
+                -0.326,
+                -3.377,
+                20,
+                1.361,
+                -0.755,
+                0.0,
+                0.656,
+                -0.072,
+                20,
+                18.363,
+                -0.191,
+                0.0,
+                -0.982,
+                9.695,
+                20,
+                -10.002,
+                0.191,
+                0.0,
+                0.982,
+                16.305,
+                20,
+                24.002,
+                0.755,
+                0.0,
+                -0.656,
+                26.072,
+                20,
+                -4.363,
+                0.946,
+                0.0,
+                0.326,
+                29.377,
+                20,
+                12.639
+              ],
+              "absolute_tolerance": 0.002
+            }
+          },
+          "required_downstream": [
+            "ir_adapter",
+            "dsl_declaration",
+            "generated_code",
+            "drawing_consumer"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "polygonal-boss-z",
+      "tags": [
+        "positive",
+        "principal-orientation"
+      ],
+      "fixture": "polygonal-boss-z.step",
+      "sha256": "7e8ace2f9e8d45d88d0e5c497d9cc8d0c938ef9635c6a04de05c54dac94da514",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored from centred box stock and an off-centre 20 mm circumradius regular hexagonal prism attached to its +Z face.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "polygonal-bosses",
+          "identity": {
+            "axis": {
+              "value": "z"
+            },
+            "center": {
+              "value": [
+                13,
+                -7,
+                20
+              ],
+              "absolute_tolerance": 1e-06
+            }
+          },
+          "parameters": {
+            "side_count": {
+              "value": 6
+            },
+            "across_flats": {
+              "value": 34.641,
+              "absolute_tolerance": 0.002
+            },
+            "height": {
+              "value": 30,
+              "absolute_tolerance": 1e-06
+            },
+            "flat_supports": {
+              "value": [
+                -0.946,
+                0.326,
+                0.0,
+                -3.377,
+                -1.361,
+                20,
+                -0.755,
+                -0.656,
+                0.0,
+                -0.072,
+                -18.363,
+                20,
+                -0.191,
+                0.982,
+                0.0,
+                9.695,
+                10.002,
+                20,
+                0.191,
+                -0.982,
+                0.0,
+                16.305,
+                -24.002,
+                20,
+                0.755,
+                0.656,
+                0.0,
+                26.072,
+                4.363,
+                20,
+                0.946,
+                -0.326,
+                0.0,
+                29.377,
+                -12.639,
+                20
+              ],
+              "absolute_tolerance": 0.002
+            }
+          },
+          "required_downstream": [
+            "ir_adapter",
+            "dsl_declaration",
+            "generated_code",
+            "drawing_consumer"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "polygonal-boss-in-plane-rotated",
+      "tags": [
+        "positive",
+        "in-plane-rotation"
+      ],
+      "fixture": "polygonal-boss-in-plane-rotated.step",
+      "sha256": "704edde54b35ef8332ee7e202b562418f8bf40df53c4c574a89eaaa30ad6f044",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored with a 27 degree in-plane prism rotation, 17 mm circumradius and 24 mm attached height; analytical support planes define the expected flats.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "polygonal-bosses",
+          "identity": {
+            "axis": {
+              "value": "z"
+            },
+            "center": {
+              "value": [
+                -18,
+                12,
+                17
+              ],
+              "absolute_tolerance": 1e-06
+            }
+          },
+          "parameters": {
+            "side_count": {
+              "value": 6
+            },
+            "across_flats": {
+              "value": 29.445,
+              "absolute_tolerance": 0.002
+            },
+            "height": {
+              "value": 24,
+              "absolute_tolerance": 1e-06
+            },
+            "flat_supports": {
+              "value": [
+                -0.999,
+                0.052,
+                0.0,
+                -32.702,
+                12.771,
+                17,
+                -0.545,
+                -0.839,
+                0.0,
+                -26.018,
+                -0.347,
+                17,
+                -0.454,
+                0.891,
+                0.0,
+                -24.684,
+                25.118,
+                17,
+                0.454,
+                -0.891,
+                0.0,
+                -11.316,
+                -1.118,
+                17,
+                0.545,
+                0.839,
+                0.0,
+                -9.982,
+                24.347,
+                17,
+                0.999,
+                -0.052,
+                0.0,
+                -3.298,
+                11.229,
+                17
+              ],
+              "absolute_tolerance": 0.002
+            }
+          },
+          "required_downstream": [
+            "ir_adapter",
+            "dsl_declaration",
+            "generated_code",
+            "drawing_consumer"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "polygonal-boss-compound-equal",
+      "tags": [
+        "positive",
+        "compound",
+        "multiple",
+        "multiple-equal"
+      ],
+      "fixture": "polygonal-boss-compound-equal.step",
+      "sha256": "558efe6f002a4fbe6dec31be98bd54fa5b7eb8ba961ff52d3cf5901599496ade",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored as two disjoint stock bodies, each owning one equal 15 mm circumradius, 18 mm high attached hexagonal boss at a distinct body-local centre.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "polygonal-bosses",
+          "identity": {
+            "axis": {
+              "value": "z"
+            },
+            "center": {
+              "value": [
+                -65,
+                -3,
+                14
+              ],
+              "absolute_tolerance": 1e-06
+            }
+          },
+          "parameters": {
+            "side_count": {
+              "value": 6
+            },
+            "across_flats": {
+              "value": 25.981,
+              "absolute_tolerance": 0.002
+            },
+            "height": {
+              "value": 18,
+              "absolute_tolerance": 1e-06
+            },
+            "flat_supports": {
+              "value": [
+                -0.934,
+                0.358,
+                0.0,
+                -77.128,
+                1.655,
+                14,
+                -0.777,
+                -0.629,
+                0.0,
+                -75.095,
+                -11.175,
+                14,
+                -0.156,
+                0.988,
+                0.0,
+                -67.032,
+                9.83,
+                14,
+                0.156,
+                -0.988,
+                0.0,
+                -62.968,
+                -15.83,
+                14,
+                0.777,
+                0.629,
+                0.0,
+                -54.905,
+                5.175,
+                14,
+                0.934,
+                -0.358,
+                0.0,
+                -52.872,
+                -7.655,
+                14
+              ],
+              "absolute_tolerance": 0.002
+            }
+          },
+          "required_downstream": [
+            "ir_adapter",
+            "dsl_declaration",
+            "generated_code",
+            "drawing_consumer"
+          ]
+        },
+        {
+          "family": "polygonal-bosses",
+          "identity": {
+            "axis": {
+              "value": "z"
+            },
+            "center": {
+              "value": [
+                75,
+                -3,
+                14
+              ],
+              "absolute_tolerance": 1e-06
+            }
+          },
+          "parameters": {
+            "side_count": {
+              "value": 6
+            },
+            "across_flats": {
+              "value": 25.981,
+              "absolute_tolerance": 0.002
+            },
+            "height": {
+              "value": 18,
+              "absolute_tolerance": 1e-06
+            },
+            "flat_supports": {
+              "value": [
+                -0.934,
+                0.358,
+                0.0,
+                62.872,
+                1.655,
+                14,
+                -0.777,
+                -0.629,
+                0.0,
+                64.905,
+                -11.175,
+                14,
+                -0.156,
+                0.988,
+                0.0,
+                72.968,
+                9.83,
+                14,
+                0.156,
+                -0.988,
+                0.0,
+                77.032,
+                -15.83,
+                14,
+                0.777,
+                0.629,
+                0.0,
+                85.095,
+                5.175,
+                14,
+                0.934,
+                -0.358,
+                0.0,
+                87.128,
+                -7.655,
+                14
+              ],
+              "absolute_tolerance": 0.002
+            }
+          },
+          "required_downstream": [
+            "ir_adapter",
+            "dsl_declaration",
+            "generated_code",
+            "drawing_consumer"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "polygonal-boss-topology-a",
+      "tags": [
+        "positive",
+        "multiple",
+        "topology-order-variant"
+      ],
+      "fixture": "polygonal-boss-topology-a.step",
+      "sha256": "fa06045ff64610225d762207ae42970cc1d388255fb482f5b9339f005086fecf",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored by adding the 18 mm radius, 22 mm high boss before the 14 mm radius, 28 mm high boss to one stock body.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "polygonal-bosses",
+          "identity": {
+            "axis": {
+              "value": "z"
+            },
+            "center": {
+              "value": [
+                -38,
+                -18,
+                16
+              ],
+              "absolute_tolerance": 1e-06
+            }
+          },
+          "parameters": {
+            "side_count": {
+              "value": 6
+            },
+            "across_flats": {
+              "value": 31.177,
+              "absolute_tolerance": 0.002
+            },
+            "height": {
+              "value": 22,
+              "absolute_tolerance": 1e-06
+            },
+            "flat_supports": {
+              "value": [
+                -0.866,
+                -0.5,
+                0.0,
+                -51.5,
+                -25.794,
+                16,
+                -0.866,
+                0.5,
+                0.0,
+                -51.5,
+                -10.206,
+                16,
+                -0.0,
+                -1.0,
+                0.0,
+                -38.0,
+                -33.588,
+                16,
+                0.0,
+                1.0,
+                0.0,
+                -38.0,
+                -2.412,
+                16,
+                0.866,
+                -0.5,
+                0.0,
+                -24.5,
+                -25.794,
+                16,
+                0.866,
+                0.5,
+                0.0,
+                -24.5,
+                -10.206,
+                16
+              ],
+              "absolute_tolerance": 0.002
+            }
+          },
+          "required_downstream": [
+            "ir_adapter",
+            "dsl_declaration",
+            "generated_code",
+            "drawing_consumer"
+          ]
+        },
+        {
+          "family": "polygonal-bosses",
+          "identity": {
+            "axis": {
+              "value": "z"
+            },
+            "center": {
+              "value": [
+                38,
+                20,
+                19
+              ],
+              "absolute_tolerance": 1e-06
+            }
+          },
+          "parameters": {
+            "side_count": {
+              "value": 6
+            },
+            "across_flats": {
+              "value": 24.249,
+              "absolute_tolerance": 0.002
+            },
+            "height": {
+              "value": 28,
+              "absolute_tolerance": 1e-06
+            },
+            "flat_supports": {
+              "value": [
+                -0.974,
+                0.225,
+                0.0,
+                26.186,
+                22.727,
+                19,
+                -0.682,
+                -0.731,
+                0.0,
+                29.731,
+                11.133,
+                19,
+                -0.292,
+                0.956,
+                0.0,
+                34.455,
+                31.595,
+                19,
+                0.292,
+                -0.956,
+                0.0,
+                41.545,
+                8.405,
+                19,
+                0.682,
+                0.731,
+                0.0,
+                46.269,
+                28.867,
+                19,
+                0.974,
+                -0.225,
+                0.0,
+                49.814,
+                17.273,
+                19
+              ],
+              "absolute_tolerance": 0.002
+            }
+          },
+          "required_downstream": [
+            "ir_adapter",
+            "dsl_declaration",
+            "generated_code",
+            "drawing_consumer"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "polygonal-boss-topology-b",
+      "tags": [
+        "positive",
+        "multiple",
+        "topology-order-variant"
+      ],
+      "fixture": "polygonal-boss-topology-b.step",
+      "sha256": "4b6b1a19605e26214d0a48a6286c44b3baa1684d4d12fd22952d91a357de1901",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Geometrically identical to topology-a but with the two Boolean additions applied in reverse order.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "polygonal-bosses",
+          "identity": {
+            "axis": {
+              "value": "z"
+            },
+            "center": {
+              "value": [
+                -38,
+                -18,
+                16
+              ],
+              "absolute_tolerance": 1e-06
+            }
+          },
+          "parameters": {
+            "side_count": {
+              "value": 6
+            },
+            "across_flats": {
+              "value": 31.177,
+              "absolute_tolerance": 0.002
+            },
+            "height": {
+              "value": 22,
+              "absolute_tolerance": 1e-06
+            },
+            "flat_supports": {
+              "value": [
+                -0.866,
+                -0.5,
+                0.0,
+                -51.5,
+                -25.794,
+                16,
+                -0.866,
+                0.5,
+                0.0,
+                -51.5,
+                -10.206,
+                16,
+                -0.0,
+                -1.0,
+                0.0,
+                -38.0,
+                -33.588,
+                16,
+                0.0,
+                1.0,
+                0.0,
+                -38.0,
+                -2.412,
+                16,
+                0.866,
+                -0.5,
+                0.0,
+                -24.5,
+                -25.794,
+                16,
+                0.866,
+                0.5,
+                0.0,
+                -24.5,
+                -10.206,
+                16
+              ],
+              "absolute_tolerance": 0.002
+            }
+          },
+          "required_downstream": [
+            "ir_adapter",
+            "dsl_declaration",
+            "generated_code",
+            "drawing_consumer"
+          ]
+        },
+        {
+          "family": "polygonal-bosses",
+          "identity": {
+            "axis": {
+              "value": "z"
+            },
+            "center": {
+              "value": [
+                38,
+                20,
+                19
+              ],
+              "absolute_tolerance": 1e-06
+            }
+          },
+          "parameters": {
+            "side_count": {
+              "value": 6
+            },
+            "across_flats": {
+              "value": 24.249,
+              "absolute_tolerance": 0.002
+            },
+            "height": {
+              "value": 28,
+              "absolute_tolerance": 1e-06
+            },
+            "flat_supports": {
+              "value": [
+                -0.974,
+                0.225,
+                0.0,
+                26.186,
+                22.727,
+                19,
+                -0.682,
+                -0.731,
+                0.0,
+                29.731,
+                11.133,
+                19,
+                -0.292,
+                0.956,
+                0.0,
+                34.455,
+                31.595,
+                19,
+                0.292,
+                -0.956,
+                0.0,
+                41.545,
+                8.405,
+                19,
+                0.682,
+                0.731,
+                0.0,
+                46.269,
+                28.867,
+                19,
+                0.974,
+                -0.225,
+                0.0,
+                49.814,
+                17.273,
+                19
+              ],
+              "absolute_tolerance": 0.002
+            }
+          },
+          "required_downstream": [
+            "ir_adapter",
+            "dsl_declaration",
+            "generated_code",
+            "drawing_consumer"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "polygonal-boss-recess-negative",
+      "tags": [
+        "ambiguous",
+        "negative",
+        "overlapping-family"
+      ],
+      "fixture": "polygonal-boss-recess-negative.step",
+      "sha256": "84d0047f2ad3a0754441626eb09489018882f56fc86ebe3930dd46e55f1a21e3",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored as a regular hexagonal blind recess removed from box stock; material polarity makes it a recess, never an attached boss.",
+      "expected_outcome": "supported",
+      "facts": []
+    },
+    {
+      "id": "polygonal-boss-detached-negative",
+      "tags": [
+        "ambiguous",
+        "compound",
+        "negative"
+      ],
+      "fixture": "polygonal-boss-detached-negative.step",
+      "sha256": "eeef46b58912ff5961f95fdcebea3fbd6fdcc4993f341141640b4683d8e3aca2",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored as disjoint box stock and a detached regular hexagonal prism whose projection resembles a boss but has no physical attachment.",
+      "expected_outcome": "supported",
+      "facts": []
+    },
+    {
+      "id": "polygonal-boss-stock-negative",
+      "tags": [
+        "ambiguous",
+        "negative",
+        "overlapping-family"
+      ],
+      "fixture": "polygonal-boss-stock-negative.step",
+      "sha256": "569f243bef4953ed9f459660bb0a5298a9983052e841cd059b6f1cfc07248aa1",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored as one whole regular hexagonal prism; polygonal-stock owns it and polygonal-boss must not double-count it.",
+      "expected_outcome": "supported",
+      "facts": []
+    },
+    {
+      "id": "polygonal-boss-other-protrusions-negative",
+      "tags": [
+        "negative",
+        "overlapping-family"
+      ],
+      "fixture": "polygonal-boss-other-protrusions-negative.step",
+      "sha256": "c1227ea12d3e12b2ac92c679747fa126d453f6ddd680b5d13e88f8a299827f66",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored with one circular boss and one rectangular pad on box stock; neither is a regular polygonal-boss occurrence.",
+      "expected_outcome": "supported",
+      "facts": []
+    }
+  ]
+}
