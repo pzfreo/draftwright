@@ -588,10 +588,23 @@ def test_raw_slot_grid_uses_only_members_crossing_each_plate_witness() -> None:
     assert {outcome.state for outcome in outcomes} == {"inapplicable"}
 
     pattern = recognition.slot_patterns[0]
+    provider_tolerated_slots = list(pattern.slots)
+    provider_tolerated_slots[3] = replace(
+        provider_tolerated_slots[3],
+        w_center=provider_tolerated_slots[3].w_center + 0.31,
+    )
+    provider_tolerated_slots[4] = replace(
+        provider_tolerated_slots[4],
+        w_center=provider_tolerated_slots[4].w_center - 0.31,
+    )
+    (provider_tolerated,) = recognise_slot_patterns(tuple(provider_tolerated_slots))
+    assert hasattr(provider_tolerated, "rows")
+    assert _validated_recognised_pattern(provider_tolerated) is not None
+
     member = pattern.slots[0]
     for moved in (
         replace(member, lo=member.lo + 0.9, hi=member.hi + 0.9),
-        replace(member, w_center=member.w_center + 0.61),
+        replace(member, w_center=member.w_center + 0.5),
     ):
         slots = (moved, *pattern.slots[1:])
         shifted_center = tuple(

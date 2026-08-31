@@ -301,6 +301,13 @@ def _pattern_tolerance(nominal: float) -> float:
     return max(0.1, abs(nominal) * 0.02)
 
 
+def _provider_reproduces_slot_pattern(pattern, slots) -> bool:
+    """Reapply the public part-less derived projection to reject stale aggregate metadata."""
+    from b123d_recognisers import recognise_slot_patterns
+
+    return pattern in recognise_slot_patterns(slots)
+
+
 def _validated_recognised_pattern(pattern):
     """Validate the aggregate lattice as well as every provider Slot member."""
     try:
@@ -356,7 +363,7 @@ def _validated_recognised_pattern(pattern):
                 for previous, current in zip(ordered, ordered[1:])
             ):
                 return None
-            return representative
+            return representative if _provider_reproduces_slot_pattern(pattern, slots) else None
 
         rows, cols = pattern.rows, pattern.cols
         if (
@@ -444,7 +451,6 @@ def _validated_recognised_pattern(pattern):
                 and abs(depth_error) <= coordinate_tolerance
             )
 
-        matched_errors = []
         for location in locations:
             match = next(
                 (candidate for candidate in unmatched if matches(location, candidate)),
@@ -452,16 +458,12 @@ def _validated_recognised_pattern(pattern):
             )
             if match is None:
                 return None
-            matched_errors.append(component_errors(location, match))
             unmatched.remove(match)
-        row_errors, col_errors, depth_errors = zip(*matched_errors, strict=True)
-        if (
-            max(row_errors) - min(row_errors) > row_tolerance
-            or max(col_errors) - min(col_errors) > col_tolerance
-            or max(depth_errors) - min(depth_errors) > coordinate_tolerance
-        ):
-            return None
-        return representative if not unmatched else None
+        return (
+            representative
+            if not unmatched and _provider_reproduces_slot_pattern(pattern, slots)
+            else None
+        )
     except (AttributeError, IndexError, OverflowError, TypeError, ValueError):
         return None
 
