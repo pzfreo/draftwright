@@ -128,7 +128,7 @@ def test_installed_package_contract_validates_without_a_sibling_checkout() -> No
 def test_rich_passage_contract_has_an_explicit_unsupported_completeness_outcome() -> None:
     """Pin the 0.4 physical record and compatibility projection to one decision."""
 
-    assert INSTALLED_PACKAGE_VERSION == "0.4.8"
+    assert INSTALLED_PACKAGE_VERSION == "0.4.9"
     installed = tuple(int(component) for component in INSTALLED_PACKAGE_VERSION.split("."))
     assert (0, 4, 0) <= installed < (0, 5, 0)
     package = _families(recognition.capability_manifest())
@@ -1005,16 +1005,32 @@ def test_schema_format_fails_closed() -> None:
 
 
 def test_only_reviewed_records_accept_installed_schema_2() -> None:
-    """The pinned package uses schema 2 only for the three reviewed records."""
+    """The pinned package uses schema 2 only for the reviewed consumed records."""
     declaration = consumer_capability_declaration()
     families = _families(declaration)
     assert families["chamfers"]["record_schemas"] == {"Chamfer": [2]}
     assert families["fillets"]["record_schemas"] == {"Fillet": [2]}
     assert families["rectangular-pads"]["record_schemas"] == {"RaisedPad": [2]}
+    assert families["risers"]["record_schemas"] == {
+        "RiserEvidence": [2],
+        "StepShoulder": [1],
+    }
+    assert families["turned-steps"]["record_schemas"] == {
+        "TurnedProfile": [2],
+        "TurnedProfileKey": [1],
+        "TurnedStep": [2],
+    }
     assert all(
         versions == [1]
         for family_id, family in families.items()
-        if family_id not in {"chamfers", "fillets", "rectangular-pads"}
+        if family_id
+        not in {
+            "chamfers",
+            "fillets",
+            "rectangular-pads",
+            "risers",
+            "turned-steps",
+        }
         for versions in family["record_schemas"].values()
     )
 
@@ -1028,6 +1044,48 @@ def test_only_reviewed_records_accept_installed_schema_2() -> None:
     package_families["chamfers"]["records"][0]["schema_version"] = 3
     with pytest.raises(RecogniserCapabilityError, match="record schema mismatch"):
         _validate(declaration, package=package)
+
+
+def test_049_body_local_record_schemas_are_exact_and_fail_closed() -> None:
+    package = recognition.capability_manifest()
+    families = _families(package)
+
+    riser = next(
+        record for record in families["risers"]["records"] if record["name"] == "RiserEvidence"
+    )
+    assert riser["schema_version"] == 2
+    assert riser["fields"]["body_levels"] == {
+        "required": False,
+        "type": "list[record:FaceLevel]|null",
+        "units": "none",
+    }
+
+    turned = {record["name"]: record for record in families["turned-steps"]["records"]}
+    assert set(turned) == {"TurnedProfile", "TurnedProfileKey", "TurnedStep"}
+    assert turned["TurnedProfile"]["schema_version"] == 2
+    assert turned["TurnedStep"]["schema_version"] == 2
+    assert turned["TurnedProfileKey"]["schema_version"] == 1
+    assert turned["TurnedProfileKey"]["fields"] == {
+        "axis": {"required": True, "type": "str", "units": "none"},
+        "axis_origin": {"required": True, "type": "tuple[float,3]", "units": "mm"},
+        "body_bounds": {"required": True, "type": "tuple[float,6]", "units": "mm"},
+    }
+
+    for family_id, record_name in (
+        ("risers", "RiserEvidence"),
+        ("turned-steps", "TurnedProfile"),
+        ("turned-steps", "TurnedProfileKey"),
+        ("turned-steps", "TurnedStep"),
+    ):
+        malformed = copy.deepcopy(package)
+        record = next(
+            item
+            for item in _families(malformed)[family_id]["records"]
+            if item["name"] == record_name
+        )
+        record["schema_version"] += 1
+        with pytest.raises(RecogniserCapabilityError, match="record schema mismatch"):
+            _validate(package=malformed)
 
 
 def test_package_identity_must_match_the_installed_distribution() -> None:

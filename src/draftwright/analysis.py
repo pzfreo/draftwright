@@ -42,10 +42,7 @@ from draftwright._core import (
     _legible_steps,
     _Projector,
 )
-from draftwright._geometry import (
-    _classify_rotational_cylinders,
-    _solids_body,
-)
+from draftwright._geometry import _classify_rotational_cylinders, _solids_body
 from draftwright._geometry import (
     _is_rotational as _is_rotational,
 )
@@ -492,6 +489,26 @@ def _classify_geometry(part, x_size, y_size, z_size, cx, cy, cz) -> _GeomClass:
     return _GeomClass(z_cyls, cross_cyls, z_diams, cross_diams, od_diam, od_axis, is_rotational)
 
 
+def _raw_compatible_turned_profile(recognition: RecognitionResult) -> TurnedProfile | None:
+    """Preserve the pre-0.4.9 raw path when the provider now exposes plural profiles.
+
+    The raw production path has no paired frame and ``Analysis.prof`` is singular. Selecting or
+    merging one of several physical profiles would be false; refusing the entire drawing would
+    regress supported compound groove drawings. Keep the historical no-global-profile behavior
+    until framed activation makes the compiler unit plural, and make the deferral visible.
+    """
+
+    profiles = recognition.turned_profiles
+    if len(profiles) > 1:
+        _log.warning(
+            "raw recognition found %d physical turned profiles; the singular Analysis waist "
+            "defers them to #1357 framed activation",
+            len(profiles),
+        )
+        return None
+    return profiles[0] if profiles else None
+
+
 def _validate_explicit_scale(
     scale,
     SCALE,
@@ -696,7 +713,7 @@ def _analyse(
         recognition = build_raw_recognition_result(
             part, cylinders=(z_cyls, cross_cyls), rotational=is_rotational
         )
-        _turned = TurnedProfile.from_steps(list(recognition.turned_steps))
+        _turned = _raw_compatible_turned_profile(recognition)
         # The aggregate's own rule (#578 review; hoisted there by #1022, shared with critique
         # by #1025). Both callers deriving this separately let lint project over a different
         # ladder than the model was sized from — which is exactly the divergence one waist is

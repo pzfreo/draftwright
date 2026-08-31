@@ -37,6 +37,16 @@
 
 ### Changed
 
+- Updated the immutable `b123d-recognisers` pin and fail-closed manifest joins to 0.4.9. The
+  provider's body-local FaceLevel, RiserEvidence, and TurnedProfile schemas now cross an owned
+  prepared-frame boundary that normalizes, reuses one cylinder substrate, classifies locally,
+  and preserves the exact working solid/result pair. Every frame gauge and typed refusal has an
+  explicit conservative policy; refusal never hides a raw retry. Multiple physical turned
+  profiles fail explicitly where a singular adapter is required, while the unchanged raw
+  production route preserves its historical no-global-profile compound behavior with a visible
+  #1357 deferral. Production drawing remains on the explicit raw boundary until rigid-motion,
+  PMI, platform, and canary activation evidence is complete (ADR 0020, #1357).
+
 - Updated the immutable `b123d-recognisers` pin and lock to 0.4.8. Draftwright now names
   its existing caller/world-coordinate aggregate boundary explicitly with
   `build_raw_recognition_result`; framed recognition remains disabled until #1357's

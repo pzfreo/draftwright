@@ -73,6 +73,7 @@ _LAYERS: dict[str, int] = {
     "intents": 0,
     "recognition": 0,
     "recognition_cache": 0,
+    "recognition_frame": 0,
     "score": 0,  # census over recognition/ only — a leaf beside the recognisers (#704)
     # audit: diffs two FINISHED drawings through their public reads (#996). A leaf by
     # construction — it imports nothing from the engine, so the thing it measures can never
@@ -439,6 +440,7 @@ _MODEL_MAY_IMPORT = {
     "layout",
     "model",
     "recognition",
+    "recognition_frame",
     # ADR 0018: the dimension planner resolves requirement ownership against the selected
     # semantic view set.  `view_plan` is a rank-0, drawing-independent leaf.
     "view_plan",

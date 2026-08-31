@@ -189,6 +189,11 @@ def test_oblique_degenerate_and_small_bounded_faces_are_rejected(monkeypatch):
         def faces(self):
             return [self._face]
 
+        def solids(self):
+            # RiserEvidence v2 scopes discovery per real solid. This topology-light unit fake
+            # deliberately has none, so the public fallback treats the Part itself as one scope.
+            return []
+
     class PlaneSurface:
         @staticmethod
         def GetType():
@@ -199,6 +204,10 @@ def test_oblique_degenerate_and_small_bounded_faces_are_rejected(monkeypatch):
         "BRepAdaptor_Surface",
         lambda wrapped: PlaneSurface(),
     )
+    # Both synthetic faces are deliberately oblique, so the v2 same-body level roster is
+    # empty. Keep this topology-light predicate test focused on riser rejection rather than
+    # emulating OCCT's Plane/Axis/Direction stack for the new evidence field.
+    monkeypatch.setattr(levels_module, "step_level_records", lambda *_args, **_kwargs: [])
 
     shallow = Face((1.0, 0.0, 0.02), _box(2, 3, 0, 10, 24.75, 25))
     small = Face((1.0, 0.0, 0.5), _box(2, 3, 0, 2, 20, 25))

@@ -61,14 +61,14 @@ class TestBuildPartModel:
         assert any(isinstance(f, BossFeature) for f in model.features)
         assert not any(isinstance(f, StepFeature) for f in model.features)
 
-    def test_no_phantom_zero_diameter_step(self):
-        # A gapped (disconnected) shaft has an axial segment with no OD over it;
-        # recognise_turned_steps must drop it, not emit a ø0 step (#279).
+    def test_disconnected_cylinders_do_not_form_one_phantom_turned_profile(self):
+        # Two disjoint cylinders are two single-diameter bodies, not one stepped shaft with
+        # an axial air gap.  The pre-0.4.9 grouping crossed that gap; body-local profile
+        # membership must now keep both out of Draftwright's step grammar (#1357).
         gapped = Cylinder(20, 40) + Pos(0, 0, 40) * Cylinder(13, 30)
         model = build_part_model(gapped)
         step_dias = [f.diameter for f in model.features if isinstance(f, StepFeature)]
-        assert step_dias, "expected step features for the stepped shaft"
-        assert all(d > 0 for d in step_dias), f"phantom zero-diameter step: {step_dias}"
+        assert step_dias == []
 
     def test_prismatic_with_incidental_cylinders_is_not_turned(self):
         # A prismatic part with small incidental cross-axis cylinders (e.g. a case

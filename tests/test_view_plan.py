@@ -20,7 +20,7 @@ from __future__ import annotations
 import dataclasses
 
 import pytest
-from build123d import Box, Cylinder, Pos, Rot
+from build123d import Align, Box, Cylinder, Pos, Rot
 
 from draftwright.builder import build_drawing
 from draftwright.view_plan import (
@@ -275,7 +275,14 @@ class TestPerViewRequirementCoverage:
             # symbol, so nothing requires an end view, and BOTH radial views come back empty.
             (
                 "stepped shaft",
-                lambda: Rot(0, 90, 0) * (Cylinder(10, 40) + Pos(0, 0, 40) * Cylinder(6, 30)),
+                lambda: (
+                    Rot(0, 90, 0)
+                    * (
+                        Cylinder(10, 40, align=(Align.CENTER, Align.CENTER, Align.MIN))
+                        + Pos(0, 0, 40)
+                        * Cylinder(6, 30, align=(Align.CENTER, Align.CENTER, Align.MIN))
+                    )
+                ),
                 ("plan", "side"),
             ),
             (
@@ -290,7 +297,11 @@ class TestPerViewRequirementCoverage:
             # a rule keyed on view NAMES would get wrong.
             (
                 "Z-axis shaft",
-                lambda: Cylinder(10, 60) + Pos(0, 0, 60) * Cylinder(6, 20),
+                lambda: (
+                    Cylinder(10, 60, align=(Align.CENTER, Align.CENTER, Align.MIN))
+                    + Pos(0, 0, 60)
+                    * Cylinder(6, 20, align=(Align.CENTER, Align.CENTER, Align.MIN))
+                ),
                 ("plan", "side"),
             ),
         ],
@@ -353,7 +364,11 @@ class TestPerViewRequirementCoverage:
         from draftwright.view_plan import view_coverage
 
         drawing = build_drawing(
-            Rot(0, 90, 0) * (Cylinder(10, 40) + Pos(0, 0, 40) * Cylinder(6, 30)),
+            Rot(0, 90, 0)
+            * (
+                Cylinder(10, 40, align=(Align.CENTER, Align.CENTER, Align.MIN))
+                + Pos(0, 0, 40) * Cylinder(6, 30, align=(Align.CENTER, Align.CENTER, Align.MIN))
+            ),
             title="T",
             number="N",
             _views=("front", "plan", "side"),

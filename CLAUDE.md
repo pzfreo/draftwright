@@ -38,7 +38,8 @@ Compact map, bottom to top:
   `_geometry.py` (page-plane maths + the ADR 0014 Amdt 3 material field; the DAG's
   bottom leaf), `fonts.py` (pinned IBM Plex, ADR 0006), `fits.py` (ISO 286),
   `intents.py` (deferred-edit low IR), `recognition_cache.py` (ADR 0017 one-result
-  lifecycle), `_warnings.py`, `_pmi_part21.py`, and the `linting/` subpackage
+  lifecycle), `recognition_frame.py` (ADR 0020 prepared local-frame boundary),
+  `_warnings.py`, `_pmi_part21.py`, and the `linting/` subpackage
   (draftwright owns lint, ADR 0007).
 - **`_core.py`** — shared primitives: the `Analysis` namespace, dim/format helpers,
   page/slot/margin constants.
