@@ -201,14 +201,14 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   repair loop) lives in `_core`.
 - **`recognition_cache.py`** — Draftwright's ADR 0017 one-result lifecycle owner. It calls
   external `build_raw_recognition_result(part)` at most once for a build/lazy-critique run.
-  The explicit name records that today's production IR consumes caller/world coordinates;
-  the package owns recognition, while Draftwright owns when the result is computed and reused.
-  The public framed route is exercised as release evidence but does not enter production until
-  #1357 completes its reviewed activation evidence.
+  The explicit name records that the default IR consumes caller/world coordinates; the package
+  owns recognition, while Draftwright owns when the result is computed and reused. Explicit
+  framed builds bypass this raw cache with their already-paired aggregate.
 - **`recognition_frame.py`** — the ADR 0020 prepared local-frame boundary. It calls the public
   provider preparation seam, classifies the exact normalized solid from its already-scanned
   cylinders, runs one paired aggregate, propagates typed refusal without fallback, and exposes
-  conservative FULL/ORTHOGONAL/AXIAL semantic policy. Production analysis does not call it yet.
+  conservative FULL/ORTHOGONAL/AXIAL semantic policy. Analysis calls it only for the explicit
+  `framed_recognition=True` rollout path and owns any visible raw fallback above this leaf.
 - **`recogniser_contract.py`** — the fail-closed cross-repository capability join. It consumes
   only the installed `b123d-recognisers` public manifest, then validates Draftwright-owned IR,
   `Sheet`, generated-code, drawing, completeness, and documentation declarations. It is rank 7

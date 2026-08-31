@@ -18,6 +18,7 @@ from dataclasses import dataclass, replace
 from typing import cast
 
 from b123d_recognisers import (
+    PartFrame,
     RecognitionResult,
     TurnedProfile,
     TurnedStep,
@@ -61,6 +62,12 @@ from draftwright.compose import (
 from draftwright.model import build_part_model
 from draftwright.model.ir import Datum, PartModel, StepFeature, StepLevelFeature
 from draftwright.model.planner import plan_dimensions
+from draftwright.recognition_frame import (
+    FramedDetection,
+    FramedDetectionRefusal,
+    prepare_framed_detection,
+    single_turned_profile,
+)
 from draftwright.view_plan import ViewConstraints, arrangement_of
 
 _log = logging.getLogger(__name__)
@@ -608,6 +615,7 @@ def _analyse(
     _views: tuple[str, ...] | None = None,
     _include_iso: bool = True,
     _view_constraints=None,
+    _framed_recognition: bool = False,
 ) -> Analysis:
     """Load STEP or use a build123d Shape, analyse geometry, compute layout.
 
@@ -619,16 +627,25 @@ def _analyse(
     # placement both reserve room for the border. Computed up front so the choose_scale inside
     # step-count convergence sees it too.
     margin = _content_margin(frame)
+    recognition: RecognitionResult | None
+    recognition_frame: PartFrame | None = None
+    recognition_frame_decision: dict[str, object]
     if _reuse is not None:
         # Explicit-scale fallback changes only page-space layout. Reuse the immutable geometry,
         # STEP/PMI census, classification, and recognition waist from the requested trial rather
         # than importing and recognising the same part up to fifteen more times (#1146).
         part = _reuse.part
+        source_part = _reuse.source_part if _reuse.source_part is not None else part
+        recognition_frame = cast(PartFrame | None, _reuse.recognition_frame)
+        recognition_frame_decision = dict(
+            _reuse.recognition_frame_decision
+            or {"status": "not_evaluated", "gauge": None, "refusal_reason": None}
+        )
         src = str(_reuse.step_file)
         pmi_defaulted = _reuse.pmi_defaulted
         pmi_mode = _reuse.pmi_mode
         pmi_report = _reuse.pmi_report
-        pmi_records = list(getattr(pmi_report, "records", ())) if pmi_mode != "off" else []
+        pmi_records = _reuse.pmi if pmi_mode != "off" else []
         bb = _reuse.bb
         x_size, y_size, z_size = _reuse.x_size, _reuse.y_size, _reuse.z_size
         cx, cy, cz = _reuse.cx, _reuse.cy, _reuse.cz
@@ -638,6 +655,8 @@ def _analyse(
         od_diam = _reuse.od_diam
         od_axis = _reuse.od_axis
         is_rotational = _reuse.is_rotational
+        layout_model = _coerce_layout_model(model, part, decorations)
+        recognition = _reuse.recognition if layout_model is None else None
     else:
         if isinstance(step_file, Shape):
             part = step_file
@@ -646,20 +665,90 @@ def _analyse(
             part = _import_step(step_file)
             src = str(step_file)
         part = _solids_body(part, src)
+        source_part = part
 
         pmi_defaulted = pmi is None
         pmi_mode = "off" if pmi_defaulted else pmi
 
-        # Semantic PMI census (AP242 only; separate read-only pass). Even off mode inventories a
-        # STEP source so it can say authored PMI was ignored; it deliberately does not feed those
-        # records into the IR. In-memory Shapes have no AP242 document to inspect.
         pmi_report = None
         pmi_records = []
+
+        # Declarations retain caller-coordinate authority and run no aggregate (ADR 0011).
+        # Automatic builds make the framed/raw selection here, above every bbox, IR, planner,
+        # projection and physical-lint consumer (ADR 0020 activation).
+        layout_model = _coerce_layout_model(model, part, decorations)
+        recognition = None
+        if layout_model is None and _framed_recognition:
+            framed = prepare_framed_detection(part)
+            if isinstance(framed, FramedDetection):
+                part = framed.part
+                recognition = framed.result
+                classification = framed.classification
+                _gc = _GeomClass(
+                    list(classification.z_cyls),
+                    list(classification.cross_cyls),
+                    list(classification.z_diams),
+                    list(classification.cross_diams),
+                    classification.od_diam,
+                    classification.od_axis,
+                    classification.is_rotational,
+                )
+                recognition_frame = framed.frame
+                recognition_frame_decision = {
+                    "status": "framed",
+                    "gauge": framed.frame.gauge.value,
+                    "refusal_reason": None,
+                }
+            else:
+                assert isinstance(framed, FramedDetectionRefusal)
+                # The accepted leaf boundary never hides recovery. Analysis is the explicit
+                # product-policy owner: one typed provider refusal selects one raw aggregate.
+                raw_bb = part.bounding_box()
+                raw_centre = raw_bb.center()
+                _gc = _classify_geometry(
+                    part,
+                    raw_bb.size.X,
+                    raw_bb.size.Y,
+                    raw_bb.size.Z,
+                    raw_centre.X,
+                    raw_centre.Y,
+                    raw_centre.Z,
+                )
+                recognition = build_raw_recognition_result(
+                    part,
+                    cylinders=(_gc.z_cyls, _gc.cross_cyls),
+                    rotational=_gc.is_rotational,
+                )
+                recognition_frame_decision = {
+                    "status": "raw_fallback",
+                    "gauge": None,
+                    "refusal_reason": framed.reason.value,
+                }
+        else:
+            bb0 = part.bounding_box()
+            c0 = bb0.center()
+            _gc = _classify_geometry(part, bb0.size.X, bb0.size.Y, bb0.size.Z, c0.X, c0.Y, c0.Z)
+            recognition_frame_decision = {
+                "status": "declared" if layout_model is not None else "raw",
+                "gauge": None,
+                "refusal_reason": None,
+            }
+            if layout_model is None:
+                recognition = build_raw_recognition_result(
+                    part,
+                    cylinders=(_gc.z_cyls, _gc.cross_cyls),
+                    rotational=_gc.is_rotational,
+                )
+
+        # Semantic PMI census (AP242 only; separate read-only pass). Framed extraction receives
+        # the provider frame before it classifies correlation topology, preserving tight local
+        # boxes and arbitrary directions (#1401 / ADR 0020). Even off mode inventories a STEP
+        # source so it can report ignored authored PMI; in-memory Shapes have no AP242 document.
         if not isinstance(step_file, Shape):
             from draftwright.pmi import PmiExtractionReport, extract_pmi_report
 
             try:
-                pmi_report = extract_pmi_report(step_file)
+                pmi_report = extract_pmi_report(step_file, frame=recognition_frame)
                 if pmi_mode != "off":
                     pmi_records = list(pmi_report.records)
             except Exception as exc:
@@ -677,7 +766,6 @@ def _analyse(
 
         _log.info("Loaded %s  bbox: %.2f × %.2f × %.2f mm", src, x_size, y_size, z_size)
 
-        _gc = _classify_geometry(part, x_size, y_size, z_size, cx, cy, cz)
         z_cyls, cross_cyls = _gc.z_cyls, _gc.cross_cyls
         z_diams, cross_diams = _gc.z_diams, _gc.cross_diams
         od_diam, od_axis, is_rotational = _gc.od_diam, _gc.od_axis, _gc.is_rotational
@@ -693,12 +781,9 @@ def _analyse(
     # ADR 0011 / ADR 0017 §6: a declared model skips detection (#1022).  The gate has to sit
     # here, ABOVE the aggregate, which is why `_coerce_layout_model` moved up from its old
     # place below — it is pure (IR in, IR out) and reads nothing this block computes.
-    layout_model = _coerce_layout_model(model, part, decorations)
-    recognition: RecognitionResult | None
     _turned: TurnedProfile | None
     step_zs: list[float]
     if _reuse is not None:
-        recognition = _reuse.recognition if layout_model is None else None
         _turned = _reuse.prof
         step_zs = list(_reuse.step_zs)
     elif layout_model is not None:
@@ -710,10 +795,12 @@ def _analyse(
         _turned = _declared_turned_profile(layout_model)
         step_zs = _declared_step_zs(layout_model, _turned, bb)
     else:
-        recognition = build_raw_recognition_result(
-            part, cylinders=(z_cyls, cross_cyls), rotational=is_rotational
+        assert recognition is not None
+        _turned = (
+            single_turned_profile(recognition)
+            if recognition_frame is not None
+            else _raw_compatible_turned_profile(recognition)
         )
-        _turned = _raw_compatible_turned_profile(recognition)
         # The aggregate's own rule (#578 review; hoisted there by #1022, shared with critique
         # by #1025). Both callers deriving this separately let lint project over a different
         # ladder than the model was sized from — which is exactly the divergence one waist is
@@ -1000,6 +1087,12 @@ def _analyse(
         planned_iso_scale=planned_iso_scale,
         view_constraints=_view_constraints,
         part=part,
+        source_part=source_part,
+        recognition_frame=recognition_frame,
+        recognition_frame_decision=recognition_frame_decision,
+        pmi_working_records=(
+            tuple(pmi_records) if recognition_frame is not None and pmi_mode != "off" else None
+        ),
         recognition=recognition,
         bb=bb,
         x_size=x_size,

@@ -1,8 +1,7 @@
 # ADR 0020 — Provider-owned frame boundary for detected compilation
 
-- **Status:** Accepted for the prepared boundary and AP242 source→local seam; production
-  activation remains deferred to #1357's compiler, rigid-motion, gauge, platform, and canary
-  evidence.
+- **Status:** Accepted; prepared boundary and explicit opt-in activation implemented. Raw remains
+  the rollout default pending platform and corpus canaries.
 - **Date:** 2026-08-31
 - **Deciders:** Paul Fremantle (pzfreo)
 
@@ -45,7 +44,7 @@ solid, and cylinder records. It does not import provider-private normalization o
 
 ### 2. Detected compilation stays local end to end
 
-When production activation lands, the detected record→IR adapter, bbox lowering, compiler,
+For an explicitly opted-in activation, the detected record→IR adapter, bbox lowering, compiler,
 requirement-driven view planner, projection, annotation placement, physical lint, and rendering
 will all consume the exact local working solid and local evidence. The record→IR coordinate
 operation is deliberately identity: records remain in the coordinate system in which they were
@@ -72,8 +71,6 @@ frame-aligned evidence. Transforming an already-axis-aligned source box would al
 space introduced by the source axes under arbitrary rotation, weakening correlation ownership;
 the imported shape is therefore rigidly located first without rebuilding topology. Part21-only
 scalars, labels, identities, and source census do not move.
-
-This seam is necessary but does not itself activate framed production.
 
 ### 3. Gauge is capability, not material meaning
 
@@ -111,19 +108,21 @@ no-global-profile result when 0.4.9 now exposes several body-local groups and lo
 deferral. It neither selects nor merges a profile. Framed activation must make the compiler input
 plural before consuming those new TurnedSteps; it may not inherit this compatibility projection.
 
-### 6. Delivery is staged without a hidden half-switch
+### 6. Activation is opt-in and source/working ownership stays visible
 
-This decision's first slice pins and validates 0.4.9, establishes the boundary and policies, fixes
-local multi-diameter shaft classification, and proves body-local provider evidence. The next slice
-implements the frame-aware AP242 extraction seam above. Both deliberately leave
-`analysis._analyse` and `RecognitionCache` on `build_raw_recognition_result`.
+`build_drawing(..., framed_recognition=True)` selects the prepared local unit above analysis,
+compilation, projection, placement and physical lint. `Drawing.part` remains caller-coordinate
+provenance; `Drawing.working_part` is the exact solid consumed downstream. A typed provider refusal
+is handled once by `Analysis`, the product-policy owner, as a visible `raw_fallback` decision. The
+leaf boundary still performs no fallback. Declared models never prepare or recognise a frame.
 
-Production activation is a subsequent #1357 slice. It must consume the framed PMI report alongside
-the exact local working solid and prove rigid-motion parity for physical
-requirements, feature identities, compiled dimension identities, semantic views, annotations,
-omissions, lint, and build decisions; enumerate intentional raw→framed changes; pass the supported
-platform matrix; and run representative real-part canaries. The raw route remains available through
-that reviewed rollout.
+The raw route remains the default through the reviewed rollout. Opt-in evidence covers stable
+requirement and annotation identity under rigid motion, exact PMI point/vector/box transforms,
+one preparation across scale retries, off-axis pattern locations, physical lint against the
+working solid, and measurement-complete multi-diameter X/Y shafts. Framed classification adds the
+correct rotational-envelope requirement for such a shaft; its step diameters and lengths remain
+equal to raw, so that extra requirement is intentional rather than a lost measurement. Platform
+and representative corpus canaries remain release gates, not hidden conditions in the adapter.
 
 ## Consequences
 
@@ -139,8 +138,8 @@ that reviewed rollout.
   correct one raw compound interpretation: disjoint coaxial bodies no longer form an invented
   cross-body turned profile, so the existing raw path preserves them as independent bosses with no
   global step chain.
-- Framed recognition is not yet a supported `build_drawing` option; the remaining activation work
-  stays visible on #1357.
+- Framed recognition is a supported explicit `build_drawing` option; raw remains the default while
+  canary evidence accumulates under #1357.
 
 ## Rejected alternatives
 
@@ -169,6 +168,9 @@ leaf rank. `tests/test_issue_1357_pmi_frame.py` proves point/vector distinction,
 from arbitrarily rotated non-square topology, default caller-space compatibility, and exact framed
 AP242 dimension, datum, finite-cylinder, and manufacturing-topology evidence on real CTC-03 and
 GRM-03 fixtures.
+`tests/test_issue_1357_framed_activation.py` guards explicit selection/fallback, source versus
+working ownership, scale-retry reuse, rigid-motion build parity, cross-axis turned measurement
+completeness, arbitrary-frame PMI evidence, and off-axis pattern location completeness.
 
 ## Relationship to prior decisions
 

@@ -1741,7 +1741,7 @@ def test_distinct_exact_and_projected_owners_remain_valid():
     assert not [item for item in outcomes if item.state == "unverifiable"]
 
 
-def test_off_axis_pattern_keeps_absolute_location_requirements_fail_closed():
+def test_off_axis_pattern_places_absolute_location_requirements():
     drawing = build_drawing(_off_axis_linear_pattern(), page="A3")
     outcomes = {item.parameter_id: item.state for item in _outcomes(drawing)}
 
@@ -1750,12 +1750,12 @@ def test_off_axis_pattern_keeps_absolute_location_requirements_fail_closed():
         "bore.through": "placed",
         "grouping.count": "placed",
         "pitch.length": "placed",
-        "location_pattern.location.y": "missing",
-        "location_pattern.location.z": "missing",
+        "location_pattern.location.y": "placed",
+        "location_pattern.location.z": "placed",
     }
     completeness = _completeness(drawing)
     assert completeness["requirements"] == 6
-    assert completeness["audited_score"] == pytest.approx(4 / 6)
+    assert completeness["audited_score"] == pytest.approx(1.0)
 
 
 def test_compound_countersink_callout_accounts_for_every_printed_measurement():

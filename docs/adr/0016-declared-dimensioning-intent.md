@@ -229,15 +229,17 @@ while `plan_locations` said only a Z-normal one is (side-drilled positions drawn
 the plan), and then it said a *pattern* is locatable while neither compiler emits one
 off-axis, so `dimension(x_pattern, "location")` was accepted and silently drew nothing.
 
-An off-axis pattern is `None` because the engine has never drawn one — the off-axis pass
-excluded patterns by construction. Compiling one would be new output with its own layout
-consequences, not a boundary fix, so the vocabulary tells the truth about today's engine
-and the author gets an error rather than a blank drawing.
+ADR 0020's framed activation extends that established contract: an X/Y-normal pattern uses
+`"bbox"` and compiles one absolute pattern address into the two visible transverse offsets.
+Both annotations retain the canonical `location_pattern.location` requirement identity; pitch
+and count remain independent relative requirements. The vocabulary, compiler and renderer still
+read the same eligibility answer, so accepted intent cannot disappear silently.
 
 **A position is compiled wherever it is measured from.** `plan_locations` owns the Z-normal
 ladder, which measures from `datum_xy`; the compiler owns the two that measure from the
-BOUNDING BOX in a feature's own view — a slot's near-end offset and a side-drilled hole's
-offset + height. Splitting by datum rather than by feature kind is what keeps
+BOUNDING BOX in a feature's own view — a slot's near-end offset, a side-drilled hole's offset +
+height, and an off-axis pattern's two-coordinate address. Splitting by datum rather than by
+feature kind is what keeps
 `_LOCATION_ROLE` a single answer: a hole is locatable, full stop, and where its span comes
 from is a separate question. Before #925 those three disagreed — the table said locatable,
 `plan_locations` said Z-normal only, and `_locate_off_axis_holes` drew the X/Y ones from raw

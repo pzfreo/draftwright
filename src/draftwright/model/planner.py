@@ -738,14 +738,10 @@ _LOCATABLE: tuple[type, ...] = (
 #: `plan_locations`, by the bbox compilers, and by the authored vocabulary. Re-deriving it
 #: is what broke twice: `location_role` said a hole is locatable while `plan_locations`
 #: said only a Z-normal one is (side-drilled positions drawn outside the plan), and then
-#: it said a PATTERN is locatable while neither compiler emits one off-axis — so
-#: `dimension(x_pattern, "location")` was ACCEPTED and silently produced nothing, the exact
-#: failure `_check_authored_targets` exists to prevent (#925 review).
-#:
-#: An off-axis pattern is ``None`` because the engine has never drawn one: the off-axis
-#: pass excluded patterns by construction. Compiling one would be new output with its own
-#: layout consequences, not a boundary fix — so the vocabulary tells the truth about
-#: today's engine and the author gets an error instead of a blank drawing.
+#: it said a PATTERN is locatable while neither compiler emitted one off-axis — so
+#: `dimension(x_pattern, "location")` was accepted and silently produced nothing. The bbox
+#: compiler and off-axis renderer now carry that same physical location requirement through
+#: for X/Y patterns (#1357), so all three readers still share this one eligibility answer.
 def location_datum(feature) -> str | None:
     """``"datum_xy"``, ``"bbox"``, or ``None`` — where *feature*'s position is measured
     from, or that it has none. See :data:`_LOCATABLE`."""
@@ -757,7 +753,11 @@ def location_datum(feature) -> str | None:
         return "datum_xy"  # every orientation: its two in-plane coordinates
     if isinstance(feature, HoleFeature):
         return "datum_xy" if feature.frame.axis == "z" else "bbox"
-    # Patterns and pocket/slot-patterns: the plan-X / side-Y ladder only, so Z-normal only.
+    # Framing can make an otherwise ordinary hole pattern X/Y-normal. It remains the same
+    # locatable requirement and uses the bbox compiler/end-on renderer (#1357).
+    if isinstance(feature, PatternFeature):
+        return "datum_xy" if feature.frame.axis == "z" else "bbox"
+    # Pocket/slot-patterns: the plan-X / side-Y ladder only, so Z-normal only.
     # A fall-through, not another `isinstance` + `return None`: membership above is by exact
     # type, so those three are all that can reach here and the extra arm was
     # unreachable — dead code that read as defensive and showed up as the one uncovered
