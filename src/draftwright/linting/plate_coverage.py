@@ -484,15 +484,19 @@ def plate_requirement_outcomes(
         and all(dependency in evidenced for dependency in dependencies)
     }
     outcomes: list[PlateRequirementOutcome] = []
-    for source, key, at in keyed_sources:
+    for source_record, key, at in keyed_sources:
         matches = ir_by_key.get(key, ()) if key is not None else ()
         feature = (
             matches[0] if key is not None and len(matches) == source_counts[key] == 1 else None
         )
-        parameter = _parameter_id(feature, source) if feature is not None else None
+        parameter = _parameter_id(feature, source_record) if feature is not None else None
         if parameter is None:
-            dependencies = _alternate_dependencies(source, features, placed_counts, satisfied)
-            if dependencies or _recognition_owner_supersedes_plate(source, recognition, features):
+            dependencies = _alternate_dependencies(
+                source_record, features, placed_counts, satisfied
+            )
+            if dependencies or _recognition_owner_supersedes_plate(
+                source_record, recognition, features
+            ):
                 outcomes.append(PlateRequirementOutcome(at, "thickness.length", "inapplicable"))
                 continue
             outcomes.append(PlateRequirementOutcome(at, "?", "unverifiable"))
