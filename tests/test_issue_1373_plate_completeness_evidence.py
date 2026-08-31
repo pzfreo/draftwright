@@ -8,7 +8,17 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-from build123d import Align, Box, Cylinder, Pos, RegularPolygon, Rot, extrude, import_step
+from build123d import (
+    Align,
+    Box,
+    Compound,
+    Cylinder,
+    Pos,
+    RegularPolygon,
+    Rot,
+    extrude,
+    import_step,
+)
 
 from draftwright.evaluation.step_analysis import (
     ObservationError,
@@ -728,7 +738,7 @@ def test_overlapping_family_ownership_cannot_cross_disconnected_bodies() -> None
     remote_tee = Box(80, 60, 10, align=_CENTER_MIN) + Pos(0, 0, 10) * Box(
         80, 22, 40, align=_CENTER_MIN
     )
-    slot_compound = slotted + Pos(150, 0, 0) * remote_tee
+    slot_compound = Compound(children=[slotted, Pos(150, 0, 0) * remote_tee])
     slot_drawing = build_drawing(slot_compound)
     slot_recognition = slot_drawing.recognition()
     assert slot_recognition is not None
@@ -755,7 +765,7 @@ def test_overlapping_family_ownership_cannot_cross_disconnected_bodies() -> None
     boss_body = Box(100, 80, 10, align=(Align.CENTER, Align.CENTER, Align.CENTER)) + (
         Pos(13, -7, 5) * Rot(0, 0, 11) * extrude(RegularPolygon(20, 6), 30)
     )
-    boss_compound = Pos(-100, 0, 0) * boss_body + Pos(100, 0, 0) * _tee()
+    boss_compound = Compound(children=[Pos(-100, 0, 0) * boss_body, Pos(100, 0, 0) * _tee()])
     boss_drawing = build_drawing(boss_compound)
     boss_recognition = boss_drawing.recognition()
     assert boss_recognition is not None
@@ -906,7 +916,7 @@ def test_void_plate_centroid_cannot_borrow_a_remote_boss_body() -> None:
         + Pos(0, 0, 5) * extrude(RegularPolygon(10, 8), 20)
     )
     remote_bore = Pos(100, 0, -5) * Cylinder(3, 45, align=_CENTER_MIN)
-    part = hex_body + (octagon - remote_bore)
+    part = Compound(children=[hex_body, octagon - remote_bore])
     drawing = build_drawing(part)
     recognition = drawing.recognition()
     assert recognition is not None
@@ -941,7 +951,7 @@ def test_void_plate_centroid_does_not_use_a_nested_disconnected_boss() -> None:
         Box(6, 6, 10, align=(Align.CENTER, Align.CENTER, Align.CENTER))
         + Pos(0, 0, 5) * extrude(RegularPolygon(2.5, 6), 20)
     )
-    part = outer + inner
+    part = Compound(children=[outer, inner])
     drawing = build_drawing(part)
     recognition = drawing.recognition()
     assert recognition is not None
@@ -1033,7 +1043,7 @@ def test_unrelated_provider_hexagon_does_not_disable_public_octagon_ownership() 
     hexagon = Pos(100, 0, 0) * Box(
         80, 60, 10, align=(Align.CENTER, Align.CENTER, Align.CENTER)
     ) + (Pos(100, 0, 5) * extrude(RegularPolygon(10, 6), 20))
-    part = octagon + hexagon
+    part = Compound(children=[octagon, hexagon])
     drawing = build_drawing(part)
     recognition = drawing.recognition()
     assert recognition is not None
