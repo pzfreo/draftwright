@@ -303,15 +303,16 @@ channels, slots, slot patterns and polygonal stock; #1372 retains the independen
 and polygonal-boss benchmark corpora; #1373 covers plates, face levels and risers; and
 #1374 retains turned steps.
 
-## Recognisers 0.4.8 raw boundary and RaisedPad v2
+## Historical: recognisers 0.4.8 raw boundary and RaisedPad v2
 
-Draftwright exactly pins the published `b123d-recognisers==0.4.8` wheel. Production deliberately
-calls `build_raw_recognition_result`: records remain in the caller/world coordinate system until
-#1357 introduces one reviewed framed-result adapter. Tests use the public framed API only as
-release evidence for upstream #331, #332, and #334, comparing each aggregate inventory with the
-corresponding public family call on the exact returned local solid. Production adds no fallback,
-second aggregate, or family rescan. Face levels, risers, and turned profiles remain outside framed
-production pending their separately released upstream fixes.
+Draftwright pinned the published `b123d-recognisers==0.4.8` wheel in the preceding release.
+Production deliberately called—and still calls—`build_raw_recognition_result`; records remain in
+the caller/world coordinate system until #1357 activates the reviewed framed-result adapter added
+with 0.4.9. The 0.4.8 tests used the public framed API as release evidence for upstream #331, #332,
+and #334, comparing each aggregate inventory with the corresponding public family call on the exact
+returned local solid. Production added no fallback, second aggregate, or family rescan. Face levels,
+risers, and turned profiles remained outside framed production pending their subsequently released
+upstream fixes.
 
 `RaisedPad` schema v2 makes a pad normal and its material-outward sign explicit. Draftwright maps
 the six signed principal orientations into one `PadFeature`: world bounds and direction survive
@@ -323,6 +324,35 @@ position. Removing any one of those five physical facts produces
 `pad_footprint_not_defined`. This is complete consumer semantics, but #1372 still owns the
 independently authored rectangular-pad detection/parameter/downstream benchmark corpus required
 before claiming family-level completeness.
+
+## Recognisers 0.4.9 prepared frame boundary
+
+Draftwright exactly pins `b123d-recognisers==0.4.9` and accepts `RiserEvidence` v2,
+`TurnedStep`/`TurnedProfile` v2, and the nested `TurnedProfileKey` v1. These records preserve
+same-solid levels and physical turned-profile membership in compounds. The fail-closed capability
+join rejects an older, future, missing, or malformed schema instead of treating it as equivalent.
+
+ADR 0020 adds `prepare_framed_detection`, the one Draftwright-owned intake for the public
+`prepare_framed_part` seam. A successful unit retains the caller-space source as provenance while
+pairing the exact local working solid, provider frame, prepared cylinders, Draftwright's local
+rotational classification, and aggregate. Classification reuses the prepared cylinder objects;
+it does not scan the local topology again. Provider refusal returns its exact typed reason and no
+recognition result. There is no hidden raw fallback.
+
+FULL frames establish a directed ordered basis. ORTHOGONAL representatives do not establish sign,
+axis interchange, or material identity. AXIAL representatives additionally do not establish roll,
+so only roll-invariant facts may be consumed until a particular asymmetric requirement is audited.
+The current singular `Analysis.prof` also rejects more than one body-local turned profile rather
+than selecting or merging one silently when the singular adapter is required. The legacy raw build
+keeps its supported compound behavior by recording no global profile and logging the #1357
+deferral; framed production cannot use that compatibility projection and must make the compiler
+input plural first.
+
+This boundary is not production activation. `analysis._analyse` and `RecognitionCache` still call
+`build_raw_recognition_result`, so existing automatic and declared behavior stays independently
+reviewable. #1357 retains rigid-motion requirement/drawing parity, AP242 source→local correlation,
+raw-to-framed disposition, supported-platform CI, and real-part canaries before the framed unit may
+feed the detected compiler.
 
 ## Angled-step boundary
 

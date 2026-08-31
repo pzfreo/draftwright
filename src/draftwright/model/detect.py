@@ -125,6 +125,7 @@ from draftwright.model.ir import (
     StepLevelFeature,
     ThroughStepFeature,
 )
+from draftwright.recognition_frame import single_turned_profile
 
 
 def _member_hole(h, frame: Frame, members: tuple = (), count: int = 1) -> HoleFeature:
@@ -1082,7 +1083,7 @@ def build_part_model(
         if derive_pocket_patterns:
             pocket_patterns = recognise_pocket_patterns(pockets)
         if prof is _UNSET:
-            prof = TurnedProfile.from_steps(recognition.turned_steps)
+            prof = single_turned_profile(recognition)
         if step_zs is None:
             step_zs = recognition.step_ladder_for_z_span(bbox.min.Z, bbox.max.Z)
         if face_levels is None:
@@ -1471,13 +1472,19 @@ def build_part_model(
     # (a turned part's steps are StepFeatures, dimensioned by the IR length chain).
     if prof is None and step_zs:
         c = bbox.center()
+        # FaceLevel v2 is an occurrence roster: disjoint bodies may establish the same scalar
+        # Z height independently. The current StepLevelFeature is the global height-requirement
+        # projection and requires unique rungs, so equal values become one dimension while the
+        # aggregate retains every body-local occurrence for independent completeness (#1357).
         _levels = tuple(
             sorted(
-                z
-                for z in step_zs
-                if round(z, 3) not in plate_zs_at_base
-                and not any(abs(z - owned) < 0.5 for owned in side_pad_level_zs)
-                and not any(abs(z - owned) < 0.5 for owned in through_level_zs)
+                {
+                    z
+                    for z in step_zs
+                    if round(z, 3) not in plate_zs_at_base
+                    and not any(abs(z - owned) < 0.5 for owned in side_pad_level_zs)
+                    and not any(abs(z - owned) < 0.5 for owned in through_level_zs)
+                }
             )
         )
         if _levels:

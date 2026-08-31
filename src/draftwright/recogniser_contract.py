@@ -117,7 +117,10 @@ _FAMILIES: dict[str, _FamilySpec] = {
         ("ThroughStep",), "_convert_through_step", "through_step", "render_through_steps"
     ),
     "turned-steps": _FamilySpec(
-        ("TurnedProfile", "TurnedStep"), "_convert_step", "step", "render_step_lengths"
+        ("TurnedProfile", "TurnedProfileKey", "TurnedStep"),
+        "_convert_step",
+        "step",
+        "render_step_lengths",
     ),
 }
 
@@ -127,6 +130,10 @@ _RECORD_SCHEMA_VERSIONS: dict[tuple[str, str], tuple[int, ...]] = {
     ("chamfers", "Chamfer"): (2,),
     ("fillets", "Fillet"): (2,),
     ("rectangular-pads", "RaisedPad"): (2,),
+    ("risers", "RiserEvidence"): (2,),
+    ("turned-steps", "TurnedProfile"): (2,),
+    ("turned-steps", "TurnedProfileKey"): (1,),
+    ("turned-steps", "TurnedStep"): (2,),
 }
 
 

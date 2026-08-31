@@ -10518,13 +10518,11 @@ class TestTurnedLengths:
         assert not any("×" in v for v in main)  # no false uniform-staircase collapse
         assert dwg.lint_summary()["by_code"].get("axial_length_missing", 0) == 0
 
-    def test_non_contiguous_turned_profile_lints_without_crashing(self):
-        # #797: a non-contiguous turned profile — two coaxial discs (ø30, then ø20)
-        # with an axial GAP between them — carries a step whose interior end face
-        # (10) `TurnedProfile.shoulders` used to drop, so the axial-coverage lookup
-        # KeyError'd and crashed the whole lint pass. shoulders now includes every
-        # endpoint, so both discs are locatable: no crash AND — since both lengths
-        # are dimensioned — no false `axial_length_missing` from a dropped face.
+    def test_disjoint_coaxial_bodies_do_not_form_a_non_contiguous_turned_profile(self):
+        # Recognisers 0.4.9 makes turned-profile membership body-local. Two coaxial discs with
+        # an axial air gap are therefore two single-diameter bosses, not one invented stepped
+        # shaft. The old cross-body profile exercised #797's shoulder lookup; the truthful
+        # body-local projection has no axial step chain and must still lint without crashing.
         from build123d import Align
 
         b = Align.MIN
@@ -10534,12 +10532,8 @@ class TestTurnedLengths:
         )
         dwg = build_drawing(part, number="X")
         codes = dwg.lint_summary()["by_code"]  # must not raise KeyError
-        assert sorted(
-            str(o.label) for n, o in dwg.iter_annotations() if n.startswith("m_steplen")
-        ) == [
-            "10",
-            "10",
-        ]
+        assert not [n for n in dwg.annotations() if n.startswith("m_steplen")]
+        assert {feature.kind for feature in dwg.model().features} == {"boss"}
         assert codes.get("axial_length_missing", 0) == 0
 
 

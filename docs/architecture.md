@@ -10,7 +10,8 @@ keep that table, this document, and `CLAUDE.md`'s compact map in step. The
 
 The dependency graph is a DAG (the #138 / ADR 0005 split is complete). Bottom to
 top: leaf modules (`layout.py`, `registry.py`, `fonts.py`, `_geometry.py`,
-`fits.py`, `intents.py`, `recognition_cache.py`, and the `linting/` subpackage) →
+`fits.py`, `intents.py`, `recognition_cache.py`, `recognition_frame.py`, and the
+`linting/` subpackage) →
 `_core.py` → stage modules (`export.py`,
 `repair.py`, `projection.py`, `compose.py`, `analysis.py`, `drawing.py`, the
 `model/` IR subpackage, the `annotations/` subpackage) → `builder.py` → the
@@ -203,7 +204,11 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   The explicit name records that today's production IR consumes caller/world coordinates;
   the package owns recognition, while Draftwright owns when the result is computed and reused.
   The public framed route is exercised as release evidence but does not enter production until
-  #1357 supplies one reviewed frame-to-IR adapter.
+  #1357 completes its reviewed activation evidence.
+- **`recognition_frame.py`** — the ADR 0020 prepared local-frame boundary. It calls the public
+  provider preparation seam, classifies the exact normalized solid from its already-scanned
+  cylinders, runs one paired aggregate, propagates typed refusal without fallback, and exposes
+  conservative FULL/ORTHOGONAL/AXIAL semantic policy. Production analysis does not call it yet.
 - **`recogniser_contract.py`** — the fail-closed cross-repository capability join. It consumes
   only the installed `b123d-recognisers` public manifest, then validates Draftwright-owned IR,
   `Sheet`, generated-code, drawing, completeness, and documentation declarations. It is rank 7
@@ -536,7 +541,7 @@ policy) live in `CLAUDE.md`. This is the per-ADR status trail; each ADR's
   **`DEFERRED` is now empty** — every public `recognise_*` family is owned by the one
   orchestration. The mechanism stays fail-closed (a new family must still be classified, and
   every `Deferral` member survives for a future one); what went was each deferral, as its
-  stated constraint stopped being true. Measured per family with the current 0.4.8 pin: a
+  stated constraint stopped being true. Measured per family with the current 0.4.9 pin: a
   prismatic build runs
   28 once each, a turned build 23 (the five prismatic-only families excluded), and a declared
   build/render **zero**. Physical critique or export may then obtain one cached aggregate. The

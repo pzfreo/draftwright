@@ -358,14 +358,15 @@ def test_no_deferred_family_is_reachable_from_the_orchestration():
 #: Families the ORCHESTRATION runs only for the class that consumes them (#1028). Listed here
 #: rather than derived from DEFERRED because they are no longer deferred: they are MIGRATED
 #: *and* gated, which is the distinction #1028 established — owning a family and always
-#: running it are different things. Turned parts are the excluded class for plates and angled
-#: prismatic steps. Chamfers and fillets left this set in b123d-recognisers 0.2.9 because the
-#: aggregate now recognises their conical/toroidal turned forms (#1254/#1281).
+#: running it are different things. Turned parts are the excluded class for the four prismatic
+#: step families. Plates left this set in b123d-recognisers 0.4.9: discovery now runs with
+#: completed TurnedStep ownership and suppresses only the same solid, preserving independent
+#: plate bodies in a mixed compound. Chamfers and fillets left earlier when their turned forms
+#: became supported (#1254/#1281/#1357).
 _CLASSIFICATION_GATED = (
     "recognise_angled_steps",
     "recognise_circular_blind_steps",
     "recognise_paired_ramp_steps",
-    "recognise_plates",
     "recognise_through_steps",
 )
 
@@ -382,11 +383,8 @@ def test_a_classification_gated_family_does_not_run_for_the_excluded_class():
     every turned build scan for a prismatic-only result the model discards, which is the cost
     the deferral was protecting against — and this goes red.
 
-    Two turned fixtures, because plates gates on a CONJUNCTION (not rotational *and* no
-    turned profile) and the stepped shaft satisfies both — so on it alone, weakening the gate
-    to either half still passes. The plain cylinder has no shoulders, so its profile is
-    ``None`` while it is still rotational: it separates the two clauses and fails if the
-    rotational half is dropped.
+    Two turned fixtures retain both sides of the classification evidence: one has a completed
+    turned profile and the plain cylinder has no shoulders. Both must exclude prismatic steps.
     """
     assert _CLASSIFICATION_GATED, "no family is classification-gated — check vacuous"
     assert set(_CLASSIFICATION_GATED) <= MIGRATED, (
@@ -403,6 +401,17 @@ def test_a_classification_gated_family_does_not_run_for_the_excluded_class():
             "these on the classification it carries, so a turned build never scans for a "
             "result the model would discard — that gate is what made migrating them free."
         )
+
+
+def test_plate_discovery_runs_with_turned_ownership_but_publishes_no_same_solid_plate():
+    """The 0.4.9 Plate gate is body-local rather than whole-part classification."""
+
+    for part in (_stepped_shaft(), Cylinder(20, 60)):
+        with _counting_every_family() as counts:
+            drawing = build_drawing(part, repair=False)
+
+        assert counts.get("recognise_plates") == 1
+        assert drawing.recognition().plates == ()
 
 
 def test_a_gated_family_still_runs_for_the_class_that_consumes_it():
@@ -486,11 +495,7 @@ def _expected_inventory(part, *, rotational: bool = False) -> dict:
         "rotational": rotational,
         "chamfers": tuple(recognise_chamfers(part)),
         "fillets": tuple(recognise_fillets(part)),
-        "plates": (
-            tuple(recognise_plates(part))
-            if not rotational and not recognise_turned_steps(part, cyls=cyls)
-            else ()
-        ),
+        "plates": tuple(recognise_plates(part)),
         # Recognised and carried, but never converted to inferred IR. The first family has a
         # reviewed unsupported outcome (#1247); the 0.4.6 families remain explicitly deferred
         # under #1382. The aggregate must still hold what its recognisers produced: an inventory
@@ -523,7 +528,7 @@ def _expected_inventory(part, *, rotational: bool = False) -> dict:
 #: another family, and may never invent one. Equality is still demanded everywhere else, so the
 #: "ran it and stored ()" failure this test exists for is still caught for every other field.
 _RECONCILED_FIELDS = frozenset(
-    {"chamfers", "fillets", "passages", "prismatic_pockets", "section_passages"}
+    {"chamfers", "fillets", "passages", "plates", "prismatic_pockets", "section_passages"}
 )
 
 

@@ -49,6 +49,7 @@ _VIEW_AXES = {"plan": ("x", "y"), "front": ("x", "z"), "side": ("y", "z")}
 _SQUARENESS_TOL = 0.05
 _OD_FILL_MIN = 0.8
 _OD_AXIS_TOL = 0.05
+_COAXIAL_TOL = 1e-3
 
 
 @dataclass(frozen=True)
@@ -87,6 +88,7 @@ def _classify_rotational_cylinders(
     *,
     sizes: tuple[float, float, float],
     centre: tuple[float, float, float],
+    allow_stepped_cross_axis: bool = False,
 ) -> _CylinderClassification:
     """Classify one shared public cylinder inventory without another topology scan."""
     z_cyls, cross_cyls = cylinders
@@ -123,11 +125,31 @@ def _classify_rotational_cylinders(
                 for cylinder in cross_full
                 if cylinder.get("axis") == axis and cylinder["external"]
             ]
-            if len({round(cylinder["diameter"], 1) for cylinder in external}) != 1:
+            diameters = {round(cylinder["diameter"], 1) for cylinder in external}
+            if len(diameters) != 1 and not allow_stepped_cross_axis:
                 continue
             candidate = max(external, key=lambda cylinder: cylinder["diameter"], default=None)
             if candidate is None:
                 continue
+            if allow_stepped_cross_axis and len(external) > 1:
+                # A framed shaft is one physical body's coaxial OD bands. Merely allowing
+                # multiple bands would also classify an eccentric parallel cylinder (including
+                # equal-diameter bands) or detached bodies as one turned part after frame
+                # normalisation. The provider inventory already carries both facts, so keep
+                # this framed-path policy local and fail closed without another topology scan
+                # (#1357 review). The raw path retains its historical same-diameter rule.
+                radial = tuple(index for index, letter in enumerate("xyz") if letter != axis)
+                candidate_axis = candidate["axis_xyz"]
+                if any(
+                    cylinder["solid_idx"] != candidate["solid_idx"]
+                    or math.hypot(
+                        cylinder["axis_xyz"][radial[0]] - candidate_axis[radial[0]],
+                        cylinder["axis_xyz"][radial[1]] - candidate_axis[radial[1]],
+                    )
+                    > _COAXIAL_TOL
+                    for cylinder in external
+                ):
+                    continue
             p0, p1 = (coordinate for coordinate in "xyz" if coordinate != axis)
             offset = math.hypot(
                 candidate["axis_xyz"]["xyz".index(p0)] - origin[p0],
