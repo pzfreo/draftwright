@@ -589,26 +589,29 @@ def test_raw_slot_grid_uses_only_members_crossing_each_plate_witness() -> None:
 
     pattern = recognition.slot_patterns[0]
     member = pattern.slots[0]
-    moved = replace(member, lo=member.lo + 0.9, hi=member.hi + 0.9)
-    slots = (moved, *pattern.slots[1:])
-    shifted_center = tuple(
-        sum(slot.location[index] for slot in slots) / len(slots) for index in range(3)
-    )
-    outside_row_tolerance = replace(pattern, slots=slots, center=shifted_center)
-    assert not [
-        candidate for candidate in recognise_slot_patterns(slots) if hasattr(candidate, "rows")
-    ]
-    assert _validated_recognised_pattern(outside_row_tolerance) is None
+    for moved in (
+        replace(member, lo=member.lo + 0.9, hi=member.hi + 0.9),
+        replace(member, w_center=member.w_center + 0.61),
+    ):
+        slots = (moved, *pattern.slots[1:])
+        shifted_center = tuple(
+            sum(slot.location[index] for slot in slots) / len(slots) for index in range(3)
+        )
+        outside_component_tolerance = replace(pattern, slots=slots, center=shifted_center)
+        assert not [
+            candidate for candidate in recognise_slot_patterns(slots) if hasattr(candidate, "rows")
+        ]
+        assert _validated_recognised_pattern(outside_component_tolerance) is None
 
-    malformed = replace(recognition, slot_patterns=(outside_row_tolerance,))
-    failed_closed = plate_requirement_outcomes(
-        malformed,
-        envelope_only,
-        AnnotationRegistry(),
-        part=part,
-    )
-    assert len(failed_closed) == 5
-    assert {outcome.state for outcome in failed_closed} == {"unverifiable"}
+        malformed = replace(recognition, slot_patterns=(outside_component_tolerance,))
+        failed_closed = plate_requirement_outcomes(
+            malformed,
+            envelope_only,
+            AnnotationRegistry(),
+            part=part,
+        )
+        assert len(failed_closed) == 5
+        assert {outcome.state for outcome in failed_closed} == {"unverifiable"}
 
 
 @pytest.mark.parametrize("pattern_kind", ["linear", "grid"])
@@ -777,6 +780,16 @@ def test_bored_boss_uses_material_supports_for_same_solid_ownership() -> None:
     )
 
     assert outcome.state == "inapplicable"
+    (source,) = recognition.plates
+    for offset in (100, 1000):
+        malformed = replace(recognition, plates=(replace(source, u=source.u + offset),))
+        (failed_closed,) = plate_requirement_outcomes(
+            malformed,
+            envelope_only,
+            AnnotationRegistry(),
+            part=part,
+        )
+        assert failed_closed.state == "unverifiable"
 
 
 def test_offcentre_boss_ownership_does_not_require_material_at_plate_centroid() -> None:

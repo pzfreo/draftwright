@@ -418,28 +418,33 @@ def _validated_recognised_pattern(pattern):
                 )
         unmatched = list(expected)
 
-        def matches(location, candidate) -> bool:
+        def component_errors(location, candidate) -> tuple[float, float, float]:
             delta = tuple(
                 value - wanted for value, wanted in zip(location, candidate, strict=True)
             )
-            row_error = abs(
+            row_error = float(
                 sum(
                     value * component
                     for value, component in zip(delta, row_direction, strict=True)
                 )
             )
-            col_error = abs(
+            col_error = float(
                 sum(
                     value * component
                     for value, component in zip(delta, col_direction, strict=True)
                 )
             )
+            return row_error, col_error, float(delta[depth_index])
+
+        def matches(location, candidate) -> bool:
+            row_error, col_error, depth_error = component_errors(location, candidate)
             return bool(
-                row_error <= row_tolerance
-                and col_error <= col_tolerance
-                and abs(delta[depth_index]) <= coordinate_tolerance
+                abs(row_error) <= row_tolerance
+                and abs(col_error) <= col_tolerance
+                and abs(depth_error) <= coordinate_tolerance
             )
 
+        matched_errors = []
         for location in locations:
             match = next(
                 (candidate for candidate in unmatched if matches(location, candidate)),
@@ -447,7 +452,15 @@ def _validated_recognised_pattern(pattern):
             )
             if match is None:
                 return None
+            matched_errors.append(component_errors(location, match))
             unmatched.remove(match)
+        row_errors, col_errors, depth_errors = zip(*matched_errors, strict=True)
+        if (
+            max(row_errors) - min(row_errors) > row_tolerance
+            or max(col_errors) - min(col_errors) > col_tolerance
+            or max(depth_errors) - min(depth_errors) > coordinate_tolerance
+        ):
+            return None
         return representative if not unmatched else None
     except (AttributeError, IndexError, OverflowError, TypeError, ValueError):
         return None
@@ -521,6 +534,21 @@ class _SolidMembership:
             )
         return self._owners[key]
 
+    def within_only_solid_bounds(self, point) -> bool:
+        """Reject source witnesses that cannot belong to the sole physical body."""
+        if len(self.solids) != 1:
+            return False
+        values = tuple(float(value) for value in point)
+        if len(values) != 3 or not all(isfinite(value) for value in values):
+            return False
+        bounds = self.solids[0].bounding_box()
+        minimum = tuple(float(value) for value in bounds.min)
+        maximum = tuple(float(value) for value in bounds.max)
+        return all(
+            minimum[index] - 1e-6 <= value <= maximum[index] + 1e-6
+            for index, value in enumerate(values)
+        )
+
 
 def _boss_material_witnesses(boss) -> tuple[Point, ...]:
     """Move just inside each outer flat so a coaxial bore cannot erase boss ownership."""
@@ -541,7 +569,11 @@ def _boss_material_witnesses(boss) -> tuple[Point, ...]:
 
 def _shares_one_solid(membership, source, boss) -> bool:
     """Prove the complete boss ring and one material Plate witness share one solid."""
-    if membership is None or len(membership.solids) != 1:
+    if (
+        membership is None
+        or len(membership.solids) != 1
+        or not membership.within_only_solid_bounds(plate_center(source))
+    ):
         return False
     try:
         witnesses = _boss_material_witnesses(boss)
