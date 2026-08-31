@@ -1990,7 +1990,7 @@ def lint_boss_height_coverage(part, dwg, features, assembly=None, omissions=()) 
     bosses = [
         feature
         for feature in features
-        if getattr(feature, "kind", None) in ("boss", "polygonal_boss")
+        if getattr(feature, "kind", None) == "boss"
         and getattr(feature, "height", None) is not None
     ]
     registry = getattr(dwg, "registry", None)

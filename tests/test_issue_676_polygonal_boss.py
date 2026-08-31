@@ -201,7 +201,9 @@ def test_a_synthetic_hex_boss_is_directly_dimensioned_without_layout_loss():
     ]
 
     drawing.remove(height[0][0])
-    assert [issue.code for issue in drawing.lint()].count("boss_height_missing") == 1
+    assert [issue.code for issue in drawing.lint()].count(
+        "polygonal_boss_requirement_missing"
+    ) == 1
 
 
 def test_an_unusable_flat_direction_is_refused_at_the_ir_boundary():

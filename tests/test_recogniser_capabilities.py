@@ -388,6 +388,19 @@ def test_rich_passage_contract_has_an_explicit_unsupported_completeness_outcome(
         {
             "boundary": "completeness",
             "compatibility_evidence": [
+                "tests/test_issue_1372_polygonal_boss_completeness_evidence.py",
+                "tests/test_recogniser_capabilities.py",
+                "tests/test_step_analysis_evaluation.py",
+            ],
+            "family": "polygonal-bosses",
+            "from": "deferred",
+            "release_notes": "CHANGELOG.md",
+            "to": "supported",
+            "version": importlib.metadata.version("draftwright"),
+        },
+        {
+            "boundary": "completeness",
+            "compatibility_evidence": [
                 "tests/test_issue_1246_prismatic_pocket_disposition.py",
                 "tests/test_recogniser_capabilities.py",
             ],
@@ -625,6 +638,16 @@ def test_pocket_pattern_completeness_is_supported_without_recounting_members() -
     }
 
 
+def test_polygonal_boss_completeness_uses_independent_attached_prism_facts() -> None:
+    family = _families(consumer_capability_declaration())["polygonal-bosses"]
+
+    assert family["completeness"] == {
+        "state": "supported",
+        "implementation": "draftwright.evaluation.step_analysis.evaluate_step_corpus",
+        "evidence": ["tests/test_issue_1372_polygonal_boss_completeness_evidence.py"],
+    }
+
+
 def test_each_deferred_supported_family_links_its_real_delivery_slice() -> None:
     expected = {
         "channels": 1371,
@@ -632,7 +655,6 @@ def test_each_deferred_supported_family_links_its_real_delivery_slice() -> None:
         "double-d-bores": 1370,
         "face-levels": 1373,
         "plates": 1373,
-        "polygonal-bosses": 1372,
         "polygonal-stock": 1371,
         "risers": 1373,
         "slot-patterns": 1371,

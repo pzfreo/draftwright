@@ -44,6 +44,13 @@
 
 ### Changed
 
+- Polygonal-boss completeness is now backed by an independently authored, hash-pinned STEP
+  corpus covering all three principal axes, in-plane rotation, equal compound occurrences,
+  topology order, and recess/detached/stock/other-protrusion negatives. Detection, side count,
+  across-flats, height, physical flat supports, and four downstream boundaries are observed; a
+  two-requirement fail-closed ledger follows across-flats and boss height through the existing
+  IR/compiler/shared-solve path without deriving its denominator from recogniser output (#1372).
+
 - Updated the immutable `b123d-recognisers` pin and fail-closed manifest joins to 0.4.9. The
   provider's body-local FaceLevel, RiserEvidence, and TurnedProfile schemas now cross an owned
   prepared-frame boundary that normalizes, reuses one cylinder substrate, classifies locally,
