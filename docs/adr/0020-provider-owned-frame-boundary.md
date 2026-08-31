@@ -93,20 +93,71 @@ working solid, result, or guessed axes and never invokes the raw aggregate. If a
 later offers raw fallback, that is an explicit caller or top-level build-policy choice with a
 visible decision—not hidden recovery inside the frame adapter.
 
-### 5. Plural turned profiles fail explicitly at the current singular waist
+### 5. Plural turned profiles are one compiler input, never a selected body
 
-Recognisers 0.4.9 preserves body-local turned-profile membership. Draftwright's current `Analysis`
-stores one `TurnedProfile`, so selecting the first of several or merging disjoint bodies would be
-false. `single_turned_profile` consumes the public `RecognitionResult.turned_profiles` grouping
-and raises `MultipleTurnedProfilesError` when a caller requires one physical profile but receives
-several. A standalone `build_part_model` therefore fails explicitly instead of inventing global
-ownership.
+Recognisers 0.4.9 preserves body-local turned-profile membership. `Analysis.profiles` and
+`build_part_model(..., profiles=...)` now carry that public tuple through the record→IR waist;
+`Analysis.prof` and the compatible `prof=` input remain zero/one projections only for behavior
+that genuinely requires one coaxial stack. No production consumer selects the first profile or
+merges disjoint bodies. `single_turned_profile` remains an explicit legacy accessor and still
+raises `MultipleTurnedProfilesError` when a caller asks for one profile but the result owns several.
 
-The unchanged raw production path has an older supported compound behavior to preserve: parallel
-grooved shafts build without a global turned profile. `_raw_compatible_turned_profile` retains that
-no-global-profile result when 0.4.9 now exposes several body-local groups and logs the #1357
-deferral. It neither selects nor merges a profile. Framed activation must make the compiler input
-plural before consuming those new TurnedSteps; it may not inherit this compatibility projection.
+Each `TurnedStep` lowers against its `TurnedProfileKey.axis_origin`, so its `StepFeature.frame` and
+span stay on the physical body's axis line rather than the compound bounding-box centre; the
+immutable key also crosses the IR as structural body provenance. Grooves are joined only to the
+profile on the same line. The renderer groups step chains by exact profile identity, with an
+axis-line/disconnected-run fallback only for declared or legacy features without that provenance,
+before any repeated-run collapse. It anchors each chain to that body's silhouette; equal lengths
+on parallel shafts therefore retain separate marks and `DimensionId` provenance. The renderer
+matches overlapping physical occurrences of the same turning axis to conflict-free projected lanes
+across the two orthographic longitudinal views. Occurrences on the same projected axis line may
+reuse a lane only when their projected axial intervals are disjoint; perpendicular profile axes
+remain independent candidates for the common placement/overlap stages. If the available authored
+views or a dense profile grid provide no conflict-free assignment, that profile's chain is dropped
+with a required-outcome diagnostic instead of being drawn over a sibling. Physical axial lint searches
+the same pair of profile views and evaluates each profile independently, prioritising exact
+registry measurement provenance and rejecting tied unowned geometric witnesses. Structured
+claims, groove bands, drawing witnesses, and overall-drop contingency remain body-local; a sibling
+with equal shoulder stations cannot certify a missing chain. A deferred subset edit repeats view
+assignment against the complete physical-profile roster, then emits only the requested refs; a
+surviving sibling therefore keeps its auto-pass lane rather than being forgotten during replay.
+
+Declared `StepFeature` inputs follow the same plural compiler shape without detection. Their
+profiles are grouped in caller coordinates by axis line and disconnected axial run, preserving
+ADR 0011's coordinate authority. Generated scripts do not expose or serialize the provider's
+`TurnedProfileKey`; the emitter replaces each detected occurrence with a stable Draftwright-owned
+opaque `profile_group=` token, allocated outside every caller-authored token already present in the
+model. This preserves even adjacent or overlapping coaxial body partitions without making provider
+types part of the public `Sheet` surface. Synthetic declared profiles retain that opaque membership
+alongside their geometrically valid provider-shaped key, so lint can join placed measurements to
+the exact declaration group **and axis line** instead of relying on either ambiguous witness alone.
+Token-backed and provider-key axis lines are compared at their published/script precision, never
+with the generic 0.5 mm geometric-witness tolerance; a reused token therefore cannot merge two
+nearby physical axes. Ordinary declarations that omit a group still reconstruct physical grouping
+from axis lines, step spans, and intervening groove bands, with a tolerance limited to the script's
+documented 0.001 mm coordinate precision. Aggregate `PartModel.orientation` is derived from the
+set of declared step axes: one unique axis retains that orientation, while a mixed-axis inventory
+uses `None` regardless of declaration order. The legacy global-height misuse guard applies only to
+its single-solid domain and does not treat a caller-owned group token as evidence of another body;
+profiles in a multi-solid compound need not tile that compound's global axial envelope. Existing model,
+annotation, dimension, and lint round-trip parity tests guard that this provenance translation does
+not hide a drawing divergence.
+
+The released 0.4.9 `Groove` record does not carry `TurnedProfileKey`. A groove band that overlaps
+multiple nested coaxial profiles therefore has no exact public owner: position-only suppression can
+delete a sibling's legitimate step and position-only lint can falsely credit both bodies. The
+compiler refuses that ambiguous join rather than guessing or rescanning topology, and physical lint
+independently refuses to credit the groove to either profile if an external producer bypasses the
+compile gate. The missing provider contract is tracked upstream as
+[`b123d-recognisers#354`](https://github.com/pzfreo/b123d-recognisers/issues/354); independent plural
+work proceeds without treating the blocked case as supported. When the public records identify one
+owner unambiguously, the declared/emitted synthetic profile includes that groove's narrow physical
+band in the same denominator as the detected profile. Lint maps an evidenced groove-width claim to
+that exact band index rather than adding a scalar count. Removing either surrounding step therefore
+lowers direct and generated-program completeness identically; neither a groove nor a sibling profile
+can fill an unrelated missing band.
+The raw and explicit framed paths both compile 0.4.9's plural groups through this same waist; the
+framed path pairs them with the provider's exact local solid.
 
 ### 6. Activation is opt-in and source/working ownership stays visible
 
@@ -130,16 +181,15 @@ and representative corpus canaries remain release gates, not hidden conditions i
   cylinder scan or provider-private API.
 - The provider's exact local topology and body-local FaceLevel, RiserEvidence, and TurnedProfile
   identities stay paired with the records they justify.
-- Frame refusal and singular-IR limitations remain visible rather than changing coordinate
-  authority, selecting a body, or merging disjoint profiles.
+- Frame refusal remains visible, while plural turned bodies retain their own IR frames, rendered
+  chains, and completeness outcomes rather than selecting or merging a body.
 - AP242 points, vectors, AABBs, finite cylinders, and datum geometry can now share the provider's
   exact local coordinate system without altering the default caller-space API.
-- The framed boundary does not activate framed production. The 0.4.9 dependency does intentionally
-  correct one raw compound interpretation: disjoint coaxial bodies no longer form an invented
-  cross-body turned profile, so the existing raw path preserves them as independent bosses with no
-  global step chain.
-- Framed recognition is a supported explicit `build_drawing` option; raw remains the default while
-  canary evidence accumulates under #1357.
+- The 0.4.9 dependency and plural compiler intentionally correct raw compound interpretation:
+  disjoint turned bodies no longer form an invented cross-body profile or disappear behind a
+  singular projection; each body contributes its own step IR and chain.
+- Framed recognition is a supported explicit `build_drawing` option and uses the same plural
+  compiler waist; raw remains the default while canary evidence accumulates under #1357.
 
 ## Rejected alternatives
 
@@ -160,7 +210,8 @@ and representative corpus canaries remain release gates, not hidden conditions i
 
 `tests/test_issue_1357_framed_boundary.py` guards exact preparation/result pairing, cylinder reuse,
 all gauges and refusal reasons, local multi-diameter classification, body-local levels/risers/turned
-profiles, singular-waist refusal, and unchanged production selection. The fail-closed manifest join
+profiles, explicit singular-accessor refusal, and unchanged raw coordinate selection. The
+fail-closed manifest join
 in `tests/test_recogniser_capabilities.py` guards the 0.4.9 record schemas. Existing
 `tests/test_declared_recognition_gate.py` and `tests/test_part_model.py` retain declared no-recognition
 and one-aggregate lifecycle evidence; `tests/test_import_boundaries.py` keeps the boundary at the
@@ -171,6 +222,16 @@ GRM-03 fixtures.
 `tests/test_issue_1357_framed_activation.py` guards explicit selection/fallback, source versus
 working ownership, scale-retry reuse, rigid-motion build parity, cross-axis turned measurement
 completeness, arbitrary-frame PMI evidence, and off-axis pattern location completeness.
+`tests/test_issue_1357_plural_turned_profiles.py` proves aggregate/injected compiler
+equivalence, body-local IR origins, separate rendered chains and measurement identities, independent
+axial lint, generated-script reconstruction, orthographic profile-view selection, and declared
+caller-coordinate parity for parallel shafts, adjacent coaxial emission, ambiguous-grid drops,
+front-only fail-closed behavior, disjoint coaxial lane reuse and script replay, collision-free mixed
+token namespaces, group-plus-axis lint ownership, single-solid guard scope, perpendicular-axis lane
+independence, explicit refusal of the upstream-blocked groove ambiguity, exact emitted-group lint
+ownership, alternate-view detail ownership, and remove/deferred-replay lane preservation. The framed
+activation suite composes raw/framed plural compilation with a forced scale retry, proving that two
+profiles and four chains survive reuse while frame preparation still occurs once.
 
 ## Relationship to prior decisions
 
@@ -179,8 +240,8 @@ completeness, arbitrary-frame PMI evidence, and off-axis pattern location comple
   lifecycle, record→IR conversion, drafting policy, and lint.
 - **ADR 0011:** declarations remain caller-coordinate authority and recognition-free at build time.
 - **ADR 0013:** only public provider records cross the geometry→Draftwright adapter.
-- **ADR 0015:** future detected compilation changes its coherent input unit, not the PartModel
-  compiler waist.
+- **ADR 0015:** detected compilation changes its coherent input unit while the PartModel compiler
+  waist remains plural and coordinate-consistent.
 - **ADR 0017:** preparation and classification reuse one cylinder substrate and one aggregate;
   correspondence remains evidence-gated.
 - **ADRs 0004/0014:** no annotation placement API or raw page coordinate is introduced.

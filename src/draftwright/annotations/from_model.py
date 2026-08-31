@@ -21,7 +21,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, replace
 from itertools import groupby, tee
-from typing import Any
+from typing import Any, Literal, cast
 
 from build123d_drafting import DatumFeature, FeatureControlFrame, SurfaceFinish, TextBlock
 from build123d_drafting.helpers import (
@@ -3298,7 +3298,7 @@ def render_boss_diameters(dwg, plan, a, *, ctx) -> int:
     Placement rides the shared :func:`place_machined_leader_jobs` adapter (#700 — never a sixth copy
     of the ray-exit loop, #637): rim-anchored :func:`_radial_candidates`, accepted with
     ``geom_clear`` (the full shaft, not just the label, must clear other annotations)."""
-    if a.is_rotational or a.prof is not None:
+    if a.is_rotational or a.profiles:
         # A turned profile means round stock — a band emitted as a boss (#298) belongs in the
         # OD diameter row/column, not an end-on plan leader. Only true prismatic parts qualify.
         return 0
@@ -3466,7 +3466,7 @@ def render_polygonal_stock(dwg, plan, a, *, ctx) -> int:
 
 def render_boss_heights(dwg, plan, a, *, ctx) -> int:
     """Queue prismatic boss heights and polygonal-stock lengths in a profile corridor."""
-    if a.is_rotational or a.prof is not None:
+    if a.is_rotational or a.profiles:
         return 0
     tier = dwg.draft.font_size + 2 * dwg.draft.pad_around_text
     specs = {
@@ -4171,7 +4171,16 @@ def _record_step_chain_drop(dwg, why: str, *, ctx, measurement=()) -> None:
 
 
 def _draw_step_chain(
-    dwg, view, segs, name_prefix, detail_scale=None, allow_collapse=True, *, ctx, start=0
+    dwg,
+    view,
+    segs,
+    name_prefix,
+    detail_scale=None,
+    allow_collapse=True,
+    *,
+    ctx,
+    start=0,
+    profile_bounds=None,
 ) -> int:
     """Place a turned step-length chain in *view* from structured *segs*, each already
     projected to *view*'s page coords in axis order. Orientation is
@@ -4183,10 +4192,11 @@ def _draw_step_chain(
     drawing inside a scaled detail view. ``allow_collapse=False`` disables the ``N× v``
     collapse — used when the chain mixes a synthetic head-*block* with real steps, where
     a uniform-staircase representative would be a false claim of N equal steps (#307
-    review). Returns the count placed."""
+    review). ``profile_bounds`` narrows the placement edge to one body's projected silhouette
+    when a compound contains multiple turned profiles. Returns the count placed."""
     if not segs:
         return 0
-    vb = dwg.view_bounds(view)
+    vb = profile_bounds or dwg.view_bounds(view)
     if vb is None:
         return 0
     trace = getattr(ctx, "trace", None)  # the immediate placers report to the trace too (#736)
@@ -4374,8 +4384,16 @@ def _next_steplen_start(ctx, prefix: str = "m_steplen") -> int:
     return max(idxs) + 1 if idxs else 0
 
 
-def render_step_lengths(dwg, plan, *, ctx, only=None) -> int:
-    """Unified turned step-length chain (ADR 0008 #223): each `StepFeature`'s length
+def render_step_lengths(
+    dwg,
+    plan,
+    *,
+    ctx,
+    only=None,
+    _profile_bounds_hint=None,
+    _profile_view_hint=None,
+) -> int:
+    """Unified turned step-length chains (ADR 0008 #223): each `StepFeature`'s length
     span projects into the profile view and joins the chain that tiles the turning
     axis so every shoulder is located. X-turned → horizontal chain above the front
     view; Z-turned → vertical chain to its right; Y-turned → horizontal chain above
@@ -4386,9 +4404,320 @@ def render_step_lengths(dwg, plan, *, ctx, only=None) -> int:
     in line: the main view locates that run as one *block* dim and an enlarged
     `DetailRequest` (#304/#307) is queued to break it down. If the detail later can't
     place, the block still locates the head extent and lint reports the un-located
-    interior shoulders — never worse than the prior skip. Returns the count placed."""
+    interior shoulders — never worse than the prior skip. Parallel or axially disconnected
+    profiles are grouped before collapse and rendered against their own silhouettes. Returns the
+    count placed."""
+    # One axial chain belongs to one physical axis line. Group BEFORE the repeat-run collapse:
+    # equal lengths on parallel shafts are separate requirements, not one global ``N×`` run.
+    # View assignment always sees the complete roster, even when ``only`` narrows a deferred
+    # edit. Otherwise re-adding one removed profile forgets a surviving sibling's lane and can
+    # place both chains on top of each other. Recursive per-profile placement carries an explicit
+    # view hint and narrows only the refs that actually receive ink (#1357).
+    # Emitted declarations round coordinates to 0.001 mm, so exact neighbours may return
+    # with a sub-micron numerical seam. This is declaration precision, not a physical gap.
+    adjacency_tol = 1e-3 + 1e-9
+    line_groups: dict[
+        tuple[str, tuple[float, float], object | None], list[tuple[float, float, object]]
+    ] = {}
+    for group in plan.of_kind("step"):
+        if group.facts.frame.axis not in ("x", "y", "z"):
+            continue
+        length = group.dim(kind="length")
+        if length is None or length.span is None:
+            continue
+        axis_index = "xyz".index(group.facts.frame.axis)
+        line_values = [
+            round(float(value), 6)
+            for index, value in enumerate(group.facts.frame.origin)
+            if index != axis_index
+        ]
+        line = (line_values[0], line_values[1])
+        axis_index = "xyz".index(group.facts.frame.axis)
+        lo, hi = sorted(float(point[axis_index]) for point in length.span)
+        membership = group.facts.profile or group.facts.profile_group
+        line_groups.setdefault((group.facts.frame.axis, line, membership), []).append(
+            (lo, hi, group.ref)
+        )
+    profile_groups: list[tuple[tuple[str, tuple[float, float], object | None], set[object]]] = []
+    for key, members in sorted(
+        line_groups.items(), key=lambda item: (item[0][0], item[0][1], repr(item[0][2]))
+    ):
+        if key[2] is not None:
+            profile_groups.append((key, {ref for _lo, _hi, ref in members}))
+            continue
+        axis, line, _membership = key
+        axis_index = "xyz".index(axis)
+        groove_intervals = []
+        for groove in plan.of_kind("groove"):
+            if groove.facts.frame.axis != axis:
+                continue
+            groove_line = tuple(
+                round(float(value), 6)
+                for index, value in enumerate(groove.facts.frame.origin)
+                if index != axis_index
+            )
+            width = groove.dim(kind="length")
+            if groove_line != line or width is None:
+                continue
+            centre = float(groove.facts.frame.origin[axis_index])
+            groove_intervals.append(
+                (centre - float(width.value) / 2.0, centre + float(width.value) / 2.0)
+            )
+        profile_runs: list[tuple[float, set[object]]] = []
+        for lo, hi, ref in sorted(members, key=lambda member: member[:2]):
+            run_hi = profile_runs[-1][0] if profile_runs else float("-inf")
+            gap_is_groove = any(
+                groove_lo <= run_hi + adjacency_tol and groove_hi >= lo - adjacency_tol
+                for groove_lo, groove_hi in groove_intervals
+            )
+            if not profile_runs or (lo > run_hi + adjacency_tol and not gap_is_groove):
+                profile_runs.append((hi, {ref}))
+            else:
+                run_hi, refs = profile_runs[-1]
+                refs.add(ref)
+                profile_runs[-1] = (max(run_hi, hi), refs)
+        profile_groups.extend((key, refs) for _hi, refs in profile_runs)
+    if len(profile_groups) > 1 and _profile_view_hint is None:
+        profile_views = {
+            "x": ("front", "plan"),
+            "y": ("side", "plan"),
+            "z": ("front", "side"),
+        }
+
+        def _point_for(profile_key):
+            profile_axis, profile_line, _profile_membership = profile_key
+            point = [0.0, 0.0, 0.0]
+            line_index = 0
+            for index in range(3):
+                if index != "xyz".index(profile_axis):
+                    point[index] = profile_line[line_index]
+                    line_index += 1
+            return point
+
+        def _projected_cross(profile_key, view) -> float:
+            axis, _line, _membership = profile_key
+            point = _point_for(profile_key)
+            px, py, *_ = dwg.at(view, *point)
+            axial_point = list(point)
+            axial_point["xyz".index(axis)] += 1.0
+            ax, ay, *_ = dwg.at(view, *axial_point)
+            axial_is_horizontal = abs(float(ax) - float(px)) >= abs(float(ay) - float(py))
+            return float(py if axial_is_horizontal else px)
+
+        refs_by_key = dict(profile_groups)
+        candidate_views = {
+            key: tuple(view for view in profile_views[key[0]] if dwg.view_bounds(view) is not None)
+            for key, _refs in profile_groups
+        }
+
+        def _projected_axial_interval(key, view) -> tuple[float, float]:
+            axis = key[0]
+            axis_index = "xyz".index(axis)
+            stations = [
+                float(point[axis_index])
+                for group in plan.of_kind("step")
+                if group.ref in refs_by_key[key]
+                for length in (group.dim(kind="length"),)
+                if length is not None and length.span is not None
+                for point in length.span
+            ]
+            point = _point_for(key)
+            projected = []
+            for station in (min(stations), max(stations)):
+                point[axis_index] = station
+                px, py, *_ = dwg.at(view, *point)
+                axial_point = list(point)
+                axial_point[axis_index] += 1.0
+                ax, ay, *_ = dwg.at(view, *axial_point)
+                projected.append(
+                    float(px if abs(float(ax) - float(px)) >= abs(float(ay) - float(py)) else py)
+                )
+            return (min(projected), max(projected))
+
+        def _conflict(left, right, view) -> bool:
+            if left[0] != right[0]:
+                # Perpendicular turning axes do not share a longitudinal lane. Their real
+                # page-ink interaction is resolved by the common placement/overlap stages.
+                return False
+            if round(_projected_cross(left, view), 6) != round(_projected_cross(right, view), 6):
+                return False
+            left_lo, left_hi = _projected_axial_interval(left, view)
+            right_lo, right_hi = _projected_axial_interval(right, view)
+            # A shared endpoint still shares witnesses/labels and therefore needs the other
+            # longitudinal view.  Truly separated silhouettes may safely reuse this lane.
+            return left_lo <= right_hi + 1e-6 and right_lo <= left_hi + 1e-6
+
+        profile_conflicts = {
+            (left, right, view): _conflict(left, right, view)
+            for left_index, (left, _left_refs) in enumerate(profile_groups)
+            for right, _right_refs in profile_groups[left_index + 1 :]
+            for view in set(candidate_views[left]) & set(candidate_views[right])
+        }
+
+        def _satisfiable(keys, forced=None) -> bool:
+            """Solve the two-view profile assignment as 2-SAT.
+
+            A profile chooses its conventional or alternate longitudinal view.  Two profiles
+            cannot make a particular joint choice only when both their projected cross line
+            *and* axial interval overlap.  This retains fail-closed ambiguity handling while
+            allowing any number of axially disjoint coaxial bodies to reuse a lane (#1357).
+            """
+            forced = forced or {}
+            index = {key: i for i, key in enumerate(keys)}
+            graph: list[list[int]] = [[] for _ in range(2 * len(keys))]
+            reverse: list[list[int]] = [[] for _ in graph]
+
+            def imply(source, target):
+                graph[source].append(target)
+                reverse[target].append(source)
+
+            for key, i in index.items():
+                choices = candidate_views[key]
+                if len(choices) == 1:
+                    imply(2 * i + 1, 2 * i)
+                if key in forced:
+                    choice = forced[key]
+                    imply(2 * i + (1 - choice), 2 * i + choice)
+            for left_i, left in enumerate(keys):
+                for right_i in range(left_i + 1, len(keys)):
+                    right = keys[right_i]
+                    for left_choice, left_view in enumerate(candidate_views[left]):
+                        for right_choice, right_view in enumerate(candidate_views[right]):
+                            if left_view != right_view or not profile_conflicts.get(
+                                (left, right, left_view), False
+                            ):
+                                continue
+                            # not(left=choice and right=choice): each selected literal implies
+                            # the negation of the other selected literal.
+                            imply(2 * left_i + left_choice, 2 * right_i + (1 - right_choice))
+                            imply(2 * right_i + right_choice, 2 * left_i + (1 - left_choice))
+
+            seen = set()
+            order = []
+
+            def visit(node):
+                if node in seen:
+                    return
+                seen.add(node)
+                for target in graph[node]:
+                    visit(target)
+                order.append(node)
+
+            for node in range(len(graph)):
+                visit(node)
+            components = [-1] * len(graph)
+
+            def assign(node, component):
+                if components[node] != -1:
+                    return
+                components[node] = component
+                for target in reverse[node]:
+                    assign(target, component)
+
+            component = 0
+            for node in reversed(order):
+                if components[node] == -1:
+                    assign(node, component)
+                    component += 1
+            return all(components[2 * i] != components[2 * i + 1] for i in range(len(keys)))
+
+        accepted: list[Any] = []
+        unassigned = []
+        for key, _refs in profile_groups:
+            if not candidate_views[key] or not _satisfiable([*accepted, key]):
+                unassigned.append(key)
+            else:
+                accepted.append(key)
+
+        # Prefer each axis's conventional view unless that would make the complete accepted
+        # roster unsatisfiable.  The forced-prefix solve makes the choice deterministic.
+        forced: dict[Any, int] = {}
+        for key in accepted:
+            trial = {**forced, key: 0}
+            if _satisfiable(accepted, trial):
+                forced = trial
+            else:
+                forced[key] = 1
+        assignments = {key: candidate_views[key][choice] for key, choice in forced.items()}
+
+        def _cell_bounds(key, view):
+            axis, _line, _membership = key
+            view_bounds = dwg.view_bounds(view)
+            if view_bounds is None:
+                return None
+
+            def _cross(profile_key) -> float:
+                return _projected_cross(profile_key, view)
+
+            cross = _cross(key)
+            siblings = sorted(
+                {
+                    _cross(profile_key)
+                    for profile_key, assigned_view in assignments.items()
+                    if profile_key[0] == axis and assigned_view == view
+                }
+            )
+            position = siblings.index(cross)
+            point = _point_for(key)
+            px, py, *_ = dwg.at(view, *point)
+            axial_point = list(point)
+            axial_point["xyz".index(axis)] += 1.0
+            ax, ay, *_ = dwg.at(view, *axial_point)
+            axial_is_horizontal = abs(float(ax) - float(px)) >= abs(float(ay) - float(py))
+            cross_lo_index, cross_hi_index = (1, 3) if axial_is_horizontal else (0, 2)
+            cross_lo = (
+                view_bounds[cross_lo_index]
+                if position == 0
+                else (siblings[position - 1] + cross) / 2.0
+            )
+            cross_hi = (
+                view_bounds[cross_hi_index]
+                if position == len(siblings) - 1
+                else (cross + siblings[position + 1]) / 2.0
+            )
+            if not axial_is_horizontal:
+                return (cross_lo, view_bounds[1], cross_hi, view_bounds[3])
+            return (view_bounds[0], cross_lo, view_bounds[2], cross_hi)
+
+        requested = None if only is None else set(only)
+        placed = 0
+        for key, refs in profile_groups:
+            refs_to_place = refs if requested is None else refs & requested
+            if key not in assignments or not refs_to_place:
+                continue
+            placed += render_step_lengths(
+                dwg,
+                plan,
+                ctx=ctx,
+                only=refs_to_place,
+                _profile_bounds_hint=_cell_bounds(key, assignments[key]),
+                _profile_view_hint=assignments[key],
+            )
+        for key in unassigned:
+            refs = refs_by_key[key]
+            if requested is not None:
+                refs &= requested
+            if not refs:
+                continue
+            measurements = tuple(
+                length.id
+                for group in plan.of_kind("step")
+                if group.ref in refs
+                for length in (group.dim(kind="length"),)
+                if length is not None and length.id is not None
+            )
+            _record_step_chain_drop(
+                dwg,
+                "no longitudinal view uniquely identifies this physical profile",
+                ctx=ctx,
+                measurement=measurements,
+            )
+        return placed
+
     rows: list[tuple[str, _StepChainSegment]] = []
     step_origins = []
+    step_geometry = []
+    step_profiles = []
     for g in plan.of_kind("step"):
         if g.facts.frame.axis not in ("x", "y", "z"):
             continue
@@ -4412,6 +4741,15 @@ def render_step_lengths(dwg, plan, *, ctx, only=None) -> int:
             )
         )
         step_origins.append(g.facts.frame.origin)
+        step_profiles.append(g.facts.profile)
+        diameter = g.dim(kind="diameter")
+        step_geometry.append(
+            (
+                g.facts.frame,
+                length.span,
+                None if diameter is None else float(diameter.value) / 2.0,
+            )
+        )
     if not rows:
         return 0
     draft = dwg.draft
@@ -4425,10 +4763,47 @@ def render_step_lengths(dwg, plan, *, ctx, only=None) -> int:
         )
         return 0
     turn_axis = next(iter(axes))
-    view = "side" if turn_axis == "y" else "front"
+    view = cast(
+        Literal["front", "plan", "side"],
+        _profile_view_hint or ("side" if turn_axis == "y" else "front"),
+    )
     bare_rows = [seg for _axis, seg in rows]
     fsegs = [replace(seg, pa=dwg.at(view, *seg.pa), pb=dwg.at(view, *seg.pb)) for seg in bare_rows]
     horizontal = abs(fsegs[0].pb[0] - fsegs[0].pa[0]) >= abs(fsegs[0].pb[1] - fsegs[0].pa[1])
+
+    # The principal view can contain several disjoint turned bodies. Anchor this chain at its
+    # own silhouette, not the compound's outer view edge, otherwise every vertical profile
+    # would draw the same dimension line and body ownership would be visually ambiguous.
+    radial_axis = {
+        ("front", "x"): "z",
+        ("front", "z"): "x",
+        ("plan", "x"): "y",
+        ("plan", "y"): "x",
+        ("side", "y"): "z",
+        ("side", "z"): "y",
+    }.get((view, turn_axis), "x" if turn_axis == "z" else "z")
+    radial_index = "xyz".index(radial_axis)
+    profile_points: list[tuple[float, ...]] = []
+    if _profile_bounds_hint is not None:
+        for frame, span, radius in step_geometry:
+            if radius is None:
+                profile_points = []
+                break
+            for endpoint in span:
+                for sign in (-1.0, 1.0):
+                    point = list(endpoint)
+                    point[radial_index] = float(frame.origin[radial_index]) + sign * radius
+                    profile_points.append(dwg.at(view, *point))
+    profile_bounds = (
+        (
+            min(point[0] for point in profile_points),
+            min(point[1] for point in profile_points),
+            max(point[0] for point in profile_points),
+            max(point[1] for point in profile_points),
+        )
+        if profile_points
+        else _profile_bounds_hint
+    )
 
     # A Y-turned chain that would need near/far staggering is ambiguous in the
     # narrow side view: an interior far-tier segment reads like an overall
@@ -4512,6 +4887,7 @@ def render_step_lengths(dwg, plan, *, ctx, only=None) -> int:
                 allow_collapse=False,
                 ctx=ctx,
                 start=start,
+                profile_bounds=profile_bounds,
             )
         if not (labels_clear and inside_arrows_fit):
             axis_lo = min(min(seg.pa[1], seg.pb[1]) for seg in bare_rows)
@@ -4538,7 +4914,15 @@ def render_step_lengths(dwg, plan, *, ctx, only=None) -> int:
             axis_zs = [origin[2] for origin in step_origins]
             coaxial = max(axis_xs) - min(axis_xs) <= 0.5 and max(axis_zs) - min(axis_zs) <= 0.5
             if not coaxial:
-                return _draw_step_chain(dwg, view, fsegs, "m_steplen", ctx=ctx, start=start)
+                return _draw_step_chain(
+                    dwg,
+                    view,
+                    fsegs,
+                    "m_steplen",
+                    ctx=ctx,
+                    start=start,
+                    profile_bounds=profile_bounds,
+                )
             axis_z = sum(axis_zs) / len(axis_zs)
 
             # Choose the same standard scale family as the detail renderer, then
@@ -4631,6 +5015,7 @@ def render_step_lengths(dwg, plan, *, ctx, only=None) -> int:
                 allow_collapse=False,
                 ctx=ctx,
                 start=start,
+                profile_bounds=profile_bounds,
             )
 
     # X-turned crowded-head detour (#307): split off each contiguous *run of ≥2*
@@ -4656,10 +5041,13 @@ def render_step_lengths(dwg, plan, *, ctx, only=None) -> int:
                 # absolute world→page scale). (#307 review)
                 scale_needed = _MIN_STEP_SEP_MM / minlen if minlen > 0 else float("inf")
                 # A head *block* is a synthetic span, not one toleranced step — carry no ± (None).
+                block_lo = list(step_origins[0])
+                block_hi = list(step_origins[0])
+                block_lo[0], block_hi[0] = hlo, hhi
                 blocks.append(
                     _StepChainSegment(
-                        dwg.at("front", hlo, 0, 0),
-                        dwg.at("front", hhi, 0, 0),
+                        dwg.at(view, *block_lo),
+                        dwg.at(view, *block_hi),
                         hhi - hlo,
                     )
                 )
@@ -4677,6 +5065,17 @@ def render_step_lengths(dwg, plan, *, ctx, only=None) -> int:
                         dwg, view, hsegs, f"dim_{view}_steplen", detail_scale, ctx=ctx
                     )
 
+                profile_key = next((key for key in step_profiles if key is not None), None)
+                cross_axis: Literal["x", "y", "z"] = "z" if view == "front" else "y"
+                cross_index = "xyz".index(cross_axis)
+                cross_bounds = (
+                    None
+                    if profile_key is None
+                    else (
+                        float(profile_key.body_bounds[2 * cross_index]),
+                        float(profile_key.body_bounds[2 * cross_index + 1]),
+                    )
+                )
                 ctx.detail_requests.append(
                     DetailRequest(
                         axis="x",
@@ -4686,6 +5085,10 @@ def render_step_lengths(dwg, plan, *, ctx, only=None) -> int:
                         redraw=_redraw,
                         pad_top=2 * (draft.font_size + 2 * draft.pad_around_text)
                         + draft.arrow_length,
+                        source_view=view,
+                        cross_axis=cross_axis if cross_bounds is not None else None,
+                        cross_lo=None if cross_bounds is None else cross_bounds[0],
+                        cross_hi=None if cross_bounds is None else cross_bounds[1],
                         kind="turned-head",
                     )
                 )
@@ -4695,10 +5098,25 @@ def render_step_lengths(dwg, plan, *, ctx, only=None) -> int:
             # The chain now mixes head-block(s) with real steps — never collapse it to a
             # uniform "N× v" representative (a block is not a repeated step, #307 review).
             return _draw_step_chain(
-                dwg, "front", main, "m_steplen", allow_collapse=False, ctx=ctx, start=start
+                dwg,
+                view,
+                main,
+                "m_steplen",
+                allow_collapse=False,
+                ctx=ctx,
+                start=start,
+                profile_bounds=profile_bounds,
             )
 
-    return _draw_step_chain(dwg, view, fsegs, "m_steplen", ctx=ctx, start=start)
+    return _draw_step_chain(
+        dwg,
+        view,
+        fsegs,
+        "m_steplen",
+        ctx=ctx,
+        start=start,
+        profile_bounds=profile_bounds,
+    )
 
 
 def ladder_plan_for(plan, *, step_height: bool, overall: bool):

@@ -432,8 +432,10 @@ def test_groove_length_authority_requires_exact_physical_band_correspondence():
         sheet = Sheet.from_part(part).take_over(
             dimensions="authored", principal_views="automatic", derived_views="authored"
         )
-        step = next(feature for feature in sheet.features if feature.kind == "step")
-        sheet.note("ONE AXIAL SEGMENT", step, satisfies=("step.length",))
+        # Both surrounding bands are independent requirements. The groove width supplies only
+        # the narrow middle band; one step plus one groove must not falsely certify all three.
+        for step in (feature for feature in sheet.features if feature.kind == "step"):
+            sheet.note("AXIAL SEGMENT", step, satisfies=("step.length",))
         if wrong_axis:
             groove = sheet.groove(axis="x", width=4, diameter=16, at=(0, 0, 0))
             groove.note("4 WIDE GROOVE", satisfies=("groove.length",))

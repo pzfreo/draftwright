@@ -370,8 +370,9 @@ def _measure_blocks(dwg, a) -> dict:
 
 
 def _coerce_model(model, part, decorations=None, requested=None, authored=None) -> PartModel:
-    """Wrap a caller-supplied ``model=`` (ADR 0011) into a :class:`PartModel`. A
-    ``PartModel`` is used verbatim; a sequence of features is wrapped with the part's
+    """Wrap a caller-supplied ``model=`` (ADR 0011) into a :class:`PartModel`.
+    A ``PartModel`` retains its authored contents while derived turned orientation is
+    normalised; a sequence of features is wrapped with the part's
     bbox, a default corner location datum (matching ``detect.py``, so hole location
     dims measure from the min corner), and an orientation inferred from any turned
     ``StepFeature`` (so a declared shaft renders as turned).
@@ -405,7 +406,8 @@ def _coerce_model(model, part, decorations=None, requested=None, authored=None) 
     else:
         features = list(model)
         bbox = part.bounding_box()
-        orientation = next((f.frame.axis for f in features if isinstance(f, StepFeature)), None)
+        turned_axes = {f.frame.axis for f in features if isinstance(f, StepFeature)}
+        orientation = next(iter(turned_axes)) if len(turned_axes) == 1 else None
         datum = Datum(id="datum_xy", kind="point", at=(bbox.min.X, bbox.min.Y, bbox.min.Z))
         out = PartModel(
             bbox=bbox,
@@ -416,6 +418,13 @@ def _coerce_model(model, part, decorations=None, requested=None, authored=None) 
             requested_dimensions=tuple(requested or ()),
             authored_dimensions=None if authored is None else tuple(authored),
         )
+    turned_axes = {f.frame.axis for f in out.features if isinstance(f, StepFeature)}
+    orientation = next(iter(turned_axes)) if len(turned_axes) == 1 else None
+    if turned_axes and out.orientation != orientation:
+        # PartModel.orientation is the compiler's aggregate classification, not a caller
+        # override. Derive it from the complete set so list and PartModel front doors are
+        # equivalent and mixed-axis declarations are order-independent (#1357).
+        out = replace(out, orientation=orientation)
     _check_dimension_sources(out)
     return out
 
@@ -538,7 +547,16 @@ def _assemble(
         # (`axial_length_missing`). Guard on the tiling condition rather than a classifier
         # proxy (is_rotational / prof both have blind spots).
         z_steps = [f for f in pm.features if isinstance(f, StepFeature) and f.frame.axis == "z"]
-        if pm.orientation == "z" and z_steps:
+        # The global-envelope check is meaningful only in its legacy single-solid domain;
+        # caller-owned group strings cannot turn one solid into several physical bodies.
+        # Multiple solids can be parallel, axially disjoint, or accompanied by unrelated
+        # compound members, so their steps need not tile the compound bbox (#1357).
+        owns_global_envelope = any(feature.kind == "envelope" for feature in pm.features)
+        if (
+            z_steps
+            and len(a.part.solids()) == 1
+            and (pm.orientation == "z" or owns_global_envelope)
+        ):
             tol = 1e-3 * max(a.z_size, 1.0)  # small absolute float epsilon, floored
             # Tiling means the segments run end to end — a single reach to each end isn't
             # enough, since an interior gap is a stretch of part no declared step describes.
@@ -2035,11 +2053,12 @@ def build_drawing(
                 return (), (), "recovery_detail_retained"
             if require_axial_coverage:
                 assert latest_analysis is not None
-                if lint_axial_coverage(
-                    latest_analysis.part,
-                    candidate,
-                    prof=latest_analysis.prof,
-                ):
+                profile_kw = (
+                    {"profiles": latest_analysis.profiles}
+                    if hasattr(latest_analysis, "profiles")
+                    else {"prof": latest_analysis.prof}
+                )
+                if lint_axial_coverage(latest_analysis.part, candidate, **profile_kw):
                     return (), (), "axial_coverage_incomplete"
             issues, blockers = _automatic_assessment(candidate)
             if any(issue.severity == "error" for issue in issues):
@@ -2250,12 +2269,13 @@ def build_drawing(
             and "iso" in drawing.views
         ):
             assert latest_analysis is not None
+            profile_kw = (
+                {"profiles": latest_analysis.profiles}
+                if hasattr(latest_analysis, "profiles")
+                else {"prof": latest_analysis.prof}
+            )
             original_has_axial_gap = bool(
-                lint_axial_coverage(
-                    latest_analysis.part,
-                    drawing,
-                    prof=latest_analysis.prof,
-                )
+                lint_axial_coverage(latest_analysis.part, drawing, **profile_kw)
             )
             original_issues, original_blockers = _automatic_assessment(drawing)
             source_blockers = tuple(

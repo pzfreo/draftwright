@@ -509,7 +509,7 @@ policy) live in `CLAUDE.md`. This is the per-ADR status trail; each ADR's
   lives in the blocking issue.
   **#1022** landed the **ADR 0011 declared-path gate**: a declared build now recognises
   **nothing**. It was not one `if` — sizing sources the turned profile and step ladder from
-  the declaration (`_declared_turned_profile` / `_declared_step_zs` in `analysis.py`), and
+  the declaration (`_declared_turned_profiles` / `_declared_step_zs` in `analysis.py`), and
   the lint→repair loop stopped asking for the feature-coverage half it never used
   (`Drawing.lint(physical=False)`; repair acts on `dim_inside_part` alone, ADR 0002).
   Critique on that path still needs an inventory, so `BuildState.ensure_recognition()` builds

@@ -9327,8 +9327,10 @@ class TestPrismaticBossDiameter:
         # cover only the boss, not the plate below, so the overall height would be dropped.
         from draftwright import Sheet
 
-        lower = Pos(0, 0, 25) * Cylinder(35, 10)
-        upper = Pos(0, 0, 35) * Cylinder(25, 10)
+        # Exact face contact makes this one physical solid: the old 25/35 placements left a
+        # 10 mm air gap above the plate and accidentally tested a valid multi-solid compound.
+        lower = Pos(0, 0, 15) * Cylinder(35, 10)
+        upper = Pos(0, 0, 25) * Cylinder(25, 10)
         part = Box(100, 100, 20) + lower + upper
         sheet = Sheet(part, title="C").auto_dimensions()
         sheet.envelope()

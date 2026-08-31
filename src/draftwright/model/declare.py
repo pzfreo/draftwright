@@ -503,6 +503,7 @@ def step(
     span=None,
     thread=None,
     knurl=None,
+    profile_group=None,
 ) -> StepFeature:
     """One axial segment of a turned profile — its OD + length. Either ``step(segment)``
     (⌀ from the cylindrical face, length + centre from the bbox along its axis) or
@@ -522,6 +523,10 @@ def step(
     axis = _norm_axis(axis)
     _require_positive(diameter=diameter, length=length)
     _require_point("at", at)
+    if profile_group is not None and (
+        not isinstance(profile_group, str) or not profile_group.strip()
+    ):
+        raise ValueError("profile_group must be a non-empty string when supplied")
     if span is None:
         span = _span(at, axis, length)
     return StepFeature(
@@ -531,6 +536,7 @@ def step(
         span=span,
         thread=thread,
         knurl=knurl,
+        profile_group=profile_group,
     )
 
 

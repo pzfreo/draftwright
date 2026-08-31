@@ -1,13 +1,15 @@
-"""Owned boundary for provider-framed automatic recognition (#1357).
+"""Owned boundary for provider frames and body-local occurrence joins (#1357).
 
 The provider owns frame inference, topology-preserving normalisation, and the immutable
 recognition aggregate.  Draftwright owns the classification decision that selects the
 aggregate's rotational policy and the rule that the exact local working solid, cylinders,
-records, and frame travel as one unit.  This module deliberately provides no raw fallback.
+records, and frame travel as one unit. It also owns fail-closed joins between public provider
+records when an occurrence key is absent. This module deliberately provides no raw fallback.
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
@@ -32,7 +34,67 @@ class FramedRecognitionContractError(RuntimeError):
 
 
 class MultipleTurnedProfilesError(ValueError):
-    """Draftwright's current Analysis waist cannot represent multiple turned profiles."""
+    """A caller requested the compatible singular view of a plural profile inventory."""
+
+
+class AmbiguousTurnedOwnershipError(RuntimeError):
+    """A released recognition record cannot identify one physical turned profile."""
+
+
+def profiles_owning_axial_band(
+    profiles: Iterable[Any],
+    *,
+    axis: str,
+    centre: tuple[float, float, float],
+    width: float,
+    axis_tol: float = 1e-6,
+    span_tol: float = 1e-3 + 1e-9,
+) -> tuple[Any, ...]:
+    """Profiles whose published axis line and axial span contain one record band."""
+
+    axis_index = "xyz".index(axis)
+    band_lo = float(centre[axis_index]) - float(width) / 2.0
+    band_hi = float(centre[axis_index]) + float(width) / 2.0
+    owners = []
+    for profile in profiles:
+        if profile.axis != axis:
+            continue
+        key = getattr(profile, "profile", None)
+        if key is not None and any(
+            abs(float(centre[index]) - float(key.axis_origin[index])) > axis_tol
+            for index in range(3)
+            if index != axis_index
+        ):
+            continue
+        shoulders = tuple(float(value) for value in profile.shoulders)
+        if (
+            shoulders
+            and min(shoulders) - span_tol <= band_lo
+            and band_hi <= max(shoulders) + span_tol
+        ):
+            owners.append(profile)
+    return tuple(owners)
+
+
+def require_unambiguous_groove_owner(groove: Any, profiles: Iterable[Any]) -> tuple[Any, ...]:
+    """Return the zero/one groove owner or refuse the missing provider contract."""
+
+    centre = getattr(groove, "at", None)
+    if centre is None:
+        centre = groove.frame.origin
+    owners = profiles_owning_axial_band(
+        profiles,
+        axis=groove.axis if hasattr(groove, "axis") else groove.frame.axis,
+        centre=centre,
+        width=groove.width,
+    )
+    if len(owners) > 1:
+        raise AmbiguousTurnedOwnershipError(
+            "a groove matches multiple body-local turned profiles, but "
+            "b123d-recognisers 0.4.9 Groove records carry no profile identity; "
+            "refusing to guess (https://github.com/pzfreo/b123d-recognisers/issues/354)"
+        )
+    return owners
 
 
 @dataclass(frozen=True, slots=True)
@@ -178,18 +240,19 @@ def prepare_framed_detection(part: Shape) -> FramedDetection | FramedDetectionRe
 
 
 def single_turned_profile(result: RecognitionResult) -> TurnedProfile | None:
-    """Return the only physical turned profile, refusing an unsupported plural result."""
+    """Return the zero/one compatible projection, refusing a plural inventory."""
 
     profiles = result.turned_profiles
     if len(profiles) > 1:
         raise MultipleTurnedProfilesError(
-            "Draftwright does not yet support multiple physical turned profiles in one "
-            f"detected part (recognised {len(profiles)})"
+            "single_turned_profile() requires zero or one physical profile, but the result "
+            f"contains {len(profiles)}; consume result.turned_profiles or Analysis.profiles"
         )
     return profiles[0] if profiles else None
 
 
 __all__ = [
+    "AmbiguousTurnedOwnershipError",
     "FramePolicy",
     "FramedDetection",
     "FramedDetectionRefusal",
@@ -199,5 +262,7 @@ __all__ = [
     "classify_geometry",
     "frame_policy",
     "prepare_framed_detection",
+    "profiles_owning_axial_band",
+    "require_unambiguous_groove_owner",
     "single_turned_profile",
 ]

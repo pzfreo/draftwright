@@ -40,6 +40,19 @@ PLACEMENT_VIEWS = frozenset({"front", "plan", "side"})
 PLACEMENT_SIDES = frozenset({"above", "below", "left", "right"})
 
 
+class TurnedProfileIdentity(Protocol):
+    """Draftwright's structural view of a provider-owned turned-profile key."""
+
+    @property
+    def axis(self) -> str: ...
+
+    @property
+    def axis_origin(self) -> Point: ...
+
+    @property
+    def body_bounds(self) -> tuple[float, float, float, float, float, float]: ...
+
+
 def validate_placement_intent(view: str | None, side: str | None, *, owner: str) -> None:
     """Validate the shared declarative view/strip vocabulary.
 
@@ -800,6 +813,13 @@ class StepFeature:
     # are cosmetic and rarely modelled as geometry, so there is no recogniser — declare + render.
     thread: str | ThreadRequirement | None = None
     knurl: KnurlRequirement | None = None
+    #: Body-local recognition ownership. Structural provenance, not a printable quantity;
+    #: declared/legacy features may leave it absent and retain axis-line grouping (#1357).
+    profile: TurnedProfileIdentity | None = None
+    #: Draftwright-owned, serializable physical-profile identity. Generated Sheet programs use
+    #: this opaque token instead of exposing the provider's ``TurnedProfileKey``; ordinary
+    #: declarations may omit it and retain geometric grouping.
+    profile_group: str | None = None
     kind: ClassVar[str] = "step"
 
     def parameters(self) -> list[DimParameter]:

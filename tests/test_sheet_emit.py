@@ -1244,8 +1244,8 @@ class TestObjectSpec:
         )
         assert result.exit_code == 0, result.output
         source = (tmp_path / "shaft.py").read_text(encoding="utf-8")
-        assert "sheet.step(features.large_step)" in source
-        assert "sheet.step(features.small_step)" in source
+        assert "sheet.step(features.large_step, profile_group='detected-profile-1')" in source
+        assert "sheet.step(features.small_step, profile_group='detected-profile-1')" in source
         assert "sheet.step(diameter=" not in source
 
     def test_axially_offset_construction_tool_fails_closed_to_numeric(self, tmp_path, monkeypatch):
@@ -3527,6 +3527,10 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
         ("hole", "members"): "a single hole's member list is exactly its own frame origin",
         ("plate", "frame"): "detection fills a plate's frame with the PART centroid, so it "
         "carries no per-plate information and nothing reads it",
+        ("step", "profile"): "provider profile identity is recognition provenance; emitted "
+        "declarations reconstruct physical grouping from step axis lines, spans and grooves",
+        ("step", "profile_group"): "generated declarations replace the provider key with a "
+        "Draftwright-owned opaque group token",
     }
 
     def _exemption_holds(self, original, rebuilt, field):
@@ -3547,6 +3551,10 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
                 and tuple(rebuilt.members) == ()
                 and tuple(map(tuple, original.members)) == (tuple(original.frame.origin),)
             )
+        if (original.kind, field) == ("step", "profile"):
+            return original.profile is not None and rebuilt.profile is None
+        if (original.kind, field) == ("step", "profile_group"):
+            return original.profile is not None and rebuilt.profile_group is not None
         return False
 
     @staticmethod

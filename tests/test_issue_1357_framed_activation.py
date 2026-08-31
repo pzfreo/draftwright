@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import pytest
 from b123d_recognisers import FrameRefusalReason
-from build123d import Align, Box, Cylinder, Pos, Rot
+from build123d import Align, Box, Compound, Cylinder, Pos, Rot
 
 from draftwright import build_drawing
 from draftwright.audit import diff_builds
@@ -22,6 +23,11 @@ def _part():
 
 def _x_stepped_shaft():
     return Rot(0, 90, 0) * (Cylinder(15, 40) + Pos(0, 0, 35) * Cylinder(8, 30))
+
+
+def _parallel_stepped_shafts():
+    shaft = Cylinder(15, 20) + Pos(0, 0, 20) * Cylinder(10, 20)
+    return Compound(children=[Pos(-50, 0, 0) * shaft, Pos(50, 0, 0) * shaft])
 
 
 def _pattern_part():
@@ -112,6 +118,56 @@ def test_scale_retries_reuse_one_framed_preparation(monkeypatch):
     monkeypatch.setattr(analysis, "prepare_framed_detection", counted)
     build_drawing(_part(), scale=5, framed_recognition=True)
     assert calls == 1
+
+
+@pytest.mark.parametrize("framed_recognition", (False, True))
+def test_plural_profiles_survive_raw_and_framed_scale_retries(monkeypatch, framed_recognition):
+    from draftwright import analysis
+
+    calls = 0
+    original = analysis.prepare_framed_detection
+
+    def counted(part):
+        nonlocal calls
+        calls += 1
+        return original(part)
+
+    monkeypatch.setattr(analysis, "prepare_framed_detection", counted)
+    drawing = build_drawing(
+        _parallel_stepped_shafts(),
+        scale=10,
+        framed_recognition=framed_recognition,
+    )
+
+    assert calls == int(framed_recognition)
+    assert drawing.recognition_frame_decision["status"] == (
+        "framed" if framed_recognition else "raw"
+    )
+    assert drawing.scale_decision["status"] == "fallback"
+    assert len(drawing.scale_decision["attempted_scales"]) > 1
+    steps = [feature for feature in drawing.model().features if feature.kind == "step"]
+    assert len(steps) == 4
+    profiles = {feature.profile for feature in steps}
+    assert len(profiles) == 2
+    assert len([name for name in drawing.annotations() if name.startswith("m_steplen")]) == 4
+    assert not [issue for issue in drawing.lint() if issue.code == "axial_length_missing"]
+
+    target_profile = next(iter(profiles))
+    target_names = {
+        name
+        for name in drawing.annotations()
+        if name.startswith("m_steplen")
+        and any(
+            identity.feature.profile == target_profile
+            for identity in drawing.registry.measurement_of(name)
+        )
+    }
+    assert len(target_names) == 2
+    for name in target_names:
+        drawing.remove(name)
+    issues = [issue for issue in drawing.lint() if issue.code == "axial_length_missing"]
+    assert len(issues) == 1
+    assert "only 0 step length(s) dimensioned" in issues[0].message
 
 
 def test_rigid_motion_preserves_requirements_and_build_diff():

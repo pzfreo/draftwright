@@ -272,7 +272,9 @@ _FACTS: dict[str, tuple[str, ...]] = {
     "boss": ("frame", "thread", "knurl"),
     "polygonal_boss": ("frame", "side_count", "flat_directions", "flat_centres"),
     "polygonal_stock": ("frame", "side_count", "flat_directions", "flat_centres"),
-    "step": ("frame", "thread", "knurl"),
+    # ``profile`` is immutable body ownership (axis origin + body bounds), not a printable
+    # diameter/length. Renderers need it to keep parallel/disconnected chains separate (#1357).
+    "step": ("frame", "thread", "knurl", "profile", "profile_group"),
     "step_level": ("frame",),
     "envelope": ("frame",),
     "rotational": ("frame",),
