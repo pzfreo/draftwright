@@ -463,8 +463,13 @@ def test_exact_overlapping_family_owners_do_not_create_a_second_plate_denominato
 
 
 def test_raw_slot_owner_requires_one_schema_for_every_member() -> None:
+    from b123d_recognisers import recognise_slot_patterns
+
     from draftwright import build_drawing
-    from draftwright.linting.plate_coverage import plate_requirement_outcomes
+    from draftwright.linting.plate_coverage import (
+        _validated_recognised_pattern,
+        plate_requirement_outcomes,
+    )
     from draftwright.registry import AnnotationRegistry
 
     part = Box(60, 180, 20)
@@ -478,6 +483,14 @@ def test_raw_slot_owner_requires_one_schema_for_every_member() -> None:
         feature for feature in drawing.model().features if feature.kind == "envelope"
     )
     member = pattern.slots[1]
+    (provider_noisy_pattern,) = recognise_slot_patterns(
+        (
+            pattern.slots[0],
+            replace(member, w_center=member.w_center + 0.05),
+            *pattern.slots[2:],
+        )
+    )
+    assert _validated_recognised_pattern(provider_noisy_pattern) is not None
     foreign_body = list(member.body_key)
     foreign_body[0] += 1
     mutations = (
@@ -568,6 +581,37 @@ def test_raw_slot_grid_uses_only_members_crossing_each_plate_witness() -> None:
 
     assert len(outcomes) == 5
     assert {outcome.state for outcome in outcomes} == {"inapplicable"}
+
+
+@pytest.mark.parametrize("pattern_kind", ["linear", "grid"])
+def test_provider_rotated_slot_patterns_pass_aggregate_validation(pattern_kind: str) -> None:
+    from math import cos, radians, sin
+
+    from draftwright import build_drawing
+    from draftwright.linting.plate_coverage import _validated_recognised_pattern
+
+    angle = radians(15)
+    column = (cos(angle), sin(angle))
+    row = (-sin(angle), cos(angle))
+    if pattern_kind == "linear":
+        locations = [(offset * column[0], offset * column[1]) for offset in (-45, -15, 15, 45)]
+    else:
+        locations = [
+            (
+                column_offset * column[0] + row_offset * row[0],
+                column_offset * column[1] + row_offset * row[1],
+            )
+            for row_offset in (-40, 0, 40)
+            for column_offset in (-45, -15, 15, 45)
+        ]
+    part = Box(240, 240, 20)
+    for x, y in locations:
+        part -= Pos(x, y, 0) * Box(24, 8, 20)
+    recognition = build_drawing(part).recognition()
+    assert recognition is not None
+    assert len(recognition.slot_patterns) == 1
+
+    assert _validated_recognised_pattern(recognition.slot_patterns[0]) is not None
 
 
 def test_overlapping_family_ownership_cannot_cross_disconnected_bodies() -> None:
@@ -733,6 +777,42 @@ def test_offcentre_boss_ownership_does_not_require_material_at_plate_centroid() 
     )
 
     assert outcome.state == "inapplicable"
+
+
+def test_void_plate_centroid_cannot_borrow_a_remote_boss_body() -> None:
+    from draftwright import build_drawing
+    from draftwright.linting.plate_coverage import plate_requirement_outcomes
+    from draftwright.registry import AnnotationRegistry
+
+    hex_body = Pos(-100, 0, 0) * (
+        Box(80, 60, 10, align=(Align.CENTER, Align.CENTER, Align.CENTER))
+        + Pos(0, 0, 5) * extrude(RegularPolygon(10, 6), 20)
+    )
+    octagon = Pos(100, 0, 0) * (
+        Box(80, 60, 10, align=(Align.CENTER, Align.CENTER, Align.CENTER))
+        + Pos(0, 0, 5) * extrude(RegularPolygon(10, 8), 20)
+    )
+    remote_bore = Pos(100, 0, -5) * Cylinder(3, 45, align=_CENTER_MIN)
+    part = hex_body + (octagon - remote_bore)
+    drawing = build_drawing(part)
+    recognition = drawing.recognition()
+    assert recognition is not None
+    assert len(recognition.plates) == 2
+    assert len(recognition.polygonal_bosses) == 1
+    assert len(recognition.holes) == 1
+    envelope_only = tuple(
+        feature for feature in drawing.model().features if feature.kind == "envelope"
+    )
+
+    outcomes = plate_requirement_outcomes(
+        recognition,
+        envelope_only,
+        AnnotationRegistry(),
+        part=part,
+    )
+
+    assert {outcome.state for outcome in outcomes if outcome.source_at[0] < 0} == {"inapplicable"}
+    assert {outcome.state for outcome in outcomes if outcome.source_at[0] > 0} == {"unverifiable"}
 
 
 def test_provider_hexagon_invariant_does_not_narrow_public_owner_geometry() -> None:

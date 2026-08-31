@@ -296,6 +296,11 @@ def _slot_location(slot) -> Point:
     return values
 
 
+def _pattern_tolerance(nominal: float) -> float:
+    """Public provider modelling tolerance: a 0.1 mm floor or two percent of pitch."""
+    return max(0.1, abs(nominal) * 0.02)
+
+
 def _validated_recognised_pattern(pattern):
     """Validate the aggregate lattice as well as every provider Slot member."""
     try:
@@ -307,7 +312,7 @@ def _validated_recognised_pattern(pattern):
         depth_axis = _depth_axis(representative.width_axis, representative.long_axis)
         assert depth_axis is not None
         depth_index = "xyz".index(depth_axis)
-        tolerance = 2e-3
+        coordinate_tolerance = 2e-3
 
         is_linear = all(hasattr(pattern, name) for name in ("pitch", "direction"))
         is_grid = all(
@@ -329,6 +334,7 @@ def _validated_recognised_pattern(pattern):
             norm = hypot(*direction)
             if not isclose(norm, 1.0, abs_tol=1e-3) or abs(direction[depth_index]) > 1e-6:
                 return None
+            tolerance = _pattern_tolerance(pitch)
             unit = tuple(value / norm for value in direction)
             origin = locations[0]
             projections = []
@@ -377,7 +383,7 @@ def _validated_recognised_pattern(pattern):
             sum(point[index] for point in locations) / len(locations) for index in range(3)
         )
         if any(
-            not isclose(value, expected, abs_tol=tolerance)
+            not isclose(value, expected, abs_tol=coordinate_tolerance)
             for value, expected in zip(mean, center, strict=True)
         ):
             return None
@@ -395,6 +401,7 @@ def _validated_recognised_pattern(pattern):
         row_direction = tuple(
             -sin(theta) * u + cos(theta) * v for u, v in zip(first, second, strict=True)
         )
+        tolerance = hypot(_pattern_tolerance(row_pitch), _pattern_tolerance(col_pitch))
         expected = []
         for row in range(rows):
             row_offset = (row - (rows - 1) / 2) * row_pitch
@@ -485,6 +492,7 @@ class _SolidMembership:
     def __init__(self, part) -> None:
         self.solids = tuple(part.solids()) if part is not None else ()
         self._owners: dict[Point, tuple[int, ...]] = {}
+        self._nearest: dict[Point, tuple[int, ...]] = {}
 
     def owners(self, point) -> tuple[int, ...]:
         values = tuple(float(value) for value in point)
@@ -499,6 +507,29 @@ class _SolidMembership:
                 index for index, solid in enumerate(self.solids) if solid.is_inside(witness)
             )
         return self._owners[key]
+
+    def nearest_owners(self, point) -> tuple[int, ...]:
+        """Identify a void witness by the uniquely nearest physical solid, or fail closed."""
+        values = tuple(float(value) for value in point)
+        if len(values) != 3 or not all(isfinite(value) for value in values):
+            raise ValueError("a nearest-solid witness must be a 3-vector")
+        key = (values[0], values[1], values[2])
+        if key not in self._nearest:
+            from build123d import Vector
+
+            witness = Vector(*key)
+            distances = tuple(float(solid.distance_to(witness)) for solid in self.solids)
+            if not distances or not all(isfinite(distance) for distance in distances):
+                self._nearest[key] = ()
+            else:
+                nearest = min(distances)
+                tolerance = max(1e-7, nearest * 1e-9)
+                self._nearest[key] = tuple(
+                    index
+                    for index, distance in enumerate(distances)
+                    if isclose(distance, nearest, abs_tol=tolerance)
+                )
+        return self._nearest[key]
 
 
 def _boss_material_witnesses(boss) -> tuple[Point, ...]:
@@ -532,14 +563,8 @@ def _shares_one_solid(membership, source, boss) -> bool:
         source_center_owners = membership.owners(plate_center(source))
         if source_center_owners:
             return len(source_center_owners) == 1 and source_center_owners == boss_owners[0]
-        axis_index = "xyz".index(str(source.axis))
-        plate_axis_value = (float(source.lo) + float(source.hi)) / 2
-        source_witnesses = []
-        for witness in witnesses:
-            projected = list(witness)
-            projected[axis_index] = plate_axis_value
-            source_witnesses.append((projected[0], projected[1], projected[2]))
-        return any(membership.owners(point) == boss_owners[0] for point in source_witnesses)
+        source_nearest = membership.nearest_owners(plate_center(source))
+        return len(source_nearest) == 1 and source_nearest == boss_owners[0]
     except (AttributeError, OverflowError, TypeError, ValueError):
         return False
 
