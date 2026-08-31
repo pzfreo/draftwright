@@ -474,11 +474,9 @@ def _parameter_ids(
             in_plane = "y" if feature.frame.axis == "x" else "x"
             ids.extend((f"{stem}.{in_plane}", f"{stem}.z"))
     else:
-        # Pitch/direction/count define only relative arrangement. The current compiler has
-        # no off-axis pattern location producer, so retain both absolute in-plane physical
-        # requirements as explicit missing outcomes instead of deleting them from the
-        # recognition denominator. These stable ids extend the feature-owned location stem;
-        # a future compiler/renderer can make them placed without changing the ledger schema.
+        # Pitch/direction/count define only relative arrangement. Retain both absolute
+        # in-plane physical requirements independently; the compiler's one feature-level
+        # location unit can prove both without changing this physical ledger schema.
         stem = getattr(feature, "LOCATION_STEM", None)
         if stem is None:
             return None

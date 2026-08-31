@@ -674,6 +674,7 @@ class _OffHole(NamedTuple):
 
     axis: str
     location: tuple
+    feature: HoleFeature | PatternFeature
     approved: dict
 
 
@@ -705,14 +706,17 @@ def _approved_off_axis_holes(plan) -> list[_OffHole]:
         # Derived, not spelled: the role is a CONTRACT between the compiler that mints it
         # and this filter that reads it. A literal here is a second owner — renaming the
         # declaration would make every side-hole position dim vanish (#966).
-        if entry.role != HoleFeature.LOCATION_OFF_AXIS_STEM:
+        if entry.axis == "z" or entry.role not in {
+            HoleFeature.LOCATION_OFF_AXIS_STEM,
+            PatternFeature.LOCATION_STEM,
+        }:
             continue
         assert entry.span is not None  # off-axis entries always carry datum → member
         member = entry.span[1]
         key = (entry.ref, member)
         hole = holes.get(key)
         if hole is None:
-            hole = holes[key] = _OffHole(entry.axis, member, {})
+            hole = holes[key] = _OffHole(entry.axis, member, resolve_feature(entry.ref), {})
         hole.approved[entry.discriminator] = entry
     return list(holes.values())
 
@@ -819,12 +823,11 @@ def _off_axis_queue(
         )
 
 
-def _off_axis_owner(ctx, hole_locs):
+def _off_axis_owner(holes):
     # The IR hole feature owning a side-drilled location dim, or None when the dim's
     # offset is shared by >1 distinct feature (unowned, so drop can't over-strip a
     # sibling — mirrors the #398c shared-coordinate rule). Promoted (#638).
-    feats = {ctx.feature_of_hole_at(loc) for loc in hole_locs}
-    feats.discard(None)
+    feats = {hole.feature for hole in holes}
     return next(iter(feats)) if len(feats) == 1 else None
 
 
@@ -856,7 +859,7 @@ def _locate_across(dwg, ctx, a: Analysis, off):
         if yo * a.SCALE < 1.0:
             continue
         name = f"dim_loc_side_y{round(yo * 100)}"
-        loc_by_name.setdefault(name, []).append(h.location)
+        loc_by_name.setdefault(name, []).append(h)
         mids_by_name.setdefault(name, []).append(entry.id)
         coverage_by_name.setdefault(name, []).append(_hole_location_coverage_fact(entry))
         order_y[name] = yo
@@ -894,7 +897,7 @@ def _locate_across(dwg, ctx, a: Analysis, off):
                     )
                 ),
             )
-    feats = {nm: _off_axis_owner(ctx, locs) for nm, locs in loc_by_name.items()}
+    feats = {nm: _off_axis_owner(holes) for nm, holes in loc_by_name.items()}
     measurements = {name: tuple(ids) for name, ids in mids_by_name.items()}
 
     def _fallback(name):
@@ -979,7 +982,7 @@ def _locate_along_planar(dwg, ctx, a: Analysis, off):
         if xo * a.SCALE < 1.0:
             continue
         name = f"dim_loc_front_x{round(xo * 100)}"
-        x_loc_by_name.setdefault(name, []).append(h.location)
+        x_loc_by_name.setdefault(name, []).append(h)
         x_mids_by_name.setdefault(name, []).append(entry.id)
         x_coverage_by_name.setdefault(name, []).append(_hole_location_coverage_fact(entry))
         order_x[name] = xo
@@ -997,7 +1000,7 @@ def _locate_along_planar(dwg, ctx, a: Analysis, off):
                     ),
                 )
             )
-    x_feats = {nm: _off_axis_owner(ctx, locs) for nm, locs in x_loc_by_name.items()}
+    x_feats = {nm: _off_axis_owner(holes) for nm, holes in x_loc_by_name.items()}
     x_measurements = {name: tuple(ids) for name, ids in x_mids_by_name.items()}
     _off_axis_queue(
         dwg,
@@ -1035,7 +1038,7 @@ def _locate_along_z(dwg, ctx, a: Analysis, off):
     for h in off:
         entry = h.approved.get("z")
         if entry is not None and round(entry.value, 2) * a.SCALE >= 1.0:
-            z_locs.setdefault(round(entry.value, 2), []).append(h.location)
+            z_locs.setdefault(round(entry.value, 2), []).append(h)
             z_mids.setdefault(round(entry.value, 2), []).append(entry.id)
             z_coverage.setdefault(round(entry.value, 2), []).append(
                 _hole_location_coverage_fact(entry)
@@ -1050,7 +1053,7 @@ def _locate_along_z(dwg, ctx, a: Analysis, off):
             continue
         seen_z.add(zo)
         hz = h.location[2]
-        owner = _off_axis_owner(ctx, z_locs[zo])
+        owner = _off_axis_owner(z_locs[zo])
 
         def _zc(view, p_lo, p_hi, edge, _zo=zo, _lbl=entry.value_text):
             return (
@@ -1211,6 +1214,8 @@ def _locate_off_axis_holes(dwg, ctx, a: Analysis, *, which, plan):
         # prevents ``a.is_rotational``. Treat either classification as a valid
         # turning axis so the centreline, not redundant half-envelope offsets,
         # locates the bore (#881).
+        if isinstance(h.feature, PatternFeature):
+            return False
         turning_axis = a.od_axis if a.is_rotational else getattr(a.prof, "axis", None)
         if turning_axis is None or h.axis != turning_axis:
             return False
@@ -1387,49 +1392,8 @@ def _add_grid_pitch_dims(
     name_prefix="dim_pitch",
     drop_code=None,
 ):
-    """Both pitch dimensions of a rectangular grid — one along each lattice axis,
-    each labelled ``(n-1)× pitch`` (#92).  The two axes are recovered as the two
-    shortest near-orthogonal inter-hole page vectors (the recogniser's own
-    basis); this is used only to pick the dimension endpoints and the per-axis
-    count, not to re-recognise the grid (recognition stays upstream). *members* are
-    the grid's member locations; *nominals* is ``(row_pitch, col_pitch)``."""
+    """Both pitch dimensions of a rectangular grid from its recognised lattice frame."""
     pts = [to_page(m) for m in members]
-    diffs = []
-    for ia in range(len(pts)):
-        for ib in range(len(pts)):
-            if ia == ib:
-                continue
-            dx, dy = pts[ib][0] - pts[ia][0], pts[ib][1] - pts[ia][1]
-            length = math.hypot(dx, dy)
-            if length > 1e-6:
-                diffs.append((length, dx, dy))
-    if not diffs:
-        return
-    # Equal lattice edges are interchangeable geometry. b123d-recognisers 0.4.6 rounds member
-    # coordinates more consistently, which changed their last few floating-point bits and made
-    # the raw tuple sort select a different physical row. That row is later used as the placement
-    # witness, so a numerically meaningless tie could drop the second pitch dimension. Quantise
-    # only the ordering key (never the measured vector) at a scale far below drafting precision;
-    # stable sort then retains the recogniser's deterministic member order for equal edges.
-    diffs.sort(key=lambda vector: tuple(round(component, 6) for component in vector))
-    l1, ax, ay = diffs[0]
-    u1 = (ax / l1, ay / l1)
-    basis2 = next(
-        (
-            (length, dx, dy)
-            for length, dx, dy in diffs
-            if abs((dx * u1[0] + dy * u1[1]) / length) < 0.2
-        ),
-        None,
-    )
-    if basis2 is None:
-        return
-    l2, bx, by = basis2
-    u2 = (bx / l2, by / l2)
-
-    # The two pitch values are not identities: on a square-pitch grid they are equal. Map
-    # recovered page axes to the IR's row/column lattice basis instead. `angle` names the
-    # column direction in the plane_axes frame; the perpendicular direction is the row.
     actual_feature = resolve_feature(feature)
     by_discriminator = {
         entry.discriminator: entry
@@ -1439,14 +1403,35 @@ def _add_grid_pitch_dims(
     pu, pv = plane_axes(actual_feature.frame.axis)
     angle = math.radians(actual_feature.angle or 0.0)
     column_world = tuple(math.cos(angle) * pu[k] + math.sin(angle) * pv[k] for k in range(3))
+    row_world = tuple(-math.sin(angle) * pu[k] + math.cos(angle) * pv[k] for k in range(3))
     origin = actual_feature.frame.origin
     page_origin = to_page(origin)
-    page_column = to_page(tuple(origin[k] + column_world[k] for k in range(3)))
-    dx, dy = page_column[0] - page_origin[0], page_column[1] - page_origin[1]
-    norm = math.hypot(dx, dy)
-    column_page = (dx / norm, dy / norm)
 
-    def _axis_dim(u, pitch_page, sub):
+    def _page_axis(world, discriminator):
+        pitch = by_discriminator.get(discriminator)
+        if pitch is None:
+            return None
+        endpoint = to_page(tuple(origin[k] + world[k] for k in range(3)))
+        dx, dy = endpoint[0] - page_origin[0], endpoint[1] - page_origin[1]
+        unit_scale = math.hypot(dx, dy)
+        if unit_scale <= 1e-9:
+            return None
+        return ((dx / unit_scale, dy / unit_scale), abs(pitch.value) * unit_scale, pitch)
+
+    axes = [
+        axis
+        for axis in (
+            _page_axis(column_world, "col"),
+            _page_axis(row_world, "row"),
+        )
+        if axis is not None
+    ]
+    if len(axes) != 2:
+        return
+    axes.sort(key=lambda axis: (round(axis[1], 9), axis[2].discriminator or ""))
+    min_pitch_page = min(axis[1] for axis in axes)
+
+    def _axis_dim(u, pitch_page, pitch, sub):
         perp = (-u[1], u[0])
 
         def along(idx):
@@ -1490,9 +1475,9 @@ def _add_grid_pitch_dims(
         # (pitch_page * 0.25 fails on a high-aspect grid: for the long axis the
         # perpendicular lines are only the short pitch apart, and a quarter of
         # the long pitch can exceed that, merging two lines → diagonal again.)
-        lo_across = across(anchor)
-        line_tol = min(l1, l2) * 0.25
-        line = [idx for idx in range(len(pts)) if abs(across(idx) - lo_across) < line_tol]
+        anchor_across = across(anchor)
+        line_tol = min_pitch_page * 0.25
+        line = [idx for idx in range(len(pts)) if abs(across(idx) - anchor_across) < line_tol]
         lo = min(line, key=along)
         hi = max(line, key=along)
         # The holes this dim actually spans, in the order it spans them. `members[lo:hi+1]`
@@ -1503,10 +1488,6 @@ def _add_grid_pitch_dims(
         spanned = [members[idx] for idx in sorted(line, key=along)]
         span = along(hi) - along(lo)
         n = round(span / pitch_page) + 1
-        discriminator = (
-            "col" if abs(u[0] * column_page[0] + u[1] * column_page[1]) > 0.7 else "row"
-        )
-        pitch = by_discriminator[discriminator]
         _place_pitch_dim(
             dwg,
             a,
@@ -1523,8 +1504,8 @@ def _add_grid_pitch_dims(
             ctx=ctx,
         )
 
-    _axis_dim(u1, l1, 0)
-    _axis_dim(u2, l2, 1)
+    for sub, (unit, pitch_page, pitch) in enumerate(axes):
+        _axis_dim(unit, pitch_page, pitch, sub)
 
 
 def _pitch_text(pitch, members, draft, *, ctx) -> str:

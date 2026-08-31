@@ -4,6 +4,12 @@
 
 ### Added
 
+- Automatic builds can opt into a provider-owned part-relative recognition frame with
+  `framed_recognition=True`. One adapter keeps the exact normalized solid, classification,
+  aggregate, PMI evidence, IR, projection and physical lint in a single coordinate system while
+  preserving caller geometry on `Drawing.part`. All frame gauges, typed raw fallback, rigid
+  motion, compound ownership, and declared-build authority are explicit and tested (#1357).
+
 - Referential and measured Sheet dimensions accept optional `view=` / `side=` placement
   intent. Supported pairs survive IR/compiler and generated-script round trips, constrain
   ordinary corridor candidates without exposing page coordinates, and fail clearly when a
@@ -36,6 +42,11 @@
   it (#1334) (#1321, #1332).
 
 ### Changed
+
+- Updated the immutable `b123d-recognisers` pin to 0.4.9, including body-local FaceLevel, Riser,
+  and TurnedProfile contracts. Off-axis framed hole patterns retain their absolute location
+  requirements, and rectangular-grid pitch placement uses the recognised lattice basis rather
+  than floating-point member ordering (#1357).
 
 - Updated the immutable `b123d-recognisers` pin and lock to 0.4.8. Draftwright now names
   its existing caller/world-coordinate aggregate boundary explicitly with

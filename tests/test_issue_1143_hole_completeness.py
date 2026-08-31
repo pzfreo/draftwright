@@ -1749,12 +1749,12 @@ def test_off_axis_pattern_keeps_absolute_location_requirements_fail_closed():
         "bore.through": "placed",
         "grouping.count": "placed",
         "pitch.length": "placed",
-        "location_pattern.location.y": "missing",
-        "location_pattern.location.z": "missing",
+        "location_pattern.location.y": "placed",
+        "location_pattern.location.z": "placed",
     }
     completeness = _completeness(drawing)
     assert completeness["requirements"] == 6
-    assert completeness["audited_score"] == pytest.approx(4 / 6)
+    assert completeness["audited_score"] == 1.0
 
 
 def test_compound_countersink_callout_accounts_for_every_printed_measurement():

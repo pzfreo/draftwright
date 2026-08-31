@@ -286,15 +286,16 @@ channels, slots, slot patterns and polygonal stock; #1372 retains the independen
 and polygonal-boss benchmark corpora; #1373 covers plates, face levels and risers; and
 #1374 retains turned steps.
 
-## Recognisers 0.4.8 raw boundary and RaisedPad v2
+## Recognisers 0.4.9 framed boundary and RaisedPad v2
 
-Draftwright exactly pins the published `b123d-recognisers==0.4.8` wheel. Production deliberately
-calls `build_raw_recognition_result`: records remain in the caller/world coordinate system until
-#1357 introduces one reviewed framed-result adapter. Tests use the public framed API only as
-release evidence for upstream #331, #332, and #334, comparing each aggregate inventory with the
-corresponding public family call on the exact returned local solid. Production adds no fallback,
-second aggregate, or family rescan. Face levels, risers, and turned profiles remain outside framed
-production pending their separately released upstream fixes.
+Draftwright exactly pins the published `b123d-recognisers==0.4.9` wheel. The release includes the
+body-local FaceLevel, Riser, and TurnedProfile contracts as well as the earlier pad, polygonal-boss,
+and Plate covariance fixes. `framed_recognition=True` selects one Draftwright-owned boundary:
+prepare and normalize in the provider, classify the exact local solid, then build one aggregate
+against that same solid. IR, view planning, projection and physical lint remain in those working
+coordinates while `Drawing.part` retains caller coordinates. Typed frame refusal performs one
+explicit raw fallback. Raw remains the public default only through the platform/canary rollout
+required by #1357; neither route performs a second aggregate or family rescan.
 
 `RaisedPad` schema v2 makes a pad normal and its material-outward sign explicit. Draftwright maps
 the six signed principal orientations into one `PadFeature`: world bounds and direction survive
@@ -346,7 +347,7 @@ profile warning only for that occurrence, so an unrelated unrecognised profile r
 
 ## Passage compatibility boundary
 
-The installed `b123d-recognisers==0.4.8` release contains the `passages` family introduced
+The installed `b123d-recognisers==0.4.9` release contains the `passages` family introduced
 in 0.2.6. Version 0.4.0 makes `SectionPassage` the authoritative physical output and retains
 schema-v1 `Passage` as its compatibility projection. Draftwright declares all six public and nested
 record schemas exhaustively but deliberately keeps the family `unsupported`, with the drafting
@@ -364,7 +365,7 @@ The 0.4 contract is explicit:
 - rich split-junction passages can supersede a Slot claim, moving physical ownership to the
   unsupported Passage family through `SLOT_SUPERSEDED_BY_PASSAGE`.
 
-The exact 0.4.8 pin, manifest-v2 validator and explicit unsupported inventories make that limitation
+The exact 0.4.9 pin, manifest-v2 validator and explicit unsupported inventories make that limitation
 fail-visible rather than silently treating rich passages as supported. Draftwright deliberately
 does not claim that a regular-polygon `HEX … A/F THRU` callout covers the complete line/arc section
 schema. Each authoritative `RecognitionResult.section_passages` occurrence therefore emits

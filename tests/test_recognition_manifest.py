@@ -358,14 +358,14 @@ def test_no_deferred_family_is_reachable_from_the_orchestration():
 #: Families the ORCHESTRATION runs only for the class that consumes them (#1028). Listed here
 #: rather than derived from DEFERRED because they are no longer deferred: they are MIGRATED
 #: *and* gated, which is the distinction #1028 established — owning a family and always
-#: running it are different things. Turned parts are the excluded class for plates and angled
-#: prismatic steps. Chamfers and fillets left this set in b123d-recognisers 0.2.9 because the
-#: aggregate now recognises their conical/toroidal turned forms (#1254/#1281).
+#: running it are different things.  Since b123d-recognisers 0.4.9, Plate discovery is not in
+#: this whole-part gate: it consumes completed turned-step ownership and excludes only those
+#: bodies, so a mixed compound can still expose independent prismatic plates. Chamfers and
+#: fillets likewise run for both classes because they recognise turned forms (#1254/#1281).
 _CLASSIFICATION_GATED = (
     "recognise_angled_steps",
     "recognise_circular_blind_steps",
     "recognise_paired_ramp_steps",
-    "recognise_plates",
     "recognise_through_steps",
 )
 
@@ -382,11 +382,9 @@ def test_a_classification_gated_family_does_not_run_for_the_excluded_class():
     every turned build scan for a prismatic-only result the model discards, which is the cost
     the deferral was protecting against — and this goes red.
 
-    Two turned fixtures, because plates gates on a CONJUNCTION (not rotational *and* no
-    turned profile) and the stepped shaft satisfies both — so on it alone, weakening the gate
-    to either half still passes. The plain cylinder has no shoulders, so its profile is
-    ``None`` while it is still rotational: it separates the two clauses and fails if the
-    rotational half is dropped.
+    Two turned fixtures ensure the global gate is independent of whether the part has
+    completed turned-step evidence. Plate is deliberately tested separately because 0.4.9
+    changed it from a whole-part classification gate to body-local exclusion.
     """
     assert _CLASSIFICATION_GATED, "no family is classification-gated — check vacuous"
     assert set(_CLASSIFICATION_GATED) <= MIGRATED, (
@@ -452,8 +450,8 @@ def _expected_inventory(part, *, rotational: bool = False) -> dict:
     the recognisers directly — the oracle the aggregate is judged against.
 
     The remaining classification-gated fields are ``()`` for a rotational part, mirroring
-    the orchestration's gate (#1028). Chamfers and fillets are deliberately unconditional
-    since b123d-recognisers 0.2.9 added turned edge treatments (#1254/#1281).
+    the orchestration's gate (#1028). Plate is discovered with completed turned bodies
+    excluded, a cross-family ownership operation covered as a subset below.
     """
     cyls = analyse_cylinders(part)
     csinks = recognise_countersinks(part)
@@ -486,11 +484,7 @@ def _expected_inventory(part, *, rotational: bool = False) -> dict:
         "rotational": rotational,
         "chamfers": tuple(recognise_chamfers(part)),
         "fillets": tuple(recognise_fillets(part)),
-        "plates": (
-            tuple(recognise_plates(part))
-            if not rotational and not recognise_turned_steps(part, cyls=cyls)
-            else ()
-        ),
+        "plates": tuple(recognise_plates(part)),
         # Recognised and carried, but never converted to inferred IR. The first family has a
         # reviewed unsupported outcome (#1247); the 0.4.6 families remain explicitly deferred
         # under #1382. The aggregate must still hold what its recognisers produced: an inventory
@@ -523,7 +517,7 @@ def _expected_inventory(part, *, rotational: bool = False) -> dict:
 #: another family, and may never invent one. Equality is still demanded everywhere else, so the
 #: "ran it and stored ()" failure this test exists for is still caught for every other field.
 _RECONCILED_FIELDS = frozenset(
-    {"chamfers", "fillets", "passages", "prismatic_pockets", "section_passages"}
+    {"chamfers", "fillets", "passages", "plates", "prismatic_pockets", "section_passages"}
 )
 
 
@@ -647,8 +641,8 @@ def test_an_automatic_build_runs_each_family_exactly_once_and_lint_runs_no_migra
             drawing.lint()
             after_lint = dict(counts)
 
-        # The remaining prismatic-only families are excluded for a turned part BY DESIGN
-        # (#1028/#1254) — owning a family and always running it are different things, and
+        # The four whole-part-gated families are excluded for a turned part BY DESIGN
+        # (#1028/#1254/#1382) — owning a family and always running it are different things, and
         # `test_a_classification_gated_family_does_not_run_for_the_excluded_class` owns that
         # claim. Everything else must run exactly once whatever the part class.
         expected_once = MIGRATED - (set(_CLASSIFICATION_GATED) if label == "turned" else set())

@@ -1303,36 +1303,57 @@ def _compile_off_axis_hole_locations(
     for f in model.features:
         # Eligibility comes from `location_datum`, not a second orientation rule here —
         # that is the duplication this whole class of defect keeps coming from (#925).
-        if not isinstance(f, HoleFeature) or location_datum(f) != "bbox":
+        if not isinstance(f, HoleFeature | PatternFeature) or location_datum(f) != "bbox":
             continue
-        # An X-drilled hole is located across Y; a Y-drilled one across X. Both carry a
-        # height. (Pattern members are their own `PatternFeature`, so patterned holes are
-        # excluded by construction — as `_ir_off_axis_holes` documents.)
+        # An X-normal hole or pattern is located across Y; a Y-normal one across X. Both
+        # carry a height. Patterns compile one absolute address below, independently of
+        # their relative pitch/count requirements.
         measured = ("y" if f.frame.axis == "x" else "x", "z")
         omitted = authored_location_omitted(model, f)
-        for member in f.members or (f.frame.origin,):
+        references: tuple[Point, ...]
+        if isinstance(f, PatternFeature):
+            # One absolute address owns a pattern. A grid uses the member nearest the bbox
+            # datum so the two emitted offsets identify its near corner; a bolt circle uses
+            # its centre. Relative pitch/count remain separate requirements.
+            if f.pattern == "bolt_circle" or not f.members:
+                references = (f.frame.origin,)
+            else:
+                transverse = tuple(axis for axis in "xyz" if axis != f.frame.axis)
+                references = (
+                    min(
+                        f.members,
+                        key=lambda member: sum(
+                            (member["xyz".index(axis)] - float(getattr(bb.min, axis.upper()))) ** 2
+                            for axis in transverse
+                        ),
+                    ),
+                )
+            role = f.LOCATION_STEM
+        else:
+            references = f.members or (f.frame.origin,)
+            role = f.LOCATION_OFF_AXIS_STEM
+        for member in references:
             for meas in measured:
                 index = "xyz".index(meas)
                 datum = float(getattr(bb.min, meas.upper()))
                 value = abs(member[index] - datum)
+                parameter = (
+                    f"{role}.location" if isinstance(f, PatternFeature) else f"{role}.{meas}"
+                )
                 if omitted:
-                    omissions.append(
-                        Omission(
-                            f, f"{f.LOCATION_OFF_AXIS_STEM}.{meas}", value, _AUTHORED_OMISSION
-                        )
-                    )
+                    omissions.append(Omission(f, parameter, value, _AUTHORED_OMISSION))
                     continue
                 start = list(member)
                 start[index] = datum
                 approved.append(
                     ApprovedDimension(
-                        id=_dim_id(f, f"{f.LOCATION_OFF_AXIS_STEM}.{meas}"),
+                        id=_dim_id(f, parameter),
                         value_text=_fmt(value),
                         value=value,
                         span=((start[0], start[1], start[2]), member),
                         ref=FeatureRef(f),
                         kind="length",
-                        role=f.LOCATION_OFF_AXIS_STEM,  # the feature owns its name (#966)
+                        role=role,
                         discriminator=meas,
                         axis=f.frame.axis,
                     )

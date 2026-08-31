@@ -1471,14 +1471,28 @@ def build_part_model(
     # (a turned part's steps are StepFeatures, dimensioned by the IR length chain).
     if prof is None and step_zs:
         c = bbox.center()
+        supports_by_level: dict[float, list[FaceLevel]] = {}
+        for level in face_levels:
+            supports_by_level.setdefault(level.z, []).append(level)
         _levels = tuple(
             sorted(
-                z
-                for z in step_zs
-                if round(z, 3) not in plate_zs_at_base
-                and not any(abs(z - owned) < 0.5 for owned in side_pad_level_zs)
-                and not any(abs(z - owned) < 0.5 for owned in through_level_zs)
+                {
+                    z
+                    for z in step_zs
+                    # StepLevelFeature is a drawing-wide ladder. Equal ordinates on
+                    # separate body-local supports cannot be represented as one span without
+                    # joining across air, and duplicate values cannot round-trip through the
+                    # Sheet declaration. Decline that legacy projection (#1357 / #335).
+                    if len(supports_by_level.get(z, ())) <= 1
+                }
             )
+        )
+        _levels = tuple(
+            z
+            for z in _levels
+            if round(z, 3) not in plate_zs_at_base
+            and not any(abs(z - owned) < 0.5 for owned in side_pad_level_zs)
+            and not any(abs(z - owned) < 0.5 for owned in through_level_zs)
         )
         if _levels:
             # An edge-open blind interruption owns its floor through the pocket

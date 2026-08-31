@@ -64,6 +64,7 @@ from draftwright.compose import (
 from draftwright.model import build_part_model
 from draftwright.model.ir import Datum, PartModel, StepFeature, StepLevelFeature
 from draftwright.model.planner import plan_dimensions
+from draftwright.recognition_frame import Classification, adapt_recognition
 from draftwright.view_plan import ViewConstraints, arrangement_of
 
 _log = logging.getLogger(__name__)
@@ -467,11 +468,11 @@ class _GeomClass:
     is_rotational: bool
 
 
-def _classify_geometry(part, x_size, y_size, z_size, cx, cy, cz) -> _GeomClass:
+def _classify_geometry(part, x_size, y_size, z_size, cx, cy, cz, *, cylinders) -> _GeomClass:
     """Analyse *part*'s cylinders and classify its OD / rotational orientation (#590 split of
     :func:`_analyse`). Partial (fillet) faces are excluded — they would pollute the OD, the bore
     leaders, and the rotational test alike (#81)."""
-    z_cyls, cross_cyls = analyse_cylinders(part)
+    z_cyls, cross_cyls = cylinders
     classification = _classify_rotational_cylinders(
         (z_cyls, cross_cyls),
         sizes=(x_size, y_size, z_size),
@@ -591,6 +592,7 @@ def _analyse(
     _views: tuple[str, ...] | None = None,
     _include_iso: bool = True,
     _view_constraints=None,
+    _framed_recognition: bool = False,
 ) -> Analysis:
     """Load STEP or use a build123d Shape, analyse geometry, compute layout.
 
@@ -602,16 +604,25 @@ def _analyse(
     # placement both reserve room for the border. Computed up front so the choose_scale inside
     # step-count convergence sees it too.
     margin = _content_margin(frame)
+    recognition: RecognitionResult | None
+    recognition_frame = None
+    recognition_frame_decision: dict[str, object]
     if _reuse is not None:
         # Explicit-scale fallback changes only page-space layout. Reuse the immutable geometry,
         # STEP/PMI census, classification, and recognition waist from the requested trial rather
         # than importing and recognising the same part up to fifteen more times (#1146).
         part = _reuse.part
+        source_part = _reuse.source_part if _reuse.source_part is not None else part
+        recognition_frame = _reuse.recognition_frame
+        recognition_frame_decision = dict(
+            _reuse.recognition_frame_decision
+            or {"status": "not_evaluated", "gauge": None, "refusal_reason": None}
+        )
         src = str(_reuse.step_file)
         pmi_defaulted = _reuse.pmi_defaulted
         pmi_mode = _reuse.pmi_mode
         pmi_report = _reuse.pmi_report
-        pmi_records = list(getattr(pmi_report, "records", ())) if pmi_mode != "off" else []
+        pmi_records = _reuse.pmi if pmi_mode != "off" else []
         bb = _reuse.bb
         x_size, y_size, z_size = _reuse.x_size, _reuse.y_size, _reuse.z_size
         cx, cy, cz = _reuse.cx, _reuse.cy, _reuse.cz
@@ -621,6 +632,8 @@ def _analyse(
         od_diam = _reuse.od_diam
         od_axis = _reuse.od_axis
         is_rotational = _reuse.is_rotational
+        layout_model = _coerce_layout_model(model, part, decorations)
+        recognition = _reuse.recognition if layout_model is None else None
     else:
         if isinstance(step_file, Shape):
             part = step_file
@@ -629,6 +642,7 @@ def _analyse(
             part = _import_step(step_file)
             src = str(step_file)
         part = _solids_body(part, src)
+        source_part = part
 
         pmi_defaulted = pmi is None
         pmi_mode = "off" if pmi_defaulted else pmi
@@ -649,6 +663,60 @@ def _analyse(
                 _log.warning("PMI extraction failed: %s", exc)
                 pmi_report = PmiExtractionReport(error=f"{type(exc).__name__}: {exc}")
 
+        # A declaration stays entirely in caller coordinates and runs no aggregate (ADR 0011).
+        # Automatic builds instead select one coherent shape/result/classification unit here,
+        # above every bbox, IR, planner, projection, and lint consumer (#1357 / ADR 0017).
+        layout_model = _coerce_layout_model(model, part, decorations)
+
+        def classify_unit(working_part, cylinders):
+            working_bb = working_part.bounding_box()
+            working_sizes = (
+                working_bb.max.X - working_bb.min.X,
+                working_bb.max.Y - working_bb.min.Y,
+                working_bb.max.Z - working_bb.min.Z,
+            )
+            working_centre = (
+                (working_bb.min.X + working_bb.max.X) / 2,
+                (working_bb.min.Y + working_bb.max.Y) / 2,
+                (working_bb.min.Z + working_bb.max.Z) / 2,
+            )
+            classified = _classify_geometry(
+                working_part,
+                *working_sizes,
+                *working_centre,
+                cylinders=cylinders,
+            )
+            return Classification(classified, classified.is_rotational)
+
+        if layout_model is None:
+            adapted = adapt_recognition(
+                part,
+                framed=_framed_recognition,
+                classify=classify_unit,
+                # Keep analysis's established injectable aggregate seam: evaluation
+                # mutations prove their record→IR guards through this exact call.
+                raw_builder=build_raw_recognition_result,
+            )
+            part = adapted.working_part
+            recognition = adapted.result
+            _gc = adapted.classification
+            recognition_frame = adapted.frame
+            recognition_frame_decision = adapted.decision
+            if recognition_frame is not None and pmi_records:
+                from draftwright.pmi import reframe_pmi_records
+
+                pmi_records = reframe_pmi_records(pmi_records, recognition_frame)
+        else:
+            cylinders = analyse_cylinders(part)
+            classified = classify_unit(part, cylinders)
+            _gc = classified.value
+            recognition = None
+            recognition_frame_decision = {
+                "status": "declared",
+                "gauge": None,
+                "refusal_reason": None,
+            }
+
         bb = part.bounding_box()
         x_size = bb.max.X - bb.min.X
         y_size = bb.max.Y - bb.min.Y
@@ -660,7 +728,6 @@ def _analyse(
 
         _log.info("Loaded %s  bbox: %.2f × %.2f × %.2f mm", src, x_size, y_size, z_size)
 
-        _gc = _classify_geometry(part, x_size, y_size, z_size, cx, cy, cz)
         z_cyls, cross_cyls = _gc.z_cyls, _gc.cross_cyls
         z_diams, cross_diams = _gc.z_diams, _gc.cross_diams
         od_diam, od_axis, is_rotational = _gc.od_diam, _gc.od_axis, _gc.is_rotational
@@ -676,12 +743,9 @@ def _analyse(
     # ADR 0011 / ADR 0017 §6: a declared model skips detection (#1022).  The gate has to sit
     # here, ABOVE the aggregate, which is why `_coerce_layout_model` moved up from its old
     # place below — it is pure (IR in, IR out) and reads nothing this block computes.
-    layout_model = _coerce_layout_model(model, part, decorations)
-    recognition: RecognitionResult | None
     _turned: TurnedProfile | None
     step_zs: list[float]
     if _reuse is not None:
-        recognition = _reuse.recognition if layout_model is None else None
         _turned = _reuse.prof
         step_zs = list(_reuse.step_zs)
     elif layout_model is not None:
@@ -693,10 +757,14 @@ def _analyse(
         _turned = _declared_turned_profile(layout_model)
         step_zs = _declared_step_zs(layout_model, _turned, bb)
     else:
-        recognition = build_raw_recognition_result(
-            part, cylinders=(z_cyls, cross_cyls), rotational=is_rotational
-        )
-        _turned = TurnedProfile.from_steps(list(recognition.turned_steps))
+        assert recognition is not None
+        # A Draftwright Analysis still has one optional drawing-wide profile. 0.4.9 now
+        # exposes honest body-local memberships: a compound may contain several profiles,
+        # which must not be merged into one axis line across air. Keep the singular projection
+        # only when the aggregate proves exactly one physical owner; individual groove and
+        # cylinder inventories remain available for every body (#1357 / provider #337).
+        profiles = recognition.turned_profiles
+        _turned = profiles[0] if len(profiles) == 1 else None
         # The aggregate's own rule (#578 review; hoisted there by #1022, shared with critique
         # by #1025). Both callers deriving this separately let lint project over a different
         # ladder than the model was sized from — which is exactly the divergence one waist is
@@ -983,6 +1051,12 @@ def _analyse(
         planned_iso_scale=planned_iso_scale,
         view_constraints=_view_constraints,
         part=part,
+        source_part=source_part,
+        recognition_frame=recognition_frame,
+        recognition_frame_decision=recognition_frame_decision,
+        pmi_working_records=(
+            tuple(pmi_records) if recognition_frame is not None and pmi_mode != "off" else None
+        ),
         recognition=recognition,
         bb=bb,
         x_size=x_size,

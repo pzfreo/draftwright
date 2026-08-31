@@ -189,6 +189,10 @@ def test_oblique_degenerate_and_small_bounded_faces_are_rejected(monkeypatch):
         def faces(self):
             return [self._face]
 
+        def solids(self):
+            # b123d-recognisers 0.4.9 scopes riser evidence per owning body.
+            return [self]
+
     class PlaneSurface:
         @staticmethod
         def GetType():
@@ -199,6 +203,10 @@ def test_oblique_degenerate_and_small_bounded_faces_are_rejected(monkeypatch):
         "BRepAdaptor_Surface",
         lambda wrapped: PlaneSurface(),
     )
+    # This unit isolates the riser-face gates. Since 0.4.9 the public scan obtains body-local
+    # levels first; that independently covered prerequisite needs real OCP plane geometry and
+    # is deliberately outside this synthetic face stub.
+    monkeypatch.setattr(levels_module, "step_level_records", lambda part, tol=None: [])
 
     shallow = Face((1.0, 0.0, 0.02), _box(2, 3, 0, 10, 24.75, 25))
     small = Face((1.0, 0.0, 0.5), _box(2, 3, 0, 2, 20, 25))

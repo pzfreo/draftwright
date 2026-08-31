@@ -9492,17 +9492,18 @@ class TestTurnedDiameters:
             expected = 4 if dwg.get_annotation(name).label == "4× 2" else 1
             assert len(dwg.measurement_keys(name)) == expected
 
-        # The central Y-axis bore shares the detected turned-profile axis. Its
-        # centreline locates it; generic minimum-edge offsets would redundantly
-        # show half the 46 mm envelope in both X and Z (#881).
+        # The central Y-axis bore shares the detected turned-profile axis and remains
+        # centreline-located. The bolt pattern is a distinct physical feature: pitch/count
+        # do not state its absolute centre, so #1357 now places those two locations.
         assert dwg.view_of("centerline_side") == "side"
         # RaisedPad v2 no longer misclassifies two rotated flange lugs as pads. With that
         # false requirement gone, ADR 0018 omits the redundant plan view and its furniture;
         # the front profile plus side end view still define the Y-axis stack completely.
         assert dwg.view_of("centerline_plan") is None
         assert "plan" not in dwg.views
-        assert not any(n.startswith("dim_loc_front_") for n in dwg.annotations())
-        assert not any(n.startswith("dim_loc_side_") for n in dwg.annotations())
+        locations = [n for n in dwg.annotations() if n.startswith("dim_loc_")]
+        assert {dwg.view_of(n) for n in locations} == {"front", "side"}
+        assert {dwg.registry.feature_of(n).kind for n in locations} == {"pattern"}
 
         codes = {issue.code for issue in dwg.lint()}
         assert "feature_not_dimensioned" not in codes
@@ -9744,10 +9745,8 @@ class TestTurnedDiameters:
         assert (
             auto.get_annotation("dim_height").label == replayed.get_annotation("dim_height").label
         )
-        # The off-axis four-hole pattern has relative pitch/count but no absolute X/Z
-        # location dimensions. The hole-family ledger added by #1143 reports those two
-        # physical requirements honestly on both paths; reconstruction must preserve the
-        # same critique as well as the same annotation set.
+        # The off-axis pattern's pitch/count do not state its absolute location. #1357 places
+        # both components on automatic and replay paths.
         # The `leader_crosses_silhouette` entry is the #798 bolt-circle cut described in
         # test_issue_881_...; it appears on BOTH paths, which is what this test is
         # actually about — the replay reproduces the same critique, defects included.
@@ -9757,17 +9756,16 @@ class TestTurnedDiameters:
         assert (
             auto.lint_summary()["by_code"]
             == replayed.lint_summary()["by_code"]
-            == {
-                "hole_requirement_missing": 2,
-                "leader_crosses_silhouette": 1,
-            }
+            == {"leader_crosses_silhouette": 1}
         )
 
         # ── from #881: the Y-step furniture lands in the right views on the replay ──
         assert replayed.view_of("centerline_side") == "side"
         assert replayed.view_of("centerline_plan") is None
         assert "plan" not in replayed.views
-        assert not any(n.startswith(("dim_loc_front_", "dim_loc_side_")) for n in replay)
+        locations = [n for n in replay if n.startswith("dim_loc_")]
+        assert {replayed.view_of(n) for n in locations} == {"front", "side"}
+        assert {replayed.registry.feature_of(n).kind for n in locations} == {"pattern"}
         assert {replayed.view_of(n) for n in replay if n.startswith("m_steplen")} == {"side"}
 
     @pytest.mark.parametrize(("axis_z", "rotation"), [(0.0, 90), (17.0, 90), (-11.0, -90)])
@@ -10519,12 +10517,9 @@ class TestTurnedLengths:
         assert dwg.lint_summary()["by_code"].get("axial_length_missing", 0) == 0
 
     def test_non_contiguous_turned_profile_lints_without_crashing(self):
-        # #797: a non-contiguous turned profile — two coaxial discs (ø30, then ø20)
-        # with an axial GAP between them — carries a step whose interior end face
-        # (10) `TurnedProfile.shoulders` used to drop, so the axial-coverage lookup
-        # KeyError'd and crashed the whole lint pass. shoulders now includes every
-        # endpoint, so both discs are locatable: no crash AND — since both lengths
-        # are dimensioned — no false `axial_length_missing` from a dropped face.
+        # #797/#1357: two disconnected coaxial discs are two physical profiles, not one
+        # non-contiguous shaft spanning the air gap. 0.4.9 gives them distinct membership;
+        # Draftwright's singular drawing-wide profile must decline rather than join them.
         from build123d import Align
 
         b = Align.MIN
@@ -10533,14 +10528,9 @@ class TestTurnedLengths:
             + Pos(0, 0, 20) * Cylinder(10, 10, align=(Align.CENTER, Align.CENTER, b))
         )
         dwg = build_drawing(part, number="X")
-        codes = dwg.lint_summary()["by_code"]  # must not raise KeyError
-        assert sorted(
-            str(o.label) for n, o in dwg.iter_annotations() if n.startswith("m_steplen")
-        ) == [
-            "10",
-            "10",
-        ]
-        assert codes.get("axial_length_missing", 0) == 0
+        assert dwg.recognition().turned_profiles == ()
+        assert not [n for n in dwg.annotations() if n.startswith("m_steplen")]
+        dwg.lint_summary()  # the former KeyError path still must not crash
 
 
 class TestStepLadderRecognition:

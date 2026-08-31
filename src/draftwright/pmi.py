@@ -231,12 +231,131 @@ class PmiRecord:
     datum_contexts: tuple[str, ...] = ()
     reference_item_ids: tuple[str, ...] = ()
     reference_axis: str = ""
+    # Exact source-space surface direction retained even when it is not world-principal.
+    # ``reference_axis`` remains the compact downstream projection; framed adoption can now
+    # rotate the evidence first and derive that projection without losing information.
+    reference_direction: tuple[float, float, float] | None = None
     semantic_name: str = ""
     shape_aspect_ids: tuple[str, ...] = ()
     # Kept separate from ``lowering_blockers``: an imported requirement may fail to enrich a
     # canonical owner yet remain a truthful standalone dimension (#1116/#1209).
     rendering_blockers: tuple[str, ...] = ()
     cylindrical_refs: tuple[CylindricalReference, ...] = ()
+
+
+def _local_direction(direction, frame) -> tuple[float, float, float]:
+    """Rotate a caller-space direction into *frame* without translating it."""
+
+    return cast(
+        tuple[float, float, float],
+        tuple(
+            sum(direction[i] * axis[i] for i in range(3)) for axis in (frame.x, frame.y, frame.z)
+        ),
+    )
+
+
+def _principal_axis(direction) -> str:
+    if direction is None:
+        return ""
+    magnitude = math.sqrt(sum(value * value for value in direction))
+    if magnitude <= 1e-12:
+        return "?"
+    unit = tuple(value / magnitude for value in direction)
+    dominant = max(range(3), key=lambda index: abs(unit[index]))
+    return "XYZ"[dominant] if abs(abs(unit[dominant]) - 1.0) <= 1e-6 else "?"
+
+
+def _axis_direction(axis: str) -> tuple[float, float, float] | None:
+    upper = axis.upper()
+    if upper not in {"X", "Y", "Z"}:
+        return None
+    return cast(
+        tuple[float, float, float],
+        tuple(1.0 if index == "XYZ".index(upper) else 0.0 for index in range(3)),
+    )
+
+
+def _dominant_direction(record: PmiRecord):
+    if record.cylindrical_refs:
+        directions = [reference.axis_direction for reference in record.cylindrical_refs]
+        first = directions[0]
+        if all(
+            abs(abs(sum(a * b for a, b in zip(first, other, strict=True))) - 1.0) < 1e-6
+            for other in directions[1:]
+        ):
+            return first
+    if len(record.ref_pts) >= 2:
+        start, finish = record.ref_pts[0], record.ref_pts[-1]
+        direction = tuple(b - a for a, b in zip(start, finish, strict=True))
+        if math.sqrt(sum(value * value for value in direction)) > 1e-9:
+            return direction
+    return _axis_direction(record.dominant_axis)
+
+
+def _frame_bbox(bbox, frame):
+    if bbox is None:
+        return None
+    corners = tuple(
+        frame.to_local((bbox[ix], bbox[iy], bbox[iz]))
+        for ix in (0, 3)
+        for iy in (1, 4)
+        for iz in (2, 5)
+    )
+    return cast(
+        tuple[float, float, float, float, float, float],
+        tuple(min(point[index] for point in corners) for index in range(3))
+        + tuple(max(point[index] for point in corners) for index in range(3)),
+    )
+
+
+def _frame_cylinder(reference: CylindricalReference, frame) -> CylindricalReference:
+    start = tuple(
+        reference.axis_origin[index]
+        + reference.axial_interval[0] * reference.axis_direction[index]
+        for index in range(3)
+    )
+    finish = tuple(
+        reference.axis_origin[index]
+        + reference.axial_interval[1] * reference.axis_direction[index]
+        for index in range(3)
+    )
+    local_start = frame.to_local(start)
+    local_finish = frame.to_local(finish)
+    direction = tuple(b - a for a, b in zip(local_start, local_finish, strict=True))
+    length = math.sqrt(sum(value * value for value in direction))
+    return CylindricalReference.canonical(
+        axis_point=local_start,
+        axis_direction=direction,
+        radius=reference.radius,
+        local_interval=(0.0, length),
+        sense=reference.sense,
+    )
+
+
+def reframe_pmi_records(records, frame) -> list[PmiRecord]:
+    """Move AP242 correlation geometry into the selected recognition coordinates."""
+
+    reframed = []
+    for record in records:
+        dominant = _dominant_direction(record)
+        reference = record.reference_direction or _axis_direction(record.reference_axis)
+        local_reference = _local_direction(reference, frame) if reference is not None else None
+        reframed.append(
+            replace(
+                record,
+                ref_pts=tuple(frame.to_local(point) for point in record.ref_pts),
+                ref_bbox=_frame_bbox(record.ref_bbox, frame),
+                dominant_axis=_principal_axis(
+                    _local_direction(dominant, frame) if dominant is not None else None
+                ),
+                reference_axis=_principal_axis(local_reference),
+                reference_direction=local_reference,
+                cylindrical_refs=tuple(
+                    _frame_cylinder(reference, frame) for reference in record.cylindrical_refs
+                ),
+            )
+        )
+    return reframed
 
 
 PmiExtractionOutcome = Literal[
@@ -650,10 +769,11 @@ def _diameter_reference_blockers(
 
 
 def _datum_geometry_from_shapes(shapes):
-    """Measure exact datum faces and require one compatible axis-aligned surface."""
+    """Measure exact datum faces and require one compatible planar/cylindrical surface."""
     points: list[tuple[float, float, float]] = []
     boxes: list[tuple[float, float, float, float, float, float]] = []
     axes: list[str] = []
+    directions: list[tuple[float, float, float]] = []
     surface_kinds: list[str] = []
     supports: list[tuple[float, ...]] = []
     reasons: list[str] = []
@@ -678,14 +798,9 @@ def _datum_geometry_from_shapes(shapes):
                 continue
             axis = geometry.Axis()
             direction = axis.Direction()
-            components = (abs(direction.X()), abs(direction.Y()), abs(direction.Z()))
+            direction_value = (direction.X(), direction.Y(), direction.Z())
+            components = tuple(abs(value) for value in direction_value)
             axis_index = max(range(3), key=components.__getitem__)
-            if (
-                components[axis_index] < 1e-6
-                or sum(components) - components[axis_index] > 0.1 * components[axis_index]
-            ):
-                reasons.append("one datum reference surface is not axis-aligned")
-                continue
             location = axis.Location()
             coordinates = (location.X(), location.Y(), location.Z())
             if kind == "plane":
@@ -694,7 +809,15 @@ def _datum_geometry_from_shapes(shapes):
                 support = tuple(
                     value for index, value in enumerate(coordinates) if index != axis_index
                 )
-            axes.append("XYZ"[axis_index])
+            axes.append(
+                "XYZ"[axis_index] if sum(components) - components[axis_index] <= 1e-6 else "?"
+            )
+            # Axis lines are unoriented for these uses. Canonicalise the sign so parallel
+            # faces with opposite topological orientations still compare equal.
+            sign = next(
+                (1.0 if value > 0 else -1.0 for value in direction_value if abs(value) > 1e-9), 1.0
+            )
+            directions.append(tuple(sign * value for value in direction_value))
             surface_kinds.append(kind)
             supports.append(support)
         except Exception as exc:
@@ -703,13 +826,17 @@ def _datum_geometry_from_shapes(shapes):
         reasons.append("referenced geometry is unavailable")
 
     ref_bbox = _merge_bboxes(boxes) if boxes else None
+    reference_direction = directions[0] if directions else None
     if not axes:
         reasons.append("datum reference surface is unavailable")
         reference_axis = ""
     elif len(set(surface_kinds)) != 1:
         reasons.append("datum reference faces mix planar and cylindrical surfaces")
         reference_axis = ""
-    elif len(set(axes)) != 1 or any(
+    elif any(
+        max(abs(a - b) for a, b in zip(direction, directions[0], strict=True)) > 1e-6
+        for direction in directions[1:]
+    ) or any(
         any(abs(value - supports[0][index]) > 1e-4 for index, value in enumerate(support))
         for support in supports[1:]
     ):
@@ -718,7 +845,13 @@ def _datum_geometry_from_shapes(shapes):
         reference_axis = ""
     else:
         reference_axis = axes[0]
-    return tuple(points), ref_bbox, reference_axis, tuple(dict.fromkeys(reasons))
+    return (
+        tuple(points),
+        ref_bbox,
+        reference_axis,
+        reference_direction,
+        tuple(dict.fromkeys(reasons)),
+    )
 
 
 def _datum_reference_geometry(label, shape_tool):
@@ -894,6 +1027,7 @@ def _coalesce_datum_records(records: list[PmiRecord]) -> list[PmiRecord]:
                 ),
                 reference_item_ids=group[0].reference_item_ids,
                 reference_axis=geometry.reference_axis,
+                reference_direction=geometry.reference_direction,
             )
         )
     return projected
@@ -1483,9 +1617,13 @@ def extract_pmi_report(step_file: str | Path) -> PmiExtractionReport:
             correspondence_reason = datum_part21_error
             if not correspondence_reason and not letter_reason and not context_reason:
                 fact, correspondence_reason = match_datum_occurrence(datum_facts, context, letter)
-            points, ref_bbox, reference_axis, geometry_reasons = _datum_reference_geometry(
-                label, shape_tool
-            )
+            (
+                points,
+                ref_bbox,
+                reference_axis,
+                reference_direction,
+                geometry_reasons,
+            ) = _datum_reference_geometry(label, shape_tool)
             if fact is not None and fact.reference_item_ids:
                 if datum_topology is None:
                     topology_shapes = ()
@@ -1495,9 +1633,13 @@ def extract_pmi_report(step_file: str | Path) -> PmiExtractionReport:
                         fact.datum_feature_id, fact.reference_item_ids
                     )
                 if topology_shapes:
-                    points, ref_bbox, reference_axis, geometry_reasons = (
-                        _datum_geometry_from_shapes(topology_shapes)
-                    )
+                    (
+                        points,
+                        ref_bbox,
+                        reference_axis,
+                        reference_direction,
+                        geometry_reasons,
+                    ) = _datum_geometry_from_shapes(topology_shapes)
                 else:
                     geometry_reasons = tuple(dict.fromkeys((*geometry_reasons, *topology_reasons)))
             blockers = tuple(
@@ -1529,6 +1671,7 @@ def extract_pmi_report(step_file: str | Path) -> PmiExtractionReport:
                     datum_contexts=(context,) if context else (),
                     reference_item_ids=fact.reference_item_ids if fact is not None else (),
                     reference_axis=reference_axis,
+                    reference_direction=reference_direction,
                 )
             )
         except Exception as exc:

@@ -757,7 +757,11 @@ def location_datum(feature) -> str | None:
         return "datum_xy"  # every orientation: its two in-plane coordinates
     if isinstance(feature, HoleFeature):
         return "datum_xy" if feature.frame.axis == "z" else "bbox"
-    # Patterns and pocket/slot-patterns: the plan-X / side-Y ladder only, so Z-normal only.
+    # Framing can make an otherwise ordinary hole pattern X/Y-normal. It remains the same
+    # locatable requirement and uses the bbox compiler/end-on renderer (#1357).
+    if isinstance(feature, PatternFeature):
+        return "datum_xy" if feature.frame.axis == "z" else "bbox"
+    # Pocket/slot-patterns: the plan-X / side-Y ladder only, so Z-normal only.
     # A fall-through, not another `isinstance` + `return None`: membership above is by exact
     # type, so those three are all that can reach here and the extra arm was
     # unreachable — dead code that read as defensive and showed up as the one uncovered

@@ -491,7 +491,8 @@ def _assemble(
         dist=dist,
         centroid=(a.cx, a.cy, a.cz),
         out=out,
-        part=a.part,
+        part=a.source_part if a.source_part is not None else a.part,
+        working_part=a.part,
         cyls=a.cyls,
         assembly=assembly,
         reproducible=reproducible,
@@ -1092,6 +1093,7 @@ def _build_drawing_once(
     projection: str | None = None,
     zones: bool = False,
     reproducible: bool = False,
+    framed_recognition: bool = False,
     _analysis_base=None,
     _analysis_sink: Callable[[Analysis], None] | None = None,
     _critique_recognition=None,
@@ -1141,6 +1143,11 @@ def _build_drawing_once(
             because it is not free: settling the element order costs roughly a third
             of DXF export time again (one bounding box and one edge walk per part),
             while the metadata pinning it also turns on is ~1 ms.
+        framed_recognition: opt into provider-owned part-relative automatic recognition.
+            The caller solid remains :attr:`Drawing.part`; the exact normalized compiler solid,
+            frame, and typed selection decision are inspectable separately. A provider refusal
+            takes one explicit raw-coordinate fallback. Declared ``model=`` builds never frame
+            or recognise and remain in caller coordinates.
         model: a caller-supplied IR (ADR 0011) — a :class:`PartModel`, or a sequence
             of :class:`Feature`\\ s (declared with :func:`draftwright.model.hole`,
             ``boss``, ``step``, … from the objects you built). When given, **feature
@@ -1215,6 +1222,7 @@ def _build_drawing_once(
             _views=views,
             _include_iso=_include_iso,
             _view_constraints=_view_constraints,
+            _framed_recognition=framed_recognition,
         )
 
     a = analyse(reuse=_analysis_base, views=_views)
@@ -1746,6 +1754,7 @@ def build_drawing(
     zones: bool = False,
     scale_policy: Literal["strict", "fallback", "permissive"] = "fallback",
     reproducible: bool = False,
+    framed_recognition: bool = False,
     _post_build: Callable[[Drawing], Drawing] | None = None,
     _required_tables=(),
     _views: tuple[str, ...] | None = None,
@@ -1794,6 +1803,7 @@ def build_drawing(
         projection=projection,
         zones=zones,
         reproducible=reproducible,
+        framed_recognition=framed_recognition,
         _required_tables=_required_tables,
         _include_iso=_include_iso,
         _view_constraints=_view_constraints,
@@ -2634,6 +2644,7 @@ def make_drawing(
     zones: bool = False,
     scale_policy: Literal["strict", "fallback", "permissive"] = "fallback",
     reproducible: bool = False,
+    framed_recognition: bool = False,
 ) -> tuple[str, str]:
     """Generate a 4-view technical drawing from a STEP file or build123d object.
 
@@ -2662,6 +2673,8 @@ def make_drawing(
         reproducible: make repeated exports from the returned drawing byte-identical
             on the same Draftwright version. Off by default because canonical DXF
             ordering has a measurable export-time cost.
+        framed_recognition: opt into the provider-owned local recognition frame for an
+            automatically detected build. The raw route remains the rollout default.
 
     Returns:
         Tuple of ``(svg_path, dxf_path)`` for the generated files.
@@ -2698,6 +2711,7 @@ def make_drawing(
         projection=projection,
         zones=zones,
         reproducible=reproducible,
+        framed_recognition=framed_recognition,
         scale_policy=scale_policy,
     ).export(formats=("svg", "dxf"))
     assert isinstance(_paths, dict)  # formats=... always returns the {format: path} dict

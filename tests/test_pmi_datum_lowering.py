@@ -310,15 +310,21 @@ def test_datum_geometry_rejects_unusable_reference_shapes(monkeypatch):
     monkeypatch.setattr(pmi_module, "GeomAbs_Cylinder", "cylinder")
     shape_tool = SimpleNamespace(GetShape_s=lambda ref: ref)
 
+    points, bbox, axis, direction, reasons = pmi_module._datum_reference_geometry(
+        (((Shape(surface=Surface("plane", direction=(1.0, 0.2, 0.0))),), ())),
+        shape_tool,
+    )
+    assert points == ((1.0, 2.0, 3.0),)
+    assert bbox == (0.0, 1.0, 2.0, 2.0, 3.0, 4.0)
+    assert axis == "?"
+    assert direction == (1.0, 0.2, 0.0)
+    assert reasons == ()
+
     cases = (
         ((Shape(null=True),), "datum reference surface is unavailable"),
         (
             (Shape(surface=Surface("unsupported")),),
             "one datum reference is neither planar nor cylindrical",
-        ),
-        (
-            (Shape(surface=Surface("plane", direction=(1.0, 0.2, 0.0))),),
-            "one datum reference surface is not axis-aligned",
         ),
         (
             (Shape(broken=True),),
@@ -340,13 +346,14 @@ def test_datum_geometry_rejects_unusable_reference_shapes(monkeypatch):
         ),
     )
     for shapes, expected_reason in cases:
-        points, bbox, axis, reasons = pmi_module._datum_reference_geometry(
+        points, bbox, axis, direction, reasons = pmi_module._datum_reference_geometry(
             (shapes, ()), shape_tool
         )
         usable_shape_count = sum(not shape.null for shape in shapes)
         assert points == ((1.0, 2.0, 3.0),) * usable_shape_count
         assert bbox == ((0.0, 1.0, 2.0, 2.0, 3.0, 4.0) if usable_shape_count else None)
         assert axis == "", expected_reason
+        assert direction is None or len(direction) == 3
         assert expected_reason in reasons
 
 

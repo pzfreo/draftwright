@@ -276,7 +276,7 @@ class TestPerViewRequirementCoverage:
             (
                 "stepped shaft",
                 lambda: Rot(0, 90, 0) * (Cylinder(10, 40) + Pos(0, 0, 40) * Cylinder(6, 30)),
-                ("plan", "side"),
+                (),
             ),
             (
                 "grooved shaft",
@@ -298,10 +298,11 @@ class TestPerViewRequirementCoverage:
     def test_a_turned_part_leaves_its_radial_views_empty(self, name, build, expected):
         """The redundancy is structural for turned parts, not a property of one plate.
 
-        A body of revolution looks the same from every radial direction, so the two views that
-        differ only in radial direction carry nothing between them — measured here on three
-        shafts, and the count is the drafting answer: a plain turned part is conventionally
-        dimensioned on one longitudinal view.
+        A classified body of revolution looks the same from every radial direction, so the two
+        views that differ only in radial direction carry nothing between them. The first
+        fixture is the counterexample introduced by 0.4.9: axis-covariant boss evidence on
+        multi-diameter X stock retains complete boss/envelope dimensions while Draftwright's
+        rotational furniture remains single-OD on X/Y, so all three views carry requirements.
 
         The contrast with the fixtures below is the useful part. A turned part carrying RADIAL
         features (a bolt circle, a hole pattern) needs its end view and only one candidate
@@ -347,17 +348,15 @@ class TestPerViewRequirementCoverage:
 
         Coverage was built by walking annotations, so a view with NO annotations never entered
         the map and could never be reported — silently dropping exactly the most redundant
-        views. On a stepped shaft the `side` view carries not one measurement, and only `plan`
+        views. On a grooved shaft the `side` view carries not one measurement, and only `plan`
         was reported. The map is seeded from the drawing's views now.
         """
         from draftwright.view_plan import view_coverage
 
-        drawing = build_drawing(
-            Rot(0, 90, 0) * (Cylinder(10, 40) + Pos(0, 0, 40) * Cylinder(6, 30)),
-            title="T",
-            number="N",
-            _views=("front", "plan", "side"),
+        part = (Rot(0, 90, 0) * Cylinder(12, 80)) - Rot(0, 90, 0) * Pos(0, 0, 20) * (
+            Cylinder(12, 6) - Cylinder(9, 6)
         )
+        drawing = build_drawing(part, title="T", number="N", _views=("front", "plan", "side"))
         coverage = view_coverage(drawing)
 
         assert {"front", "plan", "side"} <= set(coverage), (

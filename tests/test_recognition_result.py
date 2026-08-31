@@ -6,10 +6,8 @@ import pytest
 from b123d_recognisers import (
     RecognitionResult,
     build_raw_recognition_result,
-    recognise_plates,
 )
-from build123d import Align, Axis, Box, Cylinder, Pos, chamfer, fillet
-from conftest import counting_calls
+from build123d import Align, Axis, Box, Compound, Cylinder, Pos, chamfer, fillet
 
 from draftwright import build_drawing
 from draftwright.model import build_part_model
@@ -177,14 +175,8 @@ def test_injecting_the_aggregate_builds_the_same_model_as_detecting(name, build)
     )
 
 
-def test_the_gate_is_the_orchestrations_not_the_call_sites():
-    """#1028's actual claim: a family can be MIGRATED *and* not always run.
-
-    Plates remain classification-gated because hoisting them unconditionally would scan every
-    turned build for a prismatic-only result `build_part_model` discards. Chamfers and fillets
-    deliberately stopped sharing this gate in b123d-recognisers 0.2.9, which recognises their
-    conical/toroidal turned forms (#1254/#1281).
-    """
+def test_plate_discovery_uses_body_ownership_not_a_compound_global_class_gate():
+    """0.4.9 may inspect plates in a mixed compound while excluding turned owners."""
     # An L-bracket: a base slab plus an upright wall, which is what `recognise_plates` looks
     # for. A plain box has no plates, so it would make the gate assertion below vacuous.
     prismatic = Box(80, 40, 8) + Pos(-36, 0, 24) * Box(8, 40, 40)
@@ -193,8 +185,7 @@ def test_the_gate_is_the_orchestrations_not_the_call_sites():
     assert build_raw_recognition_result(prismatic, rotational=False).rotational is False
     assert build_raw_recognition_result(turned, rotational=True).rotational is True
 
-    # Same solid, both classifications: only the gate differs, so the plate inventory change
-    # is the gate's doing and not the geometry's.
+    # A rotational classification without completed turned ownership still declines the scan.
     ungated = build_raw_recognition_result(prismatic, rotational=False)
     gated = build_raw_recognition_result(prismatic, rotational=True)
 
@@ -206,29 +197,14 @@ def test_the_gate_is_the_orchestrations_not_the_call_sites():
     assert ungated.step_levels == gated.step_levels
 
 
-def test_the_plates_gate_needs_both_halves_not_just_the_rotational_one():
-    """`plates` gates on a CONJUNCTION — not rotational AND no turned profile — and the
-    profile half needs its own counterexample.
-
-    The manifest's exclusion test drives both its turned fixtures through `build_drawing`,
-    where they classify rotational, so weakening the gate to `if prismatic` alone still
-    skipped plates on both and that guard stayed green (Codex #1033 r1). The half that was
-    untested is exactly the documented "caller has no classification" path: a stepped shaft
-    with `rotational=False`, where only the profile keeps the scan away.
-
-    Asserted by COUNTING the call, not by checking the inventory came back empty:
-    `recognise_plates` naturally finds nothing on a shaft, so an empty result proves the scan
-    was skipped only by coincidence. The cost this gate exists to avoid is the scan itself.
-    """
+def test_completed_turned_ownership_keeps_independent_compound_plates():
+    """Turned ownership excludes its body, not every plate in a mixed compound."""
     shaft = Cylinder(20, 30) + Pos(0, 0, 30) * Cylinder(14, 30)
+    bracket = Box(80, 40, 8) + Pos(-36, 0, 24) * Box(8, 40, 40)
+    part = Compound(children=[shaft, Pos(120, 0, 0) * bracket])
 
-    with counting_calls({"plates": recognise_plates}) as counts:
-        rec = build_raw_recognition_result(shaft, rotational=False)
+    rec = build_raw_recognition_result(part, rotational=True)
 
-    assert rec.turned_steps, "fixture stopped producing a turned profile — the gate's other half"
-    assert counts.get("plates", 0) == 0, (
-        "recognise_plates ran for a part with a turned profile even though the caller said "
-        "not-rotational — the conjunction has collapsed to its rotational half, and every "
-        "unclassified stepped-shaft aggregate now pays for a scan the model discards"
-    )
-    assert rec.plates == ()
+    assert rec.turned_steps, "fixture stopped establishing the shaft's turned ownership"
+    assert rec.plates, "the independent prismatic body's plates were compound-globally gated"
+    assert all(plate.lo > 60.0 for plate in rec.plates if plate.axis == "x")

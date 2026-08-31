@@ -123,6 +123,10 @@ def _classify_rotational_cylinders(
                 for cylinder in cross_full
                 if cylinder.get("axis") == axis and cylinder["external"]
             ]
+            # Draftwright's X/Y rotational furniture currently owns a single-OD body.
+            # Multi-diameter horizontal stock remains on the complete boss/envelope path;
+            # classifying it rotational would suppress approved axial/boss measurements until
+            # the axis-covariant turned-length renderer is delivered (#1402).
             if len({round(cylinder["diameter"], 1) for cylinder in external}) != 1:
                 continue
             candidate = max(external, key=lambda cylinder: cylinder["diameter"], default=None)

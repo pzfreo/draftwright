@@ -235,6 +235,16 @@ critique because it logs its diagnostics. Therefore the observable call contract
 | first physical critique/export of a declared drawing | at most one aggregate |
 | subsequent lint of the same drawing | zero additional calls |
 
+## Amendment 5 — 0.4.9 makes Plate applicability body-local
+
+Plate discovery now depends on completed turned-step occurrences. It excludes only their
+owning solids and remains able to inspect independent prismatic solids in a mixed compound.
+Consequently Plate is no longer one of the whole-part classification-gated families: the four
+prismatic step inventories remain gated, while a turned automatic build runs 23 public families
+when no turned owner is established and 24 when Plate consumes established body ownership.
+The prismatic and declared-path counts remain 28 and zero respectively. This replaces the
+compound-global Plate wording and fixed 23-family turned count in Amendments 3–4 and section 6.
+
 The lazy result is evidence for critique. It does not replace the declared model or widen its
 authored dimension set.
 

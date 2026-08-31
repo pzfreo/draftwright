@@ -128,7 +128,7 @@ def test_installed_package_contract_validates_without_a_sibling_checkout() -> No
 def test_rich_passage_contract_has_an_explicit_unsupported_completeness_outcome() -> None:
     """Pin the 0.4 physical record and compatibility projection to one decision."""
 
-    assert INSTALLED_PACKAGE_VERSION == "0.4.8"
+    assert INSTALLED_PACKAGE_VERSION == "0.4.9"
     installed = tuple(int(component) for component in INSTALLED_PACKAGE_VERSION.split("."))
     assert (0, 4, 0) <= installed < (0, 5, 0)
     package = _families(recognition.capability_manifest())
@@ -983,16 +983,26 @@ def test_schema_format_fails_closed() -> None:
 
 
 def test_only_reviewed_records_accept_installed_schema_2() -> None:
-    """The pinned package uses schema 2 only for the three reviewed records."""
+    """The pinned package uses schema 2 only for the reviewed adapter records."""
     declaration = consumer_capability_declaration()
     families = _families(declaration)
     assert families["chamfers"]["record_schemas"] == {"Chamfer": [2]}
     assert families["fillets"]["record_schemas"] == {"Fillet": [2]}
     assert families["rectangular-pads"]["record_schemas"] == {"RaisedPad": [2]}
+    assert families["risers"]["record_schemas"] == {
+        "RiserEvidence": [2],
+        "StepShoulder": [1],
+    }
+    assert families["turned-steps"]["record_schemas"] == {
+        "TurnedProfile": [2],
+        "TurnedProfileKey": [1],
+        "TurnedStep": [2],
+    }
     assert all(
         versions == [1]
         for family_id, family in families.items()
-        if family_id not in {"chamfers", "fillets", "rectangular-pads"}
+        if family_id
+        not in {"chamfers", "fillets", "rectangular-pads", "risers", "turned-steps"}
         for versions in family["record_schemas"].values()
     )
 
