@@ -1050,7 +1050,7 @@ class TestBuildDrawingPmi:
         step = tmp_path / "plain.step"
         export_step(Box(40, 30, 20), str(step))
 
-        def fail(_step_file):
+        def fail(_step_file, *, frame=None):
             raise RuntimeError("mutation: XCAF pass failed")
 
         monkeypatch.setattr(pmi_module, "extract_pmi_report", fail)
