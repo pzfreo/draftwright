@@ -554,8 +554,13 @@ def test_raw_slot_owner_requires_one_schema_for_every_member() -> None:
 
 
 def test_raw_slot_grid_uses_only_members_crossing_each_plate_witness() -> None:
+    from b123d_recognisers import recognise_slot_patterns
+
     from draftwright import build_drawing
-    from draftwright.linting.plate_coverage import plate_requirement_outcomes
+    from draftwright.linting.plate_coverage import (
+        _validated_recognised_pattern,
+        plate_requirement_outcomes,
+    )
     from draftwright.registry import AnnotationRegistry
 
     part = Box(140, 180, 20)
@@ -581,6 +586,29 @@ def test_raw_slot_grid_uses_only_members_crossing_each_plate_witness() -> None:
 
     assert len(outcomes) == 5
     assert {outcome.state for outcome in outcomes} == {"inapplicable"}
+
+    pattern = recognition.slot_patterns[0]
+    member = pattern.slots[0]
+    moved = replace(member, lo=member.lo + 0.9, hi=member.hi + 0.9)
+    slots = (moved, *pattern.slots[1:])
+    shifted_center = tuple(
+        sum(slot.location[index] for slot in slots) / len(slots) for index in range(3)
+    )
+    outside_row_tolerance = replace(pattern, slots=slots, center=shifted_center)
+    assert not [
+        candidate for candidate in recognise_slot_patterns(slots) if hasattr(candidate, "rows")
+    ]
+    assert _validated_recognised_pattern(outside_row_tolerance) is None
+
+    malformed = replace(recognition, slot_patterns=(outside_row_tolerance,))
+    failed_closed = plate_requirement_outcomes(
+        malformed,
+        envelope_only,
+        AnnotationRegistry(),
+        part=part,
+    )
+    assert len(failed_closed) == 5
+    assert {outcome.state for outcome in failed_closed} == {"unverifiable"}
 
 
 @pytest.mark.parametrize("pattern_kind", ["linear", "grid"])
@@ -811,8 +839,42 @@ def test_void_plate_centroid_cannot_borrow_a_remote_boss_body() -> None:
         part=part,
     )
 
-    assert {outcome.state for outcome in outcomes if outcome.source_at[0] < 0} == {"inapplicable"}
-    assert {outcome.state for outcome in outcomes if outcome.source_at[0] > 0} == {"unverifiable"}
+    assert {outcome.state for outcome in outcomes} == {"unverifiable"}
+
+
+def test_void_plate_centroid_does_not_use_a_nested_disconnected_boss() -> None:
+    from draftwright import build_drawing
+    from draftwright.linting.plate_coverage import plate_requirement_outcomes
+    from draftwright.registry import AnnotationRegistry
+
+    outer = (
+        Box(100, 80, 10, align=(Align.CENTER, Align.CENTER, Align.CENTER))
+        + Pos(0, 0, 5) * extrude(RegularPolygon(12, 8), 20)
+        - Pos(0, 0, -5) * Cylinder(8, 40, align=_CENTER_MIN)
+    )
+    inner = Pos(3, 0, 0) * (
+        Box(6, 6, 10, align=(Align.CENTER, Align.CENTER, Align.CENTER))
+        + Pos(0, 0, 5) * extrude(RegularPolygon(2.5, 6), 20)
+    )
+    part = outer + inner
+    drawing = build_drawing(part)
+    recognition = drawing.recognition()
+    assert recognition is not None
+    assert len(part.solids()) == 2
+    assert len(recognition.plates) == 2
+    assert len(recognition.polygonal_bosses) == 1
+    envelope_only = tuple(
+        feature for feature in drawing.model().features if feature.kind == "envelope"
+    )
+
+    outcomes = plate_requirement_outcomes(
+        recognition,
+        envelope_only,
+        AnnotationRegistry(),
+        part=part,
+    )
+
+    assert {outcome.state for outcome in outcomes} == {"unverifiable"}
 
 
 def test_provider_hexagon_invariant_does_not_narrow_public_owner_geometry() -> None:
@@ -936,19 +998,15 @@ def test_unrelated_provider_hexagon_does_not_disable_public_octagon_ownership() 
     )
 
     assert len(outcomes) == 2
-    assert {outcome.state for outcome in outcomes} == {"inapplicable"}
+    assert {outcome.state for outcome in outcomes if outcome.source_at[0] < 0} == {"inapplicable"}
+    assert {outcome.state for outcome in outcomes if outcome.source_at[0] > 0} == {"unverifiable"}
     without_public_owner = plate_requirement_outcomes(
         recognition,
         (envelope, provider_hex),
         AnnotationRegistry(),
         part=part,
     )
-    assert {outcome.state for outcome in without_public_owner if outcome.source_at[0] < 0} == {
-        "unverifiable"
-    }
-    assert {outcome.state for outcome in without_public_owner if outcome.source_at[0] > 0} == {
-        "inapplicable"
-    }
+    assert {outcome.state for outcome in without_public_owner} == {"unverifiable"}
 
 
 def test_step_level_alternate_must_land_before_plate_intervals_are_inapplicable() -> None:

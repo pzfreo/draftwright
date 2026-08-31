@@ -401,7 +401,8 @@ def _validated_recognised_pattern(pattern):
         row_direction = tuple(
             -sin(theta) * u + cos(theta) * v for u, v in zip(first, second, strict=True)
         )
-        tolerance = hypot(_pattern_tolerance(row_pitch), _pattern_tolerance(col_pitch))
+        row_tolerance = _pattern_tolerance(row_pitch)
+        col_tolerance = _pattern_tolerance(col_pitch)
         expected = []
         for row in range(rows):
             row_offset = (row - (rows - 1) / 2) * row_pitch
@@ -416,19 +417,32 @@ def _validated_recognised_pattern(pattern):
                     )
                 )
         unmatched = list(expected)
+
+        def matches(location, candidate) -> bool:
+            delta = tuple(
+                value - wanted for value, wanted in zip(location, candidate, strict=True)
+            )
+            row_error = abs(
+                sum(
+                    value * component
+                    for value, component in zip(delta, row_direction, strict=True)
+                )
+            )
+            col_error = abs(
+                sum(
+                    value * component
+                    for value, component in zip(delta, col_direction, strict=True)
+                )
+            )
+            return bool(
+                row_error <= row_tolerance
+                and col_error <= col_tolerance
+                and abs(delta[depth_index]) <= coordinate_tolerance
+            )
+
         for location in locations:
             match = next(
-                (
-                    candidate
-                    for candidate in unmatched
-                    if hypot(
-                        *(
-                            value - wanted
-                            for value, wanted in zip(location, candidate, strict=True)
-                        )
-                    )
-                    <= tolerance
-                ),
+                (candidate for candidate in unmatched if matches(location, candidate)),
                 None,
             )
             if match is None:
@@ -492,7 +506,6 @@ class _SolidMembership:
     def __init__(self, part) -> None:
         self.solids = tuple(part.solids()) if part is not None else ()
         self._owners: dict[Point, tuple[int, ...]] = {}
-        self._nearest: dict[Point, tuple[int, ...]] = {}
 
     def owners(self, point) -> tuple[int, ...]:
         values = tuple(float(value) for value in point)
@@ -507,29 +520,6 @@ class _SolidMembership:
                 index for index, solid in enumerate(self.solids) if solid.is_inside(witness)
             )
         return self._owners[key]
-
-    def nearest_owners(self, point) -> tuple[int, ...]:
-        """Identify a void witness by the uniquely nearest physical solid, or fail closed."""
-        values = tuple(float(value) for value in point)
-        if len(values) != 3 or not all(isfinite(value) for value in values):
-            raise ValueError("a nearest-solid witness must be a 3-vector")
-        key = (values[0], values[1], values[2])
-        if key not in self._nearest:
-            from build123d import Vector
-
-            witness = Vector(*key)
-            distances = tuple(float(solid.distance_to(witness)) for solid in self.solids)
-            if not distances or not all(isfinite(distance) for distance in distances):
-                self._nearest[key] = ()
-            else:
-                nearest = min(distances)
-                tolerance = max(1e-7, nearest * 1e-9)
-                self._nearest[key] = tuple(
-                    index
-                    for index, distance in enumerate(distances)
-                    if isclose(distance, nearest, abs_tol=tolerance)
-                )
-        return self._nearest[key]
 
 
 def _boss_material_witnesses(boss) -> tuple[Point, ...]:
@@ -551,7 +541,7 @@ def _boss_material_witnesses(boss) -> tuple[Point, ...]:
 
 def _shares_one_solid(membership, source, boss) -> bool:
     """Prove the complete boss ring and one material Plate witness share one solid."""
-    if membership is None:
+    if membership is None or len(membership.solids) != 1:
         return False
     try:
         witnesses = _boss_material_witnesses(boss)
@@ -563,8 +553,10 @@ def _shares_one_solid(membership, source, boss) -> bool:
         source_center_owners = membership.owners(plate_center(source))
         if source_center_owners:
             return len(source_center_owners) == 1 and source_center_owners == boss_owners[0]
-        source_nearest = membership.nearest_owners(plate_center(source))
-        return len(source_nearest) == 1 and source_nearest == boss_owners[0]
+        # With one physical solid, complete boss-ring ownership proves the Plate and boss share
+        # it even when a bore removes the retained Plate centroid.  With plural solids the Plate
+        # record has no body key, so a point inside/nearest another body is not correspondence.
+        return bool(boss_owners[0] == (0,))
     except (AttributeError, OverflowError, TypeError, ValueError):
         return False
 
