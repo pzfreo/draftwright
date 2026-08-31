@@ -213,6 +213,15 @@ def test_polygonal_boss_ledger_rejects_foreign_malformed_and_duplicate_ir() -> N
     assert len(malformed) == 1
     assert (malformed[0].state, malformed[0].requirement_count) == ("unverifiable", 2)
 
+    class ShortSpanBoss(MalformedBoss):
+        span = (MalformedBoss.span[0],)
+
+    short_span = polygonal_boss_requirement_outcomes(
+        recognition, (ShortSpanBoss(),), AnnotationRegistry()
+    )
+    assert len(short_span) == 1
+    assert (short_span[0].state, short_span[0].requirement_count) == ("unverifiable", 2)
+
     drawing = build_drawing(_boss_part())
     feature = next(item for item in drawing.model().features if item.kind == "polygonal_boss")
     duplicate = polygonal_boss_requirement_outcomes(
@@ -222,7 +231,7 @@ def test_polygonal_boss_ledger_rejects_foreign_malformed_and_duplicate_ir() -> N
     assert (duplicate[0].state, duplicate[0].requirement_count) == ("unverifiable", 2)
 
 
-@pytest.mark.parametrize("corruption", ("foreign_record", "missing_support"))
+@pytest.mark.parametrize("corruption", ("foreign_record", "missing_support", "unpaired_support"))
 def test_malformed_source_record_fails_closed_through_drawing_lint(
     monkeypatch, corruption
 ) -> None:
@@ -235,13 +244,16 @@ def test_malformed_source_record_fails_closed_through_drawing_lint(
         recognition = original(*args, **kwargs)
         if corruption == "foreign_record":
             source = object()
-        else:
+        elif corruption == "missing_support":
             boss = recognition.polygonal_bosses[0]
             source = replace(
                 boss,
                 flat_directions=boss.flat_directions[:-1],
                 flat_centres=boss.flat_centres[:-1],
             )
+        else:
+            boss = recognition.polygonal_bosses[0]
+            source = replace(boss, flat_directions=boss.flat_directions[:-1])
         return replace(recognition, polygonal_bosses=(source,))
 
     monkeypatch.setattr(recognition_cache, "build_raw_recognition_result", malformed_recognition)
