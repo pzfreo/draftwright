@@ -44,6 +44,18 @@
 
 ### Changed
 
+- FaceLevel completeness is now backed by an independently authored, hash-pinned 11-case STEP
+  corpus covering single and multiple ladders, equal-Z disjoint occurrences, topology order,
+  the area threshold, and Plate, side-pad, edge-pocket, ThroughStep, turned-profile and
+  plain-block ownership controls. Sixteen body-local support occurrences retain their full
+  rectangles and scored drafting disposition while equal ordinates project to one correlated
+  global height rung. Exact body-local owners still win when an unrelated pad or pocket shares the
+  ordinate, and source, IR and generated code use one three-decimal canonical precision. Direct
+  rungs cross automatic IR, public `Sheet.step_level`, generated code and exact solver-placed
+  dimension spans; alternate-owner records remain explicit evidence without becoming duplicate
+  manufacturing requirements. Removing recognition, an IR owner, generated code, measurement
+  provenance or the exact physical span reduces the independent result (#1373).
+
 - Multi-plate slab completeness is now backed by an independently authored, hash-pinned 11-case
   STEP corpus covering all principal orientations, additive/cut channels, equal compound
   occurrences, topology order and envelope/detached/thick/rotational negatives. A fail-closed

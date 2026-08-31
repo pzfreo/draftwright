@@ -50,6 +50,16 @@ transverse witness coordinates identify the occurrence; thickness is the scored 
 Automatic IR, public declaration and executed generated code must preserve the full witness, and
 the drawing must carry the exact compiler-owned thickness identity and verified ink.
 
+The FaceLevel slice (#1373) scores every body-local horizontal support occurrence while keeping
+the manufacturing requirement global: equal-Z supports on disjoint bodies share one correlated
+height rung rather than becoming duplicate dimensions.  The support rectangle identifies the
+occurrence; Z and its independently authored disposition (global rung, Plate, side-pad,
+edge-pocket, ThroughStep or turned-profile evidence) are scored parameters. Direct rungs cross
+automatic IR and the public
+``Sheet.step_level``, executed generated code and exact finished dimension-span provenance.
+Alternate-owner records must retain that owner through automatic IR and generated code, but do
+not manufacture a second FaceLevel drawing requirement.
+
 The polygonal-boss slice (#1372) counts one attached regular prism per principal axis and physical
 centre. Side count, A/F, height, ordered flat directions and physical flat centres are scored
 parameters. Automatic IR, public declaration and executed generated code must retain the complete
@@ -1650,6 +1660,538 @@ def _declared_plate_model(part, plates):
             v=observed.v,
         )
     return sheet.model()
+
+
+def _face_level_support(level) -> tuple[float, float, float, float] | None:
+    """The serialisable body-local support rectangle carried by FaceLevel v1."""
+    try:
+        x_span = tuple(float(value) for value in level.x_span)
+        y_span = tuple(float(value) for value in level.y_span)
+    except (AttributeError, TypeError, ValueError):
+        return None
+    if (
+        len(x_span) != 2
+        or len(y_span) != 2
+        or not all(isfinite(value) for value in (*x_span, *y_span))
+    ):
+        return None
+    return (
+        x_span[0],
+        x_span[1],
+        y_span[0],
+        y_span[1],
+    )
+
+
+def _face_level_identity(level, levels=()) -> dict[str, Value]:
+    support = _face_level_support(level)
+    normalized = None if support is None else tuple(round(value, 3) for value in support)
+    siblings = sorted(
+        {
+            round(float(candidate.z), 3)
+            for candidate in levels
+            if (candidate_support := _face_level_support(candidate)) is not None
+            and tuple(round(value, 3) for value in candidate_support) == normalized
+        }
+    )
+    rank = siblings.index(round(float(level.z), 3)) if siblings else 0
+    return {"support": "unavailable" if normalized is None else normalized, "support_rank": rank}
+
+
+def _span_close(left, right, *, tolerance: float = 1e-6) -> bool:
+    def flattened(value):
+        if isinstance(value, (tuple, list)):
+            return tuple(component for item in value for component in flattened(item))
+        return (float(value),)
+
+    try:
+        left_values = flattened(left)
+        right_values = flattened(right)
+        return len(left_values) == len(right_values) and all(
+            abs(a - b) <= tolerance for a, b in zip(left_values, right_values, strict=True)
+        )
+    except (TypeError, ValueError):
+        return False
+
+
+_FACE_LEVEL_GEOMETRY_TOLERANCE = 5.01e-4
+
+
+def _face_level_close(left, right) -> bool:
+    """Compare exact public values after the FaceLevel/Sheet three-decimal boundary."""
+    try:
+        left_values = tuple(round(float(value), 3) for value in left)
+        right_values = tuple(round(float(value), 3) for value in right)
+    except (TypeError, ValueError):
+        return False
+    return left_values == right_values
+
+
+def _face_level_value_equal(left, right) -> bool:
+    try:
+        return round(float(left), 3) == round(float(right), 3)
+    except (TypeError, ValueError):
+        return False
+
+
+def _face_level_disposition(level, features) -> tuple[str, object | None]:
+    """Return the exact Draftwright owner of one horizontal support occurrence.
+
+    This is consumer drafting policy over the public FaceLevel record and IR.  It deliberately
+    does not inspect labels, annotation names, page coordinates or provider-private topology.
+    """
+    support = _face_level_support(level)
+    try:
+        z = float(level.z)
+    except (AttributeError, TypeError, ValueError):
+        return "unowned", None
+
+    if support is not None:
+        x_span, y_span = support[:2], support[2:]
+        plates = [
+            feature
+            for feature in features
+            if getattr(feature, "kind", None) == "plate"
+            and feature.axis == "z"
+            and any(_face_level_value_equal(bound, z) for bound in (feature.lo, feature.hi))
+            and x_span[0] - _FACE_LEVEL_GEOMETRY_TOLERANCE
+            <= float(feature.u)
+            <= x_span[1] + _FACE_LEVEL_GEOMETRY_TOLERANCE
+            and y_span[0] - _FACE_LEVEL_GEOMETRY_TOLERANCE
+            <= float(feature.v)
+            <= y_span[1] + _FACE_LEVEL_GEOMETRY_TOLERANCE
+        ]
+        if len(plates) == 1:
+            return "plate-owned", plates[0]
+
+        pads = [
+            feature
+            for feature in features
+            if getattr(feature, "kind", None) == "pad"
+            and feature.frame.axis != "z"
+            and any(_face_level_value_equal(bound, z) for bound in feature.bounds("z"))
+            and _face_level_close(feature.bounds("x"), x_span)
+            and _face_level_close(feature.bounds("y"), y_span)
+        ]
+        if len(pads) == 1:
+            return "side-pad-owned", pads[0]
+
+        pockets = []
+        for feature in features:
+            if (
+                getattr(feature, "kind", None) != "pocket"
+                or feature.depth_axis != "z"
+                or not feature.edge_anchored
+            ):
+                continue
+            depth_centre = float(feature.frame.origin[2])
+            d_lo = depth_centre - float(feature.depth) / 2
+            d_hi = depth_centre + float(feature.depth) / 2
+            floor = d_lo if feature.open_sign > 0 else d_hi
+            bounds = {
+                feature.long_axis: (float(feature.lo), float(feature.hi)),
+                feature.width_axis: (
+                    float(feature.w_center) - float(feature.width) / 2,
+                    float(feature.w_center) + float(feature.width) / 2,
+                ),
+            }
+            if (
+                _face_level_value_equal(floor, z)
+                and _face_level_close(bounds["x"], x_span)
+                and _face_level_close(bounds["y"], y_span)
+            ):
+                pockets.append(feature)
+        if len(pockets) == 1:
+            return "edge-pocket-owned", pockets[0]
+
+        through = []
+        for feature in features:
+            if getattr(feature, "kind", None) != "through_step" or feature.axis == "z":
+                continue
+            run_span = (
+                float(feature.frame.origin["xyz".index(feature.axis)]) - feature.length / 2,
+                float(feature.frame.origin["xyz".index(feature.axis)]) + feature.length / 2,
+            )
+            source_run = x_span if feature.axis == "x" else y_span
+            if not _face_level_close(tuple(sorted(run_span)), source_run):
+                continue
+            axes = feature.transverse_axes
+            z_index = axes.index("z")
+            horizontal_index = 1 - z_index
+            source_horizontal = y_span if feature.axis == "x" else x_span
+            matching_legs = []
+            for start, end in zip(feature.section, feature.section[1:]):
+                if _face_level_value_equal(start[z_index], z) and _face_level_value_equal(
+                    end[z_index], z
+                ):
+                    matching_legs.append(
+                        tuple(
+                            sorted((float(start[horizontal_index]), float(end[horizontal_index])))
+                        )
+                    )
+            if any(_face_level_close(leg, source_horizontal) for leg in matching_legs):
+                through.append(feature)
+        if len(through) == 1:
+            return "through-step-owned", through[0]
+
+    turned_groups: dict[object, list[Any]] = {}
+    for feature in features:
+        if getattr(feature, "kind", None) != "step":
+            continue
+        span = getattr(feature, "span", None)
+        if span is None or feature.frame.axis != "z":
+            continue
+        membership = feature.profile or feature.profile_group
+        if membership is not None and any(_face_level_value_equal(point[2], z) for point in span):
+            turned_groups.setdefault(membership, []).append(feature)
+
+    turned_owners = []
+    for members in turned_groups.values():
+        if len(members) < 2 or support is None:
+            continue
+        centres = {
+            (round(float(feature.frame.origin[0]), 6), round(float(feature.frame.origin[1]), 6))
+            for feature in members
+        }
+        if len(centres) != 1:
+            continue
+        cx, cy = next(iter(centres))
+        radius = max(float(feature.diameter) for feature in members) / 2
+        if _face_level_close((cx - radius, cx + radius, cy - radius, cy + radius), support):
+            turned_owners.append(tuple(members))
+    if len(turned_owners) == 1:
+        return "turned-profile-owned", turned_owners[0]
+
+    direct = [
+        feature
+        for feature in features
+        if getattr(feature, "kind", None) == "step_level"
+        and any(_face_level_value_equal(candidate, z) for candidate in feature.levels)
+    ]
+    if len(direct) == 1:
+        return "global-height-rung", direct[0]
+    return "unowned", None
+
+
+def _face_level_parameters(level, features) -> dict[str, Value]:
+    disposition, _owner = _face_level_disposition(level, features)
+    return {"z": round(float(level.z), 3), "disposition": disposition}
+
+
+def _face_level_owner_key(disposition: str, owner) -> tuple | None:
+    """Cross-build semantic key for a non-global FaceLevel owner."""
+
+    def point(values) -> tuple[float, ...]:
+        return tuple(round(float(value), 3) for value in values)
+
+    try:
+        if disposition == "plate-owned":
+            return (
+                disposition,
+                _plate_identity(owner),
+                round(float(owner.lo), 3),
+                round(float(owner.hi), 3),
+            )
+        if disposition == "side-pad-owned":
+            return (
+                disposition,
+                _pad_axis(owner),
+                int(owner.direction),
+                tuple((axis, _pad_pair(owner.bounds(axis))) for axis in "xyz"),
+            )
+        if disposition == "edge-pocket-owned":
+            return (
+                disposition,
+                _pocket_identity(owner),
+                tuple(sorted(_pocket_parameters(owner).items())),
+            )
+        if disposition == "through-step-owned":
+            return (
+                disposition,
+                str(owner.axis),
+                point(owner.frame.origin),
+                round(float(owner.length), 3),
+                tuple(point(section_point) for section_point in owner.section),
+            )
+        if disposition == "turned-profile-owned":
+            return disposition, tuple(
+                sorted(
+                    (
+                        str(feature.frame.axis),
+                        point(feature.frame.origin),
+                        round(float(feature.length), 3),
+                        round(float(feature.diameter), 3),
+                        tuple(point(span_point) for span_point in feature.span),
+                    )
+                    for feature in owner
+                )
+            )
+    except (AttributeError, TypeError, ValueError):
+        return None
+    return None
+
+
+def _face_level_global_owner_is_exact(
+    levels,
+    expected_dispositions,
+    owner,
+    *,
+    base: float,
+) -> bool:
+    """Validate one correlated ladder against the physical FaceLevel occurrence roster."""
+    try:
+        if (
+            owner is None
+            or owner.frame.axis != "z"
+            or not _face_level_value_equal(owner.base, base)
+        ):
+            return False
+        expected_by_z: dict[float, list[tuple[float, float, float, float]]] = {}
+        for level, disposition in zip(levels, expected_dispositions, strict=True):
+            if disposition != "global-height-rung":
+                continue
+            support = _face_level_support(level)
+            if support is None:
+                return False
+            expected_by_z.setdefault(round(float(level.z), 3), []).append(support)
+        expected_levels = tuple(sorted(expected_by_z))
+        actual_levels = tuple(sorted(round(float(value), 3) for value in owner.levels))
+        if not expected_levels or actual_levels != expected_levels:
+            return False
+        supports = tuple(owner.level_supports)
+        if len(supports) != len(expected_levels):
+            return False
+        seen: set[float] = set()
+        for support in supports:
+            z = round(float(support.level), 3)
+            rectangle = (
+                float(support.x_span[0]),
+                float(support.x_span[1]),
+                float(support.y_span[0]),
+                float(support.y_span[1]),
+            )
+            if z in seen or z not in expected_by_z:
+                return False
+            if not any(_face_level_close(rectangle, expected) for expected in expected_by_z[z]):
+                return False
+            seen.add(z)
+        return seen == set(expected_levels)
+    except (AttributeError, TypeError, ValueError):
+        return False
+
+
+def _face_level_model_outcomes(
+    levels,
+    features,
+    expected_dispositions,
+    expected_owner_keys,
+    *,
+    base: float | None = None,
+) -> list[Outcome]:
+    """Per occurrence, require one exact owner and preserve the automatic disposition."""
+    actual = [_face_level_disposition(level, features) for level in levels]
+    outcomes: list[Outcome] = []
+    for (disposition, owner), expected, expected_key in zip(
+        actual, expected_dispositions, expected_owner_keys, strict=True
+    ):
+        exact = disposition != "unowned" and disposition == expected
+        if exact and disposition == "global-height-rung":
+            exact = base is not None and _face_level_global_owner_is_exact(
+                levels,
+                expected_dispositions,
+                owner,
+                base=base,
+            )
+        elif exact:
+            exact = (
+                expected_key is not None
+                and _face_level_owner_key(disposition, owner) == expected_key
+            )
+        outcomes.append("supported" if exact else "unknown")
+    return outcomes
+
+
+def _declared_face_level_model(part, levels):
+    """Declare unique global rungs through the public Sheet façade.
+
+    Multiple body-local occurrences at one Z intentionally share one declared rung.  The
+    first deterministic support is retained as its witness; the aggregate remains the
+    occurrence roster used by completeness.
+    """
+    from draftwright.sheet import Sheet
+
+    bbox = part.bounding_box()
+    by_z: dict[
+        float,
+        tuple[float, tuple[float, float], tuple[float, float]],
+    ] = {}
+    for level in sorted(
+        levels,
+        key=lambda item: (round(float(item.z), 3), _face_level_support(item) or ()),
+    ):
+        z = round(float(level.z), 3)
+        support = _face_level_support(level)
+        if support is not None:
+            by_z.setdefault(z, (z, support[:2], support[2:]))
+    unique_levels = tuple(sorted({round(float(level.z), 3) for level in levels}))
+    sheet = Sheet(part)
+    sheet.authored_dimensions()
+    if unique_levels:
+        sheet.step_level(
+            base=float(bbox.min.Z),
+            levels=unique_levels,
+            datum=(float(bbox.min.X), float(bbox.min.Y), float(bbox.min.Z)),
+            at=(float(bbox.center().X), float(bbox.center().Y), float(bbox.min.Z)),
+            level_supports=tuple(by_z[z] for z in unique_levels if z in by_z),
+        )
+    return sheet.model()
+
+
+def _face_level_span_is_physical(
+    span,
+    levels,
+    *,
+    base: float,
+    target_z: float | None = None,
+) -> bool:
+    """Check a compiler span against source levels rather than trusting its model alone."""
+    try:
+        start = tuple(float(value) for value in span[0])
+        end = tuple(float(value) for value in span[1])
+    except (IndexError, TypeError, ValueError):
+        return False
+    if len(start) != 3 or len(end) != 3 or not _face_level_close(start[:2], end[:2]):
+        return False
+    lo, hi = sorted((start[2], end[2]))
+    supports_by_z: dict[float, list[tuple[float, float, float, float]]] = {}
+    for level in levels:
+        support = _face_level_support(level)
+        if support is not None:
+            supports_by_z.setdefault(round(float(level.z), 3), []).append(support)
+    if target_z is None:
+        stations = (base, *sorted(supports_by_z))
+        if not any(
+            _face_level_value_equal(lo, left) and _face_level_value_equal(hi, right)
+            for left, right in zip(stations, stations[1:])
+        ):
+            return False
+        target_z = hi
+    elif not _face_level_value_equal(lo, base) or not _face_level_value_equal(hi, target_z):
+        return False
+    return any(
+        support[0] - _FACE_LEVEL_GEOMETRY_TOLERANCE
+        <= start[0]
+        <= support[1] + _FACE_LEVEL_GEOMETRY_TOLERANCE
+        and support[2] - _FACE_LEVEL_GEOMETRY_TOLERANCE
+        <= start[1]
+        <= support[3] + _FACE_LEVEL_GEOMETRY_TOLERANCE
+        for support in supports_by_z.get(round(float(target_z), 3), ())
+    )
+
+
+def _face_level_drawing_outcomes(
+    levels,
+    drawing,
+    *,
+    base: float | None = None,
+    expected_dispositions=None,
+) -> list[Outcome]:
+    """Verify direct global rungs through exact compiler identity and physical span."""
+    from build123d_drafting import Dimension
+
+    from draftwright.linting.evidence import verify_measurement_claims
+    from draftwright.model.compiled import compile_dimensions, resolve_feature
+
+    model = drawing.model()
+    if base is None:
+        base = float(model.bbox.min.Z)
+    actual = tuple(_face_level_disposition(level, model.features) for level in levels)
+    if expected_dispositions is None:
+        expected_dispositions = tuple(disposition for disposition, _owner in actual)
+    global_levels = tuple(
+        level
+        for level, disposition in zip(levels, expected_dispositions, strict=True)
+        if disposition == "global-height-rung"
+    )
+    plan = compile_dimensions(model)
+    rung_set = plan.ladder("step_height")
+    if rung_set is None:
+        return ["unknown"] * len(levels)
+    feature = resolve_feature(rung_set.ref)
+    if feature is None or getattr(feature, "kind", None) != "step_level":
+        return ["unknown"] * len(levels)
+    if not _face_level_global_owner_is_exact(
+        levels,
+        expected_dispositions,
+        feature,
+        base=base,
+    ):
+        return ["unknown"] * len(levels)
+
+    confirmed = {
+        claim.annotation
+        for claim in verify_measurement_claims(drawing.registry, plan)
+        if claim.state == "confirmed" and claim.measurement is not None
+    }
+
+    def matching_names(rung):
+        return [
+            name
+            for name in confirmed
+            if rung.id in drawing.registry.measurement_of(name)
+            and drawing.registry.feature_of(name) == feature
+            and isinstance(drawing.registry.named(name), Dimension)
+        ]
+
+    representative_ok = False
+    if rung_set.representative and len(rung_set.rungs) == 1:
+        representative = rung_set.rungs[0]
+        representative_ok = any(
+            isclose(
+                float(getattr(drawing.registry.named(name), "_dw_label_value", float("nan"))),
+                float(representative.value),
+                rel_tol=0.0,
+                abs_tol=1e-6,
+            )
+            and _span_close(
+                getattr(drawing.registry.named(name), "_dw_measurement_span", ()),
+                representative.span,
+            )
+            and _face_level_span_is_physical(representative.span, global_levels, base=base)
+            for name in matching_names(representative)
+        )
+
+    outcomes: list[Outcome] = []
+    for level in levels:
+        disposition, owner = _face_level_disposition(level, model.features)
+        if disposition != "global-height-rung" or owner != feature:
+            outcomes.append("unknown")
+            continue
+        z = round(float(level.z), 3)
+        if representative_ok:
+            outcomes.append("supported")
+            continue
+        candidates = [
+            rung
+            for rung in rung_set.rungs
+            if rung.span is not None
+            and _face_level_value_equal(rung.span[1][2], z)
+            and _face_level_span_is_physical(
+                rung.span,
+                global_levels,
+                base=base,
+                target_z=z,
+            )
+        ]
+        supported = len(candidates) == 1 and any(
+            _span_close(
+                getattr(drawing.registry.named(name), "_dw_measurement_span", ()),
+                candidates[0].span,
+            )
+            for name in matching_names(candidates[0])
+        )
+        outcomes.append("supported" if supported else "unsupported")
+    return outcomes
 
 
 def _polygonal_boss_center(boss) -> tuple[float, float, float]:
@@ -3750,6 +4292,115 @@ def _default_observers() -> Mapping[str, Observer]:
             for identity in (_plate_identity(plate),)
         )
 
+    def observe_face_levels(part: object) -> Sequence[ObservedFact]:
+        from draftwright.builder import build_drawing
+
+        try:
+            drawing = build_drawing(part)  # type: ignore[arg-type]
+        except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
+            _log.warning(
+                "evaluation: drawing build failed (%s); scoring face levels as unknown",
+                exc,
+            )
+            raise ObservationError("face-levels", f"drawing build failed: {exc}") from exc
+        try:
+            recognition = drawing.recognition()
+            if recognition is None:
+                raise ValueError("detected build has no build-owned recognition result")
+            levels = tuple(recognition.step_levels)
+        except Exception as exc:  # noqa: BLE001 — no safe observed numerator remains
+            _log.warning(
+                "evaluation: recognition access failed (%s); observing no face levels",
+                exc,
+            )
+            raise ObservationError("face-levels", f"recognition access failed: {exc}") from exc
+        automatic_features = drawing.model().features
+        automatic_owners = tuple(
+            _face_level_disposition(level, automatic_features) for level in levels
+        )
+        dispositions = tuple(disposition for disposition, _owner in automatic_owners)
+        owner_keys = tuple(
+            _face_level_owner_key(disposition, owner) for disposition, owner in automatic_owners
+        )
+        base = float(cast(Any, part).bounding_box().min.Z)
+        direct_levels = tuple(
+            level
+            for level, disposition in zip(levels, dispositions, strict=True)
+            if disposition == "global-height-rung"
+        )
+        unknown: list[Outcome] = ["unknown"] * len(levels)
+
+        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
+            try:
+                result = observe()
+                if len(result) != len(levels):
+                    raise ValueError(
+                        f"observed {len(result)} outcomes for {len(levels)} face-level occurrences"
+                    )
+                return result
+            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
+                _log.warning(
+                    "evaluation: %s observation failed (%s); scoring face levels as unknown",
+                    name,
+                    exc,
+                )
+                return list(unknown)
+
+        boundary_outcomes = {
+            "ir_adapter": observed_boundary(
+                "ir_adapter",
+                lambda: _face_level_model_outcomes(
+                    levels,
+                    automatic_features,
+                    dispositions,
+                    owner_keys,
+                    base=base,
+                ),
+            ),
+            "dsl_declaration": observed_boundary(
+                "dsl_declaration",
+                lambda: _face_level_model_outcomes(
+                    levels,
+                    _declared_face_level_model(part, direct_levels).features,
+                    dispositions,
+                    owner_keys,
+                    base=base,
+                ),
+            ),
+            "generated_code": observed_boundary(
+                "generated_code",
+                lambda: _face_level_model_outcomes(
+                    levels,
+                    _generated_sheet_model(part, drawing.model()).features,
+                    dispositions,
+                    owner_keys,
+                    base=base,
+                ),
+            ),
+            "drawing_consumer": observed_boundary(
+                "drawing_consumer",
+                lambda: _face_level_drawing_outcomes(
+                    levels,
+                    drawing,
+                    base=base,
+                    expected_dispositions=dispositions,
+                ),
+            ),
+        }
+
+        return tuple(
+            ObservedFact(
+                family="face-levels",
+                identity=_face_level_identity(level, levels),
+                parameters=_face_level_parameters(level, automatic_features),
+                downstream={
+                    boundary: boundary_outcomes[boundary][index]
+                    for boundary in _DOWNSTREAM_BOUNDARIES
+                },
+            )
+            for index, level in enumerate(levels)
+        )
+
     def observe_polygonal_bosses(part: object) -> Sequence[ObservedFact]:
         from draftwright.builder import build_drawing
 
@@ -4188,6 +4839,7 @@ def _default_observers() -> Mapping[str, Observer]:
 
     return {
         "chamfers": observe_chamfers,
+        "face-levels": observe_face_levels,
         "fillets": observe_fillets,
         "flats": observe_flats,
         "grooves": observe_grooves,

@@ -1,0 +1,235 @@
+{
+  "format": "draftwright-step-analysis-corpus",
+  "format_version": 1,
+  "corpus_version": "1.0.0",
+  "metric_version": 1,
+  "scope": ["face-levels"],
+  "cases": [
+    {
+      "id": "face-level-single",
+      "tags": ["positive", "single-level"],
+      "fixture": "face-level-single.step",
+      "sha256": "ab9eeec500480f2341ddf4f2f873172ef7cc685b2f4a50269b51a2c0eadb767d",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored as a 60 × 40 × 10 mm base with a 30 × 40 × 15 mm full-depth upper tier. The exposed right support is one global height rung at Z = 10 mm.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "face-levels",
+          "identity": {"support": {"value": [0.0, 30.0, -20.0, 20.0], "absolute_tolerance": 1e-6}},
+          "parameters": {"z": {"value": 10.0, "absolute_tolerance": 1e-6}, "disposition": {"value": "global-height-rung"}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "face-level-compound-equal",
+      "tags": ["compound", "multiple", "multiple-equal", "positive"],
+      "fixture": "face-level-compound-equal.step",
+      "sha256": "9b7d798da9a92d572ffe1a91fad87fa545025e15f09393410613fc5051c4ec55",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored as two disjoint three-tier bodies. Four body-local supports occur at two equal Z ordinates; they intentionally project to two global height rungs, not four drawing requirements.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "face-levels",
+          "identity": {"support": {"value": [-100.0, -40.0, 0.0, 30.0], "absolute_tolerance": 1e-6}},
+          "parameters": {"z": {"value": 10.0, "absolute_tolerance": 1e-6}, "disposition": {"value": "global-height-rung"}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        },
+        {
+          "family": "face-levels",
+          "identity": {"support": {"value": [100.0, 160.0, 0.0, 30.0], "absolute_tolerance": 1e-6}},
+          "parameters": {"z": {"value": 10.0, "absolute_tolerance": 1e-6}, "disposition": {"value": "global-height-rung"}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        },
+        {
+          "family": "face-levels",
+          "identity": {"support": {"value": [-90.0, -50.0, 0.0, 30.0], "absolute_tolerance": 1e-6}},
+          "parameters": {"z": {"value": 20.0, "absolute_tolerance": 1e-6}, "disposition": {"value": "global-height-rung"}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        },
+        {
+          "family": "face-levels",
+          "identity": {"support": {"value": [110.0, 150.0, 0.0, 30.0], "absolute_tolerance": 1e-6}},
+          "parameters": {"z": {"value": 20.0, "absolute_tolerance": 1e-6}, "disposition": {"value": "global-height-rung"}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "face-level-topology-a",
+      "tags": ["multiple", "positive", "topology-order-variant"],
+      "fixture": "face-level-topology-a.step",
+      "sha256": "b868c7e4489ccdff4ece17383ffdec28fbabb7185771ab37c196373f613883fe",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored by adding the base, middle tier and top tier in ascending order.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "face-levels",
+          "identity": {"support": {"value": [15.0, 45.0, -20.0, 20.0], "absolute_tolerance": 1e-6}},
+          "parameters": {"z": {"value": 10.0, "absolute_tolerance": 1e-6}, "disposition": {"value": "global-height-rung"}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        },
+        {
+          "family": "face-levels",
+          "identity": {"support": {"value": [-15.0, 15.0, -20.0, 20.0], "absolute_tolerance": 1e-6}},
+          "parameters": {"z": {"value": 20.0, "absolute_tolerance": 1e-6}, "disposition": {"value": "global-height-rung"}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "face-level-topology-b",
+      "tags": ["positive", "topology-order-variant"],
+      "fixture": "face-level-topology-b.step",
+      "sha256": "f46734f720f06f0ba6a07151e9f8478a6e27faaeaebfb7fbd52808eb871e5811",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Geometrically identical to face-level-topology-a but authored by reversing the Boolean addition order.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "face-levels",
+          "identity": {"support": {"value": [15.0, 45.0, -20.0, 20.0], "absolute_tolerance": 1e-6}},
+          "parameters": {"z": {"value": 10.0, "absolute_tolerance": 1e-6}, "disposition": {"value": "global-height-rung"}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        },
+        {
+          "family": "face-levels",
+          "identity": {"support": {"value": [-15.0, 15.0, -20.0, 20.0], "absolute_tolerance": 1e-6}},
+          "parameters": {"z": {"value": 20.0, "absolute_tolerance": 1e-6}, "disposition": {"value": "global-height-rung"}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "face-level-through-step-owned",
+      "tags": ["compound", "inapplicable-substrate", "multiple", "overlapping-family"],
+      "fixture": "face-level-through-owned.step",
+      "sha256": "ed179c8af4ac53fc3f9bb819a82e3ec6bb568c7e59638184d6860a63016ff7fa",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored as two disjoint one-step bodies. Each horizontal support is exact section evidence for a body-local ThroughStep owner, so neither becomes a duplicate global FaceLevel requirement.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "face-levels",
+          "identity": {"support": {"value": [-40.0, -20.0, 0.0, 30.0], "absolute_tolerance": 1e-6}},
+          "parameters": {"z": {"value": 10.0, "absolute_tolerance": 1e-6}, "disposition": {"value": "through-step-owned"}},
+          "required_downstream": ["ir_adapter", "generated_code"]
+        },
+        {
+          "family": "face-levels",
+          "identity": {"support": {"value": [80.0, 100.0, 0.0, 30.0], "absolute_tolerance": 1e-6}},
+          "parameters": {"z": {"value": 10.0, "absolute_tolerance": 1e-6}, "disposition": {"value": "through-step-owned"}},
+          "required_downstream": ["ir_adapter", "generated_code"]
+        }
+      ]
+    },
+    {
+      "id": "face-level-plate-owned",
+      "tags": ["inapplicable-substrate", "overlapping-family"],
+      "fixture": "plate-t-yz.step",
+      "sha256": "7affd743330bc65054bf301fd6b89e913c03ec9439674ce3e34f9eefc2600a2e",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "The horizontal support at Z = 10 mm is the top of the independently dimensioned base Plate. It is retained as FaceLevel evidence but must not also create a global height rung.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "face-levels",
+          "identity": {"support": {"value": [-40.0, 40.0, -30.0, 30.0], "absolute_tolerance": 1e-6}},
+          "parameters": {"z": {"value": 10.0, "absolute_tolerance": 1e-6}, "disposition": {"value": "plate-owned"}},
+          "required_downstream": ["ir_adapter", "generated_code"]
+        }
+      ]
+    },
+    {
+      "id": "face-level-turned-owned",
+      "tags": ["inapplicable-substrate", "overlapping-family", "rotational"],
+      "fixture": "face-level-turned-owned.step",
+      "sha256": "f96aaeb15d6998ad742f4cbe4ba9b9707ca785274e153e2b5b473dacec7aff4a",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored as two coaxial cylindrical bands meeting at Z = 20 mm. The horizontal annulus is turned-profile boundary evidence and must not create a prismatic height rung.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "face-levels",
+          "identity": {"support": {"value": [-15.0, 15.0, -15.0, 15.0], "absolute_tolerance": 1e-6}},
+          "parameters": {"z": {"value": 20.0, "absolute_tolerance": 1e-6}, "disposition": {"value": "turned-profile-owned"}},
+          "required_downstream": ["ir_adapter", "generated_code"]
+        }
+      ]
+    },
+    {
+      "id": "face-level-side-pad-owned",
+      "tags": ["inapplicable-substrate", "multiple", "overlapping-family", "side-normal"],
+      "fixture": "pad-x-positive.step",
+      "sha256": "5175a9364e5f7197178c42f2c95d79c84559563318b3dba71c45a7f66323dbcd",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "An X-normal rectangular pad contributes two horizontal footprint faces at Z = 5 mm and Z = 20 mm. Both are exact pad support evidence and neither is a prismatic height rung.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "face-levels",
+          "identity": {"support": {"value": [10.0, 15.0, 8.0, 18.0], "absolute_tolerance": 1e-6}, "support_rank": {"value": 0}},
+          "parameters": {"z": {"value": 5.0, "absolute_tolerance": 1e-6}, "disposition": {"value": "side-pad-owned"}},
+          "required_downstream": ["ir_adapter", "generated_code"]
+        },
+        {
+          "family": "face-levels",
+          "identity": {"support": {"value": [10.0, 15.0, 8.0, 18.0], "absolute_tolerance": 1e-6}, "support_rank": {"value": 1}},
+          "parameters": {"z": {"value": 20.0, "absolute_tolerance": 1e-6}, "disposition": {"value": "side-pad-owned"}},
+          "required_downstream": ["ir_adapter", "generated_code"]
+        }
+      ]
+    },
+    {
+      "id": "face-level-edge-pocket-owned",
+      "tags": ["inapplicable-substrate", "overlapping-family", "recess"],
+      "fixture": "pocket-edge-anchored.step",
+      "sha256": "5d4ca1b148ce2a572071677b8353d3ddfb7128dae14fdb3d5a17a6c121bfb37d",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "The Z = 4 mm support is the exact floor of an edge-anchored open pocket. Its depth callout owns the interval, so FaceLevel retains evidence without creating a duplicate global rung.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "face-levels",
+          "identity": {"support": {"value": [35.0, 50.0, 15.0, 30.0], "absolute_tolerance": 1e-6}},
+          "parameters": {"z": {"value": 4.0, "absolute_tolerance": 1e-6}, "disposition": {"value": "edge-pocket-owned"}},
+          "required_downstream": ["ir_adapter", "generated_code"]
+        }
+      ]
+    },
+    {
+      "id": "face-level-tiny-negative",
+      "tags": ["negative", "threshold"],
+      "fixture": "face-level-tiny-negative.step",
+      "sha256": "4cd4e68a2ce86510ec1c0583cd52d90007d11b0708cc2e6f972a3c9fc49d067a",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored as a 100 × 100 × 20 mm block with a 1 × 1 × 5 mm open notch. Its tiny horizontal floor is below the documented area threshold and is intentionally not a drawing level.",
+      "expected_outcome": "supported",
+      "facts": []
+    },
+    {
+      "id": "face-level-plain-negative",
+      "tags": ["negative"],
+      "fixture": "plain-block.step",
+      "sha256": "1a5db509de8c0ce04d46cf39296dcdd04873e74cb0e7501bcd97630ffd8d113c",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "A plain rectangular block has only the envelope minimum and maximum faces, so it has no interior FaceLevel occurrence.",
+      "expected_outcome": "supported",
+      "facts": []
+    }
+  ]
+}
