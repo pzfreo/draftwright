@@ -1,7 +1,8 @@
 # ADR 0020 — Provider-owned frame boundary for detected compilation
 
-- **Status:** Accepted for the prepared boundary; production activation remains deferred to
-  #1357's rigid-motion, gauge, PMI, platform, and canary evidence.
+- **Status:** Accepted for the prepared boundary and AP242 source→local seam; production
+  activation remains deferred to #1357's compiler, rigid-motion, gauge, platform, and canary
+  evidence.
 - **Date:** 2026-08-31
 - **Deciders:** Paul Fremantle (pzfreo)
 
@@ -56,14 +57,23 @@ The caller solid remains source provenance. Public `Sheet` declarations and a ca
 Framed detection must not silently rotate or reinterpret a declaration.
 
 Source-coordinate evidence that must join a detected local build, notably AP242 correlation
-geometry, will cross one explicit source→local boundary during the later activation slice:
+geometry, crosses one explicit source→local boundary in `extract_pmi_report(..., frame=...)`:
 
 - points use `PartFrame.to_local`;
 - vectors use the frame basis without origin translation;
-- axis-aligned boxes transform all eight corners before taking local minima and maxima; and
+- referenced topology receives the same rigid source→local placement before its local
+  axis-aligned box is measured; and
 - scalar lengths and angles remain unchanged.
 
-Until that transform and its arbitrary-frame evidence land, framed production remains off.
+The default `frame=None` route remains byte-for-byte caller-space compatible. Transformation
+happens while XCAF topology is measured, before principal-axis, reference-station, cylinder, and
+datum validation; post-processing an already-classified `PmiRecord` would lose oblique or
+frame-aligned evidence. Transforming an already-axis-aligned source box would also retain empty
+space introduced by the source axes under arbitrary rotation, weakening correlation ownership;
+the imported shape is therefore rigidly located first without rebuilding topology. Part21-only
+scalars, labels, identities, and source census do not move.
+
+This seam is necessary but does not itself activate framed production.
 
 ### 3. Gauge is capability, not material meaning
 
@@ -104,14 +114,16 @@ plural before consuming those new TurnedSteps; it may not inherit this compatibi
 ### 6. Delivery is staged without a hidden half-switch
 
 This decision's first slice pins and validates 0.4.9, establishes the boundary and policies, fixes
-local multi-diameter shaft classification, and proves body-local provider evidence. It deliberately
-leaves `analysis._analyse` and `RecognitionCache` on `build_raw_recognition_result`.
+local multi-diameter shaft classification, and proves body-local provider evidence. The next slice
+implements the frame-aware AP242 extraction seam above. Both deliberately leave
+`analysis._analyse` and `RecognitionCache` on `build_raw_recognition_result`.
 
-Production activation is a subsequent #1357 slice. It must prove rigid-motion parity for physical
+Production activation is a subsequent #1357 slice. It must consume the framed PMI report alongside
+the exact local working solid and prove rigid-motion parity for physical
 requirements, feature identities, compiled dimension identities, semantic views, annotations,
-omissions, lint, and build decisions; transform AP242 correlation evidence; enumerate intentional
-raw→framed changes; pass the supported platform matrix; and run representative real-part canaries.
-The raw route remains available through that reviewed rollout.
+omissions, lint, and build decisions; enumerate intentional raw→framed changes; pass the supported
+platform matrix; and run representative real-part canaries. The raw route remains available through
+that reviewed rollout.
 
 ## Consequences
 
@@ -121,6 +133,8 @@ The raw route remains available through that reviewed rollout.
   identities stay paired with the records they justify.
 - Frame refusal and singular-IR limitations remain visible rather than changing coordinate
   authority, selecting a body, or merging disjoint profiles.
+- AP242 points, vectors, AABBs, finite cylinders, and datum geometry can now share the provider's
+  exact local coordinate system without altering the default caller-space API.
 - The framed boundary does not activate framed production. The 0.4.9 dependency does intentionally
   correct one raw compound interpretation: disjoint coaxial bodies no longer form an invented
   cross-body turned profile, so the existing raw path preserves them as independent bosses with no
@@ -151,7 +165,10 @@ profiles, singular-waist refusal, and unchanged production selection. The fail-c
 in `tests/test_recogniser_capabilities.py` guards the 0.4.9 record schemas. Existing
 `tests/test_declared_recognition_gate.py` and `tests/test_part_model.py` retain declared no-recognition
 and one-aggregate lifecycle evidence; `tests/test_import_boundaries.py` keeps the boundary at the
-leaf rank.
+leaf rank. `tests/test_issue_1357_pmi_frame.py` proves point/vector distinction, tight local AABBs
+from arbitrarily rotated non-square topology, default caller-space compatibility, and exact framed
+AP242 dimension, datum, finite-cylinder, and manufacturing-topology evidence on real CTC-03 and
+GRM-03 fixtures.
 
 ## Relationship to prior decisions
 

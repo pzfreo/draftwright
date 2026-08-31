@@ -25,6 +25,8 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Literal, cast
 
+from b123d_recognisers import PartFrame
+
 from draftwright._pmi_part21 import (
     DatumOccurrenceFact,
     GeometricToleranceFact,
@@ -47,6 +49,7 @@ try:
     from OCP.BRepAdaptor import BRepAdaptor_Surface
     from OCP.BRepBndLib import BRepBndLib
     from OCP.GeomAbs import GeomAbs_Cylinder, GeomAbs_Plane
+    from OCP.gp import gp_Trsf
     from OCP.IFSelect import IFSelect_RetDone
     from OCP.STEPCAFControl import STEPCAFControl_Reader
     from OCP.TCollection import TCollection_AsciiString, TCollection_ExtendedString
@@ -54,6 +57,7 @@ try:
     from OCP.TDocStd import TDocStd_Document
     from OCP.TopAbs import TopAbs_FACE, TopAbs_FORWARD, TopAbs_REVERSED
     from OCP.TopExp import TopExp
+    from OCP.TopLoc import TopLoc_Location
     from OCP.TopoDS import TopoDS
     from OCP.TopTools import TopTools_IndexedMapOfShape
     from OCP.XCAFDoc import (
@@ -177,10 +181,11 @@ class PmiRecord:
         lower_tol:      Lower tolerance in mm, or ``None``.
         lower_bound:    Lower limit of a range dimension, in the same units as ``value``.
         upper_bound:    Upper limit of a range dimension, in the same units as ``value``.
-        ref_pts:        Reference stations in global STEP space (same coordinate frame as
-                        the imported solid). For a linear or thickness dimension these are
-                        the centroids of its authored reference groups; other records retain
-                        the per-shape bounding-box centroids.
+        ref_pts:        Reference stations in the extraction coordinate space: global STEP
+                        space by default, or frame-local when extraction receives a
+                        :class:`PartFrame`. For a linear or thickness dimension these are the
+                        centroids of its authored reference groups; other records retain the
+                        per-shape bounding-box centroids.
         ref_bbox:       Combined axis-aligned bbox of ALL referenced shapes:
                         ``(xmin, ymin, zmin, xmax, ymax, zmax)``. Linear rendering uses
                         it for transverse witness support only; the authored stations,
@@ -269,8 +274,40 @@ class PmiExtractionReport:
 # ---------------------------------------------------------------------------
 
 
-def _shape_bbox(shape) -> tuple[float, float, float, float, float, float]:
-    """Return ``(xmin, ymin, zmin, xmax, ymax, zmax)`` of *shape* in global space."""
+def _source_to_local_transform(frame: PartFrame):
+    """Return the rigid OCCT transform matching :meth:`PartFrame.to_local`."""
+    transform = gp_Trsf()
+    axes = (frame.x, frame.y, frame.z)
+    values = tuple(component for axis in axes for component in axis)
+    offsets = tuple(-sum(axis[index] * frame.origin[index] for index in range(3)) for axis in axes)
+    transform.SetValues(
+        values[0],
+        values[1],
+        values[2],
+        offsets[0],
+        values[3],
+        values[4],
+        values[5],
+        offsets[1],
+        values[6],
+        values[7],
+        values[8],
+        offsets[2],
+    )
+    return transform
+
+
+def _shape_bbox(
+    shape, frame: PartFrame | None = None
+) -> tuple[float, float, float, float, float, float]:
+    """Return *shape*'s AABB in source space or the requested local frame.
+
+    Applying a rigid location before measuring is intentionally tighter than transforming the
+    source AABB: the latter encloses air introduced by the source axes after an arbitrary rotation.
+    ``Moved`` changes evaluated coordinates without rebuilding the imported topology.
+    """
+    if frame is not None:
+        shape = shape.Moved(TopLoc_Location(_source_to_local_transform(frame)))
     bb = Bnd_Box()
     BRepBndLib.Add_s(shape, bb)
     return cast(tuple[float, float, float, float, float, float], bb.Get())
@@ -289,6 +326,30 @@ def _merge_bboxes(
     ys = [b[1] for b in boxes] + [b[4] for b in boxes]
     zs = [b[2] for b in boxes] + [b[5] for b in boxes]
     return (min(xs), min(ys), min(zs), max(xs), max(ys), max(zs))
+
+
+def _frame_point(
+    point: tuple[float, float, float], frame: PartFrame | None
+) -> tuple[float, float, float]:
+    """Express one source-space point in *frame*, preserving default extraction exactly."""
+    if frame is None:
+        return point
+    return frame.to_local(point)
+
+
+def _frame_vector(
+    vector: tuple[float, float, float], frame: PartFrame | None
+) -> tuple[float, float, float]:
+    """Express one free vector in *frame* without applying the frame origin."""
+    if frame is None:
+        return vector
+    return cast(
+        tuple[float, float, float],
+        tuple(
+            sum(component * basis[index] for index, component in enumerate(vector))
+            for basis in (frame.x, frame.y, frame.z)
+        ),
+    )
 
 
 def _dominant_from_bbox(bbox: tuple[float, float, float, float, float, float]) -> str:
@@ -444,7 +505,7 @@ def _failure_reason(exc: Exception) -> str:
     return f"{type(exc).__name__}: {exc}"
 
 
-def _reference_geometry_with_groups(label, shape_tool):
+def _reference_geometry_with_groups(label, shape_tool, frame: PartFrame | None = None):
     """Measure the geometry relationships shared by dimensions and tolerances."""
     first_refs = TDF_LabelSequence()
     second_refs = TDF_LabelSequence()
@@ -462,7 +523,7 @@ def _reference_geometry_with_groups(label, shape_tool):
                 partial_reasons.append("one referenced shape is unavailable")
                 continue
             try:
-                bbox = _shape_bbox(shape)
+                bbox = _shape_bbox(shape) if frame is None else _shape_bbox(shape, frame)
                 boxes.append(bbox)
                 point = _bbox_centroid(bbox)
                 points.append(point)
@@ -489,15 +550,17 @@ def _reference_geometry_with_groups(label, shape_tool):
     )
 
 
-def _reference_geometry(label, shape_tool):
+def _reference_geometry(label, shape_tool, frame: PartFrame | None = None):
     """Compatible flattened geometry projection shared by non-dimensional PMI."""
-    points, ref_bbox, dominant_axis, reasons, _groups = _reference_geometry_with_groups(
-        label, shape_tool
-    )
+    if frame is None:
+        geometry = _reference_geometry_with_groups(label, shape_tool)
+    else:
+        geometry = _reference_geometry_with_groups(label, shape_tool, frame)
+    points, ref_bbox, dominant_axis, reasons, _groups = geometry
     return points, ref_bbox, dominant_axis, reasons
 
 
-def _cylindrical_references(label, shape_tool):
+def _cylindrical_references(label, shape_tool, frame: PartFrame | None = None):
     """Return canonical finite cylinders for a Size_Diameter relationship.
 
     A diameter may truthfully reference one lateral cylindrical face.  XCAF commonly
@@ -540,8 +603,10 @@ def _cylindrical_references(label, shape_tool):
                 direction = axis.Direction()
                 references.append(
                     CylindricalReference.canonical(
-                        axis_point=(point.X(), point.Y(), point.Z()),
-                        axis_direction=(direction.X(), direction.Y(), direction.Z()),
+                        axis_point=_frame_point((point.X(), point.Y(), point.Z()), frame),
+                        axis_direction=_frame_vector(
+                            (direction.X(), direction.Y(), direction.Z()), frame
+                        ),
                         radius=float(cylinder.Radius()),
                         local_interval=(
                             float(surface.FirstVParameter()),
@@ -573,7 +638,7 @@ def _cylindrical_references(label, shape_tool):
     return tuple(unique.values()), tuple(dict.fromkeys(reasons))
 
 
-def _cylindrical_references_from_shapes(shapes, *, noun: str):
+def _cylindrical_references_from_shapes(shapes, *, noun: str, frame: PartFrame | None = None):
     """Measure exact imported faces already resolved from Part21 identities."""
     references: list[CylindricalReference] = []
     reasons: list[str] = []
@@ -601,8 +666,10 @@ def _cylindrical_references_from_shapes(shapes, *, noun: str):
             direction = axis.Direction()
             references.append(
                 CylindricalReference.canonical(
-                    axis_point=(point.X(), point.Y(), point.Z()),
-                    axis_direction=(direction.X(), direction.Y(), direction.Z()),
+                    axis_point=_frame_point((point.X(), point.Y(), point.Z()), frame),
+                    axis_direction=_frame_vector(
+                        (direction.X(), direction.Y(), direction.Z()), frame
+                    ),
                     radius=float(cylinder.Radius()),
                     local_interval=(
                         float(surface.FirstVParameter()),
@@ -649,7 +716,7 @@ def _diameter_reference_blockers(
     return tuple(dict.fromkeys(blockers))
 
 
-def _datum_geometry_from_shapes(shapes):
+def _datum_geometry_from_shapes(shapes, frame: PartFrame | None = None):
     """Measure exact datum faces and require one compatible axis-aligned surface."""
     points: list[tuple[float, float, float]] = []
     boxes: list[tuple[float, float, float, float, float, float]] = []
@@ -662,7 +729,7 @@ def _datum_geometry_from_shapes(shapes):
             reasons.append("one referenced shape is unavailable")
             continue
         try:
-            bbox = _shape_bbox(shape)
+            bbox = _shape_bbox(shape) if frame is None else _shape_bbox(shape, frame)
             boxes.append(bbox)
             points.append(_bbox_centroid(bbox))
             surface = BRepAdaptor_Surface(TopoDS.Face_s(shape))
@@ -678,7 +745,8 @@ def _datum_geometry_from_shapes(shapes):
                 continue
             axis = geometry.Axis()
             direction = axis.Direction()
-            components = (abs(direction.X()), abs(direction.Y()), abs(direction.Z()))
+            local_direction = _frame_vector((direction.X(), direction.Y(), direction.Z()), frame)
+            components = tuple(abs(value) for value in local_direction)
             axis_index = max(range(3), key=components.__getitem__)
             if (
                 components[axis_index] < 1e-6
@@ -687,7 +755,8 @@ def _datum_geometry_from_shapes(shapes):
                 reasons.append("one datum reference surface is not axis-aligned")
                 continue
             location = axis.Location()
-            coordinates = (location.X(), location.Y(), location.Z())
+            coordinates = _frame_point((location.X(), location.Y(), location.Z()), frame)
+            support: tuple[float, ...]
             if kind == "plane":
                 support = (coordinates[axis_index],)
             else:
@@ -721,7 +790,7 @@ def _datum_geometry_from_shapes(shapes):
     return tuple(points), ref_bbox, reference_axis, tuple(dict.fromkeys(reasons))
 
 
-def _datum_reference_geometry(label, shape_tool):
+def _datum_reference_geometry(label, shape_tool, frame: PartFrame | None = None):
     """Measure datum faces reached through the direct XCAF relationship."""
     first_refs = TDF_LabelSequence()
     second_refs = TDF_LabelSequence()
@@ -730,7 +799,9 @@ def _datum_reference_geometry(label, shape_tool):
     for refs in (first_refs, second_refs):
         for index in range(1, refs.Length() + 1):
             shapes.append(shape_tool.GetShape_s(refs.Value(index)))
-    return _datum_geometry_from_shapes(shapes)
+    if frame is None:
+        return _datum_geometry_from_shapes(shapes)
+    return _datum_geometry_from_shapes(shapes, frame)
 
 
 class _DatumTopologyResolver:
@@ -1002,7 +1073,12 @@ def _unpreserved_geometric_tolerance_fields(obj) -> tuple[str, ...]:
 
 
 def _dimension_record(
-    label, obj, type_code: int, shape_tool, source_id: str
+    label,
+    obj,
+    type_code: int,
+    shape_tool,
+    source_id: str,
+    frame: PartFrame | None = None,
 ) -> tuple[PmiRecord, tuple[str, ...]]:
     """Convert one semantic XCAF dimension label, allowing its caller to record failures."""
     partial_reasons = []
@@ -1048,9 +1124,11 @@ def _dimension_record(
         except Exception as exc:
             partial_reasons.append(f"upper range bound is unavailable ({_failure_reason(exc)})")
 
-    points, ref_bbox, dominant_axis, reference_reasons, group_stations = (
-        _reference_geometry_with_groups(label, shape_tool)
-    )
+    if frame is None:
+        reference_geometry = _reference_geometry_with_groups(label, shape_tool)
+    else:
+        reference_geometry = _reference_geometry_with_groups(label, shape_tool, frame)
+    points, ref_bbox, dominant_axis, reference_reasons, group_stations = reference_geometry
     partial_reasons.extend(reference_reasons)
     kind = _DIM_TYPE.get(type_code, f"type{type_code}")
     rendering_blockers: tuple[str, ...] = ()
@@ -1066,7 +1144,10 @@ def _dimension_record(
             )
         rendering_blockers = _dimension_geometry_blockers(kind, reference_reasons, station_reasons)
     elif type_code == 15:  # XCAFDimTolObjects_DimensionType_Size_Diameter
-        cylindrical_refs, cylinder_reasons = _cylindrical_references(label, shape_tool)
+        if frame is None:
+            cylindrical_refs, cylinder_reasons = _cylindrical_references(label, shape_tool)
+        else:
+            cylindrical_refs, cylinder_reasons = _cylindrical_references(label, shape_tool, frame)
         # The generic XCAF relationship already owns missing-reference failures.  Do not
         # restate the same absent shape as a diameter-specific extraction failure; that
         # would turn one partial outcome into several aliases.  Once a cylinder was
@@ -1125,6 +1206,7 @@ def _geometric_tolerance_record(
     source_id: str,
     part21_facts: tuple[GeometricToleranceFact, ...] = (),
     part21_error: str = "",
+    frame: PartFrame | None = None,
 ) -> tuple[PmiRecord, tuple[str, ...]]:
     """Convert the XCAF-owned fields of one geometric tolerance."""
     value = float(obj.GetValue())
@@ -1153,7 +1235,11 @@ def _geometric_tolerance_record(
     gtol_modifiers, modifier_reasons = _geometric_tolerance_modifiers(obj)
     partial_reasons.extend(modifier_reasons)
     partial_reasons.extend(_unpreserved_geometric_tolerance_fields(obj))
-    points, ref_bbox, dominant_axis, reference_reasons = _reference_geometry(label, shape_tool)
+    if frame is None:
+        reference_geometry = _reference_geometry(label, shape_tool)
+    else:
+        reference_geometry = _reference_geometry(label, shape_tool, frame)
+    points, ref_bbox, dominant_axis, reference_reasons = reference_geometry
     partial_reasons.extend(reference_reasons)
     datum_refs, datum_reasons = _datum_references(label, dim_tol_tool)
     partial_reasons.extend(datum_reasons)
@@ -1248,7 +1334,9 @@ def _manufacturing_requirement_projection(
 _CYLINDRICAL_REQUIREMENT_KINDS = frozenset(("external_thread", "internal_thread", "knurl"))
 
 
-def _manufacturing_requirement_topology(records, step_reader) -> tuple[PmiRecord, ...]:
+def _manufacturing_requirement_topology(
+    records, step_reader, frame: PartFrame | None = None
+) -> tuple[PmiRecord, ...]:
     """Attach exact finite-cylinder evidence to supported manufacturing records."""
     imported_faces = TopTools_IndexedMapOfShape()
     TopExp.MapShapes_s(step_reader.OneShape(), TopAbs_FACE, imported_faces)
@@ -1263,10 +1351,16 @@ def _manufacturing_requirement_topology(records, step_reader) -> tuple[PmiRecord
             record.reference_item_ids,
             noun="manufacturing requirement",
         )
-        references, geometry_reasons = _cylindrical_references_from_shapes(
-            shapes,
-            noun="manufacturing requirement",
-        )
+        if frame is None:
+            references, geometry_reasons = _cylindrical_references_from_shapes(
+                shapes, noun="manufacturing requirement"
+            )
+        else:
+            references, geometry_reasons = _cylindrical_references_from_shapes(
+                shapes,
+                noun="manufacturing requirement",
+                frame=frame,
+            )
         blockers = tuple(
             dict.fromkeys((*record.lowering_blockers, *topology_reasons, *geometry_reasons))
         )
@@ -1274,7 +1368,9 @@ def _manufacturing_requirement_topology(records, step_reader) -> tuple[PmiRecord
     return tuple(projected)
 
 
-def extract_pmi_report(step_file: str | Path) -> PmiExtractionReport:
+def extract_pmi_report(
+    step_file: str | Path, *, frame: PartFrame | None = None
+) -> PmiExtractionReport:
     """Inventory and extract semantic PMI from an AP242 STEP file in one XCAF pass.
 
     The report retains one source outcome for every dimension, geometric tolerance,
@@ -1291,6 +1387,11 @@ def extract_pmi_report(step_file: str | Path) -> PmiExtractionReport:
 
     Part21-only manufacturing requirements remain inventoried even when OCP's GDT support is
     unavailable or the XCAF transfer fails; the report also retains that global XCAF error.
+
+    Geometry evidence is returned in global STEP coordinates by default. Passing ``frame``
+    expresses points, vectors, boxes, cylinders, and datum geometry in that frame's local
+    coordinates before principal-axis relationships are validated. Scalars and source
+    identities are unchanged.
 
     Does **not** modify the solid geometry — purely a read-only second pass.
     """
@@ -1339,10 +1440,14 @@ def extract_pmi_report(step_file: str | Path) -> PmiExtractionReport:
     dt = XCAFDoc_DocumentTool.DimTolTool_s(main)
 
     try:
-        requirement_records = _manufacturing_requirement_topology(
-            requirement_records,
-            reader.Reader(),
-        )
+        if frame is None:
+            requirement_records = _manufacturing_requirement_topology(
+                requirement_records, reader.Reader()
+            )
+        else:
+            requirement_records = _manufacturing_requirement_topology(
+                requirement_records, reader.Reader(), frame
+            )
     except Exception as exc:
         reason = f"manufacturing requirement topology is unavailable ({_failure_reason(exc)})"
         requirement_records = tuple(
@@ -1372,9 +1477,14 @@ def extract_pmi_report(step_file: str | Path) -> PmiExtractionReport:
             if without_record is not None:
                 sources.append(without_record)
                 continue
-            record, partial_reasons = _dimension_record(
-                label, obj, type_code, shape_tool, source_id
-            )
+            if frame is None:
+                record, partial_reasons = _dimension_record(
+                    label, obj, type_code, shape_tool, source_id
+                )
+            else:
+                record, partial_reasons = _dimension_record(
+                    label, obj, type_code, shape_tool, source_id, frame
+                )
         except Exception as exc:
             sources.append(
                 PmiSourceEntity(
@@ -1416,7 +1526,7 @@ def extract_pmi_report(step_file: str | Path) -> PmiExtractionReport:
         try:
             obj = XCAFDoc_GeomTolerance.Set_s(label).GetObject()
             tolerance_type_code = int(obj.GetType())
-            record, partial_reasons = _geometric_tolerance_record(
+            arguments = (
                 label,
                 obj,
                 tolerance_type_code,
@@ -1426,6 +1536,10 @@ def extract_pmi_report(step_file: str | Path) -> PmiExtractionReport:
                 part21_facts,
                 part21_error,
             )
+            if frame is None:
+                record, partial_reasons = _geometric_tolerance_record(*arguments)
+            else:
+                record, partial_reasons = _geometric_tolerance_record(*arguments, frame)
         except Exception as exc:
             sources.append(
                 PmiSourceEntity(
@@ -1483,9 +1597,11 @@ def extract_pmi_report(step_file: str | Path) -> PmiExtractionReport:
             correspondence_reason = datum_part21_error
             if not correspondence_reason and not letter_reason and not context_reason:
                 fact, correspondence_reason = match_datum_occurrence(datum_facts, context, letter)
-            points, ref_bbox, reference_axis, geometry_reasons = _datum_reference_geometry(
-                label, shape_tool
-            )
+            if frame is None:
+                datum_geometry = _datum_reference_geometry(label, shape_tool)
+            else:
+                datum_geometry = _datum_reference_geometry(label, shape_tool, frame)
+            points, ref_bbox, reference_axis, geometry_reasons = datum_geometry
             if fact is not None and fact.reference_item_ids:
                 if datum_topology is None:
                     topology_shapes = ()
@@ -1495,9 +1611,11 @@ def extract_pmi_report(step_file: str | Path) -> PmiExtractionReport:
                         fact.datum_feature_id, fact.reference_item_ids
                     )
                 if topology_shapes:
-                    points, ref_bbox, reference_axis, geometry_reasons = (
-                        _datum_geometry_from_shapes(topology_shapes)
-                    )
+                    if frame is None:
+                        datum_geometry = _datum_geometry_from_shapes(topology_shapes)
+                    else:
+                        datum_geometry = _datum_geometry_from_shapes(topology_shapes, frame)
+                    points, ref_bbox, reference_axis, geometry_reasons = datum_geometry
                 else:
                     geometry_reasons = tuple(dict.fromkeys((*geometry_reasons, *topology_reasons)))
             blockers = tuple(
@@ -1625,10 +1743,12 @@ def extract_pmi_report(step_file: str | Path) -> PmiExtractionReport:
     return PmiExtractionReport(sources=tuple(sources), records=tuple(records))
 
 
-def extract_pmi(step_file: str | Path) -> list[PmiRecord]:
+def extract_pmi(step_file: str | Path, *, frame: PartFrame | None = None) -> list[PmiRecord]:
     """Return the successful-record projection of :func:`extract_pmi_report`.
 
     This compatibility surface deliberately remains a list. Callers that need to know what
     the source contained or why a record is absent must use :func:`extract_pmi_report`.
     """
-    return list(extract_pmi_report(step_file).records)
+    if frame is None:
+        return list(extract_pmi_report(step_file).records)
+    return list(extract_pmi_report(step_file, frame=frame).records)
