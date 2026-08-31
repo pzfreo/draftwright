@@ -2110,6 +2110,21 @@ class LevelSupport:
 
 
 @dataclass(frozen=True)
+class ShoulderSupport:
+    """Body-local level evidence for one prismatic shoulder occurrence.
+
+    Equal shoulder coordinates can occur on disconnected solids.  The axis and position keep
+    this record joinable with :attr:`StepLevelFeature.shoulders`; ``levels`` retain the public
+    recogniser evidence that distinguishes the physical occurrences.
+    """
+
+    axis: str
+    position: float
+    witness_z: float
+    levels: tuple[LevelSupport, ...]
+
+
+@dataclass(frozen=True)
 class StepLevelFeature:
     """The prismatic height profile — horizontal face levels (Z) dimensioned from the
     base, stacked right of the front view (#237). The turned analogue is `StepFeature`
@@ -2124,7 +2139,10 @@ class StepLevelFeature:
     step/rebate changes height — so the part is fully constrained (a step is located
     along its axis, not just given two heights). ``datum`` is the part-space min corner
     each shoulder position is measured from (a shoulder at ``pos`` on ``axis`` shows
-    ``pos - datum[axis]``)."""
+    ``pos - datum[axis]``). ``shoulder_supports`` is an occurrence roster: it preserves the
+    body-local level evidence for equal-coordinate shoulders on disconnected solids, allowing
+    the compiler to choose a physical witness on the correct body rather than collapsing them.
+    """
 
     frame: Frame
     base: float
@@ -2132,6 +2150,7 @@ class StepLevelFeature:
     shoulders: tuple[tuple[str, float], ...] = ()
     datum: Point = (0.0, 0.0, 0.0)
     level_supports: tuple[LevelSupport, ...] = ()
+    shoulder_supports: tuple[ShoulderSupport, ...] = ()
     kind: ClassVar[str] = "step_level"
 
     def parameters(self) -> list[DimParameter]:

@@ -69,6 +69,7 @@ from draftwright.model.ir import (
     PolygonalBossFeature,
     PolygonalStockFeature,
     RotationalFeature,
+    ShoulderSupport,
     SlotFeature,
     SlotPatternFeature,
     StepFeature,
@@ -1022,6 +1023,26 @@ def plate(obj=None, *, axis=None, lo=None, hi=None, u=None, v=None) -> PlateFeat
     )
 
 
+def _riser_witness_z(riser, shoulder) -> float:
+    """Choose a proved Z station on public RiserEvidence for one projected shoulder."""
+    body_levels = tuple(riser.body_levels or ())
+    span_name = "x_span" if shoulder.axis == "x" else "y_span"
+    tied = [
+        float(level.z)
+        for level in body_levels
+        if getattr(level, span_name) is not None
+        and any(abs(shoulder.position - bound) < riser.tol for bound in getattr(level, span_name))
+        and riser.z_lo - riser.tol <= level.z <= riser.z_hi + riser.tol
+    ]
+    if tied:
+        return min(tied, key=lambda z: abs(z - riser.z_lo))
+    if riser.vertical or riser.lo_at_envelope:
+        return float(riser.z_lo)
+    if riser.hi_at_envelope:
+        return float(riser.z_hi)
+    return float(riser.z_lo)
+
+
 def _read_step_levels(
     obj,
 ) -> tuple[
@@ -1031,6 +1052,7 @@ def _read_step_levels(
     Point,
     Point,
     tuple[LevelSupport, ...],
+    tuple[ShoulderSupport, ...],
 ]:
     """Read a prismatic height ladder off a part: ``base`` (bbox min Z), the interior step
     ``levels`` and their support spans (the shared area-filtered
@@ -1069,14 +1091,51 @@ def _read_step_levels(
     # handed it, which is a different solid from the one the aggregate recognised (#1025). So
     # this is the one consumer that legitimately keeps its own scan, in the same sense
     # `hole(cylinder)` reads a diameter off the cylinder you passed.
-    shoulders = (
-        tuple(
-            (s.axis, s.position)
-            for s in project_step_shoulders(recognise_risers(obj), levels=list(levels))
+    shoulder_entries: list[tuple[str, float, ShoulderSupport]] = []
+    if len(levels) == 1:
+        for riser in recognise_risers(obj):
+            body_levels = riser.body_levels
+            if body_levels is None:
+                projected = project_step_shoulders((riser,), levels=list(levels))
+                support: tuple[LevelSupport, ...] = ()
+            else:
+                selected = tuple(
+                    level
+                    for level in body_levels
+                    if any(abs(level.z - owned) < riser.tol for owned in levels)
+                )
+                projected = project_step_shoulders((riser,), levels_by_riser=(selected,))
+                support = tuple(
+                    LevelSupport(
+                        float(level.z),
+                        (float(level.x_span[0]), float(level.x_span[1])),
+                        (float(level.y_span[0]), float(level.y_span[1])),
+                    )
+                    for level in body_levels
+                    if level.x_span is not None and level.y_span is not None
+                )
+            shoulder_entries.extend(
+                (
+                    s.axis,
+                    float(s.position),
+                    ShoulderSupport(
+                        s.axis,
+                        float(s.position),
+                        _riser_witness_z(riser, s),
+                        support,
+                    ),
+                )
+                for s in projected
+            )
+    shoulder_entries.sort(
+        key=lambda item: (
+            item[0],
+            item[1],
+            tuple((level.level, level.x_span, level.y_span) for level in item[2].levels),
         )
-        if len(levels) == 1
-        else ()
     )
+    shoulders = tuple((axis, position) for axis, position, _ in shoulder_entries)
+    shoulder_supports = tuple(entry[2] for entry in shoulder_entries)
     c = bb.center()
     return (
         base,
@@ -1085,11 +1144,20 @@ def _read_step_levels(
         (round(bb.min.X, 3), round(bb.min.Y, 3), base),
         (round(c.X, 3), round(c.Y, 3), base),
         level_supports,
+        shoulder_supports,
     )
 
 
 def step_level(
-    obj=None, *, base=None, levels=None, shoulders=None, datum=None, at=None, level_supports=None
+    obj=None,
+    *,
+    base=None,
+    levels=None,
+    shoulders=None,
+    datum=None,
+    at=None,
+    level_supports=None,
+    shoulder_supports=None,
 ) -> StepLevelFeature:
     """A prismatic height ladder + step-position shoulders (#555/#578) — a rebated / stepped
     block. Either ``step_level(part)`` — ``base``, the interior ``levels``, the ``(axis,
@@ -1101,9 +1169,18 @@ def step_level(
     to the ``datum`` X/Y at ``base`` and is inert for step rendering. ``level_supports`` may
     carry one ``(level, x_span, y_span)`` record per level so a dimension retains the face that
     established it (#915). An object supplies *defaults*; any explicit keyword overrides that
-    field (#451)."""
+    field (#451). ``shoulder_supports`` is an aligned roster of ``(axis, position, witness_z,
+    levels)`` records used to distinguish equal-coordinate shoulders on disconnected bodies."""
     if obj is not None:
-        r_base, r_levels, r_shoulders, r_datum, r_at, r_level_supports = _read_step_levels(obj)
+        (
+            r_base,
+            r_levels,
+            r_shoulders,
+            r_datum,
+            r_at,
+            r_level_supports,
+            r_shoulder_supports,
+        ) = _read_step_levels(obj)
         explicit_levels = levels is not None
         if explicit_levels:
             levels = tuple(levels)
@@ -1121,6 +1198,8 @@ def step_level(
                 if explicit_levels
                 else r_level_supports
             )
+        if shoulder_supports is None:
+            shoulder_supports = r_shoulder_supports if shoulders == r_shoulders else ()
     if datum is None:
         datum = (0.0, 0.0, 0.0)
     if shoulders is None:
@@ -1207,6 +1286,90 @@ def step_level(
         if not (isinstance(p, (int, float)) and not isinstance(p, bool) and math.isfinite(p)):
             raise ValueError(f"step_level() shoulder position must be a number (got {p!r})")
         norm_shoulders.append((ax, float(p)))
+    norm_shoulder_supports = []
+    for support in shoulder_supports or ():
+        if isinstance(support, ShoulderSupport):
+            support_axis = support.axis
+            support_position = support.position
+            witness_z = support.witness_z
+            support_levels = support.levels
+        elif isinstance(support, (tuple, list)) and len(support) == 4:
+            support_axis, support_position, witness_z, support_levels = support
+        else:
+            raise ValueError(
+                "step_level() shoulder support must be ShoulderSupport or "
+                f"(axis, position, witness_z, levels) (got {support!r})"
+            )
+        support_axis = _norm_axis(support_axis)
+        if support_axis == "z":
+            raise ValueError("step_level() shoulder support axis must be 'x' or 'y'")
+        if not (
+            isinstance(support_position, (int, float))
+            and not isinstance(support_position, bool)
+            and math.isfinite(support_position)
+        ):
+            raise ValueError("step_level() shoulder support position must be a finite number")
+        if not (
+            isinstance(witness_z, (int, float))
+            and not isinstance(witness_z, bool)
+            and math.isfinite(witness_z)
+        ):
+            raise ValueError("step_level() shoulder support witness_z must be a finite number")
+        norm_levels = []
+        for level in support_levels:
+            if isinstance(level, LevelSupport):
+                level_value, x_span, y_span = level.level, level.x_span, level.y_span
+            elif isinstance(level, (tuple, list)) and len(level) == 3:
+                level_value, x_span, y_span = level
+            else:
+                raise ValueError(
+                    "step_level() shoulder support level must be LevelSupport or "
+                    f"(level, x_span, y_span) (got {level!r})"
+                )
+            if not (
+                isinstance(level_value, (int, float))
+                and not isinstance(level_value, bool)
+                and math.isfinite(level_value)
+            ):
+                raise ValueError("step_level() shoulder support level must be finite")
+            for name, span in (("x_span", x_span), ("y_span", y_span)):
+                if not (
+                    isinstance(span, (tuple, list))
+                    and len(span) == 2
+                    and all(
+                        isinstance(value, (int, float))
+                        and not isinstance(value, bool)
+                        and math.isfinite(value)
+                        for value in span
+                    )
+                    and span[0] <= span[1]
+                ):
+                    raise ValueError(
+                        f"step_level() shoulder support {name} must be a finite ordered pair"
+                    )
+            norm_levels.append(
+                LevelSupport(
+                    float(level_value),
+                    (float(x_span[0]), float(x_span[1])),
+                    (float(y_span[0]), float(y_span[1])),
+                )
+            )
+        norm_shoulder_supports.append(
+            ShoulderSupport(
+                support_axis,
+                float(support_position),
+                float(witness_z),
+                tuple(norm_levels),
+            )
+        )
+    if (
+        norm_shoulder_supports
+        and [(support.axis, support.position) for support in norm_shoulder_supports]
+        != norm_shoulders
+    ):
+        raise ValueError(
+            "step_level() shoulder supports must align one-for-one with declared shoulders"
+        )
     return StepLevelFeature(
         frame=Frame(origin=(at[0], at[1], at[2]), axis="z"),
         base=base,
@@ -1214,6 +1377,7 @@ def step_level(
         shoulders=tuple(norm_shoulders),
         datum=(datum[0], datum[1], datum[2]),
         level_supports=tuple(sorted(norm_supports, key=lambda support: support.level)),
+        shoulder_supports=tuple(norm_shoulder_supports),
     )
 
 

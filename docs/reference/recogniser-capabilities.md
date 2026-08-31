@@ -353,8 +353,23 @@ an outcome.
 Remaining supported-family completeness work is tracked by family group rather than the closed
 shared design issue: #1370 retains countersinks and Double-D bores; #1371 covers
 channels, slots, slot patterns and polygonal stock; #1372 retains the independent rectangular-pad
-and polygonal-boss benchmark corpora; #1373 retains face levels and risers; and
+and polygonal-boss benchmark corpora; #1373 retains face levels; and
 #1374 retains turned steps.
+
+The `risers` completeness boundary is supported by the independently authored #1373 corpus.
+RiserEvidence remains shared pre-projection substrate: the observed numerator applies
+Draftwright's level, Plate and aggregate ownership policy to the build-owned public evidence
+without consulting the target IR, then each downstream check proves the same result independently. Axis,
+absolute station, datum and the released body-local FaceLevel support identify the physical
+occurrence; datum distance is the parameter. Equal scalar shoulders on separate bodies remain
+separate occurrences through IR, explicit `Sheet.step_level(...)` declaration, generated code and
+the finished drawing. Drawing credit requires one consumed compiler-approved
+`step_position.length` span at the correct body-local witness and one confirmed placed Dimension
+per occurrence, never annotation names or page coordinates.
+The raw-coordinate corpus covers X/Y, vertical and oblique transitions, a bounded two-axis ramp,
+equal compound occurrences, remote aggregate ownership, construction-order variants and negative
+edge controls. Arbitrarily
+rotated framed family evidence remains separately deferred under #1382 and upstream #383.
 
 ## Historical: recognisers 0.4.8 raw boundary and RaisedPad v2
 

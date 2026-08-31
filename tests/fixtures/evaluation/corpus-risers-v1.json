@@ -1,0 +1,176 @@
+{
+  "format": "draftwright-step-analysis-corpus",
+  "format_version": 1,
+  "corpus_version": "1.0.0",
+  "metric_version": 1,
+  "scope": ["risers"],
+  "cases": [
+    {
+      "id": "riser-vertical-x",
+      "tags": ["overlapping-family", "positive", "principal-orientation"],
+      "fixture": "riser-vertical-x.step",
+      "sha256": "4e77aa010ca7b4d1d257350d559266cee56c409f9a8eeee9ec65721ee7d07392",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored as a 60 × 40 × 20 mm block with the upper-right half removed. The vertical wall establishes one X shoulder 30 mm from the minimum-X datum; the coincident ThroughStep record is alternate evidence, not a second position requirement.",
+      "expected_outcome": "supported",
+      "facts": [
+        {"family": "risers", "identity": {"axis": {"value": "x"}, "position": {"value": 30.0, "absolute_tolerance": 1e-6}, "datum": {"value": 0.0, "absolute_tolerance": 1e-6}, "support": {"value": [10.0, 30.0, 60.0, 0.0, 40.0]}}, "parameters": {"distance": {"value": 30.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]}
+      ]
+    },
+    {
+      "id": "riser-vertical-y",
+      "tags": ["positive", "principal-orientation"],
+      "fixture": "riser-vertical-y.step",
+      "sha256": "511810c79578ba4d0dd8a183d7d08fba6e997516034fed6beb9647ab36cf2dac",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored by rotating and translating the vertical-X rebate onto Y. Its shoulder is at Y=90 mm from the independently authored Y=60 mm datum.",
+      "expected_outcome": "supported",
+      "facts": [
+        {"family": "risers", "identity": {"axis": {"value": "y"}, "position": {"value": 90.0, "absolute_tolerance": 1e-6}, "datum": {"value": 60.0, "absolute_tolerance": 1e-6}, "support": {"value": [10.0, -40.0, 0.0, 90.0, 120.0]}}, "parameters": {"distance": {"value": 30.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]}
+      ]
+    },
+    {
+      "id": "riser-slanted-x",
+      "tags": ["multiple", "positive", "slanted"],
+      "fixture": "riser-slanted-x.step",
+      "sha256": "84901bf3fa86f24be9d9f170bdc048178450dc908ebdad46fe1f4154445f8462",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored from an X-Z profile with two vertical rises and one oblique rise. Its three physical transitions lie at X=24, 32 and 40 mm from the minimum-X datum.",
+      "expected_outcome": "supported",
+      "facts": [
+        {"family": "risers", "identity": {"axis": {"value": "x"}, "position": {"value": 24.0, "absolute_tolerance": 1e-6}, "datum": {"value": 0.0, "absolute_tolerance": 1e-6}, "support": {"value": [14.0, 40.0, 50.0, -50.0, 0.0, 19.0, 32.0, 40.0, -50.0, 0.0]}}, "parameters": {"distance": {"value": 24.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]},
+        {"family": "risers", "identity": {"axis": {"value": "x"}, "position": {"value": 32.0, "absolute_tolerance": 1e-6}, "datum": {"value": 0.0, "absolute_tolerance": 1e-6}, "support": {"value": [14.0, 40.0, 50.0, -50.0, 0.0, 19.0, 32.0, 40.0, -50.0, 0.0]}}, "parameters": {"distance": {"value": 32.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]},
+        {"family": "risers", "identity": {"axis": {"value": "x"}, "position": {"value": 40.0, "absolute_tolerance": 1e-6}, "datum": {"value": 0.0, "absolute_tolerance": 1e-6}, "support": {"value": [14.0, 40.0, 50.0, -50.0, 0.0, 19.0, 32.0, 40.0, -50.0, 0.0]}}, "parameters": {"distance": {"value": 40.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]}
+      ]
+    },
+    {
+      "id": "riser-bounded-two-axis",
+      "tags": ["ambiguous", "multiple", "positive", "slanted"],
+      "fixture": "riser-bounded-two-axis.step",
+      "sha256": "cec9ce043df8ed105220067b63c6ab2d1c68edc57c5171e599a7888cec482d2b",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored by subtracting a 12 mm-wide bounded ramp from a 50 mm square block. The ramp has two X transition stations and one independent Y terminal station.",
+      "expected_outcome": "supported",
+      "facts": [
+        {"family": "risers", "identity": {"axis": {"value": "x"}, "position": {"value": 5.0, "absolute_tolerance": 1e-6}, "datum": {"value": 0.0, "absolute_tolerance": 1e-6}, "support": {"value": [15.0, 0.0, 5.0, 0.0, 12.0]}}, "parameters": {"distance": {"value": 5.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]},
+        {"family": "risers", "identity": {"axis": {"value": "x"}, "position": {"value": 15.0, "absolute_tolerance": 1e-6}, "datum": {"value": 0.0, "absolute_tolerance": 1e-6}, "support": {"value": [15.0, 0.0, 5.0, 0.0, 12.0]}}, "parameters": {"distance": {"value": 15.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]},
+        {"family": "risers", "identity": {"axis": {"value": "y"}, "position": {"value": 12.0, "absolute_tolerance": 1e-6}, "datum": {"value": 0.0, "absolute_tolerance": 1e-6}, "support": {"value": [15.0, 0.0, 5.0, 0.0, 12.0]}}, "parameters": {"distance": {"value": 12.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]}
+      ]
+    },
+    {
+      "id": "riser-compound-equal",
+      "tags": ["compound", "multiple", "multiple-equal", "positive"],
+      "fixture": "riser-compound-equal.step",
+      "sha256": "9bc8d4d22afd64a70d0aac2edb25bb830feb5bcbd8bb42cc7c20e3dc37f5aa99",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored as two disjoint copies of the slanted profile separated along Y. Each body contributes its own three X shoulders even though the scalar axis, station and datum values are equal.",
+      "expected_outcome": "supported",
+      "facts": [
+        {"family": "risers", "identity": {"axis": {"value": "x"}, "position": {"value": 24.0, "absolute_tolerance": 1e-6}, "datum": {"value": 0.0, "absolute_tolerance": 1e-6}, "support": {"value": [14.0, 40.0, 50.0, -110.0, -60.0, 19.0, 32.0, 40.0, -110.0, -60.0]}}, "parameters": {"distance": {"value": 24.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]},
+        {"family": "risers", "identity": {"axis": {"value": "x"}, "position": {"value": 24.0, "absolute_tolerance": 1e-6}, "datum": {"value": 0.0, "absolute_tolerance": 1e-6}, "support": {"value": [14.0, 40.0, 50.0, 10.0, 60.0, 19.0, 32.0, 40.0, 10.0, 60.0]}}, "parameters": {"distance": {"value": 24.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]},
+        {"family": "risers", "identity": {"axis": {"value": "x"}, "position": {"value": 32.0, "absolute_tolerance": 1e-6}, "datum": {"value": 0.0, "absolute_tolerance": 1e-6}, "support": {"value": [14.0, 40.0, 50.0, -110.0, -60.0, 19.0, 32.0, 40.0, -110.0, -60.0]}}, "parameters": {"distance": {"value": 32.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]},
+        {"family": "risers", "identity": {"axis": {"value": "x"}, "position": {"value": 32.0, "absolute_tolerance": 1e-6}, "datum": {"value": 0.0, "absolute_tolerance": 1e-6}, "support": {"value": [14.0, 40.0, 50.0, 10.0, 60.0, 19.0, 32.0, 40.0, 10.0, 60.0]}}, "parameters": {"distance": {"value": 32.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]},
+        {"family": "risers", "identity": {"axis": {"value": "x"}, "position": {"value": 40.0, "absolute_tolerance": 1e-6}, "datum": {"value": 0.0, "absolute_tolerance": 1e-6}, "support": {"value": [14.0, 40.0, 50.0, -110.0, -60.0, 19.0, 32.0, 40.0, -110.0, -60.0]}}, "parameters": {"distance": {"value": 40.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]},
+        {"family": "risers", "identity": {"axis": {"value": "x"}, "position": {"value": 40.0, "absolute_tolerance": 1e-6}, "datum": {"value": 0.0, "absolute_tolerance": 1e-6}, "support": {"value": [14.0, 40.0, 50.0, 10.0, 60.0, 19.0, 32.0, 40.0, 10.0, 60.0]}}, "parameters": {"distance": {"value": 40.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]}
+      ]
+    },
+    {
+      "id": "riser-throughstep-remote",
+      "tags": ["compound", "multiple", "overlapping-family", "positive"],
+      "fixture": "riser-throughstep-remote.step",
+      "sha256": "0b98adf0350dd78b1e055a391ec3d07975bd97171fa2e19ecf639fa10a45c00b",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "A two-shoulder stair at Y=-110..-90 is disconnected from a Z-run ThroughStep at Y=100..115. The remote aggregate has the same X=5 scalar site but cannot own the stair occurrence; body-local support keeps both stair shoulders.",
+      "expected_outcome": "supported",
+      "facts": [
+        {"family": "risers", "identity": {"axis": {"value": "x"}, "position": {"value": -5.0, "absolute_tolerance": 1e-6}, "datum": {"value": -20.0, "absolute_tolerance": 1e-6}, "support": {"value": [10.0, 5.0, 20.0, -110.0, -90.0, 20.0, -5.0, 5.0, -110.0, -90.0]}}, "parameters": {"distance": {"value": 15.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]},
+        {"family": "risers", "identity": {"axis": {"value": "x"}, "position": {"value": 5.0, "absolute_tolerance": 1e-6}, "datum": {"value": -20.0, "absolute_tolerance": 1e-6}, "support": {"value": [10.0, 5.0, 20.0, -110.0, -90.0, 20.0, -5.0, 5.0, -110.0, -90.0]}}, "parameters": {"distance": {"value": 25.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]}
+      ]
+    },
+    {
+      "id": "riser-throughstep-remote-z",
+      "tags": ["compound", "multiple", "overlapping-family", "positive", "z-separated"],
+      "fixture": "riser-throughstep-remote-z.step",
+      "sha256": "1a0051edcb33122fc4a90daec1fc7ab958f2bb0cc58a100b4b11b89eaf2745d8",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "A two-shoulder stair and a Z-run ThroughStep overlap in X/Y and share the X=5 scalar site, but are disconnected by 60 mm in Z. The aggregate cannot own the stair shoulder without overlapping its physical Z witness.",
+      "expected_outcome": "supported",
+      "facts": [
+        {"family": "risers", "identity": {"axis": {"value": "x"}, "position": {"value": -5.0, "absolute_tolerance": 1e-6}, "datum": {"value": -20.0, "absolute_tolerance": 1e-6}, "support": {"value": [10.0, 5.0, 20.0, -110.0, -90.0, 20.0, -5.0, 5.0, -110.0, -90.0]}}, "parameters": {"distance": {"value": 15.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]},
+        {"family": "risers", "identity": {"axis": {"value": "x"}, "position": {"value": 5.0, "absolute_tolerance": 1e-6}, "datum": {"value": -20.0, "absolute_tolerance": 1e-6}, "support": {"value": [10.0, 5.0, 20.0, -110.0, -90.0, 20.0, -5.0, 5.0, -110.0, -90.0]}}, "parameters": {"distance": {"value": 25.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]}
+      ]
+    },
+    {
+      "id": "riser-oblique-throughstep-remote",
+      "tags": ["compound", "multiple", "overlapping-family", "positive", "slanted"],
+      "fixture": "riser-oblique-throughstep-remote.step",
+      "sha256": "f53d199a765b7276f003e82bac9e7c96abcd51e02cb5a63632eb913bcd7f862c",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "An oblique ramp ends at X=5 beyond its X=0..1 foot-level span and is disconnected in Y from a ThroughStep with the same X=5 scalar site. Orthogonal body support distinguishes the ramp shoulder without requiring the oblique endpoint to lie inside its foot span.",
+      "expected_outcome": "supported",
+      "facts": [
+        {"family": "risers", "identity": {"axis": {"value": "x"}, "position": {"value": 1.0, "absolute_tolerance": 1e-6}, "datum": {"value": -20.0, "absolute_tolerance": 1e-6}, "support": {"value": [15.0, 0.0, 1.0, 0.0, 12.0]}}, "parameters": {"distance": {"value": 21.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]},
+        {"family": "risers", "identity": {"axis": {"value": "x"}, "position": {"value": 5.0, "absolute_tolerance": 1e-6}, "datum": {"value": -20.0, "absolute_tolerance": 1e-6}, "support": {"value": [15.0, 0.0, 1.0, 0.0, 12.0]}}, "parameters": {"distance": {"value": 25.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]},
+        {"family": "risers", "identity": {"axis": {"value": "y"}, "position": {"value": 12.0, "absolute_tolerance": 1e-6}, "datum": {"value": 0.0, "absolute_tolerance": 1e-6}, "support": {"value": [15.0, 0.0, 1.0, 0.0, 12.0]}}, "parameters": {"distance": {"value": 12.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]}
+      ]
+    },
+    {
+      "id": "riser-topology-a",
+      "tags": ["multiple", "positive", "topology-order-variant"],
+      "fixture": "riser-topology-a.step",
+      "sha256": "18ec4a382423becf7ef2713d898be478734ac56c9c5612e6eddf526a0fd1471d",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored by adding base, middle and upper stair solids in ascending order. The physical shoulder stations are X=20 and X=40 mm.",
+      "expected_outcome": "supported",
+      "facts": [
+        {"family": "risers", "identity": {"axis": {"value": "x"}, "position": {"value": 20.0, "absolute_tolerance": 1e-6}, "datum": {"value": 0.0, "absolute_tolerance": 1e-6}, "support": {"value": [8.0, 0.0, 20.0, 0.0, 40.0, 15.0, 20.0, 40.0, 0.0, 40.0]}}, "parameters": {"distance": {"value": 20.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]},
+        {"family": "risers", "identity": {"axis": {"value": "x"}, "position": {"value": 40.0, "absolute_tolerance": 1e-6}, "datum": {"value": 0.0, "absolute_tolerance": 1e-6}, "support": {"value": [8.0, 0.0, 20.0, 0.0, 40.0, 15.0, 20.0, 40.0, 0.0, 40.0]}}, "parameters": {"distance": {"value": 40.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]}
+      ]
+    },
+    {
+      "id": "riser-topology-b",
+      "tags": ["multiple", "positive", "topology-order-variant"],
+      "fixture": "riser-topology-b.step",
+      "sha256": "bf5f47f1aa93e9f7e72e11e102103b4a9f5e032a2c04fe29b519fec71326717a",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Geometrically identical to riser-topology-a but fused in descending order; its two physical shoulder requirements are unchanged.",
+      "expected_outcome": "supported",
+      "facts": [
+        {"family": "risers", "identity": {"axis": {"value": "x"}, "position": {"value": 20.0, "absolute_tolerance": 1e-6}, "datum": {"value": 0.0, "absolute_tolerance": 1e-6}, "support": {"value": [8.0, 0.0, 20.0, 0.0, 40.0, 15.0, 20.0, 40.0, 0.0, 40.0]}}, "parameters": {"distance": {"value": 20.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]},
+        {"family": "risers", "identity": {"axis": {"value": "x"}, "position": {"value": 40.0, "absolute_tolerance": 1e-6}, "datum": {"value": 0.0, "absolute_tolerance": 1e-6}, "support": {"value": [8.0, 0.0, 20.0, 0.0, 40.0, 15.0, 20.0, 40.0, 0.0, 40.0]}}, "parameters": {"distance": {"value": 40.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]}
+      ]
+    },
+    {
+      "id": "riser-plain-negative",
+      "tags": ["negative"],
+      "fixture": "riser-plain-negative.step",
+      "sha256": "3c281f9a32a7029fb909bdc14447b80d21e82b1d151af45062d3c026bc825fa4",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored as one plain rectangular block with no interior height transition and therefore no shoulder-position requirement.",
+      "expected_outcome": "supported",
+      "facts": []
+    },
+    {
+      "id": "riser-edge-break-negative",
+      "tags": ["ambiguous", "negative"],
+      "fixture": "riser-edge-break-negative.step",
+      "sha256": "9656c85ab92449504d32dd55e02a0b2af6065afd6b9a660db17972e45c3080ad",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored by cutting a 2 mm-wide shallow edge break from a 50 mm block. It is not a structural profile transition and must not enter the shoulder denominator.",
+      "expected_outcome": "supported",
+      "facts": []
+    }
+  ]
+}

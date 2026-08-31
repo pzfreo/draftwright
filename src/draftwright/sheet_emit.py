@@ -650,9 +650,30 @@ def _feature_line(
             "(" + ", ".join(_support_items) + ("," if len(_support_items) == 1 else "") + ")"
         )
         _support_arg = f", level_supports={_supports}" if _support_items else ""
+        _shoulder_support_items = []
+        for support in f.shoulder_supports:
+            levels = [
+                f"({_n(level.level)}, ({_n(level.x_span[0])}, {_n(level.x_span[1])}), "
+                f"({_n(level.y_span[0])}, {_n(level.y_span[1])}))"
+                for level in support.levels
+            ]
+            level_arg = "(" + ", ".join(levels) + ("," if len(levels) == 1 else "") + ")"
+            _shoulder_support_items.append(
+                f"({support.axis!r}, {_n(support.position)}, {_n(support.witness_z)}, {level_arg})"
+            )
+        _shoulder_supports = (
+            "("
+            + ", ".join(_shoulder_support_items)
+            + ("," if len(_shoulder_support_items) == 1 else "")
+            + ")"
+        )
+        _shoulder_support_arg = (
+            f", shoulder_supports={_shoulder_supports}" if _shoulder_support_items else ""
+        )
         return (
             f"sheet.step_level(base={_n(f.base)}, levels={_tuple_arg(f.levels)}, "
-            f"shoulders={_sh}, datum={_pt(f.datum)}, at={_pt(f.frame.origin)}{_support_arg})"
+            f"shoulders={_sh}, datum={_pt(f.datum)}, at={_pt(f.frame.origin)}{_support_arg}"
+            f"{_shoulder_support_arg})"
             "   # prismatic height ladder + shoulder position(s)"
         )
     if k == "rotational":

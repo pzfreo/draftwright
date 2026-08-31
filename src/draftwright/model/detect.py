@@ -88,7 +88,7 @@ from draftwright._geometry import (
     _xyz,
     plane_axis_names,
 )
-from draftwright.model.declare import circular_blind_step, control_frame, datum
+from draftwright.model.declare import _riser_witness_z, circular_blind_step, control_frame, datum
 from draftwright.model.ir import (
     AUTHORED_DIMENSION_KINDS,
     AuthoredDimension,
@@ -117,6 +117,7 @@ from draftwright.model.ir import (
     PolygonalBossFeature,
     PolygonalStockFeature,
     RotationalFeature,
+    ShoulderSupport,
     SlotFeature,
     SlotPatternFeature,
     StepFeature,
@@ -846,22 +847,103 @@ def _through_step_level_zs(steps) -> tuple[float, ...]:
     return tuple(levels)
 
 
-def _through_step_shoulder_sites(steps, bbox) -> tuple[tuple[str, float], ...]:
-    """Legacy datum-shoulder sites made redundant by aggregate local-leg ownership."""
+@dataclass(frozen=True)
+class _ThroughShoulderSite:
+    axis: str
+    position: float
+    x_span: tuple[float, float]
+    y_span: tuple[float, float]
+    z_span: tuple[float, float]
+
+
+def _through_step_shoulder_sites(steps, bbox) -> tuple[_ThroughShoulderSite, ...]:
+    """Occurrence-local legacy shoulder sites owned by aggregate ThroughStep records."""
     bounds = {
         "x": (float(bbox.min.X), float(bbox.max.X)),
         "y": (float(bbox.min.Y), float(bbox.max.Y)),
     }
     sites = []
-    for axis, lo, hi in _through_step_leg_spans(steps):
-        if axis not in bounds:
-            continue
-        bound_lo, bound_hi = bounds[axis]
-        if abs(lo - bound_lo) < 0.5:
-            sites.append((axis, hi))
-        elif abs(hi - bound_hi) < 0.5:
-            sites.append((axis, lo))
+    for step in steps:
+        axes = tuple(axis for axis in "xyz" if axis != step.axis)
+        coordinate_spans = {
+            step.axis: (
+                float(step.at["xyz".index(step.axis)]) - float(step.length) / 2,
+                float(step.at["xyz".index(step.axis)]) + float(step.length) / 2,
+            ),
+            axes[0]: (
+                min(float(point[0]) for point in step.section),
+                max(float(point[0]) for point in step.section),
+            ),
+            axes[1]: (
+                min(float(point[1]) for point in step.section),
+                max(float(point[1]) for point in step.section),
+            ),
+        }
+        for start, end in zip(step.section, step.section[1:]):
+            changed = next(index for index in (0, 1) if start[index] != end[index])
+            axis = axes[changed]
+            if axis not in bounds:
+                continue
+            lo, hi = sorted((float(start[changed]), float(end[changed])))
+            bound_lo, bound_hi = bounds[axis]
+            position = None
+            if abs(lo - bound_lo) < 0.5:
+                position = hi
+            elif abs(hi - bound_hi) < 0.5:
+                position = lo
+            if position is not None:
+                sites.append(
+                    _ThroughShoulderSite(
+                        axis,
+                        position,
+                        coordinate_spans["x"],
+                        coordinate_spans["y"],
+                        coordinate_spans["z"],
+                    )
+                )
     return tuple(sites)
+
+
+def _through_site_owns_riser(site, shoulder, riser) -> bool:
+    """Whether an aggregate site and projected riser share one physical 3-D occurrence."""
+    if shoulder.axis != site.axis or abs(shoulder.position - site.position) >= 0.5:
+        return False
+    body_levels = riser.body_levels
+    if body_levels is None:
+        return True  # compatibility records lack occurrence evidence; retain old conservatism
+    supports = tuple(
+        level for level in body_levels if level.x_span is not None and level.y_span is not None
+    )
+    witness_z = _riser_witness_z(riser, shoulder)
+    if witness_z < site.z_span[0] - 0.5 or witness_z > site.z_span[1] + 0.5:
+        return False
+    # The scalar shoulder coordinate already proves correspondence along its own horizontal
+    # axis.  Compare the orthogonal body support here: an oblique riser's far endpoint can lie
+    # beyond its foot FaceLevel span along the shoulder axis and is still a valid occurrence.
+    orthogonal_span = "y_span" if shoulder.axis == "x" else "x_span"
+    site_span = site.y_span if shoulder.axis == "x" else site.x_span
+    return any(
+        getattr(level, orthogonal_span)[1] >= site_span[0] - 0.5
+        and getattr(level, orthogonal_span)[0] <= site_span[1] + 0.5
+        for level in supports
+    )
+
+
+def _projected_riser_occurrences(risers, levels):
+    """Project each riser with its occurrence support retained beside the scalar result."""
+    for riser in risers:
+        body_levels = riser.body_levels
+        if body_levels is None:
+            projected = project_step_shoulders((riser,), levels=list(levels))
+        else:
+            selected = tuple(
+                level
+                for level in body_levels
+                if any(abs(level.z - owned) < riser.tol for owned in levels)
+            )
+            projected = project_step_shoulders((riser,), levels_by_riser=(selected,))
+        for shoulder in projected:
+            yield riser, shoulder
 
 
 def _through_step_legacy_complete(
@@ -1242,7 +1324,16 @@ def build_part_model(
         if not profiles
         else ()
     )
-    shoulders = project_step_shoulders(risers, levels=list(ownership_step_zs))
+    shoulder_occurrences = tuple(_projected_riser_occurrences(risers, ownership_step_zs))
+
+    def _legacy_shoulders_for(step):
+        sites = _through_step_shoulder_sites((step,), bbox)
+        return tuple(
+            shoulder
+            for riser, shoulder in shoulder_occurrences
+            if any(_through_site_owns_riser(site, shoulder, riser) for site in sites)
+        )
+
     # Z-run records are the native through-step projection. X/Y-run records remain with the
     # established Z-up grammar only when that grammar proves BOTH exact physical legs; a
     # partial legacy projection is replaced by the complete aggregate owner.
@@ -1254,7 +1345,7 @@ def build_part_model(
             step,
             bbox,
             ownership_step_zs,
-            shoulders,
+            _legacy_shoulders_for(step),
             ownership_plates,
             envelope_emittable=envelope_emittable,
         )
@@ -1273,14 +1364,20 @@ def build_part_model(
         # Re-project after removing aggregate-owned levels. A riser is a shoulder only while
         # its foot remains in the emitted level set; filtering the original shoulders by site
         # alone could preserve an owner that the final StepLevelFeature never receives.
-        remaining_shoulders = tuple(
-            shoulder
-            for shoulder in project_step_shoulders(risers, levels=list(remaining_levels))
-            if not any(
-                shoulder.axis == axis and abs(shoulder.position - position) < 0.5
-                for axis, position in owned_shoulders
-            )
+        remaining_shoulder_occurrences = tuple(
+            (riser, shoulder)
+            for riser, shoulder in _projected_riser_occurrences(risers, remaining_levels)
+            if not any(_through_site_owns_riser(site, shoulder, riser) for site in owned_shoulders)
         )
+
+        def _remaining_shoulders_for(step):
+            sites = _through_step_shoulder_sites((step,), bbox)
+            return tuple(
+                shoulder
+                for riser, shoulder in remaining_shoulder_occurrences
+                if any(_through_site_owns_riser(site, shoulder, riser) for site in sites)
+            )
+
         remaining_plates = tuple(
             plate
             for plate in ownership_plates
@@ -1297,7 +1394,7 @@ def build_part_model(
                 step,
                 bbox,
                 remaining_levels,
-                remaining_shoulders,
+                _remaining_shoulders_for(step),
                 remaining_plates,
                 envelope_emittable=envelope_emittable,
             )
@@ -1565,17 +1662,51 @@ def build_part_model(
             # is the OWNERSHIP-FILTERED set — plate and pocket floors removed — which is a
             # model decision and stays here; the evidence underneath is shared with critique,
             # which projects the same risers over its own unfiltered levels.
-            _shoulders = tuple(
-                (s.axis, s.position)
-                for s in project_step_shoulders(
-                    risers,
-                    levels=list(_levels),
+            # Project each provider occurrence against its own body-local levels.  A single
+            # aggregate projection retains scalar multiplicity but loses which disconnected
+            # body established an equal coordinate.  Keep that public evidence aligned with
+            # the shoulder so the IR and compiler can preserve physical occurrence identity.
+            _shoulder_entries = []
+            for riser, shoulder in _projected_riser_occurrences(risers, _levels):
+                body_levels = riser.body_levels
+                if body_levels is None:
+                    support: tuple[LevelSupport, ...] = ()
+                else:
+                    support = tuple(
+                        LevelSupport(
+                            float(level.z),
+                            (float(level.x_span[0]), float(level.x_span[1])),
+                            (float(level.y_span[0]), float(level.y_span[1])),
+                        )
+                        for level in body_levels
+                        if level.x_span is not None and level.y_span is not None
+                    )
+                if any(
+                    _through_site_owns_riser(site, shoulder, riser)
+                    for site in through_shoulder_sites
+                ):
+                    continue
+                _shoulder_entries.append(
+                    (
+                        shoulder.axis,
+                        float(shoulder.position),
+                        ShoulderSupport(
+                            shoulder.axis,
+                            float(shoulder.position),
+                            _riser_witness_z(riser, shoulder),
+                            support,
+                        ),
+                    )
                 )
-                if not any(
-                    s.axis == owner_axis and abs(s.position - owner_position) < 0.5
-                    for owner_axis, owner_position in through_shoulder_sites
+            _shoulder_entries.sort(
+                key=lambda item: (
+                    item[0],
+                    item[1],
+                    tuple((level.level, level.x_span, level.y_span) for level in item[2].levels),
                 )
             )
+            _shoulders = tuple((axis, position) for axis, position, _ in _shoulder_entries)
+            _shoulder_supports = tuple(entry[2] for entry in _shoulder_entries)
             features.append(
                 StepLevelFeature(
                     frame=Frame((c.X, c.Y, bbox.min.Z), "z"),
@@ -1584,6 +1715,7 @@ def build_part_model(
                     shoulders=_shoulders,
                     datum=(bbox.min.X, bbox.min.Y, bbox.min.Z),
                     level_supports=_level_supports,
+                    shoulder_supports=_shoulder_supports,
                 )
             )
 

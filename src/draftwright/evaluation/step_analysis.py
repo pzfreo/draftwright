@@ -50,6 +50,16 @@ transverse witness coordinates identify the occurrence; thickness is the scored 
 Automatic IR, public declaration and executed generated code must preserve the full witness, and
 the drawing must carry the exact compiler-owned thickness identity and verified ink.
 
+The Riser slice (#1373) counts one consumer-owned prismatic shoulder projection from the shared
+RiserEvidence, computed independently of the target IR by applying Draftwright's level, Plate and
+aggregate ownership policy to the provider's body-local evidence. Axis, absolute station, datum
+and released body-local level support identify the occurrence; datum distance is the scored
+parameter. Each downstream boundary separately proves the same ownership result. Equal
+occurrences on separate bodies remain separate facts, while each drawing
+outcome must be backed by one consumed exact compiler span at the correct body witness and one
+verified placed dimension. This is deliberately the public StepShoulder projection, not a second
+interpretation of every raw riser face.
+
 The polygonal-boss slice (#1372) counts one attached regular prism per principal axis and physical
 centre. Side count, A/F, height, ordered flat directions and physical flat centres are scored
 parameters. Automatic IR, public declaration and executed generated code must retain the complete
@@ -1648,6 +1658,430 @@ def _declared_plate_model(part, plates):
             hi=observed.hi,
             u=observed.u,
             v=observed.v,
+        )
+    return sheet.model()
+
+
+@dataclass(frozen=True)
+class _RiserFact:
+    feature: object | None
+    axis: str
+    position: float
+    datum: float
+    distance: float
+    support: tuple[float, ...]
+    witness_z: float | None
+
+    @property
+    def semantic_key(self) -> tuple[str, float, float, float, tuple[float, ...], float | None]:
+        return (
+            self.axis,
+            self.position,
+            self.datum,
+            self.distance,
+            self.support,
+            self.witness_z,
+        )
+
+
+def _flatten_riser_support(levels) -> tuple[float, ...]:
+    values: list[float] = []
+    try:
+        for level in levels:
+            if level.x_span is None or level.y_span is None:
+                raise ValueError("body-local FaceLevel support spans are absent")
+            values.extend(
+                (
+                    round(float(level.level if hasattr(level, "level") else level.z), 3),
+                    round(float(level.x_span[0]), 3),
+                    round(float(level.x_span[1]), 3),
+                    round(float(level.y_span[0]), 3),
+                    round(float(level.y_span[1]), 3),
+                )
+            )
+    except (AttributeError, IndexError, OverflowError, TypeError, ValueError) as exc:
+        raise ObservationError("risers", f"malformed body-local Riser support: {exc}") from exc
+    return tuple(values)
+
+
+def _riser_facts(features) -> list[_RiserFact]:
+    """Return every orchestrated shoulder occurrence retained at the IR waist.
+
+    RiserEvidence is shared pre-projection substrate.  Draftwright's supported family surface is
+    the occurrence-preserving ``StepLevelFeature.shoulders`` projection named by the capability
+    contract, so the independently authored corpus scores that final consumer decision.  Keeping
+    the feature in each tuple lets downstream checks require exact compiler provenance without
+    making it part of benchmark identity.
+    """
+    facts: list[_RiserFact] = []
+    for feature in features:
+        if getattr(feature, "kind", None) != "step_level":
+            continue
+        try:
+            datum = tuple(float(value) for value in feature.datum)
+            if len(datum) != 3:
+                raise ValueError
+            remaining_supports = list(feature.shoulder_supports)
+            feature_facts = []
+            for axis, raw_position in feature.shoulders:
+                if axis not in ("x", "y"):
+                    raise ValueError
+                position = float(raw_position)
+                reference = datum["xyz".index(axis)]
+                support: tuple[float, ...] = ()
+                witness_z = None
+                for index, candidate in enumerate(remaining_supports):
+                    if candidate.axis == axis and candidate.position == position:
+                        support = _flatten_riser_support(candidate.levels)
+                        witness_z = round(float(candidate.witness_z), 3)
+                        remaining_supports.pop(index)
+                        break
+                feature_facts.append(
+                    _RiserFact(
+                        feature=feature,
+                        axis=axis,
+                        position=round(position, 3),
+                        datum=round(reference, 3),
+                        distance=round(abs(position - reference), 3),
+                        support=support,
+                        witness_z=witness_z,
+                    )
+                )
+            if feature.shoulder_supports and remaining_supports:
+                raise ValueError("shoulder support roster does not align with shoulders")
+            facts.extend(feature_facts)
+        except (AttributeError, OverflowError, TypeError, ValueError):
+            continue
+    return facts
+
+
+def _owned_riser_projection(part, recognition):
+    """Apply Draftwright's aggregate/level ownership policy without reading target IR."""
+    from b123d_recognisers import has_multi_axis_plates
+
+    from draftwright.model.detect import (
+        _distinct_by_diameter,
+        _is_round,
+        _projected_riser_occurrences,
+        _through_site_owns_riser,
+        _through_step_leg_spans,
+        _through_step_legacy_complete,
+        _through_step_level_zs,
+        _through_step_shoulder_sites,
+    )
+
+    bbox = part.bounding_box()
+    risers = tuple(recognition.risers)
+    face_levels = tuple(recognition.step_levels)
+    plates = tuple(recognition.plates)
+    pads = tuple(recognition.pads)
+    pockets = tuple(recognition.pockets)
+    through_steps = tuple(recognition.through_steps)
+    profiles = tuple(recognition.turned_steps)
+    multi_plate = has_multi_axis_plates(plates)
+    ownership_plates = (
+        plates if not profiles and not recognition.rotational and multi_plate else ()
+    )
+    edge_floor_zs = {
+        pocket.d_lo if pocket.open_sign > 0 else pocket.d_hi
+        for pocket in pockets
+        if pocket.depth_axis == "z" and pocket.edge_anchored
+    }
+    plate_zs_at_base = {
+        round(plate.hi, 3)
+        for plate in ownership_plates
+        if plate.axis == "z" and abs(plate.lo - bbox.min.Z) < 0.5
+    }
+
+    def side_pad_owns_level(level, pad) -> bool:
+        if pad.axis == "z" or level.x_span is None or level.y_span is None:
+            return False
+        return any(abs(level.z - bound) < 0.5 for bound in (pad.z0, pad.z1)) and all(
+            abs(actual - expected) < 0.5
+            for actual, expected in (
+                (level.x_span[0], pad.x0),
+                (level.x_span[1], pad.x1),
+                (level.y_span[0], pad.y0),
+                (level.y_span[1], pad.y1),
+            )
+        )
+
+    side_pad_level_zs = {
+        level.z
+        for level in face_levels
+        if any(side_pad_owns_level(level, pad) for pad in pads)
+        and not any(
+            other.z == level.z and not any(side_pad_owns_level(other, pad) for pad in pads)
+            for other in face_levels
+        )
+    }
+    ownership_step_zs = (
+        tuple(
+            level.z
+            for level in face_levels
+            if round(level.z, 3) not in plate_zs_at_base
+            and not any(abs(level.z - owned) < 0.5 for owned in side_pad_level_zs)
+            and not any(abs(level.z - floor) < 0.5 for floor in edge_floor_zs)
+        )
+        if not profiles
+        else ()
+    )
+    shoulder_occurrences = tuple(_projected_riser_occurrences(risers, ownership_step_zs))
+
+    def local_shoulders(step, occurrences):
+        sites = _through_step_shoulder_sites((step,), bbox)
+        return tuple(
+            shoulder
+            for riser, shoulder in occurrences
+            if any(_through_site_owns_riser(site, shoulder, riser) for site in sites)
+        )
+
+    envelope_emittable = bool(
+        not profiles
+        and not _is_round(bbox, _distinct_by_diameter(tuple(recognition.bosses)))
+        and not recognition.polygonal_stock
+    )
+    lowered = tuple(
+        step
+        for step in through_steps
+        if step.axis == "z"
+        or not _through_step_legacy_complete(
+            step,
+            bbox,
+            ownership_step_zs,
+            local_shoulders(step, shoulder_occurrences),
+            ownership_plates,
+            envelope_emittable=envelope_emittable,
+        )
+    )
+    while True:
+        owned_spans = _through_step_leg_spans(lowered)
+        owned_levels = _through_step_level_zs(lowered)
+        owned_sites = _through_step_shoulder_sites(lowered, bbox)
+        remaining_levels = tuple(
+            z for z in ownership_step_zs if not any(abs(z - owned) < 0.5 for owned in owned_levels)
+        )
+        remaining_occurrences = tuple(
+            (riser, shoulder)
+            for riser, shoulder in _projected_riser_occurrences(risers, remaining_levels)
+            if not any(_through_site_owns_riser(site, shoulder, riser) for site in owned_sites)
+        )
+        remaining_plates = tuple(
+            plate
+            for plate in ownership_plates
+            if not any(
+                plate.axis == axis and abs(plate.lo - lo) <= 1e-6 and abs(plate.hi - hi) <= 1e-6
+                for axis, lo, hi in owned_spans
+            )
+        )
+        promoted = tuple(
+            step
+            for step in through_steps
+            if step not in lowered
+            and not _through_step_legacy_complete(
+                step,
+                bbox,
+                remaining_levels,
+                local_shoulders(step, remaining_occurrences),
+                remaining_plates,
+                envelope_emittable=envelope_emittable,
+            )
+        )
+        if not promoted:
+            break
+        lowered += promoted
+    through_levels = _through_step_level_zs(lowered)
+    final_levels = tuple(
+        z for z in ownership_step_zs if not any(abs(z - owned) < 0.5 for owned in through_levels)
+    )
+    through_sites = _through_step_shoulder_sites(lowered, bbox)
+    return tuple(
+        (riser, shoulder)
+        for riser, shoulder in _projected_riser_occurrences(risers, final_levels)
+        if not any(_through_site_owns_riser(site, shoulder, riser) for site in through_sites)
+    )
+
+
+def _riser_source_facts(part, recognition) -> list[_RiserFact]:
+    """Project released Riser evidence without consulting the target Draftwright IR.
+
+    The independently authored corpus is the denominator.  This observed numerator comes only
+    from the build-owned public recognition aggregate plus the part envelope used by Draftwright's
+    documented datum policy, so deleting the IR can never delete the source fact with it.
+    """
+    from draftwright.model.declare import _riser_witness_z
+
+    try:
+        bb = part.bounding_box()
+        datum = {"x": round(float(bb.min.X), 3), "y": round(float(bb.min.Y), 3)}
+        occurrences = _owned_riser_projection(part, recognition)
+    except Exception as exc:  # noqa: BLE001 — public input validation, fail closed
+        raise ObservationError("risers", f"riser source access failed: {exc}") from exc
+    facts: list[_RiserFact] = []
+    for riser, shoulder in occurrences:
+        if riser.body_levels is None:
+            raise ObservationError(
+                "risers", "RiserEvidence lacks released body-local occurrence support"
+            )
+        levels = tuple(riser.body_levels)
+        support = _flatten_riser_support(levels)
+        if shoulder.axis not in datum:
+            raise ObservationError(
+                "risers", f"Riser projection has invalid axis {shoulder.axis!r}"
+            )
+        position = round(float(shoulder.position), 3)
+        reference = datum[shoulder.axis]
+        facts.append(
+            _RiserFact(
+                feature=None,
+                axis=shoulder.axis,
+                position=position,
+                datum=reference,
+                distance=round(abs(position - reference), 3),
+                support=support,
+                witness_z=round(_riser_witness_z(riser, shoulder), 3),
+            )
+        )
+    return facts
+
+
+def _riser_model_outcomes(source_facts, features) -> list[Outcome]:
+    """Join every source occurrence one-for-one to a target StepLevel shoulder."""
+    target = _riser_facts(features)
+    remaining = [fact.semantic_key for fact in target]
+    outcomes: list[Outcome] = []
+    for source in source_facts:
+        key = source.semantic_key
+        try:
+            index = remaining.index(key)
+        except ValueError:
+            outcomes.append("unknown")
+        else:
+            remaining.pop(index)
+            outcomes.append("supported")
+    if remaining:
+        if not outcomes:
+            raise ValueError("target StepLevel shoulder roster has no source occurrence")
+        return ["unknown"] * len(outcomes)
+    return outcomes
+
+
+def _riser_drawing_outcomes(source_facts, drawing) -> list[Outcome]:
+    """Require one confirmed compiler span and placed Dimension per shoulder occurrence."""
+    from build123d_drafting import Dimension
+
+    from draftwright.linting.evidence import verify_measurement_claims
+    from draftwright.model.compiled import compile_dimensions
+
+    plan = compile_dimensions(drawing.model())
+    approved_spans: Counter[tuple[object | None, str, tuple[tuple[float, ...], ...]]] = Counter(
+        (
+            rung.id.feature,
+            rung.axis,
+            tuple(tuple(float(value) for value in point) for point in rung.span),
+        )
+        for ladder in plan.ladders
+        if ladder.kind == "step_position"
+        for rung in ladder.rungs
+        if rung.id is not None and rung.axis in ("x", "y") and rung.span is not None
+    )
+    target_facts = _riser_facts(drawing.model().features)
+    confirmed: list[tuple[str, float, float, float, tuple[float, ...], float | None]] = []
+    for claim in verify_measurement_claims(drawing.registry, plan):
+        measurement = claim.measurement
+        if (
+            claim.state != "confirmed"
+            or measurement is None
+            or getattr(measurement, "parameter", None) != "step_position.length"
+            or not isinstance(drawing.registry.named(claim.annotation), Dimension)
+        ):
+            continue
+        span = getattr(drawing.registry.named(claim.annotation), "_dw_measurement_span", None)
+        try:
+            if span is None or len(span) != 2:
+                raise ValueError
+            start, end = (tuple(float(value) for value in point) for point in span)
+            if len(start) != 3 or len(end) != 3:
+                raise ValueError
+            changed = [index for index in (0, 1, 2) if start[index] != end[index]]
+            if len(changed) != 1 or changed[0] == 2:
+                raise ValueError
+            axis = "xyz"[changed[0]]
+            feature = getattr(measurement, "feature", None)
+            approved_key = (feature, axis, (start, end))
+            if approved_spans[approved_key] <= 0:
+                raise ValueError
+            approved_spans[approved_key] -= 1
+            index = "xyz".index(axis)
+            scalar_key = (
+                axis,
+                round(end[index], 3),
+                round(start[index], 3),
+                round(abs(end[index] - start[index]), 3),
+            )
+            transverse = 1 if axis == "x" else 0
+            witness = round(start[transverse], 3)
+            witness_z = round(start[2], 3)
+            match = next(
+                (
+                    candidate_index
+                    for candidate_index, candidate in enumerate(target_facts)
+                    if candidate.feature == feature
+                    and (
+                        candidate.axis,
+                        candidate.position,
+                        candidate.datum,
+                        candidate.distance,
+                    )
+                    == scalar_key
+                    and candidate.witness_z == witness_z
+                    and (
+                        not candidate.support
+                        or any(
+                            candidate.support[offset + (3 if axis == "x" else 1)]
+                            <= witness
+                            <= candidate.support[offset + (4 if axis == "x" else 2)]
+                            for offset in range(0, len(candidate.support), 5)
+                        )
+                    )
+                ),
+                None,
+            )
+            if match is None:
+                raise ValueError
+            confirmed.append(target_facts.pop(match).semantic_key)
+        except (OverflowError, TypeError, ValueError):
+            continue
+
+    outcomes: list[Outcome] = []
+    for source in source_facts:
+        try:
+            index = confirmed.index(source.semantic_key)
+        except ValueError:
+            outcomes.append("unsupported")
+        else:
+            confirmed.pop(index)
+            outcomes.append("supported")
+    return outcomes
+
+
+def _declared_riser_model(part, features):
+    """Declare the projected shoulder inventory through public ``Sheet.step_level``."""
+    from draftwright.sheet import Sheet
+
+    sheet = Sheet(part)
+    sheet.authored_dimensions()
+    for feature in features:
+        if getattr(feature, "kind", None) != "step_level":
+            continue
+        sheet.step_level(
+            base=feature.base,
+            levels=feature.levels,
+            shoulders=feature.shoulders,
+            datum=feature.datum,
+            at=feature.frame.origin,
+            level_supports=feature.level_supports,
+            shoulder_supports=feature.shoulder_supports,
         )
     return sheet.model()
 
@@ -3750,6 +4184,95 @@ def _default_observers() -> Mapping[str, Observer]:
             for identity in (_plate_identity(plate),)
         )
 
+    def observe_risers(part: object) -> Sequence[ObservedFact]:
+        from draftwright.builder import build_drawing
+
+        try:
+            drawing = build_drawing(part)  # type: ignore[arg-type]
+        except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
+            _log.warning(
+                "evaluation: drawing build failed (%s); scoring risers as unknown",
+                exc,
+            )
+            raise ObservationError("risers", f"drawing build failed: {exc}") from exc
+        try:
+            recognition = drawing.recognition()
+            if recognition is None:
+                raise ValueError("detected build has no build-owned recognition result")
+            tuple(recognition.risers)
+        except Exception as exc:  # noqa: BLE001 — no safe projected numerator remains
+            _log.warning(
+                "evaluation: recognition access failed (%s); observing no risers",
+                exc,
+            )
+            raise ObservationError("risers", f"recognition access failed: {exc}") from exc
+        source_facts = _riser_source_facts(part, recognition)
+        unknown: list[Outcome] = ["unknown"] * len(source_facts)
+
+        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
+            try:
+                result = observe()
+                if len(result) != len(source_facts):
+                    raise ValueError(
+                        f"observed {len(result)} outcomes for "
+                        f"{len(source_facts)} projected riser occurrences"
+                    )
+                return result
+            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
+                if not source_facts:
+                    raise ObservationError(
+                        "risers", f"{name} produced target content without a source occurrence"
+                    ) from exc
+                _log.warning(
+                    "evaluation: %s observation failed (%s); scoring risers as unknown",
+                    name,
+                    exc,
+                )
+                return list(unknown)
+
+        boundary_outcomes = {
+            "ir_adapter": observed_boundary(
+                "ir_adapter",
+                lambda: _riser_model_outcomes(source_facts, drawing.model().features),
+            ),
+            "dsl_declaration": observed_boundary(
+                "dsl_declaration",
+                lambda: _riser_model_outcomes(
+                    source_facts,
+                    _declared_riser_model(part, drawing.model().features).features,
+                ),
+            ),
+            "generated_code": observed_boundary(
+                "generated_code",
+                lambda: _riser_model_outcomes(
+                    source_facts,
+                    _generated_sheet_model(part, drawing.model()).features,
+                ),
+            ),
+            "drawing_consumer": observed_boundary(
+                "drawing_consumer",
+                lambda: _riser_drawing_outcomes(source_facts, drawing),
+            ),
+        }
+
+        return tuple(
+            ObservedFact(
+                family="risers",
+                identity={
+                    "axis": fact.axis,
+                    "position": fact.position,
+                    "datum": fact.datum,
+                    "support": fact.support,
+                },
+                parameters={"distance": fact.distance},
+                downstream={
+                    boundary: boundary_outcomes[boundary][index]
+                    for boundary in _DOWNSTREAM_BOUNDARIES
+                },
+            )
+            for index, fact in enumerate(source_facts)
+        )
+
     def observe_polygonal_bosses(part: object) -> Sequence[ObservedFact]:
         from draftwright.builder import build_drawing
 
@@ -4198,6 +4721,7 @@ def _default_observers() -> Mapping[str, Observer]:
         "plates": observe_plates,
         "polygonal-bosses": observe_polygonal_bosses,
         "rectangular-pads": observe_pads,
+        "risers": observe_risers,
     }
 
 

@@ -877,7 +877,7 @@ def _compile_step_ladders(model: PartModel, marked) -> tuple[list[ApprovedLadder
 
     _di = {"x": 0, "y": 1, "z": 2}
 
-    def _shoulder_span(axis: str, pos: float):
+    def _shoulder_span(axis: str, pos: float, support):
         """A shoulder's span, from its datum to its position along its own axis.
 
         Carried rather than left ``None`` so consumers never go back to the feature for the
@@ -886,8 +886,42 @@ def _compile_step_ladders(model: PartModel, marked) -> tuple[list[ApprovedLadder
         axis because direction is semantic content, not something projection should infer."""
         lo = list(step.datum)
         hi = list(step.datum)
+        if support is not None and support.levels:
+            # Put both extension points at a real transverse station on the body that owns this
+            # occurrence.  Equal scalar shoulders on disconnected bodies must not all borrow
+            # the first body's witness (#1373 completeness review).
+            first = support.levels[0]
+            transverse = 1 if axis == "x" else 0
+            span = first.y_span if axis == "x" else first.x_span
+            witness = (span[0] + span[1]) / 2
+            lo[transverse] = witness
+            hi[transverse] = witness
+            lo[2] = support.witness_z
+            hi[2] = support.witness_z
         hi[_di[axis]] = pos
         return (tuple(lo), tuple(hi))
+
+    support_remaining = list(step.shoulder_supports)
+
+    def _take_shoulder_support(axis: str, pos: float):
+        for index, support in enumerate(support_remaining):
+            if support.axis == axis and support.position == pos:
+                return support_remaining.pop(index)
+        return None
+
+    shoulder_entries = [
+        (axis, pos, _take_shoulder_support(axis, pos)) for axis, pos in step.shoulders
+    ]
+    shoulder_entries.sort(
+        key=lambda item: (
+            item[0],
+            item[1],
+            tuple(
+                (level.level, level.x_span, level.y_span)
+                for level in (item[2].levels if item[2] is not None else ())
+            ),
+        )
+    )
 
     # Shoulders carry their authored tolerance too. Without this the SAME `DimensionId` sat in
     # `plan.groups` with a tolerance (via `_compile_groups`) and in `plan.ladders` without one,
@@ -900,7 +934,7 @@ def _compile_step_ladders(model: PartModel, marked) -> tuple[list[ApprovedLadder
     )
     shoulders: list[ApprovedDimension] = []
     degenerate_shoulders: list[Omission] = []
-    for axis, pos in sorted(step.shoulders):
+    for axis, pos, support in shoulder_entries:
         datum = step.datum[_di[axis]]
         value = abs(pos - datum)
         if _is_zero_step_position(value):
@@ -920,11 +954,21 @@ def _compile_step_ladders(model: PartModel, marked) -> tuple[list[ApprovedLadder
                 id=_dim_id(step, "step_position.length"),
                 value_text=_value_text(model, step, "step_position.length", value),
                 value=value,
-                span=_shoulder_span(axis, pos),
+                span=_shoulder_span(axis, pos, support),
                 ref=step_ref,
                 axis=axis,
                 tolerance=shoulder_tol,
                 rendered_label=_value_text(model, step, "step_position.length", value),
+                support_bounds=(
+                    (
+                        min(level.x_span[0] for level in support.levels),
+                        min(level.y_span[0] for level in support.levels),
+                        max(level.x_span[1] for level in support.levels),
+                        max(level.y_span[1] for level in support.levels),
+                    )
+                    if support is not None and support.levels
+                    else None
+                ),
             )
         )
     pos_marks = [

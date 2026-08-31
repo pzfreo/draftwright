@@ -44,6 +44,16 @@
 
 ### Changed
 
+- Prismatic-riser completeness is now backed by an independently authored, hash-pinned
+  25-occurrence STEP corpus covering both principal axes, vertical and slanted shoulders,
+  bounded two-axis ramps, equal disconnected bodies, topology order, and negative controls.
+  Released body-local `RiserEvidence` support now survives automatic IR, public
+  `Sheet.step_level`, generated code, compiler spans, and verified placed dimensions. Equal
+  scalar shoulders on separate bodies retain distinct physical witnesses; remote ThroughStep
+  sites cannot steal them across either horizontal support or physical height, and
+  Plate/aggregate-owned substrate is excluded independently of the target IR. Correspondence
+  mutations fail closed (#1373).
+
 - Multi-plate slab completeness is now backed by an independently authored, hash-pinned 11-case
   STEP corpus covering all principal orientations, additive/cut channels, equal compound
   occurrences, topology order and envelope/detached/thick/rotational negatives. A fail-closed

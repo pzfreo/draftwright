@@ -165,6 +165,31 @@ round is one radius-callout requirement even when equal radii share ink:
   `fillet-topology-b.step` applies the same operations in reverse order. Their geometry and
   authored requirements are identical while their STEP hashes differ.
 
+`corpus-risers-v1.json` is a separate consumer-projected shoulder-position corpus. Raw
+RiserEvidence is structural substrate; only the StepShoulder occurrences retained by
+Draftwright's level and aggregate-ownership policy enter this denominator:
+
+- `riser-vertical-x.step` and `riser-vertical-y.step` author the same 30 mm rebate position on
+  the two supported in-plane axes; the first also overlaps a ThroughStep record without creating
+  a second position requirement.
+- `riser-slanted-x.step` authors three X profile transitions, including both ends of an oblique
+  rise; `riser-bounded-two-axis.step` adds an independent Y terminal on a bounded ramp.
+- `riser-compound-equal.step` contains two disjoint copies of the slanted profile. Their scalar
+  stations are equal, but the independently authored body support spans keep six physical
+  occurrences distinct.
+- `riser-throughstep-remote.step` keeps a two-shoulder stair disjoint from a Z-run ThroughStep
+  whose legacy X site equals one stair shoulder. It proves aggregate ownership is body-local
+  rather than a scalar-coordinate veto across disconnected solids.
+- `riser-throughstep-remote-z.step` overlaps that pair in X/Y but separates the bodies by 60 mm
+  in Z. The ThroughStep must overlap the shoulder's physical height before it can own it.
+- `riser-oblique-throughstep-remote.step` puts an oblique X=5 endpoint beyond its foot-level X
+  span while a same-station ThroughStep remains remote in Y. Orthogonal support preserves the
+  valid ramp endpoint without falling back to scalar-only ownership.
+- `riser-topology-a.step` and `riser-topology-b.step` fuse the same three stair solids in opposite
+  order and retain the same two shoulder requirements.
+- `riser-plain-negative.step` has no profile transition, while
+  `riser-edge-break-negative.step` is deliberately below the structural-ramp threshold.
+
 The `FILE_NAME` timestamp is normalized. Each corpus manifest pins every fixture SHA-256 and records
 case-level provenance. A changed fixture therefore requires an explicit corpus-version decision;
 regenerating recognition output can never rewrite the expected facts silently.
