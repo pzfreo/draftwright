@@ -253,6 +253,30 @@ malforming provider records, changing the interval or witness, corrupting declar
 code, changing the printed value, or severing measurement provenance reduces the corresponding
 independent layer.
 
+## FaceLevel completeness evidence
+
+The `face-levels` completeness boundary is independently `supported` from
+`tests/fixtures/evaluation/corpus-face-levels-v1.json`. Eleven construction-authored cases contribute
+sixteen body-local support occurrences, thirty-two parameter/disposition checks and fifty required
+downstream checks. The corpus covers single and multiple ladders, equal-Z occurrences on disjoint
+bodies, reversed topology order, the documented area threshold, and explicit Plate, side-pad,
+edge-pocket, ThroughStep, turned-profile and plain-block ownership controls.
+
+The physical support rectangle identifies each occurrence and Z is its measured parameter. The
+consumer additionally observes the independently authored disposition: a global height rung, or
+evidence retained for a Plate, side-pad, edge-pocket, ThroughStep or turned-profile owner. Equal-Z records remain separate
+aggregate occurrences but deliberately join one correlated `StepLevelFeature` rung and one drawing
+measurement. Exact body-local alternate owners take precedence over that scalar-Z correlation, so
+an unrelated pad or pocket at the same ordinate cannot steal or invalidate the global rung. Geometry
+is compared consistently at the corpus and generated-Sheet surface's three-decimal canonical
+precision. Direct rungs preserve automatic IR, public `Sheet.step_level`, executed generated
+code, compiler identity, finished `Dimension` ink and the exact compiler-approved physical span.
+Alternate-owner records must retain the same exact owner through automatic IR and generated code;
+their missing FaceLevel declaration/drawing outcomes are explicit `unknown`, not false completeness
+credit or a duplicate requirement. The corpus denominator and every expected support, Z,
+disposition and tolerance are authored independently of provider output. Mutations deleting the
+inventory, IR or generated owner, or severing/moving measurement provenance lower the result.
+
 ## Chamfer completeness evidence
 
 The `chamfers` completeness boundary is independently `supported` from
@@ -353,7 +377,7 @@ an outcome.
 Remaining supported-family completeness work is tracked by family group rather than the closed
 shared design issue: #1370 retains countersinks and Double-D bores; #1371 covers
 channels, slots, slot patterns and polygonal stock; #1372 retains the independent rectangular-pad
-and polygonal-boss benchmark corpora; #1373 retains face levels and risers; and
+and polygonal-boss benchmark corpora; #1373 retains risers; and
 #1374 retains turned steps.
 
 ## Historical: recognisers 0.4.8 raw boundary and RaisedPad v2

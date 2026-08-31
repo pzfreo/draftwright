@@ -1101,10 +1101,10 @@ def build_part_model(
             pocket_patterns = recognise_pocket_patterns(pockets)
         if prof is _UNSET and profiles is _UNSET:
             profiles = recognition.turned_profiles
-        if step_zs is None:
-            step_zs = recognition.step_ladder_for_z_span(bbox.min.Z, bbox.max.Z)
         if face_levels is None:
             face_levels = recognition.step_levels
+        if step_zs is None:
+            step_zs = recognition.step_ladder_for_z_span(bbox.min.Z, bbox.max.Z)
         cyls = recognition.cylinders
     if profiles is _UNSET:
         assert prof is not _UNSET  # both omitted always took and populated the aggregate arm
@@ -1176,16 +1176,6 @@ def build_part_model(
     # the same final legacy inventory that will actually cross the IR boundary.
     if pockets is None:
         pockets = recognise_pockets(part)
-    edge_floor_zs = {
-        pk.d_lo if pk.open_sign > 0 else pk.d_hi
-        for pk in pockets
-        if pk.depth_axis == "z" and pk.edge_anchored
-    }
-    plate_zs_at_base = {
-        round(pl.hi, 3)
-        for pl in ownership_plates
-        if pl.axis == "z" and abs(pl.lo - bbox.min.Z) < 0.5
-    }
     if risers is None:
         risers = recognise_risers(part)
     # RaisedPad v2 is an all-principal-axis occurrence. Resolve it before lowering the legacy
@@ -1204,6 +1194,7 @@ def build_part_model(
         if face_levels is None:
             face_levels = standalone_face_levels
     face_levels = tuple(face_levels or ())
+    heterogeneous_compound = len(part.solids()) > 1
 
     def _side_pad_owns_level(level: FaceLevel, pad: RaisedPad) -> bool:
         if pad.axis == "z" or level.x_span is None or level.y_span is None:
@@ -1220,28 +1211,178 @@ def build_part_model(
             )
         )
 
-    # Remove a Z level only when every physical support record at that ordinate belongs to a
-    # side-normal pad. A genuine independent stair sharing the same Z remains an owner.
-    side_pad_level_zs = {
-        level.z
-        for level in face_levels
-        if any(_side_pad_owns_level(level, pad) for pad in pads)
-        and not any(
-            other.z == level.z and not any(_side_pad_owns_level(other, pad) for pad in pads)
-            for other in face_levels
+    def _plate_owns_level(level: FaceLevel, plate: Plate) -> bool:
+        if (
+            plate.axis != "z"
+            or abs(plate.lo - bbox.min.Z) >= 0.5
+            or level.x_span is None
+            or level.y_span is None
+            or not any(abs(level.z - bound) < 0.5 for bound in (plate.lo, plate.hi))
+        ):
+            return False
+        owns_witness = (
+            level.x_span[0] - 0.5 <= plate.u <= level.x_span[1] + 0.5
+            and level.y_span[0] - 0.5 <= plate.v <= level.y_span[1] + 0.5
         )
-    }
-    ownership_step_zs = (
-        tuple(
-            z
-            for z in step_zs
-            if round(z, 3) not in plate_zs_at_base
-            and not any(abs(z - owned) < 0.5 for owned in side_pad_level_zs)
-            and not any(abs(z - floor) < 0.5 for floor in edge_floor_zs)
+        # A supplied legacy multi-plate grammar can describe the base below an open section
+        # with a representative point outside the smaller upper support. Correlate that case
+        # through the exact public ThroughStep support; a remote plate still cannot claim an
+        # unrelated stair occurrence merely because its top shares the same scalar Z.
+        owns_open_section_base = abs(plate.lo - bbox.min.Z) < 0.5 and any(
+            _through_step_owns_level(level, step) for step in through_steps
         )
-        if not profiles
-        else ()
+        return owns_witness or owns_open_section_base
+
+    def _edge_pocket_owns_level(level: FaceLevel, pocket: Pocket) -> bool:
+        if (
+            pocket.depth_axis != "z"
+            or not pocket.edge_anchored
+            or level.x_span is None
+            or level.y_span is None
+        ):
+            return False
+        floor = pocket.d_lo if pocket.open_sign > 0 else pocket.d_hi
+        bounds = {
+            pocket.long_axis: (pocket.lo, pocket.hi),
+            pocket.width_axis: (
+                pocket.w_center - pocket.width / 2,
+                pocket.w_center + pocket.width / 2,
+            ),
+        }
+        return abs(level.z - floor) < 0.5 and all(
+            support_lo - 0.5 <= owner_lo and owner_hi <= support_hi + 0.5
+            for (support_lo, support_hi), (owner_lo, owner_hi) in zip(
+                (level.x_span, level.y_span),
+                (bounds["x"], bounds["y"]),
+                strict=True,
+            )
+        )
+
+    def _through_step_owns_level(level: FaceLevel, step: ThroughStep) -> bool:
+        if step.axis == "z" or level.x_span is None or level.y_span is None:
+            return False
+        run_index = "xyz".index(step.axis)
+        run_span = tuple(
+            sorted(
+                (
+                    step.at[run_index] - step.length / 2,
+                    step.at[run_index] + step.length / 2,
+                )
+            )
+        )
+        source_run = level.x_span if step.axis == "x" else level.y_span
+        if any(
+            abs(actual - expected) >= 0.5
+            for actual, expected in zip(run_span, source_run, strict=True)
+        ):
+            return False
+        transverse_axes = tuple(axis for axis in "xyz" if axis != step.axis)
+        z_index = transverse_axes.index("z")
+        horizontal_index = 1 - z_index
+        source_horizontal = level.y_span if step.axis == "x" else level.x_span
+        for start, end in zip(step.section, step.section[1:]):
+            if (
+                abs(start[z_index] - level.z) < 0.5
+                and abs(end[z_index] - level.z) < 0.5
+                and all(
+                    abs(actual - expected) < 0.5
+                    for actual, expected in zip(
+                        sorted((start[horizontal_index], end[horizontal_index])),
+                        source_horizontal,
+                        strict=True,
+                    )
+                )
+            ):
+                return True
+        return False
+
+    def _turned_profile_owns_level(level: FaceLevel, profile) -> bool:
+        if profile.axis != "z":
+            # A transverse profile supplies no exact horizontal-support correlation. Preserve
+            # the historical single-solid classification, but fail open for a heterogeneous
+            # compound rather than using its AABB as false body identity.
+            return not heterogeneous_compound
+        if len(profile.steps) < 2 or level.x_span is None or level.y_span is None:
+            return False
+        incident = tuple(
+            step
+            for step in profile.steps
+            if any(abs(level.z - bound) < 0.5 for bound in (step.lo, step.hi))
+        )
+        if not incident:
+            return False
+        centre = (
+            profile.profile.axis_origin
+            if profile.profile is not None
+            else (bbox.center().X, bbox.center().Y, bbox.center().Z)
+        )
+        radius = max(step.diameter for step in incident) / 2
+        expected = (
+            (centre[0] - radius, centre[0] + radius),
+            (centre[1] - radius, centre[1] + radius),
+        )
+        return all(
+            abs(actual - wanted) < 0.5
+            for span, target in zip((level.x_span, level.y_span), expected, strict=True)
+            for actual, wanted in zip(span, target, strict=True)
+        )
+
+    def _alternate_owner_owns_level(
+        level: FaceLevel, lowered_steps: tuple[ThroughStep, ...] = ()
+    ) -> bool:
+        return (
+            any(_plate_owns_level(level, plate) for plate in ownership_plates)
+            or any(_side_pad_owns_level(level, pad) for pad in pads)
+            or any(_edge_pocket_owns_level(level, pocket) for pocket in pockets)
+            or any(_through_step_owns_level(level, step) for step in lowered_steps)
+            or any(_turned_profile_owns_level(level, profile) for profile in profiles)
+        )
+
+    # A singular-profile convenience ladder omits all prismatic FaceLevels when any one
+    # Z-turned body exists. In a heterogeneous compound retain the full occurrence roster and
+    # let exact owner matching below remove only proven shoulders. AABB containment is not
+    # evidence that an occurrence belongs to the turned solid.
+    if profiles and heterogeneous_compound:
+        step_zs = tuple(sorted({*step_zs, *(level.z for level in face_levels)}))
+
+    legacy_edge_floor_zs = tuple(
+        pocket.d_lo if pocket.open_sign > 0 else pocket.d_hi
+        for pocket in pockets
+        if pocket.depth_axis == "z" and pocket.edge_anchored
     )
+    legacy_plate_zs = tuple(
+        plate.hi
+        for plate in ownership_plates
+        if plate.axis == "z" and abs(plate.lo - bbox.min.Z) < 0.5
+    )
+
+    def _global_step_zs(lowered_steps: tuple[ThroughStep, ...] = ()) -> tuple[float, ...]:
+        """Project occurrence-local ownership to the legacy unique-height grammar."""
+        surviving = []
+        for z in step_zs:
+            occurrences = tuple(level for level in face_levels if round(level.z, 3) == round(z, 3))
+            if occurrences:
+                # One unowned support is sufficient: an alternate owner on another body cannot
+                # steal the shared Z.
+                keep = any(
+                    not _alternate_owner_owns_level(level, lowered_steps) for level in occurrences
+                )
+            else:
+                # Supplied value-only inventories predate support geometry. Preserve their
+                # scalar ownership behavior; normal aggregate builds take the body-local arm.
+                keep = (
+                    not profiles
+                    and not any(abs(z - owned) < 0.5 for owned in legacy_plate_zs)
+                    and not any(abs(z - owned) < 0.5 for owned in legacy_edge_floor_zs)
+                    and not any(
+                        abs(z - owned) < 0.5 for owned in _through_step_level_zs(lowered_steps)
+                    )
+                )
+            if keep:
+                surviving.append(z)
+        return tuple(surviving)
+
+    ownership_step_zs = _global_step_zs()
     shoulders = project_step_shoulders(risers, levels=list(ownership_step_zs))
     # Z-run records are the native through-step projection. X/Y-run records remain with the
     # established Z-up grammar only when that grammar proves BOTH exact physical legs; a
@@ -1265,10 +1406,10 @@ def build_part_model(
     # until the surviving legacy grammar still proves both legs for every preempted record.
     while True:
         owned_spans = _through_step_leg_spans(lowered_through_steps)
-        owned_levels = _through_step_level_zs(lowered_through_steps)
         owned_shoulders = _through_step_shoulder_sites(lowered_through_steps, bbox)
-        remaining_levels = tuple(
-            z for z in ownership_step_zs if not any(abs(z - owned) < 0.5 for owned in owned_levels)
+        remaining_levels = _global_step_zs(lowered_through_steps)
+        completely_unclaimed_levels = tuple(
+            level for level in face_levels if not _alternate_owner_owns_level(level, through_steps)
         )
         # Re-project after removing aggregate-owned levels. A riser is a shoulder only while
         # its foot remains in the emitted level set; filtering the original shoulders by site
@@ -1296,7 +1437,15 @@ def build_part_model(
             and not _through_step_legacy_complete(
                 step,
                 bbox,
-                remaining_levels,
+                (
+                    tuple(
+                        level.z
+                        for level in completely_unclaimed_levels
+                        if _through_step_owns_level(level, step)
+                    )
+                    if lowered_through_steps
+                    else remaining_levels
+                ),
                 remaining_shoulders,
                 remaining_plates,
                 envelope_emittable=envelope_emittable,
@@ -1306,7 +1455,6 @@ def build_part_model(
             break
         lowered_through_steps += promoted
     through_leg_spans = _through_step_leg_spans(lowered_through_steps)
-    through_level_zs = _through_step_level_zs(lowered_through_steps)
     through_shoulder_sites = _through_step_shoulder_sites(lowered_through_steps, bbox)
     if not profiles and rotational is None and multi_plate:
         features.extend(convert(channel, ctx) for channel in channels)
@@ -1526,38 +1674,44 @@ def build_part_model(
                     continue
                 features.append(convert(pl, ctx))
 
-    # Prismatic step-height ladder — horizontal face levels on a NON-turned part
-    # (a turned part's steps are StepFeatures, dimensioned by the IR length chain).
-    if not profiles and step_zs:
+    # Prismatic step-height ladder — horizontal supports that remain globally owned after each
+    # body-local alternate owner has claimed only its own occurrences. A disconnected turned,
+    # plate, pocket, pad or through-step body at the same Z cannot suppress a real stair rung.
+    if step_zs:
         c = bbox.center()
         # FaceLevel v2 is an occurrence roster: disjoint bodies may establish the same scalar
         # Z height independently. The current StepLevelFeature is the global height-requirement
         # projection and requires unique rungs, so equal values become one dimension while the
         # aggregate retains every body-local occurrence for independent completeness (#1357).
-        _levels = tuple(
-            sorted(
-                {
-                    z
-                    for z in step_zs
-                    if round(z, 3) not in plate_zs_at_base
-                    and not any(abs(z - owned) < 0.5 for owned in side_pad_level_zs)
-                    and not any(abs(z - owned) < 0.5 for owned in through_level_zs)
-                }
-            )
-        )
+        _levels = tuple(sorted(set(_global_step_zs(lowered_through_steps))))
         if _levels:
-            # An edge-open blind interruption owns its floor through the pocket
-            # depth callout; it is not a global profile level. Interior pockets
-            # retain the established level IR for compatibility.
-            _levels = tuple(
-                z for z in _levels if not any(abs(z - floor) < 0.5 for floor in edge_floor_zs)
-            )
-        if _levels:
-            support_by_level = {
-                level.z: LevelSupport(level.z, level.x_span, level.y_span)
-                for level in (face_levels or ())
-                if level.x_span is not None and level.y_span is not None
-            }
+            support_by_level = {}
+            for z in _levels:
+                candidates = [
+                    level
+                    for level in (face_levels or ())
+                    if abs(level.z - z) <= 1e-9
+                    and level.x_span is not None
+                    and level.y_span is not None
+                ]
+                # A surviving shared Z has at least one globally owned physical support. Keep
+                # that support as the rung witness rather than whichever body-local record
+                # happened to occur last in the provider aggregate (#1373).
+                global_candidates = [
+                    level
+                    for level in candidates
+                    if not _alternate_owner_owns_level(level, lowered_through_steps)
+                ]
+                candidates = global_candidates or candidates
+                if candidates:
+                    level = min(
+                        candidates,
+                        key=lambda item: (
+                            tuple(item.x_span or ()),
+                            tuple(item.y_span or ()),
+                        ),
+                    )
+                    support_by_level[z] = LevelSupport(level.z, level.x_span, level.y_span)
             _level_supports = tuple(support_by_level[z] for z in _levels if z in support_by_level)
             # Every profile transition needs an in-plane station. Heights alone do
             # not reconstruct a multi-level staircase or a slanted run (#897).

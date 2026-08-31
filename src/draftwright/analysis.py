@@ -946,6 +946,13 @@ def _analyse(
             if len(_profiles) > 1 and {profile.axis for profile in _profiles} == {"z"}
             else recognition.step_ladder_for_z_span(bb.min.Z, bb.max.Z)
         )
+
+        # A singular Z-turned convenience projection cannot replace FaceLevels belonging to
+        # another solid in a heterogeneous compound. Keep the full public occurrence roster;
+        # model lowering suppresses only exact proven turned shoulders. A bounding box is not
+        # body identity: a disconnected stair can occupy an unused corner of a shaft's AABB.
+        if len(part.solids()) > 1:
+            step_zs = sorted({*step_zs, *(level.z for level in recognition.step_levels)})
     # The aggregate owns the shared substrate from here on.  Rebind the local projection so
     # model construction, Analysis and the finished BuildState all consume the same inventory
     # object rather than parallel list/tuple wrappers that merely happen to contain equal data.

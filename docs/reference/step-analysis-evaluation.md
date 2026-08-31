@@ -13,10 +13,13 @@ An observer may only normalize actual evidence; `ObservedFact` deliberately has 
 identifier. Expected and observed facts are matched by family plus authored physical identity fields.
 
 Format 1 currently proves independent `holes`, `hole-patterns`, `flats`, `pockets`,
-`pocket-patterns`, `grooves`, `rectangular-pads`, `polygonal-bosses`, `plates`, `chamfers` and `fillets`
-vertical slices. Each observer reads released `b123d-recognisers` geometry records, builds one
-drawing, and reads all four downstream outcomes from that build through the public IR, `Sheet`,
-generated-code and ADR 0010 provenance seams.
+`pocket-patterns`, `grooves`, `rectangular-pads`, `polygonal-bosses`, `plates`, `face-levels`,
+`chamfers` and `fillets` vertical slices. Each observer reads released `b123d-recognisers`
+geometry records, builds one drawing, and reads downstream outcomes from that build through the
+public IR, `Sheet`, generated-code and ADR 0010 provenance seams. A FaceLevel that supplies a
+global rung requires all four boundaries; a record retained as exact Plate, side-pad, edge-pocket,
+ThroughStep or turned-profile substrate requires its automatic-IR and generated-code owners but
+deliberately has no second FaceLevel declaration or drawing requirement.
 
 Since #1217 that outcome comes from the engine's own requirement ledger
 (`linting.hole_coverage.hole_requirement_outcomes`) rather than from a second correspondence
