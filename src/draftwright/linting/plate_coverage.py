@@ -40,6 +40,7 @@ class PlateRequirementOutcome:
     state: PlateRequirementState
     requirement_count: int = 1
     features: tuple = ()
+    dependencies: tuple[tuple[object, str], ...] = ()
 
 
 def _rounded(value) -> float:
@@ -138,6 +139,115 @@ def _same(value, expected) -> bool:
     return _rounded(value) == _rounded(expected)
 
 
+def _between(value, bounds) -> bool:
+    lo, hi = sorted((_rounded(bounds[0]), _rounded(bounds[1])))
+    return lo <= _rounded(value) <= hi
+
+
+def _step_supports_source(source, step) -> bool:
+    """Require the Plate witness to lie on this level record's physical support."""
+    try:
+        point = plate_center(source)
+        supports = tuple(step.level_supports)
+        if not supports:
+            return False
+        if str(source.axis) == "z":
+            return any(
+                _between(point[0], support.x_span) and _between(point[1], support.y_span)
+                for support in supports
+            )
+        transverse = "x" if str(source.axis) == "y" else "y"
+        index = "xyz".index(transverse)
+        span_name = f"{transverse}_span"
+        return any(_between(point[index], getattr(support, span_name)) for support in supports)
+    except (AttributeError, TypeError, ValueError):
+        return False
+
+
+def _slot_pattern_supports_source(source, pattern) -> bool:
+    """Join a material web only to a pattern whose physical cut crosses its witness."""
+    try:
+        member = pattern.member
+        if str(source.axis) != str(member.width_axis):
+            return False
+        point = plate_center(source)
+        long_index = "xyz".index(str(member.long_axis))
+        depth_axis = str(pattern.frame.axis)
+        depth_index = "xyz".index(depth_axis)
+        return _between(point[long_index], (member.lo, member.hi)) and _same(
+            point[depth_index], pattern.frame.origin[depth_index]
+        )
+    except (AttributeError, TypeError, ValueError):
+        return False
+
+
+def _recognised_slot_pattern_supports_source(source, slots) -> bool:
+    """Use the public source-body bounds retained on provider Slot records."""
+    try:
+        representative = slots[0]
+        axes = {"x", "y", "z"}
+        depth_axis = (axes - {str(representative.width_axis), str(representative.long_axis)}).pop()
+        point = plate_center(source)
+        body_key = tuple(representative.body_key)
+        if len(body_key) < 6:
+            return False
+        body_bounds = tuple(zip(body_key[:3], body_key[3:6], strict=True))
+        return (
+            _between(
+                point["xyz".index(str(representative.long_axis))],
+                (representative.lo, representative.hi),
+            )
+            and _between(
+                point["xyz".index(depth_axis)], (representative.d_lo, representative.d_hi)
+            )
+            and all(_between(point[index], bounds) for index, bounds in enumerate(body_bounds))
+        )
+    except (AttributeError, IndexError, KeyError, TypeError, ValueError):
+        return False
+
+
+def _polygonal_boss_supports_source(source, boss) -> bool:
+    """Conservatively require the Plate witness inside the owner's support polygon."""
+    try:
+        axis = str(source.axis)
+        boss_axis = getattr(getattr(boss, "frame", None), "axis", getattr(boss, "axis", None))
+        if str(boss_axis) != axis:
+            return False
+        indices = [index for index in range(3) if index != "xyz".index(axis)]
+        point = tuple(plate_center(source)[index] for index in indices)
+        polygon = [
+            tuple(float(centre[index]) for index in indices) for centre in boss.flat_centres
+        ]
+        if len(polygon) < 3:
+            return False
+        signs = []
+        for start, end in zip(polygon, (*polygon[1:], polygon[0]), strict=True):
+            cross = (end[0] - start[0]) * (point[1] - start[1]) - (end[1] - start[1]) * (
+                point[0] - start[0]
+            )
+            if abs(cross) > 1e-6:
+                signs.append(cross > 0)
+        return not signs or all(sign == signs[0] for sign in signs)
+    except (AttributeError, TypeError, ValueError):
+        return False
+
+
+def _level_continues_beyond_source(source, recognition, boundary: float) -> bool:
+    """A support level at the far Plate face proves material continues past that slab."""
+    if str(source.axis) != "z":
+        return False
+    point = plate_center(source)
+    try:
+        return any(
+            _same(level.z, boundary)
+            and _between(point[0], level.x_span)
+            and _between(point[1], level.y_span)
+            for level in recognition.step_levels
+        )
+    except (AttributeError, TypeError, ValueError):
+        return False
+
+
 def _step_level_dependencies(source, features) -> tuple[tuple[object, str], ...]:
     """Exact legacy level/shoulder grammar that already states a Plate interval."""
     try:
@@ -145,6 +255,8 @@ def _step_level_dependencies(source, features) -> tuple[tuple[object, str], ...]
         lo, hi = _rounded(source.lo), _rounded(source.hi)
         envelope = _envelope(features)
         for step in (item for item in features if getattr(item, "kind", None) == "step_level"):
+            if not _step_supports_source(source, step):
+                continue
             if axis == "z":
                 coordinates = tuple(_rounded(value) for value in (step.base, *step.levels))
                 if lo not in coordinates or hi not in coordinates:
@@ -189,7 +301,11 @@ def _polygonal_boss_dependencies(source, features) -> tuple[tuple[object, str], 
         )
         source_interval = (_rounded(source.lo), _rounded(source.hi))
         for boss in (item for item in features if getattr(item, "kind", None) == "polygonal_boss"):
-            if str(boss.frame.axis) != axis or boss.span is None:
+            if (
+                str(boss.frame.axis) != axis
+                or boss.span is None
+                or not _polygonal_boss_supports_source(source, boss)
+            ):
                 continue
             boss_interval = tuple(sorted(_rounded(point[index]) for point in boss.span))
             supports_below = (
@@ -224,7 +340,9 @@ def _slot_pattern_dependencies(source, features) -> tuple[tuple[object, str], ..
             item for item in features if getattr(item, "kind", None) == "slot_pattern"
         ):
             member = pattern.member
-            if str(member.width_axis) != axis:
+            if str(member.width_axis) != axis or not _slot_pattern_supports_source(
+                source, pattern
+            ):
                 continue
             half_width = float(member.width) / 2
             cuts = sorted(
@@ -266,6 +384,11 @@ def _envelope_owned_dependencies(source, features) -> tuple[tuple[object, str], 
             envelope is not None
             and _same(source.lo, envelope.bbox_min[index])
             and _same(source.hi, envelope.bbox_max[index])
+            and all(
+                _same(plate_center(source)[other], envelope.frame.origin[other])
+                for other in range(3)
+                if other != index
+            )
         ):
             return ((envelope, _axis_parameter(axis)),)
     except (AttributeError, TypeError, ValueError):
@@ -303,31 +426,31 @@ def _recognition_owner_supersedes_plate(source, recognition, features) -> bool:
     try:
         axis = str(source.axis)
         index = "xyz".index(axis)
-        envelope_interval = (
-            _rounded(envelope.bbox_min[index]),
-            _rounded(envelope.bbox_max[index]),
-        )
         source_interval = (_rounded(source.lo), _rounded(source.hi))
 
         for boss in recognition.polygonal_bosses:
-            if str(boss.axis) != axis:
+            if str(boss.axis) != axis or not _polygonal_boss_supports_source(source, boss):
                 continue
             boss_interval = (_rounded(boss.base), _rounded(boss.top))
-            if (
-                source_interval[0] == envelope_interval[0]
-                and source_interval[1] == boss_interval[0]
-                and boss_interval[1] == envelope_interval[1]
-            ) or (
-                boss_interval[0] == envelope_interval[0]
-                and boss_interval[1] == source_interval[0]
-                and source_interval[1] == envelope_interval[1]
-            ):
+            supports_below = source_interval[1] == boss_interval[
+                0
+            ] and not _level_continues_beyond_source(source, recognition, source_interval[0])
+            supports_above = source_interval[0] == boss_interval[
+                1
+            ] and not _level_continues_beyond_source(source, recognition, source_interval[1])
+            if supports_below or supports_above:
                 return True
 
         for pattern in recognition.slot_patterns:
             slots = tuple(pattern.slots)
             if not slots or any(str(slot.width_axis) != axis for slot in slots):
                 continue
+            if not _recognised_slot_pattern_supports_source(source, slots):
+                continue
+            body_key = tuple(slots[0].body_key)
+            if len(body_key) < 6:
+                continue
+            pattern_interval = (_rounded(body_key[index]), _rounded(body_key[index + 3]))
             cuts = sorted(
                 (
                     _rounded(slot.w_center - slot.width / 2),
@@ -336,13 +459,13 @@ def _recognition_owner_supersedes_plate(source, recognition, features) -> bool:
                 for slot in slots
             )
             material = []
-            cursor = envelope_interval[0]
+            cursor = pattern_interval[0]
             for cut_lo, cut_hi in cuts:
                 if cut_lo > cursor:
                     material.append((cursor, cut_lo))
                 cursor = max(cursor, cut_hi)
-            if cursor < envelope_interval[1]:
-                material.append((cursor, envelope_interval[1]))
+            if cursor < pattern_interval[1]:
+                material.append((cursor, pattern_interval[1]))
             if source_interval in material:
                 return True
     except (AttributeError, TypeError, ValueError):
@@ -389,6 +512,15 @@ def _derived_opposite_wall_dependencies(features, feature) -> tuple[tuple[object
             if abs(float(plate.lo) - channel_hi) <= 1e-6 and abs(float(plate.hi) - bbox_hi) <= 1e-6
         ]
         if len(lower) != 1 or len(upper) != 1 or feature != upper[0]:
+            return ()
+        if not (_same(lower[0].u, feature.u) and _same(lower[0].v, feature.v)):
+            return ()
+        centre = plate_center(feature)
+        depth_axis = ({"x", "y", "z"} - {axis, str(channel.long_axis)}).pop()
+        if not (
+            _between(centre[long_index], (channel.lo, channel.hi))
+            and _between(centre["xyz".index(depth_axis)], (channel.d_lo, channel.d_hi))
+        ):
             return ()
         envelope_parameter = {"x": "width.length", "y": "depth.length", "z": "height.length"}[axis]
     except (AttributeError, TypeError, ValueError):
@@ -477,12 +609,13 @@ def plate_requirement_outcomes(
         if omission.feature is not None and omission.authored
     }
     evidenced = placed | satisfied
-    inapplicable = {
-        (feature, "thickness.length")
+    derived_dependencies = {
+        feature: dependencies
         for feature in features
         if (dependencies := _derived_opposite_wall_dependencies(features, feature))
         and all(dependency in evidenced for dependency in dependencies)
     }
+    inapplicable = {(feature, "thickness.length") for feature in derived_dependencies}
     outcomes: list[PlateRequirementOutcome] = []
     for source_record, key, at in keyed_sources:
         matches = ir_by_key.get(key, ()) if key is not None else ()
@@ -497,7 +630,14 @@ def plate_requirement_outcomes(
             if dependencies or _recognition_owner_supersedes_plate(
                 source_record, recognition, features
             ):
-                outcomes.append(PlateRequirementOutcome(at, "thickness.length", "inapplicable"))
+                outcomes.append(
+                    PlateRequirementOutcome(
+                        at,
+                        "thickness.length",
+                        "inapplicable",
+                        dependencies=dependencies,
+                    )
+                )
                 continue
             outcomes.append(PlateRequirementOutcome(at, "?", "unverifiable"))
             continue
@@ -516,6 +656,7 @@ def plate_requirement_outcomes(
                     registry=registry,
                 ),
                 features=(feature,),
+                dependencies=derived_dependencies.get(feature, ()),
             )
         )
     return outcomes

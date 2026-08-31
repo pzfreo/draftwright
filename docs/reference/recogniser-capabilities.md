@@ -234,8 +234,8 @@ thick-block and rotational negatives.
 A Plate occurrence is a thin material slab in a multi-plate prismatic body; a lone flat plate is
 owned by the whole-part envelope and is intentionally outside this denominator. Exact axis,
 axial interval and both in-plane witness coordinates join each provider record to one
-`PlateFeature`; the independently authored identity uses axis and physical axial station, adding a
-witness coordinate only where equal compound occurrences need disambiguation. Thickness is the
+`PlateFeature`; the independently authored identity pins axis, physical axial station and both
+transverse witness coordinates for every occurrence. Thickness is the
 single scored parameter. Each occurrence must survive automatic IR, public `Sheet.plate`, executed
 generated Sheet code and the compiler's `thickness.length` drawing identity. A planner-derived
 opposite U-channel wall is explicitly `inapplicable` only because the envelope, first wall and
@@ -243,6 +243,8 @@ channel-width chain states it; other requirements need real solver-placed `Dimen
 Material spans already owned by an exact envelope, step-level/shoulder chain, slot pattern or
 attached polygonal boss likewise remain inapplicable rather than becoming duplicate Plate
 requirements; malformed or absent ownership evidence fails closed.
+Derived drawing credit additionally requires every dependency's compiler-approved finished claim
+or structured satisfaction; provenance attached to incorrect ink is not enough.
 Annotation names, views and page coordinates never establish correspondence. Removing or
 malforming provider records, changing the interval or witness, corrupting declaration/generated
 code, changing the printed value, or severing measurement provenance reduces the corresponding

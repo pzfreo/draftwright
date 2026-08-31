@@ -45,9 +45,10 @@ five physical requirements through compiler measurement identities and structure
 location facts without treating the older geometric coverage fallback as semantic evidence.
 
 The Plate slice (#1373) counts one body-local thin slab whose thickness is not already owned by
-the whole-part envelope. Thin axis and physical slab station identify the occurrence; thickness is
-the scored parameter. Automatic IR, public declaration and executed generated code must preserve
-the full witness, and the drawing must carry the exact compiler-owned thickness identity and ink.
+the whole-part envelope. Thin axis, physical slab station and both independently authored
+transverse witness coordinates identify the occurrence; thickness is the scored parameter.
+Automatic IR, public declaration and executed generated code must preserve the full witness, and
+the drawing must carry the exact compiler-owned thickness identity and verified ink.
 
 The polygonal-boss slice (#1372) counts one attached regular prism per principal axis and physical
 centre. Side count, A/F, height, ordered flat directions and physical flat centres are scored
@@ -110,6 +111,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from hashlib import sha256
@@ -1565,6 +1567,7 @@ def _plate_drawing_outcomes(plates, drawing) -> list[Outcome]:
     """Verify each slab thickness through exact compiler identity and finished ink."""
     from build123d_drafting import Dimension
 
+    from draftwright.linting._registry import satisfaction_ids
     from draftwright.linting.evidence import verify_measurement_claims
     from draftwright.model.compiled import compile_dimensions
 
@@ -1579,6 +1582,7 @@ def _plate_drawing_outcomes(plates, drawing) -> list[Outcome]:
         plan.diagnostics,
     )
     confirmed: dict[tuple[object, str], set[str]] = {}
+    confirmed_counts: Counter[tuple[object, str]] = Counter()
     for claim in verify_measurement_claims(drawing.registry, plan):
         measurement = claim.measurement
         if claim.state != "confirmed" or measurement is None:
@@ -1588,6 +1592,12 @@ def _plate_drawing_outcomes(plates, drawing) -> list[Outcome]:
             str(getattr(measurement, "parameter", "")),
         )
         confirmed.setdefault(key, set()).add(claim.annotation)
+        confirmed_counts[key] += 1
+    satisfied = {
+        (identity.feature, identity.parameter)
+        for identity in satisfaction_ids(drawing.registry)
+        if identity.feature is not None and isinstance(identity.parameter, str)
+    }
 
     result: list[Outcome] = []
     for exact, features, outcomes in correspondence:
@@ -1596,7 +1606,18 @@ def _plate_drawing_outcomes(plates, drawing) -> list[Outcome]:
             continue
         feature = features[0]
         names = confirmed.get((feature, "thickness.length"), set())
-        states_ok = all(outcome.state in {"placed", "inapplicable"} for outcome in outcomes)
+        states_ok = all(
+            outcome.state == "placed"
+            or (
+                outcome.state == "inapplicable"
+                and bool(outcome.dependencies)
+                and all(
+                    dependency in satisfied or confirmed_counts[dependency] >= count
+                    for dependency, count in Counter(outcome.dependencies).items()
+                )
+            )
+            for outcome in outcomes
+        )
         ink_ok = all(
             outcome.state != "placed"
             or any(

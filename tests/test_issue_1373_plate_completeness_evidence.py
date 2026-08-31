@@ -424,6 +424,52 @@ def test_exact_overlapping_family_owners_do_not_create_a_second_plate_denominato
     assert failed_closed.state == "unverifiable"
 
 
+def test_overlapping_family_ownership_cannot_cross_disconnected_bodies() -> None:
+    from draftwright import build_drawing
+    from draftwright.linting.plate_coverage import plate_requirement_outcomes
+    from draftwright.registry import AnnotationRegistry
+
+    slotted = Box(60, 180, 20)
+    for y in (-45, -15, 15, 45):
+        slotted -= Pos(0, y, 0) * Box(30, 8, 20)
+    slot_compound = slotted + Pos(150, 0, 0) * _tee()
+    slot_drawing = build_drawing(slot_compound)
+    slot_recognition = slot_drawing.recognition()
+    assert slot_recognition is not None
+    envelope_only = tuple(
+        feature for feature in slot_drawing.model().features if feature.kind == "envelope"
+    )
+    slot_outcomes = plate_requirement_outcomes(
+        slot_recognition, envelope_only, AnnotationRegistry()
+    )
+    assert {outcome.state for outcome in slot_outcomes if outcome.source_at[0] == 0.0} == {
+        "inapplicable"
+    }
+    assert {outcome.state for outcome in slot_outcomes if outcome.source_at[0] > 100.0} == {
+        "unverifiable"
+    }
+
+    boss_body = Box(100, 80, 10, align=(Align.CENTER, Align.CENTER, Align.CENTER)) + (
+        Pos(13, -7, 5) * Rot(0, 0, 11) * extrude(RegularPolygon(20, 6), 30)
+    )
+    boss_compound = Pos(-100, 0, 0) * boss_body + Pos(100, 0, 0) * _tee()
+    boss_drawing = build_drawing(boss_compound)
+    boss_recognition = boss_drawing.recognition()
+    assert boss_recognition is not None
+    envelope_only = tuple(
+        feature for feature in boss_drawing.model().features if feature.kind == "envelope"
+    )
+    boss_outcomes = plate_requirement_outcomes(
+        boss_recognition, envelope_only, AnnotationRegistry()
+    )
+    assert {outcome.state for outcome in boss_outcomes if outcome.source_at[0] < 0.0} == {
+        "inapplicable"
+    }
+    assert {outcome.state for outcome in boss_outcomes if outcome.source_at[0] > 0.0} == {
+        "unverifiable"
+    }
+
+
 def test_step_level_alternate_must_land_before_plate_intervals_are_inapplicable() -> None:
     from draftwright import build_drawing
     from draftwright.linting.plate_coverage import plate_requirement_outcomes
@@ -445,6 +491,29 @@ def test_step_level_alternate_must_land_before_plate_intervals_are_inapplicable(
     assert len(complete) == len(missing) == 2
     assert {outcome.state for outcome in complete} == {"inapplicable"}
     assert {outcome.state for outcome in missing} == {"unverifiable"}
+
+
+def test_derived_plate_drawing_credit_requires_verified_dependency_ink() -> None:
+    from draftwright import build_drawing
+
+    drawing = build_drawing(import_step(CORPUS.parent / "plate-u-additive.step"))
+    recognition = drawing.recognition()
+    assert recognition is not None
+    channel = next(feature for feature in drawing.model().features if feature.kind == "channel")
+    name = next(
+        name
+        for name in drawing.registry.names()
+        if any(
+            identity.feature == channel and identity.parameter == "channel_width.length"
+            for identity in drawing.registry.measurement_of(name)
+        )
+    )
+    drawing.registry.named(name).label = "999"
+
+    outcomes = _plate_drawing_outcomes(tuple(recognition.plates), drawing)
+
+    assert outcomes.count("unsupported") == 1
+    assert outcomes.count("supported") == 2
 
 
 def test_plate_observer_uses_one_build_owned_recognition_aggregate(monkeypatch) -> None:
@@ -649,6 +718,27 @@ def test_shifting_provider_interval_reduces_detection_recall(monkeypatch) -> Non
         result = original(*args, **kwargs)
         plates = tuple(
             replace(plate, lo=plate.lo + 1.0, hi=plate.hi + 1.0) for plate in result.plates
+        )
+        return replace(result, plates=plates)
+
+    monkeypatch.setattr(analysis, "build_raw_recognition_result", shifted)
+    damaged = evaluate_step_corpus(load_corpus(CORPUS))
+
+    assert damaged.detection.recall == 0.0
+    assert damaged.detection.missed == 20
+    assert damaged.detection.false_positives == 20
+
+
+@pytest.mark.parametrize("field", ("u", "v"))
+def test_shifting_provider_transverse_witness_reduces_detection_recall(monkeypatch, field) -> None:
+    import draftwright.analysis as analysis
+
+    original = analysis.build_raw_recognition_result
+
+    def shifted(*args, **kwargs):
+        result = original(*args, **kwargs)
+        plates = tuple(
+            replace(plate, **{field: getattr(plate, field) + 1.0}) for plate in result.plates
         )
         return replace(result, plates=plates)
 

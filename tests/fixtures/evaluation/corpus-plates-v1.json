@@ -9,7 +9,7 @@
       "id": "plate-t-yz",
       "tags": ["positive", "principal-orientation"],
       "fixture": "plate-t-yz.step",
-      "sha256": "77a55e789ea3e1f2202323fb7023a72c724e2dd9d728b380b2d8133fffc65069",
+      "sha256": "7affd743330bc65054bf301fd6b89e913c03ec9439674ce3e34f9eefc2600a2e",
       "author": "Draftwright project contributors",
       "license": "CC0-1.0",
       "source": "Authored as a symmetric 80 × 60 × 10 mm base slab joined to a centred 80 × 10 × 50 mm wall, establishing one Y-thickness and one Z-thickness requirement.",
@@ -17,13 +17,13 @@
       "facts": [
         {
           "family": "plates",
-          "identity": {"axis": {"value": "y"}, "at": {"value": 0.0, "absolute_tolerance": 1e-6}},
+          "identity": {"axis": {"value": "y"}, "at": {"value": 0.0, "absolute_tolerance": 1e-6}, "u": {"value": 0.0, "absolute_tolerance": 1e-6}, "v": {"value": 35.0, "absolute_tolerance": 1e-6}},
           "parameters": {"thickness": {"value": 10.0, "absolute_tolerance": 1e-6}},
           "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
         },
         {
           "family": "plates",
-          "identity": {"axis": {"value": "z"}, "at": {"value": 5.0, "absolute_tolerance": 1e-6}},
+          "identity": {"axis": {"value": "z"}, "at": {"value": 5.0, "absolute_tolerance": 1e-6}, "u": {"value": 0.0, "absolute_tolerance": 1e-6}, "v": {"value": 0.0, "absolute_tolerance": 1e-6}},
           "parameters": {"thickness": {"value": 10.0, "absolute_tolerance": 1e-6}},
           "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
         }
@@ -33,7 +33,7 @@
       "id": "plate-t-xz",
       "tags": ["positive", "principal-orientation"],
       "fixture": "plate-t-xz.step",
-      "sha256": "901dde3f26194a833d94844519c4d59f177734871de2e6c5305c56547ea98b42",
+      "sha256": "c99d2705602105877eb2ec7a1501459a0b9ee7975149c04c4a068b88595a0611",
       "author": "Draftwright project contributors",
       "license": "CC0-1.0",
       "source": "Authored as the orthogonal counterpart of plate-t-yz: a 60 × 80 × 10 mm base joined to a centred 10 × 80 × 50 mm wall.",
@@ -41,13 +41,13 @@
       "facts": [
         {
           "family": "plates",
-          "identity": {"axis": {"value": "x"}, "at": {"value": 0.0, "absolute_tolerance": 1e-6}},
+          "identity": {"axis": {"value": "x"}, "at": {"value": 0.0, "absolute_tolerance": 1e-6}, "u": {"value": 0.0, "absolute_tolerance": 1e-6}, "v": {"value": 35.0, "absolute_tolerance": 1e-6}},
           "parameters": {"thickness": {"value": 10.0, "absolute_tolerance": 1e-6}},
           "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
         },
         {
           "family": "plates",
-          "identity": {"axis": {"value": "z"}, "at": {"value": 5.0, "absolute_tolerance": 1e-6}},
+          "identity": {"axis": {"value": "z"}, "at": {"value": 5.0, "absolute_tolerance": 1e-6}, "u": {"value": 0.0, "absolute_tolerance": 1e-6}, "v": {"value": 0.0, "absolute_tolerance": 1e-6}},
           "parameters": {"thickness": {"value": 10.0, "absolute_tolerance": 1e-6}},
           "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
         }
@@ -57,7 +57,7 @@
       "id": "plate-u-additive",
       "tags": ["ambiguous", "multiple", "overlapping-family", "positive"],
       "fixture": "plate-u-additive.step",
-      "sha256": "d18878fbb27791f887d5115ff81217530403ebefc5f5e12d0f784854debfaf45",
+      "sha256": "1002771eb41fb96a3634cf4b7a5ce7317e027d963d1a77607be9b493a8f5dbba",
       "author": "Draftwright project contributors",
       "license": "CC0-1.0",
       "source": "Authored by adding two 10 mm side walls to an 80 × 60 × 10 mm base. The three material slabs are requirements; the 60 mm open channel between the walls is not.",
@@ -65,19 +65,19 @@
       "facts": [
         {
           "family": "plates",
-          "identity": {"axis": {"value": "x"}, "at": {"value": -35.0, "absolute_tolerance": 1e-6}},
+          "identity": {"axis": {"value": "x"}, "at": {"value": -35.0, "absolute_tolerance": 1e-6}, "u": {"value": 0.0, "absolute_tolerance": 1e-6}, "v": {"value": 32.273, "absolute_tolerance": 1e-6}},
           "parameters": {"thickness": {"value": 10.0, "absolute_tolerance": 1e-6}},
           "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
         },
         {
           "family": "plates",
-          "identity": {"axis": {"value": "x"}, "at": {"value": 35.0, "absolute_tolerance": 1e-6}},
+          "identity": {"axis": {"value": "x"}, "at": {"value": 35.0, "absolute_tolerance": 1e-6}, "u": {"value": 0.0, "absolute_tolerance": 1e-6}, "v": {"value": 32.273, "absolute_tolerance": 1e-6}},
           "parameters": {"thickness": {"value": 10.0, "absolute_tolerance": 1e-6}},
           "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
         },
         {
           "family": "plates",
-          "identity": {"axis": {"value": "z"}, "at": {"value": 5.0, "absolute_tolerance": 1e-6}},
+          "identity": {"axis": {"value": "z"}, "at": {"value": 5.0, "absolute_tolerance": 1e-6}, "u": {"value": 0.0, "absolute_tolerance": 1e-6}, "v": {"value": 0.0, "absolute_tolerance": 1e-6}},
           "parameters": {"thickness": {"value": 10.0, "absolute_tolerance": 1e-6}},
           "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
         }
@@ -87,7 +87,7 @@
       "id": "plate-u-cut",
       "tags": ["ambiguous", "multiple", "overlapping-family", "positive", "topology-order-variant"],
       "fixture": "plate-u-cut.step",
-      "sha256": "41dde5befa78ac255cf3abcbbc8b9bf742866aaaf2666797425ffdb0b7b7cd1f",
+      "sha256": "3fd7fa8f3d8d63fe9cbc3bc4880b4f3ef1951ab140d890a1896200bb3427fb73",
       "author": "Draftwright project contributors",
       "license": "CC0-1.0",
       "source": "Geometrically identical to plate-u-additive but authored by subtracting the open channel from one 80 × 60 × 60 mm body.",
@@ -95,19 +95,19 @@
       "facts": [
         {
           "family": "plates",
-          "identity": {"axis": {"value": "x"}, "at": {"value": -35.0, "absolute_tolerance": 1e-6}},
+          "identity": {"axis": {"value": "x"}, "at": {"value": -35.0, "absolute_tolerance": 1e-6}, "u": {"value": 0.0, "absolute_tolerance": 1e-6}, "v": {"value": 32.273, "absolute_tolerance": 1e-6}},
           "parameters": {"thickness": {"value": 10.0, "absolute_tolerance": 1e-6}},
           "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
         },
         {
           "family": "plates",
-          "identity": {"axis": {"value": "x"}, "at": {"value": 35.0, "absolute_tolerance": 1e-6}},
+          "identity": {"axis": {"value": "x"}, "at": {"value": 35.0, "absolute_tolerance": 1e-6}, "u": {"value": 0.0, "absolute_tolerance": 1e-6}, "v": {"value": 32.273, "absolute_tolerance": 1e-6}},
           "parameters": {"thickness": {"value": 10.0, "absolute_tolerance": 1e-6}},
           "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
         },
         {
           "family": "plates",
-          "identity": {"axis": {"value": "z"}, "at": {"value": 5.0, "absolute_tolerance": 1e-6}},
+          "identity": {"axis": {"value": "z"}, "at": {"value": 5.0, "absolute_tolerance": 1e-6}, "u": {"value": 0.0, "absolute_tolerance": 1e-6}, "v": {"value": 0.0, "absolute_tolerance": 1e-6}},
           "parameters": {"thickness": {"value": 10.0, "absolute_tolerance": 1e-6}},
           "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
         }
@@ -117,7 +117,7 @@
       "id": "plate-cross-topology-a",
       "tags": ["multiple", "positive", "principal-orientation", "topology-order-variant"],
       "fixture": "plate-cross-topology-a.step",
-      "sha256": "8adb6f39c64e4af2214b83f600d95bef0de01ddc41de5c8185b14064e4cca797",
+      "sha256": "a39ad72cb1986ba607925c51d18c5287ac79049f43ddd1675c2323a91447a629",
       "author": "Draftwright project contributors",
       "license": "CC0-1.0",
       "source": "Authored by adding a centred X-thin wall and then a centred Y-thin wall to a Z-thin base, producing one slab on every principal axis.",
@@ -125,19 +125,19 @@
       "facts": [
         {
           "family": "plates",
-          "identity": {"axis": {"value": "x"}, "at": {"value": 0.0, "absolute_tolerance": 1e-6}},
+          "identity": {"axis": {"value": "x"}, "at": {"value": 0.0, "absolute_tolerance": 1e-6}, "u": {"value": 0.0, "absolute_tolerance": 1e-6}, "v": {"value": 35.0, "absolute_tolerance": 1e-6}},
           "parameters": {"thickness": {"value": 10.0, "absolute_tolerance": 1e-6}},
           "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
         },
         {
           "family": "plates",
-          "identity": {"axis": {"value": "y"}, "at": {"value": 0.0, "absolute_tolerance": 1e-6}},
+          "identity": {"axis": {"value": "y"}, "at": {"value": 0.0, "absolute_tolerance": 1e-6}, "u": {"value": 0.0, "absolute_tolerance": 1e-6}, "v": {"value": 35.0, "absolute_tolerance": 1e-6}},
           "parameters": {"thickness": {"value": 10.0, "absolute_tolerance": 1e-6}},
           "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
         },
         {
           "family": "plates",
-          "identity": {"axis": {"value": "z"}, "at": {"value": 5.0, "absolute_tolerance": 1e-6}},
+          "identity": {"axis": {"value": "z"}, "at": {"value": 5.0, "absolute_tolerance": 1e-6}, "u": {"value": 0.0, "absolute_tolerance": 1e-6}, "v": {"value": 0.0, "absolute_tolerance": 1e-6}},
           "parameters": {"thickness": {"value": 10.0, "absolute_tolerance": 1e-6}},
           "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
         }
@@ -147,7 +147,7 @@
       "id": "plate-cross-topology-b",
       "tags": ["multiple", "positive", "principal-orientation", "topology-order-variant"],
       "fixture": "plate-cross-topology-b.step",
-      "sha256": "9ba35361612d7c8978c5f0ca615519f5505d750de11b4fd60978517adbfa219b",
+      "sha256": "13393b7eca0d3187877430c347511e9ab1de2548a6df74b77b9942792c837e9a",
       "author": "Draftwright project contributors",
       "license": "CC0-1.0",
       "source": "Geometrically identical to plate-cross-topology-a but authored with the two wall additions reversed.",
@@ -155,19 +155,19 @@
       "facts": [
         {
           "family": "plates",
-          "identity": {"axis": {"value": "x"}, "at": {"value": 0.0, "absolute_tolerance": 1e-6}},
+          "identity": {"axis": {"value": "x"}, "at": {"value": 0.0, "absolute_tolerance": 1e-6}, "u": {"value": 0.0, "absolute_tolerance": 1e-6}, "v": {"value": 35.0, "absolute_tolerance": 1e-6}},
           "parameters": {"thickness": {"value": 10.0, "absolute_tolerance": 1e-6}},
           "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
         },
         {
           "family": "plates",
-          "identity": {"axis": {"value": "y"}, "at": {"value": 0.0, "absolute_tolerance": 1e-6}},
+          "identity": {"axis": {"value": "y"}, "at": {"value": 0.0, "absolute_tolerance": 1e-6}, "u": {"value": 0.0, "absolute_tolerance": 1e-6}, "v": {"value": 35.0, "absolute_tolerance": 1e-6}},
           "parameters": {"thickness": {"value": 10.0, "absolute_tolerance": 1e-6}},
           "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
         },
         {
           "family": "plates",
-          "identity": {"axis": {"value": "z"}, "at": {"value": 5.0, "absolute_tolerance": 1e-6}},
+          "identity": {"axis": {"value": "z"}, "at": {"value": 5.0, "absolute_tolerance": 1e-6}, "u": {"value": 0.0, "absolute_tolerance": 1e-6}, "v": {"value": 0.0, "absolute_tolerance": 1e-6}},
           "parameters": {"thickness": {"value": 10.0, "absolute_tolerance": 1e-6}},
           "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
         }
@@ -177,7 +177,7 @@
       "id": "plate-compound-equal",
       "tags": ["compound", "multiple", "multiple-equal", "positive"],
       "fixture": "plate-compound-equal.step",
-      "sha256": "5a5c146f7265bbaeb9ee7ac66df0f3d60e863626127101f539db507ef07b0c4b",
+      "sha256": "75eb121c035a842fde51f7516ba94295ade63d3d30b3f0fc5d9c1aaaaf7e915e",
       "author": "Draftwright project contributors",
       "license": "CC0-1.0",
       "source": "Authored as two disjoint symmetric T bodies at X = -35 and +35 mm, with the second body raised 40 mm. Each body owns equal Y- and Z-thickness requirements, preserving four physical occurrences without coincident projected witnesses.",
@@ -185,25 +185,25 @@
       "facts": [
         {
           "family": "plates",
-          "identity": {"axis": {"value": "y"}, "at": {"value": 0.0, "absolute_tolerance": 1e-6}, "u": {"value": -35.0, "absolute_tolerance": 1e-6}},
+          "identity": {"axis": {"value": "y"}, "at": {"value": 0.0, "absolute_tolerance": 1e-6}, "u": {"value": -35.0, "absolute_tolerance": 1e-6}, "v": {"value": 25.0, "absolute_tolerance": 1e-6}},
           "parameters": {"thickness": {"value": 10.0, "absolute_tolerance": 1e-6}},
           "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
         },
         {
           "family": "plates",
-          "identity": {"axis": {"value": "y"}, "at": {"value": 0.0, "absolute_tolerance": 1e-6}, "u": {"value": 35.0, "absolute_tolerance": 1e-6}},
+          "identity": {"axis": {"value": "y"}, "at": {"value": 0.0, "absolute_tolerance": 1e-6}, "u": {"value": 35.0, "absolute_tolerance": 1e-6}, "v": {"value": 65.0, "absolute_tolerance": 1e-6}},
           "parameters": {"thickness": {"value": 10.0, "absolute_tolerance": 1e-6}},
           "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
         },
         {
           "family": "plates",
-          "identity": {"axis": {"value": "z"}, "at": {"value": 5.0, "absolute_tolerance": 1e-6}, "u": {"value": -35.0, "absolute_tolerance": 1e-6}},
+          "identity": {"axis": {"value": "z"}, "at": {"value": 5.0, "absolute_tolerance": 1e-6}, "u": {"value": -35.0, "absolute_tolerance": 1e-6}, "v": {"value": 0.0, "absolute_tolerance": 1e-6}},
           "parameters": {"thickness": {"value": 10.0, "absolute_tolerance": 1e-6}},
           "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
         },
         {
           "family": "plates",
-          "identity": {"axis": {"value": "z"}, "at": {"value": 45.0, "absolute_tolerance": 1e-6}, "u": {"value": 35.0, "absolute_tolerance": 1e-6}},
+          "identity": {"axis": {"value": "z"}, "at": {"value": 45.0, "absolute_tolerance": 1e-6}, "u": {"value": 35.0, "absolute_tolerance": 1e-6}, "v": {"value": 0.0, "absolute_tolerance": 1e-6}},
           "parameters": {"thickness": {"value": 10.0, "absolute_tolerance": 1e-6}},
           "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
         }
@@ -213,7 +213,7 @@
       "id": "plate-single-negative",
       "tags": ["negative", "overlapping-family"],
       "fixture": "plate-single-negative.step",
-      "sha256": "43f9d16b3f41c07ca464eaf145c1001b49a5cc5eea13f21ddcfed1b7787e9034",
+      "sha256": "ee10b49f693bdd61c4bbd3744de764f898da65fe9fa9d260194cded648493686",
       "author": "Draftwright project contributors",
       "license": "CC0-1.0",
       "source": "Authored as one 80 × 60 × 10 mm slab. Its thickness is the whole-part envelope height, so Plate must not create a duplicate requirement.",
@@ -224,7 +224,7 @@
       "id": "plate-detached-negative",
       "tags": ["compound", "negative"],
       "fixture": "plate-detached-negative.step",
-      "sha256": "9c71183b5ae32086aa71aa6b3b58633534c8ab94a035ea5a4a8f64217aafa84f",
+      "sha256": "86c52bcecfcbf97b913d87cfb4b8e9b5999416a0a53fe448bc3a798f299f9e0b",
       "author": "Draftwright project contributors",
       "license": "CC0-1.0",
       "source": "Authored as two detached single slabs whose projected arrangement resembles a base and wall. Neither body is independently multi-plate.",
@@ -235,7 +235,7 @@
       "id": "plate-thick-negative",
       "tags": ["ambiguous", "negative"],
       "fixture": "plate-thick-negative.step",
-      "sha256": "5464110f3a1e8d4bc3fb5f63bd8087a08a010f925414940cda6151eaf1d43944",
+      "sha256": "1f6ec7befc8c626f7f8d1ab45b86cbcd2a606ae0aa635501f708465cf7d32e08",
       "author": "Draftwright project contributors",
       "license": "CC0-1.0",
       "source": "Authored as two 40 mm thick joined blocks in an 80 mm envelope. Each span is block-scale rather than a thin slab requirement.",
@@ -246,7 +246,7 @@
       "id": "plate-rotational-negative",
       "tags": ["negative", "overlapping-family", "rotational"],
       "fixture": "plate-rotational-negative.step",
-      "sha256": "7e97dc8844e8d34da2af305a822f63ada980a104771964cfa91eabec9b53ca55",
+      "sha256": "f59e6c7eeb2c659960e1693ec05012839c15be69971aeb7fc616054826649351",
       "author": "Draftwright project contributors",
       "license": "CC0-1.0",
       "source": "Authored as a 10 mm long cylinder. Its axial extent belongs to the rotational/envelope path, not Plate.",
