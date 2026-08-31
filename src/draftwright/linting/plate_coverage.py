@@ -216,7 +216,7 @@ def _recognised_slot_pattern_supports_source(source, slots) -> bool:
             )
             and all(_between(point[index], bounds) for index, bounds in enumerate(body_bounds))
         )
-    except (AttributeError, IndexError, KeyError, TypeError, ValueError):
+    except (AttributeError, IndexError, KeyError, OverflowError, TypeError, ValueError):
         return False
 
 
@@ -224,7 +224,7 @@ def _validated_recognised_slots(slots):
     """Return one representative only when every provider member has one body-local schema."""
     try:
         values = tuple(slots)
-        if not values:
+        if len(values) < 2:
             return None
         representative = values[0]
         width_axis = str(representative.width_axis)
@@ -248,10 +248,19 @@ def _validated_recognised_slots(slots):
             _rounded(representative.hi),
             _rounded(representative.d_lo),
             _rounded(representative.d_hi),
+            _rounded(representative.width),
+            _rounded(representative.length),
         )
-        if shared[3] > shared[4] or shared[5] > shared[6]:
+        if (
+            shared[3] > shared[4]
+            or shared[5] > shared[6]
+            or shared[7] <= 0
+            or shared[8] <= 0
+            or not _same(shared[8], shared[4] - shared[3])
+        ):
             return None
         width_index = "xyz".index(width_axis)
+        cuts = []
         for slot in values:
             current = (
                 str(slot.width_axis),
@@ -261,8 +270,10 @@ def _validated_recognised_slots(slots):
                 _rounded(slot.hi),
                 _rounded(slot.d_lo),
                 _rounded(slot.d_hi),
+                _rounded(slot.width),
+                _rounded(slot.length),
             )
-            width = float(slot.width)
+            width = current[7]
             center = float(slot.w_center)
             cut = (center - width / 2, center + width / 2)
             if (
@@ -273,8 +284,12 @@ def _validated_recognised_slots(slots):
                 or not bounds[width_index][0] <= cut[0] < cut[1] <= bounds[width_index][1]
             ):
                 return None
+            cuts.append(cut)
+        cuts.sort()
+        if any(left[1] >= right[0] for left, right in zip(cuts, cuts[1:], strict=False)):
+            return None
         return representative
-    except (AttributeError, IndexError, TypeError, ValueError):
+    except (AttributeError, IndexError, OverflowError, TypeError, ValueError):
         return None
 
 
@@ -318,10 +333,28 @@ def _valid_polygonal_boss_source(boss) -> bool:
         from draftwright.linting.polygonal_boss_coverage import (
             _validate_polygonal_boss_source,
         )
+        from draftwright.model import polygonal_boss
 
         _validate_polygonal_boss_source(boss)
+        axis = str(boss.axis)
+        axis_index = "xyz".index(axis)
+        center = tuple(float(value) for value in boss.center)
+        start = list(center)
+        end = list(center)
+        start[axis_index] = float(boss.base)
+        end[axis_index] = float(boss.top)
+        polygonal_boss(
+            side_count=boss.side_count,
+            across_flats=boss.across_flats,
+            height=float(boss.top) - float(boss.base),
+            at=center,
+            axis=axis,
+            span=(tuple(start), tuple(end)),
+            flat_directions=boss.flat_directions,
+            flat_centres=boss.flat_centres,
+        )
         return True
-    except (AttributeError, TypeError, ValueError):
+    except (AttributeError, OverflowError, TypeError, ValueError):
         return False
 
 
@@ -365,15 +398,25 @@ def _boss_material_witnesses(boss) -> tuple[Point, ...]:
 
 
 def _shares_one_solid(membership, source, boss) -> bool:
-    """Prove source and one material-bearing boss witness belong to one finished solid."""
+    """Prove the complete boss ring and one material Plate witness share one solid."""
     if membership is None:
         return False
     try:
-        source_owners = membership.owners(plate_center(source))
-        return len(source_owners) == 1 and any(
-            membership.owners(point) == source_owners for point in _boss_material_witnesses(boss)
-        )
-    except (AttributeError, TypeError, ValueError):
+        witnesses = _boss_material_witnesses(boss)
+        if not witnesses:
+            return False
+        boss_owners = tuple(membership.owners(point) for point in witnesses)
+        if any(len(owners) != 1 or owners != boss_owners[0] for owners in boss_owners):
+            return False
+        axis_index = "xyz".index(str(source.axis))
+        plate_axis_value = (float(source.lo) + float(source.hi)) / 2
+        source_witnesses = [plate_center(source)]
+        for witness in witnesses:
+            projected = list(witness)
+            projected[axis_index] = plate_axis_value
+            source_witnesses.append((projected[0], projected[1], projected[2]))
+        return any(membership.owners(point) == boss_owners[0] for point in source_witnesses)
+    except (AttributeError, OverflowError, TypeError, ValueError):
         return False
 
 
@@ -530,8 +573,6 @@ def _alternate_dependencies(
     features,
     counts,
     satisfied,
-    *,
-    excluded=(),
 ) -> tuple[tuple[object, str], ...]:
     for establish in (
         _envelope_owned_dependencies,
@@ -539,13 +580,75 @@ def _alternate_dependencies(
         _polygonal_boss_dependencies,
         _slot_pattern_dependencies,
     ):
-        if establish in excluded:
-            continue
         if (dependencies := establish(source, features)) and _dependencies_are_evidenced(
             dependencies, counts, satisfied
         ):
             return dependencies
     return ()
+
+
+def _without_provider_owned_ir(recognition, features) -> tuple:
+    """Keep declared owners while withholding exact IR compiled from provider records."""
+    from draftwright.linting.polygonal_boss_coverage import polygonal_boss_key
+
+    boss_keys = []
+    for source in recognition.polygonal_bosses:
+        try:
+            boss_keys.append(polygonal_boss_key(source))
+        except (AttributeError, IndexError, OverflowError, TypeError, ValueError):
+            continue
+    remaining = []
+    for feature in features:
+        kind = getattr(feature, "kind", None)
+        try:
+            provider_owned = (
+                kind == "polygonal_boss" and polygonal_boss_key(feature) in boss_keys
+            ) or (
+                kind == "slot_pattern"
+                and any(
+                    _slot_pattern_corresponds(source, feature)
+                    for source in recognition.slot_patterns
+                )
+            )
+        except (AttributeError, IndexError, KeyError, OverflowError, TypeError, ValueError):
+            provider_owned = False
+        if not provider_owned:
+            remaining.append(feature)
+    return tuple(remaining)
+
+
+def _slot_pattern_corresponds(source, feature) -> bool:
+    """Join provider pattern IR exactly, with a partial-location fallback for malformed members."""
+    from draftwright.linting.slot_coverage import _pattern_key, _slot_spec_key
+
+    try:
+        return _pattern_key(source) == _pattern_key(feature)
+    except (AttributeError, IndexError, KeyError, OverflowError, TypeError, ValueError):
+        pass
+    try:
+        slots = tuple(source.slots)
+        if (
+            not slots
+            or feature.pattern != "linear"
+            or feature.count != len(slots)
+            or _slot_spec_key(slots[0]) != _slot_spec_key(feature.member)
+            or _rounded(source.pitch) != _rounded(feature.pitch)
+        ):
+            return False
+        retained_locations = []
+        for slot in slots:
+            try:
+                retained_locations.append(tuple(_rounded(value) for value in slot.location))
+            except (AttributeError, KeyError, OverflowError, TypeError, ValueError):
+                continue
+        feature_locations = {
+            tuple(_rounded(value) for value in point) for point in feature.members
+        }
+        return bool(retained_locations) and all(
+            location in feature_locations for location in retained_locations
+        )
+    except (AttributeError, IndexError, KeyError, OverflowError, TypeError, ValueError):
+        return False
 
 
 def _dependencies_are_evidenced(dependencies, counts, satisfied) -> bool:
@@ -770,6 +873,7 @@ def plate_requirement_outcomes(
     }
     inapplicable = {(feature, "thickness.length") for feature in derived_dependencies}
     membership = _SolidMembership(part) if part is not None else None
+    alternate_features = _without_provider_owned_ir(recognition, features)
     outcomes: list[PlateRequirementOutcome] = []
     for source_record, key, at in keyed_sources:
         matches = ir_by_key.get(key, ()) if key is not None else ()
@@ -781,17 +885,11 @@ def plate_requirement_outcomes(
             recognised_owner = _recognition_owner_supersedes_plate(
                 source_record, recognition, features, membership
             )
-            excluded = set()
-            if recognition.polygonal_bosses:
-                excluded.add(_polygonal_boss_dependencies)
-            if recognition.slot_patterns:
-                excluded.add(_slot_pattern_dependencies)
             dependencies = _alternate_dependencies(
                 source_record,
-                features,
+                alternate_features,
                 placed_counts,
                 satisfied,
-                excluded=excluded,
             )
             if dependencies or recognised_owner:
                 outcomes.append(

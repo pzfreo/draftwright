@@ -428,6 +428,18 @@ def test_exact_overlapping_family_owners_do_not_create_a_second_plate_denominato
     for corrupted in (
         replace(source, side_count=5),
         replace(source, flat_centres=(source.center,) * 6),
+        replace(
+            source,
+            flat_directions=(
+                source.flat_directions[1],
+                source.flat_directions[0],
+                *source.flat_directions[2:],
+            ),
+        ),
+        replace(
+            source,
+            flat_centres=((10**10000, *source.flat_centres[0][1:]), *source.flat_centres[1:]),
+        ),
     ):
         malformed = replace(boss_recognition, polygonal_bosses=(corrupted,))
         (failed_closed,) = plate_requirement_outcomes(
@@ -458,6 +470,9 @@ def test_raw_slot_owner_requires_one_schema_for_every_member() -> None:
         replace(member, body_key=tuple(foreign_body)),
         replace(member, long_axis=member.width_axis),
         replace(member, d_hi=member.d_hi + 1),
+        replace(member, length=member.length + 7),
+        replace(member, width=10**10000),
+        replace(member, body_key=(10**10000, *member.body_key[1:])),
     )
 
     for mutated in mutations:
@@ -526,6 +541,21 @@ def test_overlapping_family_ownership_cannot_cross_disconnected_bodies() -> None
     )
     assert {outcome.state for outcome in boss_outcomes} == {"unverifiable"}
 
+    boss = boss_recognition.polygonal_bosses[0]
+    centres = list(boss.flat_centres)
+    centres[0] = (100.0, 0.0, 20.0)
+    malformed = replace(
+        boss_recognition,
+        polygonal_bosses=(replace(boss, flat_centres=tuple(centres)),),
+    )
+    malformed_outcomes = plate_requirement_outcomes(
+        malformed,
+        envelope_only,
+        AnnotationRegistry(),
+        part=boss_compound,
+    )
+    assert {outcome.state for outcome in malformed_outcomes} == {"unverifiable"}
+
 
 def test_boss_owner_requires_one_solid_and_the_complete_axis_span() -> None:
     from draftwright import build_drawing
@@ -576,8 +606,8 @@ def test_bored_boss_uses_material_supports_for_same_solid_ownership() -> None:
     from draftwright.registry import AnnotationRegistry
 
     base = Box(100, 80, 10, align=(Align.CENTER, Align.CENTER, Align.CENTER))
-    boss = Pos(13, -7, 5) * extrude(RegularPolygon(20, 6), 30)
-    bore = Pos(13, -7, -5) * Cylinder(3, 45, align=_CENTER_MIN)
+    boss = Pos(0, 0, 5) * extrude(RegularPolygon(20, 6), 30)
+    bore = Pos(0, 0, -5) * Cylinder(3, 45, align=_CENTER_MIN)
     part = base + boss - bore
     drawing = build_drawing(part)
     recognition = drawing.recognition()
@@ -602,7 +632,10 @@ def test_provider_hexagon_invariant_does_not_narrow_public_owner_geometry() -> N
     from math import cos, pi, sin
 
     from draftwright import build_drawing
-    from draftwright.linting.plate_coverage import _polygonal_boss_dependencies
+    from draftwright.linting.plate_coverage import (
+        _polygonal_boss_dependencies,
+        _without_provider_owned_ir,
+    )
     from draftwright.model import polygonal_boss
 
     part = Box(100, 80, 10, align=(Align.CENTER, Align.CENTER, Align.CENTER)) + (
@@ -634,6 +667,89 @@ def test_provider_hexagon_invariant_does_not_narrow_public_owner_geometry() -> N
         (envelope, "height.length"),
         (owner, "boss_height.length"),
     )
+
+    hex_part = Box(100, 80, 10, align=(Align.CENTER, Align.CENTER, Align.CENTER)) + (
+        Pos(40, 0, 5) * extrude(RegularPolygon(10, 6), 20)
+    )
+    hex_drawing = build_drawing(hex_part)
+    hex_recognition = hex_drawing.recognition()
+    assert hex_recognition is not None
+    provider_hex = next(
+        feature for feature in hex_drawing.model().features if feature.kind == "polygonal_boss"
+    )
+
+    assert _without_provider_owned_ir(
+        hex_recognition,
+        (envelope, owner, provider_hex),
+    ) == (envelope, owner)
+
+
+def test_unrelated_provider_hexagon_does_not_disable_public_octagon_ownership() -> None:
+    from math import cos, pi, sin
+
+    from draftwright import build_drawing
+    from draftwright.linting.plate_coverage import plate_requirement_outcomes
+    from draftwright.model import polygonal_boss
+    from draftwright.model.compiled import DimensionId
+    from draftwright.registry import AnnotationRegistry
+
+    octagon = Pos(-100, 0, 0) * Box(
+        80, 60, 10, align=(Align.CENTER, Align.CENTER, Align.CENTER)
+    ) + (Pos(-100, 0, 5) * extrude(RegularPolygon(10, 8), 20))
+    hexagon = Pos(100, 0, 0) * Box(
+        80, 60, 10, align=(Align.CENTER, Align.CENTER, Align.CENTER)
+    ) + (Pos(100, 0, 5) * extrude(RegularPolygon(10, 6), 20))
+    part = octagon + hexagon
+    drawing = build_drawing(part)
+    recognition = drawing.recognition()
+    assert recognition is not None
+    assert len(recognition.plates) == 2
+    assert len(recognition.polygonal_bosses) == 1
+    envelope = next(feature for feature in drawing.model().features if feature.kind == "envelope")
+    provider_hex = next(
+        feature for feature in drawing.model().features if feature.kind == "polygonal_boss"
+    )
+    side_count = 8
+    directions = tuple(
+        (cos(angle), sin(angle), 0.0)
+        for angle in (2 * pi * index / side_count for index in range(side_count))
+    )
+    centres = tuple((-100 + 8 * direction[0], 8 * direction[1], 15.0) for direction in directions)
+    public_octagon = polygonal_boss(
+        side_count=side_count,
+        across_flats=16,
+        height=20,
+        at=(-100, 0, 15),
+        axis="z",
+        span=((-100, 0, 5), (-100, 0, 25)),
+        flat_directions=directions,
+        flat_centres=centres,
+    )
+    registry = AnnotationRegistry()
+    registry.add(
+        SimpleNamespace(),
+        "envelope_height",
+        "front",
+        feature=envelope,
+        measurement=DimensionId(envelope, "height.length"),
+    )
+    registry.add(
+        SimpleNamespace(),
+        "octagon_height",
+        "front",
+        feature=public_octagon,
+        measurement=DimensionId(public_octagon, "boss_height.length"),
+    )
+
+    outcomes = plate_requirement_outcomes(
+        recognition,
+        (envelope, provider_hex, public_octagon),
+        registry,
+        part=part,
+    )
+
+    assert len(outcomes) == 2
+    assert {outcome.state for outcome in outcomes} == {"inapplicable"}
 
 
 def test_step_level_alternate_must_land_before_plate_intervals_are_inapplicable() -> None:
