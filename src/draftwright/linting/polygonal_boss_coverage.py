@@ -84,6 +84,15 @@ def polygonal_boss_center(boss) -> Point:
     return _point(center)
 
 
+def _validate_polygonal_boss_source(boss: PolygonalBoss) -> None:
+    """Enforce invariants of the installed provider family at source intake."""
+    side_count = boss.side_count
+    if type(side_count) is not int or side_count != 6:
+        raise ValueError("the polygonal-boss provider contract requires exactly six sides")
+    if len(_canonical_support_ring(boss.flat_directions, boss.flat_centres)) != side_count:
+        raise ValueError("the polygonal-boss provider contract requires six paired supports")
+
+
 def _span(boss) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
     span = getattr(boss, "span", None)
     if span is not None:
@@ -102,12 +111,6 @@ def polygonal_boss_key(boss) -> tuple:
     axis = getattr(boss, "axis", None)
     if axis is None:
         axis = boss.frame.axis
-    side_count = boss.side_count
-    if type(side_count) is not int or side_count != 6:
-        raise ValueError("the polygonal-boss provider contract requires exactly six sides")
-    support_ring = _canonical_support_ring(boss.flat_directions, boss.flat_centres)
-    if len(support_ring) != side_count:
-        raise ValueError("the polygonal-boss provider contract requires six paired supports")
     height = getattr(boss, "height", None)
     if height is None:
         start, end = _span(boss)
@@ -115,11 +118,11 @@ def polygonal_boss_key(boss) -> tuple:
     return (
         str(axis),
         polygonal_boss_center(boss),
-        side_count,
+        int(boss.side_count),
         _rounded(boss.across_flats),
         _rounded(height),
         _span(boss),
-        support_ring,
+        _canonical_support_ring(boss.flat_directions, boss.flat_centres),
     )
 
 
@@ -207,6 +210,7 @@ def polygonal_boss_requirement_outcomes(
         try:
             if not isinstance(source, PolygonalBoss):
                 raise TypeError(f"unexpected polygonal-boss record {type(source).__name__}")
+            _validate_polygonal_boss_source(source)
             key = polygonal_boss_key(source)
             at = polygonal_boss_center(source)
         except (AttributeError, TypeError, ValueError):

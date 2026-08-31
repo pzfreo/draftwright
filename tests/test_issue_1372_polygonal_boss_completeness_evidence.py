@@ -314,6 +314,31 @@ def test_equivalent_public_sheet_ring_representations_keep_exact_coverage(
     assert completeness["placed"] >= 2
 
 
+def test_provider_invariant_does_not_narrow_the_public_polygonal_boss_key() -> None:
+    from draftwright.linting.polygonal_boss_coverage import polygonal_boss_key
+    from draftwright.model import polygonal_boss
+
+    side_count = 8
+    directions = tuple(
+        (cos(angle), sin(angle), 0.0)
+        for angle in (2 * pi * index / side_count for index in range(side_count))
+    )
+    centres = tuple(
+        (10 * direction[0], 10 * direction[1], 15.0) for direction in directions
+    )
+    feature = polygonal_boss(
+        side_count=side_count,
+        across_flats=20,
+        height=10,
+        at=(0, 0, 15),
+        axis="z",
+        flat_directions=directions,
+        flat_centres=centres,
+    )
+
+    assert polygonal_boss_key(feature)[2] == side_count
+
+
 @pytest.mark.parametrize(
     "corruption",
     ("raises", "parameter_ids", "parameter_values", "af_span", "height_span"),
