@@ -1,0 +1,198 @@
+{
+  "format": "draftwright-step-analysis-corpus",
+  "format_version": 1,
+  "corpus_version": "1.0.0",
+  "metric_version": 1,
+  "scope": ["polygonal-stock"],
+  "cases": [
+    {
+      "id": "polygonal-stock-x",
+      "tags": ["positive", "principal-axis", "rotated"],
+      "fixture": "polygonal-stock-x.step",
+      "sha256": "3a3d29a66c3074822e66a94a0d9c3eeca28a4fc40b8f68675a26e9dd51fbc832",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored by extruding a regular circumradius-20 hexagon for 30 mm, then rigidly rotating its prism axis from Z onto +X.",
+      "expected_outcome": "supported",
+      "facts": [{
+        "family": "polygonal-stock",
+        "identity": {"axis": {"value": "x"}, "center": {"value": [15.0, 0.0, 0.0], "absolute_tolerance": 1e-6}},
+        "parameters": {
+          "side_count": {"value": 6},
+          "across_flats": {"value": 34.641, "absolute_tolerance": 1e-3},
+          "length": {"value": 30.0, "absolute_tolerance": 1e-6},
+          "flat_supports": {"value": [0.0, -1.0, 0.0, 15.0, -17.321, 0.0, 0.0, -0.5, -0.866, 15.0, -8.66, -15.0, 0.0, -0.5, 0.866, 15.0, -8.66, 15.0, 0.0, 0.5, -0.866, 15.0, 8.66, -15.0, 0.0, 0.5, 0.866, 15.0, 8.66, 15.0, 0.0, 1.0, 0.0, 15.0, 17.321, 0.0], "absolute_tolerance": 1e-3}
+        },
+        "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+      }]
+    },
+    {
+      "id": "polygonal-stock-y",
+      "tags": ["positive", "principal-axis", "rotated"],
+      "fixture": "polygonal-stock-y.step",
+      "sha256": "38704fac82b347263483bddf0c31ee4392b58a1df31e58574140dfe59f8047cd",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored by extruding a regular circumradius-20 hexagon for 30 mm, then rigidly rotating its prism axis from Z onto -Y.",
+      "expected_outcome": "supported",
+      "facts": [{
+        "family": "polygonal-stock",
+        "identity": {"axis": {"value": "y"}, "center": {"value": [0.0, -15.0, 0.0], "absolute_tolerance": 1e-6}},
+        "parameters": {
+          "side_count": {"value": 6},
+          "across_flats": {"value": 34.641, "absolute_tolerance": 1e-3},
+          "length": {"value": 30.0, "absolute_tolerance": 1e-6},
+          "flat_supports": {"value": [-0.866, 0.0, -0.5, -15.0, -15.0, -8.66, -0.866, 0.0, 0.5, -15.0, -15.0, 8.66, 0.0, 0.0, -1.0, 0.0, -15.0, -17.321, 0.0, 0.0, 1.0, 0.0, -15.0, 17.321, 0.866, 0.0, -0.5, 15.0, -15.0, -8.66, 0.866, 0.0, 0.5, 15.0, -15.0, 8.66], "absolute_tolerance": 1e-3}
+        },
+        "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+      }]
+    },
+    {
+      "id": "polygonal-stock-roll17",
+      "tags": ["in-plane-rotation", "positive", "rotated"],
+      "fixture": "polygonal-stock-roll17.step",
+      "sha256": "333e414e548868a813178e8a0479f84342d446249d769b02f606ef98f69399e6",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored as the same Z prism rotated 17 degrees about its own axis, so A/F stays 34.641 mm while every physical flat support changes heading.",
+      "expected_outcome": "supported",
+      "facts": [{
+        "family": "polygonal-stock",
+        "identity": {"axis": {"value": "z"}, "center": {"value": [0.0, 0.0, 15.0], "absolute_tolerance": 1e-6}},
+        "parameters": {
+          "side_count": {"value": 6},
+          "across_flats": {"value": 34.641, "absolute_tolerance": 1e-3},
+          "length": {"value": 30.0, "absolute_tolerance": 1e-6},
+          "flat_supports": {"value": [-0.974, 0.225, 0.0, -16.877, 3.896, 15.0, -0.682, -0.731, 0.0, -11.813, -12.667, 15.0, -0.292, 0.956, 0.0, -5.064, 16.564, 15.0, 0.292, -0.956, 0.0, 5.064, -16.564, 15.0, 0.682, 0.731, 0.0, 11.813, 12.667, 15.0, 0.974, -0.225, 0.0, 16.877, -3.896, 15.0], "absolute_tolerance": 1e-3}
+        },
+        "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+      }]
+    },
+    {
+      "id": "polygonal-stock-translated",
+      "tags": ["positive", "translated"],
+      "fixture": "polygonal-stock-translated.step",
+      "sha256": "e8eeba466dff6a7c607b399cb9edbc1b5eb1c33302051a9579bdb2c9dc732144",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored from a circumradius-23 hexagon extruded 37 mm and translated by (13,-7,11), giving independent A/F and length values plus nonzero source-coordinate bounds.",
+      "expected_outcome": "supported",
+      "facts": [{
+        "family": "polygonal-stock",
+        "identity": {"axis": {"value": "z"}, "center": {"value": [13.0, -7.0, 29.5], "absolute_tolerance": 1e-6}},
+        "parameters": {
+          "side_count": {"value": 6},
+          "across_flats": {"value": 39.837, "absolute_tolerance": 1e-3},
+          "length": {"value": 37.0, "absolute_tolerance": 1e-6},
+          "flat_supports": {"value": [-0.866, -0.5, 0.0, -4.25, -16.959, 29.5, -0.866, 0.5, 0.0, -4.25, 2.959, 29.5, 0.0, -1.0, 0.0, 13.0, -26.919, 29.5, 0.0, 1.0, 0.0, 13.0, 12.919, 29.5, 0.866, -0.5, 0.0, 30.25, -16.959, 29.5, 0.866, 0.5, 0.0, 30.25, 2.959, 29.5], "absolute_tolerance": 1e-3}
+        },
+        "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+      }]
+    },
+    {
+      "id": "polygonal-stock-topology-a",
+      "tags": ["positive", "topology-order-variant"],
+      "fixture": "polygonal-stock-topology-a.step",
+      "sha256": "17a16f28a1c5e27365be8b245e90bd1ade8a865ba22474cfcaaf37e92a71f4ab",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored from a counter-clockwise six-vertex polygon beginning at the +X vertex and extruded +30 mm.",
+      "expected_outcome": "supported",
+      "facts": [{
+        "family": "polygonal-stock",
+        "identity": {"axis": {"value": "z"}, "center": {"value": [0.0, 0.0, 15.0], "absolute_tolerance": 1e-6}},
+        "parameters": {
+          "side_count": {"value": 6},
+          "across_flats": {"value": 34.641, "absolute_tolerance": 1e-3},
+          "length": {"value": 30.0, "absolute_tolerance": 1e-6},
+          "flat_supports": {"value": [-0.866, -0.5, 0.0, -15.0, -8.66, 15.0, -0.866, 0.5, 0.0, -15.0, 8.66, 15.0, 0.0, -1.0, 0.0, 0.0, -17.321, 15.0, 0.0, 1.0, 0.0, 0.0, 17.321, 15.0, 0.866, -0.5, 0.0, 15.0, -8.66, 15.0, 0.866, 0.5, 0.0, 15.0, 8.66, 15.0], "absolute_tolerance": 1e-3}
+        },
+        "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+      }]
+    },
+    {
+      "id": "polygonal-stock-topology-b",
+      "tags": ["positive", "topology-order-variant"],
+      "fixture": "polygonal-stock-topology-b.step",
+      "sha256": "59b7be0eee8b2868c8efb49a7546b47a8f09294aebaa1dbcf7537186ada63ce7",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Geometrically identical to topology-a, authored from a cyclically shifted reverse-wound boundary and opposite signed extrusion.",
+      "expected_outcome": "supported",
+      "facts": [{
+        "family": "polygonal-stock",
+        "identity": {"axis": {"value": "z"}, "center": {"value": [0.0, 0.0, 15.0], "absolute_tolerance": 1e-6}},
+        "parameters": {
+          "side_count": {"value": 6},
+          "across_flats": {"value": 34.641, "absolute_tolerance": 1e-3},
+          "length": {"value": 30.0, "absolute_tolerance": 1e-6},
+          "flat_supports": {"value": [-0.866, -0.5, 0.0, -15.0, -8.66, 15.0, -0.866, 0.5, 0.0, -15.0, 8.66, 15.0, 0.0, -1.0, 0.0, 0.0, -17.321, 15.0, 0.0, 1.0, 0.0, 0.0, 17.321, 15.0, 0.866, -0.5, 0.0, 15.0, -8.66, 15.0, 0.866, 0.5, 0.0, 15.0, 8.66, 15.0], "absolute_tolerance": 1e-3}
+        },
+        "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+      }]
+    },
+    {
+      "id": "polygonal-stock-cylinder-negative",
+      "tags": ["negative", "overlapping-family"],
+      "fixture": "polygonal-stock-cylinder-negative.step",
+      "sha256": "4222e32a63b9cc91315452cd15afba30d82271903659a06b4c2fdbad90f391b6",
+      "author": "Draftwright project contributors", "license": "CC0-1.0",
+      "source": "Authored as a diameter-40 circular cylinder; rotational stock owns it.",
+      "expected_outcome": "supported", "facts": []
+    },
+    {
+      "id": "polygonal-stock-rectangular-negative",
+      "tags": ["negative", "overlapping-family"],
+      "fixture": "plain-block.step",
+      "sha256": "1a5db509de8c0ce04d46cf39296dcdd04873e74cb0e7501bcd97630ffd8d113c",
+      "author": "Draftwright project contributors", "license": "CC0-1.0",
+      "source": "Authored as a rectangular block; the envelope owns its three extents.",
+      "expected_outcome": "supported", "facts": []
+    },
+    {
+      "id": "polygonal-stock-irregular-negative",
+      "tags": ["ambiguous", "negative"],
+      "fixture": "polygonal-stock-irregular-negative.step",
+      "sha256": "f47bbfec019be82fe986711c3805519a48aaedb64feff5d4e64722db1d6d9e5c",
+      "author": "Draftwright project contributors", "license": "CC0-1.0",
+      "source": "Authored from six unequal polygon vertices and extruded 30 mm; six faces alone do not prove regular stock.",
+      "expected_outcome": "supported", "facts": []
+    },
+    {
+      "id": "polygonal-stock-octagon-negative",
+      "tags": ["negative", "schema-boundary"],
+      "fixture": "polygonal-stock-octagon-negative.step",
+      "sha256": "0daeb498aeb8d78de106db6277d85e69707e3caa1dc76cea6b2793fc8a60fb69",
+      "author": "Draftwright project contributors", "license": "CC0-1.0",
+      "source": "Authored as a regular octagonal prism; public declared IR may express it, but the provider stock family is exactly hexagonal.",
+      "expected_outcome": "supported", "facts": []
+    },
+    {
+      "id": "polygonal-stock-attached-boss-negative",
+      "tags": ["negative", "overlapping-family"],
+      "fixture": "polygonal-boss-z.step",
+      "sha256": "7e8ace2f9e8d45d88d0e5c497d9cc8d0c938ef9635c6a04de05c54dac94da514",
+      "author": "Draftwright project contributors", "license": "CC0-1.0",
+      "source": "Authored as a regular hexagonal protrusion attached to rectangular stock; PolygonalBoss owns it, not whole stock.",
+      "expected_outcome": "supported", "facts": []
+    },
+    {
+      "id": "polygonal-stock-recess-negative",
+      "tags": ["negative", "extra-topology"],
+      "fixture": "polygonal-stock-recess-negative.step",
+      "sha256": "a745a9362e7acf8126c94a9f31b3a5976648d32b2f395d8b309b2c68c748ef44",
+      "author": "Draftwright project contributors", "license": "CC0-1.0",
+      "source": "Authored as an otherwise exact whole hexagonal prism with a blind axial recess; its three extra faces invalidate the eight-face stock boundary.",
+      "expected_outcome": "supported", "facts": []
+    },
+    {
+      "id": "polygonal-stock-compound-negative",
+      "tags": ["compound", "multiple-equal", "negative"],
+      "fixture": "polygonal-stock-compound-negative.step",
+      "sha256": "6eb67697bfa1bf7d762e5a993ff6b124d1ea2674aa76645f09452846587f0a35",
+      "author": "Draftwright project contributors", "license": "CC0-1.0",
+      "source": "Authored as two detached equal eight-face hexagonal stock prisms; whole-stock recognition is single-solid and must remain empty rather than iterating members.",
+      "expected_outcome": "supported", "facts": []
+    }
+  ]
+}

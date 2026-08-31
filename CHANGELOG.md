@@ -44,6 +44,15 @@
 
 ### Changed
 
+- Whole polygonal-stock completeness is now backed by an independently authored, hash-pinned
+  13-case STEP corpus covering all principal axes, in-plane rotation, translation, topology
+  order and circular/rectangular/irregular/octagonal/attached/recessed/compound negatives. The
+  provider's exact six-side stock boundary, A/F, axial length and coupled physical flat supports
+  are scored separately from four downstream boundaries. A fail-closed two-requirement ledger
+  follows A/F and stock length through automatic IR, public `Sheet.polygonal_stock`, generated
+  code and solver-placed semantic ink; malformed or duplicate correspondence cannot borrow
+  credit from another support ring (#1371).
+
 - Multi-plate slab completeness is now backed by an independently authored, hash-pinned 11-case
   STEP corpus covering all principal orientations, additive/cut channels, equal compound
   occurrences, topology order and envelope/detached/thick/rotational negatives. A fail-closed
