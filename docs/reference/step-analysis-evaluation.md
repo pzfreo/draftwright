@@ -13,7 +13,7 @@ An observer may only normalize actual evidence; `ObservedFact` deliberately has 
 identifier. Expected and observed facts are matched by family plus authored physical identity fields.
 
 Format 1 currently proves independent `holes`, `hole-patterns`, `flats`, `pockets`,
-`pocket-patterns`, `grooves`, `rectangular-pads`, `polygonal-bosses`, `chamfers` and `fillets`
+`pocket-patterns`, `grooves`, `rectangular-pads`, `polygonal-bosses`, `plates`, `chamfers` and `fillets`
 vertical slices. Each observer reads released `b123d-recognisers` geometry records, builds one
 drawing, and reads all four downstream outcomes from that build through the public IR, `Sheet`,
 generated-code and ADR 0010 provenance seams.
@@ -106,6 +106,20 @@ family denominator. Both A/F and height must survive through exact compiler iden
 finished A/F arrow is checked against a retained flat centre only after source-to-IR semantic
 correspondence is established, so rendered page geometry validates usefulness but never selects
 the feature owner.
+
+The Plate corpus owns one thin material slab per body-local multi-plate prismatic occurrence. A
+single flat slab is envelope-owned and contributes no duplicate Plate fact; detached single slabs,
+thick block-scale spans and rotational bodies are negative controls. Axis plus axial midpoint form
+the ordinary identity, with one in-plane witness coordinate distinguishing equal compound
+occurrences; thickness is the scored parameter. Exact provider-to-IR correspondence still retains
+the full axis, interval and both witness coordinates. The drawing boundary accepts either a
+compiler-confirmed, solver-placed `thickness.length` Dimension or the explicit derived opposite
+wall of a complete U-channel chain. Exact envelope, step-level/shoulder, slot-pattern and attached
+polygonal-boss ownership prevents derived material spans from inflating the Plate denominator and
+fails closed when that ownership cannot be established. It never infers coverage from annotation
+names, labels, views or page coordinates. The 11 cases own 20 physical facts, 20 parameter units and 80 downstream
+units; deleting every provider Plate therefore leaves 20 misses rather than shrinking the
+denominator.
 
 ```python
 from pathlib import Path

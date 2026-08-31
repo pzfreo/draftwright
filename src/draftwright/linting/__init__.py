@@ -45,6 +45,7 @@ from draftwright.linting.issues import LintIssue
 from draftwright.linting.pad_coverage import lint_pad_coverage
 from draftwright.linting.paired_ramp_step_coverage import lint_paired_ramp_step_coverage
 from draftwright.linting.passage_coverage import lint_passage_coverage
+from draftwright.linting.plate_coverage import lint_plate_coverage
 from draftwright.linting.pmi_coverage import (
     lint_pmi_extraction,
     lint_pmi_ignored,
@@ -96,6 +97,7 @@ __all__ = [
     "lint_location_coverage",
     "lint_passage_coverage",
     "lint_pad_coverage",
+    "lint_plate_coverage",
     "lint_paired_ramp_step_coverage",
     "lint_pmi_ignored",
     "lint_pmi_extraction",

@@ -44,6 +44,11 @@ footprint width/length and local height are scored parameters. The drawing obser
 five physical requirements through compiler measurement identities and structured directional
 location facts without treating the older geometric coverage fallback as semantic evidence.
 
+The Plate slice (#1373) counts one body-local thin slab whose thickness is not already owned by
+the whole-part envelope. Thin axis and physical slab station identify the occurrence; thickness is
+the scored parameter. Automatic IR, public declaration and executed generated code must preserve
+the full witness, and the drawing must carry the exact compiler-owned thickness identity and ink.
+
 The polygonal-boss slice (#1372) counts one attached regular prism per principal axis and physical
 centre. Side count, A/F, height, ordered flat directions and physical flat centres are scored
 parameters. Automatic IR, public declaration and executed generated code must retain the complete
@@ -1492,6 +1497,132 @@ def _declared_pad_model(part, pads):
             z1=bounds["z"][1],
             axis=_pad_axis(observed),
             direction=observed.direction,
+        )
+    return sheet.model()
+
+
+def _plate_identity(plate) -> tuple[str, float, float, float]:
+    from draftwright.linting.plate_coverage import plate_center
+
+    centre = plate_center(plate)
+    axis = str(plate.axis)
+    index = "xyz".index(axis)
+    other = [candidate for candidate in range(3) if candidate != index]
+    return axis, centre[index], centre[other[0]], centre[other[1]]
+
+
+def _plate_parameters(plate) -> dict[str, Value]:
+    return {"thickness": round(float(plate.hi) - float(plate.lo), 3)}
+
+
+def _plate_correspondence(plates, recognition, features, registry=None, omissions=()):
+    """Per body-local slab, retain exact IR and production-ledger evidence."""
+    from draftwright.linting.plate_coverage import (
+        plate_center,
+        plate_key,
+        plate_requirement_outcomes,
+    )
+    from draftwright.registry import AnnotationRegistry
+
+    ledger = plate_requirement_outcomes(
+        recognition,
+        features,
+        AnnotationRegistry() if registry is None else registry,
+        omissions,
+    )
+    by_at: dict[tuple[float, float, float], list] = {}
+    for outcome in ledger:
+        if outcome.source_at is not None:
+            by_at.setdefault(outcome.source_at, []).append(outcome)
+    result = []
+    for source in plates:
+        candidates = [
+            outcome
+            for outcome in by_at.get(plate_center(source), ())
+            if outcome.features and plate_key(outcome.features[0]) == plate_key(source)
+        ]
+        candidate_features = tuple(
+            dict.fromkeys(feature for outcome in candidates for feature in outcome.features)
+        )
+        exact = (
+            len(candidate_features) == 1
+            and len(candidates) == 1
+            and candidates[0].parameter_id == "thickness.length"
+            and candidates[0].features == candidate_features
+        )
+        result.append((exact, candidate_features, tuple(candidates)))
+    return result
+
+
+def _plate_model_outcomes(plates, recognition, features) -> list[Outcome]:
+    return [
+        "supported" if exact else "unknown"
+        for exact, _features, _outcomes in _plate_correspondence(plates, recognition, features)
+    ]
+
+
+def _plate_drawing_outcomes(plates, drawing) -> list[Outcome]:
+    """Verify each slab thickness through exact compiler identity and finished ink."""
+    from build123d_drafting import Dimension
+
+    from draftwright.linting.evidence import verify_measurement_claims
+    from draftwright.model.compiled import compile_dimensions
+
+    recognition = drawing.recognition()
+    model = drawing.model()
+    plan = compile_dimensions(model)
+    correspondence = _plate_correspondence(
+        plates,
+        recognition,
+        model.features,
+        drawing.registry,
+        plan.diagnostics,
+    )
+    confirmed: dict[tuple[object, str], set[str]] = {}
+    for claim in verify_measurement_claims(drawing.registry, plan):
+        measurement = claim.measurement
+        if claim.state != "confirmed" or measurement is None:
+            continue
+        key = (
+            getattr(measurement, "feature", None),
+            str(getattr(measurement, "parameter", "")),
+        )
+        confirmed.setdefault(key, set()).add(claim.annotation)
+
+    result: list[Outcome] = []
+    for exact, features, outcomes in correspondence:
+        if not exact or len(features) != 1:
+            result.append("unknown")
+            continue
+        feature = features[0]
+        names = confirmed.get((feature, "thickness.length"), set())
+        states_ok = all(outcome.state in {"placed", "inapplicable"} for outcome in outcomes)
+        ink_ok = all(
+            outcome.state != "placed"
+            or any(
+                drawing.registry.feature_of(name) == feature
+                and isinstance(drawing.registry.named(name), Dimension)
+                for name in names
+            )
+            for outcome in outcomes
+        )
+        result.append("supported" if states_ok and ink_ok else "unsupported")
+    return result
+
+
+def _declared_plate_model(part, plates):
+    """Declare observed slabs through public ``Sheet.plate`` and return its IR."""
+    from draftwright.sheet import Sheet
+
+    sheet = Sheet(part)
+    sheet.authored_dimensions()
+    for observed in plates:
+        sheet.plate(
+            axis=observed.axis,
+            lo=observed.lo,
+            hi=observed.hi,
+            u=observed.u,
+            v=observed.v,
         )
     return sheet.model()
 
@@ -3509,6 +3640,91 @@ def _default_observers() -> Mapping[str, Observer]:
             for identity in (_pad_identity(pad),)
         )
 
+    def observe_plates(part: object) -> Sequence[ObservedFact]:
+        from draftwright.builder import build_drawing
+
+        try:
+            drawing = build_drawing(part)  # type: ignore[arg-type]
+        except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
+            _log.warning(
+                "evaluation: drawing build failed (%s); scoring plates as unknown",
+                exc,
+            )
+            raise ObservationError("plates", f"drawing build failed: {exc}") from exc
+        try:
+            recognition = drawing.recognition()
+            if recognition is None:
+                raise ValueError("detected build has no build-owned recognition result")
+            plates = tuple(recognition.plates)
+        except Exception as exc:  # noqa: BLE001 — no safe observed numerator remains
+            _log.warning(
+                "evaluation: recognition access failed (%s); observing no plates",
+                exc,
+            )
+            raise ObservationError("plates", f"recognition access failed: {exc}") from exc
+        unknown: list[Outcome] = ["unknown"] * len(plates)
+
+        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
+            try:
+                result = observe()
+                if len(result) != len(plates):
+                    raise ValueError(
+                        f"observed {len(result)} outcomes for {len(plates)} physical plates"
+                    )
+                return result
+            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
+                _log.warning(
+                    "evaluation: %s observation failed (%s); scoring plates as unknown",
+                    name,
+                    exc,
+                )
+                return list(unknown)
+
+        boundary_outcomes = {
+            "ir_adapter": observed_boundary(
+                "ir_adapter",
+                lambda: _plate_model_outcomes(plates, recognition, drawing.model().features),
+            ),
+            "dsl_declaration": observed_boundary(
+                "dsl_declaration",
+                lambda: _plate_model_outcomes(
+                    plates,
+                    recognition,
+                    _declared_plate_model(part, plates).features,
+                ),
+            ),
+            "generated_code": observed_boundary(
+                "generated_code",
+                lambda: _plate_model_outcomes(
+                    plates,
+                    recognition,
+                    _generated_sheet_model(part, drawing.model()).features,
+                ),
+            ),
+            "drawing_consumer": observed_boundary(
+                "drawing_consumer", lambda: _plate_drawing_outcomes(plates, drawing)
+            ),
+        }
+
+        return tuple(
+            ObservedFact(
+                family="plates",
+                identity={
+                    "axis": identity[0],
+                    "at": identity[1],
+                    "u": identity[2],
+                    "v": identity[3],
+                },
+                parameters=_plate_parameters(plate),
+                downstream={
+                    boundary: boundary_outcomes[boundary][index]
+                    for boundary in _DOWNSTREAM_BOUNDARIES
+                },
+            )
+            for index, plate in enumerate(plates)
+            for identity in (_plate_identity(plate),)
+        )
+
     def observe_polygonal_bosses(part: object) -> Sequence[ObservedFact]:
         from draftwright.builder import build_drawing
 
@@ -3954,6 +4170,7 @@ def _default_observers() -> Mapping[str, Observer]:
         "hole-patterns": observe_hole_patterns,
         "pocket-patterns": observe_pocket_patterns,
         "pockets": observe_pockets,
+        "plates": observe_plates,
         "polygonal-bosses": observe_polygonal_bosses,
         "rectangular-pads": observe_pads,
     }

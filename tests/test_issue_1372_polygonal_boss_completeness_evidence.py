@@ -232,9 +232,12 @@ def test_polygonal_boss_ledger_rejects_foreign_malformed_and_duplicate_ir() -> N
     assert (duplicate[0].state, duplicate[0].requirement_count) == ("unverifiable", 2)
 
 
-@pytest.mark.parametrize("corruption", ("foreign_record", "missing_support", "unpaired_support"))
+@pytest.mark.parametrize(
+    ("corruption", "requirements"),
+    (("foreign_record", 3), ("missing_support", 2), ("unpaired_support", 2)),
+)
 def test_malformed_source_record_fails_closed_through_drawing_lint(
-    monkeypatch, corruption
+    monkeypatch, corruption, requirements
 ) -> None:
     import draftwright.recognition_cache as recognition_cache
     from draftwright import Sheet
@@ -272,8 +275,9 @@ def test_malformed_source_record_fails_closed_through_drawing_lint(
         if issue.code == "polygonal_boss_requirement_unverifiable"
     )
     completeness = drawing.lint_summary()["quality"]["completeness"]
-    assert completeness["requirements"] == completeness["unverifiable"] == 2
+    assert completeness["requirements"] == completeness["unverifiable"] == requirements
     assert completeness["by_family"]["polygonal_bosses"] == 2
+    assert completeness["by_family"]["plates"] == (1 if corruption == "foreign_record" else 0)
 
 
 @pytest.mark.parametrize("representation", ("cyclic", "reversed", "reversed_span"))

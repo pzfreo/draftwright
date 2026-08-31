@@ -1099,12 +1099,18 @@ class TestPlate:
         }
         assert sorted(plate_dims) == ["dim_plate_x0", "dim_plate_z0"]  # both slabs dimensioned
         assert sorted(plate_dims.values()) == ["8", "8"]  # each 8 thick
-        # These declarations intentionally omit the 80 mm overall width required to prove
-        # the recognised through-step's X complement.  A sparse declared drawing must report
-        # that real completeness gap rather than credit an unrelated thickness dimension.
+        # These convenient bounding-box declarations place the requested ink, but their
+        # in-plane witnesses are not the recogniser's body-local material centroids after the
+        # slabs are fused. Completeness must therefore refuse to pair them by axis/order. They
+        # also omit the 80 mm overall width required to prove the recognised through-step's X
+        # complement.
         issues = [i for i in dwg.lint() if i.severity != "info"]
-        assert [issue.code for issue in issues] == ["through_step_requirement_missing"]
-        assert "through_step_leg.length.x" in issues[0].message
+        assert [issue.code for issue in issues] == [
+            "plate_requirement_unverifiable",
+            "plate_requirement_unverifiable",
+            "through_step_requirement_missing",
+        ]
+        assert "through_step_leg.length.x" in issues[-1].message
 
     def test_same_axis_plate_names_follow_thickness_axis_not_in_plane_position(self):
         """Stable annotation identity follows the old axis/lo/hi order.

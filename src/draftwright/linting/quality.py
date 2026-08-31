@@ -44,6 +44,7 @@ from draftwright.linting.hole_coverage import hole_requirement_outcomes
 from draftwright.linting.issues import LintIssue, is_placement_drop
 from draftwright.linting.pad_coverage import pad_requirement_outcomes
 from draftwright.linting.paired_ramp_step_coverage import paired_ramp_step_requirement_outcomes
+from draftwright.linting.plate_coverage import plate_requirement_outcomes
 from draftwright.linting.pocket_coverage import pocket_requirement_outcomes
 from draftwright.linting.pocket_pattern_coverage import pocket_pattern_requirement_outcomes
 from draftwright.linting.polygonal_boss_coverage import polygonal_boss_requirement_outcomes
@@ -120,6 +121,7 @@ _RECOGNISED_REQUIREMENT_FAMILIES = {
     "prismatic_pockets": "prismatic_pockets",
     "pocket_patterns": "pocket_patterns",
     "pads": "pads",
+    "plates": "plates",
     "repeating_radial_profiles": "repeating_radial_profiles",
     "turned_steps": "turned_steps",
     "chamfers": "chamfers",
@@ -147,7 +149,6 @@ _NON_REQUIREMENT_INVENTORIES = frozenset(
         "cylinders",
         # Accepted-only compatibility projection of authoritative ``section_passages``.
         "passages",
-        "plates",
         "risers",
         "rotational",
         "step_levels",
@@ -175,6 +176,7 @@ _AUDITED_FAMILIES = (
     "holes",
     "passages",
     "pads",
+    "plates",
     "polygonal_bosses",
     "polygonal_stock",
     "pockets",
@@ -405,6 +407,7 @@ _UNSCORED_CODE_PREFIXES = (
     "groove_requirement_",
     "hole_requirement_",
     "pad_requirement_",
+    "plate_requirement_",
     "pocket_requirement_",
     "pocket_pattern_requirement_",
     "polygonal_boss_requirement_",
@@ -636,6 +639,7 @@ def _completeness_component(
         "holes": [],
         "hole_patterns": [],
         "pads": pad_requirement_outcomes(recognition, features, registry, omissions),
+        "plates": plate_requirement_outcomes(recognition, features, registry, omissions),
         "polygonal_bosses": polygonal_boss_requirement_outcomes(
             recognition, features, registry, omissions
         ),

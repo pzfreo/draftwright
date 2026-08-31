@@ -101,7 +101,11 @@ EXPECTED = {
             "title_block": ("TitleBlock", (432.925, 10.925, 583.075, 27.075)),
             "note_iso_nts": ("Note", (460.221, 103.057, 484.554, 105.751)),
         },
-        {"pmi_present_but_ignored": 1, "step_dim_withheld": 1},
+        {
+            "plate_requirement_unverifiable": 1,
+            "pmi_present_but_ignored": 1,
+            "step_dim_withheld": 1,
+        },
     ),
 }
 

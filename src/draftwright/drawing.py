@@ -110,6 +110,7 @@ from draftwright.linting import (
     lint_pad_coverage,
     lint_paired_ramp_step_coverage,
     lint_passage_coverage,
+    lint_plate_coverage,
     lint_pmi_extraction,
     lint_pmi_ignored,
     lint_pmi_lowering,
@@ -214,6 +215,9 @@ _GEOMETRY_AWARE_CODES = frozenset(
         "pad_requirement_suppressed",
         "pad_requirement_missing",
         "pad_requirement_unverifiable",
+        "plate_requirement_suppressed",
+        "plate_requirement_missing",
+        "plate_requirement_unverifiable",
         "polygonal_boss_requirement_suppressed",
         "polygonal_boss_requirement_missing",
         "polygonal_boss_requirement_unverifiable",
@@ -3585,6 +3589,14 @@ class Drawing:
                 recognition=recognition,
             )
             issues += lint_pad_coverage(
+                working_part,
+                recognition=recognition,
+                features=getattr(model, "features", ()) if model is not None else (),
+                registry=self._registry,
+                omissions=self._build.omissions,
+                assembly=self.assembly,
+            )
+            issues += lint_plate_coverage(
                 working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),

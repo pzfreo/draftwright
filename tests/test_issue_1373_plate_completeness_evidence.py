@@ -1,0 +1,697 @@
+"""#1373 — multi-plate slab completeness uses independent physical facts."""
+
+from __future__ import annotations
+
+from dataclasses import replace
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+from build123d import Align, Box, Pos, RegularPolygon, Rot, extrude, import_step
+
+from draftwright.evaluation.step_analysis import (
+    ObservationError,
+    _default_observers,
+    _plate_drawing_outcomes,
+    _plate_model_outcomes,
+    evaluate_step_corpus,
+    load_corpus,
+)
+
+CORPUS = Path(__file__).parent / "fixtures" / "evaluation" / "corpus-plates-v1.json"
+_CENTER_MIN = (Align.CENTER, Align.CENTER, Align.MIN)
+
+
+def _tee():
+    base = Box(80, 60, 10, align=_CENTER_MIN)
+    wall = Pos(0, 0, 10) * Box(80, 10, 40, align=_CENTER_MIN)
+    return base + wall
+
+
+def _states(boundary: str) -> set[str]:
+    observed = _default_observers()["plates"](_tee())
+    assert len(observed) == 2
+    return {fact.downstream[boundary] for fact in observed}
+
+
+def _annotation_for_plate(drawing) -> str:
+    return next(
+        name
+        for name in drawing.annotations()
+        if any(
+            identity.parameter == "thickness.length"
+            for identity in drawing.registry.measurement_of(name)
+        )
+    )
+
+
+def test_versioned_plate_corpus_covers_every_required_case_class() -> None:
+    corpus = load_corpus(CORPUS)
+
+    assert (corpus.corpus_version, corpus.metric_version) == ("1.0.0", 1)
+    assert corpus.scope == ("plates",)
+    assert len(corpus.cases) == 11
+    assert sum(len(case.expected) for case in corpus.cases) == 20
+    tags = {tag for case in corpus.cases for tag in case.classification.split("+")}
+    assert {
+        "ambiguous",
+        "compound",
+        "multiple",
+        "multiple-equal",
+        "negative",
+        "overlapping-family",
+        "positive",
+        "principal-orientation",
+        "rotational",
+        "topology-order-variant",
+    } <= tags
+    assert all(case.provenance["author"] for case in corpus.cases)
+    assert all(case.provenance["license"] == "CC0-1.0" for case in corpus.cases)
+    assert all(
+        "'1970-01-01T00:00:00'"
+        in (CORPUS.parent / case.provenance["fixture"]).read_text().splitlines()[3]
+        for case in corpus.cases
+    )
+
+
+def test_real_plate_corpus_scores_all_layers_and_topology_variants() -> None:
+    corpus = load_corpus(CORPUS)
+
+    first = evaluate_step_corpus(corpus)
+    second = evaluate_step_corpus(corpus)
+
+    assert first == second
+    assert first.detection.recall == 1.0
+    assert first.detection.false_positive_rate == 0.0
+    assert first.detection.matched == 20
+    assert first.parameter_fidelity.passed == first.parameter_fidelity.total == 20
+    assert first.downstream_usefulness.passed == first.downstream_usefulness.total == 80
+    assert first.conformant_cases == first.complete_cases == len(corpus.cases)
+    variants = [case for case in first.cases if "topology" in case.case_id]
+    assert len(variants) == 2
+    assert variants[0].detection == variants[1].detection
+    assert variants[0].parameter_fidelity == variants[1].parameter_fidelity
+    assert variants[0].downstream_usefulness == variants[1].downstream_usefulness
+
+
+@pytest.mark.parametrize(
+    ("fixture", "axes"),
+    (("plate-t-yz.step", {"y", "z"}), ("plate-t-xz.step", {"x", "z"})),
+)
+def test_every_principal_plate_boundary_is_observed(fixture, axes) -> None:
+    observed = _default_observers()["plates"](import_step(CORPUS.parent / fixture))
+
+    assert {fact.identity["axis"] for fact in observed} == axes
+    assert all(set(fact.downstream.values()) == {"supported"} for fact in observed)
+
+
+def test_arbitrary_rigid_motion_survives_the_owned_framed_pipeline() -> None:
+    from draftwright import build_drawing
+    from draftwright.linting.plate_coverage import plate_requirement_outcomes
+    from draftwright.model.compiled import compile_dimensions
+
+    baseline = build_drawing(_tee())
+    moved = build_drawing(Pos(91, -37, 48) * Rot(31, 47, 13) * _tee(), framed_recognition=True)
+
+    def requirements(drawing):
+        recognition = drawing.recognition()
+        assert recognition is not None
+        outcomes = plate_requirement_outcomes(
+            recognition,
+            drawing.model().features,
+            drawing.registry,
+            compile_dimensions(drawing.model()).diagnostics,
+        )
+        return (
+            sorted(round(plate.thickness, 3) for plate in recognition.plates),
+            sorted((outcome.parameter_id, outcome.state) for outcome in outcomes),
+        )
+
+    assert moved.recognition_frame_decision["status"] == "framed"
+    assert requirements(moved) == requirements(baseline)
+    assert _plate_drawing_outcomes(tuple(moved.recognition().plates), moved) == [
+        "supported",
+        "supported",
+    ]
+
+
+def test_plate_ledger_tracks_one_requirement_per_occurrence_and_fails_closed() -> None:
+    from draftwright import build_drawing
+    from draftwright.linting.plate_coverage import plate_requirement_outcomes
+    from draftwright.model.compiled import compile_dimensions
+    from draftwright.registry import AnnotationRegistry
+
+    drawing = build_drawing(_tee())
+    recognition = drawing.recognition()
+    assert recognition is not None
+    outcomes = plate_requirement_outcomes(
+        recognition,
+        drawing.model().features,
+        drawing.registry,
+        compile_dimensions(drawing.model()).diagnostics,
+    )
+
+    assert len(outcomes) == 2
+    assert {outcome.parameter_id for outcome in outcomes} == {"thickness.length"}
+    assert {outcome.state for outcome in outcomes} == {"placed"}
+    missing = plate_requirement_outcomes(
+        recognition, drawing.model().features, AnnotationRegistry()
+    )
+    assert len(missing) == 2
+    assert {outcome.state for outcome in missing} == {"missing"}
+    unverifiable = plate_requirement_outcomes(
+        recognition,
+        [feature for feature in drawing.model().features if feature.kind != "plate"],
+        AnnotationRegistry(),
+    )
+    assert len(unverifiable) == 2
+    assert {(outcome.state, outcome.requirement_count) for outcome in unverifiable} == {
+        ("unverifiable", 1)
+    }
+
+
+def test_plate_ledger_rejects_foreign_malformed_and_duplicate_ir() -> None:
+    from b123d_recognisers import build_raw_recognition_result
+
+    from draftwright import build_drawing
+    from draftwright.linting.plate_coverage import plate_requirement_outcomes
+    from draftwright.registry import AnnotationRegistry
+
+    recognition = build_raw_recognition_result(_tee(), rotational=False)
+    source = recognition.plates[0]
+
+    class MalformedPlate:
+        kind = "plate"
+        axis = source.axis
+        lo, hi, u, v = source.lo, source.hi, source.u, source.v
+
+        @staticmethod
+        def parameters():
+            raise TypeError("broken parameter contract")
+
+    assert plate_requirement_outcomes(None, (), AnnotationRegistry()) == []
+    with pytest.raises(TypeError, match="run's RecognitionResult"):
+        plate_requirement_outcomes(object(), (), AnnotationRegistry())
+    malformed = plate_requirement_outcomes(recognition, (MalformedPlate(),), AnnotationRegistry())
+    assert len(malformed) == 2
+    assert {outcome.state for outcome in malformed} == {"unverifiable"}
+
+    drawing = build_drawing(_tee())
+    features = [feature for feature in drawing.model().features if feature.kind == "plate"]
+    duplicate = plate_requirement_outcomes(
+        recognition, (*features, features[0]), AnnotationRegistry()
+    )
+    assert len(duplicate) == 2
+    assert {outcome.state for outcome in duplicate} == {"unverifiable", "missing"}
+
+
+@pytest.mark.parametrize(
+    "corruption", ("raises", "wrong_id", "wrong_value", "missing_span", "wrong_span")
+)
+def test_plate_ledger_rejects_every_malformed_parameter_contract(corruption) -> None:
+    from draftwright import build_drawing
+    from draftwright.linting.plate_coverage import plate_requirement_outcomes
+    from draftwright.registry import AnnotationRegistry
+
+    drawing = build_drawing(_tee())
+    recognition = drawing.recognition()
+    assert recognition is not None
+    features = [feature for feature in drawing.model().features if feature.kind == "plate"]
+    feature = features[0]
+    parameter = feature.parameters()[0]
+    if corruption == "wrong_id":
+        parameter = replace(parameter, role="wrong_thickness")
+    elif corruption == "wrong_value":
+        parameter = replace(parameter, value=parameter.value + 1.0)
+    elif corruption == "missing_span":
+        parameter = replace(parameter, span=None)
+    elif corruption == "wrong_span":
+        assert parameter.span is not None
+        parameter = replace(parameter, span=tuple(reversed(parameter.span)))
+
+    class ParameterContractProxy:
+        kind = "plate"
+
+        def __getattr__(self, name):
+            return getattr(feature, name)
+
+        def parameters(self):
+            if corruption == "raises":
+                raise ValueError("invalid parameter contract")
+            return [parameter]
+
+    outcomes = plate_requirement_outcomes(
+        recognition,
+        (ParameterContractProxy(), *features[1:]),
+        AnnotationRegistry(),
+    )
+    assert len(outcomes) == 2
+    assert outcomes[0].state == "unverifiable"
+
+
+@pytest.mark.parametrize("field", ("axis", "interval", "witness"))
+def test_plate_correspondence_rejects_compiler_significant_ir_corruption(field) -> None:
+    from draftwright import build_drawing
+    from draftwright.linting.plate_coverage import plate_requirement_outcomes
+    from draftwright.registry import AnnotationRegistry
+
+    drawing = build_drawing(_tee())
+    recognition = drawing.recognition()
+    assert recognition is not None
+    features = [feature for feature in drawing.model().features if feature.kind == "plate"]
+    feature = features[0]
+    if field == "axis":
+        corrupted = replace(feature, axis={"x": "y", "y": "z", "z": "x"}[feature.axis])
+    elif field == "interval":
+        corrupted = replace(feature, hi=feature.hi + 1.0)
+    else:
+        corrupted = replace(feature, u=feature.u + 1.0)
+    altered = (corrupted, *features[1:])
+
+    assert "unknown" in _plate_model_outcomes(tuple(recognition.plates), recognition, altered)
+    outcomes = plate_requirement_outcomes(recognition, altered, AnnotationRegistry())
+    assert "unverifiable" in {outcome.state for outcome in outcomes}
+
+
+def test_plate_ledger_distinguishes_derived_suppressed_dropped_and_missing() -> None:
+    from draftwright import build_drawing
+    from draftwright.linting.issues import LintIssue
+    from draftwright.linting.plate_coverage import plate_requirement_outcomes
+    from draftwright.model.compiled import DimensionId, compile_dimensions
+    from draftwright.registry import AnnotationRegistry
+
+    u_part = import_step(CORPUS.parent / "plate-u-additive.step")
+    u_drawing = build_drawing(u_part)
+    u_recognition = u_drawing.recognition()
+    assert u_recognition is not None
+    derived = plate_requirement_outcomes(
+        u_recognition,
+        u_drawing.model().features,
+        u_drawing.registry,
+        compile_dimensions(u_drawing.model()).diagnostics,
+    )
+    assert [outcome.state for outcome in derived].count("inapplicable") == 1
+    unevidenced = plate_requirement_outcomes(
+        u_recognition,
+        u_drawing.model().features,
+        AnnotationRegistry(),
+        compile_dimensions(u_drawing.model()).diagnostics,
+    )
+    assert {outcome.state for outcome in unevidenced} == {"missing"}
+
+    drawing = build_drawing(_tee())
+    recognition = drawing.recognition()
+    assert recognition is not None
+    features = [feature for feature in drawing.model().features if feature.kind == "plate"]
+    registry = AnnotationRegistry()
+    registry.record_issue(
+        LintIssue(
+            "warning",
+            "synthetic placement failure",
+            code="plate_thickness_dropped",
+            measurement_ids=(DimensionId(features[1], "thickness.length"),),
+            outcome_stage="placement",
+        )
+    )
+    omissions = (
+        SimpleNamespace(
+            feature=features[0],
+            parameter_id="thickness.length",
+            authored=True,
+            conveyed_by=None,
+        ),
+    )
+    outcomes = plate_requirement_outcomes(
+        recognition, drawing.model().features, registry, omissions
+    )
+    assert {outcome.state for outcome in outcomes} == {"suppressed", "dropped"}
+
+
+def test_plate_ledger_retains_structured_note_satisfaction_separately_from_ink() -> None:
+    from draftwright import build_drawing
+    from draftwright.linting.plate_coverage import plate_requirement_outcomes
+    from draftwright.model.compiled import DimensionId
+    from draftwright.registry import AnnotationRegistry
+
+    drawing = build_drawing(_tee())
+    recognition = drawing.recognition()
+    assert recognition is not None
+    feature = next(item for item in drawing.model().features if item.kind == "plate")
+    registry = AnnotationRegistry()
+    registry.add(
+        SimpleNamespace(),
+        "plate_thickness_note",
+        "front",
+        feature=feature,
+        satisfaction=DimensionId(feature, "thickness.length"),
+    )
+
+    outcomes = plate_requirement_outcomes(recognition, drawing.model().features, registry)
+    assert {outcome.state for outcome in outcomes} == {
+        "satisfied_by_structured_note",
+        "missing",
+    }
+
+
+def test_plate_coverage_does_not_duplicate_a_placement_drop() -> None:
+    from draftwright import build_drawing
+    from draftwright.linting.issues import LintIssue
+    from draftwright.linting.plate_coverage import lint_plate_coverage
+    from draftwright.model.compiled import DimensionId
+    from draftwright.registry import AnnotationRegistry
+
+    drawing = build_drawing(_tee())
+    recognition = drawing.recognition()
+    assert recognition is not None
+    feature = next(item for item in drawing.model().features if item.kind == "plate")
+    registry = AnnotationRegistry()
+    registry.record_issue(
+        LintIssue(
+            "warning",
+            "synthetic placement failure",
+            code="plate_thickness_dropped",
+            measurement_ids=(DimensionId(feature, "thickness.length"),),
+            outcome_stage="placement",
+        )
+    )
+
+    issues = lint_plate_coverage(
+        drawing.part,
+        recognition=recognition,
+        features=drawing.model().features,
+        registry=registry,
+    )
+    assert not [issue for issue in issues if issue.code == "plate_requirement_dropped"]
+    assert [issue.code for issue in issues].count("plate_requirement_missing") == 1
+
+
+def test_exact_overlapping_family_owners_do_not_create_a_second_plate_denominator() -> None:
+    from draftwright import build_drawing
+    from draftwright.linting.plate_coverage import plate_requirement_outcomes
+    from draftwright.registry import AnnotationRegistry
+
+    slotted = Box(60, 180, 20)
+    for y in (-45, -15, 15, 45):
+        slotted -= Pos(0, y, 0) * Box(30, 8, 20)
+    slot_drawing = build_drawing(slotted)
+    slot_recognition = slot_drawing.recognition()
+    assert slot_recognition is not None
+    envelope_only = tuple(
+        feature for feature in slot_drawing.model().features if feature.kind == "envelope"
+    )
+    slot_outcomes = plate_requirement_outcomes(
+        slot_recognition, envelope_only, AnnotationRegistry()
+    )
+    assert len(slot_outcomes) == 5
+    assert {outcome.state for outcome in slot_outcomes} == {"inapplicable"}
+
+    boss_part = Box(100, 80, 10, align=(Align.CENTER, Align.CENTER, Align.CENTER)) + (
+        Pos(13, -7, 5) * Rot(0, 0, 11) * extrude(RegularPolygon(20, 6), 30)
+    )
+    boss_drawing = build_drawing(boss_part)
+    boss_recognition = boss_drawing.recognition()
+    assert boss_recognition is not None
+    envelope_only = tuple(
+        feature for feature in boss_drawing.model().features if feature.kind == "envelope"
+    )
+    (boss_outcome,) = plate_requirement_outcomes(
+        boss_recognition, envelope_only, AnnotationRegistry()
+    )
+    assert boss_outcome.state == "inapplicable"
+
+    malformed = replace(boss_recognition, polygonal_bosses=(object(),))
+    (failed_closed,) = plate_requirement_outcomes(malformed, envelope_only, AnnotationRegistry())
+    assert failed_closed.state == "unverifiable"
+
+
+def test_step_level_alternate_must_land_before_plate_intervals_are_inapplicable() -> None:
+    from draftwright import build_drawing
+    from draftwright.linting.plate_coverage import plate_requirement_outcomes
+    from draftwright.model.compiled import compile_dimensions
+    from draftwright.registry import AnnotationRegistry
+
+    part = Box(80, 60, 30) - Pos(0, 0, 7.5) * Box(80, 20, 15)
+    drawing = build_drawing(part)
+    recognition = drawing.recognition()
+    assert recognition is not None
+    plan = compile_dimensions(drawing.model())
+
+    complete = plate_requirement_outcomes(
+        recognition, drawing.model().features, drawing.registry, plan.diagnostics
+    )
+    missing = plate_requirement_outcomes(
+        recognition, drawing.model().features, AnnotationRegistry(), plan.diagnostics
+    )
+    assert len(complete) == len(missing) == 2
+    assert {outcome.state for outcome in complete} == {"inapplicable"}
+    assert {outcome.state for outcome in missing} == {"unverifiable"}
+
+
+def test_plate_observer_uses_one_build_owned_recognition_aggregate(monkeypatch) -> None:
+    import draftwright.analysis as analysis
+
+    original = analysis.build_raw_recognition_result
+    calls = 0
+
+    def counted(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(analysis, "build_raw_recognition_result", counted)
+    assert _default_observers()["plates"](_tee())
+    assert calls == 1
+
+
+def test_removing_plates_from_built_ir_loses_ir_adapter_credit(monkeypatch) -> None:
+    from draftwright.drawing import Drawing
+
+    original = Drawing.model
+
+    def without_plates(self):
+        model = original(self)
+        return replace(model, features=[f for f in model.features if f.kind != "plate"])
+
+    monkeypatch.setattr(Drawing, "model", without_plates)
+    assert _states("ir_adapter") == {"unknown"}
+
+
+def test_missing_per_plate_boundary_outcomes_fail_closed(monkeypatch) -> None:
+    import draftwright.evaluation.step_analysis as step_analysis
+
+    monkeypatch.setattr(step_analysis, "_plate_model_outcomes", lambda *_args: [])
+    assert _states("ir_adapter") == {"unknown"}
+
+
+def test_observer_fails_closed_when_build_or_recognition_is_unavailable(monkeypatch) -> None:
+    import draftwright.builder as builder
+
+    def failed_build(*_args, **_kwargs):
+        raise RuntimeError("probe")
+
+    monkeypatch.setattr(builder, "build_drawing", failed_build)
+    with pytest.raises(ObservationError, match="drawing build failed: probe"):
+        _default_observers()["plates"](_tee())
+
+
+def test_observer_fails_closed_when_built_recognition_is_unavailable(monkeypatch) -> None:
+    from draftwright.drawing import Drawing
+
+    monkeypatch.setattr(Drawing, "recognition", lambda _self: None)
+    with pytest.raises(ObservationError, match="recognition access failed"):
+        _default_observers()["plates"](_tee())
+
+
+def test_observer_failure_cannot_pass_a_zero_plate_negative_case(monkeypatch) -> None:
+    import draftwright.builder as builder
+
+    corpus = load_corpus(CORPUS)
+    negative = next(case for case in corpus.cases if not case.expected)
+
+    def failed_build(*_args, **_kwargs):
+        raise RuntimeError("negative-case probe")
+
+    monkeypatch.setattr(builder, "build_drawing", failed_build)
+    damaged = evaluate_step_corpus(replace(corpus, cases=(negative,)))
+
+    assert damaged.complete_cases == damaged.conformant_cases == 0
+    assert damaged.cases[0].outcome == "unknown"
+    assert [(issue.layer, issue.family) for issue in damaged.cases[0].diagnostics] == [
+        ("analysis", "plates")
+    ]
+
+
+def test_corrupting_public_plate_declaration_loses_declaration_credit(monkeypatch) -> None:
+    from draftwright.sheet import Sheet
+
+    original = Sheet.plate
+
+    def wrong_interval(self, obj=None, **kw):
+        kw["hi"] = float(kw["hi"]) + 1.0
+        return original(self, obj, **kw)
+
+    monkeypatch.setattr(Sheet, "plate", wrong_interval)
+    assert _states("ir_adapter") == {"supported"}
+    assert _states("dsl_declaration") == {"unknown"}
+
+
+def test_deleting_generated_plate_lines_loses_generated_code_credit(monkeypatch) -> None:
+    import draftwright.sheet_emit as sheet_emit
+
+    original = sheet_emit.emit_sheet_script
+
+    def without_plate_lines(*args, **kwargs):
+        source = original(*args, **kwargs)
+        return "\n".join(line for line in source.splitlines() if ".plate(" not in line)
+
+    monkeypatch.setattr(sheet_emit, "emit_sheet_script", without_plate_lines)
+    assert _states("generated_code") == {"unknown"}
+
+
+def test_wrong_plate_ink_loses_drawing_credit(monkeypatch) -> None:
+    import draftwright.builder as builder
+
+    original = builder.build_drawing
+
+    def with_wrong_ink(*args, **kwargs):
+        drawing = original(*args, **kwargs)
+        drawing.registry.named(_annotation_for_plate(drawing)).label = "999"
+        return drawing
+
+    monkeypatch.setattr(builder, "build_drawing", with_wrong_ink)
+    assert "unsupported" in _states("drawing_consumer")
+
+
+def test_severing_one_plate_measurement_claim_loses_drawing_credit(monkeypatch) -> None:
+    import draftwright.builder as builder
+
+    original = builder.build_drawing
+
+    def without_claim(*args, **kwargs):
+        drawing = original(*args, **kwargs)
+        name = _annotation_for_plate(drawing)
+        identity = drawing.registry.identity_of(name)
+        drawing.registry.reapply(name, {**identity, "measurement": ()})
+        return drawing
+
+    monkeypatch.setattr(builder, "build_drawing", without_claim)
+    assert "unsupported" in _states("drawing_consumer")
+
+
+def test_deleting_provider_plates_cannot_shrink_the_independent_denominator(
+    monkeypatch,
+) -> None:
+    import draftwright.analysis as analysis
+
+    original = analysis.build_raw_recognition_result
+
+    def without_plates(*args, **kwargs):
+        result = original(*args, **kwargs)
+        return replace(result, plates=())
+
+    monkeypatch.setattr(analysis, "build_raw_recognition_result", without_plates)
+    damaged = evaluate_step_corpus(load_corpus(CORPUS))
+
+    assert damaged.detection.matched == 0
+    assert damaged.detection.missed == 20
+    assert damaged.detection.recall == 0.0
+    assert damaged.complete_cases < len(damaged.cases)
+
+
+def test_malformed_provider_plate_cannot_pass_or_shrink_the_denominator(monkeypatch) -> None:
+    import draftwright.analysis as analysis
+
+    original = analysis.build_raw_recognition_result
+
+    def malformed(*args, **kwargs):
+        result = original(*args, **kwargs)
+        if not result.plates:
+            return result
+        return replace(result, plates=(object(), *result.plates[1:]))
+
+    monkeypatch.setattr(analysis, "build_raw_recognition_result", malformed)
+    damaged = evaluate_step_corpus(load_corpus(CORPUS))
+
+    assert damaged.detection.missed > 0
+    assert damaged.complete_cases < len(damaged.cases)
+    assert sum(case.detection.missed for case in damaged.cases) >= 1
+
+
+def test_symmetric_provider_interval_damage_preserves_identity_but_loses_fidelity(
+    monkeypatch,
+) -> None:
+    import draftwright.analysis as analysis
+
+    original = analysis.build_raw_recognition_result
+
+    def weakened(*args, **kwargs):
+        result = original(*args, **kwargs)
+        plates = tuple(
+            replace(plate, lo=plate.lo - 0.05, hi=plate.hi + 0.05) for plate in result.plates
+        )
+        return replace(result, plates=plates)
+
+    monkeypatch.setattr(analysis, "build_raw_recognition_result", weakened)
+    damaged = evaluate_step_corpus(load_corpus(CORPUS))
+
+    assert damaged.detection.recall == 1.0
+    assert damaged.detection.false_positives == 0
+    assert damaged.parameter_fidelity.passed == 0
+    assert damaged.parameter_fidelity.total == 20
+
+
+def test_shifting_provider_interval_reduces_detection_recall(monkeypatch) -> None:
+    import draftwright.analysis as analysis
+
+    original = analysis.build_raw_recognition_result
+
+    def shifted(*args, **kwargs):
+        result = original(*args, **kwargs)
+        plates = tuple(
+            replace(plate, lo=plate.lo + 1.0, hi=plate.hi + 1.0) for plate in result.plates
+        )
+        return replace(result, plates=plates)
+
+    monkeypatch.setattr(analysis, "build_raw_recognition_result", shifted)
+    damaged = evaluate_step_corpus(load_corpus(CORPUS))
+
+    assert damaged.detection.recall == 0.0
+    assert damaged.detection.missed == 20
+    assert damaged.detection.false_positives == 20
+
+
+def test_deleting_plate_declarations_cannot_shrink_quality_denominator() -> None:
+    from draftwright import Sheet, build_drawing
+
+    complete = build_drawing(_tee())
+    sparse = Sheet(_tee())
+    envelope = sparse.envelope()
+    sparse.dimension(envelope, "width.length")
+
+    complete_quality = complete.lint_summary()["quality"]["completeness"]
+    sparse_summary = sparse.build().lint_summary()
+    sparse_quality = sparse_summary["quality"]["completeness"]
+    assert complete_quality["requirements"] == sparse_quality["requirements"] == 6
+    assert complete_quality["by_family"]["plates"] == 2
+    assert complete_quality["placed"] == 6
+    assert sparse_quality["unverifiable"] == 6
+    assert complete_quality["audited_score"] == 1.0
+    assert sparse_quality["audited_score"] == 0.0
+    assert [
+        issue
+        for issue in sparse_summary["issues"]
+        if issue["code"] == "plate_requirement_unverifiable"
+    ]
+
+
+def test_single_flat_plate_is_envelope_owned_and_adds_no_plate_requirement() -> None:
+    from draftwright import build_drawing
+    from draftwright.linting.plate_coverage import plate_requirement_outcomes
+
+    drawing = build_drawing(import_step(CORPUS.parent / "plate-single-negative.step"))
+    recognition = drawing.recognition()
+    assert recognition is not None
+    assert recognition.plates == ()
+    assert (
+        plate_requirement_outcomes(recognition, drawing.model().features, drawing.registry) == []
+    )
