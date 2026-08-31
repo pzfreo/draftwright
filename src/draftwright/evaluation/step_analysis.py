@@ -1517,7 +1517,9 @@ def _plate_parameters(plate) -> dict[str, Value]:
     return {"thickness": round(float(plate.hi) - float(plate.lo), 3)}
 
 
-def _plate_correspondence(plates, recognition, features, registry=None, omissions=()):
+def _plate_correspondence(
+    plates, recognition, features, registry=None, omissions=(), *, part=None
+):
     """Per body-local slab, retain exact IR and production-ledger evidence."""
     from draftwright.linting.plate_coverage import (
         plate_center,
@@ -1531,6 +1533,7 @@ def _plate_correspondence(plates, recognition, features, registry=None, omission
         features,
         AnnotationRegistry() if registry is None else registry,
         omissions,
+        part=part,
     )
     by_at: dict[tuple[float, float, float], list] = {}
     for outcome in ledger:
@@ -1580,6 +1583,7 @@ def _plate_drawing_outcomes(plates, drawing) -> list[Outcome]:
         model.features,
         drawing.registry,
         plan.diagnostics,
+        part=drawing.working_part,
     )
     confirmed: dict[tuple[object, str], set[str]] = {}
     confirmed_counts: Counter[tuple[object, str]] = Counter()

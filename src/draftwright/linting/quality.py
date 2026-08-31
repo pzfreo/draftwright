@@ -611,7 +611,7 @@ def _empty_completeness(reason: str, unrecognised: int) -> dict:
 
 
 def _completeness_component(
-    recognition, features, registry, omissions, issues, *, dimension_plan=None
+    recognition, features, registry, omissions, issues, *, dimension_plan=None, part=None
 ) -> dict:
     unrecognised = sum(issue.code == _UNRECOGNISED_GEOMETRY_CODE for issue in issues)
     if recognition is None:
@@ -639,7 +639,9 @@ def _completeness_component(
         "holes": [],
         "hole_patterns": [],
         "pads": pad_requirement_outcomes(recognition, features, registry, omissions),
-        "plates": plate_requirement_outcomes(recognition, features, registry, omissions),
+        "plates": plate_requirement_outcomes(
+            recognition, features, registry, omissions, part=part
+        ),
         "polygonal_bosses": polygonal_boss_requirement_outcomes(
             recognition, features, registry, omissions
         ),
@@ -739,6 +741,7 @@ def quality_components(
     warning_penalty: float,
     has_asserted_content: bool,
     dimension_plan=None,
+    part=None,
     _aggregation=None,
 ) -> dict:
     """Return independently usable drawing-quality observations.
@@ -773,6 +776,7 @@ def quality_components(
             omissions,
             issues,
             dimension_plan=dimension_plan,
+            part=part,
         ),
         "restraint": {
             "available": False,

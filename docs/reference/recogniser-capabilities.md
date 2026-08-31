@@ -242,7 +242,9 @@ opposite U-channel wall is explicitly `inapplicable` only because the envelope, 
 channel-width chain states it; other requirements need real solver-placed `Dimension` ink.
 Material spans already owned by an exact envelope, step-level/shoulder chain, slot pattern or
 attached polygonal boss likewise remain inapplicable rather than becoming duplicate Plate
-requirements; malformed or absent ownership evidence fails closed.
+requirements. Polygonal-boss ownership requires a valid support record, unique shared-solid
+membership and a boss-plus-slab span equal to the complete envelope axis; malformed, cross-body or
+partial-span ownership fails closed.
 Derived drawing credit additionally requires every dependency's compiler-approved finished claim
 or structured satisfaction; provenance attached to incorrect ink is not enough.
 Annotation names, views and page coordinates never establish correspondence. Removing or

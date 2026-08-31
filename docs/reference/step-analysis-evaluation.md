@@ -116,7 +116,9 @@ the full axis, interval and both witness coordinates. The drawing boundary accep
 compiler-confirmed, solver-placed `thickness.length` Dimension or the explicit derived opposite
 wall of a complete U-channel chain. Exact envelope, step-level/shoulder, slot-pattern and attached
 polygonal-boss ownership prevents derived material spans from inflating the Plate denominator and
-fails closed when full-witness body-local support cannot be established. Drawing credit for a
+fails closed when full-witness body-local support cannot be established. Boss ownership additionally
+requires a valid support ring, unique shared-solid membership and a complete boss-plus-slab envelope
+span. Drawing credit for a
 derived span requires verified finished claims for every dependency. It never infers coverage from annotation
 names, labels, views or page coordinates. The 11 cases own 20 physical facts, 20 parameter units and 80 downstream
 units; deleting every provider Plate therefore leaves 20 misses rather than shrinking the

@@ -400,7 +400,7 @@ def test_exact_overlapping_family_owners_do_not_create_a_second_plate_denominato
         feature for feature in slot_drawing.model().features if feature.kind == "envelope"
     )
     slot_outcomes = plate_requirement_outcomes(
-        slot_recognition, envelope_only, AnnotationRegistry()
+        slot_recognition, envelope_only, AnnotationRegistry(), part=slotted
     )
     assert len(slot_outcomes) == 5
     assert {outcome.state for outcome in slot_outcomes} == {"inapplicable"}
@@ -415,13 +415,25 @@ def test_exact_overlapping_family_owners_do_not_create_a_second_plate_denominato
         feature for feature in boss_drawing.model().features if feature.kind == "envelope"
     )
     (boss_outcome,) = plate_requirement_outcomes(
-        boss_recognition, envelope_only, AnnotationRegistry()
+        boss_recognition, envelope_only, AnnotationRegistry(), part=boss_part
     )
     assert boss_outcome.state == "inapplicable"
 
     malformed = replace(boss_recognition, polygonal_bosses=(object(),))
-    (failed_closed,) = plate_requirement_outcomes(malformed, envelope_only, AnnotationRegistry())
+    (failed_closed,) = plate_requirement_outcomes(
+        malformed, envelope_only, AnnotationRegistry(), part=boss_part
+    )
     assert failed_closed.state == "unverifiable"
+    source = boss_recognition.polygonal_bosses[0]
+    for corrupted in (
+        replace(source, side_count=5),
+        replace(source, flat_centres=(source.center,) * 6),
+    ):
+        malformed = replace(boss_recognition, polygonal_bosses=(corrupted,))
+        (failed_closed,) = plate_requirement_outcomes(
+            malformed, envelope_only, AnnotationRegistry(), part=boss_part
+        )
+        assert failed_closed.state == "unverifiable"
 
 
 def test_overlapping_family_ownership_cannot_cross_disconnected_bodies() -> None:
@@ -432,7 +444,10 @@ def test_overlapping_family_ownership_cannot_cross_disconnected_bodies() -> None
     slotted = Box(60, 180, 20)
     for y in (-45, -15, 15, 45):
         slotted -= Pos(0, y, 0) * Box(30, 8, 20)
-    slot_compound = slotted + Pos(150, 0, 0) * _tee()
+    remote_tee = Box(80, 60, 10, align=_CENTER_MIN) + Pos(0, 0, 10) * Box(
+        80, 22, 40, align=_CENTER_MIN
+    )
+    slot_compound = slotted + Pos(150, 0, 0) * remote_tee
     slot_drawing = build_drawing(slot_compound)
     slot_recognition = slot_drawing.recognition()
     assert slot_recognition is not None
@@ -440,8 +455,15 @@ def test_overlapping_family_ownership_cannot_cross_disconnected_bodies() -> None
         feature for feature in slot_drawing.model().features if feature.kind == "envelope"
     )
     slot_outcomes = plate_requirement_outcomes(
-        slot_recognition, envelope_only, AnnotationRegistry()
+        slot_recognition, envelope_only, AnnotationRegistry(), part=slot_compound
     )
+    same_span = [
+        plate
+        for plate in slot_recognition.plates
+        if plate.axis == "y" and plate.lo == -11.0 and plate.hi == 11.0
+    ]
+    assert len(same_span) == 2
+    assert len({(round(plate.u, 3), round(plate.v, 3)) for plate in same_span}) == 2
     assert {outcome.state for outcome in slot_outcomes if outcome.source_at[0] == 0.0} == {
         "inapplicable"
     }
@@ -460,14 +482,52 @@ def test_overlapping_family_ownership_cannot_cross_disconnected_bodies() -> None
         feature for feature in boss_drawing.model().features if feature.kind == "envelope"
     )
     boss_outcomes = plate_requirement_outcomes(
-        boss_recognition, envelope_only, AnnotationRegistry()
+        boss_recognition, envelope_only, AnnotationRegistry(), part=boss_compound
     )
-    assert {outcome.state for outcome in boss_outcomes if outcome.source_at[0] < 0.0} == {
-        "inapplicable"
-    }
-    assert {outcome.state for outcome in boss_outcomes if outcome.source_at[0] > 0.0} == {
-        "unverifiable"
-    }
+    assert {outcome.state for outcome in boss_outcomes} == {"unverifiable"}
+
+
+def test_boss_owner_requires_one_solid_and_the_complete_axis_span() -> None:
+    from draftwright import build_drawing
+    from draftwright.linting.plate_coverage import plate_requirement_outcomes
+    from draftwright.registry import AnnotationRegistry
+
+    narrow_boss = Box(100, 80, 10, align=(Align.CENTER, Align.CENTER, Align.CENTER)) + (
+        Pos(13, 0, 5) * extrude(RegularPolygon(10, 6), 20)
+    )
+    narrow_drawing = build_drawing(narrow_boss)
+    narrow_recognition = narrow_drawing.recognition()
+    assert narrow_recognition is not None
+    envelope_only = tuple(
+        feature for feature in narrow_drawing.model().features if feature.kind == "envelope"
+    )
+    (narrow_outcome,) = plate_requirement_outcomes(
+        narrow_recognition,
+        envelope_only,
+        AnnotationRegistry(),
+        part=narrow_boss,
+    )
+    assert narrow_outcome.state == "inapplicable"
+
+    multi_axis = (
+        Box(120, 80, 10, align=_CENTER_MIN)
+        + Pos(0, 0, 10) * extrude(RegularPolygon(10, 6), 20)
+        + Pos(-40, 0, 10) * Box(10, 80, 40, align=_CENTER_MIN)
+    )
+    multi_drawing = build_drawing(multi_axis)
+    multi_recognition = multi_drawing.recognition()
+    assert multi_recognition is not None
+    envelope_only = tuple(
+        feature for feature in multi_drawing.model().features if feature.kind == "envelope"
+    )
+    multi_outcomes = plate_requirement_outcomes(
+        multi_recognition,
+        envelope_only,
+        AnnotationRegistry(),
+        part=multi_axis,
+    )
+    assert len(multi_outcomes) == 2
+    assert {outcome.state for outcome in multi_outcomes} == {"unverifiable"}
 
 
 def test_step_level_alternate_must_land_before_plate_intervals_are_inapplicable() -> None:

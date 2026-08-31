@@ -144,6 +144,15 @@ def _between(value, bounds) -> bool:
     return lo <= _rounded(value) <= hi
 
 
+def _depth_axis(width_axis, long_axis) -> str | None:
+    width = str(width_axis)
+    long = str(long_axis)
+    if width not in {"x", "y", "z"} or long not in {"x", "y", "z"} or width == long:
+        return None
+    remaining = {"x", "y", "z"} - {width, long}
+    return next(iter(remaining)) if len(remaining) == 1 else None
+
+
 def _step_supports_source(source, step) -> bool:
     """Require the Plate witness to lie on this level record's physical support."""
     try:
@@ -170,9 +179,11 @@ def _slot_pattern_supports_source(source, pattern) -> bool:
         member = pattern.member
         if str(source.axis) != str(member.width_axis):
             return False
+        depth_axis = _depth_axis(member.width_axis, member.long_axis)
+        if depth_axis is None or str(pattern.frame.axis) != depth_axis:
+            return False
         point = plate_center(source)
         long_index = "xyz".index(str(member.long_axis))
-        depth_axis = str(pattern.frame.axis)
         depth_index = "xyz".index(depth_axis)
         return _between(point[long_index], (member.lo, member.hi)) and _same(
             point[depth_index], pattern.frame.origin[depth_index]
@@ -185,8 +196,9 @@ def _recognised_slot_pattern_supports_source(source, slots) -> bool:
     """Use the public source-body bounds retained on provider Slot records."""
     try:
         representative = slots[0]
-        axes = {"x", "y", "z"}
-        depth_axis = (axes - {str(representative.width_axis), str(representative.long_axis)}).pop()
+        depth_axis = _depth_axis(representative.width_axis, representative.long_axis)
+        if depth_axis is None:
+            return False
         point = plate_center(source)
         body_key = tuple(representative.body_key)
         if len(body_key) < 6:
@@ -209,6 +221,11 @@ def _recognised_slot_pattern_supports_source(source, slots) -> bool:
 def _polygonal_boss_supports_source(source, boss) -> bool:
     """Conservatively require the Plate witness inside the owner's support polygon."""
     try:
+        from draftwright.linting.polygonal_boss_coverage import (
+            _validate_polygonal_boss_source,
+        )
+
+        _validate_polygonal_boss_source(boss)
         axis = str(source.axis)
         boss_axis = getattr(getattr(boss, "frame", None), "axis", getattr(boss, "axis", None))
         if str(boss_axis) != axis:
@@ -227,23 +244,41 @@ def _polygonal_boss_supports_source(source, boss) -> bool:
             )
             if abs(cross) > 1e-6:
                 signs.append(cross > 0)
-        return not signs or all(sign == signs[0] for sign in signs)
+        return bool(signs) and all(sign == signs[0] for sign in signs)
     except (AttributeError, TypeError, ValueError):
         return False
 
 
-def _level_continues_beyond_source(source, recognition, boundary: float) -> bool:
-    """A support level at the far Plate face proves material continues past that slab."""
-    if str(source.axis) != "z":
-        return False
-    point = plate_center(source)
+def _valid_polygonal_boss_source(boss) -> bool:
     try:
-        return any(
-            _same(level.z, boundary)
-            and _between(point[0], level.x_span)
-            and _between(point[1], level.y_span)
-            for level in recognition.step_levels
+        from draftwright.linting.polygonal_boss_coverage import (
+            _validate_polygonal_boss_source,
         )
+
+        _validate_polygonal_boss_source(boss)
+        return True
+    except (AttributeError, TypeError, ValueError):
+        return False
+
+
+def _shares_one_solid(part, source, boss) -> bool:
+    """Prove source and owner belong to one finished solid without re-recognising either."""
+    if part is None:
+        return False
+    try:
+        from build123d import Vector
+
+        source_point = Vector(*plate_center(source))
+        boss_center = getattr(boss, "center", None)
+        if boss_center is None:
+            boss_center = boss.frame.origin
+        boss_point = Vector(*boss_center)
+        solids = tuple(part.solids())
+        source_owners = [
+            index for index, solid in enumerate(solids) if solid.is_inside(source_point)
+        ]
+        boss_owners = [index for index, solid in enumerate(solids) if solid.is_inside(boss_point)]
+        return len(source_owners) == len(boss_owners) == 1 and source_owners == boss_owners
     except (AttributeError, TypeError, ValueError):
         return False
 
@@ -418,7 +453,7 @@ def _dependencies_are_evidenced(dependencies, counts, satisfied) -> bool:
     )
 
 
-def _recognition_owner_supersedes_plate(source, recognition, features) -> bool:
+def _recognition_owner_supersedes_plate(source, recognition, features, part=None) -> bool:
     """Exact aggregate ownership keeps derived Plate fragments out of a second denominator."""
     envelope = _envelope(features)
     if envelope is None:
@@ -426,18 +461,30 @@ def _recognition_owner_supersedes_plate(source, recognition, features) -> bool:
     try:
         axis = str(source.axis)
         index = "xyz".index(axis)
+        envelope_interval = (
+            _rounded(envelope.bbox_min[index]),
+            _rounded(envelope.bbox_max[index]),
+        )
         source_interval = (_rounded(source.lo), _rounded(source.hi))
 
         for boss in recognition.polygonal_bosses:
-            if str(boss.axis) != axis or not _polygonal_boss_supports_source(source, boss):
+            if (
+                str(boss.axis) != axis
+                or not _shares_one_solid(part, source, boss)
+                or not _valid_polygonal_boss_source(boss)
+            ):
                 continue
             boss_interval = (_rounded(boss.base), _rounded(boss.top))
-            supports_below = source_interval[1] == boss_interval[
-                0
-            ] and not _level_continues_beyond_source(source, recognition, source_interval[0])
-            supports_above = source_interval[0] == boss_interval[
-                1
-            ] and not _level_continues_beyond_source(source, recognition, source_interval[1])
+            supports_below = (
+                source_interval[0] == envelope_interval[0]
+                and source_interval[1] == boss_interval[0]
+                and boss_interval[1] == envelope_interval[1]
+            )
+            supports_above = (
+                boss_interval[0] == envelope_interval[0]
+                and boss_interval[1] == source_interval[0]
+                and source_interval[1] == envelope_interval[1]
+            )
             if supports_below or supports_above:
                 return True
 
@@ -516,7 +563,9 @@ def _derived_opposite_wall_dependencies(features, feature) -> tuple[tuple[object
         if not (_same(lower[0].u, feature.u) and _same(lower[0].v, feature.v)):
             return ()
         centre = plate_center(feature)
-        depth_axis = ({"x", "y", "z"} - {axis, str(channel.long_axis)}).pop()
+        depth_axis = _depth_axis(axis, channel.long_axis)
+        if depth_axis is None:
+            return ()
         if not (
             _between(centre[long_index], (channel.lo, channel.hi))
             and _between(centre["xyz".index(depth_axis)], (channel.d_lo, channel.d_hi))
@@ -567,6 +616,8 @@ def plate_requirement_outcomes(
     features,
     registry,
     omissions=(),
+    *,
+    part=None,
 ) -> list[PlateRequirementOutcome]:
     """Follow every recognised body-local slab thickness to its semantic outcome."""
     if recognition is None:
@@ -628,7 +679,7 @@ def plate_requirement_outcomes(
                 source_record, features, placed_counts, satisfied
             )
             if dependencies or _recognition_owner_supersedes_plate(
-                source_record, recognition, features
+                source_record, recognition, features, part
             ):
                 outcomes.append(
                     PlateRequirementOutcome(
@@ -681,7 +732,9 @@ def lint_plate_coverage(
         "unverifiable": "cannot be joined to measurement provenance without guessing",
     }
     issues = []
-    for outcome in plate_requirement_outcomes(recognition, features, registry, omissions):
+    for outcome in plate_requirement_outcomes(
+        recognition, features, registry, omissions, part=part
+    ):
         if outcome.state in {
             "placed",
             "satisfied_by_structured_note",

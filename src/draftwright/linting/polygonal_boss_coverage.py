@@ -89,8 +89,25 @@ def _validate_polygonal_boss_source(boss: PolygonalBoss) -> None:
     side_count = boss.side_count
     if type(side_count) is not int or side_count != 6:
         raise ValueError("the polygonal-boss provider contract requires exactly six sides")
-    if len(_canonical_support_ring(boss.flat_directions, boss.flat_centres)) != side_count:
+    ring = _canonical_support_ring(boss.flat_directions, boss.flat_centres)
+    if len(ring) != side_count:
         raise ValueError("the polygonal-boss provider contract requires six paired supports")
+    directions = tuple(direction for direction, _centre in ring)
+    centres = tuple(centre for _direction, centre in ring)
+    if len(set(directions)) != side_count or len(set(centres)) != side_count:
+        raise ValueError("the polygonal-boss provider contract requires distinct supports")
+    area_vector = tuple(
+        sum(
+            start[(index + 1) % 3] * end[(index + 2) % 3]
+            - start[(index + 2) % 3] * end[(index + 1) % 3]
+            for start, end in zip(centres, (*centres[1:], centres[0]), strict=True)
+        )
+        for index in range(3)
+    )
+    if sum(component * component for component in area_vector) <= 1e-12:
+        raise ValueError(
+            "the polygonal-boss provider contract requires a nondegenerate support ring"
+        )
 
 
 def _span(boss) -> tuple[tuple[float, float, float], tuple[float, float, float]]:

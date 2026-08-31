@@ -234,7 +234,7 @@ def test_polygonal_boss_ledger_rejects_foreign_malformed_and_duplicate_ir() -> N
 
 @pytest.mark.parametrize(
     ("corruption", "requirements"),
-    (("foreign_record", 3), ("missing_support", 3), ("unpaired_support", 2)),
+    (("foreign_record", 3), ("missing_support", 3), ("unpaired_support", 3)),
 )
 def test_malformed_source_record_fails_closed_through_drawing_lint(
     monkeypatch, corruption, requirements
@@ -277,9 +277,7 @@ def test_malformed_source_record_fails_closed_through_drawing_lint(
     completeness = drawing.lint_summary()["quality"]["completeness"]
     assert completeness["requirements"] == completeness["unverifiable"] == requirements
     assert completeness["by_family"]["polygonal_bosses"] == 2
-    assert completeness["by_family"]["plates"] == (
-        1 if corruption in {"foreign_record", "missing_support"} else 0
-    )
+    assert completeness["by_family"]["plates"] == 1
 
 
 @pytest.mark.parametrize("representation", ("cyclic", "reversed", "reversed_span"))
@@ -788,8 +786,9 @@ def test_weakening_provider_parameters_reduces_parameter_fidelity(monkeypatch, p
         quality = summary["quality"]["completeness"]
 
         assert issues["polygonal_boss_requirement_unverifiable"] == 1
-        assert quality["requirements"] == quality["unverifiable"] == 2
+        assert quality["requirements"] == quality["unverifiable"] == 3
         assert quality["by_family"]["polygonal_bosses"] == 2
+        assert quality["by_family"]["plates"] == 1
         assert quality["audited_score"] == 0.0
 
 

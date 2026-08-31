@@ -3847,6 +3847,7 @@ class Drawing:
             registry=self._registry,
             omissions=self._build.omissions,
             issues=issues,
+            part=self._working_part,
             # Fidelity asks whether what the drawing SAYS is true, so a drawing that says
             # nothing measurable has no answer rather than a perfect one.
             #
