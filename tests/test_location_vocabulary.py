@@ -384,7 +384,7 @@ def test_the_on_axis_bore_skip_reads_the_declaration_on_both_surfaces():
     )
 
 
-def test_location_role_answers_for_an_eligible_feature_and_none_for_an_ineligible_one():
+def test_location_role_answers_for_bbox_eligible_hole_and_pattern():
     """Both directions, unlike the first cut — which was named "...answers none where no
     location is planned" and then asserted the opposite on a feature that IS locatable,
     ending with `assert model is not None`, which cannot fail after ordinary construction."""
@@ -396,5 +396,5 @@ def test_location_role_answers_for_an_eligible_feature_and_none_for_an_ineligibl
 
     member = HoleFeature(Frame((0.0, 0.0, 0.0), "x"), 6.0, depth=None, through=True)
     off_axis = PatternFeature(Frame((0.0, 0.0, 0.0), "x"), "linear", 3, member)
-    assert location_datum(off_axis) is None, "an off-axis pattern has never been drawn"
-    assert location_role(off_axis) is None, "so the vocabulary must not accept it"
+    assert location_datum(off_axis) == "bbox"
+    assert location_role(off_axis) == "location_pattern"

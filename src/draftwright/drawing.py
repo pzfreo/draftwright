@@ -393,9 +393,14 @@ def feature_key(f) -> str | None:
     axis = getattr(frame, "axis", "")
     if origin is None:
         return f"{kind}/{axis}" if axis else kind
-    x, y, z = (float(v) for v in (origin[0], origin[1], origin[2]))
+
+    def clean(value) -> float:
+        rounded = round(float(value), 3)
+        return 0.0 if rounded == 0 else rounded
+
+    x, y, z = (clean(v) for v in (origin[0], origin[1], origin[2]))
     sizes = [
-        f"{name}={float(v):.3f}"
+        f"{name}={clean(v):.3f}"
         for name in _KEY_SCALARS
         if isinstance(v := getattr(f, name, None), (int, float))
     ]
@@ -579,6 +584,7 @@ class Drawing:
         centroid,
         out,
         part=None,
+        working_part=None,
         cyls=None,
         assembly=None,
         reproducible=False,
@@ -630,6 +636,7 @@ class Drawing:
             "detail": "the section pass has not run",
         }
         self.part = part
+        self._working_part = part if working_part is None else working_part
         self._cyl_cache = cyls
         # None → the coverage lint auto-detects a multi-solid part as an
         # assembly; True/False forces assembly/strict severity (#69).
@@ -688,6 +695,26 @@ class Drawing:
         prevent. Editing means converting it into constraints explicitly and resolving again.
         """
         return self._build.view_plan
+
+    @property
+    def working_part(self):
+        """The coordinate-coherent compiler/projection solid (read-only)."""
+        return self._working_part
+
+    @property
+    def recognition_frame(self):
+        """The provider caller-to-working frame, or ``None`` outside a framed build."""
+        return getattr(self._build.analysis, "recognition_frame", None)
+
+    @property
+    def recognition_frame_decision(self) -> dict[str, object]:
+        """A copy of the explicit framed/raw/refusal selection outcome."""
+        decision = getattr(self._build.analysis, "recognition_frame_decision", None)
+        return (
+            dict(decision)
+            if decision is not None
+            else {"status": "not_evaluated", "gauge": None, "refusal_reason": None}
+        )
 
     @property
     def registry(self):
@@ -3438,7 +3465,8 @@ class Drawing:
             view_material_fields=self.material_fields(),
             _aggregation=aggregation,
         )
-        if self.part is not None and physical:
+        working_part = self._working_part
+        if working_part is not None and physical:
             # Reuse the single feature inventory from the build (#244) when present,
             # so lint does not re-detect holes/patterns/turned-steps; fall back to
             # detecting when there is no analysis (a manually-built Drawing, or lint
@@ -3465,7 +3493,7 @@ class Drawing:
                 # empty because nothing looked — not because the part has none. Feeding that
                 # emptiness to coverage would report every real hole as uncovered, so critique
                 # recognises here instead: once per drawing, owned by BuildState.
-                rec = self._build.ensure_recognition(self.part)
+                rec = self._build.ensure_recognition(working_part)
                 cyls = rec.cylinders
                 holes = list(rec.holes)
                 patterns = list(rec.hole_patterns)
@@ -3484,16 +3512,16 @@ class Drawing:
                 prof_kw = {"prof": a.prof}
             else:
                 if self._cyl_cache is None:
-                    self._cyl_cache = analyse_cylinders(self.part)
+                    self._cyl_cache = analyse_cylinders(working_part)
                 cyls = self._cyl_cache
                 holes = patterns = bosses = None
                 pads = pockets = recognition = None
                 prof_kw = {}
             if recognition is None:
-                recognition = self._build.ensure_recognition(self.part)
+                recognition = self._build.ensure_recognition(working_part)
             profiled_bores = list(recognition.double_d_bores)
             issues += lint_feature_coverage(
-                self.part,
+                working_part,
                 self.items,
                 cyls=cyls,
                 exclude=self._coverage.dropped_diams,
@@ -3503,7 +3531,7 @@ class Drawing:
                 registry=self._registry,
             )
             issues += lint_axial_coverage(
-                self.part,
+                working_part,
                 self,
                 assembly=self.assembly,
                 recognition=recognition,
@@ -3527,14 +3555,14 @@ class Drawing:
             # specifically for a prismatic boss's independent projection height.
             if model is not None and (a is None or (not a.is_rotational and a.prof is None)):
                 issues += lint_boss_height_coverage(
-                    self.part,
+                    working_part,
                     self,
                     getattr(model, "features", ()),
                     assembly=self.assembly,
                     omissions=self._build.omissions,
                 )
             issues += lint_location_coverage(
-                self.part,
+                working_part,
                 self,
                 cyls=cyls,
                 assembly=self.assembly,
@@ -3543,7 +3571,7 @@ class Drawing:
                 profiled_bores=profiled_bores,
             )
             issues += lint_prismatic_coverage(
-                self.part,
+                working_part,
                 self,
                 assembly=self.assembly,
                 pads=pads,
@@ -3553,7 +3581,7 @@ class Drawing:
                 recognition=recognition,
             )
             issues += lint_pad_coverage(
-                self.part,
+                working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
                 registry=self._registry,
@@ -3565,26 +3593,26 @@ class Drawing:
             issues += lint_angled_step_coverage(recognition)
             resolved_assembly = self.assembly
             if resolved_assembly is None:
-                resolved_assembly = len(self.part.solids()) > 1
+                resolved_assembly = len(working_part.solids()) > 1
             profile_cache = self._build.principal_profile_cache
             if (
                 profile_cache is None
-                or profile_cache[0] is not self.part
+                or profile_cache[0] is not working_part
                 or profile_cache[1] != resolved_assembly
             ):
                 profile_issues = tuple(
                     lint_principal_profile_coverage(
-                        self.part,
+                        working_part,
                         assembly=resolved_assembly,
                         prismatic_pockets=recognition.prismatic_pockets,
                         section_passages=recognition.section_passages,
                     )
                 )
-                profile_cache = (self.part, resolved_assembly, profile_issues)
+                profile_cache = (working_part, resolved_assembly, profile_issues)
                 self._build.principal_profile_cache = profile_cache
             issues += list(profile_cache[2])
             issues += lint_profiled_bore_coverage(
-                self.part,
+                working_part,
                 self.items,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
@@ -3594,7 +3622,7 @@ class Drawing:
                 assembly=self.assembly,
             )
             issues += lint_flat_coverage(
-                self.part,
+                working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
                 registry=self._registry,
@@ -3602,7 +3630,7 @@ class Drawing:
                 assembly=self.assembly,
             )
             issues += lint_groove_coverage(
-                self.part,
+                working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
                 registry=self._registry,
@@ -3610,7 +3638,7 @@ class Drawing:
                 assembly=self.assembly,
             )
             issues += lint_chamfer_coverage(
-                self.part,
+                working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
                 registry=self._registry,
@@ -3618,7 +3646,7 @@ class Drawing:
                 assembly=self.assembly,
             )
             issues += lint_fillet_coverage(
-                self.part,
+                working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
                 registry=self._registry,
@@ -3626,7 +3654,7 @@ class Drawing:
                 assembly=self.assembly,
             )
             issues += lint_paired_ramp_step_coverage(
-                self.part,
+                working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
                 registry=self._registry,
@@ -3634,7 +3662,7 @@ class Drawing:
                 assembly=self.assembly,
             )
             issues += lint_circular_blind_step_coverage(
-                self.part,
+                working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
                 registry=self._registry,
@@ -3642,7 +3670,7 @@ class Drawing:
                 assembly=self.assembly,
             )
             issues += lint_through_step_coverage(
-                self.part,
+                working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
                 registry=self._registry,
@@ -3651,7 +3679,7 @@ class Drawing:
                 plan=dimension_plan,
             )
             issues += lint_slot_coverage(
-                self.part,
+                working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
                 registry=self._registry,
@@ -3659,7 +3687,7 @@ class Drawing:
                 assembly=self.assembly,
             )
             issues += lint_hole_coverage(
-                self.part,
+                working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
                 registry=self._registry,
@@ -3667,7 +3695,7 @@ class Drawing:
                 assembly=self.assembly,
             )
             issues += lint_channel_coverage(
-                self.part,
+                working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
                 registry=self._registry,
@@ -3675,7 +3703,7 @@ class Drawing:
                 assembly=self.assembly,
             )
             issues += lint_polygonal_stock_coverage(
-                self.part,
+                working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
                 registry=self._registry,
@@ -3683,7 +3711,7 @@ class Drawing:
                 assembly=self.assembly,
             )
             issues += lint_pocket_coverage(
-                self.part,
+                working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
                 registry=self._registry,
@@ -3691,7 +3719,7 @@ class Drawing:
                 assembly=self.assembly,
             )
             issues += lint_pocket_pattern_coverage(
-                self.part,
+                working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
                 registry=self._registry,

@@ -62,6 +62,7 @@ _DRAWING_PRIVATES: frozenset[str] = frozenset(
         "_intents",
         "_model_declared",
         "_registry",
+        "_working_part",
         # class-level privates (properties / methods)
         "_add",
         "_add_balloon",

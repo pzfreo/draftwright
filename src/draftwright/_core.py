@@ -1237,10 +1237,21 @@ class Analysis:
     #: Immutable ADR 0018 authored input, retained for the resolver/diagnostics without making
     #: this low-level module depend on the view-planning leaf at runtime.
     view_constraints: object | None = None
+    #: Caller-coordinate source retained when ``part`` is a provider-normalized working solid.
+    source_part: Shape | None = None
+    #: Provider caller→working frame for a successful framed automatic build.
+    recognition_frame: object | None = None
+    #: JSON-friendly framed/raw/refusal selection outcome.
+    recognition_frame_decision: dict[str, object] | None = None
+    #: Coordinate-coherent PMI projection used by the compiler. ``None`` means the source
+    #: report's records are already in working coordinates (raw and declared builds).
+    pmi_working_records: tuple[object, ...] | None = None
 
     @property
     def pmi(self) -> list:
-        """Successful PMI records, derived from the canonical extraction report."""
+        """Successful PMI records in this analysis's working coordinates."""
+        if self.pmi_working_records is not None:
+            return list(self.pmi_working_records)
         return list(getattr(self.pmi_report, "records", ()))
 
 

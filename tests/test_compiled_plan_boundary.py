@@ -591,24 +591,8 @@ class TestAPositionIsADimension:
     @pytest.mark.parametrize(
         "roles", [("location",), ("bore.diameter", "location")], ids=["alone", "with-bore"]
     )
-    def test_an_off_axis_pattern_location_is_refused_not_accepted_and_lost(self, axis, roles):
-        """Eligibility must match what a compiler will actually produce.
-
-        `_LOCATION_ROLE` said every pattern is locatable; `plan_locations` planned only
-        Z-normal ones and the bbox compiler handled only holes, so an X/Y pattern fell
-        between them — `dimension(pattern, "location")` was ACCEPTED and produced nothing,
-        with no diagnostic. That is precisely the blank-drawing failure
-        `_check_authored_targets` exists to prevent (#925 review).
-
-        The engine has never drawn an off-axis pattern position (the off-axis pass excluded
-        patterns by construction), so the honest fix is for the vocabulary to say so rather
-        than for the compiler to invent output. `location_datum` is now the single answer
-        that `plan_locations`, the bbox compiler and this check all read.
-
-        The `with-bore` case is the one that survived the first fix: the target check asked
-        whether the FEATURE matched anything, so a valid `bore.diameter` entry vouched for
-        the invalid `location` beside it.
-        """
+    def test_an_off_axis_pattern_location_compiles_and_draws(self, axis, roles):
+        """Every accepted X/Y pattern position produces both bbox offsets (#1357)."""
         from draftwright.model.ir import Frame, HoleFeature, PatternFeature, RequestedDimension
 
         member = HoleFeature(Frame((10, 5, 2), axis), 4.0, depth=None, through=True)
@@ -621,12 +605,18 @@ class TestAPositionIsADimension:
             pitch=15,
             direction=(0, 1, 0),
         )
-        with pytest.raises(ValueError, match="draws no position"):
-            build_drawing(
-                Box(100, 60, 20),
-                model=[pattern],
-                authored=tuple(RequestedDimension(pattern, r) for r in roles),
-            )
+        drawing = build_drawing(
+            Box(100, 60, 20),
+            model=[pattern],
+            authored=tuple(RequestedDimension(pattern, r) for r in roles),
+        )
+        locations = [
+            name for name in drawing.annotations_of(pattern) if name.startswith("dim_loc_")
+        ]
+        assert len(locations) == 2
+        assert {
+            key["parameter_id"] for name in locations for key in drawing.measurement_keys(name)
+        } == {"location_pattern.location"}
 
     def test_a_Z_normal_pattern_location_still_works(self):
         """The false-positive half: narrowing eligibility must not cost the case that works."""

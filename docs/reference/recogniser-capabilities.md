@@ -306,9 +306,9 @@ and polygonal-boss benchmark corpora; #1373 covers plates, face levels and riser
 ## Historical: recognisers 0.4.8 raw boundary and RaisedPad v2
 
 Draftwright pinned the published `b123d-recognisers==0.4.8` wheel in the preceding release.
-Production deliberately called—and still calls—`build_raw_recognition_result`; records remain in
-the caller/world coordinate system until #1357 activates the reviewed framed-result adapter added
-with 0.4.9. The 0.4.8 tests used the public framed API as release evidence for upstream #331, #332,
+The default route deliberately calls `build_raw_recognition_result`; records remain in the
+caller/world coordinate system. #1357 now provides a reviewed explicit framed-result activation
+added with 0.4.9. The 0.4.8 tests used the public framed API as release evidence for upstream #331, #332,
 and #334, comparing each aggregate inventory with the corresponding public family call on the exact
 returned local solid. Production added no fallback, second aggregate, or family rescan. Face levels,
 risers, and turned profiles remained outside framed production pending their subsequently released
@@ -348,11 +348,11 @@ keeps its supported compound behavior by recording no global profile and logging
 deferral; framed production cannot use that compatibility projection and must make the compiler
 input plural first.
 
-This boundary is not production activation. `analysis._analyse` and `RecognitionCache` still call
-`build_raw_recognition_result`, so existing automatic and declared behavior stays independently
-reviewable. #1357 retains rigid-motion requirement/drawing parity, AP242 source→local correlation,
-raw-to-framed disposition, supported-platform CI, and real-part canaries before the framed unit may
-feed the detected compiler.
+`analysis._analyse` activates this boundary only for explicit `framed_recognition=True`. The exact
+working solid then feeds detected compilation, projection and physical lint while caller geometry
+remains provenance; AP242 correlation records cross one point/vector/box transform. Typed provider
+refusal selects one visible raw fallback at the top-level product-policy boundary. Raw remains the
+default while #1357 accumulates supported-platform CI and representative real-part canaries.
 
 ## Angled-step boundary
 

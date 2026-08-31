@@ -4,6 +4,13 @@
 
 ### Added
 
+- Automatic drawings can opt into the provider-owned local recognition frame with
+  `framed_recognition=True`. The returned drawing exposes caller provenance, the exact downstream
+  working solid, frame, and a copied framed/raw/refusal decision. PMI correlation, off-axis pattern
+  placement, compilation, projection and physical lint remain in one coordinate system; typed frame
+  refusal performs one visible top-level raw fallback. Raw remains the rollout default (#1357,
+  ADR 0020).
+
 - Referential and measured Sheet dimensions accept optional `view=` / `side=` placement
   intent. Supported pairs survive IR/compiler and generated-script round trips, constrain
   ordinary corridor candidates without exposing page coordinates, and fail clearly when a
