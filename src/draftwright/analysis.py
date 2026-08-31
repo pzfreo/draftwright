@@ -21,6 +21,7 @@ from b123d_recognisers import (
     PartFrame,
     RecognitionResult,
     TurnedProfile,
+    TurnedProfileKey,
     TurnedStep,
     analyse_cylinders,
     build_raw_recognition_result,
@@ -60,19 +61,31 @@ from draftwright.compose import (
     choose_scale,
 )
 from draftwright.model import build_part_model
-from draftwright.model.ir import Datum, PartModel, StepFeature, StepLevelFeature
+from draftwright.model.ir import Datum, GrooveFeature, PartModel, StepFeature, StepLevelFeature
 from draftwright.model.planner import plan_dimensions
 from draftwright.recognition_frame import (
     FramedDetection,
     FramedDetectionRefusal,
     prepare_framed_detection,
-    single_turned_profile,
+    require_unambiguous_groove_owner,
 )
 from draftwright.view_plan import ViewConstraints, arrangement_of
 
 _log = logging.getLogger(__name__)
 
 _ScalePick = tuple[float, float, float, float]
+
+
+@dataclass(frozen=True)
+class _DeclaredTurnedProfile(TurnedProfile):
+    """A synthetic provider-shaped profile retaining Draftwright's opaque membership.
+
+    ``TurnedProfile.profile`` remains a geometrically valid provider key for projection and
+    body-local matching.  The additional token is the declared-program identity needed to
+    distinguish overlapping coaxial occurrences without leaking it into the provider API.
+    """
+
+    profile_group: str | None = None
 
 
 def _apply_principal_view_pins(
@@ -252,12 +265,21 @@ def _coerce_layout_model(model, part, decorations=None) -> PartModel | None:
     if model is None:
         return None
     if isinstance(model, PartModel):
+        turned_axes = {f.frame.axis for f in model.features if isinstance(f, StepFeature)}
+        orientation = next(iter(turned_axes)) if len(turned_axes) == 1 else None
+        out = model
         if decorations:
-            return replace(model, decorations={**model.decorations, **decorations})
-        return model
+            out = replace(out, decorations={**model.decorations, **decorations})
+        # ``orientation`` is derived compiler metadata, not caller authority. Normalise a
+        # hand-built PartModel as well as a feature sequence so mixed-axis meaning cannot
+        # depend on which StepFeature happened to be declared first.
+        if turned_axes and out.orientation != orientation:
+            out = replace(out, orientation=orientation)
+        return out
     features = list(model)
     bbox = part.bounding_box()
-    orientation = next((f.frame.axis for f in features if isinstance(f, StepFeature)), None)
+    turned_axes = {f.frame.axis for f in features if isinstance(f, StepFeature)}
+    orientation = next(iter(turned_axes)) if len(turned_axes) == 1 else None
     datum = Datum(id="datum_xy", kind="point", at=(bbox.min.X, bbox.min.Y, bbox.min.Z))
     return PartModel(
         bbox=bbox,
@@ -268,46 +290,173 @@ def _coerce_layout_model(model, part, decorations=None) -> PartModel | None:
     )
 
 
-def _declared_turned_profile(model: PartModel) -> TurnedProfile | None:
-    """The turned profile a DECLARED model states, or ``None`` if it declares no steps.
+def _declared_turned_profiles(model: PartModel) -> tuple[TurnedProfile, ...]:
+    """Return declared step profiles grouped by their body-local axis line.
 
-    The detected path aggregates ``recognise_turned_steps``; a declared model already carries
-    the same information as :class:`StepFeature`\\ s, so this reads it rather than scanning the
-    solid for it (#1022).  ``span`` is the pair of axial end-points the declaration fixed, so
-    ``lo``/``hi`` need no geometry — a declared step's extent is what the author said it is.
-
-    Mixed-axis steps are a malformed declaration, not a recoverable one:
-    :meth:`TurnedProfile.from_steps` raises, and it is allowed to reach the caller here for
-    the same reason it does on the detected path.
+    The axis letter plus the two perpendicular frame coordinates identify one line. A
+    synthetic provider key retains that ownership in caller coordinates, so parallel declared
+    shafts cannot be silently merged into one global profile (#1357).
     """
-    steps = [f for f in model.features if isinstance(f, StepFeature)]
-    if not steps:
-        return None
-    axis_i = "xyz".index(steps[0].frame.axis)
-    return TurnedProfile.from_steps(
-        [
-            TurnedStep(
-                axis=f.frame.axis,
-                lo=min(f.span[0][axis_i], f.span[1][axis_i]),
-                hi=max(f.span[0][axis_i], f.span[1][axis_i]),
-                diameter=f.diameter,
+    # Generated Sheet scripts round coordinates to 0.001 mm. Adjacent authored steps can
+    # therefore acquire a 0.0005 mm numerical seam even though they describe one body.
+    adjacency_tol = 1e-3 + 1e-9
+    steps = [feature for feature in model.features if isinstance(feature, StepFeature)]
+    grooves = [feature for feature in model.features if isinstance(feature, GrooveFeature)]
+    groups: dict[tuple[str, tuple[float, float], object | None], list[StepFeature]] = {}
+    for feature in steps:
+        axis = feature.frame.axis
+        axis_i = "xyz".index(axis)
+        line_values = [float(value) for i, value in enumerate(feature.frame.origin) if i != axis_i]
+        line = (line_values[0], line_values[1])
+        groups.setdefault((axis, line, feature.profile or feature.profile_group), []).append(
+            feature
+        )
+
+    body_groups: list[tuple[str, list[StepFeature], object | None]] = []
+    for (axis, _line, membership), line_members in sorted(
+        groups.items(), key=lambda item: (item[0][0], item[0][1], repr(item[0][2]))
+    ):
+        if membership is not None:
+            body_groups.append((axis, line_members, membership))
+            continue
+        axis_i = "xyz".index(axis)
+        line_members.sort(
+            key=lambda feature: min(float(feature.span[0][axis_i]), float(feature.span[1][axis_i]))
+        )
+        runs: list[list[StepFeature]] = []
+        run_hi = float("-inf")
+        for feature in line_members:
+            lo, hi = sorted((float(feature.span[0][axis_i]), float(feature.span[1][axis_i])))
+            gap_is_groove = any(
+                groove.frame.axis == axis
+                and all(
+                    abs(float(groove.frame.origin[index]) - float(feature.frame.origin[index]))
+                    <= adjacency_tol
+                    for index in range(3)
+                    if index != axis_i
+                )
+                and float(groove.frame.origin[axis_i]) - float(groove.width) / 2.0
+                <= run_hi + adjacency_tol
+                and float(groove.frame.origin[axis_i]) + float(groove.width) / 2.0
+                >= lo - adjacency_tol
+                for groove in grooves
             )
-            for f in steps
-        ]
-    )
+            if not runs or (lo > run_hi + adjacency_tol and not gap_is_groove):
+                runs.append([feature])
+                run_hi = hi
+            else:
+                runs[-1].append(feature)
+                run_hi = max(run_hi, hi)
+        body_groups.extend((axis, members, None) for members in runs)
+
+    profiles = []
+    for axis, members, membership in body_groups:
+        axis_i = "xyz".index(axis)
+        origin = [float(value) for value in members[0].frame.origin]
+        origin[axis_i] = 0.0
+        radius = max(float(feature.diameter) for feature in members) / 2.0
+        lo = min(float(point[axis_i]) for feature in members for point in feature.span)
+        hi = max(float(point[axis_i]) for feature in members for point in feature.span)
+        bounds: list[float] = []
+        for index, value in enumerate(origin):
+            bounds.extend((lo, hi) if index == axis_i else (value - radius, value + radius))
+        key = (
+            membership
+            if isinstance(membership, TurnedProfileKey)
+            else TurnedProfileKey(
+                axis,
+                (origin[0], origin[1], origin[2]),
+                (bounds[0], bounds[1], bounds[2], bounds[3], bounds[4], bounds[5]),
+            )
+        )
+        provider_profile = TurnedProfile.from_steps(
+            TurnedStep(
+                axis=axis,
+                lo=min(float(feature.span[0][axis_i]), float(feature.span[1][axis_i])),
+                hi=max(float(feature.span[0][axis_i]), float(feature.span[1][axis_i])),
+                diameter=float(feature.diameter),
+                profile=key,
+            )
+            for feature in members
+        )
+        assert provider_profile is not None
+        profiles.append(
+            _DeclaredTurnedProfile(
+                axis=provider_profile.axis,
+                steps=provider_profile.steps,
+                profile=provider_profile.profile,
+                profile_group=membership if isinstance(membership, str) else None,
+            )
+        )
+    declared_profiles = tuple(profiles)
+    grooves_by_profile: dict[int, list[GrooveFeature]] = {
+        id(profile): [] for profile in declared_profiles
+    }
+    for groove in grooves:
+        owners = require_unambiguous_groove_owner(groove, declared_profiles)
+        if owners:
+            grooves_by_profile[id(owners[0])].append(groove)
+
+    # Detection's TurnedProfile denominator includes the narrow groove band even though the
+    # IR deliberately gives that band to GrooveFeature rather than StepFeature. Reconstruct
+    # the same physical denominator for declared/emitted programs; otherwise one remaining
+    # step plus the groove could falsely certify a two-step synthetic profile (#1357).
+    augmented_profiles = []
+    for profile in declared_profiles:
+        profile_steps = list(profile.steps)
+        axis_index = "xyz".index(profile.axis)
+        for groove in grooves_by_profile[id(profile)]:
+            lo = float(groove.frame.origin[axis_index]) - float(groove.width) / 2.0
+            hi = float(groove.frame.origin[axis_index]) + float(groove.width) / 2.0
+            if any(
+                abs(float(step.lo) - lo) <= adjacency_tol
+                and abs(float(step.hi) - hi) <= adjacency_tol
+                for step in profile_steps
+            ):
+                continue
+            profile_steps.append(
+                TurnedStep(
+                    axis=profile.axis,
+                    lo=lo,
+                    hi=hi,
+                    diameter=float(groove.diameter),
+                    profile=profile.profile,
+                )
+            )
+        if len(profile_steps) == len(profile.steps):
+            augmented_profiles.append(profile)
+            continue
+        provider_profile = TurnedProfile.from_steps(profile_steps)
+        assert provider_profile is not None
+        augmented_profiles.append(
+            _DeclaredTurnedProfile(
+                axis=provider_profile.axis,
+                steps=provider_profile.steps,
+                profile=provider_profile.profile,
+                profile_group=profile.profile_group,
+            )
+        )
+    return tuple(augmented_profiles)
 
 
-def _declared_step_zs(model: PartModel, prof: TurnedProfile | None, bb) -> list[float]:
+def _declared_step_zs(model: PartModel, profiles: tuple[TurnedProfile, ...], bb) -> list[float]:
     """The step Z-levels page/scale selection converges on, sourced from the declaration.
 
-    Mirrors the detected path's two branches exactly — a Z-axis turned profile contributes its
-    interior shoulders, anything else the prismatic height ladder — with the ladder read off a
-    declared :class:`StepLevelFeature` instead of re-scanning face levels (#1022).  The 0.6 mm
-    end-exclusion is the detected path's, kept identical so a declared build selects the same
-    page as the equivalent detected one.
+    Mirrors the detected path's two branches exactly — Z-axis turned profiles contribute the
+    union of their interior shoulders, anything else the prismatic height ladder — with the
+    ladder read off a declared :class:`StepLevelFeature` instead of re-scanning face levels
+    (#1022). The 0.6 mm end-exclusion is the detected path's, kept identical so a declared build
+    selects the same page as the equivalent detected one.
     """
-    if prof is not None and prof.axis == "z":
-        return [z for z in prof.shoulders if bb.min.Z + 0.6 < z < bb.max.Z - 0.6]
+    if profiles and {profile.axis for profile in profiles} == {"z"}:
+        return sorted(
+            {
+                z
+                for profile in profiles
+                for z in profile.shoulders
+                if bb.min.Z + 0.6 < z < bb.max.Z - 0.6
+            }
+        )
     return sorted(
         {
             z
@@ -494,26 +643,6 @@ def _classify_geometry(part, x_size, y_size, z_size, cx, cy, cz) -> _GeomClass:
     if z_diams and not is_rotational:
         _log.info("Part classified prismatic; skipping OD/centreline/bore annotations")
     return _GeomClass(z_cyls, cross_cyls, z_diams, cross_diams, od_diam, od_axis, is_rotational)
-
-
-def _raw_compatible_turned_profile(recognition: RecognitionResult) -> TurnedProfile | None:
-    """Preserve the pre-0.4.9 raw path when the provider now exposes plural profiles.
-
-    The raw production path has no paired frame and ``Analysis.prof`` is singular. Selecting or
-    merging one of several physical profiles would be false; refusing the entire drawing would
-    regress supported compound groove drawings. Keep the historical no-global-profile behavior
-    until framed activation makes the compiler unit plural, and make the deferral visible.
-    """
-
-    profiles = recognition.turned_profiles
-    if len(profiles) > 1:
-        _log.warning(
-            "raw recognition found %d physical turned profiles; the singular Analysis waist "
-            "defers them to #1357 framed activation",
-            len(profiles),
-        )
-        return None
-    return profiles[0] if profiles else None
 
 
 def _validate_explicit_scale(
@@ -782,30 +911,41 @@ def _analyse(
     # here, ABOVE the aggregate, which is why `_coerce_layout_model` moved up from its old
     # place below — it is pure (IR in, IR out) and reads nothing this block computes.
     _turned: TurnedProfile | None
+    _profiles: tuple[TurnedProfile, ...]
     step_zs: list[float]
     if _reuse is not None:
         _turned = _reuse.prof
+        _profiles = _reuse.profiles
         step_zs = list(_reuse.step_zs)
     elif layout_model is not None:
-        # Sizing must source `prof` and `step_zs` from the DECLARATION here. Taking them from
+        # Sizing must source profiles and `step_zs` from the DECLARATION here. Taking them from
         # a recognition that has been gated away would silently change page/scale selection,
-        # and leaving `prof=None` would silently disable axial critique for a declared turned
-        # part — both are failures the gate must not introduce (#1022).
+        # and leaving the plural inventory empty would silently disable axial critique for a
+        # declared turned part — both are failures the gate must not introduce (#1022).
         recognition = None
-        _turned = _declared_turned_profile(layout_model)
-        step_zs = _declared_step_zs(layout_model, _turned, bb)
+        _profiles = _declared_turned_profiles(layout_model)
+        _turned = _profiles[0] if len(_profiles) == 1 else None
+        step_zs = _declared_step_zs(layout_model, _profiles, bb)
     else:
         assert recognition is not None
-        _turned = (
-            single_turned_profile(recognition)
-            if recognition_frame is not None
-            else _raw_compatible_turned_profile(recognition)
+        _profiles = recognition.turned_profiles
+        _turned = _profiles[0] if len(_profiles) == 1 else None
+        # Plural turned profiles own their body-local shoulders; the aggregate's compatible
+        # ladder projection intentionally returns prismatic FaceLevels unless exactly one
+        # Z-profile exists. Project the plural inventory explicitly so equal occurrences do
+        # not become a phantom global prismatic ladder during page sizing (#1357).
+        step_zs = (
+            sorted(
+                {
+                    station
+                    for profile in _profiles
+                    for station in profile.shoulders
+                    if bb.min.Z + 0.6 < station < bb.max.Z - 0.6
+                }
+            )
+            if len(_profiles) > 1 and {profile.axis for profile in _profiles} == {"z"}
+            else recognition.step_ladder_for_z_span(bb.min.Z, bb.max.Z)
         )
-        # The aggregate's own rule (#578 review; hoisted there by #1022, shared with critique
-        # by #1025). Both callers deriving this separately let lint project over a different
-        # ladder than the model was sized from — which is exactly the divergence one waist is
-        # supposed to prevent.
-        step_zs = recognition.step_ladder_for_z_span(bb.min.Z, bb.max.Z)
     # The aggregate owns the shared substrate from here on.  Rebind the local projection so
     # model construction, Analysis and the finished BuildState all consume the same inventory
     # object rather than parallel list/tuple wrappers that merely happen to contain equal data.
@@ -884,7 +1024,7 @@ def _analyse(
             pockets=pockets,
             pocket_patterns=pocket_patterns,
             pads=pads,
-            prof=_turned,
+            profiles=_profiles,
             step_zs=step_zs,
             face_levels=list(recognition.step_levels) if recognition else None,
             rotational=(od_diam, _bores, od_axis) if is_rotational else None,
@@ -1113,6 +1253,7 @@ def _analyse(
         cross_diams=cross_diams,
         cyls=shared_cyls,
         prof=_turned,
+        profiles=_profiles,
         od_diam=od_diam,
         is_rotational=is_rotational,
         od_axis=od_axis,

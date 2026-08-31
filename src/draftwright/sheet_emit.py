@@ -592,6 +592,7 @@ def _feature_line(
     origin_ref: str | None = None,
     object_ref: str | None = None,
     exact_parameter: str | None = None,
+    profile_group: str | None = None,
 ) -> str:
     """The declaration for one feature.
 
@@ -735,13 +736,14 @@ def _feature_line(
             f", thread={_thread_arg(f.thread)}" if getattr(f, "thread", None) else ""
         )  # external thread (#859)
         knurl = f", knurl={_knurl_arg(f.knurl)}" if getattr(f, "knurl", None) else ""
+        group = f", profile_group={profile_group!r}" if profile_group is not None else ""
         if object_ref is not None:
-            return f"sheet.step({object_ref}{thr}{knurl})"
+            return f"sheet.step({object_ref}{thr}{knurl}{group})"
         return (
             "sheet.step("
             f"diameter={_parameter_n(f.diameter, 'step.diameter', exact_parameter)}, "
             f"length={_n(f.length)}, "
-            f'at={_pt(f.frame.origin)}, axis="{f.frame.axis}"{thr}{knurl})'
+            f'at={_pt(f.frame.origin)}, axis="{f.frame.axis}"{thr}{knurl}{group})'
         )
     if k == "slot":
         lo, hi = _n(f.lo), _n(f.hi)
@@ -1449,6 +1451,41 @@ def _feature_block(
     if not features:
         return ["# ── Features: none detected ──"], {}
     source_features = tuple(features)
+    detected_profile_groups: dict[object, str] = {}
+    profile_group_by_feature: dict[int, str] = {}
+    reserved_profile_groups = {
+        group
+        for feature in source_features
+        if feature.kind == "step"
+        for group in (getattr(feature, "profile_group", None),)
+        if group is not None
+    }
+
+    def detected_profile_token() -> str:
+        """Mint a stable generated token without entering the caller's namespace."""
+        index = len(detected_profile_groups) + 1
+        token = f"detected-profile-{index}"
+        while token in reserved_profile_groups:
+            index += 1
+            token = f"detected-profile-{index}"
+        reserved_profile_groups.add(token)
+        return token
+
+    for feature in source_features:
+        if feature.kind != "step":
+            continue
+        declared_group = getattr(feature, "profile_group", None)
+        if declared_group is not None:
+            profile_group_by_feature[id(feature)] = declared_group
+            continue
+        provider_group = getattr(feature, "profile", None)
+        if provider_group is None:
+            continue
+        token = detected_profile_groups.get(provider_group)
+        if token is None:
+            token = detected_profile_token()
+            detected_profile_groups[provider_group] = token
+        profile_group_by_feature[id(feature)] = token
     out = [f"# ── Features ({len(source_features)}): {_manifest(source_features)} ──"]
     features = tuple(f for f in source_features if f.kind != "note") + tuple(
         f for f in source_features if f.kind == "note"
@@ -1465,6 +1502,8 @@ def _feature_block(
         summary = _run_summary(run)
         out.append(f"#   {section}" + (f" · {summary}" if summary else "") + " ─────")
         for f in run:
+            profile_group = profile_group_by_feature.get(id(f))
+            profile_kw = {} if profile_group is None else {"profile_group": profile_group}
             gdt_with_origin = f.kind in ("control_frame", "datum_ref", "note")
             origin_ref = names.get(id(f.origin)) if gdt_with_origin else None
             if (
@@ -1506,28 +1545,45 @@ def _feature_block(
             object_ref = None if exact_parameter is not None else (object_refs or {}).get(id(f))
             if gdt_with_origin:
                 if exact_parameter is None:
-                    line = _feature_line(f, part_envelope, origin_ref=origin_ref)
+                    line = _feature_line(
+                        f,
+                        part_envelope,
+                        origin_ref=origin_ref,
+                        **profile_kw,
+                    )
                 else:
                     line = _feature_line(
                         f,
                         part_envelope,
                         origin_ref=origin_ref,
                         exact_parameter=exact_parameter,
+                        **profile_kw,
                     )
             elif object_ref is not None:
                 if exact_parameter is None:
-                    line = _feature_line(f, part_envelope, object_ref=object_ref)
+                    line = _feature_line(
+                        f,
+                        part_envelope,
+                        object_ref=object_ref,
+                        **profile_kw,
+                    )
                 else:
                     line = _feature_line(
                         f,
                         part_envelope,
                         object_ref=object_ref,
                         exact_parameter=exact_parameter,
+                        **profile_kw,
                     )
             elif exact_parameter is not None:
-                line = _feature_line(f, part_envelope, exact_parameter=exact_parameter)
+                line = _feature_line(
+                    f,
+                    part_envelope,
+                    exact_parameter=exact_parameter,
+                    **profile_kw,
+                )
             else:
-                line = _feature_line(f, part_envelope)
+                line = _feature_line(f, part_envelope, **profile_kw)
             diameter_role = {
                 "hole": "bore",
                 "pattern": "bore",

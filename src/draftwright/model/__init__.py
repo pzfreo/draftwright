@@ -99,6 +99,7 @@ from draftwright.model.ir import (
     ThreadRequirement,
     ThroughStepFeature,
     ToleranceDecoration,
+    TurnedProfileIdentity,
     display,
 )
 from draftwright.model.planner import (
@@ -161,6 +162,7 @@ __all__ = [
     "ThroughStepFeature",
     "ThreadOperation",
     "ThreadRequirement",
+    "TurnedProfileIdentity",
     "ToleranceDecoration",
     "measured_dimension",
     "build_part_model",

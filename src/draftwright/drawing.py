@@ -2088,14 +2088,14 @@ class Drawing:
             and getattr(getattr(it.feature, "frame", None), "axis", None) in ("x", "y", "z")
         }
         # step LENGTH dimension intents (role="step") → render_step_lengths' chain (Phase 4b),
-        # but only on a TURNED part (a.prof is not None, mirroring the auto-pass guard) — else
+        # but only on a TURNED part (a.profiles is non-empty, mirroring the auto-pass guard) — else
         # they live-replay. Excludes the step's ø (a callout routed in dia_ids above).
         len_ids = {
             id(it)
             for it in self._intents
             if routable
             and a is not None
-            and a.prof is not None
+            and a.profiles
             and it.kind == "dimension"
             and getattr(it.feature, "kind", None) == "step"
             and getattr(getattr(it.feature, "frame", None), "axis", None) in ("x", "y", "z")
@@ -3487,7 +3487,7 @@ class Drawing:
                 # evidence over recognition's OWN levels, so no caller can narrow the
                 # shoulder inventory (#1025).
                 recognition = a.recognition
-                prof_kw = {"prof": a.prof}
+                prof_kw = {"profiles": a.profiles}
             elif a is not None:
                 # A DECLARED build recognised nothing (#1022), so `a.holes` and friends are
                 # empty because nothing looked — not because the part has none. Feeding that
@@ -3506,10 +3506,10 @@ class Drawing:
                 # forbids — it would make lint blind to exactly the geometry a sparse
                 # declaration omitted, the case `unrecognised_defining_geometry` reports.
                 recognition = rec
-                # `a.prof` IS declaration-sourced, and here that is right rather than a
-                # shortcut: axial critique judges the declared profile's dimensioning, so a
-                # declared turned part keeps it without the aggregate.
-                prof_kw = {"prof": a.prof}
+                # These profiles ARE declaration-sourced, and here that is right rather than a
+                # shortcut: axial critique judges each declared profile's dimensioning, so a
+                # declared turned part keeps them without importing detected coordinates.
+                prof_kw = {"profiles": a.profiles}
             else:
                 if self._cyl_cache is None:
                     self._cyl_cache = analyse_cylinders(working_part)
@@ -3553,7 +3553,7 @@ class Drawing:
                 dimension_plan = None
             # Turned bosses/bands remain in the OD + axial-step policy; this check is
             # specifically for a prismatic boss's independent projection height.
-            if model is not None and (a is None or (not a.is_rotational and a.prof is None)):
+            if model is not None and (a is None or (not a.is_rotational and not a.profiles)):
                 issues += lint_boss_height_coverage(
                     working_part,
                     self,

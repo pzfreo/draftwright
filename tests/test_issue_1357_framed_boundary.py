@@ -220,7 +220,7 @@ def test_equal_body_local_level_occurrences_project_to_one_global_height_rung() 
     assert support.x_span[1] - support.x_span[0] == pytest.approx(20.0)
 
 
-def test_multiple_body_local_turned_profiles_are_visible_but_fail_closed_at_the_singular_waist():
+def test_multiple_body_local_turned_profiles_are_visible_and_the_legacy_singular_accessor_refuses():
     source = Compound(
         children=[Pos(-50, 0, 0) * _stepped_shaft(), Pos(50, 0, 0) * _stepped_shaft()]
     )
@@ -228,10 +228,10 @@ def test_multiple_body_local_turned_profiles_are_visible_but_fail_closed_at_the_
 
     assert len(result.turned_profiles) == 2
     assert len({profile.profile for profile in result.turned_profiles}) == 2
-    with pytest.raises(MultipleTurnedProfilesError, match=r"recognised 2"):
+    with pytest.raises(MultipleTurnedProfilesError, match=r"contains 2"):
         single_turned_profile(result)
-    with pytest.raises(MultipleTurnedProfilesError, match=r"recognised 2"):
-        build_part_model(source)
+    model = build_part_model(source)
+    assert len([feature for feature in model.features if feature.kind == "step"]) == 4
 
 
 def test_framed_classifier_rejects_an_eccentric_parallel_cylinder_compound() -> None:
@@ -262,21 +262,20 @@ def test_framed_classifier_rejects_equal_diameter_eccentric_bands_on_one_body() 
     assert detection.result.rotational is False
 
 
-def test_raw_production_preserves_plural_compounds_without_selecting_or_merging(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
+def test_raw_production_compiles_plural_compounds_without_selecting_or_merging() -> None:
     from draftwright import build_drawing
 
     source = Compound(
         children=[Pos(-50, 0, 0) * _stepped_shaft(), Pos(50, 0, 0) * _stepped_shaft()]
     )
 
-    with caplog.at_level("WARNING", logger="draftwright.analysis"):
-        drawing = build_drawing(source)
+    drawing = build_drawing(source)
 
     assert len(drawing.recognition().turned_profiles) == 2
-    assert not [feature for feature in drawing.model().features if feature.kind == "step"]
-    assert "singular Analysis waist defers them to #1357" in caplog.text
+    steps = [feature for feature in drawing.model().features if feature.kind == "step"]
+    assert len(steps) == 4
+    assert {step.frame.origin[:2] for step in steps} == {(-50.0, 0.0), (50.0, 0.0)}
+    assert len({step.profile for step in steps}) == 2
 
 
 def test_zero_or_one_physical_turned_profile_preserves_the_existing_analysis_shape() -> None:

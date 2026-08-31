@@ -380,7 +380,7 @@ def build_model(a: Analysis):
         pockets=a.recognition.pockets,
         pocket_patterns=a.recognition.pocket_patterns,
         pads=a.recognition.pads,
-        prof=a.prof,
+        profiles=a.profiles,
         step_zs=a.step_zs,
         face_levels=a.recognition.step_levels,
         rotational=(a.od_diam, _bores, a.od_axis) if a.is_rotational else None,
@@ -744,7 +744,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # cramming; the envelope dim along the turning axis was suppressed so the chain
         # does not double-dimension the length.
         nonlocal _runtime_plan
-        if a.prof is not None:
+        if a.profiles:
             placed = render_step_lengths(dwg, _compiled, ctx=ctx)
             if placed == 0:
                 released = _runtime_plan.release_contingency("step_length")

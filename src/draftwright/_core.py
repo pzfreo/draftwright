@@ -1139,7 +1139,11 @@ class Analysis:
     z_diams: list[float]
     cross_diams: list[float]
     cyls: tuple[tuple, tuple]
-    prof: TurnedProfile | None  # turned step profile (recognise_turned_steps), detected once
+    prof: TurnedProfile | None  # compatible zero/one view for genuinely coaxial behavior
+    #: Every body-local turned profile. ``prof`` remains the compatible zero/one view used
+    #: only by behavior that genuinely requires one coaxial stack; compilation and
+    #: completeness consume this plural inventory (#1357).
+    profiles: tuple[TurnedProfile, ...]
     od_diam: float | None
     is_rotational: bool
     od_axis: str  # rotation/turning axis of a rotational part ("z" default; "x"/"y" #222)

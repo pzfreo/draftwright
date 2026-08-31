@@ -53,7 +53,6 @@ from b123d_recognisers import (
     SlotGrid,
     StepShoulder,
     ThroughStep,
-    TurnedProfile,
     TurnedStep,
     analyse_cylinders,
     build_raw_recognition_result,
@@ -79,7 +78,6 @@ from b123d_recognisers import (
     recognise_slot_patterns,
     recognise_slots,
     recognise_through_steps,
-    recognise_turned_steps,
     step_level_records,
 )
 
@@ -125,7 +123,7 @@ from draftwright.model.ir import (
     StepLevelFeature,
     ThroughStepFeature,
 )
-from draftwright.recognition_frame import single_turned_profile
+from draftwright.recognition_frame import require_unambiguous_groove_owner
 
 
 def _member_hole(h, frame: Frame, members: tuple = (), count: int = 1) -> HoleFeature:
@@ -220,7 +218,17 @@ def _boss_is_groove_floor(b, grooves) -> bool:
     that floor. The groove callout already dimensions it, so it must not also get a boss ø
     (#148c review; applies whether or not the part read as a turned profile)."""
     ax = _axis_letter(b)
-    return any(abs(b.diameter - g.diameter) <= _DIA_TOL and g.axis == ax for g in grooves)
+    axis_index = "xyz".index(ax)
+    return any(
+        abs(b.diameter - g.diameter) <= _DIA_TOL
+        and g.axis == ax
+        and all(
+            abs(float(b.location[index]) - float(g.at[index])) <= 0.5
+            for index in range(3)
+            if index != axis_index
+        )
+        for g in grooves
+    )
 
 
 _DIA_TOL = 0.15  # two ø values within this (mm) are the same diameter (#298)
@@ -559,10 +567,13 @@ def _pocket_pattern_feature(pat, members) -> PocketPatternFeature:
 
 
 def _convert_step(s: TurnedStep, ctx: ConvContext) -> StepFeature:
-    assert ctx.orientation is not None  # only reached on the turned branch
-    idx = "xyz".index(ctx.orientation)
-    c = ctx.bbox.center()
-    base = [c.X, c.Y, c.Z]
+    axis = s.axis
+    idx = "xyz".index(axis)
+    if s.profile is None:
+        c = ctx.bbox.center()
+        base = [c.X, c.Y, c.Z]
+    else:
+        base = list(s.profile.axis_origin)
     s_mid = (s.lo + s.hi) / 2
     lo = list(base)
     hi = list(base)
@@ -571,10 +582,11 @@ def _convert_step(s: TurnedStep, ctx: ConvContext) -> StepFeature:
     mid = list(base)
     mid[idx] = s_mid
     return StepFeature(
-        frame=Frame(origin=(mid[0], mid[1], mid[2]), axis=ctx.orientation),
+        frame=Frame(origin=(mid[0], mid[1], mid[2]), axis=axis),
         length=s.length,
         diameter=s.diameter,
         span=((lo[0], lo[1], lo[2]), (hi[0], hi[1], hi[2])),
+        profile=s.profile,
     )
 
 
@@ -924,6 +936,7 @@ def build_part_model(
     pocket_patterns=None,
     pads=None,
     prof=_UNSET,
+    profiles=_UNSET,
     step_zs=None,
     face_levels=None,
     rotational=None,
@@ -936,8 +949,9 @@ def build_part_model(
     The detected feature sets may be **supplied** by the caller (from `_analyse`,
     which already ran them) so detection happens **once per build** — the single
     feature inventory (ADR 0008 Amendment 5, #244). Omitted sets are detected here,
-    so a standalone ``build_part_model(part)`` still works. ``prof`` uses a sentinel
-    because ``None`` is a valid value (a non-turned part).
+    so a standalone ``build_part_model(part)`` still works. ``profiles`` is the plural
+    body-local turned-profile input; the compatible singular ``prof`` remains accepted,
+    and both use a sentinel because ``None`` is a valid non-turned value.
 
     ``step_zs`` (prismatic horizontal face levels), their optional ``face_levels`` records
     carrying support bounds, and ``rotational`` (``(od, bores)`` or ``None``) are
@@ -955,8 +969,10 @@ def build_part_model(
     derive_hole_patterns = holes is not None and patterns is None
     derive_slot_patterns = slots is not None and slot_patterns is None
     derive_pocket_patterns = pockets is not None and pocket_patterns is None
+    if prof is not _UNSET and profiles is not _UNSET:
+        raise ValueError("supply profiles= or the compatible singular prof=, not both")
     needs_aggregate = (
-        prof is _UNSET
+        (prof is _UNSET and profiles is _UNSET)
         or step_zs is None
         or face_levels is None
         or any(
@@ -991,7 +1007,7 @@ def build_part_model(
 
     # Turned-profile classification up front so the shared convert-context carries the
     # part's turning axis (the StepFeature span axis). Pure detection — no feature is
-    # emitted here; the turned/boss branch below reads the same `prof`.
+    # emitted here; the turned/boss branch below reads the same plural inventory.
     #
     # Any omitted family or classification input is filled from one public RecognitionResult,
     # preserving cross-family ownership for documented partial-inventory calls.  Derive the
@@ -1011,6 +1027,7 @@ def build_part_model(
             cylinders=cyls,
             rotational=(
                 rotational is not None
+                or (profiles is not _UNSET and bool(profiles))
                 or (prof is not _UNSET and prof is not None)
                 or cylinder_class.is_rotational
             ),
@@ -1082,19 +1099,29 @@ def build_part_model(
             slot_patterns = recognise_slot_patterns(slots)
         if derive_pocket_patterns:
             pocket_patterns = recognise_pocket_patterns(pockets)
-        if prof is _UNSET:
-            prof = single_turned_profile(recognition)
+        if prof is _UNSET and profiles is _UNSET:
+            profiles = recognition.turned_profiles
         if step_zs is None:
             step_zs = recognition.step_ladder_for_z_span(bbox.min.Z, bbox.max.Z)
         if face_levels is None:
             face_levels = recognition.step_levels
         cyls = recognition.cylinders
-    if prof is _UNSET:
-        prof = TurnedProfile.from_steps(recognise_turned_steps(part, cyls=cyls))
+    if profiles is _UNSET:
+        assert prof is not _UNSET  # both omitted always took and populated the aggregate arm
+        profiles = () if prof is None else (prof,)
+    profiles = () if profiles is None else tuple(profiles)
+    if len(profiles) > 1 and any(profile.profile is None for profile in profiles):
+        raise ValueError("plural turned profiles require body-local profile identity")
     # ``rotational`` is the classification fallback for a single-diameter turned body whose
     # step profile is absent. It is already supplied by the one analysis orchestration, so
     # carrying its axis into conversion is not a geometry rescan (#1276 / ADR 0017).
-    orientation = prof.axis if prof is not None else (rotational[2] if rotational else None)
+    profile_axes = {profile.axis for profile in profiles}
+    if len(profile_axes) == 1:
+        orientation = next(iter(profile_axes))
+    elif profile_axes:
+        orientation = None
+    else:
+        orientation = rotational[2] if rotational else None
     # Standalone detection applies the same surface-family gate as RecognitionResult. Supplied
     # records carry the recogniser's explicit surface-family discriminator themselves.
     if chamfers is None:
@@ -1119,7 +1146,7 @@ def build_part_model(
     if polygonal_stock is None:
         polygonal_stock = recognise_polygonal_stock(part)
     envelope_emittable = bool(
-        prof is None and not _is_round(bbox, bosses_d) and not polygonal_stock
+        not profiles and not _is_round(bbox, bosses_d) and not polygonal_stock
     )
     if through_steps is None:
         # Match RecognitionResult applicability on the standalone path. A supplied aggregate
@@ -1134,7 +1161,7 @@ def build_part_model(
     # #917 channel scheme applies only where plate recognition proves a multi-axis
     # U-bracket: base + walls. Use the same evidence as the plate-emission gate below so
     # the two domains cannot both dimension one profile.
-    if prof is None and rotational is None and plates is None:
+    if not profiles and rotational is None and plates is None:
         plates = recognise_plates(part)
     multi_plate = has_multi_axis_plates(plates or ())
     # Ownership evidence must be eligible to cross the recognition→IR boundary.  A lone
@@ -1142,7 +1169,7 @@ def build_part_model(
     # multi-plate bracket grammar), so letting it preempt a ThroughStep would leave the claimed
     # leg with no IR owner at all.
     ownership_plates = (
-        tuple(plates or ()) if prof is None and rotational is None and multi_plate else ()
+        tuple(plates or ()) if not profiles and rotational is None and multi_plate else ()
     )
     # Pocket recognition is consumed later, but its edge-open floors participate in the
     # step-level emission gate. Detect once up front so aggregate takeover is decided against
@@ -1212,7 +1239,7 @@ def build_part_model(
             and not any(abs(z - owned) < 0.5 for owned in side_pad_level_zs)
             and not any(abs(z - floor) < 0.5 for floor in edge_floor_zs)
         )
-        if prof is None
+        if not profiles
         else ()
     )
     shoulders = project_step_shoulders(risers, levels=list(ownership_step_zs))
@@ -1281,7 +1308,7 @@ def build_part_model(
     through_leg_spans = _through_step_leg_spans(lowered_through_steps)
     through_level_zs = _through_step_level_zs(lowered_through_steps)
     through_shoulder_sites = _through_step_shoulder_sites(lowered_through_steps, bbox)
-    if prof is None and rotational is None and multi_plate:
+    if not profiles and rotational is None and multi_plate:
         features.extend(convert(channel, ctx) for channel in channels)
 
     # Holes and hole patterns. A recognised pattern becomes one PatternFeature
@@ -1393,24 +1420,32 @@ def build_part_model(
     if grooves is None:
         grooves = recognise_grooves(part, cyls=cyls)
 
-    # Turned profile → step segments; else external bosses → diameters. (`prof` and the
-    # convert-context were classified up front.)
-    if prof is not None:
-        idx = "xyz".index(prof.axis)
-        groove_bands = [(g.at[idx], g.width) for g in grooves if g.axis == prof.axis]
-        for s in prof.steps:
-            # Skip the band a groove owns (its callout dimensions width + floor ø). Match on
-            # axial POSITION, not diameter: a narrow groove's step is reported at the WALL OD
-            # (local_od's pad engulfs both walls when the groove is < ~1.4 mm), so a floor-ø
-            # match would silently miss the common circlip case. The groove centre lies within
-            # its own step span; the short-length guard keeps a merged shaft run from matching.
-            if any(
-                s.lo - _GROOVE_STEP_TOL <= gc <= s.hi + _GROOVE_STEP_TOL
-                and s.length <= gw + _STEP_LEN_PAD
-                for gc, gw in groove_bands
-            ):
-                continue
-            features.append(convert(s, ctx))
+    # Body-local turned profiles → step segments; else external bosses → diameters. Profile
+    # identity owns the axis line, so parallel shafts never inherit the part bbox centre or
+    # each other's groove bands (#1357).
+    if profiles:
+        grooves_by_profile: dict[int, list[Groove]] = {id(profile): [] for profile in profiles}
+        for groove in grooves:
+            owners = require_unambiguous_groove_owner(groove, profiles)
+            if owners:
+                grooves_by_profile[id(owners[0])].append(groove)
+        for profile in profiles:
+            idx = "xyz".index(profile.axis)
+            groove_bands = [(g.at[idx], g.width) for g in grooves_by_profile[id(profile)]]
+            for s in profile.steps:
+                # Skip the band a groove owns (its callout dimensions width + floor ø). Match
+                # on axial POSITION, not diameter: a narrow groove's step is reported at the
+                # WALL OD (local_od's pad engulfs both walls when the groove is < ~1.4 mm), so
+                # a floor-ø match would silently miss the common circlip case. The groove centre
+                # lies within its own step span; the short-length guard keeps a merged shaft run
+                # from matching.
+                if any(
+                    s.lo - _GROOVE_STEP_TOL <= gc <= s.hi + _GROOVE_STEP_TOL
+                    and s.length <= gw + _STEP_LEN_PAD
+                    for gc, gw in groove_bands
+                ):
+                    continue
+                features.append(convert(s, ctx))
         # A narrow external band nested under / beside a larger OD reads as that OD in
         # local_od's max(), so it never becomes a step diameter and goes silently
         # undimensioned (#298). Emit each band the silhouette steps miss as a boss, so
@@ -1418,11 +1453,34 @@ def build_part_model(
         # with the feature_diameters inventory the coverage lint checks against. A groove
         # floor is likewise a narrow reduced band, but the groove callout already carries its
         # ø, so it is suppressed here (_boss_is_groove_floor) to avoid a duplicate boss ø.
-        step_dias = [s.diameter for s in prof.steps]
-        for b in bosses_d:
-            if all(
-                abs(b.diameter - d) > _DIA_TOL for d in step_dias
-            ) and not _boss_is_groove_floor(b, grooves):
+        for b in bosses:
+            axis = _axis_letter(b)
+            axis_index = "xyz".index(axis)
+            b_lo, b_hi = sorted(
+                (
+                    float(b.location[axis_index]),
+                    float(b.location[axis_index] - b.axis[axis_index] * b.height),
+                )
+            )
+            owned = any(
+                profile.axis == axis
+                and (
+                    profile.profile is None
+                    or all(
+                        abs(float(b.location[index]) - profile.profile.axis_origin[index]) <= 0.5
+                        for index in range(3)
+                        if index != axis_index
+                    )
+                )
+                and any(
+                    abs(b.diameter - step.diameter) <= _DIA_TOL
+                    and abs(b_lo - step.lo) <= 0.5
+                    and abs(b_hi - step.hi) <= 0.5
+                    for step in profile.steps
+                )
+                for profile in profiles
+            )
+            if not owned and not _boss_is_groove_floor(b, grooves):
                 features.append(convert(b, ctx))
     else:
         for b in bosses_d:
@@ -1455,7 +1513,7 @@ def build_part_model(
     # stack (a base slab under a smaller stacked block) is a *staircase*, owned by the
     # step-height ladder; treating its base as a "plate" would wrongly suppress the step
     # dim (#559 review). This keeps the plate feature to the issue's stated domain.
-    if prof is None and rotational is None:
+    if not profiles and rotational is None:
         plates = recognise_plates(part) if plates is None else plates
         if multi_plate:
             for pl in plates:
@@ -1470,7 +1528,7 @@ def build_part_model(
 
     # Prismatic step-height ladder — horizontal face levels on a NON-turned part
     # (a turned part's steps are StepFeatures, dimensioned by the IR length chain).
-    if prof is None and step_zs:
+    if not profiles and step_zs:
         c = bbox.center()
         # FaceLevel v2 is an occurrence roster: disjoint bodies may establish the same scalar
         # Z height independently. The current StepLevelFeature is the global height-requirement

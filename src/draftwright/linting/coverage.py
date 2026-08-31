@@ -58,6 +58,7 @@ from draftwright._core import (
 from draftwright.linting._registry import annotation_owner, satisfaction_ids
 from draftwright.linting.issues import LintIssue
 from draftwright.linting.profiled_bore_coverage import profiled_bore_key
+from draftwright.recognition_frame import profiles_owning_axial_band
 from draftwright.view_plan import VIEW_AXES
 
 _UNSET = object()  # sentinel: distinguishes "not supplied" from a valid prof=None
@@ -68,6 +69,8 @@ _UNSET = object()  # sentinel: distinguishes "not supplied" from a valid prof=No
 _RECON_DIA_TOL = 0.2
 _RECON_POS_TOL = 0.5
 _LOCATION_AXIS_TOL = 1.0
+_GROOVE_STEP_POS_TOL = 0.1  # detect.py's groove-centre/turned-band reconciliation tolerance
+_GROOVE_STEP_LEN_PAD = 1.0  # detect.py's guard against treating a merged shaft run as a groove
 
 
 def _location_ref(owner, point) -> HoleRef:
@@ -1508,41 +1511,135 @@ def lint_prismatic_coverage(
     return issues
 
 
-def _axial_covered_from_drawing(part, dwg, prof, tol: float = 0.6) -> set[int]:
+def _turned_axis_origin(part, prof) -> tuple[float, float, float]:
+    """The profile's body-local axis line, with a legacy whole-part fallback."""
+    key = getattr(prof, "profile", None)
+    if key is not None:
+        return (
+            float(key.axis_origin[0]),
+            float(key.axis_origin[1]),
+            float(key.axis_origin[2]),
+        )
+    centre = part.bounding_box().center()
+    return (float(centre.X), float(centre.Y), float(centre.Z))
+
+
+def _feature_on_turned_axis(feature, prof, tol: float = 0.5) -> bool:
+    """Whether an IR feature belongs to this body-local turned axis line."""
+    profile_group = getattr(prof, "profile_group", None)
+    feature_group = getattr(feature, "profile_group", None)
+    if profile_group is not None and getattr(feature, "kind", None) == "step":
+        # Declared/emitted coaxial occurrences may share an axis, span, and even diameter.
+        # Their opaque declaration token is one exact ownership witness. Do not geometrically
+        # credit one group's placed measurement to another group (#1357).
+        if feature_group != profile_group:
+            return False
+        # Tokens are caller-chosen and may be reused on another physical axis line. Exact
+        # ownership requires both the opaque relationship and the geometry below.
+    key = getattr(prof, "profile", None)
+    if key is None:
+        return True
+    feature_profile = getattr(feature, "profile", None)
+    if feature_profile is not None:
+        return bool(feature_profile == key)
+    axis = getattr(feature, "axis", None) or getattr(getattr(feature, "frame", None), "axis", None)
+    origin = getattr(getattr(feature, "frame", None), "origin", None)
+    if axis != prof.axis or origin is None:
+        return False
+    axis_index = "xyz".index(prof.axis)
+    axis_tol = 1e-9 if profile_group is not None else tol
+    if not all(
+        abs(float(origin[index]) - float(key.axis_origin[index])) <= axis_tol
+        for index in range(3)
+        if index != axis_index
+    ):
+        return False
+    profile_lo, profile_hi = float(min(prof.shoulders)), float(max(prof.shoulders))
+    span = getattr(feature, "span", None)
+    if span is not None:
+        feature_lo, feature_hi = sorted(float(point[axis_index]) for point in span)
+        return feature_lo >= profile_lo - tol and feature_hi <= profile_hi + tol
+    if getattr(feature, "kind", None) == "groove":
+        centre = float(origin[axis_index])
+        half_width = float(feature.width) / 2.0
+        return centre - half_width >= profile_lo - tol and centre + half_width <= profile_hi + tol
+    return True
+
+
+def _turned_profile_views(axis: str) -> tuple[str, str]:
+    """The two principal views that show *axis* longitudinally."""
+    return {
+        "x": ("front", "plan"),
+        "y": ("side", "plan"),
+        "z": ("front", "side"),
+    }[axis]
+
+
+def _profile_projection(dwg, view: str, origin, axis: str) -> tuple[bool, float]:
+    """Whether the axis is horizontal on *view*, and the axis line's cross coordinate."""
+    point = list(origin)
+    px, py, *_ = dwg.at(view, *point)
+    point["xyz".index(axis)] += 1.0
+    ax, ay, *_ = dwg.at(view, *point)
+    horizontal = abs(float(ax) - float(px)) >= abs(float(ay) - float(py))
+    return horizontal, float(py if horizontal else px)
+
+
+def _step_length_owners(dwg, name: str) -> tuple[object, ...]:
+    """Exact step features whose compiled length claim produced annotation *name*."""
+    registry = getattr(dwg, "registry", None)
+    if registry is None:
+        return ()
+    return tuple(
+        identity.feature
+        for identity in registry.measurement_of(name)
+        if getattr(identity, "parameter", None) == "step.length"
+        and getattr(identity.feature, "kind", None) == "step"
+    )
+
+
+def _axial_covered_from_drawing(
+    part, dwg, prof, *, sibling_profiles=(), tol: float = 0.6
+) -> set[int]:
     """Which turned-profile step lengths are dimensioned **in the drawing**
     — a step counts as covered when some profile-view ``Dimension`` has witnesses
     at both of its shoulders' page positions. Drawing-derived, so it judges any
     producer (not the engine's :class:`CoverageState` side channel).
 
-    Works for every turning axis (orientation is data): X- and Y-turned chains
-    are horizontal in their respective front/side profile views, while a
-    Z-turned chain is vertical in the front view."""
-    bb = part.bounding_box()
-    c = bb.center()
+    Works for every turning axis (orientation is data) and both orthographic profile views,
+    so parallel bodies can use whichever projection visibly separates their axis lines."""
     idx = "xyz".index(prof.axis)
-    base = [c.X, c.Y, c.Z]
-    use_x = prof.axis in ("x", "y")
+    base = list(_turned_axis_origin(part, prof))
 
-    def shoulder_coord(view: str, s: float) -> float:
+    def profile_cross(profile, view: str) -> float:
+        _horizontal, cross = _profile_projection(
+            dwg, view, _turned_axis_origin(part, profile), profile.axis
+        )
+        return cross
+
+    def shoulder_coord(view: str, s: float, *, horizontal: bool) -> float:
         pt = list(base)
         pt[idx] = s
         px, py, *_ = dwg.at(view, *pt)
-        return float(px if use_x else py)
+        return float(px if horizontal else py)
 
     # A crowded X-turned head or Y-turned side chain can be dimensioned in an
     # enlarged detail view (#304/#307/#892), not the principal profile — so a
     # shoulder counts as located when matched in EITHER source or detail view.
-    views = ["side"] if prof.axis == "y" else ["front"]
+    views = [view for view in _turned_profile_views(prof.axis) if view in dwg.views]
     if prof.axis in ("x", "y"):
         views += sorted(v for v in dwg.views if v.startswith("detail_"))
     covered_steps: set[int] = set()
     for view in views:
-        shoulder_c = {s: shoulder_coord(view, s) for s in prof.shoulders}
+        horizontal, _own_cross = _profile_projection(dwg, view, base, prof.axis)
+        shoulder_c = {s: shoulder_coord(view, s, horizontal=horizontal) for s in prof.shoulders}
         dims = [
             (
                 name,
                 str(getattr(ann, "label", "") or ""),
-                {(x if use_x else y) for x, y in _dim_vertices(ann)},
+                {(x if horizontal else y) for x, y in _dim_vertices(ann)},
+                {(y if horizontal else x) for x, y in _dim_vertices(ann)},
+                _step_length_owners(dwg, name),
             )
             for name, ann in dwg.annotations_in_view(view)
             if isinstance(ann, Dimension)
@@ -1555,9 +1652,26 @@ def _axial_covered_from_drawing(part, dwg, prof, tol: float = 0.6) -> set[int]:
                 # shoulder), and this branch should be unreachable — but a lint pass must
                 # never crash on an unguarded lookup, so skip rather than KeyError.
                 continue
-            for name, label, cs in dims:
+            for name, label, cs, cross_coords, owners in dims:
                 if not cs:
                     continue
+                if owners and not any(_feature_on_turned_axis(owner, prof) for owner in owners):
+                    continue
+                # Parallel profiles can have identical axial ordinates. A dimension belongs to
+                # the nearest visible axis line in this profile view; without this gate one
+                # shaft's two witnesses would certify every sibling at the same stations.
+                if not owners and getattr(prof, "profile", None) is not None and cross_coords:
+                    dim_cross = sum(cross_coords) / len(cross_coords)
+                    own_distance = abs(dim_cross - profile_cross(prof, view))
+                    sibling_distances = [
+                        abs(dim_cross - profile_cross(sibling, view))
+                        for sibling in sibling_profiles
+                        if sibling is not prof and sibling.axis == prof.axis
+                    ]
+                    if any(distance < own_distance - tol for distance in sibling_distances) or any(
+                        abs(distance - own_distance) <= tol for distance in sibling_distances
+                    ):
+                        continue
                 # A plain dim locates the step when it has a witness at each shoulder.
                 if any(abs(v - clo) <= tol for v in cs) and any(abs(v - chi) <= tol for v in cs):
                     covered_steps.add(i)
@@ -1579,32 +1693,69 @@ def _axial_covered_from_drawing(part, dwg, prof, tol: float = 0.6) -> set[int]:
     return covered_steps
 
 
-def _overall_axial_extent_is_dimensioned(part, dwg, prof, tol: float = 0.6) -> bool:
+def _overall_axial_extent_is_dimensioned(
+    part, dwg, prof, *, sibling_profiles=(), tol: float = 0.6
+) -> bool:
     """Whether a profile-view dimension witnesses the turned profile's two outer ends."""
-    view = "side" if prof.axis == "y" else "front"
-    use_x = prof.axis in ("x", "y")
-
-    def projected(station: float) -> float:
-        c = part.bounding_box().center()
-        point = [c.X, c.Y, c.Z]
-        point["xyz".index(prof.axis)] = station
-        x, y, *_ = dwg.at(view, *point)
-        return float(x if use_x else y)
-
-    lo, hi = projected(min(prof.shoulders)), projected(max(prof.shoulders))
-    for _name, annotation in dwg.annotations_in_view(view):
-        if not isinstance(annotation, Dimension):
+    origin = _turned_axis_origin(part, prof)
+    for view in _turned_profile_views(prof.axis):
+        if view not in dwg.views:
             continue
-        coords = {(x if use_x else y) for x, y in _dim_vertices(annotation)}
-        if any(abs(value - lo) <= tol for value in coords) and any(
-            abs(value - hi) <= tol for value in coords
-        ):
-            return True
+        horizontal, own_cross = _profile_projection(dwg, view, origin, prof.axis)
+
+        def projected(station: float) -> float:
+            point = list(origin)
+            point["xyz".index(prof.axis)] = station
+            x, y, *_ = dwg.at(view, *point)
+            return float(x if horizontal else y)
+
+        lo, hi = projected(min(prof.shoulders)), projected(max(prof.shoulders))
+
+        def sibling_cross(profile) -> float:
+            _horizontal, cross = _profile_projection(
+                dwg, view, _turned_axis_origin(part, profile), profile.axis
+            )
+            return cross
+
+        for name, annotation in dwg.annotations_in_view(view):
+            if not isinstance(annotation, Dimension):
+                continue
+            vertices = _dim_vertices(annotation)
+            coords = {(x if horizontal else y) for x, y in vertices}
+            cross_coords = {(y if horizontal else x) for x, y in vertices}
+            owners = _step_length_owners(dwg, name)
+            if owners and not any(_feature_on_turned_axis(owner, prof) for owner in owners):
+                continue
+            if not owners and getattr(prof, "profile", None) is not None and cross_coords:
+                dim_cross = sum(cross_coords) / len(cross_coords)
+                own_distance = abs(dim_cross - own_cross)
+                sibling_distances = [
+                    abs(dim_cross - sibling_cross(sibling))
+                    for sibling in sibling_profiles
+                    if sibling is not prof and sibling.axis == prof.axis
+                ]
+                if any(distance < own_distance - tol for distance in sibling_distances) or any(
+                    abs(distance - own_distance) <= tol for distance in sibling_distances
+                ):
+                    continue
+            if any(abs(value - lo) <= tol for value in coords) and any(
+                abs(value - hi) <= tol for value in coords
+            ):
+                return True
     return False
 
 
-def lint_axial_coverage(part, dwg, assembly=None, prof=_UNSET, recognition=None) -> list:
-    """Report a stepped turned part whose axial step lengths are undimensioned.
+def _lint_one_axial_profile(
+    part,
+    dwg,
+    prof,
+    *,
+    assembly,
+    recognition,
+    sibling_profiles=(),
+    profile_label="",
+) -> list:
+    """Report missing axial coverage for one body-local turned profile.
 
     A turned part can have every diameter called out yet be unmanufacturable: with
     no shoulder located, the lengths are unknown (the drive-screw gap). A complete
@@ -1619,21 +1770,11 @@ def lint_axial_coverage(part, dwg, assembly=None, prof=_UNSET, recognition=None)
     chain (ADR 0008 #223), so a missing chain on any axis is a real gap
     (e.g. the chain skipped for want of page room). Severity mirrors
     :func:`lint_feature_coverage`: ``info`` for an assembly, else ``warning``.
-    *prof* may be supplied (the single inventory, #244) to skip re-detection;
-    omitted, it is detected here. A sentinel distinguishes "not supplied" from a
-    valid ``prof=None`` (non-turned part).
-
     ``recognition`` supplies the run-owned groove inventory used only to evidence-gate a
     structured ``groove.length`` claim; an unrelated declared groove cannot fill the count.
     """
-    if prof is _UNSET:
-        prof = TurnedProfile.from_steps(recognise_turned_steps(part))
-    if prof is None:
-        return []
-    if assembly is None:
-        assembly = len(part.solids()) > 1
     n = len(prof.steps)
-    covered_steps = _axial_covered_from_drawing(part, dwg, prof)
+    covered_steps = _axial_covered_from_drawing(part, dwg, prof, sibling_profiles=sibling_profiles)
     registry = getattr(dwg, "registry", None)
     placed_ids = (
         {identity for name in registry.names() for identity in registry.measurement_of(name)}
@@ -1653,25 +1794,18 @@ def lint_axial_coverage(part, dwg, assembly=None, prof=_UNSET, recognition=None)
         ):
             continue
         span = getattr(feature, "span", None)
-        if span is None:
+        if span is None or not _feature_on_turned_axis(feature, prof):
             continue
         lo, hi = sorted(float(point[axis_index]) for point in span)
         for index, step in enumerate(prof.steps):
             if abs(lo - float(step.lo)) <= 1e-3 and abs(hi - float(step.hi)) <= 1e-3:
                 covered_steps.add(index)
                 break
-    covered = len(covered_steps)
     # A groove band's axial extent is dimensioned by its width callout, not a step length, so
     # detect.py leaves it out of the step-length chain (#606). Count each *rendered* groove-width
     # callout on the turning axis as covering its band — so a fully-dimensioned grooved shaft
     # (N−1 step lengths + the groove width) is not flagged (#628); a *dropped* groove callout
     # leaves its band uncovered, so a genuine gap still fires (reconcile rendered, not intent).
-    covered += sum(1 for name in dwg.annotations() if name.startswith(f"m_groove_{prof.axis}"))
-    placed_grooves = {
-        identity.feature
-        for identity in placed_ids
-        if getattr(identity, "parameter", None) == "groove.length"
-    }
     physical_grooves = {
         (
             groove.axis,
@@ -1681,24 +1815,58 @@ def lint_axial_coverage(part, dwg, assembly=None, prof=_UNSET, recognition=None)
         )
         for groove in getattr(recognition, "grooves", ())
     }
+
+    def groove_key(feature):
+        return (
+            feature.axis,
+            round(float(feature.width), 3),
+            round(float(feature.diameter), 3),
+            tuple(round(float(value), 3) for value in feature.frame.origin),
+        )
+
+    def groove_belongs_exactly(feature) -> bool:
+        owners = profiles_owning_axial_band(
+            (prof, *(sibling for sibling in sibling_profiles if sibling is not prof)),
+            axis=feature.axis,
+            centre=feature.frame.origin,
+            width=feature.width,
+        )
+        return len(owners) == 1 and owners[0] is prof
+
+    placed_grooves = {
+        identity.feature
+        for identity in placed_ids
+        if getattr(identity, "parameter", None) == "groove.length"
+        and _feature_on_turned_axis(identity.feature, prof)
+        and groove_belongs_exactly(identity.feature)
+        and (recognition is None or groove_key(identity.feature) in physical_grooves)
+    }
     satisfied_grooves = {
         identity.feature
         for identity in satisfied_ids
         if getattr(identity, "parameter", None) == "groove.length"
         and getattr(identity.feature, "kind", None) == "groove"
         and identity.feature not in placed_grooves
+        and _feature_on_turned_axis(identity.feature, prof)
+        and groove_belongs_exactly(identity.feature)
     }
-    covered += sum(
-        1
-        for feature in satisfied_grooves
-        if (
-            feature.axis,
-            round(float(feature.width), 3),
-            round(float(feature.diameter), 3),
-            tuple(round(float(value), 3) for value in feature.frame.origin),
-        )
-        in physical_grooves
-    )
+    credited_grooves = placed_grooves | {
+        feature for feature in satisfied_grooves if groove_key(feature) in physical_grooves
+    }
+    for feature in credited_grooves:
+        centre = float(feature.frame.origin[axis_index])
+        for index, step in enumerate(prof.steps):
+            # Match the same physical narrow band detect.py delegates from StepFeature to
+            # GrooveFeature. The provider may report its wall OD, so diameter is not a join.
+            if (
+                float(step.lo) - _GROOVE_STEP_POS_TOL
+                <= centre
+                <= float(step.hi) + _GROOVE_STEP_POS_TOL
+                and float(step.hi) - float(step.lo) <= float(feature.width) + _GROOVE_STEP_LEN_PAD
+            ):
+                covered_steps.add(index)
+                break
+    covered = len(covered_steps)
     if covered >= n:
         return []
     # #955: when placement drops the complete chain, its specific warning already says the
@@ -1710,7 +1878,9 @@ def lint_axial_coverage(part, dwg, assembly=None, prof=_UNSET, recognition=None)
     chain_drop_reported = any(
         issue.code == "step_dim_dropped" for issue in getattr(registry, "issues", ())
     )
-    if chain_drop_reported and _overall_axial_extent_is_dimensioned(part, dwg, prof):
+    if chain_drop_reported and _overall_axial_extent_is_dimensioned(
+        part, dwg, prof, sibling_profiles=sibling_profiles
+    ):
         return []
     return [
         LintIssue(
@@ -1718,10 +1888,81 @@ def lint_axial_coverage(part, dwg, assembly=None, prof=_UNSET, recognition=None)
             code="axial_length_missing",
             message=(
                 f"turned part has {n} axial steps but only {covered} step length(s) "
-                f"dimensioned — shoulders cannot be located"
+                f"dimensioned{profile_label} — shoulders cannot be located"
             ),
         )
     ]
+
+
+def lint_axial_coverage(
+    part,
+    dwg,
+    assembly=None,
+    prof=_UNSET,
+    recognition=None,
+    *,
+    profiles=_UNSET,
+) -> list:
+    """Report every body-local turned profile whose axial chain is incomplete.
+
+    ``profiles`` is the plural compiler inventory. The compatible ``prof`` input remains for
+    callers with a known zero/one profile; supplying both is an error. If neither is supplied,
+    the run-owned recognition aggregate is preferred and standalone callers detect the same
+    grouped profiles directly. Each profile is judged independently, so one parallel shaft's dimensions cannot
+    certify another shaft with equal axial spans (#1357).
+    """
+    if prof is not _UNSET and profiles is not _UNSET:
+        raise ValueError("supply profiles= or the compatible singular prof=, not both")
+    if profiles is _UNSET:
+        if prof is _UNSET:
+            if recognition is not None:
+                profiles = recognition.turned_profiles
+            else:
+                profile_steps: dict[object, list] = {}
+                for step in recognise_turned_steps(part):
+                    profile_steps.setdefault(step.profile or (step.axis, None), []).append(step)
+                detected_profiles = []
+                for steps in profile_steps.values():
+                    detected = TurnedProfile.from_steps(steps)
+                    if detected is not None:
+                        detected_profiles.append(detected)
+                profiles = tuple(detected_profiles)
+        else:
+            profiles = () if prof is None else (prof,)
+    profiles = tuple(profiles)
+    if not profiles:
+        return []
+    if assembly is None:
+        assembly = len(part.solids()) > 1
+    plural = len(profiles) > 1
+    issues = []
+    for profile in profiles:
+        key = getattr(profile, "profile", None)
+        label = ""
+        if plural and key is not None:
+            axis_index = "xyz".index(profile.axis)
+            line = tuple(
+                round(float(value), 3)
+                for index, value in enumerate(key.axis_origin)
+                if index != axis_index
+            )
+            span = (
+                round(float(min(profile.shoulders)), 3),
+                round(float(max(profile.shoulders)), 3),
+            )
+            label = f" on {profile.axis}-axis line {line}, span {span}"
+        issues.extend(
+            _lint_one_axial_profile(
+                part,
+                dwg,
+                profile,
+                assembly=assembly,
+                recognition=recognition,
+                sibling_profiles=profiles,
+                profile_label=label,
+            )
+        )
+    return issues
 
 
 def lint_boss_height_coverage(part, dwg, features, assembly=None, omissions=()) -> list:

@@ -342,11 +342,11 @@ recognition result. There is no hidden raw fallback.
 FULL frames establish a directed ordered basis. ORTHOGONAL representatives do not establish sign,
 axis interchange, or material identity. AXIAL representatives additionally do not establish roll,
 so only roll-invariant facts may be consumed until a particular asymmetric requirement is audited.
-The current singular `Analysis.prof` also rejects more than one body-local turned profile rather
-than selecting or merging one silently when the singular adapter is required. The legacy raw build
-keeps its supported compound behavior by recording no global profile and logging the #1357
-deferral; framed production cannot use that compatibility projection and must make the compiler
-input plural first.
+`Analysis.profiles` carries every body-local turned profile through the shared compiler waist on
+both the raw and explicit framed routes. Its compatible `Analysis.prof` projection is populated
+only for zero/one-profile consumers; `single_turned_profile()` likewise refuses plural cardinality
+without implying that plural compilation is unsupported. Neither route selects, merges, or discards
+a physical profile merely to satisfy that singular accessor.
 
 `analysis._analyse` activates this boundary only for explicit `framed_recognition=True`. The exact
 working solid then feeds detected compilation, projection and physical lint while caller geometry
