@@ -102,6 +102,12 @@ def polygonal_boss_key(boss) -> tuple:
     axis = getattr(boss, "axis", None)
     if axis is None:
         axis = boss.frame.axis
+    side_count = boss.side_count
+    if type(side_count) is not int or side_count != 6:
+        raise ValueError("the polygonal-boss provider contract requires exactly six sides")
+    support_ring = _canonical_support_ring(boss.flat_directions, boss.flat_centres)
+    if len(support_ring) != side_count:
+        raise ValueError("the polygonal-boss provider contract requires six paired supports")
     height = getattr(boss, "height", None)
     if height is None:
         start, end = _span(boss)
@@ -109,11 +115,11 @@ def polygonal_boss_key(boss) -> tuple:
     return (
         str(axis),
         polygonal_boss_center(boss),
-        int(boss.side_count),
+        side_count,
         _rounded(boss.across_flats),
         _rounded(height),
         _span(boss),
-        _canonical_support_ring(boss.flat_directions, boss.flat_centres),
+        support_ring,
     )
 
 

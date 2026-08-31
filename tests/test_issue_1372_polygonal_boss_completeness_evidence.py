@@ -222,7 +222,10 @@ def test_polygonal_boss_ledger_rejects_foreign_malformed_and_duplicate_ir() -> N
     assert (duplicate[0].state, duplicate[0].requirement_count) == ("unverifiable", 2)
 
 
-def test_malformed_source_record_fails_closed_through_drawing_lint(monkeypatch) -> None:
+@pytest.mark.parametrize("corruption", ("foreign_record", "missing_support"))
+def test_malformed_source_record_fails_closed_through_drawing_lint(
+    monkeypatch, corruption
+) -> None:
     import draftwright.recognition_cache as recognition_cache
     from draftwright import Sheet
 
@@ -230,7 +233,16 @@ def test_malformed_source_record_fails_closed_through_drawing_lint(monkeypatch) 
 
     def malformed_recognition(*args, **kwargs):
         recognition = original(*args, **kwargs)
-        return replace(recognition, polygonal_bosses=(object(),))
+        if corruption == "foreign_record":
+            source = object()
+        else:
+            boss = recognition.polygonal_bosses[0]
+            source = replace(
+                boss,
+                flat_directions=boss.flat_directions[:-1],
+                flat_centres=boss.flat_centres[:-1],
+            )
+        return replace(recognition, polygonal_bosses=(source,))
 
     monkeypatch.setattr(recognition_cache, "build_raw_recognition_result", malformed_recognition)
     sheet = Sheet(_boss_part()).authored_dimensions()
@@ -695,6 +707,21 @@ def test_weakening_provider_parameters_reduces_parameter_fidelity(monkeypatch, p
     assert damaged.detection.false_positives == 0
     assert damaged.parameter_fidelity.total == 40
     assert damaged.parameter_fidelity.passed < damaged.parameter_fidelity.total
+
+    if parameter == "side_count":
+        import draftwright.recognition_cache as recognition_cache
+        from draftwright import build_drawing
+
+        monkeypatch.setattr(recognition_cache, "build_raw_recognition_result", weakened)
+        drawing = build_drawing(_boss_part())
+        summary = drawing.lint_summary()
+        issues = summary["by_code"]
+        quality = summary["quality"]["completeness"]
+
+        assert issues["polygonal_boss_requirement_unverifiable"] == 1
+        assert quality["requirements"] == quality["unverifiable"] == 2
+        assert quality["by_family"]["polygonal_bosses"] == 2
+        assert quality["audited_score"] == 0.0
 
 
 def test_shifting_provider_identity_reduces_detection_recall(monkeypatch) -> None:
