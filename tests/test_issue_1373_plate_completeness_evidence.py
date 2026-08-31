@@ -7,7 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from build123d import Align, Box, Pos, RegularPolygon, Rot, extrude, import_step
+from build123d import Align, Box, Cylinder, Pos, RegularPolygon, Rot, extrude, import_step
 
 from draftwright.evaluation.step_analysis import (
     ObservationError,
@@ -436,6 +436,46 @@ def test_exact_overlapping_family_owners_do_not_create_a_second_plate_denominato
         assert failed_closed.state == "unverifiable"
 
 
+def test_raw_slot_owner_requires_one_schema_for_every_member() -> None:
+    from draftwright import build_drawing
+    from draftwright.linting.plate_coverage import plate_requirement_outcomes
+    from draftwright.registry import AnnotationRegistry
+
+    part = Box(60, 180, 20)
+    for y in (-45, -15, 15, 45):
+        part -= Pos(0, y, 0) * Box(30, 8, 20)
+    drawing = build_drawing(part)
+    recognition = drawing.recognition()
+    assert recognition is not None
+    (pattern,) = recognition.slot_patterns
+    envelope_only = tuple(
+        feature for feature in drawing.model().features if feature.kind == "envelope"
+    )
+    member = pattern.slots[1]
+    foreign_body = list(member.body_key)
+    foreign_body[0] += 1
+    mutations = (
+        replace(member, body_key=tuple(foreign_body)),
+        replace(member, long_axis=member.width_axis),
+        replace(member, d_hi=member.d_hi + 1),
+    )
+
+    for mutated in mutations:
+        slots = (pattern.slots[0], mutated, *pattern.slots[2:])
+        malformed = replace(
+            recognition,
+            slot_patterns=(replace(pattern, slots=slots),),
+        )
+        outcomes = plate_requirement_outcomes(
+            malformed,
+            envelope_only,
+            AnnotationRegistry(),
+            part=part,
+        )
+        assert len(outcomes) == 5
+        assert {outcome.state for outcome in outcomes} == {"unverifiable"}
+
+
 def test_overlapping_family_ownership_cannot_cross_disconnected_bodies() -> None:
     from draftwright import build_drawing
     from draftwright.linting.plate_coverage import plate_requirement_outcomes
@@ -528,6 +568,72 @@ def test_boss_owner_requires_one_solid_and_the_complete_axis_span() -> None:
     )
     assert len(multi_outcomes) == 2
     assert {outcome.state for outcome in multi_outcomes} == {"unverifiable"}
+
+
+def test_bored_boss_uses_material_supports_for_same_solid_ownership() -> None:
+    from draftwright import build_drawing
+    from draftwright.linting.plate_coverage import plate_requirement_outcomes
+    from draftwright.registry import AnnotationRegistry
+
+    base = Box(100, 80, 10, align=(Align.CENTER, Align.CENTER, Align.CENTER))
+    boss = Pos(13, -7, 5) * extrude(RegularPolygon(20, 6), 30)
+    bore = Pos(13, -7, -5) * Cylinder(3, 45, align=_CENTER_MIN)
+    part = base + boss - bore
+    drawing = build_drawing(part)
+    recognition = drawing.recognition()
+    assert recognition is not None
+    assert len(recognition.polygonal_bosses) == 1
+    assert len(recognition.holes) == 1
+    envelope_only = tuple(
+        feature for feature in drawing.model().features if feature.kind == "envelope"
+    )
+
+    (outcome,) = plate_requirement_outcomes(
+        recognition,
+        envelope_only,
+        AnnotationRegistry(),
+        part=part,
+    )
+
+    assert outcome.state == "inapplicable"
+
+
+def test_provider_hexagon_invariant_does_not_narrow_public_owner_geometry() -> None:
+    from math import cos, pi, sin
+
+    from draftwright import build_drawing
+    from draftwright.linting.plate_coverage import _polygonal_boss_dependencies
+    from draftwright.model import polygonal_boss
+
+    part = Box(100, 80, 10, align=(Align.CENTER, Align.CENTER, Align.CENTER)) + (
+        Pos(0, 0, 5) * extrude(RegularPolygon(10, 8), 20)
+    )
+    drawing = build_drawing(part)
+    recognition = drawing.recognition()
+    assert recognition is not None
+    (source,) = recognition.plates
+    envelope = next(feature for feature in drawing.model().features if feature.kind == "envelope")
+    side_count = 8
+    directions = tuple(
+        (cos(angle), sin(angle), 0.0)
+        for angle in (2 * pi * index / side_count for index in range(side_count))
+    )
+    centres = tuple((8 * direction[0], 8 * direction[1], 15.0) for direction in directions)
+    owner = polygonal_boss(
+        side_count=side_count,
+        across_flats=16,
+        height=20,
+        at=(0, 0, 15),
+        axis="z",
+        span=((0, 0, 5), (0, 0, 25)),
+        flat_directions=directions,
+        flat_centres=centres,
+    )
+
+    assert _polygonal_boss_dependencies(source, (envelope, owner)) == (
+        (envelope, "height.length"),
+        (owner, "boss_height.length"),
+    )
 
 
 def test_step_level_alternate_must_land_before_plate_intervals_are_inapplicable() -> None:

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from dataclasses import dataclass
+from math import isfinite
 from typing import Literal
 
 from b123d_recognisers import RecognitionResult
@@ -195,10 +196,11 @@ def _slot_pattern_supports_source(source, pattern) -> bool:
 def _recognised_slot_pattern_supports_source(source, slots) -> bool:
     """Use the public source-body bounds retained on provider Slot records."""
     try:
-        representative = slots[0]
-        depth_axis = _depth_axis(representative.width_axis, representative.long_axis)
-        if depth_axis is None:
+        representative = _validated_recognised_slots(slots)
+        if representative is None:
             return False
+        depth_axis = _depth_axis(representative.width_axis, representative.long_axis)
+        assert depth_axis is not None
         point = plate_center(source)
         body_key = tuple(representative.body_key)
         if len(body_key) < 6:
@@ -218,25 +220,87 @@ def _recognised_slot_pattern_supports_source(source, slots) -> bool:
         return False
 
 
+def _validated_recognised_slots(slots):
+    """Return one representative only when every provider member has one body-local schema."""
+    try:
+        values = tuple(slots)
+        if not values:
+            return None
+        representative = values[0]
+        width_axis = str(representative.width_axis)
+        long_axis = str(representative.long_axis)
+        depth_axis = _depth_axis(width_axis, long_axis)
+        body_key = tuple(_rounded(value) for value in representative.body_key)
+        if (
+            depth_axis is None
+            or len(body_key) < 6
+            or not all(isfinite(value) for value in body_key)
+        ):
+            return None
+        bounds = tuple(zip(body_key[:3], body_key[3:6], strict=True))
+        if any(lo > hi for lo, hi in bounds):
+            return None
+        shared = (
+            width_axis,
+            long_axis,
+            body_key,
+            _rounded(representative.lo),
+            _rounded(representative.hi),
+            _rounded(representative.d_lo),
+            _rounded(representative.d_hi),
+        )
+        if shared[3] > shared[4] or shared[5] > shared[6]:
+            return None
+        width_index = "xyz".index(width_axis)
+        for slot in values:
+            current = (
+                str(slot.width_axis),
+                str(slot.long_axis),
+                tuple(_rounded(value) for value in slot.body_key),
+                _rounded(slot.lo),
+                _rounded(slot.hi),
+                _rounded(slot.d_lo),
+                _rounded(slot.d_hi),
+            )
+            width = float(slot.width)
+            center = float(slot.w_center)
+            cut = (center - width / 2, center + width / 2)
+            if (
+                current != shared
+                or _depth_axis(slot.width_axis, slot.long_axis) != depth_axis
+                or not all(isfinite(value) for value in (*current[2], *current[3:], width, center))
+                or width <= 0
+                or not bounds[width_index][0] <= cut[0] < cut[1] <= bounds[width_index][1]
+            ):
+                return None
+        return representative
+    except (AttributeError, IndexError, TypeError, ValueError):
+        return None
+
+
 def _polygonal_boss_supports_source(source, boss) -> bool:
     """Conservatively require the Plate witness inside the owner's support polygon."""
     try:
-        from draftwright.linting.polygonal_boss_coverage import (
-            _validate_polygonal_boss_source,
-        )
-
-        _validate_polygonal_boss_source(boss)
         axis = str(source.axis)
         boss_axis = getattr(getattr(boss, "frame", None), "axis", getattr(boss, "axis", None))
         if str(boss_axis) != axis:
             return False
+        side_count = boss.side_count
+        directions = tuple(boss.flat_directions)
+        centres = tuple(boss.flat_centres)
+        if (
+            type(side_count) is not int
+            or side_count < 4
+            or side_count % 2
+            or len(directions) != side_count
+            or len(centres) != side_count
+            or len(set(directions)) != side_count
+            or len(set(centres)) != side_count
+        ):
+            return False
         indices = [index for index in range(3) if index != "xyz".index(axis)]
         point = tuple(plate_center(source)[index] for index in indices)
-        polygon = [
-            tuple(float(centre[index]) for index in indices) for centre in boss.flat_centres
-        ]
-        if len(polygon) < 3:
-            return False
+        polygon = [tuple(float(centre[index]) for index in indices) for centre in centres]
         signs = []
         for start, end in zip(polygon, (*polygon[1:], polygon[0]), strict=True):
             cross = (end[0] - start[0]) * (point[1] - start[1]) - (end[1] - start[1]) * (
@@ -261,24 +325,54 @@ def _valid_polygonal_boss_source(boss) -> bool:
         return False
 
 
-def _shares_one_solid(part, source, boss) -> bool:
-    """Prove source and owner belong to one finished solid without re-recognising either."""
-    if part is None:
+class _SolidMembership:
+    """Cache physical-witness ownership for one completeness-ledger invocation."""
+
+    def __init__(self, part) -> None:
+        self.solids = tuple(part.solids()) if part is not None else ()
+        self._owners: dict[Point, tuple[int, ...]] = {}
+
+    def owners(self, point) -> tuple[int, ...]:
+        values = tuple(float(value) for value in point)
+        if len(values) != 3 or not all(isfinite(value) for value in values):
+            raise ValueError("a solid-membership witness must be a 3-vector")
+        key = (values[0], values[1], values[2])
+        if key not in self._owners:
+            from build123d import Vector
+
+            witness = Vector(*key)
+            self._owners[key] = tuple(
+                index for index, solid in enumerate(self.solids) if solid.is_inside(witness)
+            )
+        return self._owners[key]
+
+
+def _boss_material_witnesses(boss) -> tuple[Point, ...]:
+    """Move just inside each outer flat so a coaxial bore cannot erase boss ownership."""
+    points = []
+    for direction, centre in zip(boss.flat_directions, boss.flat_centres, strict=True):
+        normals = tuple(float(normal) for normal in direction)
+        coordinates = tuple(float(component) for component in centre)
+        if len(normals) != 3 or len(coordinates) != 3:
+            raise ValueError("a boss material witness must be a paired 3-vector")
+        points.append(
+            tuple(
+                float(component) - 1e-3 * float(normal)
+                for component, normal in zip(coordinates, normals, strict=True)
+            )
+        )
+    return tuple((point[0], point[1], point[2]) for point in points)
+
+
+def _shares_one_solid(membership, source, boss) -> bool:
+    """Prove source and one material-bearing boss witness belong to one finished solid."""
+    if membership is None:
         return False
     try:
-        from build123d import Vector
-
-        source_point = Vector(*plate_center(source))
-        boss_center = getattr(boss, "center", None)
-        if boss_center is None:
-            boss_center = boss.frame.origin
-        boss_point = Vector(*boss_center)
-        solids = tuple(part.solids())
-        source_owners = [
-            index for index, solid in enumerate(solids) if solid.is_inside(source_point)
-        ]
-        boss_owners = [index for index, solid in enumerate(solids) if solid.is_inside(boss_point)]
-        return len(source_owners) == len(boss_owners) == 1 and source_owners == boss_owners
+        source_owners = membership.owners(plate_center(source))
+        return len(source_owners) == 1 and any(
+            membership.owners(point) == source_owners for point in _boss_material_witnesses(boss)
+        )
     except (AttributeError, TypeError, ValueError):
         return False
 
@@ -431,13 +525,22 @@ def _envelope_owned_dependencies(source, features) -> tuple[tuple[object, str], 
     return ()
 
 
-def _alternate_dependencies(source, features, counts, satisfied) -> tuple[tuple[object, str], ...]:
+def _alternate_dependencies(
+    source,
+    features,
+    counts,
+    satisfied,
+    *,
+    excluded=(),
+) -> tuple[tuple[object, str], ...]:
     for establish in (
         _envelope_owned_dependencies,
         _step_level_dependencies,
         _polygonal_boss_dependencies,
         _slot_pattern_dependencies,
     ):
+        if establish in excluded:
+            continue
         if (dependencies := establish(source, features)) and _dependencies_are_evidenced(
             dependencies, counts, satisfied
         ):
@@ -453,7 +556,7 @@ def _dependencies_are_evidenced(dependencies, counts, satisfied) -> bool:
     )
 
 
-def _recognition_owner_supersedes_plate(source, recognition, features, part=None) -> bool:
+def _recognition_owner_supersedes_plate(source, recognition, features, membership=None) -> bool:
     """Exact aggregate ownership keeps derived Plate fragments out of a second denominator."""
     envelope = _envelope(features)
     if envelope is None:
@@ -470,8 +573,8 @@ def _recognition_owner_supersedes_plate(source, recognition, features, part=None
         for boss in recognition.polygonal_bosses:
             if (
                 str(boss.axis) != axis
-                or not _shares_one_solid(part, source, boss)
                 or not _valid_polygonal_boss_source(boss)
+                or not _shares_one_solid(membership, source, boss)
             ):
                 continue
             boss_interval = (_rounded(boss.base), _rounded(boss.top))
@@ -490,13 +593,12 @@ def _recognition_owner_supersedes_plate(source, recognition, features, part=None
 
         for pattern in recognition.slot_patterns:
             slots = tuple(pattern.slots)
-            if not slots or any(str(slot.width_axis) != axis for slot in slots):
+            representative = _validated_recognised_slots(slots)
+            if representative is None or str(representative.width_axis) != axis:
                 continue
             if not _recognised_slot_pattern_supports_source(source, slots):
                 continue
-            body_key = tuple(slots[0].body_key)
-            if len(body_key) < 6:
-                continue
+            body_key = tuple(representative.body_key)
             pattern_interval = (_rounded(body_key[index]), _rounded(body_key[index + 3]))
             cuts = sorted(
                 (
@@ -667,6 +769,7 @@ def plate_requirement_outcomes(
         and all(dependency in evidenced for dependency in dependencies)
     }
     inapplicable = {(feature, "thickness.length") for feature in derived_dependencies}
+    membership = _SolidMembership(part) if part is not None else None
     outcomes: list[PlateRequirementOutcome] = []
     for source_record, key, at in keyed_sources:
         matches = ir_by_key.get(key, ()) if key is not None else ()
@@ -675,12 +778,22 @@ def plate_requirement_outcomes(
         )
         parameter = _parameter_id(feature, source_record) if feature is not None else None
         if parameter is None:
-            dependencies = _alternate_dependencies(
-                source_record, features, placed_counts, satisfied
+            recognised_owner = _recognition_owner_supersedes_plate(
+                source_record, recognition, features, membership
             )
-            if dependencies or _recognition_owner_supersedes_plate(
-                source_record, recognition, features, part
-            ):
+            excluded = set()
+            if recognition.polygonal_bosses:
+                excluded.add(_polygonal_boss_dependencies)
+            if recognition.slot_patterns:
+                excluded.add(_slot_pattern_dependencies)
+            dependencies = _alternate_dependencies(
+                source_record,
+                features,
+                placed_counts,
+                satisfied,
+                excluded=excluded,
+            )
+            if dependencies or recognised_owner:
                 outcomes.append(
                     PlateRequirementOutcome(
                         at,
