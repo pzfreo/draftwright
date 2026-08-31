@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from dataclasses import dataclass
-from math import cos, hypot, isclose, isfinite, radians, sin
+from math import isfinite
 from typing import Literal
 
 from b123d_recognisers import RecognitionResult
@@ -193,10 +193,10 @@ def _slot_pattern_supports_source(source, pattern) -> bool:
         return False
 
 
-def _recognised_slot_pattern_supports_source(source, pattern) -> bool:
+def _recognised_slot_pattern_supports_source(source, pattern, validation_cache=None) -> bool:
     """Use the public source-body bounds retained on provider Slot records."""
     try:
-        representative = _validated_recognised_pattern(pattern)
+        representative = _validated_recognised_pattern(pattern, validation_cache)
         if representative is None:
             return False
         slots = tuple(pattern.slots)
@@ -289,18 +289,6 @@ def _validated_recognised_slots(slots):
         return None
 
 
-def _slot_location(slot) -> Point:
-    values = tuple(float(value) for value in slot.location)
-    if len(values) != 3 or not all(isfinite(value) for value in values):
-        raise ValueError("a slot location must be one finite 3-vector")
-    return values
-
-
-def _pattern_tolerance(nominal: float) -> float:
-    """Public provider modelling tolerance: a 0.1 mm floor or two percent of pitch."""
-    return max(0.1, abs(nominal) * 0.02)
-
-
 def _provider_reproduces_slot_pattern(pattern, slots) -> bool:
     """Reapply the public part-less derived projection to reject stale aggregate metadata."""
     from b123d_recognisers import recognise_slot_patterns
@@ -308,18 +296,13 @@ def _provider_reproduces_slot_pattern(pattern, slots) -> bool:
     return pattern in recognise_slot_patterns(slots)
 
 
-def _validated_recognised_pattern(pattern):
-    """Validate the aggregate lattice as well as every provider Slot member."""
+def _validate_recognised_pattern_uncached(pattern):
+    """Validate every member and require an exact public-provider replay."""
     try:
         slots = tuple(pattern.slots)
         representative = _validated_recognised_slots(slots)
         if representative is None:
             return None
-        locations = tuple(_slot_location(slot) for slot in slots)
-        depth_axis = _depth_axis(representative.width_axis, representative.long_axis)
-        assert depth_axis is not None
-        depth_index = "xyz".index(depth_axis)
-        coordinate_tolerance = 2e-3
 
         is_linear = all(hasattr(pattern, name) for name in ("pitch", "direction"))
         is_grid = all(
@@ -328,144 +311,24 @@ def _validated_recognised_pattern(pattern):
         )
         if is_linear == is_grid:
             return None
-
-        if is_linear:
-            pitch = float(pattern.pitch)
-            direction = tuple(float(value) for value in pattern.direction)
-            if (
-                len(direction) != 3
-                or not all(isfinite(value) for value in (*direction, pitch))
-                or pitch <= 0
-            ):
-                return None
-            norm = hypot(*direction)
-            if not isclose(norm, 1.0, abs_tol=1e-3) or abs(direction[depth_index]) > 1e-6:
-                return None
-            tolerance = _pattern_tolerance(pitch)
-            unit = tuple(value / norm for value in direction)
-            origin = locations[0]
-            projections = []
-            for location in locations:
-                delta = tuple(value - base for value, base in zip(location, origin, strict=True))
-                projection = sum(
-                    value * component for value, component in zip(delta, unit, strict=True)
-                )
-                residual = tuple(
-                    value - projection * component
-                    for value, component in zip(delta, unit, strict=True)
-                )
-                if hypot(*residual) > tolerance:
-                    return None
-                projections.append(projection)
-            ordered = sorted(projections)
-            if any(
-                not isclose(current - previous, pitch, abs_tol=tolerance)
-                for previous, current in zip(ordered, ordered[1:])
-            ):
-                return None
-            return representative if _provider_reproduces_slot_pattern(pattern, slots) else None
-
-        rows, cols = pattern.rows, pattern.cols
-        if (
-            type(rows) is not int
-            or type(cols) is not int
-            or rows < 2
-            or cols < 2
-            or max(rows, cols) < 3
-            or rows * cols != len(slots)
-        ):
-            return None
-        row_pitch = float(pattern.row_pitch)
-        col_pitch = float(pattern.col_pitch)
-        angle = float(pattern.angle)
-        center = tuple(float(value) for value in pattern.center)
-        if (
-            len(center) != 3
-            or not all(isfinite(value) for value in (*center, row_pitch, col_pitch, angle))
-            or row_pitch <= 0
-            or col_pitch <= 0
-        ):
-            return None
-        mean = tuple(
-            sum(point[index] for point in locations) / len(locations) for index in range(3)
-        )
-        if any(
-            not isclose(value, expected, abs_tol=coordinate_tolerance)
-            for value, expected in zip(mean, center, strict=True)
-        ):
-            return None
-
-        plane_axes = {
-            "x": ((0.0, 1.0, 0.0), (0.0, 0.0, 1.0)),
-            "y": ((0.0, 0.0, 1.0), (1.0, 0.0, 0.0)),
-            "z": ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0)),
-        }
-        first, second = plane_axes[depth_axis]
-        theta = radians(angle % 180.0)
-        col_direction = tuple(
-            cos(theta) * u + sin(theta) * v for u, v in zip(first, second, strict=True)
-        )
-        row_direction = tuple(
-            -sin(theta) * u + cos(theta) * v for u, v in zip(first, second, strict=True)
-        )
-        row_tolerance = _pattern_tolerance(row_pitch)
-        col_tolerance = _pattern_tolerance(col_pitch)
-        expected = []
-        for row in range(rows):
-            row_offset = (row - (rows - 1) / 2) * row_pitch
-            for col in range(cols):
-                col_offset = (col - (cols - 1) / 2) * col_pitch
-                expected.append(
-                    tuple(
-                        center[index]
-                        + row_offset * row_direction[index]
-                        + col_offset * col_direction[index]
-                        for index in range(3)
-                    )
-                )
-        unmatched = list(expected)
-
-        def component_errors(location, candidate) -> tuple[float, float, float]:
-            delta = tuple(
-                value - wanted for value, wanted in zip(location, candidate, strict=True)
-            )
-            row_error = float(
-                sum(
-                    value * component
-                    for value, component in zip(delta, row_direction, strict=True)
-                )
-            )
-            col_error = float(
-                sum(
-                    value * component
-                    for value, component in zip(delta, col_direction, strict=True)
-                )
-            )
-            return row_error, col_error, float(delta[depth_index])
-
-        def matches(location, candidate) -> bool:
-            row_error, col_error, depth_error = component_errors(location, candidate)
-            return bool(
-                abs(row_error) <= row_tolerance
-                and abs(col_error) <= col_tolerance
-                and abs(depth_error) <= coordinate_tolerance
-            )
-
-        for location in locations:
-            match = next(
-                (candidate for candidate in unmatched if matches(location, candidate)),
-                None,
-            )
-            if match is None:
-                return None
-            unmatched.remove(match)
-        return (
-            representative
-            if not unmatched and _provider_reproduces_slot_pattern(pattern, slots)
-            else None
-        )
+        # Pattern metadata is provider-owned and rounded for serialization. Reconstructing a
+        # dense lattice from that rounded pitch accumulates error and can reject the provider's
+        # own record. Exact equality with a fresh public, part-less projection validates both
+        # the member geometry and every aggregate field without a second tolerance contract.
+        return representative if _provider_reproduces_slot_pattern(pattern, slots) else None
     except (AttributeError, IndexError, OverflowError, TypeError, ValueError):
         return None
+
+
+def _validated_recognised_pattern(pattern, validation_cache=None):
+    """Validate one aggregate once per caller-owned completeness-ledger invocation."""
+    key = id(pattern)
+    if validation_cache is not None and key in validation_cache:
+        return validation_cache[key]
+    result = _validate_recognised_pattern_uncached(pattern)
+    if validation_cache is not None:
+        validation_cache[key] = result
+    return result
 
 
 def _polygonal_boss_supports_source(source, boss) -> bool:
@@ -762,7 +625,7 @@ def _alternate_dependencies(
     return ()
 
 
-def _without_provider_owned_ir(recognition, features) -> tuple:
+def _without_provider_owned_ir(recognition, features, validation_cache=None) -> tuple:
     """Keep declared owners while withholding exact IR compiled from provider records."""
     from draftwright.linting.polygonal_boss_coverage import polygonal_boss_key
 
@@ -780,7 +643,7 @@ def _without_provider_owned_ir(recognition, features) -> tuple:
             continue
     slot_sources = tuple(recognition.slot_patterns)
     slot_inventory_untrusted = any(
-        _validated_recognised_pattern(source) is None for source in slot_sources
+        _validated_recognised_pattern(source, validation_cache) is None for source in slot_sources
     )
     remaining = []
     for feature in features:
@@ -845,7 +708,13 @@ def _dependencies_are_evidenced(dependencies, counts, satisfied) -> bool:
     )
 
 
-def _recognition_owner_supersedes_plate(source, recognition, features, membership=None) -> bool:
+def _recognition_owner_supersedes_plate(
+    source,
+    recognition,
+    features,
+    membership=None,
+    validation_cache=None,
+) -> bool:
     """Exact aggregate ownership keeps derived Plate fragments out of a second denominator."""
     envelope = _envelope(features)
     if envelope is None:
@@ -878,10 +747,10 @@ def _recognition_owner_supersedes_plate(source, recognition, features, membershi
 
         for pattern in recognition.slot_patterns:
             slots = tuple(pattern.slots)
-            representative = _validated_recognised_pattern(pattern)
+            representative = _validated_recognised_pattern(pattern, validation_cache)
             if representative is None or str(representative.width_axis) != axis:
                 continue
-            if not _recognised_slot_pattern_supports_source(source, pattern):
+            if not _recognised_slot_pattern_supports_source(source, pattern, validation_cache):
                 continue
             body_key = tuple(representative.body_key)
             pattern_interval = (_rounded(body_key[index]), _rounded(body_key[index + 3]))
@@ -1071,7 +940,8 @@ def plate_requirement_outcomes(
     }
     inapplicable = {(feature, "thickness.length") for feature in derived_dependencies}
     membership = _SolidMembership(part) if part is not None else None
-    alternate_features = _without_provider_owned_ir(recognition, features)
+    pattern_validations: dict[int, object | None] = {}
+    alternate_features = _without_provider_owned_ir(recognition, features, pattern_validations)
     outcomes: list[PlateRequirementOutcome] = []
     for source_record, key, at in keyed_sources:
         matches = ir_by_key.get(key, ()) if key is not None else ()
@@ -1081,7 +951,11 @@ def plate_requirement_outcomes(
         parameter = _parameter_id(feature, source_record) if feature is not None else None
         if parameter is None:
             recognised_owner = _recognition_owner_supersedes_plate(
-                source_record, recognition, features, membership
+                source_record,
+                recognition,
+                features,
+                membership,
+                pattern_validations,
             )
             dependencies = _alternate_dependencies(
                 source_record,

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 from build123d import Align, Box, Cylinder, Pos, RegularPolygon, Rot, extrude, import_step
@@ -577,15 +578,20 @@ def test_raw_slot_grid_uses_only_members_crossing_each_plate_witness() -> None:
         feature for feature in drawing.model().features if feature.kind == "envelope"
     )
 
-    outcomes = plate_requirement_outcomes(
-        recognition,
-        envelope_only,
-        AnnotationRegistry(),
-        part=part,
-    )
+    with patch(
+        "b123d_recognisers.recognise_slot_patterns",
+        wraps=recognise_slot_patterns,
+    ) as replay:
+        outcomes = plate_requirement_outcomes(
+            recognition,
+            envelope_only,
+            AnnotationRegistry(),
+            part=part,
+        )
 
     assert len(outcomes) == 5
     assert {outcome.state for outcome in outcomes} == {"inapplicable"}
+    assert replay.call_count == 1
 
     pattern = recognition.slot_patterns[0]
     provider_tolerated_slots = list(pattern.slots)
@@ -625,6 +631,59 @@ def test_raw_slot_grid_uses_only_members_crossing_each_plate_witness() -> None:
         )
         assert len(failed_closed) == 5
         assert {outcome.state for outcome in failed_closed} == {"unverifiable"}
+
+
+@pytest.mark.parametrize(
+    ("rows", "cols", "exact_row_pitch", "exact_col_pitch"),
+    [(3, 43, 10.0, 1.005), (83, 3, 10.005, 1.0)],
+)
+def test_dense_slot_grid_accepts_exact_public_replay_despite_rounded_pitch(
+    rows: int,
+    cols: int,
+    exact_row_pitch: float,
+    exact_col_pitch: float,
+) -> None:
+    from b123d_recognisers import Slot, recognise_slot_patterns
+
+    from draftwright.linting.plate_coverage import _validated_recognised_pattern
+
+    body_key = (-1000.0, -1000.0, -10.0, 1000.0, 1000.0, 10.0)
+    slots = tuple(
+        Slot(
+            width_axis="x",
+            long_axis="y",
+            width=0.2,
+            length=0.5,
+            w_center=(col - (cols - 1) / 2) * exact_col_pitch,
+            lo=(row - (rows - 1) / 2) * exact_row_pitch - 0.25,
+            hi=(row - (rows - 1) / 2) * exact_row_pitch + 0.25,
+            d_lo=-1.0,
+            d_hi=1.0,
+            body_key=body_key,
+        )
+        for row in range(rows)
+        for col in range(cols)
+    )
+    pattern = next(
+        candidate for candidate in recognise_slot_patterns(slots) if hasattr(candidate, "rows")
+    )
+    assert (pattern.rows, pattern.cols) == (rows, cols)
+    exact_pitch, serialized_pitch, count = (
+        (exact_row_pitch, pattern.row_pitch, rows)
+        if rows > cols
+        else (exact_col_pitch, pattern.col_pitch, cols)
+    )
+    assert abs(exact_pitch - serialized_pitch) * (count - 1) / 2 > max(
+        0.1, abs(serialized_pitch) * 0.02
+    )
+
+    with patch(
+        "b123d_recognisers.recognise_slot_patterns",
+        wraps=recognise_slot_patterns,
+    ) as replay:
+        assert _validated_recognised_pattern(pattern) is pattern.slots[0]
+
+    replay.assert_called_once_with(pattern.slots)
 
 
 @pytest.mark.parametrize("pattern_kind", ["linear", "grid"])
