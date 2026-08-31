@@ -323,9 +323,7 @@ def test_provider_invariant_does_not_narrow_the_public_polygonal_boss_key() -> N
         (cos(angle), sin(angle), 0.0)
         for angle in (2 * pi * index / side_count for index in range(side_count))
     )
-    centres = tuple(
-        (10 * direction[0], 10 * direction[1], 15.0) for direction in directions
-    )
+    centres = tuple((10 * direction[0], 10 * direction[1], 15.0) for direction in directions)
     feature = polygonal_boss(
         side_count=side_count,
         across_flats=20,
