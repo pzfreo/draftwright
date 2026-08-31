@@ -1340,7 +1340,8 @@ def _pad_correspondence(pads, recognition, features, registry=None, omissions=()
     )
     by_at: dict[tuple[float, float, float], list] = {}
     for outcome in ledger:
-        by_at.setdefault(outcome.source_at, []).append(outcome)
+        if outcome.source_at is not None:
+            by_at.setdefault(outcome.source_at, []).append(outcome)
     result = []
     for source in pads:
         candidates = [
@@ -1545,7 +1546,8 @@ def _polygonal_boss_correspondence(bosses, recognition, features, registry=None,
     )
     by_at: dict[tuple[float, float, float], list] = {}
     for outcome in ledger:
-        by_at.setdefault(outcome.source_at, []).append(outcome)
+        if outcome.source_at is not None:
+            by_at.setdefault(outcome.source_at, []).append(outcome)
     result = []
     expected_ids = {"polygon_across_flats.length", "boss_height.length"}
     for source in bosses:

@@ -1,8 +1,8 @@
 """Semantic completeness for recognised polygonal-boss requirements (#1372).
 
-Each aggregate ``PolygonalBoss`` is one attached regular-prism occurrence with two
+Each aggregate ``PolygonalBoss`` is one attached regular-hexagonal-prism occurrence with two
 manufacturing requirements: its across-flats definition and its attachment-to-terminal
-height.  Principal axis, physical centre, side count, axial span, ordered flat directions
+height.  Principal axis, physical centre, the six-side schema invariant, axial span, ordered flat directions
 and physical flat centres join the provider record to exactly one ``PolygonalBossFeature``.
 Compiler ``DimensionId`` values then join both requirements to placed, explicitly satisfied,
 suppressed, dropped, missing, or unverifiable outcomes.  Labels, annotation names, views,
@@ -28,13 +28,15 @@ PolygonalBossRequirementState = Literal[
     "missing",
     "unverifiable",
 ]
+Point = tuple[float, float, float]
+SupportRing = tuple[tuple[Point, Point], ...]
 
 
 @dataclass(frozen=True)
 class PolygonalBossRequirementOutcome:
     """The observable engine outcome of one physical polygonal-boss measurement."""
 
-    source_at: tuple[float, float, float]
+    source_at: Point | None
     parameter_id: str
     state: PolygonalBossRequirementState
     requirement_count: int = 1
@@ -45,16 +47,36 @@ def _rounded(value) -> float:
     return round(float(value), 3)
 
 
-def _point(values) -> tuple[float, float, float]:
+def _point(values) -> Point:
     x, y, z = values
     return _rounded(x), _rounded(y), _rounded(z)
 
 
-def _points(values) -> tuple[tuple[float, float, float], ...]:
+def _points(values) -> tuple[Point, ...]:
     return tuple(_point(value) for value in values)
 
 
-def polygonal_boss_center(boss) -> tuple[float, float, float]:
+def _canonical_span(values) -> tuple[Point, Point]:
+    endpoints = _points(values)
+    if len(endpoints) != 2:
+        raise ValueError("a polygonal-boss span needs exactly two endpoints")
+    return tuple(sorted(endpoints))  # type: ignore[return-value]
+
+
+def _canonical_support_ring(directions, centres) -> SupportRing:
+    """Preserve direction/centre coupling while ignoring ring start and winding."""
+    rounded_directions = _points(directions)
+    rounded_centres = _points(centres)
+    if not rounded_directions or len(rounded_directions) != len(rounded_centres):
+        raise ValueError("polygonal-boss supports need paired direction and centre rings")
+    pairs = tuple(zip(rounded_directions, rounded_centres, strict=True))
+    variants: list[SupportRing] = []
+    for winding in (pairs, tuple(reversed(pairs))):
+        variants.extend(winding[index:] + winding[:index] for index in range(len(winding)))
+    return min(variants)
+
+
+def polygonal_boss_center(boss) -> Point:
     """Return the physical prism centre retained at both sides of the compiler waist."""
     center = getattr(boss, "center", None)
     if center is None:
@@ -65,15 +87,14 @@ def polygonal_boss_center(boss) -> tuple[float, float, float]:
 def _span(boss) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
     span = getattr(boss, "span", None)
     if span is not None:
-        start, end = span
-        return _point(start), _point(end)
+        return _canonical_span(span)
     center = list(polygonal_boss_center(boss))
     axis_index = "xyz".index(str(boss.axis))
     start = list(center)
     end = list(center)
     start[axis_index] = _rounded(boss.base)
     end[axis_index] = _rounded(boss.top)
-    return _point(start), _point(end)
+    return _canonical_span((start, end))
 
 
 def polygonal_boss_key(boss) -> tuple:
@@ -92,8 +113,7 @@ def polygonal_boss_key(boss) -> tuple:
         _rounded(boss.across_flats),
         _rounded(height),
         _span(boss),
-        _points(boss.flat_directions),
-        _points(boss.flat_centres),
+        _canonical_support_ring(boss.flat_directions, boss.flat_centres),
     )
 
 
@@ -112,7 +132,7 @@ def _parameter_ids(feature, source) -> tuple[str, str] | None:
     if parameters[0].span is not None:
         return None
     height_span = parameters[1].span
-    if height_span is None or _points(height_span) != _span(source):
+    if height_span is None or _canonical_span(height_span) != _span(source):
         return None
     return required
 
@@ -171,18 +191,22 @@ def polygonal_boss_requirement_outcomes(
             "polygonal_boss_requirement_outcomes() requires the run's RecognitionResult; "
             f"got {type(recognition).__name__}"
         )
-    sources = tuple(recognition.polygonal_bosses)
+    sources: tuple[object, ...] = tuple(recognition.polygonal_bosses)
     if not sources:
         return []
 
     source_counts: dict[tuple, int] = defaultdict(int)
-    keyed_sources: list[tuple[PolygonalBoss, tuple | None]] = []
+    keyed_sources: list[tuple[object, tuple | None, Point | None]] = []
     for source in sources:
         try:
-            key = polygonal_boss_key(source) if isinstance(source, PolygonalBoss) else None
+            if not isinstance(source, PolygonalBoss):
+                raise TypeError(f"unexpected polygonal-boss record {type(source).__name__}")
+            key = polygonal_boss_key(source)
+            at = polygonal_boss_center(source)
         except (AttributeError, TypeError, ValueError):
             key = None
-        keyed_sources.append((source, key))
+            at = None
+        keyed_sources.append((source, key, at))
         if key is not None:
             source_counts[key] += 1
 
@@ -202,13 +226,16 @@ def polygonal_boss_requirement_outcomes(
         if omission.feature is not None and omission.authored
     }
     outcomes: list[PolygonalBossRequirementOutcome] = []
-    for source, key in keyed_sources:
-        at = polygonal_boss_center(source)
+    for source, key, at in keyed_sources:
         matches = ir_by_key.get(key, ()) if key is not None else ()
         feature = (
             matches[0] if key is not None and len(matches) == source_counts[key] == 1 else None
         )
-        parameter_ids = _parameter_ids(feature, source) if feature is not None else None
+        parameter_ids = (
+            _parameter_ids(feature, source)
+            if feature is not None and isinstance(source, PolygonalBoss)
+            else None
+        )
         if parameter_ids is None:
             outcomes.append(
                 PolygonalBossRequirementOutcome(
@@ -261,12 +288,15 @@ def lint_polygonal_boss_coverage(
     for outcome in polygonal_boss_requirement_outcomes(recognition, features, registry, omissions):
         if outcome.state in {"placed", "satisfied_by_structured_note", "dropped"}:
             continue
+        location = (
+            "at an unknown location" if outcome.source_at is None else f"at {outcome.source_at}"
+        )
         issues.append(
             LintIssue(
                 severity=severity,
                 code=f"polygonal_boss_requirement_{outcome.state}",
                 message=(
-                    f"polygonal boss at {outcome.source_at} measurement "
+                    f"polygonal boss {location} measurement "
                     f"{outcome.parameter_id} {messages[outcome.state]}"
                 ),
             )

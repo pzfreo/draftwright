@@ -98,8 +98,9 @@ surface anchor and form, scoring radius through exact `R` or grouped `n× R` ink
 live physical leader target and include compound and topology-order controls; the chamfer corpus
 additionally pins AngledStep ownership, while the fillet corpus pins CircularBlindStep ownership.
 
-The polygonal-boss corpus owns one attached regular prism per principal axis and physical centre.
-It scores side count, across-flats, height and canonical physical flat-support pairs while keeping
+The polygonal-boss corpus owns one attached regular hexagonal prism per principal axis and physical
+centre. It scores the provider's six-side schema invariant, across-flats, height and canonical
+physical flat-support pairs while keeping
 whole polygonal stock, recesses, detached prisms, circular bosses and rectangular pads outside the
 family denominator. Both A/F and height must survive through exact compiler identities. The
 finished A/F arrow is checked against a retained flat centre only after source-to-IR semantic

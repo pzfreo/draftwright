@@ -175,6 +175,7 @@ _AUDITED_FAMILIES = (
     "holes",
     "passages",
     "pads",
+    "polygonal_bosses",
     "polygonal_stock",
     "pockets",
     "pocket_patterns",

@@ -222,6 +222,86 @@ def test_polygonal_boss_ledger_rejects_foreign_malformed_and_duplicate_ir() -> N
     assert (duplicate[0].state, duplicate[0].requirement_count) == ("unverifiable", 2)
 
 
+def test_malformed_source_record_fails_closed_through_drawing_lint(monkeypatch) -> None:
+    import draftwright.recognition_cache as recognition_cache
+    from draftwright import Sheet
+
+    original = recognition_cache.build_raw_recognition_result
+
+    def malformed_recognition(*args, **kwargs):
+        recognition = original(*args, **kwargs)
+        return replace(recognition, polygonal_bosses=(object(),))
+
+    monkeypatch.setattr(recognition_cache, "build_raw_recognition_result", malformed_recognition)
+    sheet = Sheet(_boss_part()).authored_dimensions()
+    envelope = sheet.envelope()
+    sheet.dimension(envelope, "width.length")
+    drawing = sheet.build()
+    assert drawing.recognition() is None
+
+    issues = drawing.lint()
+    assert [issue.code for issue in issues].count("polygonal_boss_requirement_unverifiable") == 1
+    assert "unknown location" in next(
+        issue.message
+        for issue in issues
+        if issue.code == "polygonal_boss_requirement_unverifiable"
+    )
+    completeness = drawing.lint_summary()["quality"]["completeness"]
+    assert completeness["requirements"] == completeness["unverifiable"] == 2
+    assert completeness["by_family"]["polygonal_bosses"] == 2
+
+
+@pytest.mark.parametrize("representation", ("cyclic", "reversed", "reversed_span"))
+def test_equivalent_public_sheet_ring_representations_keep_exact_coverage(
+    representation,
+) -> None:
+    from b123d_recognisers import build_raw_recognition_result
+
+    from draftwright import Sheet
+
+    part = _boss_part()
+    source = build_raw_recognition_result(part, rotational=False).polygonal_bosses[0]
+    directions = source.flat_directions
+    centres = source.flat_centres
+    center = source.center
+    axis_index = "xyz".index(source.axis)
+    start = list(center)
+    end = list(center)
+    start[axis_index] = source.base
+    end[axis_index] = source.top
+    span = (tuple(start), tuple(end))
+    if representation == "cyclic":
+        directions = directions[2:] + directions[:2]
+        centres = centres[2:] + centres[:2]
+    elif representation == "reversed":
+        directions = tuple(reversed(directions))
+        centres = tuple(reversed(centres))
+    else:
+        span = tuple(reversed(span))
+
+    sheet = Sheet(part).authored_dimensions()
+    handle = sheet.polygonal_boss(
+        side_count=source.side_count,
+        across_flats=source.across_flats,
+        height=source.height,
+        at=center,
+        axis=source.axis,
+        span=span,
+        flat_directions=directions,
+        flat_centres=centres,
+    )
+    sheet.dimension(handle, "polygon_across_flats.length")
+    sheet.dimension(handle, "boss_height.length")
+    drawing = sheet.build()
+
+    assert not [
+        issue for issue in drawing.lint() if issue.code.startswith("polygonal_boss_requirement_")
+    ]
+    completeness = drawing.lint_summary()["quality"]["completeness"]
+    assert completeness["by_family"]["polygonal_bosses"] == 2
+    assert completeness["placed"] >= 2
+
+
 @pytest.mark.parametrize(
     "corruption",
     ("raises", "parameter_ids", "parameter_values", "af_span", "height_span"),
@@ -245,7 +325,9 @@ def test_polygonal_boss_ledger_rejects_malformed_parameter_contract(corruption) 
     elif corruption == "af_span":
         parameters[0] = replace(parameters[0], span=feature.span)
     elif corruption == "height_span":
-        parameters[1] = replace(parameters[1], span=tuple(reversed(feature.span)))
+        span = [list(point) for point in feature.span]
+        span[1]["xyz".index(feature.frame.axis)] += 0.1
+        parameters[1] = replace(parameters[1], span=tuple(tuple(point) for point in span))
 
     class ParameterProxy:
         kind = "polygonal_boss"
@@ -666,4 +748,5 @@ def test_deleting_declared_boss_cannot_shrink_quality_denominator() -> None:
     assert sparse_quality["unverifiable"] == 2
     assert complete_quality["audited_score"] == 1.0
     assert sparse_quality["audited_score"] == 0.0
+    assert "polygonal_bosses" not in complete_quality["unscored_recognized_families"]
     assert "polygonal_boss_requirement_unverifiable" in sparse_summary["by_code"]

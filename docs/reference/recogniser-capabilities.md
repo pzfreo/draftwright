@@ -204,12 +204,13 @@ a measurement claim or directional fact reduces the corresponding independent la
 
 The `polygonal-bosses` completeness boundary is independently `supported` from
 `tests/fixtures/evaluation/corpus-polygonal-bosses-v1.json`. Eleven construction-authored
-cases contribute ten physical attached prisms, 40 parameter checks and 40 downstream checks.
+cases contribute ten physical attached hexagonal prisms, 40 parameter checks and 40 downstream checks.
 The corpus covers all three principal axes, in-plane rotation, equal occurrences on separate
 bodies, reversed Boolean order, and recess, detached-prism, whole-stock, circular-boss and
 rectangular-pad negatives.
 
-Principal axis and physical prism centre identify each occurrence. Side count, A/F, height and
+Principal axis and physical prism centre identify each occurrence. The released provider family
+guarantees a six-side schema invariant; that invariant, A/F, height and
 the canonical set of ordered flat-direction/physical-centre pairs are scored parameters. Each
 source must join one exact `PolygonalBossFeature` through automatic IR, public
 `Sheet.polygonal_boss`, executed generated Sheet code, and two compiler-owned drawing
