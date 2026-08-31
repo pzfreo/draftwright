@@ -222,6 +222,37 @@ corresponding independent layer. The older generic boss-height fallback no longe
 prisms; the family ledger distinguishes placed, structured-note, suppressed, dropped, missing
 and unverifiable outcomes without duplicate diagnostics.
 
+## Plate completeness evidence
+
+The `plates` completeness boundary is independently `supported` from
+`tests/fixtures/evaluation/corpus-plates-v1.json`. Eleven construction-authored cases contribute
+twenty body-local slab occurrences, twenty thickness checks and eighty downstream checks. The
+corpus covers all three principal orientations, additive and cut U-channels, equal occurrences on
+separate bodies, reverse-ordered topology, cross-family ambiguity, and single-slab, detached,
+thick-block and rotational negatives.
+
+A Plate occurrence is a thin material slab in a multi-plate prismatic body; a lone flat plate is
+owned by the whole-part envelope and is intentionally outside this denominator. Exact axis,
+axial interval and both in-plane witness coordinates join each provider record to one
+`PlateFeature`; the independently authored identity pins axis, physical axial station and both
+transverse witness coordinates for every occurrence. Thickness is the
+single scored parameter. Each occurrence must survive automatic IR, public `Sheet.plate`, executed
+generated Sheet code and the compiler's `thickness.length` drawing identity. A planner-derived
+opposite U-channel wall is explicitly `inapplicable` only because the envelope, first wall and
+channel-width chain states it; other requirements need real solver-placed `Dimension` ink.
+Material spans already owned by an exact envelope, step-level/shoulder chain, slot pattern or
+attached polygonal boss likewise remain inapplicable rather than becoming duplicate Plate
+requirements. Raw polygonal-boss ownership requires a valid support record, a single-solid part,
+and a boss-plus-slab span equal to the complete envelope axis. Plural-solid inventories remain
+unverifiable because Plate carries no body provenance; malformed or partial-span ownership fails
+closed.
+Derived drawing credit additionally requires every dependency's compiler-approved finished claim
+or structured satisfaction; provenance attached to incorrect ink is not enough.
+Annotation names, views and page coordinates never establish correspondence. Removing or
+malforming provider records, changing the interval or witness, corrupting declaration/generated
+code, changing the printed value, or severing measurement provenance reduces the corresponding
+independent layer.
+
 ## Chamfer completeness evidence
 
 The `chamfers` completeness boundary is independently `supported` from
@@ -322,7 +353,7 @@ an outcome.
 Remaining supported-family completeness work is tracked by family group rather than the closed
 shared design issue: #1370 retains countersinks and Double-D bores; #1371 covers
 channels, slots, slot patterns and polygonal stock; #1372 retains the independent rectangular-pad
-and polygonal-boss benchmark corpora; #1373 covers plates, face levels and risers; and
+and polygonal-boss benchmark corpora; #1373 retains face levels and risers; and
 #1374 retains turned steps.
 
 ## Historical: recognisers 0.4.8 raw boundary and RaisedPad v2

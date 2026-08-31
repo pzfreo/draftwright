@@ -44,6 +44,17 @@
 
 ### Changed
 
+- Multi-plate slab completeness is now backed by an independently authored, hash-pinned 11-case
+  STEP corpus covering all principal orientations, additive/cut channels, equal compound
+  occurrences, topology order and envelope/detached/thick/rotational negatives. A fail-closed
+  one-requirement ledger follows each body-local `thickness.length` through automatic IR, public
+  `Sheet.plate`, generated code and solver-placed Dimension provenance; the compiler-derived
+  opposite U-channel wall is represented explicitly without inventing duplicate ink. The corpus
+  owns 20 physical occurrences and cannot shrink when provider output is weakened or removed.
+  Exact step-level, slot-pattern, polygonal-boss and envelope ownership prevents derived material
+  spans from becoming duplicate Plate requirements while failing closed when that ownership cannot
+  be established (#1373).
+
 - Polygonal-boss completeness is now backed by an independently authored, hash-pinned STEP
   corpus covering all three principal axes, in-plane rotation, equal compound occurrences,
   topology order, and recess/detached/stock/other-protrusion negatives. Detection, the provider's

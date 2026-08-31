@@ -275,6 +275,7 @@ def test_pattern_and_central_bore_have_a_complete_recognition_owned_ledger():
         "holes": 4,
         "hole_patterns": 6,
         "pads": 0,
+        "plates": 0,
         "polygonal_bosses": 0,
         "polygonal_stock": 0,
         "pockets": 0,
