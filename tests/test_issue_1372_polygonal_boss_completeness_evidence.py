@@ -11,6 +11,7 @@ import pytest
 from build123d import Align, Box, Pos, RegularPolygon, Rot, extrude, import_step
 
 from draftwright.evaluation.step_analysis import (
+    ObservationError,
     _default_observers,
     _polygonal_boss_drawing_outcomes,
     evaluate_step_corpus,
@@ -514,6 +515,33 @@ def test_polygonal_boss_observer_uses_one_build_owned_aggregate(monkeypatch) -> 
     monkeypatch.setattr(analysis, "build_raw_recognition_result", counted)
     assert _default_observers()["polygonal-bosses"](_boss_part())
     assert calls == 1
+
+
+def test_polygonal_boss_observer_rejects_a_missing_build_owned_aggregate(monkeypatch) -> None:
+    import draftwright.builder as builder
+
+    drawing = SimpleNamespace(recognition=lambda: None)
+    monkeypatch.setattr(builder, "build_drawing", lambda *_args, **_kwargs: drawing)
+
+    with pytest.raises(ObservationError, match="no build-owned recognition result"):
+        _default_observers()["polygonal-bosses"](_boss_part())
+
+
+def test_polygonal_boss_observer_preserves_occurrence_when_a_boundary_loses_cardinality(
+    monkeypatch,
+) -> None:
+    import draftwright.evaluation.step_analysis as step_analysis
+
+    monkeypatch.setattr(step_analysis, "_polygonal_boss_model_outcomes", lambda *_args: [])
+
+    (observed,) = _default_observers()["polygonal-bosses"](_boss_part())
+
+    assert observed.downstream == {
+        "ir_adapter": "unknown",
+        "dsl_declaration": "unknown",
+        "generated_code": "unknown",
+        "drawing_consumer": "supported",
+    }
 
 
 def test_removing_polygonal_bosses_from_built_ir_loses_adapter_credit(monkeypatch) -> None:
