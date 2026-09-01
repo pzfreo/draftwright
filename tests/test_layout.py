@@ -4,6 +4,7 @@ These exercise the placement primitives in isolation, with no drawing build,
 which is the point of putting them in their own module.
 """
 
+import sys
 import tracemalloc
 
 import pytest
@@ -267,7 +268,7 @@ class TestSolveStrip1d:
         # kiwisolver is retired (#507): the primitive delegates to the pure-Python PAVA
         # solve and must never import it — force kiwisolver unavailable and assert the
         # solve still produces the correct spaced placement (would ImportError if it tried).
-        monkeypatch.setitem(__import__("sys").modules, "kiwisolver", None)
+        monkeypatch.setitem(sys.modules, "kiwisolver", None)
         assert _solve_strip_1d([0, 0, 0], min_gap=5, lo=0, hi=100) == [0, 5, 10]
 
 

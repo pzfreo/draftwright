@@ -5157,9 +5157,8 @@ class TestIsRotational:
         # feature records may carry raw OCCT diameters after the #87 lift.
         # With an unrounded OD (59.9999999 vs the dedup'd 60.0), a float !=
         # leaks the OD into the bore leaders as a duplicate ø60 callout.
-        import importlib
+        import draftwright.analysis as md
 
-        md = importlib.import_module("draftwright.analysis")
         real = md.analyse_cylinders
 
         def unrounded(part):
@@ -5179,11 +5178,9 @@ class TestIsRotational:
     def test_lint_reuses_build_drawing_cylinder_analysis(self, monkeypatch):
         # build_drawing seeds the cache, so lint()/export() must not re-scan
         # the solid with analyse_cylinders.
-        import importlib
-
         # (the package re-exports the make_drawing *function*, shadowing the
-        # submodule attribute, so plain `import ... as md` grabs the function)
-        md = importlib.import_module("draftwright.analysis")
+        # submodule attribute; analysis has no such name collision.)
+        import draftwright.analysis as md
 
         dwg = build_drawing(Box(30, 20, 10))
         calls = {"n": 0}

@@ -13,8 +13,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from b123d_recognisers import recognise_flats
-from b123d_recognisers.flats import Flat
+from b123d_recognisers import Flat, recognise_flats
 from build123d import Align, Box, Cylinder, Pos, import_step
 
 from draftwright import Sheet, build_drawing

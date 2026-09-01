@@ -12,6 +12,7 @@ from pathlib import Path
 
 import b123d_recognisers as recognition
 import pytest
+from _recogniser_public_contract import public_recogniser_member, public_recogniser_names
 from build123d import Cylinder
 
 import draftwright.recogniser_contract as contract_module
@@ -76,10 +77,10 @@ def _runtime_record_types(annotation: object) -> set[type[object]]:
 
 def _runtime_emitted_records() -> set[type[object]]:
     found: set[type[object]] = set()
-    for name in dir(recognition):
+    for name in public_recogniser_names():
         if not name.startswith(("recognise_", "project_")):
             continue
-        function = getattr(recognition, name)
+        function = public_recogniser_member(name)
         hints = typing.get_type_hints(function)
         records = _runtime_record_types(hints.get("return"))
         assert records, f"{name} has no independently discoverable Record return"
@@ -113,7 +114,7 @@ def test_installed_package_contract_validates_without_a_sibling_checkout() -> No
     distribution = importlib.metadata.distribution("b123d-recognisers")
     assert distribution.version == INSTALLED_PACKAGE_VERSION
     assert distribution.read_text("direct_url.json") is None
-    package_path = Path(inspect.getfile(recognition)).resolve()
+    package_path = Path(inspect.getfile(recognition.capability_manifest)).resolve()
     assert package_path.is_relative_to(ROOT / ".venv")
 
     _validate()

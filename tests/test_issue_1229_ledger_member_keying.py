@@ -43,6 +43,7 @@ a reachable test; it is what you write when there is genuinely no way in, and I 
 from __future__ import annotations
 
 import ast
+import dataclasses
 import importlib.util
 import subprocess
 import sys
@@ -81,7 +82,7 @@ class TestAGroupCannotMixThroughAndBlind:
     """
 
     def test_the_spec_separates_through_from_blind(self):
-        fields = {f.name for f in __import__("dataclasses").fields(HoleSpec)}
+        fields = {f.name for f in dataclasses.fields(HoleSpec)}
         assert {"bottom", "depth"} <= fields, sorted(fields)
 
     @staticmethod

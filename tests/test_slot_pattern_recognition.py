@@ -11,6 +11,7 @@ import dataclasses
 from pathlib import Path
 
 from b123d_recognisers import (
+    Slot,
     SlotArray,
     SlotGrid,
     recognise_slot_patterns,
@@ -74,8 +75,6 @@ def test_non_coplanar_slots_do_not_merge():
     # identical slots whose in-plane centres line up but which lie on DIFFERENT through planes
     # (staggered d_lo/d_hi) must NOT merge into one array — the spec key includes the through
     # extent (mirrors _pocket_spec_key).
-    from b123d_recognisers.slots import Slot
-
     def sl(cy, d_lo):
         return Slot(
             width_axis="y",

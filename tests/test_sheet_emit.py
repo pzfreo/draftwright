@@ -1181,10 +1181,12 @@ class TestObjectSpec:
             Drawing, "export", lambda self, *a, **k: captured.setdefault("drawing", self)
         )
         exec(compile(source, str(tmp_path / "referenced.py"), "exec"), {})  # noqa: S102
+        import featuremod  # type: ignore[import-not-found]
+
         rebuilt = next(f for f in captured["drawing"].model().features if f.kind == "hole")
         original = next(
             f
-            for f in detect_part_model(__import__("featuremod").make_features().body).features
+            for f in detect_part_model(featuremod.make_features().body).features
             if f.kind == "hole"
         )
         # Same exemption as the repository-wide #964 oracle: a singleton detector records its

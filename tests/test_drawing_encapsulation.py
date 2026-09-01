@@ -24,6 +24,7 @@ Dependency-free (stdlib ``ast`` + ``pathlib``), matching test_import_boundaries.
 from __future__ import annotations
 
 import ast
+import sys
 from pathlib import Path
 
 import pytest
@@ -290,21 +291,22 @@ def test_the_deleted_modules_and_stubs_stay_deleted():
     and left nothing in their place, so either could be restored without a targeted failure
     (Codex r5). A deletion nobody asserts is a deletion that comes back.
     """
-    import importlib
-
     import draftwright
+    import draftwright.builder
+    import draftwright.make_drawing
 
     with pytest.raises(ModuleNotFoundError):
-        importlib.import_module("draftwright.sheet_dsl")  # the #640 rename alias
+        import draftwright.sheet_dsl  # type: ignore[import-not-found] # noqa: F401
 
     # The #940-retired emitter: gone from the package's lazy surface AND its owners, so the
     # failure is an ImportError at the top of a script rather than mid-run.
     #
-    # import_module, NOT `from draftwright import make_drawing` — the package re-exports a
-    # FUNCTION of that name which shadows the submodule, so the latter would assert about a
-    # function object and pass no matter what the module contained (caught by canary).
-    owners = [draftwright] + [
-        importlib.import_module(f"draftwright.{m}") for m in ("builder", "make_drawing")
+    # Read the two statically imported submodules from sys.modules: the package re-exports a
+    # FUNCTION named make_drawing which shadows that submodule as an ordinary attribute.
+    owners = [
+        draftwright,
+        sys.modules["draftwright.builder"],
+        sys.modules["draftwright.make_drawing"],
     ]
     assert "generate_script" not in draftwright.__all__
     for mod in owners:
