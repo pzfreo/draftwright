@@ -54,6 +54,15 @@
   remains explicitly unverifiable rather than hidden or heuristically attached (#1370; ADRs 0010,
   0013, 0015, 0017).
 
+- Double-D completeness is now backed by an independently authored, hash-pinned 11-case STEP
+  corpus with ten physical profile facts, 50 provider-parameter checks and 40 downstream checks.
+  Full-frame identity preserves disconnected coaxial bodies; exact multiplicity crosses automatic
+  IR, public `Sheet.double_d_bore`, generated code and role-specific compiler-confirmed
+  `⌀major THRU DOUBLE-D across A/F` ink. Round, blind, opposed-blind, malformed, duplicated and
+  foreign-owner mutations fail closed, while the provider's exclusive aggregate ownership keeps
+  each profile from being recounted as an ordinary hole (#1370; ADRs 0010, 0011, 0013, 0015,
+  0017).
+
 - Updated the immutable `b123d-recognisers` pin and fail-closed inspection/capability joins to
   0.4.10. All 28 previously consumed family schemas remain unchanged. The two new blind-slot
   families are explicitly deferred under #1421 and remain visible as unscored recognised

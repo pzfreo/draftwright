@@ -52,6 +52,24 @@ remain owned once by the existing hole ledger:
   identifier was bijectively renumbered and the entity records reverse serialized, with references
   rewritten by the same bijection.
 
+`corpus-double-d-bores-v1.json` owns complete profiled through-bore occurrences without recounting
+ordinary circular holes. Major diameter, A/F, depth, through state and flat direction are scored
+parameters; axis plus full location identifies each physical frame:
+
+- `double-d-round-bore.step` is a circular Ø10 through-bore with no chord flats.
+- `double-d-blind.step` is a Ø10 / 7.2 A/F recess with an internal floor.
+- `double-d-opposed-blind.step` has aligned recesses from opposite faces separated by a solid web.
+- `double-d-single-z.step` subtracts a centred Ø10 / 7.2 A/F prism through 10 mm stock along Z.
+- `double-d-roll-30.step` rotates the complete Z-axis body 30° in its profile plane.
+- `double-d-axis-x.step` and `double-d-axis-y.step` rotate the complete body onto the other two
+  principal axes, retaining the corresponding flat line.
+- `double-d-coaxial-compound.step` contains equal profiled bores in two disconnected bodies at
+  axial centres 5 and 35 mm; neither may borrow the other's owner or drawing evidence.
+- `double-d-topology-a.step` contains heterogeneous Ø10 / 7.2 A/F and Ø12 / 8 A/F bodies.
+- `double-d-topology-b.step` is geometrically identical to topology-a; every Part 21 entity
+  identifier was bijectively renumbered and the entity records reverse serialized, with references
+  rewritten by the same bijection.
+
 `corpus-flats-v1.json` is a separate physical across-flats corpus. Opposed faces on one stock line
 are one requirement, while separate lines or disjoint axial spans remain independent:
 
