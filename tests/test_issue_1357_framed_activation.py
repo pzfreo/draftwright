@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from b123d_recognisers import FrameRefusalReason
 from build123d import Align, Box, Compound, Cylinder, Pos, Rot
+from conftest import recognition_consumer_calls
 
 from draftwright import build_drawing
 from draftwright.audit import diff_builds
@@ -85,9 +86,11 @@ def test_provider_refusal_has_one_visible_top_level_raw_fallback(monkeypatch):
         return FramedDetectionRefusal(part, FrameRefusalReason.NO_ANALYTIC_DIRECTION)
 
     monkeypatch.setattr("draftwright.analysis.prepare_framed_detection", refuse)
-    drawing = build_drawing(source, auto_dims=False, framed_recognition=True)
+    with recognition_consumer_calls() as recognition_calls:
+        drawing = build_drawing(source, auto_dims=False, framed_recognition=True)
 
     assert calls == 1
+    assert recognition_calls == {"build_raw_recognition_result": 1}
     assert drawing.part is drawing.working_part
     assert drawing.recognition_frame is None
     assert drawing.recognition_frame_decision == {

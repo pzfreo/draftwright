@@ -72,7 +72,7 @@ Key invariants — each is machine-enforced, and the guard test is the authority
   as `dwg` (`test_import_boundaries`).
 - Recognition runs at most once per build, owned by `BuildState`; a declared build
   recognises nothing until physical critique or export asks (ADR 0017,
-  `test_recognition_manifest` fail-closed).
+  `test_detect_once` / `test_declared_recognition_gate` fail-closed).
 - Renderers emit dimensional content only from `model/compiled.py`'s plan — suppression
   is content they never receive (ADR 0016 Amdt 1, `test_compiled_plan_boundary`,
   `test_label_provenance`) — and the converse: nothing the plan approves may reach the

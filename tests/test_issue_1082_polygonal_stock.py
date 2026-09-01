@@ -6,11 +6,11 @@ import math
 from dataclasses import replace
 
 import pytest
-from b123d_recognisers.polygonal_bosses import (
+from b123d_recognisers import (
     PolygonalStock,
+    build_raw_recognition_result,
     recognise_polygonal_stock,
 )
-from b123d_recognisers.result import build_raw_recognition_result
 from build123d import Box, Compound, Cylinder, Polygon, Pos, RegularPolygon, Rot, extrude
 
 from draftwright import build_drawing

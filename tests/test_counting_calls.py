@@ -7,8 +7,9 @@ dark for the duration, and two functions sharing one code object.
 
 import sys
 
+import b123d_recognisers as recognition
 import pytest
-from conftest import counting_calls
+from conftest import counting_calls, recognition_consumer_calls
 
 
 def _target():
@@ -115,3 +116,26 @@ def test_a_c_level_profiler_is_refused_rather_than_crashed_into(monkeypatch):
             pass  # pragma: no cover — the raise happens on entry
 
     assert not installed, "the hook was installed before the profiler was checked"
+
+
+def test_recognition_consumer_calls_ignores_provider_owned_nested_calls(monkeypatch):
+    """Only calls outside the public aggregate are Draftwright-owned bypasses."""
+
+    def physical(part):
+        return []
+
+    def aggregate(part):
+        return recognition.recognise_face_levels(part)
+
+    monkeypatch.setattr(recognition, "recognise_face_levels", physical)
+    monkeypatch.setattr(recognition, "build_raw_recognition_result", aggregate)
+
+    with recognition_consumer_calls() as counts:
+        aggregate(None)
+        physical(None)
+        recognition.recognise_hole_patterns([])  # pure projection, not a physical rescan
+
+    assert counts == {
+        "build_raw_recognition_result": 1,
+        "recognise_face_levels": 1,
+    }
