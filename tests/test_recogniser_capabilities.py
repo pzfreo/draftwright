@@ -677,6 +677,16 @@ def test_hole_pattern_completeness_is_supported_without_recounting_member_holes(
     }
 
 
+def test_countersink_completeness_is_supported_without_recounting_its_bore() -> None:
+    family = _families(consumer_capability_declaration())["countersinks"]
+
+    assert family["completeness"] == {
+        "state": "supported",
+        "implementation": "draftwright.evaluation.step_analysis.evaluate_step_corpus",
+        "evidence": ["tests/test_issue_1370_countersink_completeness_evidence.py"],
+    }
+
+
 def test_flat_completeness_is_supported_by_independent_physical_stock_facts() -> None:
     family = _families(consumer_capability_declaration())["flats"]
 
@@ -760,7 +770,6 @@ def test_plate_completeness_uses_independent_body_local_slab_facts() -> None:
 def test_each_deferred_supported_family_links_its_real_delivery_slice() -> None:
     expected = {
         "channels": 1371,
-        "countersinks": 1370,
         "double-d-bores": 1370,
         "face-levels": 1373,
         "risers": 1373,

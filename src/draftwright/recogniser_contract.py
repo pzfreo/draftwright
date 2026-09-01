@@ -198,6 +198,11 @@ def _family_declaration(family_id: str, spec: _FamilySpec) -> dict[str, Any]:
             "draftwright.evaluation.step_analysis.evaluate_step_corpus",
             "tests/test_issue_1374_chamfer_completeness_evidence.py",
         )
+    elif family_id == "countersinks":
+        completeness = _supported(
+            "draftwright.evaluation.step_analysis.evaluate_step_corpus",
+            "tests/test_issue_1370_countersink_completeness_evidence.py",
+        )
     elif family_id == "hole-patterns":
         completeness = _supported(
             "draftwright.evaluation.step_analysis.evaluate_step_corpus",

@@ -33,6 +33,25 @@ individual location requirements, which remain owned by `corpus-v1.json`:
   entity identifier was bijectively renumbered and the entity records serialized in reverse order,
   with references rewritten by the same bijection.
 
+`corpus-countersinks-v1.json` is a separate physical conical-seat corpus. The provider record's
+four measured values are scored independently, while the bore and finished callout requirements
+remain owned once by the existing hole ledger:
+
+- `countersink-external-cone.step` joins Ø6 and Ø14 external shaft bands through a 4 mm conical
+  transition. The cone contains material rather than opening into a void and is not a countersink.
+- `countersink-deburr.step` applies a 0.5 mm edge-break to a Ø6 through-bore mouth. Its shallow
+  flare is a deburr chamfer, not a functional countersink seat.
+- `countersink-single.step` cuts one Ø6 through bore at `(8, -5)` in 70 × 50 × 12 mm stock and
+  adds a top-opening Ø14 × 90° conical seat with 4 mm geometric depth.
+- `countersink-mixed-pair.step` cuts independent top-opening seats at `(-18, -7)` and `(18, 7)`
+  in 70 × 50 × 12 mm stock: Ø6 opens to Ø14 and Ø8 opens to Ø16, both at 90° and 4 mm depth.
+  The unequal records make a nested-object ownership swap observable rather than self-consistent.
+- `countersink-topology-a.step` cuts equal seats at `(-18, -7)` and `(18, 7)` in 90 × 50 × 12 mm
+  stock. Both physical occurrences share one grouped callout without becoming one observation.
+- `countersink-topology-b.step` is geometrically identical to topology-a; every Part 21 entity
+  identifier was bijectively renumbered and the entity records reverse serialized, with references
+  rewritten by the same bijection.
+
 `corpus-flats-v1.json` is a separate physical across-flats corpus. Opposed faces on one stock line
 are one requirement, while separate lines or disjoint axial spans remain independent:
 
