@@ -399,9 +399,26 @@ position. Removing any one of those five physical facts produces
 independently authored rectangular-pad detection/parameter/downstream benchmark corpus required
 before claiming family-level completeness.
 
+## Recognisers 0.4.10 adoption and blind-slot boundary
+
+Draftwright exactly pins `b123d-recognisers==0.4.10`. The 28 family record schemas already
+consumed from 0.4.9 are unchanged. The inspection namespace remains format 1 / API major 1;
+Draftwright advances its exact package join without widening the set of inspection symbols it
+consumes. The additive `b123d_recognisers.evidence` API is public provider capability, but this
+adoption does not consume it before a concrete correspondence slice demonstrates that need.
+
+The release adds `rectangular-blind-slots` and `round-bottom-blind-slots` to the one aggregate.
+Draftwright declares both schema-v1 records and keeps every downstream boundary `deferred` under
+#1421. This is deliberate: an ordinary through `SlotFeature` cannot state a blind depth or terminal
+wall, while a rectangular pocket cannot state an open end; the round-bottom record additionally
+separates flat width from floor radius. Both live inventories therefore appear in
+`unscored_recognized_families` instead of silently earning ordinary slot coverage. No IR adapter,
+Sheet declaration, generated code, annotation grammar, raw coordinate, or completeness denominator
+is invented by the dependency update.
+
 ## Recognisers 0.4.9 prepared frame boundary
 
-Draftwright exactly pins `b123d-recognisers==0.4.9` and accepts `RiserEvidence` v2,
+Draftwright's 0.4.9 boundary accepted `RiserEvidence` v2,
 `TurnedStep`/`TurnedProfile` v2, and the nested `TurnedProfileKey` v1. These records preserve
 same-solid levels and physical turned-profile membership in compounds. The fail-closed capability
 join rejects an older, future, missing, or malformed schema instead of treating it as equivalent.

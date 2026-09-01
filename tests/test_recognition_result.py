@@ -61,7 +61,7 @@ def test_built_drawing_exposes_its_recognition_result_without_private_state(monk
 # orchestration (`analyse_cylinders` gave way to `CylinderInventory`), so its patch targets no
 # longer exist.
 #
-# Not retargeted: released b123d-recognisers v0.4.9 owns the provider-side exactly-once proof in
+# Not retargeted: released b123d-recognisers v0.4.10 owns the provider-side exactly-once proof in
 # `test_recognition_result.py::test_orchestrator_injects_each_shared_dependency_once`.
 # Draftwright's `recognition_consumer_calls` guards only its side of the boundary: one public
 # aggregate per automatic build, cache reuse, and no public physical-recogniser bypass outside

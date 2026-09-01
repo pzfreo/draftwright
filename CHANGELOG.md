@@ -44,6 +44,13 @@
 
 ### Changed
 
+- Updated the immutable `b123d-recognisers` pin and fail-closed inspection/capability joins to
+  0.4.10. All 28 previously consumed family schemas remain unchanged. The two new blind-slot
+  families are explicitly deferred under #1421 and remain visible as unscored recognised
+  inventories; Draftwright does not coerce their depth, terminal/open-end, or round-floor evidence
+  into its ordinary through-slot grammar. The provider's additive evidence API is not consumed by
+  this bounded adoption slice (ADRs 0013, 0015, 0017, 0020).
+
 - Principal-profile lint now correlates its independent extremal-face evidence with the cached
   public `DoubleDBore` aggregate instead of importing provider-private profile helpers. Exact
   axis/span, end-plane, centre, radius, A/F, chord, arc, and flat-direction checks fail closed;

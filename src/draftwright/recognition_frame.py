@@ -91,7 +91,7 @@ def require_unambiguous_groove_owner(groove: Any, profiles: Iterable[Any]) -> tu
     if len(owners) > 1:
         raise AmbiguousTurnedOwnershipError(
             "a groove matches multiple body-local turned profiles, but "
-            "b123d-recognisers 0.4.9 Groove records carry no profile identity; "
+            "current b123d-recognisers Groove records carry no profile identity; "
             "refusing to guess (https://github.com/pzfreo/b123d-recognisers/issues/354)"
         )
     return owners
