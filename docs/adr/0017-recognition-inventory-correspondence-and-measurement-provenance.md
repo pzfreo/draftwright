@@ -151,9 +151,10 @@ Individual `recognise_<feature>` functions keep the ADR 0013 contract. The aggre
 above them; it does not move drafting policy into `recognition/` and it does not replace
 layout/sizing state such as the bounding box, zones, page/scale selection, or view facts.
 
-Every public `recognise_*` family is classified by the fail-closed `MIGRATED` / `DEFERRED`
-manifest. A new family cannot appear without an ownership decision. A deferral carries a
-reason code and, where applicable, the issue that removes its constraint.
+Every public physical family is classified by the provider's fail-closed registry/manifest.
+A new family cannot appear without an ownership decision. That contract and its applicability
+tests live with `b123d-recognisers`; Draftwright consumes the released aggregate and does not
+import the provider's private roster to re-certify its orchestration.
 
 Owning a family is distinct from always running it. Applicability gates live inside the one
 orchestration. Since Amendment 3, chamfers and fillets run for both prismatic and turned
@@ -399,15 +400,17 @@ completeness slice. The remaining abstractions are evaluated separately after Ga
 ## Landed Guards
 
 - [x] One orchestration call per automatic build.
-- [x] Shared cylinder substrate and migrated families are not rescanned by model construction.
-- [x] Every public `recognise_*` family is `MIGRATED` or carries a reason-coded deferral.
+- [x] Shared cylinder substrate is not rescanned by model construction, and no public physical
+  recogniser is invoked outside the aggregate on guarded consumer paths.
+- [x] The released provider suite owns registry completeness, applicability, and exactly-once
+  family execution; Draftwright does not duplicate those tests through private imports.
 - [x] Declared build/render performs no recognition.
 - [x] Physical critique of a declared drawing obtains at most one cached aggregate.
 - [x] Repeated lint returns equivalent results without rerunning recognition.
 - [x] Remaining classification-gated families are owned but skipped for inapplicable part
   classes.
-- [x] A counterexample/mutation fails when the cache, gate, manifest, or shared-evidence contract
-  it protects is broken.
+- [x] A counterexample/mutation fails when the cache, gate, consumer bypass, or shared-evidence
+  contract it protects is broken.
 - [x] Complete-wire repeating radial-profile evidence is scanned once by the orchestration;
   declared-gear critique projects axis/count correspondence from it without rescanning (#1087).
 

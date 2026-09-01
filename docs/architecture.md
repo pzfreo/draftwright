@@ -500,13 +500,12 @@ policy) live in `CLAUDE.md`. This is the per-ADR status trail; each ADR's
   `Analysis`; declared-path critique obtains the same aggregate lazily through `BuildState`.
   ADR 0017 §5 explicitly permits both (independence from the *plan* is not independence from
   the *recognition*).
-  Phase 1 (#1019) landed the **fail-closed manifest** — `MIGRATED` / `DEFERRED` in
-  `b123d_recognisers.result` classify every public `recognise_*` family, and
-  `tests/test_recognition_manifest.py` fails when a new one appears without that decision,
-  so a recogniser cannot be added and then quietly re-scanned from three call sites. A
-  deferral is a `Deferral` reason **code** plus the issue that removes it, not a paragraph:
-  prose in a constant CI reads goes stale silently, and the first cut's did. The why-trail
-  lives in the blocking issue.
+  Phase 1 (#1019) introduced the **fail-closed manifest**. After extraction, its registry,
+  family classification, applicability, and exactly-once execution contract are provider-owned
+  and tested by the released `b123d-recognisers` suite. Draftwright does not re-certify that
+  private orchestration. Its consumer guard observes the public aggregate by code object and
+  reports any public, part-taking recogniser invoked outside it, so a consumer cannot quietly
+  grow a second scan while pure record projections remain reusable.
   **#1022** landed the **ADR 0011 declared-path gate**: a declared build now recognises
   **nothing**. It was not one `if` — sizing sources the turned profile and step ladder from
   the declaration (`_declared_turned_profiles` / `_declared_step_zs` in `analysis.py`), and
@@ -538,16 +537,13 @@ policy) live in `CLAUDE.md`. This is the per-ADR status trail; each ADR's
   recognises their conical/toroidal turned forms. In 0.4.6, plates and the four prismatic step
   families (angled, circular blind, paired ramp, and through) remain classification-gated
   (#1254/#1281/#1382).
-  **`DEFERRED` is now empty** — every public `recognise_*` family is owned by the one
-  orchestration. The mechanism stays fail-closed (a new family must still be classified, and
-  every `Deferral` member survives for a future one); what went was each deferral, as its
-  stated constraint stopped being true. Measured per family with the current 0.4.9 pin: a
-  prismatic build runs
-  28 once each, a turned build 23 (the five prismatic-only families excluded), and a declared
-  build/render **zero**. Physical critique or export may then obtain one cached aggregate. The
-  three 0.4.6 step inventories are owned by that aggregate and now have evidence-backed,
-  scored consumer semantics under #1382. Their framed-coordinate parity remains a separate
-  #1357 acceptance item.
+  The provider's current manifest has no deferred family: every public physical family is
+  owned by its one orchestration, with applicability still provider policy. Draftwright's
+  executable claim is deliberately narrower: an automatic build requests one aggregate and
+  makes no physical-recogniser bypass; a declared build/render requests none; physical critique
+  or export may obtain one cached aggregate. The three 0.4.6 step inventories are consumed with
+  evidence-backed, scored semantics under #1382. Their framed-coordinate parity remains a
+  separate #1357 acceptance item.
   `RaisedPad` schema v2 is likewise adapted only after the shared aggregate: axis and signed
   attachment direction are IR data, all six orientations use the same footprint/height/location
   compiler grammar and placement solve, and a side-normal footprint is filtered from the legacy

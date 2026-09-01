@@ -16,7 +16,6 @@ see that helper for why a binding-level spy cannot be trusted for this claim.
 """
 
 import inspect
-from contextlib import contextmanager
 from types import SimpleNamespace
 
 import pytest
@@ -27,19 +26,12 @@ from b123d_recognisers import (
     recognise_risers,
     step_level_zs,
 )
-from b123d_recognisers.result import DEFERRED, MIGRATED
 from build123d import Align, Box, Cylinder, Pos, Rot
-from conftest import counting_calls, recognition_family_calls
+from conftest import counting_calls, recognition_consumer_calls
 
 from draftwright import Sheet, build_drawing
 from draftwright.compose import _est_right_strip_depth, _n_right_strip_boss_heights
 from draftwright.linting.coverage import lint_prismatic_coverage
-
-
-@contextmanager
-def _counting_every_family():
-    with recognition_family_calls(MIGRATED | DEFERRED.keys()) as counts:
-        yield counts
 
 
 def _issue_keys(issues) -> tuple:
@@ -78,7 +70,7 @@ def test_a_declared_build_recognises_nothing():
     every one reached through ``repair() -> lint()`` rather than through detection.
     """
     _, sheet = _declared_plate_sheet()
-    with _counting_every_family() as counts:
+    with recognition_consumer_calls() as counts:
         sheet.build()
 
     assert dict(counts) == {}, (
@@ -100,31 +92,29 @@ def test_exporting_a_declared_drawing_pays_for_one_aggregate_and_no_more(tmp_pat
     _, sheet = _declared_plate_sheet()
     drawing = sheet.build()
 
-    with _counting_every_family() as counts:
+    with recognition_consumer_calls() as counts:
         drawing.export(str(tmp_path / "first"), formats=("svg",))
         first = dict(counts)
         counts.clear()
         drawing.export(str(tmp_path / "second"), formats=("svg",))
         second = dict(counts)
 
-    assert first.get("recognise_holes") == 1, (
-        "the first export's lint-and-log found no inventory to judge against"
+    assert first == {"build_raw_recognition_result": 1}, (
+        f"the first export must request one aggregate and no bypass, got {first}"
     )
     assert dict(second) == {}, f"a second export re-recognised {dict(second)}"
 
 
-def test_a_detected_build_still_recognises_each_family_once():
+def test_a_detected_build_still_requests_one_aggregate():
     """The gate must not fire on the automatic path — the counterexample that stops
     :func:`test_a_declared_build_and_export_recognises_nothing` from being satisfied by
     breaking recognition outright."""
-    with _counting_every_family() as counts:
+    with recognition_consumer_calls() as counts:
         build_drawing(_prismatic_plate())
 
-    assert counts, "a detected build recognised nothing — the gate fired on the wrong path"
-    for family in MIGRATED:
-        assert counts.get(family) == 1, (
-            f"{family} ran {counts.get(family, 0)}× on the detected path, not once"
-        )
+    assert counts == {"build_raw_recognition_result": 1}, (
+        f"the detected build must request one aggregate and no bypass, got {counts}"
+    )
 
 
 def test_critique_on_a_declared_drawing_recognises_once_and_then_never_again():
@@ -138,7 +128,7 @@ def test_critique_on_a_declared_drawing_recognises_once_and_then_never_again():
     _, sheet = _declared_plate_sheet()
     drawing = sheet.build()
 
-    with _counting_every_family() as counts:
+    with recognition_consumer_calls() as counts:
         first_issues = _issue_keys(drawing.lint())
         first = dict(counts)
         counts.clear()
@@ -146,9 +136,9 @@ def test_critique_on_a_declared_drawing_recognises_once_and_then_never_again():
         third_issues = _issue_keys(drawing.lint())
         later = dict(counts)
 
-    assert first.get("recognise_holes") == 1, (
-        "the first physical lint of a declared drawing must obtain one aggregate — without it "
-        "coverage judges against an empty inventory and reports every real feature as missing"
+    assert first == {"build_raw_recognition_result": 1}, (
+        f"the first physical lint must request one aggregate and no bypass, got {first} — "
+        "without it coverage judges against an empty inventory"
     )
     assert dict(later) == {}, (
         f"two further lints re-ran {dict(later)} — the aggregate is supposed to be built once "
@@ -189,7 +179,7 @@ def test_a_rejected_export_does_not_recognise_first(kwargs, message):
     _, sheet = _declared_plate_sheet()
     drawing = sheet.build()
 
-    with _counting_every_family() as counts:
+    with recognition_consumer_calls() as counts:
         with pytest.raises(ValueError, match=message):
             drawing.export("out", **kwargs)
 
@@ -258,7 +248,7 @@ def test_a_declared_turned_part_keeps_axial_critique():
     sheet.step(a)
     sheet.step(b)
     sheet.step(c)
-    with _counting_every_family() as counts:
+    with recognition_consumer_calls() as counts:
         drawing = sheet.build()
     assert dict(counts) == {}, f"the declared turned path recognised {dict(counts)}"
 
@@ -371,7 +361,7 @@ def test_lint_projects_the_shared_riser_evidence_and_rescans_nothing():
     """
     drawing = build_drawing(_rebated_block())
 
-    with _counting_every_family() as counts:
+    with recognition_consumer_calls() as counts:
         drawing.lint()
         drawing.lint()
 

@@ -7,16 +7,16 @@ plates, step shoulders, chamfers, fillets, flats, pockets). On the NIST CTC-02
 fixture the duplicate pass cost ~16 s, `recognise_fillets` alone 22.7 s across the
 two runs. The sizing model is now stored on `Analysis.model` and reused.
 
-`recognise_fillets` is the counted sentinel: it is the most expensive detector and
-has no injection parameter, so a second call means the duplicate-detection path is
-back.
+The public aggregate is the counted sentinel, while any public physical recogniser invoked
+outside it is reported as a consumer bypass. A second aggregate or bypass means the
+duplicate-detection path is back.
 """
 
 from __future__ import annotations
 
 import pytest
-from build123d import Axis, Box, fillet
-from conftest import counting_calls, recognition_family_calls
+from build123d import Axis, Box, Cylinder, Pos, fillet
+from conftest import counting_calls, recognition_consumer_calls
 
 from draftwright import build_drawing
 
@@ -27,36 +27,33 @@ def _filleted():
     return fillet(e, 8)
 
 
+def _turned():
+    return Cylinder(20, 60) - Pos(0, 0, 30) * Cylinder(6, 20)
+
+
 @pytest.fixture
-def fillet_counter():
-    """Count ``recognise_fillets`` by CODE OBJECT, not by patching a module binding.
+def aggregate_counter():
+    """Count the released aggregate without inspecting its provider-owned registry."""
 
-    This spied on ``model.detect.recognise_fillets`` until #1028 moved the call into the
-    shared aggregate — at which point the binding was never used, the count read 0, and the
-    test failed claiming the detector had stopped running when it had merely moved. The claim
-    under test is "once per build", which is about the function, not about who imports it.
-
-    Same reasoning as ``cyls_counter`` below and the ADR 0017 manifest guards: a code object
-    cannot be re-bound, so the count survives the next migration too.
-    """
-    with recognition_family_calls({"recognise_fillets"}) as family_counts:
-        yield family_counts
+    with recognition_consumer_calls() as counts:
+        yield counts
 
 
-def test_detectors_run_once_per_build(fillet_counter):
-    dwg = build_drawing(_filleted())
+@pytest.mark.parametrize("framed_recognition", (False, True))
+def test_detectors_run_once_per_build(aggregate_counter, framed_recognition):
+    dwg = build_drawing(_filleted(), framed_recognition=framed_recognition)
 
-    assert fillet_counter.get("recognise_fillets") == 1, (
-        "recognise_fillets ran "
-        f"{fillet_counter.get('recognise_fillets', 0)}× in one build — the sizing and "
-        f"render paths are re-detecting instead of sharing one inventory (ADR 0008: detected "
-        f"once). A prismatic fixture, so the #1028 classification gate does not apply."
+    assert dwg.recognition_frame_decision["status"] == ("framed" if framed_recognition else "raw")
+    assert aggregate_counter == {"build_raw_recognition_result": 1}, (
+        f"unexpected recognition activity in one "
+        f"{'framed' if framed_recognition else 'raw'} build: {aggregate_counter} — the "
+        "sizing and render paths must share one inventory with no consumer bypass (ADR 0008)"
     )
     # The drawing's render model IS the stored sizing model — one object, one inventory.
     assert dwg.model() is dwg._analysis.model
 
 
-def test_generate_script_detects_once(fillet_counter, tmp_path):
+def test_generate_script_detects_once(aggregate_counter, tmp_path):
     from build123d import export_step
 
     from draftwright.sheet_emit import generate_sheet_script
@@ -64,10 +61,9 @@ def test_generate_script_detects_once(fillet_counter, tmp_path):
     step = str(tmp_path / "filleted.step")
     export_step(_filleted(), step)
     generate_sheet_script(step, out=str(tmp_path / "s"))
-    assert fillet_counter.get("recognise_fillets") == 1, (
-        "recognise_fillets ran "
-        f"{fillet_counter.get('recognise_fillets', 0)}× in generate_sheet_script — the "
-        f"emitter must reuse one inventory, not rebuild"
+    assert aggregate_counter == {"build_raw_recognition_result": 1}, (
+        f"unexpected recognition activity in generate_sheet_script: {aggregate_counter} — "
+        "the emitter must reuse one inventory without a consumer bypass"
     )
 
 
@@ -105,17 +101,33 @@ def test_cylinder_scan_runs_once_per_build(cyls_counter):
     )
 
 
-def test_declared_model_runs_no_detection(fillet_counter):
+def test_declared_model_runs_no_detection(aggregate_counter):
     # ADR 0011: a caller-declared model skips detection entirely — build_part_model is
     # never invoked (the sizing path uses the declared model; the builder coerces it),
-    # so the fillet detector must not run at all.
+    # so the recognition aggregate must not run at all.
     from draftwright.model import declare
 
     part = _filleted()
     dwg = build_drawing(part, model=[declare.envelope(part)])
-    assert fillet_counter.get("recognise_fillets", 0) == 0, (
-        "recognise_fillets ran "
-        f"{fillet_counter.get('recognise_fillets', 0)}× on the declared-model path — "
-        f"declaration must skip detection (ADR 0011)"
+    assert aggregate_counter == {}, (
+        f"declared-model recognition activity: {aggregate_counter} — declaration must skip "
+        "detection and consumer recogniser bypasses (ADR 0011)"
     )
     assert dwg._analysis.model is None  # declared models are not stored on Analysis
+
+
+@pytest.mark.parametrize("build", (_filleted, _turned))
+def test_direct_model_construction_reuses_the_analysis_aggregate(build, tmp_path):
+    """The second build_part_model seam must receive every aggregate inventory."""
+
+    from draftwright.analysis import _analyse
+    from draftwright.annotations.orchestrator import build_model
+
+    analysis = _analyse(build(), "t", "1", "±0.1", "t", tmp_path / "unused.svg")
+    with recognition_consumer_calls() as recognition_calls:
+        model = build_model(analysis)
+
+    assert model.features
+    assert recognition_calls == {}, (
+        f"direct model construction bypassed the analysis aggregate: {recognition_calls}"
+    )

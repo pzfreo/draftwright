@@ -17,7 +17,7 @@ breaks its claimed contract (#1018 rule).
 | `test_drawing_encapsulation.py` | **keep** | Single-owner build state (ADR 0005). The stay-deleted halves guard against reintroduction of removed surfaces — a failure mode LLM sessions are *specifically* prone to (regenerating deleted code from stale context). |
 | `test_compiled_plan_boundary.py` | **keep** | ADR 0016 Amdt 1: suppression-by-omission is unenforceable without it. |
 | `test_label_provenance.py` | **keep** | Active drawdown ratchet (#927, 26 sites). Re-audit when the budget reaches zero — at zero it becomes a simple boundary test. |
-| `test_recognition_manifest.py` | **keep** | Fail-closed classification is the ADR 0017 contract itself. |
+| `recognition_consumer_calls` (`conftest.py`) | **keep** | ADR 0017 consumer ownership: counts the public aggregate and catches public physical-recogniser bypasses without inspecting provider internals. Provider registry completeness is owned by the released provider suite. |
 | `test_recogniser_contract.py` | **keep** | Cross-repository capability join; fail-closed by design. |
 | `test_detect_registry.py` | **keep** | Record→Feature completeness; a silently unadapted record family is invisible in output. |
 | `test_carve_free_position_callers.py` | **keep** | Two features (#555, #559) regressed onto the solver-invisible path before #636 — the failure mode recurred twice. Carries anti-tautology self-tests. |
