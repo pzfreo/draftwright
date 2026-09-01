@@ -552,6 +552,22 @@ def test_linting_consumes_recognisers_only_through_the_public_root():
     )
 
 
+def test_profile_consumer_tests_use_only_the_released_recogniser_root():
+    """Consumer evidence must not become a second home for provider implementation tests."""
+
+    tests = Path(__file__).resolve().parent
+    paths = (
+        tests / "test_issue_1058_wheel_profile.py",
+        tests / "test_issue_1245_passage_disposition.py",
+        tests / "test_issue_1246_prismatic_pocket_disposition.py",
+    )
+    offenders = [offender for path in paths for offender in _private_recogniser_imports(path)]
+    assert not offenders, (
+        "profile consumer tests must use released aggregate records and Draftwright-owned "
+        f"correlation evidence, not provider implementation modules: {offenders}"
+    )
+
+
 def test_public_root_guard_rejects_module_alias_loopholes(tmp_path):
     probe = tmp_path / "private_recogniser_imports.py"
     probe.write_text(

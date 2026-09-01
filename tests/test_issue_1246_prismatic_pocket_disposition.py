@@ -6,12 +6,7 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
-from b123d_recognisers import (
-    build_raw_recognition_result,
-    recognise_pockets,
-    recognise_prismatic_pockets,
-)
-from b123d_recognisers.profiled_bores import principal_boundary_plane
+from b123d_recognisers import build_raw_recognition_result
 from build123d import (
     Box,
     BuildPart,
@@ -26,7 +21,10 @@ from build123d import (
 )
 
 from draftwright import build_drawing
-from draftwright.linting.coverage import _prismatic_pocket_matches_principal_wire
+from draftwright.linting.coverage import (
+    _principal_boundary_plane,
+    _prismatic_pocket_matches_principal_wire,
+)
 from draftwright.linting.prismatic_pocket_coverage import lint_prismatic_pocket_coverage
 
 
@@ -54,7 +52,7 @@ def _matched_mouth(part, pocket):
     bbox = part.bounding_box()
     tol = max(1e-5, max(float(bbox.size.X), float(bbox.size.Y), float(bbox.size.Z)) * 1e-5)
     for face in part.faces():
-        boundary = principal_boundary_plane(face, bbox)
+        boundary = _principal_boundary_plane(face, bbox)
         if boundary is None:
             continue
         axis, plane_axes, at = boundary
@@ -159,8 +157,6 @@ def test_a_prismatic_pocket_is_an_explicit_unsupported_completeness_outcome() ->
 def test_aggregate_reconciliation_counts_the_rectangular_recess_only_as_pocket() -> None:
     part = _hexagonal_pocket_part(rectangular=True)
 
-    assert len(recognise_prismatic_pockets(part)) == 2, "direct calls precede reconciliation"
-    assert len(recognise_pockets(part)) == 1
     recognition = build_raw_recognition_result(part)
     assert len(recognition.prismatic_pockets) == 1
     assert len(recognition.pockets) == 1

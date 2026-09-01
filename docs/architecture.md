@@ -506,6 +506,9 @@ policy) live in `CLAUDE.md`. This is the per-ADR status trail; each ADR's
   private orchestration. Its consumer guard observes the public aggregate by code object and
   reports any public, part-taking recogniser invoked outside it, so a consumer cannot quietly
   grow a second scan while pure record projections remain reusable.
+  Double-D, Passage, PrismaticPocket, and repeating-profile consumer tests likewise read the
+  aggregate and test Draftwright's independent physical correlation; private profile predicates,
+  attribution, and family reconciliation remain provider-suite responsibilities.
   **#1022** landed the **ADR 0011 declared-path gate**: a declared build now recognises
   **nothing**. It was not one `if` — sizing sources the turned profile and step ladder from
   the declaration (`_declared_turned_profiles` / `_declared_step_zs` in `analysis.py`), and

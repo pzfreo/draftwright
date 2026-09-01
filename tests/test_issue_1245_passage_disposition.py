@@ -7,11 +7,13 @@ from types import SimpleNamespace
 
 import pytest
 from b123d_recognisers import build_raw_recognition_result
-from b123d_recognisers.profiled_bores import principal_boundary_plane
 from build123d import Box, Ellipse, GeomType, Pos, RegularPolygon, extrude
 
 from draftwright import build_drawing
-from draftwright.linting.coverage import _passage_matches_principal_wire
+from draftwright.linting.coverage import (
+    _passage_matches_principal_wire,
+    _principal_boundary_plane,
+)
 from draftwright.linting.passage_coverage import lint_passage_coverage
 from draftwright.linting.quality import quality_components
 from draftwright.registry import AnnotationRegistry
@@ -26,7 +28,7 @@ def _matched_mouth(part, passage):
     bbox = part.bounding_box()
     tol = max(1e-5, max(float(bbox.size.X), float(bbox.size.Y), float(bbox.size.Z)) * 1e-5)
     for face in part.faces():
-        boundary = principal_boundary_plane(face, bbox)
+        boundary = _principal_boundary_plane(face, bbox)
         if boundary is None:
             continue
         axis, plane_axes, at = boundary

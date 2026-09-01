@@ -18,6 +18,7 @@ breaks its claimed contract (#1018 rule).
 | `test_compiled_plan_boundary.py` | **keep** | ADR 0016 Amdt 1: suppression-by-omission is unenforceable without it. |
 | `test_label_provenance.py` | **keep** | Active drawdown ratchet (#927, 26 sites). Re-audit when the budget reaches zero — at zero it becomes a simple boundary test. |
 | `recognition_consumer_calls` (`conftest.py`) | **keep** | ADR 0017 consumer ownership: counts the public aggregate and catches public physical-recogniser bypasses without inspecting provider internals. Provider registry completeness is owned by the released provider suite. |
+| `test_profile_consumer_tests_use_only_the_released_recogniser_root` | **keep** | #1411: the three consumer suites previously imported non-exported provider profile helpers and accumulated provider algorithm tests. The fixed file set is the regression boundary; provider-owned predicate coverage lives in released v0.4.9. |
 | `test_recogniser_contract.py` | **keep** | Cross-repository capability join; fail-closed by design. |
 | `test_detect_registry.py` | **keep** | Record→Feature completeness; a silently unadapted record family is invisible in output. |
 | `test_carve_free_position_callers.py` | **keep** | Two features (#555, #559) regressed onto the solver-invisible path before #636 — the failure mode recurred twice. Carries anti-tautology self-tests. |
