@@ -2403,7 +2403,7 @@ def test_an_unmatched_countersink_is_still_counted_and_still_unattributable():
 def test_unattached_external_countersink_false_positive_is_not_a_hole_requirement():
     drawing = build_drawing(_external_stepped_shaft_with_conical_transition(), auto_dims=False)
     assert not drawing.recognition().holes
-    assert len(drawing.recognition().countersinks) == 1
+    assert not drawing.recognition().countersinks
 
     assert _outcomes(drawing) == []
     assert not [issue for issue in drawing.lint() if issue.code.startswith("hole_requirement_")]

@@ -161,7 +161,10 @@ _NON_REQUIREMENT_INVENTORIES = frozenset(
 #: merging them would let an undecided family look settled (#1244). Passage, PrismaticPocket and
 #: AngledStep left this register when #1245/#1246/#1247 gave every authoritative occurrence an
 #: unsupported outcome.
-_UNDECIDED_INVENTORIES: dict[str, str] = {}
+_UNDECIDED_INVENTORIES: dict[str, str] = {
+    "rectangular_blind_slots": "https://github.com/pzfreo/draftwright/issues/1421",
+    "round_bottom_blind_slots": "https://github.com/pzfreo/draftwright/issues/1421",
+}
 
 _AUDITED_FAMILIES = (
     "angled_steps",

@@ -1,7 +1,8 @@
 # ADR 0020 — Provider-owned frame boundary for detected compilation
 
-- **Status:** Accepted; prepared boundary and explicit opt-in activation implemented. Raw remains
-  the rollout default pending platform and corpus canaries.
+- **Status:** Accepted; prepared boundary and explicit opt-in activation implemented. The 0.4.10
+  adoption leaves the established public frame schemas unchanged. Raw remains the rollout default
+  pending platform and corpus canaries.
 - **Date:** 2026-08-31
 - **Deciders:** Paul Fremantle (pzfreo)
 
@@ -12,7 +13,8 @@ automatic path asks `b123d-recognisers` to interpret the caller/world placement 
 rotation can therefore change which feature families are recognised and which semantic views
 Draftwright plans, even though the physical part did not change.
 
-`b123d-recognisers` 0.4.9 provides the public preparation seam needed to remove that dependence.
+`b123d-recognisers` 0.4.9 introduced the public preparation seam needed to remove that dependence;
+0.4.10 retains it unchanged.
 `prepare_framed_part` either returns a typed `RefusedPartFrame` or one
 `PreparedFramedPart(frame, part, cylinders)`: the provider-inferred `PartFrame`, the exact
 topology-preserving local working solid, and its reusable local cylinder inventory. Draftwright
@@ -95,7 +97,7 @@ visible decision—not hidden recovery inside the frame adapter.
 
 ### 5. Plural turned profiles are one compiler input, never a selected body
 
-Recognisers 0.4.9 preserves body-local turned-profile membership. `Analysis.profiles` and
+Recognisers 0.4.9 and 0.4.10 preserve body-local turned-profile membership. `Analysis.profiles` and
 `build_part_model(..., profiles=...)` now carry that public tuple through the record→IR waist;
 `Analysis.prof` and the compatible `prof=` input remain zero/one projections only for behavior
 that genuinely requires one coaxial stack. No production consumer selects the first profile or
@@ -143,7 +145,7 @@ profiles in a multi-solid compound need not tile that compound's global axial en
 annotation, dimension, and lint round-trip parity tests guard that this provenance translation does
 not hide a drawing divergence.
 
-The released 0.4.9 `Groove` record does not carry `TurnedProfileKey`. A groove band that overlaps
+The released 0.4.10 `Groove` record does not carry `TurnedProfileKey`. A groove band that overlaps
 multiple nested coaxial profiles therefore has no exact public owner: position-only suppression can
 delete a sibling's legitimate step and position-only lint can falsely credit both bodies. The
 compiler refuses that ambiguous join rather than guessing or rescanning topology, and physical lint
@@ -156,7 +158,7 @@ band in the same denominator as the detected profile. Lint maps an evidenced gro
 that exact band index rather than adding a scalar count. Removing either surrounding step therefore
 lowers direct and generated-program completeness identically; neither a groove nor a sibling profile
 can fill an unrelated missing band.
-The raw and explicit framed paths both compile 0.4.9's plural groups through this same waist; the
+The raw and explicit framed paths both compile the provider's plural groups through this same waist; the
 framed path pairs them with the provider's exact local solid.
 
 ### 6. Activation is opt-in and source/working ownership stays visible
@@ -185,7 +187,7 @@ and representative corpus canaries remain release gates, not hidden conditions i
   chains, and completeness outcomes rather than selecting or merging a body.
 - AP242 points, vectors, AABBs, finite cylinders, and datum geometry can now share the provider's
   exact local coordinate system without altering the default caller-space API.
-- The 0.4.9 dependency and plural compiler intentionally correct raw compound interpretation:
+- The 0.4.9-and-later prepared contract and plural compiler intentionally correct raw compound interpretation:
   disjoint turned bodies no longer form an invented cross-body profile or disappear behind a
   singular projection; each body contributes its own step IR and chain.
 - Framed recognition is a supported explicit `build_drawing` option and uses the same plural
@@ -212,7 +214,8 @@ and representative corpus canaries remain release gates, not hidden conditions i
 all gauges and refusal reasons, local multi-diameter classification, body-local levels/risers/turned
 profiles, explicit singular-accessor refusal, and unchanged raw coordinate selection. The
 fail-closed manifest join
-in `tests/test_recogniser_capabilities.py` guards the 0.4.9 record schemas. Existing
+in `tests/test_recogniser_capabilities.py` guards the 0.4.10 record schemas (including the unchanged
+0.4.9 body-local schemas and the explicitly deferred blind-slot additions). Existing
 `tests/test_declared_recognition_gate.py` and `tests/test_part_model.py` retain declared no-recognition
 and one-aggregate lifecycle evidence; `tests/test_import_boundaries.py` keeps the boundary at the
 leaf rank. `tests/test_issue_1357_pmi_frame.py` proves point/vector distinction, tight local AABBs

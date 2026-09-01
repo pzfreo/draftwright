@@ -44,9 +44,11 @@ from b123d_recognisers import (
     PolygonalStock,
     PrismaticPocket,
     RaisedPad,
+    RectangularBlindSlot,
     RectGrid,
     RepeatingRadialProfile,
     RiserEvidence,
+    RoundBottomBlindSlot,
     SectionPassage,
     Slot,
     SlotArray,
@@ -804,6 +806,14 @@ _UNCONSUMED_RECORDS: dict[type, str] = {
         "an aggregate-reconciled polygonal blind recess not owned by `Pocket`; its arbitrary "
         "section has no truthful general Draftwright dimension grammar, so every occurrence has "
         "an explicit unsupported completeness outcome (#1246)"
+    ),
+    RectangularBlindSlot: (
+        "a provider-proved blind rectangular slot whose depth, terminal wall, and open end do "
+        "not fit the existing through-slot grammar; consumer semantics remain deferred (#1421)"
+    ),
+    RoundBottomBlindSlot: (
+        "a provider-proved blind open-ended slot whose flat width and round floor carry distinct "
+        "requirements absent from the existing slot/pocket grammar; semantics are deferred (#1421)"
     ),
 }
 

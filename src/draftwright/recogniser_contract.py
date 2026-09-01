@@ -340,6 +340,22 @@ def _geometry_only_declaration() -> dict[str, Any]:
 #: absent from BOTH this map and ``_FAMILIES``, so the next new family fails closed exactly as
 #: the first three did (#1244), and the 0.4.6 step families do now (#1382).
 _UNSUPPORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
+    "rectangular-blind-slots": (
+        ("RectangularBlindSlot",),
+        "https://github.com/pzfreo/draftwright/issues/1421",
+        "The provider proves a blind rectangular channel with an open end, terminal wall, "
+        "and flat floor. Reusing Draftwright's through-slot feature would omit the independently "
+        "dimension-bearing depth and invent the wrong bottom semantics, so the complete consumer "
+        "grammar remains deferred pending #1421.",
+    ),
+    "round-bottom-blind-slots": (
+        ("RoundBottomBlindSlot",),
+        "https://github.com/pzfreo/draftwright/issues/1421",
+        "The provider proves a blind open-ended channel with a round floor and separately reports "
+        "flat width and floor radius. Neither the through-slot nor rectangular-pocket grammar can "
+        "state that geometry without losing a requirement, so consumer semantics remain deferred "
+        "pending #1421.",
+    ),
     "passages": (
         (
             "Passage",
@@ -375,15 +391,45 @@ _UNSUPPORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
     ),
 }
 
+_DEFERRED_FAMILIES = frozenset(
+    {
+        "rectangular-blind-slots",
+        "round-bottom-blind-slots",
+    }
+)
+
 
 def _unsupported_declaration(family_id: str) -> dict[str, Any]:
     """A family the package proves and this consumer does not fully support.
 
-    Drafting boundaries remain ``unsupported``. Completeness stays ``deferred`` while its meaning
-    is undecided, except where a reviewed consumer decision defines an explicit unsupported
-    outcome. That distinction keeps the inventory visible without inventing drafting semantics.
+    An undecided family stays ``deferred`` at every semantic boundary. Once review settles on an
+    unsupported consumer boundary, drafting stages become ``unsupported`` and completeness either
+    stays deferred or carries an explicit unsupported outcome. That distinction keeps the inventory
+    visible without inventing drafting semantics.
     """
     records, tracking, rationale = _UNSUPPORTED[family_id]
+    if family_id in _DEFERRED_FAMILIES:
+        deferred = {
+            "state": "deferred",
+            "rationale": rationale,
+            "tracking": tracking,
+        }
+        return {
+            "id": family_id,
+            "record_schemas": _record_schema_versions(family_id, records),
+            "disposition": "deferred",
+            "rationale": rationale,
+            "tracking": tracking,
+            "ir_adapter": copy.deepcopy(deferred),
+            "dsl_declaration": copy.deepcopy(deferred),
+            "generated_code": copy.deepcopy(deferred),
+            "drawing_consumer": copy.deepcopy(deferred),
+            "completeness": copy.deepcopy(deferred),
+            "documentation": {
+                "state": "supported",
+                "evidence": ["docs/reference/recogniser-capabilities.md"],
+            },
+        }
     unsupported = {"state": "unsupported", "rationale": rationale}
     unsupported_completeness = {
         "angled-steps": (

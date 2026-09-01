@@ -120,16 +120,78 @@ def test_installed_package_contract_validates_without_a_sibling_checkout() -> No
     _validate()
     package = recognition.capability_manifest(format_version=2)
     declaration = consumer_capability_declaration()
-    # 28 since 0.4.6 added three step families (#1382). A literal,
+    # 30 since 0.4.10 added two blind-slot families (#1421). A literal,
     # not a length comparison against the package: the point is that BOTH sides changed
-    # together, so an upgrade that declared nothing would leave this at 25 and fail.
-    assert len(package["families"]) == len(declaration["families"]) == 28
+    # together, so an upgrade that declared nothing would leave this at 28 and fail.
+    assert len(package["families"]) == len(declaration["families"]) == 30
+
+
+def test_0410_blind_slot_families_are_explicitly_deferred() -> None:
+    package = _families(recognition.capability_manifest())
+    consumer = _families(consumer_capability_declaration())
+
+    expected = {
+        "rectangular-blind-slots": (
+            "RectangularBlindSlot",
+            {
+                "at",
+                "axis",
+                "depth",
+                "depth_axis",
+                "depth_sign",
+                "length",
+                "open_sign",
+                "width",
+                "width_axis",
+            },
+        ),
+        "round-bottom-blind-slots": (
+            "RoundBottomBlindSlot",
+            {
+                "at",
+                "axis",
+                "depth_axis",
+                "depth_sign",
+                "flat_width",
+                "length",
+                "open_sign",
+                "radius",
+                "width_axis",
+            },
+        ),
+    }
+    for family_id, (record_name, fields) in expected.items():
+        assert package[family_id]["introduced_in"] == "0.4.10"
+        assert package[family_id]["census_output"] == (
+            f"RecognitionResult.{family_id.replace('-', '_')}"
+        )
+        record = package[family_id]["records"][0]
+        assert record["name"] == record_name
+        assert record["schema_version"] == 1
+        assert set(record["fields"]) == fields
+
+        declaration = consumer[family_id]
+        assert declaration["record_schemas"] == {record_name: [1]}
+        assert declaration["disposition"] == "deferred"
+        assert declaration["tracking"] == "https://github.com/pzfreo/draftwright/issues/1421"
+        assert {
+            declaration[boundary]["state"]
+            for boundary in (
+                "ir_adapter",
+                "dsl_declaration",
+                "generated_code",
+                "drawing_consumer",
+                "completeness",
+            )
+        } == {"deferred"}
+        assert declaration["documentation"]["state"] == "supported"
+        assert family_id not in pending_family_declarations()
 
 
 def test_rich_passage_contract_has_an_explicit_unsupported_completeness_outcome() -> None:
     """Pin the 0.4 physical record and compatibility projection to one decision."""
 
-    assert INSTALLED_PACKAGE_VERSION == "0.4.9"
+    assert INSTALLED_PACKAGE_VERSION == "0.4.10"
     installed = tuple(int(component) for component in INSTALLED_PACKAGE_VERSION.split("."))
     assert (0, 4, 0) <= installed < (0, 5, 0)
     package = _families(recognition.capability_manifest())

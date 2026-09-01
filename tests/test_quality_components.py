@@ -10,7 +10,11 @@ is still a literal map.
 
 from __future__ import annotations
 
-from b123d_recognisers import RecognitionResult
+from b123d_recognisers import (
+    RecognitionResult,
+    RectangularBlindSlot,
+    RoundBottomBlindSlot,
+)
 
 from draftwright.linting.issues import LintIssue
 from draftwright.linting.quality import (
@@ -19,6 +23,7 @@ from draftwright.linting.quality import (
     _UNDECIDED_INVENTORIES,
     quality_components,
 )
+from draftwright.registry import AnnotationRegistry
 
 
 def _legibility(*issues):
@@ -209,3 +214,55 @@ def test_an_undecided_inventory_names_a_real_open_issue():
             f"{inventory} is unscored pending {issue}, which is not one of the issues the "
             f"capability declaration tracks ({sorted(tracked)}) — the registers disagree"
         )
+
+
+def test_0410_blind_slot_occurrences_remain_visible_while_semantics_are_deferred():
+    inventories = {
+        name: False if name == "rotational" else ()
+        for name in RecognitionResult.__dataclass_fields__
+    }
+    inventories["rectangular_blind_slots"] = (
+        RectangularBlindSlot(
+            axis="x",
+            open_sign=1,
+            length=12.0,
+            width_axis="y",
+            depth_axis="z",
+            depth_sign=-1,
+            width=6.0,
+            depth=3.0,
+            at=(0.0, 0.0, 5.0),
+        ),
+    )
+    inventories["round_bottom_blind_slots"] = (
+        RoundBottomBlindSlot(
+            axis="x",
+            open_sign=1,
+            length=12.0,
+            width_axis="y",
+            depth_axis="z",
+            depth_sign=-1,
+            radius=3.0,
+            flat_width=6.0,
+            at=(0.0, 0.0, 5.0),
+        ),
+    )
+    recognition = RecognitionResult(**inventories)
+
+    completeness = quality_components(
+        recognition=recognition,
+        features=(),
+        registry=AnnotationRegistry(),
+        omissions=(),
+        issues=(),
+        error_penalty=0.15,
+        warning_penalty=0.05,
+        has_asserted_content=True,
+    )["completeness"]
+
+    assert {
+        "rectangular_blind_slots",
+        "round_bottom_blind_slots",
+    } <= set(completeness["unscored_recognized_families"])
+    assert "rectangular_blind_slots" not in completeness["by_family"]
+    assert "round_bottom_blind_slots" not in completeness["by_family"]

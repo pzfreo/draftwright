@@ -3,7 +3,8 @@
 - **Status:** Accepted; narrowed after phase 1 (Amendment 1, 2026-08-05), with
   external-package/cache ownership clarified by Amendment 2 (2026-08-15) and turned
   edge-treatment applicability widened by Amendment 3 (2026-08-22), and the 0.4.6
-  prismatic step inventories incorporated by Amendment 4 (2026-08-30)
+  prismatic step inventories incorporated by Amendment 4 (2026-08-30). Amendment 5
+  (2026-09-01) incorporates the 0.4.10 prismatic blind-slot inventories.
 - **Date:** 2026-08-03
 - **Deciders:** Paul Fremantle (pzfreo)
 
@@ -116,8 +117,8 @@ and radius.
 
 `b123d-recognisers` 0.4.6 adds circular blind steps, paired ramp steps, and through steps to
 the aggregate. Like plates and angled prismatic steps, those inventories are inapplicable to a
-turned build and remain gated inside the one orchestration. A prismatic aggregate therefore
-runs 28 public families once each; a turned aggregate runs 23, with five prismatic-only
+turned build and remain gated inside the one orchestration. At 0.4.6, a prismatic aggregate
+therefore ran 28 public families once each; a turned aggregate ran 23, with five prismatic-only
 families gated out by design.
 
 Ownership does not imply invented drafting semantics. Draftwright consumes the three new
@@ -139,6 +140,17 @@ as the aggregate owner and removes exact matching legacy fragments. The explicit
 permits the same local two-leg grammar on every principal axis. This is a pure projection of the
 shared aggregate, not a second recognition scan.
 
+## Amendment 5 — 0.4.10 adds two prismatic-only blind-slot inventories
+
+Recognisers 0.4.10 adds rectangular and round-bottom blind slots as two more prismatic-only
+physical families. The current aggregate runs 30 families for a prismatic part and 24 for a turned
+part, with six gated out: the two new gated families are offset by Plate becoming applicable to
+turned builds. Draftwright keeps both additions visible but deferred under #1421 until
+their depth, open-end, bottom-form, declaration, annotation, and completeness semantics are
+independently reviewed. A live occurrence is reported as an unscored recognised family; it is not
+coerced into the existing through-slot or rectangular-pocket grammar and does not enter the audited
+completeness denominator.
+
 ## Accepted Contract
 
 ### 1. One orchestration owns the recognition universe
@@ -157,9 +169,9 @@ tests live with `b123d-recognisers`; Draftwright consumes the released aggregate
 import the provider's private roster to re-certify its orchestration.
 
 Owning a family is distinct from always running it. Applicability gates live inside the one
-orchestration. Since Amendment 3, chamfers and fillets run for both prismatic and turned
-solids; plates, angled prismatic steps, circular blind steps, paired ramp steps, and through
-steps remain gated away from turned parts.
+orchestration. In the current release, plates, chamfers, and fillets run for both prismatic and
+turned solids; angled prismatic steps, circular blind steps, paired ramp steps, through steps,
+rectangular blind slots, and round-bottom blind slots remain gated away from turned parts.
 
 ### 2. Consumers reuse the result; they do not rescan per concern
 
@@ -230,8 +242,8 @@ critique because it logs its diagnostics. Therefore the observable call contract
 
 | path | recognition calls |
 |---|---|
-| automatic prismatic build | 28 families, once each |
-| automatic turned build | 23 families; five prismatic-only families gated out by design |
+| automatic prismatic build | 30 families, once each |
+| automatic turned build | 24 families; six prismatic-only families gated out by design |
 | declared build/render | zero |
 | first physical critique/export of a declared drawing | at most one aggregate |
 | subsequent lint of the same drawing | zero additional calls |

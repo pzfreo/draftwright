@@ -48,9 +48,11 @@ from b123d_recognisers import (
     recognise_polygonal_bosses,
     recognise_polygonal_stock,
     recognise_prismatic_pockets,
+    recognise_rectangular_blind_slots,
     recognise_rectangular_pads,
     recognise_repeating_radial_profiles,
     recognise_risers,
+    recognise_round_bottom_blind_slots,
     recognise_section_passages,
     recognise_slot_patterns,
     recognise_slots,
@@ -62,19 +64,26 @@ from build123d import (
     Align,
     Axis,
     Box,
+    BuildLine,
     BuildPart,
     BuildSketch,
     Cylinder,
+    Line,
     Plane,
     Polygon,
     Pos,
+    RadiusArc,
     RegularPolygon,
     Rot,
+    Vector,
     chamfer,
     extrude,
     fillet,
     import_step,
+    make_face,
 )
+
+from draftwright import build_drawing
 
 
 def _csk_plate():
@@ -144,6 +153,33 @@ def _slot_grid_plate():
         for j in range(3):
             part -= Pos((i - 0.5) * 44, (j - 1) * 34, 0) * Box(24, 8, 20)
     return part
+
+
+def _rectangular_blind_slot_part():
+    stock = Box(30, 20, 40, align=(Align.CENTER, Align.CENTER, Align.MIN))
+    tool = Pos(0, 5, 0) * Box(
+        10,
+        5,
+        20,
+        align=(Align.CENTER, Align.MIN, Align.MIN),
+    )
+    return stock - tool
+
+
+def _round_bottom_blind_slot_part():
+    width, radius, length = 10.0, 3.0, 20.0
+    half_width = width / 2
+    half_flat = (width - 2 * radius) / 2
+    with BuildLine() as boundary:
+        Line((-half_width, 0), (half_width, 0))
+        RadiusArc((half_width, 0), (half_flat, -radius), radius)
+        Line((half_flat, -radius), (-half_flat, -radius))
+        RadiusArc((-half_flat, -radius), (-half_width, 0), radius)
+    with BuildSketch() as sketch:
+        make_face(boundary.line)
+    stock = Pos(0, -5, 0) * Box(30, 10, 40)
+    tool = extrude(sketch.sketch, amount=length, dir=Vector(0, 0, 1))
+    return stock - tool
 
 
 def _bolt_circle_plate(n=6, r=30):
@@ -254,6 +290,14 @@ def _records_from_recognisers():
         ("recognise_channels", recognise_channels(channel)),
         ("recognise_fillets", recognise_fillets(_filleted_box())),
         ("recognise_slots", recognise_slots(slotted)),
+        (
+            "recognise_rectangular_blind_slots",
+            recognise_rectangular_blind_slots(_rectangular_blind_slot_part()),
+        ),
+        (
+            "recognise_round_bottom_blind_slots",
+            recognise_round_bottom_blind_slots(_round_bottom_blind_slot_part()),
+        ),
         ("recognise_pockets", recognise_pockets(pocketed)),
         (
             "pocket_patterns:linear",
@@ -356,6 +400,28 @@ def test_every_record_type_is_actually_exercised():
         f"missing={sorted(t.__name__ for t in expected - seen)}, "
         f"unexpected={sorted(t.__name__ for t in seen - expected)}"
     )
+
+
+def test_0410_round_bottom_slot_crosses_the_real_aggregate_without_invented_semantics():
+    drawing = build_drawing(_round_bottom_blind_slot_part())
+    recognition = drawing.recognition()
+
+    assert len(recognition.round_bottom_blind_slots) == 1
+    assert not recognition.slots
+    assert not recognition.pockets
+    assert not {
+        "slot",
+        "slot_pattern",
+        "pocket",
+        "pocket_pattern",
+    } & {feature.kind for feature in drawing.model().features}
+    assert not [name for name in drawing.annotations() if name.startswith(("m_slot", "m_pocket"))]
+
+    completeness = drawing.lint_summary()["quality"]["completeness"]
+    assert completeness["unscored_recognized_families"] == ["round_bottom_blind_slots"]
+    assert completeness["requirements"] == 0
+    assert completeness["audited_score"] is None
+    assert "round_bottom_blind_slots" not in completeness["by_family"]
 
 
 def test_frozen_records_reject_mutation():
