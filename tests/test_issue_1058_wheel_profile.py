@@ -11,23 +11,6 @@ from types import SimpleNamespace
 import pytest
 from b123d_recognisers import (
     build_raw_recognition_result,
-    recognise_double_d_bores,
-    recognise_repeating_radial_profiles,
-)
-from b123d_recognisers.profiled_bores import (
-    DoubleDProfile,
-    double_d_bores_from_openings,
-    double_d_profile,
-    principal_boundary_plane,
-)
-from b123d_recognisers.repeating_profiles import (
-    _CurveEvidence,
-    _cyclic_edge_orbits,
-    _distance,
-    _one_closed_cycle,
-    _polar_signature,
-    _rotate,
-    _sample_wire,
 )
 from build123d import (
     Align,
@@ -53,6 +36,7 @@ from draftwright.builder import detect_part_model
 from draftwright.linting.coverage import (
     CoverageState,
     _double_d_bore_matches_principal_wire,
+    _principal_boundary_plane,
     lint_principal_profile_coverage,
 )
 from draftwright.linting.profiled_bore_coverage import (
@@ -74,8 +58,6 @@ from draftwright.sheet_emit import _feature_line, _hole_line, emit_sheet_script
 _WHEEL = Path(__file__).parent / "fixtures" / "issue_1058_wheel_rh.step"
 _SHA256 = "4911c06426f0ceeedc198416e058aabc1c1a6a65e9e766eca7efed5484a27cda"
 _CENTER = (Align.CENTER, Align.CENTER, Align.CENTER)
-_RADIAL_REPEAT_COUNT = 13
-_CORRESPONDENCE_TOL = 1e-5
 
 
 def _double_d_bore():
@@ -193,13 +175,6 @@ def _profile_evidence(case="valid"):
     return _ProfileWire([*lines, *arcs], size=size)
 
 
-def _sample_outer_wire(face, *, samples=9) -> tuple[_CurveEvidence, ...]:
-    assert samples == 9
-    evidence = _sample_wire(face.outer_wire(), ("x", "y"))
-    assert evidence is not None
-    return evidence
-
-
 @pytest.fixture(scope="module")
 def wheel_part():
     return import_step(str(_WHEEL))
@@ -212,7 +187,13 @@ def wheel_drawing():
 
 def _wheel_end_faces(part):
     bbox = part.bounding_box()
-    return [face for face in part.faces() if principal_boundary_plane(face, bbox)]
+    return [face for face in part.faces() if _principal_boundary_plane(face, bbox)]
+
+
+def _recognised_double_d_bores(part):
+    """Read Double-D evidence through the released aggregate contract."""
+
+    return build_raw_recognition_result(part).double_d_bores
 
 
 def test_real_wheel_fixture_proves_the_double_d_profile(wheel_part):
@@ -244,10 +225,10 @@ def test_real_wheel_fixture_proves_the_double_d_profile(wheel_part):
         )
 
 
-def test_real_wheel_proves_complete_thirteen_sector_correspondence(wheel_part):
+def test_real_wheel_fixture_has_thirteen_sector_boundaries(wheel_part):
     end_faces = _wheel_end_faces(wheel_part)
     assert len(end_faces) == 2
-    boundaries = [principal_boundary_plane(face, wheel_part.bounding_box()) for face in end_faces]
+    boundaries = [_principal_boundary_plane(face, wheel_part.bounding_box()) for face in end_faces]
     assert [boundary[0] for boundary in boundaries if boundary] == ["z", "z"]
     assert sorted(boundary[2] for boundary in boundaries if boundary) == pytest.approx(
         [-3.8500001, 3.8500001]
@@ -264,22 +245,9 @@ def test_real_wheel_proves_complete_thirteen_sector_correspondence(wheel_part):
             abs=1e-6,
         )
 
-        evidence = _sample_outer_wire(face)
-        orbits = _cyclic_edge_orbits(
-            evidence,
-            centre=(0.0, 0.0),
-            repeat_count=_RADIAL_REPEAT_COUNT,
-            tol=_CORRESPONDENCE_TOL,
-        )
-        assert orbits is not None
-        assert [len(orbit) for orbit in orbits] == [13, 13, 13, 13]
-        assert Counter(evidence[orbit[0]].kind for orbit in orbits) == Counter(
-            {GeomType.BSPLINE.name: 3, GeomType.CIRCLE.name: 1}
-        )
-
 
 def test_production_recogniser_carries_complete_serialisable_profile_evidence(wheel_part):
-    (profile,) = recognise_repeating_radial_profiles(wheel_part)
+    (profile,) = build_raw_recognition_result(wheel_part).repeating_radial_profiles
 
     assert profile.axis == "z"
     assert profile.centre == pytest.approx((0.0, 0.0, 0.0), abs=1e-6)
@@ -290,25 +258,6 @@ def test_production_recogniser_carries_complete_serialisable_profile_evidence(wh
         {GeomType.BSPLINE.name: 3, GeomType.CIRCLE.name: 1}
     )
     assert len(profile.to_dict()["sector_signature"]) == 4
-
-
-def test_equal_profiles_on_distinct_bodies_remain_ambiguous(wheel_part, monkeypatch):
-    import b123d_recognisers.repeating_profiles as repeating_profiles
-
-    (profile,) = recognise_repeating_radial_profiles(wheel_part)
-    bodies = (object(), object())
-    part = SimpleNamespace(solids=lambda: bodies)
-    monkeypatch.setattr(
-        repeating_profiles,
-        "_recognise_solid",
-        lambda solid, **_kwargs: (
-            [repeating_profiles._RepeatingRadialProposal(profile, object(), object())]
-            if solid in bodies
-            else []
-        ),
-    )
-
-    assert repeating_profiles.recognise_repeating_radial_profiles(part) == [profile, profile]
 
 
 def test_declared_gear_reconciles_to_the_recognition_owned_profile(wheel_part):
@@ -341,190 +290,6 @@ def test_declared_gear_reconciles_to_the_recognition_owned_profile(wheel_part):
         & codes
     )
     assert "unrecognised_defining_geometry" in codes
-
-
-def test_full_profile_correspondence_ignores_start_and_traversal(wheel_part):
-    evidence = _sample_outer_wire(_wheel_end_faces(wheel_part)[0])
-    shifted = evidence[7:] + evidence[:7]
-    reversed_traversal = tuple(
-        replace(edge, points=tuple(reversed(edge.points))) for edge in reversed(evidence)
-    )
-
-    for candidate in (shifted, reversed_traversal):
-        assert (
-            _cyclic_edge_orbits(
-                candidate,
-                centre=(0.0, 0.0),
-                repeat_count=_RADIAL_REPEAT_COUNT,
-                tol=_CORRESPONDENCE_TOL,
-            )
-            is not None
-        )
-
-
-def test_common_circle_arcs_alone_do_not_prove_full_sector_correspondence(wheel_part):
-    evidence = _sample_outer_wire(_wheel_end_faces(wheel_part)[0])
-    arcs = tuple(edge for edge in evidence if edge.kind == GeomType.CIRCLE.name)
-    assert len(arcs) == 13
-    assert (
-        _cyclic_edge_orbits(
-            arcs,
-            centre=(0.0, 0.0),
-            repeat_count=_RADIAL_REPEAT_COUNT,
-            tol=_CORRESPONDENCE_TOL,
-        )
-        is None
-    )
-
-
-def test_empty_or_unsampleable_wire_evidence_fails_closed():
-    class _BadEdge:
-        geom_type = GeomType.BSPLINE
-        length = 1.0
-
-        def position_at(self, _fraction):
-            raise RuntimeError("malformed curve")
-
-    wire = SimpleNamespace(edges=lambda: [_BadEdge()])
-    assert not _one_closed_cycle((), tol=_CORRESPONDENCE_TOL)
-    assert _sample_wire(wire, ("x", "y")) is None
-
-
-def test_ambiguous_or_self_joined_endpoint_graph_fails_closed():
-    ambiguous = (
-        _CurveEvidence("line", 1.0, ((0.0, 0.0), (1.5e-5, 0.0))),
-        _CurveEvidence("line", 1.0, ((0.75e-5, 0.0), (1.0, 0.0))),
-    )
-    self_joined = (_CurveEvidence("line", 1.0, ((0.0, 0.0), (0.0, 0.0))),)
-
-    assert not _one_closed_cycle(ambiguous, tol=1e-5)
-    assert not _one_closed_cycle(self_joined, tol=1e-5)
-
-
-def test_polar_signature_is_stable_across_the_angle_branch_cut():
-    points = ((-1.0, 0.01), (-1.0, -0.01), (-0.9, -0.02))
-
-    assert _polar_signature(points, (0.0, 0.0)) == _polar_signature(
-        tuple(reversed(points)), (0.0, 0.0)
-    )
-
-
-def test_malformed_faces_and_a_shape_without_owned_solids_fail_closed(monkeypatch):
-    import b123d_recognisers.repeating_profiles as repeating_profiles
-
-    bbox = SimpleNamespace(
-        size=_point(1.0, 1.0, 1.0),
-        min=_point(0.0, 0.0, 0.0),
-        max=_point(1.0, 1.0, 1.0),
-    )
-    shape = SimpleNamespace(
-        bounding_box=lambda: bbox,
-        faces=lambda: [object()],
-        solids=lambda: [],
-    )
-
-    def malformed_boundary(*_args, **_kwargs):
-        raise RuntimeError("malformed face")
-
-    monkeypatch.setattr(repeating_profiles, "_prove_boundary", malformed_boundary)
-    assert repeating_profiles.recognise_repeating_radial_profiles(shape) == []
-
-
-def test_one_changed_intervening_curve_breaks_full_sector_correspondence(wheel_part):
-    evidence = list(_sample_outer_wire(_wheel_end_faces(wheel_part)[0]))
-    changed_index = next(
-        index for index, edge in enumerate(evidence) if edge.kind == GeomType.BSPLINE.name
-    )
-    changed = evidence[changed_index]
-    points = list(changed.points)
-    x, y = points[len(points) // 2]
-    points[len(points) // 2] = (x + 0.01, y)
-    evidence[changed_index] = replace(changed, points=tuple(points))
-
-    assert len([edge for edge in evidence if edge.kind == GeomType.CIRCLE.name]) == 13
-    assert (
-        _cyclic_edge_orbits(
-            evidence,
-            centre=(0.0, 0.0),
-            repeat_count=_RADIAL_REPEAT_COUNT,
-            tol=_CORRESPONDENCE_TOL,
-        )
-        is None
-    )
-
-
-def test_an_open_outer_cycle_cannot_prove_sector_correspondence(wheel_part):
-    evidence = list(_sample_outer_wire(_wheel_end_faces(wheel_part)[0]))
-    changed = evidence[0]
-    points = list(changed.points)
-    x, y = points[0]
-    points[0] = (x + 0.01, y)
-    evidence[0] = replace(changed, points=tuple(points))
-
-    assert not _one_closed_cycle(tuple(evidence), tol=_CORRESPONDENCE_TOL)
-    assert (
-        _cyclic_edge_orbits(
-            evidence,
-            centre=(0.0, 0.0),
-            repeat_count=_RADIAL_REPEAT_COUNT,
-            tol=_CORRESPONDENCE_TOL,
-        )
-        is None
-    )
-
-
-def test_one_unequal_sector_pitch_breaks_correspondence_even_when_closed(wheel_part):
-    evidence = list(_sample_outer_wire(_wheel_end_faces(wheel_part)[0]))
-    endpoint = evidence[0].points[0]
-    partners = [
-        (edge_index, point_index)
-        for edge_index, edge in enumerate(evidence[1:], start=1)
-        for point_index in (0, -1)
-        if _distance(endpoint, edge.points[point_index]) <= 1e-8
-    ]
-    assert len(partners) == 1
-
-    moved = _rotate(endpoint, 0.01, centre=(0.0, 0.0))
-    for edge_index, point_index in ((0, 0), partners[0]):
-        edge = evidence[edge_index]
-        points = list(edge.points)
-        points[point_index] = moved
-        evidence[edge_index] = replace(edge, points=tuple(points))
-
-    assert _one_closed_cycle(tuple(evidence), tol=_CORRESPONDENCE_TOL)
-    assert (
-        _cyclic_edge_orbits(
-            evidence,
-            centre=(0.0, 0.0),
-            repeat_count=_RADIAL_REPEAT_COUNT,
-            tol=_CORRESPONDENCE_TOL,
-        )
-        is None
-    )
-
-
-def test_non_bijective_sector_mapping_is_rejected_before_orbit_claim(wheel_part, monkeypatch):
-    import b123d_recognisers.repeating_profiles as repeating_profiles
-
-    evidence = _sample_outer_wire(_wheel_end_faces(wheel_part)[0])
-    assert _one_closed_cycle(evidence, tol=_CORRESPONDENCE_TOL)
-    targets = [(index + 4) % len(evidence) for index in range(len(evidence))]
-    targets[1] = targets[0]  # two source curves now claim the same physical target curve
-    target_for = {id(source): evidence[target] for source, target in zip(evidence, targets)}
-
-    def non_bijective(source, target, **_kwargs):
-        return target is target_for[id(source)]
-
-    monkeypatch.setattr(repeating_profiles, "_curves_match", non_bijective)
-    assert (
-        repeating_profiles._cyclic_edge_orbits(
-            evidence,
-            centre=(0.0, 0.0),
-            repeat_count=_RADIAL_REPEAT_COUNT,
-            tol=_CORRESPONDENCE_TOL,
-        )
-        is None
-    )
 
 
 def test_real_wheel_no_longer_gets_a_confident_envelope_only_result(wheel_drawing):
@@ -590,7 +355,7 @@ def test_physical_profile_scan_accepts_no_caller_extent():
     part = _double_d_bore()
     issues = lint_principal_profile_coverage(
         part,
-        double_d_bores=recognise_double_d_bores(part),
+        double_d_bores=_recognised_double_d_bores(part),
     )
     assert issues == []
 
@@ -649,7 +414,7 @@ def test_physical_profile_scan_requires_the_public_aggregate_projection():
 )
 def test_physical_profile_scan_requires_exact_public_double_d_correspondence(changes):
     part = _double_d_bore()
-    bore = replace(recognise_double_d_bores(part)[0], **changes)
+    bore = replace(_recognised_double_d_bores(part)[0], **changes)
 
     issues = lint_principal_profile_coverage(part, double_d_bores=(bore,))
 
@@ -658,32 +423,13 @@ def test_physical_profile_scan_requires_exact_public_double_d_correspondence(cha
 
 @pytest.mark.parametrize("part", [_lens_bore(), _l_bore()], ids=("circular-arcs", "linear-l"))
 def test_edge_types_alone_do_not_certify_a_supported_profile(part):
-    assert recognise_double_d_bores(part) == []
+    assert _recognised_double_d_bores(part) == ()
     issues = [
         issue
         for issue in build_drawing(part).lint()
         if issue.code in {"passage_requirement_unsupported", "unrecognised_defining_geometry"}
     ]
     assert len(issues) == 1
-
-
-@pytest.mark.parametrize(
-    "case",
-    [
-        "zero-radius",
-        "missing-radius",
-        "one-vertex",
-        "zero-line",
-        "off-circle-end",
-        "non-parallel",
-        "same-side",
-        "degenerate-flat",
-        "wrong-chord-length",
-        "wrong-arc-length",
-    ],
-)
-def test_malformed_line_arc_evidence_fails_closed(case):
-    assert double_d_profile(_profile_evidence(case), ("x", "y"), tol=1e-5) is None
 
 
 @pytest.mark.parametrize(
@@ -781,37 +527,8 @@ def test_public_double_d_to_physical_mouth_correlation_accepts_exact_evidence():
     )
 
 
-def test_an_unpaired_opening_and_a_failed_void_proof_are_not_bores():
-    bbox = SimpleNamespace(min=_point(-5, -5, -5), max=_point(5, 5, 5))
-    low = DoubleDProfile(
-        centre=(0.0, 0.0, -5.0),
-        major_diameter=10.0,
-        across_flats=7.2,
-        flat_direction=(1.0, 0.0, 0.0),
-    )
-    high = DoubleDProfile(
-        centre=(0.0, 0.0, 5.0),
-        major_diameter=10.0,
-        across_flats=7.2,
-        flat_direction=(1.0, 0.0, 0.0),
-    )
-    assert (
-        double_d_bores_from_openings([("z", -5.0, low, object())], bbox, part=object(), tol=1e-5)
-        == []
-    )
-    assert (
-        double_d_bores_from_openings(
-            [("z", -5.0, low, object()), ("z", 5.0, high, object())],
-            bbox,
-            part=object(),
-            tol=1e-5,
-        )
-        == []
-    )
-
-
 def test_recogniser_reports_the_complete_double_d_geometry():
-    assert recognise_double_d_bores(_double_d_bore())[0].to_dict() == {
+    assert _recognised_double_d_bores(_double_d_bore())[0].to_dict() == {
         "axis": (0.0, 0.0, 1.0),
         "location": (0.0, 0.0, 5.0),
         "major_diameter": 10.0,
@@ -825,7 +542,7 @@ def test_recogniser_reports_the_complete_double_d_geometry():
 def test_double_d_orientation_is_not_limited_to_global_flat_axes():
     cutter = Rot(0, 0, 30) * _double_d_cutter()
     part = Box(30, 30, 10, align=_CENTER) - cutter
-    bore = recognise_double_d_bores(part)[0]
+    bore = _recognised_double_d_bores(part)[0]
     assert bore.major_diameter == pytest.approx(10)
     assert bore.across_flats == pytest.approx(7.2)
     assert bore.flat_direction == pytest.approx((0.8660254, 0.5, 0.0), abs=1e-6)
@@ -842,7 +559,7 @@ def test_double_d_orientation_is_not_limited_to_global_flat_axes():
     ids=("z", "z-roll-30", "x", "y"),
 )
 def test_lint_correlates_public_double_d_records_across_principal_axes(part):
-    bores = recognise_double_d_bores(part)
+    bores = _recognised_double_d_bores(part)
 
     assert len(bores) == 1
     assert lint_principal_profile_coverage(part, double_d_bores=bores) == []
@@ -858,13 +575,13 @@ def test_lint_correlates_public_double_d_records_across_principal_axes(part):
     ids=("z", "x", "y"),
 )
 def test_recogniser_is_uniform_across_principal_bore_axes(part, axis):
-    assert recognise_double_d_bores(part)[0].axis == axis
+    assert _recognised_double_d_bores(part)[0].axis == axis
 
 
 def test_assembly_components_own_their_bore_correspondence():
     part = _double_d_bore() + Pos(0, 0, 30) * _double_d_bore()
     assert len(part.solids()) == 2
-    bores = recognise_double_d_bores(part)
+    bores = _recognised_double_d_bores(part)
     assert len(bores) == 2
     assert [bore.depth for bore in bores] == pytest.approx([10, 10])
     assert lint_principal_profile_coverage(part, double_d_bores=bores) == []
@@ -872,7 +589,7 @@ def test_assembly_components_own_their_bore_correspondence():
 
 def test_one_public_record_cannot_cover_two_coincident_assembly_occurrences():
     part = Compound(children=[_double_d_bore(), _double_d_bore()])
-    bores = recognise_double_d_bores(part)
+    bores = _recognised_double_d_bores(part)
 
     assert len(part.solids()) == len(bores) == 2
     assert lint_principal_profile_coverage(part, double_d_bores=bores) == []
@@ -882,7 +599,7 @@ def test_one_public_record_cannot_cover_two_coincident_assembly_occurrences():
 
 def test_a_blind_double_d_recess_is_not_certified_as_a_through_bore():
     part = _blind_double_d_recess()
-    assert recognise_double_d_bores(part) == []
+    assert _recognised_double_d_bores(part) == ()
     issues = [
         issue
         for issue in build_drawing(part).lint()
@@ -894,7 +611,7 @@ def test_a_blind_double_d_recess_is_not_certified_as_a_through_bore():
 
 def test_opposed_blind_recesses_do_not_prove_a_through_bore():
     part = _opposed_double_d_recesses_with_a_web()
-    assert recognise_double_d_bores(part) == []
+    assert _recognised_double_d_bores(part) == ()
     issues = [
         issue
         for issue in build_drawing(part).lint()
@@ -1178,7 +895,7 @@ def test_an_intermediate_double_d_boss_boundary_is_not_an_opening():
 )
 def test_supported_principal_profiles_remain_owned_and_clean(part, expected_kind):
     drawing = build_drawing(part)
-    assert recognise_double_d_bores(part) == []
+    assert _recognised_double_d_bores(part) == ()
     if expected_kind is not None:
         assert expected_kind in {feature.kind for feature in drawing.model().features}
     assert not [

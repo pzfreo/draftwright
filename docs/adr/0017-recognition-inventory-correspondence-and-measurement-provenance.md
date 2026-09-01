@@ -404,6 +404,9 @@ completeness slice. The remaining abstractions are evaluated separately after Ga
   recogniser is invoked outside the aggregate on guarded consumer paths.
 - [x] The released provider suite owns registry completeness, applicability, and exactly-once
   family execution; Draftwright does not duplicate those tests through private imports.
+- [x] Double-D, Passage, PrismaticPocket, and repeating-profile consumer tests read released
+  aggregate records and exercise Draftwright-owned physical correlation; the provider suite
+  owns its private profile predicates, attribution, and reconciliation algorithms.
 - [x] Declared build/render performs no recognition.
 - [x] Physical critique of a declared drawing obtains at most one cached aggregate.
 - [x] Repeated lint returns equivalent results without rerunning recognition.
