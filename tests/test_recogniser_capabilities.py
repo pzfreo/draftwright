@@ -737,6 +737,21 @@ def test_pocket_pattern_completeness_is_supported_without_recounting_members() -
     }
 
 
+def test_double_d_completeness_uses_the_public_profile_word_and_exact_drawing_ink() -> None:
+    family = _families(consumer_capability_declaration())["double-d-bores"]
+
+    assert family["dsl_declaration"] == {
+        "state": "supported",
+        "implementation": "draftwright.sheet.Sheet.double_d_bore",
+        "evidence": ["tests/test_declare.py"],
+    }
+    assert family["completeness"] == {
+        "state": "supported",
+        "implementation": "draftwright.evaluation.step_analysis.evaluate_step_corpus",
+        "evidence": ["tests/test_issue_1370_double_d_completeness_evidence.py"],
+    }
+
+
 def test_polygonal_boss_completeness_uses_independent_attached_prism_facts() -> None:
     family = _families(consumer_capability_declaration())["polygonal-bosses"]
 
@@ -770,7 +785,6 @@ def test_plate_completeness_uses_independent_body_local_slab_facts() -> None:
 def test_each_deferred_supported_family_links_its_real_delivery_slice() -> None:
     expected = {
         "channels": 1371,
-        "double-d-bores": 1370,
         "face-levels": 1373,
         "risers": 1373,
         "slot-patterns": 1371,

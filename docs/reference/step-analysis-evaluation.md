@@ -12,11 +12,12 @@ from `RecognitionResult`, `feature_census()`, a capability declaration, or the d
 An observer may only normalize actual evidence; `ObservedFact` deliberately has no oracle/case fact
 identifier. Expected and observed facts are matched by family plus authored physical identity fields.
 
-Format 1 currently proves independent `holes`, `countersinks`, `hole-patterns`, `flats`, `pockets`,
-`pocket-patterns`, `grooves`, `rectangular-pads`, `polygonal-bosses`, `plates`, `chamfers` and `fillets`
-vertical slices. Each observer reads released `b123d-recognisers` geometry records, builds one
-drawing, and reads all four downstream outcomes from that build through the public IR, `Sheet`,
-generated-code and ADR 0010 provenance seams.
+Format 1 currently proves independent `holes`, `countersinks`, `hole-patterns`,
+`double-d-bores`, `flats`,
+`pockets`, `pocket-patterns`, `grooves`, `rectangular-pads`, `polygonal-bosses`, `plates`,
+`chamfers` and `fillets` vertical slices. Each observer reads released `b123d-recognisers`
+geometry records, builds one drawing, and reads all four downstream outcomes from that build
+through the public IR, `Sheet`, generated-code and ADR 0010 provenance seams.
 
 Since #1217 that outcome comes from the engine's own requirement ledger
 (`linting.hole_coverage.hole_requirement_outcomes`) rather than from a second correspondence
@@ -96,6 +97,14 @@ remains explicit but unverifiable at the downstream boundaries because the curre
 outcomes rather than hiding the occurrence. The seven-case corpus covers a plain negative, the
 external-cone false-positive regression, a deburr ambiguity, a positive seat, a mixed-size ownership
 pair, and a reverse-serialized equal-seat pair.
+
+The Double-D corpus owns one profiled through-bore occurrence per complete physical frame. Full
+axis location keeps disconnected coaxial bodies distinct; major diameter, A/F, through depth,
+through state and canonical flat direction are parameters rather than identity. Exact inventory
+multiplicity must survive automatic IR, `Sheet.double_d_bore`, generated code and one placed
+`⌀major THRU DOUBLE-D across A/F` statement carrying both compiler identities. The provider
+aggregate's exclusive ownership keeps the parent circular void out of the ordinary-hole
+denominator.
 
 The flat corpus owns one physical across-flats fact per stock axis line and connected axial span.
 Opposed provider faces on one Double-D body therefore group into one fact, while parallel lobes and

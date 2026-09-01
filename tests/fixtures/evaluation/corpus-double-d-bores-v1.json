@@ -1,0 +1,287 @@
+{
+  "format": "draftwright-step-analysis-corpus",
+  "format_version": 1,
+  "corpus_version": "1.1.0",
+  "metric_version": 1,
+  "scope": ["double-d-bores"],
+  "cases": [
+    {
+      "id": "double-d-plain-block",
+      "tags": ["negative"],
+      "fixture": "plain-block.step",
+      "sha256": "1a5db509de8c0ce04d46cf39296dcdd04873e74cb0e7501bcd97630ffd8d113c",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored as solid rectangular stock with no opening or internal profile.",
+      "expected_outcome": "supported",
+      "facts": []
+    },
+    {
+      "id": "double-d-round-bore",
+      "tags": ["ambiguous", "negative"],
+      "fixture": "double-d-round-bore.step",
+      "sha256": "d2e691be8f01f320aa29c8a27af9932e4ae58cb1891d2024d6b879320add1e39",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored as a circular diameter-10 through-bore; it has no opposed chord flats.",
+      "expected_outcome": "supported",
+      "facts": []
+    },
+    {
+      "id": "double-d-blind-recess",
+      "tags": ["ambiguous", "negative"],
+      "fixture": "double-d-blind.step",
+      "sha256": "839827f0f10a2d7b1c0bdadd059e5add5681bbc89c7e8c1276425279fb3b5431",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored as a diameter-10, 7.2 A/F Double-D-shaped recess terminating on an internal floor; the supported family is through-only.",
+      "expected_outcome": "supported",
+      "facts": []
+    },
+    {
+      "id": "double-d-opposed-blind-recesses",
+      "tags": ["ambiguous", "negative"],
+      "fixture": "double-d-opposed-blind.step",
+      "sha256": "57e866becb257f320e885faf581ae84aa493ee0385c530951a9f0c556ba1059e",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored as opposed Double-D-shaped blind recesses separated by a solid web; two aligned openings do not make a through-bore.",
+      "expected_outcome": "supported",
+      "facts": []
+    },
+    {
+      "id": "double-d-single-z",
+      "tags": ["positive"],
+      "fixture": "double-d-single-z.step",
+      "sha256": "6589c93ffd94a50b497244fa61228498318818bd48149b7b09dacaa48897f968",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored by subtracting a centred 10 mm major, 7.2 mm A/F prismatic Double-D cutter through 10 mm stock along Z.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "double-d-bores",
+          "identity": {
+            "axis": {"value": [0.0, 0.0, 1.0], "absolute_tolerance": 1e-9},
+            "location": {"value": [0.0, 0.0, 5.0], "absolute_tolerance": 1e-6}
+          },
+          "parameters": {
+            "major_diameter": {"value": 10.0, "absolute_tolerance": 1e-6},
+            "across_flats": {"value": 7.2, "absolute_tolerance": 1e-6},
+            "depth": {"value": 10.0, "absolute_tolerance": 1e-6},
+            "through": {"value": true},
+            "flat_direction": {"value": [1.0, 0.0, 0.0], "absolute_tolerance": 1e-6}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "double-d-roll-30",
+      "tags": ["positive"],
+      "fixture": "double-d-roll-30.step",
+      "sha256": "ea2c22d0b75611331947df036397027b87149c476b2ba6c43d04d59d7df35a6b",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored from the same through-profile after a 30 degree in-plane rotation, making flat orientation load-bearing.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "double-d-bores",
+          "identity": {
+            "axis": {"value": [0.0, 0.0, 1.0], "absolute_tolerance": 1e-9},
+            "location": {"value": [0.0, 0.0, 5.0], "absolute_tolerance": 1e-6}
+          },
+          "parameters": {
+            "major_diameter": {"value": 10.0, "absolute_tolerance": 1e-6},
+            "across_flats": {"value": 7.2, "absolute_tolerance": 1e-6},
+            "depth": {"value": 10.0, "absolute_tolerance": 1e-6},
+            "through": {"value": true},
+            "flat_direction": {"value": [0.866025403784, 0.5, 0.0], "absolute_tolerance": 1e-6}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "double-d-axis-x",
+      "tags": ["positive"],
+      "fixture": "double-d-axis-x.step",
+      "sha256": "0ac8329ac43c315f170deafef9fb23eee21de5911475cd64347ab1426b3a0705",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored by rotating the through-profile onto principal X; its flat line remains along Z.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "double-d-bores",
+          "identity": {
+            "axis": {"value": [1.0, 0.0, 0.0], "absolute_tolerance": 1e-9},
+            "location": {"value": [5.0, 0.0, 0.0], "absolute_tolerance": 1e-6}
+          },
+          "parameters": {
+            "major_diameter": {"value": 10.0, "absolute_tolerance": 1e-6},
+            "across_flats": {"value": 7.2, "absolute_tolerance": 1e-6},
+            "depth": {"value": 10.0, "absolute_tolerance": 1e-6},
+            "through": {"value": true},
+            "flat_direction": {"value": [0.0, 0.0, 1.0], "absolute_tolerance": 1e-6}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "double-d-axis-y",
+      "tags": ["positive"],
+      "fixture": "double-d-axis-y.step",
+      "sha256": "6f6d59b6ec8a2a1efe4c567108530a32535c85a377e8b54560e3bec4206ab8de",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored by rotating the through-profile onto principal Y; its flat line remains along X.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "double-d-bores",
+          "identity": {
+            "axis": {"value": [0.0, 1.0, 0.0], "absolute_tolerance": 1e-9},
+            "location": {"value": [0.0, 5.0, 0.0], "absolute_tolerance": 1e-6}
+          },
+          "parameters": {
+            "major_diameter": {"value": 10.0, "absolute_tolerance": 1e-6},
+            "across_flats": {"value": 7.2, "absolute_tolerance": 1e-6},
+            "depth": {"value": 10.0, "absolute_tolerance": 1e-6},
+            "through": {"value": true},
+            "flat_direction": {"value": [1.0, 0.0, 0.0], "absolute_tolerance": 1e-6}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "double-d-separated-coaxial-compound",
+      "tags": ["compound", "positive"],
+      "fixture": "double-d-coaxial-compound.step",
+      "sha256": "e00f928ec2eb6ae31fadeb8f4aa6fdcceaeee34c107cec38f3c83d48600ce366",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored as two disconnected but coaxial 10 mm major, 7.2 mm A/F bodies separated by 20 mm; full frame location must preserve both occurrences.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "double-d-bores",
+          "identity": {
+            "axis": {"value": [0.0, 0.0, 1.0], "absolute_tolerance": 1e-9},
+            "location": {"value": [0.0, 0.0, 5.0], "absolute_tolerance": 1e-6}
+          },
+          "parameters": {
+            "major_diameter": {"value": 10.0, "absolute_tolerance": 1e-6},
+            "across_flats": {"value": 7.2, "absolute_tolerance": 1e-6},
+            "depth": {"value": 10.0, "absolute_tolerance": 1e-6},
+            "through": {"value": true},
+            "flat_direction": {"value": [1.0, 0.0, 0.0], "absolute_tolerance": 1e-6}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        },
+        {
+          "family": "double-d-bores",
+          "identity": {
+            "axis": {"value": [0.0, 0.0, 1.0], "absolute_tolerance": 1e-9},
+            "location": {"value": [0.0, 0.0, 35.0], "absolute_tolerance": 1e-6}
+          },
+          "parameters": {
+            "major_diameter": {"value": 10.0, "absolute_tolerance": 1e-6},
+            "across_flats": {"value": 7.2, "absolute_tolerance": 1e-6},
+            "depth": {"value": 10.0, "absolute_tolerance": 1e-6},
+            "through": {"value": true},
+            "flat_direction": {"value": [1.0, 0.0, 0.0], "absolute_tolerance": 1e-6}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "double-d-topology-a",
+      "tags": ["compound", "positive", "topology-order-variant"],
+      "fixture": "double-d-topology-a.step",
+      "sha256": "8d00008a63bbfcc528ebf6b1cbdb53ee68d42d18e3cc25331040558d2d317283",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored as two disconnected heterogeneous Double-D bodies at (-25,-8) and (25,8), retaining independently distinguishable major and A/F values.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "double-d-bores",
+          "identity": {
+            "axis": {"value": [0.0, 0.0, 1.0], "absolute_tolerance": 1e-9},
+            "location": {"value": [-25.0, -8.0, 5.0], "absolute_tolerance": 1e-6}
+          },
+          "parameters": {
+            "major_diameter": {"value": 10.0, "absolute_tolerance": 1e-6},
+            "across_flats": {"value": 7.2, "absolute_tolerance": 1e-6},
+            "depth": {"value": 10.0, "absolute_tolerance": 1e-6},
+            "through": {"value": true},
+            "flat_direction": {"value": [1.0, 0.0, 0.0], "absolute_tolerance": 1e-6}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        },
+        {
+          "family": "double-d-bores",
+          "identity": {
+            "axis": {"value": [0.0, 0.0, 1.0], "absolute_tolerance": 1e-9},
+            "location": {"value": [25.0, 8.0, 5.0], "absolute_tolerance": 1e-6}
+          },
+          "parameters": {
+            "major_diameter": {"value": 12.0, "absolute_tolerance": 1e-6},
+            "across_flats": {"value": 8.0, "absolute_tolerance": 1e-6},
+            "depth": {"value": 10.0, "absolute_tolerance": 1e-6},
+            "through": {"value": true},
+            "flat_direction": {"value": [1.0, 0.0, 0.0], "absolute_tolerance": 1e-6}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "double-d-topology-b",
+      "tags": ["compound", "positive", "topology-order-variant"],
+      "fixture": "double-d-topology-b.step",
+      "sha256": "fe8b549811fa7b84e2b2c3acea70b49e390542e46e15c5e9ee9f5bd1c06f4d1c",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Geometrically identical to topology-a, with all Part 21 entity identifiers bijectively renumbered and entity records reverse serialized.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "double-d-bores",
+          "identity": {
+            "axis": {"value": [0.0, 0.0, 1.0], "absolute_tolerance": 1e-9},
+            "location": {"value": [-25.0, -8.0, 5.0], "absolute_tolerance": 1e-6}
+          },
+          "parameters": {
+            "major_diameter": {"value": 10.0, "absolute_tolerance": 1e-6},
+            "across_flats": {"value": 7.2, "absolute_tolerance": 1e-6},
+            "depth": {"value": 10.0, "absolute_tolerance": 1e-6},
+            "through": {"value": true},
+            "flat_direction": {"value": [1.0, 0.0, 0.0], "absolute_tolerance": 1e-6}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        },
+        {
+          "family": "double-d-bores",
+          "identity": {
+            "axis": {"value": [0.0, 0.0, 1.0], "absolute_tolerance": 1e-9},
+            "location": {"value": [25.0, 8.0, 5.0], "absolute_tolerance": 1e-6}
+          },
+          "parameters": {
+            "major_diameter": {"value": 12.0, "absolute_tolerance": 1e-6},
+            "across_flats": {"value": 8.0, "absolute_tolerance": 1e-6},
+            "depth": {"value": 10.0, "absolute_tolerance": 1e-6},
+            "through": {"value": true},
+            "flat_direction": {"value": [1.0, 0.0, 0.0], "absolute_tolerance": 1e-6}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    }
+  ]
+}

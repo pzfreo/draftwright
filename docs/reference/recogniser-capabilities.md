@@ -138,6 +138,24 @@ not claim every drawing scores 100%. Removing provider seats, deleting the IR or
 corrupting the Sheet declaration, or removing/corrupting finished ink reduces the corresponding
 independent evidence.
 
+## Double-D completeness evidence
+
+The `double-d-bores` completeness boundary is independently `supported` from
+`tests/fixtures/evaluation/corpus-double-d-bores-v1.json`. Eleven construction-authored cases
+contribute ten physical through-profile occurrences, 50 provider-parameter checks and 40
+downstream checks. Principal X/Y/Z axes, a 30° flat rotation, disconnected coaxial bodies,
+heterogeneous compounds and a reverse-serialized topology pair are positive controls; round,
+blind, opposed-blind and solid-stock cases keep the family boundary fail-closed.
+
+Axis plus full location identifies each physical frame, so disconnected coaxial bodies cannot
+collapse by dropping the through-axis coordinate. Major diameter, A/F, depth, through state and
+the unoriented flat line are scored parameters. The complete provider inventory must correspond
+one-to-one, with exact multiplicity, to the automatic IR, public `Sheet.double_d_bore`
+declaration and executed generated Sheet code. Drawing credit requires compiler-confirmed
+`bore.diameter` and `profile_across_flats.length` identities together on exact role-specific
+`⌀major THRU DOUBLE-D across A/F` ink. The provider's fixed ownership excludes the same void
+from ordinary `holes`, so this profile fact does not recount a circular bore.
+
 ## Flat completeness evidence
 
 The `flats` completeness boundary is independently `supported` from
@@ -401,9 +419,8 @@ placed or structurally satisfied. Authored omission and placement failure remain
 an outcome.
 
 Remaining supported-family completeness work is tracked by family group rather than the closed
-shared design issue: #1370 retains countersinks and Double-D bores; #1371 covers
-channels, slots and slot patterns; #1372 retains the independent rectangular-pad
-and polygonal-boss benchmark corpora; #1373 retains face levels and risers; and
+shared design issue: #1371 covers channels, slots and slot patterns; #1372 retains the independent
+rectangular-pad and polygonal-boss benchmark corpora; #1373 retains face levels and risers; and
 #1374 retains turned steps.
 
 ## Historical: recognisers 0.4.8 raw boundary and RaisedPad v2
