@@ -12,7 +12,7 @@ from `RecognitionResult`, `feature_census()`, a capability declaration, or the d
 An observer may only normalize actual evidence; `ObservedFact` deliberately has no oracle/case fact
 identifier. Expected and observed facts are matched by family plus authored physical identity fields.
 
-Format 1 currently proves independent `holes`, `hole-patterns`, `flats`, `pockets`,
+Format 1 currently proves independent `holes`, `countersinks`, `hole-patterns`, `flats`, `pockets`,
 `pocket-patterns`, `grooves`, `rectangular-pads`, `polygonal-bosses`, `plates`, `chamfers` and `fillets`
 vertical slices. Each observer reads released `b123d-recognisers` geometry records, builds one
 drawing, and reads all four downstream outcomes from that build through the public IR, `Sheet`,
@@ -81,6 +81,21 @@ linear pitch/direction, or grid rows/columns/pitches/angle/centre. It deliberate
 member diameter, depth, bottom or individual-location requirements from the hole corpus. Provider
 patterns must reference the exact accepted aggregate `HoleRecord` members, and those member sets
 must be disjoint, so N:1 grouping cannot become a second physical-hole denominator.
+
+The countersink corpus owns one conical seat per signed mouth axis and physical opening centre. It
+scores opening diameter, drill diameter, included angle, and geometric depth independently, while
+the existing hole ledger remains the sole owner of bore and finished-drawing requirements. A seat
+earns downstream credit only by following the exact provider-owned `HoleRecord.csink` object into
+both `countersink.diameter` and `countersink.angle` compiler identities and role-specific confirmed
+placed ink; it never rematches geometry or recounts the parent bore. Object identity names the
+provider-selected hole, while the public semantic predicate validates that ownership exactly once.
+Canonical-site collisions across disconnected coaxial bodies fail closed. Equal seats may share one
+grouped callout without collapsing their two physical observations. A second seat on the opposite face of one bore
+remains explicit but unverifiable at the downstream boundaries because the current `HoleRecord` and
+`HoleFeature` waist is singular; the completeness ledger counts both unverifiable dimensional
+outcomes rather than hiding the occurrence. The seven-case corpus covers a plain negative, the
+external-cone false-positive regression, a deburr ambiguity, a positive seat, a mixed-size ownership
+pair, and a reverse-serialized equal-seat pair.
 
 The flat corpus owns one physical across-flats fact per stock axis line and connected axial span.
 Opposed provider faces on one Double-D body therefore group into one fact, while parallel lobes and

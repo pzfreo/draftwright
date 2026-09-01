@@ -741,6 +741,7 @@ def load_corpus(path: str | Path) -> BenchmarkCorpus:
 #: ``drawing_consumer`` asks about. Crediting the others would mean a hole with a located
 #: row but no diameter counted as consumed.
 _SIZE_REQUIREMENT = "bore.diameter"
+_COUNTERSINK_REQUIREMENTS = ("countersink.diameter", "countersink.angle")
 
 
 def _drawing_consumer_outcomes(holes, drawing) -> list[Outcome]:
@@ -932,6 +933,154 @@ def _generated_sheet_model(part, model):
     namespace: dict[str, object] = {"part": part}
     exec(compile(prefix, "<draftwright-evaluation>", "exec"), namespace)  # noqa: S102
     return getattr(namespace["sheet"], "model")()
+
+
+def _countersink_sites(countersinks, recognition) -> list[tuple[tuple[float, float, float], ...]]:
+    """Return each seat's validated provider-owned parent-hole sites.
+
+    Object identity says which owner the aggregate chose; the provider's public semantic predicate
+    independently proves that choice.  Each seat must be attached exactly once.  A mismatched,
+    duplicate or absent attachment therefore fails closed instead of replaying a corrupt aggregate
+    through every consumer boundary.  A second seat on the opposite face of one bore deliberately
+    remains absent: the singular ``HoleRecord`` waist cannot represent it, and the production
+    ledger reports its two requirements as unverifiable.
+    """
+    from b123d_recognisers import countersink_matches_hole
+
+    from draftwright.linting.hole_coverage import canonical_hole_sites
+
+    inventory_ids = {id(countersink) for countersink in countersinks}
+    if len(inventory_ids) != len(countersinks):
+        return [()] * len(countersinks)
+
+    owners: dict[int, list[object | None]] = {identity: [] for identity in inventory_ids}
+    invalid_inventory = False
+    for hole in recognition.holes:
+        countersink = getattr(hole, "csink", None)
+        if countersink is None:
+            continue
+        identity = id(countersink)
+        if identity not in owners:
+            invalid_inventory = True
+            continue
+        if not countersink_matches_hole(countersink, hole):
+            owners[identity].append(None)
+            continue
+        owners[identity].append(hole)
+
+    if invalid_inventory:
+        return [()] * len(countersinks)
+    sites: list[tuple[tuple[float, float, float], ...]] = []
+    for countersink in countersinks:
+        matches = owners[id(countersink)]
+        sites.append(
+            canonical_hole_sites(matches[0])
+            if len(matches) == 1 and matches[0] is not None
+            else ()
+        )
+
+    # A through-hole's canonical site intentionally drops its axial coordinate.  Two
+    # disconnected coaxial bodies can therefore collide even though their seats are distinct.
+    # The hole ledger cannot attribute one surviving feature/annotation between those physical
+    # occurrences, so no colliding seat may borrow the same evidence.
+    collisions = Counter(site for site in sites if site)
+    return [site if not site or collisions[site] == 1 else () for site in sites]
+
+
+def _countersink_model_outcomes(countersinks, recognition, features) -> list[Outcome]:
+    """Per physical seat: does *features* retain both exact countersink requirements?"""
+    from draftwright.linting.hole_coverage import hole_requirement_outcomes
+    from draftwright.registry import AnnotationRegistry
+
+    ledger = hole_requirement_outcomes(recognition, features, AnnotationRegistry())
+    sites = _countersink_sites(countersinks, recognition)
+    results: list[Outcome] = []
+    for owned_sites in sites:
+        if not owned_sites:
+            results.append("unknown")
+            continue
+        supported = all(
+            any(
+                entry.parameter_id == parameter
+                and entry.features
+                and any(site in entry.members for site in owned_sites)
+                for entry in ledger
+            )
+            for parameter in _COUNTERSINK_REQUIREMENTS
+        )
+        results.append("supported" if supported else "unknown")
+    return results
+
+
+_COUNTERSINK_TERM_RE = re.compile(
+    r"⌵\s*[ø⌀Ø]\s*(?P<diameter>\d+(?:\.\d+)?)\b[^×]*"
+    r"×\s*(?P<angle>\d+(?:\.\d+)?)\b\s*°"
+)
+
+
+def _countersink_claim_has_role_specific_ink(claim, annotation) -> bool:
+    """Verify the nominal against its countersink role, not any number in the label."""
+    label = getattr(annotation, "label", None)
+    match = _COUNTERSINK_TERM_RE.search(str(label)) if label else None
+    parameter = str(getattr(claim.measurement, "parameter", ""))
+    role = {
+        "countersink.diameter": "diameter",
+        "countersink.angle": "angle",
+    }.get(parameter)
+    if match is None or role is None:
+        return False
+    try:
+        rendered = float(match.group(role))
+        expected = tuple(float(value) for value in claim.expected)
+    except (TypeError, ValueError):
+        return False
+    return any(isclose(rendered, value, rel_tol=0.0, abs_tol=1e-6) for value in expected)
+
+
+def _countersink_drawing_outcomes(countersinks, recognition, drawing) -> list[Outcome]:
+    """Per physical seat: did confirmed placed ink carry both seat measurements?"""
+    from draftwright.linting.evidence import verify_measurement_claims
+    from draftwright.linting.hole_coverage import hole_requirement_outcomes
+    from draftwright.model.compiled import compile_dimensions
+
+    model = drawing.model()
+    plan = compile_dimensions(model)
+    ledger = hole_requirement_outcomes(
+        recognition,
+        getattr(model, "features", ()),
+        drawing.registry,
+        plan.diagnostics,
+    )
+    confirmed = set()
+    for claim in verify_measurement_claims(drawing.registry, plan):
+        feature = getattr(claim.measurement, "feature", None)
+        parameter = str(getattr(claim.measurement, "parameter", ""))
+        if (
+            claim.state == "confirmed"
+            and feature is not None
+            and parameter in _COUNTERSINK_REQUIREMENTS
+            and _countersink_claim_has_role_specific_ink(
+                claim, drawing.registry.named(claim.annotation)
+            )
+        ):
+            confirmed.add((id(feature), parameter))
+    results: list[Outcome] = []
+    for owned_sites in _countersink_sites(countersinks, recognition):
+        if not owned_sites:
+            results.append("unknown")
+            continue
+        supported = all(
+            any(
+                entry.parameter_id == parameter
+                and entry.state == "placed"
+                and any(site in entry.members for site in owned_sites)
+                and any((id(feature), parameter) in confirmed for feature in entry.features)
+                for entry in ledger
+            )
+            for parameter in _COUNTERSINK_REQUIREMENTS
+        )
+        results.append("supported" if supported else "unsupported")
+    return results
 
 
 def _pattern_kind(pattern) -> str:
@@ -3588,6 +3737,116 @@ def _default_observers() -> Mapping[str, Observer]:
             for index, hole in enumerate(holes)
         )
 
+    def observe_countersinks(part: object) -> Sequence[ObservedFact]:
+        """Observe physical seats without making them a second bore denominator."""
+        from draftwright.builder import build_drawing
+
+        try:
+            drawing = build_drawing(part)  # type: ignore[arg-type]
+        except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
+            _log.warning(
+                "evaluation: drawing build failed (%s); scoring countersinks as unknown", exc
+            )
+            return ()
+        try:
+            recognition = drawing.recognition()
+            if recognition is None:
+                raise ValueError("detected build has no build-owned recognition result")
+            countersinks = tuple(recognition.countersinks)
+            for countersink in countersinks:
+                vectors = (countersink.axis, countersink.location)
+                scalars = (
+                    countersink.major_diameter,
+                    countersink.drill_diameter,
+                    countersink.included_angle,
+                    countersink.depth,
+                )
+                if not all(
+                    isinstance(vector, tuple)
+                    and len(vector) == 3
+                    and all(
+                        isinstance(component, (int, float))
+                        and not isinstance(component, bool)
+                        and isfinite(component)
+                        for component in vector
+                    )
+                    for vector in vectors
+                ) or not all(
+                    isinstance(value, (int, float))
+                    and not isinstance(value, bool)
+                    and isfinite(value)
+                    for value in scalars
+                ):
+                    raise ValueError("countersink record fields must be finite numeric values")
+        except Exception as exc:  # noqa: BLE001 — no safe observed numerator remains
+            _log.warning(
+                "evaluation: recognition access failed (%s); observing no countersinks", exc
+            )
+            return ()
+        unknown: list[Outcome] = ["unknown"] * len(countersinks)
+
+        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
+            try:
+                result = observe()
+                if len(result) != len(countersinks):
+                    raise ValueError(
+                        f"observed {len(result)} outcomes for {len(countersinks)} countersinks"
+                    )
+                return result
+            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
+                _log.warning(
+                    "evaluation: %s observation failed (%s); scoring countersinks as unknown",
+                    name,
+                    exc,
+                )
+                return list(unknown)
+
+        boundary_outcomes = {
+            "ir_adapter": observed_boundary(
+                "ir_adapter",
+                lambda: _countersink_model_outcomes(
+                    countersinks, recognition, drawing.model().features
+                ),
+            ),
+            "dsl_declaration": observed_boundary(
+                "dsl_declaration",
+                lambda: _countersink_model_outcomes(
+                    countersinks,
+                    recognition,
+                    _declared_hole_model(part, recognition.holes).features,
+                ),
+            ),
+            "generated_code": observed_boundary(
+                "generated_code",
+                lambda: _countersink_model_outcomes(
+                    countersinks,
+                    recognition,
+                    _generated_sheet_model(part, drawing.model()).features,
+                ),
+            ),
+            "drawing_consumer": observed_boundary(
+                "drawing_consumer",
+                lambda: _countersink_drawing_outcomes(countersinks, recognition, drawing),
+            ),
+        }
+        return tuple(
+            ObservedFact(
+                family="countersinks",
+                identity={"axis": countersink.axis, "location": countersink.location},
+                parameters={
+                    "major_diameter": countersink.major_diameter,
+                    "drill_diameter": countersink.drill_diameter,
+                    "included_angle": countersink.included_angle,
+                    "depth": countersink.depth,
+                },
+                downstream={
+                    boundary: boundary_outcomes[boundary][index]
+                    for boundary in _DOWNSTREAM_BOUNDARIES
+                },
+            )
+            for index, countersink in enumerate(countersinks)
+        )
+
     def observe_hole_patterns(part: object) -> Sequence[ObservedFact]:
         from draftwright.builder import build_drawing
 
@@ -4533,6 +4792,7 @@ def _default_observers() -> Mapping[str, Observer]:
 
     return {
         "chamfers": observe_chamfers,
+        "countersinks": observe_countersinks,
         "fillets": observe_fillets,
         "flats": observe_flats,
         "grooves": observe_grooves,

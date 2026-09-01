@@ -109,6 +109,35 @@ executed generated Sheet code and placed grouping/pitch/BCD evidence. Mutations 
 derived provider inventory, corrupt the declaration, remove generated pattern lines or remove a
 placed pitch dimension reduce the corresponding independent layer.
 
+## Countersink completeness evidence
+
+The `countersinks` completeness boundary is independently `supported` from
+`tests/fixtures/evaluation/corpus-countersinks-v1.json`. Its seven construction-authored cases own
+seven physical conical seats, 28 provider-parameter checks, and 28 downstream checks. The
+negative controls distinguish solid external cone transitions and shallow deburr chamfers from an
+internal functional seat; the positive cases include a mixed-size ownership pair, equal seats
+sharing one grouped callout, and a bijectively renumbered, reverse-serialized topology pair.
+
+Identity is the signed mouth axis plus physical opening centre. Opening diameter, drill diameter,
+included angle, and geometric depth are detection parameters, not four new drawing requirements.
+The provider aggregate must reuse each accepted `CounterSink` object exactly once on its owning
+`HoleRecord.csink`; Draftwright validates that chosen owner with the provider's public semantic
+predicate and fails closed on mismatches, multiplicity, or canonical-site collisions. It then
+follows that identity through the existing hole IR, public
+`Sheet.hole(..., csink=...)`, generated code, and the two exact compiler measurements
+`countersink.diameter` / `countersink.angle`. Confirmed solver-placed, role-specific `⌵ ⌀… × …°`
+ink is required for drawing credit, so diameter and angle cannot confirm each other merely because
+both numbers occur in the label. Bore diameter, through/depth, grouping, and location remain owned
+once by the hole ledger.
+
+The current singular hole waist cannot attribute both seats of a two-sided countersunk bore. That
+limitation remains fail-visible: the attached seat is followed normally, while the other physical
+seat contributes explicit `unverifiable` diameter and angle outcomes with no invented canonical
+member key. Completeness support means every aggregate seat receives an honest outcome; it does
+not claim every drawing scores 100%. Removing provider seats, deleting the IR or generated csink,
+corrupting the Sheet declaration, or removing/corrupting finished ink reduces the corresponding
+independent evidence.
+
 ## Flat completeness evidence
 
 The `flats` completeness boundary is independently `supported` from

@@ -44,6 +44,16 @@
 
 ### Changed
 
+- Countersink completeness is now backed by an independently authored, hash-pinned seven-case STEP
+  corpus covering functional seats, solid external-cone and deburr negatives, grouped equal seats,
+  and reverse-serialized topology. Detection identity and all four provider measurements are scored
+  separately from the two actual drawing requirements. Exact aggregate object ownership follows
+  each seat once, validates the provider-selected hole semantically, and fails closed on swapped,
+  duplicated, or canonically colliding owners. It then crosses automatic IR, public `Sheet.hole`,
+  generated code, and role-specific confirmed placed diameter/angle ink without recounting the parent bore. The known second seat of a two-sided bore
+  remains explicitly unverifiable rather than hidden or heuristically attached (#1370; ADRs 0010,
+  0013, 0015, 0017).
+
 - Updated the immutable `b123d-recognisers` pin and fail-closed inspection/capability joins to
   0.4.10. All 28 previously consumed family schemas remain unchanged. The two new blind-slot
   families are explicitly deferred under #1421 and remain visible as unscored recognised

@@ -1,0 +1,188 @@
+{
+  "format": "draftwright-step-analysis-corpus",
+  "format_version": 1,
+  "corpus_version": "1.1.0",
+  "metric_version": 1,
+  "scope": ["countersinks"],
+  "cases": [
+    {
+      "id": "countersink-plain-block",
+      "tags": ["negative"],
+      "fixture": "plain-block.step",
+      "sha256": "1a5db509de8c0ce04d46cf39296dcdd04873e74cb0e7501bcd97630ffd8d113c",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored from the construction recipe in README.md; solid stock has no bore mouth or conical seat.",
+      "expected_outcome": "supported",
+      "facts": []
+    },
+    {
+      "id": "countersink-external-cone",
+      "tags": ["negative"],
+      "fixture": "countersink-external-cone.step",
+      "sha256": "792dd02460d38dcd60964c061d6be092abcbbf9353c74a6d7b6402a0d4826b14",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored as an external conical diameter transition between two shaft bands; it contains material rather than opening into a bore void.",
+      "expected_outcome": "supported",
+      "facts": []
+    },
+    {
+      "id": "countersink-deburr-mouth",
+      "tags": ["ambiguous", "negative"],
+      "fixture": "countersink-deburr.step",
+      "sha256": "ad28b14a32f075a3829e147c9470fa393f12fa304d27a5bb089c3274d6897030",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored as a 0.5 mm edge-break on a through-bore mouth; the shallow flare is a deburr chamfer, not a functional countersink seat.",
+      "expected_outcome": "supported",
+      "facts": []
+    },
+    {
+      "id": "countersink-single-seat",
+      "tags": ["positive"],
+      "fixture": "countersink-single.step",
+      "sha256": "1c0936f8f2f8cd8cc01fd686eb5e3e9a9c80489d031fcaa45625e9bf8e61728f",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored as one Ø6 through bore at (8, -5) with a top-opening Ø14 by 90 degree countersink cut 4 mm deep.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "countersinks",
+          "identity": {
+            "axis": {"value": [0.0, 0.0, -1.0], "absolute_tolerance": 1e-9},
+            "location": {"value": [8.0, -5.0, 6.0], "absolute_tolerance": 1e-6}
+          },
+          "parameters": {
+            "major_diameter": {"value": 14.0, "absolute_tolerance": 1e-6},
+            "drill_diameter": {"value": 6.0, "absolute_tolerance": 1e-6},
+            "included_angle": {"value": 90.0, "absolute_tolerance": 1e-6},
+            "depth": {"value": 4.0, "absolute_tolerance": 1e-6}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "countersink-mixed-pair",
+      "tags": ["compound", "heterogeneous", "positive"],
+      "fixture": "countersink-mixed-pair.step",
+      "sha256": "224e8cebe2c2b822430481ab229b59f357eff64446ceb36a9cc9aa9ab2d4ac8b",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored as independent top-opening Ø6/Ø14 and Ø8/Ø16 through-bore seats at distinct sites; unlike the grouped equal-seat pair, swapping the provider-owned nested objects is observably invalid.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "countersinks",
+          "identity": {
+            "axis": {"value": [0.0, 0.0, -1.0], "absolute_tolerance": 1e-9},
+            "location": {"value": [-18.0, -7.0, 6.0], "absolute_tolerance": 1e-6}
+          },
+          "parameters": {
+            "major_diameter": {"value": 14.0, "absolute_tolerance": 1e-6},
+            "drill_diameter": {"value": 6.0, "absolute_tolerance": 1e-6},
+            "included_angle": {"value": 90.0, "absolute_tolerance": 1e-6},
+            "depth": {"value": 4.0, "absolute_tolerance": 1e-6}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        },
+        {
+          "family": "countersinks",
+          "identity": {
+            "axis": {"value": [0.0, 0.0, -1.0], "absolute_tolerance": 1e-9},
+            "location": {"value": [18.0, 7.0, 6.0], "absolute_tolerance": 1e-6}
+          },
+          "parameters": {
+            "major_diameter": {"value": 16.0, "absolute_tolerance": 1e-6},
+            "drill_diameter": {"value": 8.0, "absolute_tolerance": 1e-6},
+            "included_angle": {"value": 90.0, "absolute_tolerance": 1e-6},
+            "depth": {"value": 4.0, "absolute_tolerance": 1e-6}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "countersink-pair-topology-a",
+      "tags": ["compound", "positive", "topology-order-variant"],
+      "fixture": "countersink-topology-a.step",
+      "sha256": "8dbe1a7bde45a055e505f843d86dd33eb9f1474084a7e7e7fd186edc759c0c15",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored as two equal Ø6 through bores with independent top-opening Ø14 by 90 degree seats; canonical Part 21 entity order.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "countersinks",
+          "identity": {
+            "axis": {"value": [0.0, 0.0, -1.0], "absolute_tolerance": 1e-9},
+            "location": {"value": [-18.0, -7.0, 6.0], "absolute_tolerance": 1e-6}
+          },
+          "parameters": {
+            "major_diameter": {"value": 14.0, "absolute_tolerance": 1e-6},
+            "drill_diameter": {"value": 6.0, "absolute_tolerance": 1e-6},
+            "included_angle": {"value": 90.0, "absolute_tolerance": 1e-6},
+            "depth": {"value": 4.0, "absolute_tolerance": 1e-6}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        },
+        {
+          "family": "countersinks",
+          "identity": {
+            "axis": {"value": [0.0, 0.0, -1.0], "absolute_tolerance": 1e-9},
+            "location": {"value": [18.0, 7.0, 6.0], "absolute_tolerance": 1e-6}
+          },
+          "parameters": {
+            "major_diameter": {"value": 14.0, "absolute_tolerance": 1e-6},
+            "drill_diameter": {"value": 6.0, "absolute_tolerance": 1e-6},
+            "included_angle": {"value": 90.0, "absolute_tolerance": 1e-6},
+            "depth": {"value": 4.0, "absolute_tolerance": 1e-6}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "countersink-pair-topology-b",
+      "tags": ["compound", "positive", "topology-order-variant"],
+      "fixture": "countersink-topology-b.step",
+      "sha256": "ba409dcbe74ab11e71f4eabc77dffe4a5d1757237a4ba801f9cae9c02d69b99c",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Geometrically identical to topology-a, with all Part 21 entities bijectively renumbered and reverse serialized.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "countersinks",
+          "identity": {
+            "axis": {"value": [0.0, 0.0, -1.0], "absolute_tolerance": 1e-9},
+            "location": {"value": [-18.0, -7.0, 6.0], "absolute_tolerance": 1e-6}
+          },
+          "parameters": {
+            "major_diameter": {"value": 14.0, "absolute_tolerance": 1e-6},
+            "drill_diameter": {"value": 6.0, "absolute_tolerance": 1e-6},
+            "included_angle": {"value": 90.0, "absolute_tolerance": 1e-6},
+            "depth": {"value": 4.0, "absolute_tolerance": 1e-6}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        },
+        {
+          "family": "countersinks",
+          "identity": {
+            "axis": {"value": [0.0, 0.0, -1.0], "absolute_tolerance": 1e-9},
+            "location": {"value": [18.0, 7.0, 6.0], "absolute_tolerance": 1e-6}
+          },
+          "parameters": {
+            "major_diameter": {"value": 14.0, "absolute_tolerance": 1e-6},
+            "drill_diameter": {"value": 6.0, "absolute_tolerance": 1e-6},
+            "included_angle": {"value": 90.0, "absolute_tolerance": 1e-6},
+            "depth": {"value": 4.0, "absolute_tolerance": 1e-6}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    }
+  ]
+}
