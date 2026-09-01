@@ -143,8 +143,9 @@ shared aggregate, not a second recognition scan.
 ## Amendment 5 — 0.4.10 adds two prismatic-only blind-slot inventories
 
 Recognisers 0.4.10 adds rectangular and round-bottom blind slots as two more prismatic-only
-physical families. The current aggregate runs 30 families for a prismatic part and 23 for a turned
-part, with seven gated out. Draftwright keeps both additions visible but deferred under #1421 until
+physical families. The current aggregate runs 30 families for a prismatic part and 24 for a turned
+part, with six gated out: the two new gated families are offset by Plate becoming applicable to
+turned builds. Draftwright keeps both additions visible but deferred under #1421 until
 their depth, open-end, bottom-form, declaration, annotation, and completeness semantics are
 independently reviewed. A live occurrence is reported as an unscored recognised family; it is not
 coerced into the existing through-slot or rectangular-pocket grammar and does not enter the audited
@@ -168,8 +169,8 @@ tests live with `b123d-recognisers`; Draftwright consumes the released aggregate
 import the provider's private roster to re-certify its orchestration.
 
 Owning a family is distinct from always running it. Applicability gates live inside the one
-orchestration. Since Amendment 3, chamfers and fillets run for both prismatic and turned
-solids; plates, angled prismatic steps, circular blind steps, paired ramp steps, through steps,
+orchestration. In the current release, plates, chamfers, and fillets run for both prismatic and
+turned solids; angled prismatic steps, circular blind steps, paired ramp steps, through steps,
 rectangular blind slots, and round-bottom blind slots remain gated away from turned parts.
 
 ### 2. Consumers reuse the result; they do not rescan per concern
@@ -242,7 +243,7 @@ critique because it logs its diagnostics. Therefore the observable call contract
 | path | recognition calls |
 |---|---|
 | automatic prismatic build | 30 families, once each |
-| automatic turned build | 23 families; seven prismatic-only families gated out by design |
+| automatic turned build | 24 families; six prismatic-only families gated out by design |
 | declared build/render | zero |
 | first physical critique/export of a declared drawing | at most one aggregate |
 | subsequent lint of the same drawing | zero additional calls |
