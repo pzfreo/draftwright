@@ -617,7 +617,9 @@ def _completeness_component(
     if recognition is None:
         return _empty_completeness("physical recognition inventory unavailable", unrecognised)
 
-    outcomes = {
+    # Every family has its own typed outcome record; this heterogeneous aggregation only uses
+    # their shared runtime ``state``/``requirement_count`` protocol.
+    outcomes: dict[str, list] = {
         "chamfers": chamfer_requirement_outcomes(recognition, features, registry, omissions),
         "channels": channel_requirement_outcomes(recognition, features, registry, omissions),
         "circular_blind_steps": circular_blind_step_requirement_outcomes(

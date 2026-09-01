@@ -222,6 +222,27 @@ corresponding independent layer. The older generic boss-height fallback no longe
 prisms; the family ledger distinguishes placed, structured-note, suppressed, dropped, missing
 and unverifiable outcomes without duplicate diagnostics.
 
+## Polygonal-stock completeness evidence
+
+The `polygonal-stock` completeness boundary is independently `supported` from
+`tests/fixtures/evaluation/corpus-polygonal-stock-v1.json`. Thirteen construction-authored cases
+contribute six physical whole-stock hexagonal prisms, 24 parameter checks and 24 downstream
+checks. The corpus covers all three principal axes, in-plane rotation, non-origin bounds and
+two equivalent topology orders. Circular and rectangular stock, an irregular six-sided prism,
+a regular octagon, an attached hexagonal boss, recessed extra topology and a compound remain
+outside this exact single-solid family.
+
+Principal axis and physical prism centre identify the occurrence. The released provider family
+owns exactly six-sided stock; side count, A/F, axial length and the canonical ring of coupled
+flat-direction/physical-centre pairs are scored parameters. Each source must join one exact
+`PolygonalStockFeature` through automatic IR, public `Sheet.polygonal_stock`, executed generated
+Sheet code, and two compiler-owned drawing requirements. The A/F statement must be a confirmed
+solver-placed leader with its tip on a retained physical flat, while stock length must retain its
+own confirmed Dimension identity. Arbitrary rigid motion is exercised through the public framed
+recognition route without changing the default raw rollout policy. The public declaration remains
+capable of expressing other even-sided regular stock; only the provider-owned automatic family is
+narrowed to its released hexagonal schema.
+
 ## Plate completeness evidence
 
 The `plates` completeness boundary is independently `supported` from
@@ -352,7 +373,7 @@ an outcome.
 
 Remaining supported-family completeness work is tracked by family group rather than the closed
 shared design issue: #1370 retains countersinks and Double-D bores; #1371 covers
-channels, slots, slot patterns and polygonal stock; #1372 retains the independent rectangular-pad
+channels, slots and slot patterns; #1372 retains the independent rectangular-pad
 and polygonal-boss benchmark corpora; #1373 retains face levels and risers; and
 #1374 retains turned steps.
 

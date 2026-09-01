@@ -151,7 +151,10 @@ def test_stock_geometry_without_one_ir_owner_fails_closed_as_unverifiable():
 
     assert [issue.code for issue in drawing.lint()].count(
         "polygonal_stock_requirement_unverifiable"
-    ) == 2
+    ) == 1
+    completeness = drawing.lint_summary()["quality"]["completeness"]
+    assert completeness["by_family"]["polygonal_stock"] == 2
+    assert completeness["unverifiable"] == 2
 
 
 def test_duplicate_stock_ir_correspondence_is_ambiguous_not_first_match_wins():
@@ -167,7 +170,8 @@ def test_duplicate_stock_ir_correspondence_is_ambiguous_not_first_match_wins():
         drawing.registry,
     )
 
-    assert [outcome.state for outcome in outcomes] == ["unverifiable", "unverifiable"]
+    assert len(outcomes) == 1
+    assert (outcomes[0].state, outcomes[0].requirement_count) == ("unverifiable", 2)
 
 
 def test_authored_suppression_is_distinct_from_missing_stock_placement():

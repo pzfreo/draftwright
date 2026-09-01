@@ -128,6 +128,23 @@ locations:
   tiers rather than independent pads; `pad-detached-body-negative.step` proves that projected
   overlap across two solids cannot manufacture attachment.
 
+`corpus-polygonal-stock-v1.json` owns complete single-solid regular-hexagonal stock. Each positive
+case has one A/F requirement and one axial stock-length requirement:
+
+- `polygonal-stock-x.step`, `polygonal-stock-y.step` and `polygonal-stock-roll17.step` preserve a
+  circumradius-20, 30 mm long hexagonal prism across the three principal axes and an independent
+  17° in-plane rotation. Their nominal A/F is `40 cos(30°) = 34.641 mm`.
+- `polygonal-stock-translated.step` independently uses circumradius 23 and length 37 mm before a
+  `(13, -7, 11)` translation. Its A/F is `46 cos(30°) = 39.837 mm`, physical centre is
+  `(13, -7, 29.5)`, and neither its values nor axial bounds can borrow from the canonical prism.
+- `polygonal-stock-topology-a.step` and `polygonal-stock-topology-b.step` are geometrically equal.
+  The second uses a cyclically shifted reverse-wound boundary and opposite signed extrusion, so
+  topology order cannot change its independently authored facts.
+- The circular, rectangular, irregular-six-side and regular-octagonal fixtures delimit the exact
+  automatic family. An attached boss, a blind-recessed otherwise-exact hexagonal body and two
+  detached equal eight-face stock prisms prove that projection, six-face appearance, extra
+  topology or per-solid iteration cannot manufacture whole-stock ownership.
+
 `corpus-chamfers-v1.json` is a separate physical bevel corpus. One planar or conical treatment is
 one callout requirement even when equal specifications share ink:
 
