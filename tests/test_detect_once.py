@@ -84,9 +84,9 @@ def cyls_counter():
     Yields a live dict, so the count is read AFTER the work — matching the previous
     fixture's ``calls["n"]`` shape.
     """
-    import b123d_recognisers._features as _features
+    from b123d_recognisers import analyse_cylinders
 
-    with counting_calls({"n": _features.analyse_cylinders}) as counts:
+    with counting_calls({"n": analyse_cylinders}) as counts:
         yield counts
 
 
