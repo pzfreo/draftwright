@@ -15,6 +15,7 @@ from typing import Literal
 
 from b123d_recognisers import CircularBlindStep, RecognitionResult
 
+from draftwright._geometry import quantised_radius_agrees, quantised_span_agrees
 from draftwright.linting._registry import satisfaction_ids, satisfaction_of
 from draftwright.linting.issues import LintIssue, is_placement_drop
 
@@ -81,12 +82,7 @@ def circular_blind_step_key(step, *, require_frame: bool = False) -> tuple:
         )
         for index in range(3)
         if index != run_index
-    ) or not isclose(
-        abs(centreline[1][run_index] - centreline[0][run_index]),
-        length,
-        rel_tol=0.0,
-        abs_tol=1e-6,
-    ):
+    ) or not quantised_span_agrees(centreline[0][run_index], centreline[1][run_index], length):
         raise ValueError
     if any(type(value) not in (int, float) for point in step.section for value in point):
         raise ValueError
@@ -113,8 +109,8 @@ def circular_blind_step_key(step, *, require_frame: bool = False) -> tuple:
     if not (
         len(first_changes) == len(last_changes) == 1
         and first_changes[0] != last_changes[0]
-        and isclose(hypot(*first_delta), radius, rel_tol=0.0, abs_tol=1e-6)
-        and isclose(hypot(*last_delta), radius, rel_tol=0.0, abs_tol=1e-6)
+        and quantised_radius_agrees(first, centre, radius)
+        and quantised_radius_agrees(last, centre, radius)
     ):
         raise ValueError
     transverse = [index for index in range(3) if index != run_index]

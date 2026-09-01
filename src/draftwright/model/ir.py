@@ -29,6 +29,8 @@ from draftwright._geometry import (
     _canonical_axis_direction,
     _canonical_axis_span,
     _fmt,
+    quantised_radius_agrees,
+    quantised_span_agrees,
 )
 
 if TYPE_CHECKING:
@@ -1714,12 +1716,7 @@ class CircularBlindStepFeature:
             )
             for index in range(3)
             if index != run_index
-        ) or not isclose(
-            abs(centreline[1][run_index] - centreline[0][run_index]),
-            length,
-            rel_tol=0.0,
-            abs_tol=1e-6,
-        ):
+        ) or not quantised_span_agrees(centreline[0][run_index], centreline[1][run_index], length):
             raise ValueError(
                 "circular-blind-step centreline must be an axis-aligned terminal-to-open span matching depth"
             )
@@ -1753,8 +1750,8 @@ class CircularBlindStepFeature:
         canonical = (
             len(first_changes) == len(last_changes) == 1
             and first_changes[0] != last_changes[0]
-            and isclose(hypot(*first_delta), radius, rel_tol=0.0, abs_tol=1e-6)
-            and isclose(hypot(*last_delta), radius, rel_tol=0.0, abs_tol=1e-6)
+            and quantised_radius_agrees(first, centre, radius)
+            and quantised_radius_agrees(last, centre, radius)
         )
         if not canonical:
             raise ValueError(

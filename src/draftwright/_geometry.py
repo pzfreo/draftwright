@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import logging
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass
+from decimal import Decimal
 from inspect import signature
 
 from b123d_recognisers import full_cylinders
@@ -50,6 +52,81 @@ _SQUARENESS_TOL = 0.05
 _OD_FILL_MIN = 0.8
 _OD_AXIS_TOL = 0.05
 _COAXIAL_TOL = 1e-3
+
+# ``b123d-recognisers`` publishes independently quantised public measurements at six
+# significant figures. These model-neutral bounds reconstruct the possible geometry from the
+# published decimal cells without coupling either the IR waist or linting to provider internals.
+_PROVIDER_SIGNIFICANT_FIGURES = 6
+_PROVIDER_COORDINATE_FLOOR = 1e-6
+
+
+def _provider_cell(value: float) -> tuple[float, float]:
+    """Preimage cell of one six-significant-figure published value.
+
+    At a power of ten the adjacent value toward zero is on the previous decade's finer grid,
+    so the two half-widths are deliberately derived independently.
+    """
+    published = Decimal(str(value))
+    magnitude = abs(published)
+    if magnitude == 0:
+        return 0.0, 0.0
+    exponent = magnitude.adjusted()
+    away_quantum = Decimal(1).scaleb(exponent - (_PROVIDER_SIGNIFICANT_FIGURES - 1))
+    toward_quantum = (
+        away_quantum / 10 if magnitude == Decimal(1).scaleb(exponent) else away_quantum
+    )
+    if published > 0:
+        lower_neighbour = published - toward_quantum
+        upper_neighbour = published + away_quantum
+    else:
+        lower_neighbour = published - away_quantum
+        upper_neighbour = published + toward_quantum
+    return float((lower_neighbour + published) / 2), float((published + upper_neighbour) / 2)
+
+
+def _difference_cell(left: float, right: float) -> tuple[float, float]:
+    left_low, left_high = _provider_cell(left)
+    right_low, right_high = _provider_cell(right)
+    return left_low - right_high, left_high - right_low
+
+
+def _absolute_cell(low: float, high: float) -> tuple[float, float]:
+    minimum = 0.0 if low <= 0.0 <= high else min(abs(low), abs(high))
+    return minimum, max(abs(low), abs(high))
+
+
+def _cells_overlap(left: tuple[float, float], right: tuple[float, float]) -> bool:
+    return (
+        left[0] <= right[1] + _PROVIDER_COORDINATE_FLOOR
+        and right[0] <= left[1] + _PROVIDER_COORDINATE_FLOOR
+    )
+
+
+def quantised_span_agrees(start: float, end: float, published: float) -> bool:
+    """Whether independently published endpoints can describe *published* span."""
+    possible_span = _absolute_cell(*_difference_cell(end, start))
+    published_span = _provider_cell(published)
+    return _cells_overlap(possible_span, (max(0.0, published_span[0]), published_span[1]))
+
+
+def quantised_radius_agrees(
+    point: Sequence[float],
+    centre: Sequence[float],
+    published: float,
+) -> bool:
+    """Whether independently published points can describe *published* radius."""
+    component_ranges = tuple(
+        _absolute_cell(*_difference_cell(point[index], centre[index])) for index in range(2)
+    )
+    possible_radius = (
+        math.hypot(*(component[0] for component in component_ranges)),
+        math.hypot(*(component[1] for component in component_ranges)),
+    )
+    published_radius = _provider_cell(published)
+    return _cells_overlap(
+        possible_radius,
+        (max(0.0, published_radius[0]), published_radius[1]),
+    )
 
 
 @dataclass(frozen=True)
