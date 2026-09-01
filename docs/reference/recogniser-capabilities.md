@@ -418,6 +418,26 @@ placed or structurally satisfied. Authored omission and placement failure remain
 `dropped`; missing alternate ink remains `missing`. Axis or family presence alone can never claim
 an outcome.
 
+## Framed step-family evidence
+
+The released 0.4.10 framed route is exercised for `circular-blind-steps`, `paired-ramp-steps` and
+`through-steps` as one consumer boundary. Each construction-authored part is built through the raw
+route, the provider-owned local frame, and the same local frame after a combined non-principal
+rotation and translation of the source solid. The two framed builds must return identical family
+records and IR, an empty semantic build diff, identical compiler-backed ink, and clean physical
+lint. Raw and framed principal-axis names may differ because the latter are local coordinates;
+the radius/depth, angle/run, and unequal two-leg manufacturing requirements must not.
+
+All three local records still pass through the already-public declaration vocabulary —
+`Sheet.circular_blind_step(...)`, `Sheet.paired_ramp_step(...)` and `Sheet.through_step(...)` — and
+executed generated Sheet code must reconstruct the exact framed feature. No framed-only feature or
+placement API is introduced. `CircularBlindStep` endpoints, radius and depth are independently
+quantised by the provider to six significant figures, so derived spans can differ by a few final
+places—especially when absolute coordinates are subtracted. IR and completeness validation sum
+the relevant published values' decimal half-cells, admitting exactly that bounded uncertainty
+while rejecting outside-cell spans and sections. This is consumer normalization of an existing
+released schema, not a changed recogniser contract.
+
 Remaining supported-family completeness work is tracked by family group rather than the closed
 shared design issue: #1371 covers channels, slots and slot patterns; #1372 retains the independent
 rectangular-pad and polygonal-boss benchmark corpora; #1373 retains face levels and risers; and

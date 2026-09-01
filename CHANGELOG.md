@@ -44,6 +44,15 @@
 
 ### Changed
 
+- Framed recognition now carries all three 0.4.6 step families through their complete existing
+  consumer paths. `CircularBlindStep`, `PairedRampStep` and `ThroughStep` retain the same
+  manufacturing requirements from raw recognition through their public `Sheet` words, generated
+  code, compiler-owned drawing ink and lint; the provider-owned local records and Draftwright IR
+  remain invariant under a combined non-principal rotation and translation. Circular-step
+  validation now derives its bound from each independently published endpoint, centre, radius and
+  depth value's six-significant-figure decimal cell, while outside-cell geometric inconsistencies
+  still fail closed (#1382; ADRs 0011, 0013, 0015, 0017, 0018, 0020).
+
 - Countersink completeness is now backed by an independently authored, hash-pinned seven-case STEP
   corpus covering functional seats, solid external-cone and deburr negatives, grouped equal seats,
   and reverse-serialized topology. Detection identity and all four provider measurements are scored
@@ -62,7 +71,6 @@
   foreign-owner mutations fail closed, while the provider's exclusive aggregate ownership keeps
   each profile from being recounted as an ordinary hole (#1370; ADRs 0010, 0011, 0013, 0015,
   0017).
-
 - Updated the immutable `b123d-recognisers` pin and fail-closed inspection/capability joins to
   0.4.10. All 28 previously consumed family schemas remain unchanged. The two new blind-slot
   families are explicitly deferred under #1421 and remain visible as unscored recognised
