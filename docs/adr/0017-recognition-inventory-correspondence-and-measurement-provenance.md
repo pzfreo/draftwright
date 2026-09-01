@@ -407,6 +407,8 @@ completeness slice. The remaining abstractions are evaluated separately after Ga
 - [x] Double-D, Passage, PrismaticPocket, and repeating-profile consumer tests read released
   aggregate records and exercise Draftwright-owned physical correlation; the provider suite
   owns its private profile predicates, attribution, and reconciliation algorithms.
+- [x] Consumer tests use released provider contracts except for the exact, shrinking private
+  seams tracked by upstream #400 and #408; a repository-wide guard rejects any new exception.
 - [x] Declared build/render performs no recognition.
 - [x] Physical critique of a declared drawing obtains at most one cached aggregate.
 - [x] Repeated lint returns equivalent results without rerunning recognition.

@@ -47,10 +47,13 @@ import ast
 from pathlib import Path
 
 import b123d_recognisers
+import b123d_recognisers.inspection as recogniser_inspection
+import pytest
 
 _SRC = Path(__file__).resolve().parent.parent / "src" / "draftwright"
 _MODEL_DIR = _SRC / "model"
 _RECOGNISER_PUBLIC = frozenset(b123d_recognisers.__all__)
+_RECOGNISER_INSPECTION_PUBLIC = frozenset(recogniser_inspection.__all__)
 
 # ── The declared DAG (mirrors CLAUDE.md ## Architecture) ─────────────────────────────────
 # Rank each top-level submodule (and subpackage) by its layer; a file may import only names
@@ -552,20 +555,389 @@ def test_linting_consumes_recognisers_only_through_the_public_root():
     )
 
 
-def test_profile_consumer_tests_use_only_the_released_recogniser_root():
+_ALLOWED_PRIVATE_RECOGNISER_REFERENCES = {
+    (
+        "test_grid_lattice_convention.py",
+        "b123d_recognisers._features",
+        "_plane_uv",
+    ),
+    (
+        "test_grid_lattice_convention.py",
+        "b123d_recognisers._features",
+        "_rect_grid",
+    ),
+    (
+        "test_slanted_blind_step.py",
+        "b123d_recognisers._recess_core",
+        "_Face",
+    ),
+    (
+        "test_slanted_blind_step.py",
+        "b123d_recognisers._recess_core",
+        "_recognise_corner_notches",
+    ),
+}
+_RECOGNISER_POLICY_MODULE = "b123d_recognisers.<policy>"
+_PROVIDER_ROOT = "b123d_recognisers"
+_PROVIDER_INSPECTION = "b123d_recognisers.inspection"
+_LITERAL_PREDICATES = {"endswith", "removeprefix", "removesuffix", "startswith"}
+_PROVIDER_MEMBER_CALLS = {"delattr", "object", "setattr"}
+
+
+def _dotted_name(node: ast.expr) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        prefix = _dotted_name(node.value)
+        return f"{prefix}.{node.attr}" if prefix else None
+    return None
+
+
+def _recogniser_contract_references(path: Path, *, relative_to: Path) -> set[tuple[str, str, str]]:
+    """Return statically visible non-public provider references.
+
+    This is deliberately a provider-boundary check, not a Python data-flow interpreter. It
+    covers imports, package attributes through straightforward aliases, literal getattr calls,
+    direct provider-object member calls, and literal dotted provider targets in assignments or
+    calls. General reflection and dynamically constructed names remain code-review concerns.
+    """
+
+    relative = path.relative_to(relative_to).as_posix()
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    references: set[tuple[str, str, str]] = set()
+    module_aliases: dict[str, str] = {}
+
+    def policy(label: str) -> None:
+        references.add((relative, _RECOGNISER_POLICY_MODULE, label))
+
+    def record(actual: str) -> None:
+        if actual == _PROVIDER_ROOT or not actual.startswith(f"{_PROVIDER_ROOT}."):
+            return
+        components = actual.removeprefix(f"{_PROVIDER_ROOT}.").split(".")
+        if components[0] == "inspection":
+            if len(components) == 1:
+                return
+            member = components[1]
+            if member == "__all__":
+                references.add((relative, _PROVIDER_INSPECTION, member))
+            elif member not in _RECOGNISER_INSPECTION_PUBLIC:
+                references.add((relative, _PROVIDER_INSPECTION, member))
+            return
+
+        member = components[0]
+        if relative == "_recogniser_public_contract.py" and member in {"__all__", "__dict__"}:
+            return
+        if member == "__all__" or member not in _RECOGNISER_PUBLIC:
+            references.add((relative, _PROVIDER_ROOT, member))
+
+    def resolve(dotted: str) -> str | None:
+        for binding in sorted(module_aliases, key=len, reverse=True):
+            if dotted == binding or dotted.startswith(f"{binding}."):
+                return f"{module_aliases[binding]}{dotted[len(binding) :]}"
+        return None
+
+    def resolve_expr(node: ast.expr) -> str | None:
+        dotted = _dotted_name(node)
+        return resolve(dotted) if dotted is not None else None
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            if module == _PROVIDER_ROOT:
+                references.update(
+                    (relative, module, alias.name)
+                    for alias in node.names
+                    if alias.name not in _RECOGNISER_PUBLIC | {"*"}
+                )
+            elif module == _PROVIDER_INSPECTION:
+                references.update(
+                    (relative, module, alias.name)
+                    for alias in node.names
+                    if alias.name not in _RECOGNISER_INSPECTION_PUBLIC | {"*"}
+                )
+            elif module.startswith(f"{_PROVIDER_ROOT}."):
+                references.update((relative, module, alias.name) for alias in node.names)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                module = alias.name
+                if module == _PROVIDER_ROOT:
+                    module_aliases[alias.asname or module] = module
+                elif module == _PROVIDER_INSPECTION:
+                    binding = alias.asname or _PROVIDER_ROOT
+                    module_aliases[binding] = module if alias.asname else binding
+                elif module.startswith(f"{_PROVIDER_ROOT}."):
+                    references.add((relative, module, "*"))
+                    if alias.asname:
+                        module_aliases[alias.asname] = module
+
+    assignments: list[tuple[str, str]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            dotted = _dotted_name(node.value)
+            if dotted is not None:
+                assignments.extend(
+                    (target.id, dotted) for target in node.targets if isinstance(target, ast.Name)
+                )
+        elif (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and node.value is not None
+        ):
+            dotted = _dotted_name(node.value)
+            if dotted is not None:
+                assignments.append((node.target.id, dotted))
+
+    changed = True
+    while changed:
+        changed = False
+        for binding, value in assignments:
+            if binding in module_aliases:
+                continue
+            actual = resolve(value)
+            if actual is not None:
+                module_aliases[binding] = actual
+                changed = True
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute):
+            actual = resolve_expr(node)
+            if actual is not None:
+                record(actual)
+
+    def literal(node: ast.expr | None) -> str | None:
+        return (
+            node.value if isinstance(node, ast.Constant) and isinstance(node.value, str) else None
+        )
+
+    def target_argument(node: ast.Call) -> ast.expr | None:
+        if node.args:
+            return node.args[0]
+        targets = [item.value for item in node.keywords if item.arg == "target"]
+        return targets[0] if len(targets) == 1 else None
+
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
+            value = node.value
+            dotted_target = literal(value)
+            if dotted_target is not None and dotted_target.startswith(f"{_PROVIDER_ROOT}."):
+                record(dotted_target)
+        if not isinstance(node, ast.Call):
+            continue
+
+        terminal = (_dotted_name(node.func) or "").rsplit(".", 1)[-1]
+        if terminal not in _LITERAL_PREDICATES:
+            for value in [*node.args, *(item.value for item in node.keywords)]:
+                dotted_target = literal(value)
+                if dotted_target is not None and dotted_target.startswith(f"{_PROVIDER_ROOT}."):
+                    record(dotted_target)
+
+        if terminal == "getattr" and len(node.args) >= 2:
+            provider = resolve_expr(node.args[0])
+            if provider in {_PROVIDER_ROOT, _PROVIDER_INSPECTION}:
+                member = literal(node.args[1])
+                if member is None:
+                    policy("dynamic-provider-member")
+                else:
+                    record(f"{provider}.{member}")
+
+        target_keywords = [item.value for item in node.keywords if item.arg == "target"]
+        member_keywords = [
+            item.value for item in node.keywords if item.arg in {"attribute", "name"}
+        ]
+        if terminal in _PROVIDER_MEMBER_CALLS:
+            # Keep positional object/member pairs adjacent, so a string replacement is not
+            # mistaken for another member. Explicit member keywords may combine with a
+            # positional provider in bound or unbound patch calls.
+            for provider_node, member_node in zip(node.args, node.args[1:]):
+                provider = resolve_expr(provider_node)
+                member = literal(member_node)
+                if provider in {_PROVIDER_ROOT, _PROVIDER_INSPECTION} and member is not None:
+                    record(f"{provider}.{member}")
+
+            providers = {
+                provider
+                for value in [*node.args, *target_keywords]
+                if (provider := resolve_expr(value)) in {_PROVIDER_ROOT, _PROVIDER_INSPECTION}
+            }
+            members = {
+                member for value in member_keywords if (member := literal(value)) is not None
+            }
+            for provider in providers:
+                for member in members:
+                    record(f"{provider}.{member}")
+
+        if terminal == "multiple":
+            target = target_argument(node)
+            provider = resolve_expr(target) if target is not None else None
+            target_name = literal(target)
+            if provider is None and target_name in {_PROVIDER_ROOT, _PROVIDER_INSPECTION}:
+                provider = target_name
+            if provider in {_PROVIDER_ROOT, _PROVIDER_INSPECTION}:
+                for item in node.keywords:
+                    if item.arg not in {None, "create", "spec", "spec_set", "target"}:
+                        record(f"{provider}.{item.arg}")
+
+    return references
+
+
+def _consumer_recogniser_contract_violations(
+    tests: Path,
+) -> tuple[set[tuple[str, str, str]], set[tuple[str, str, str]]]:
+    references = {
+        reference
+        for path in sorted(tests.rglob("*.py"))
+        if path.name != "test_import_boundaries.py"
+        for reference in _recogniser_contract_references(path, relative_to=tests)
+    }
+    return (
+        references - _ALLOWED_PRIVATE_RECOGNISER_REFERENCES,
+        _ALLOWED_PRIVATE_RECOGNISER_REFERENCES - references,
+    )
+
+
+def test_consumer_tests_use_only_released_recogniser_contract_or_explicit_blockers():
     """Consumer evidence must not become a second home for provider implementation tests."""
 
     tests = Path(__file__).resolve().parent
-    paths = (
-        tests / "test_issue_1058_wheel_profile.py",
-        tests / "test_issue_1245_passage_disposition.py",
-        tests / "test_issue_1246_prismatic_pocket_disposition.py",
+    violations, stale_exceptions = _consumer_recogniser_contract_violations(tests)
+
+    # The two exact underscore-module seams are immutable upstream blockers (#400/#408).
+    # Fail when a new reference appears or either explicit exception becomes stale.
+    assert not violations and not stale_exceptions, (
+        "consumer tests must use released b123d-recognisers contracts; only the exact "
+        "documented upstream blockers may use private members. "
+        f"Violations: {violations}; stale exceptions: {stale_exceptions}"
     )
-    offenders = [offender for path in paths for offender in _private_recogniser_imports(path)]
-    assert not offenders, (
-        "profile consumer tests must use released aggregate records and Draftwright-owned "
-        f"correlation evidence, not provider implementation modules: {offenders}"
+
+
+def test_consumer_recogniser_contract_guard_covers_static_provider_seams(tmp_path):
+    (tmp_path / "test_grid_lattice_convention.py").write_text(
+        "from b123d_recognisers._features import _plane_uv, _rect_grid, _new_private\n",
+        encoding="utf-8",
     )
+    (tmp_path / "test_slanted_blind_step.py").write_text(
+        "from b123d_recognisers._recess_core import _Face, _recognise_corner_notches\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "private_static.py").write_text(
+        "import b123d_recognisers as br\n"
+        "alias = br\n"
+        "private = alias.profiled_bores.double_d_profile\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "private_inspection.py").write_text(
+        "from b123d_recognisers.inspection import _FaceGraph\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "private_getattr.py").write_text(
+        "import b123d_recognisers as br\nprivate = getattr(br, 'polygonal_bosses')\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "private_literal_target.py").write_text(
+        "from unittest import mock\n"
+        "target = 'b123d_recognisers.profiled_bores.double_d_profile'\n"
+        "mock.patch(target, replacement)\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "private_unbound_patch.py").write_text(
+        "import b123d_recognisers as br\n"
+        "pytest.MonkeyPatch.setattr(monkeypatch, br, 'profiled_bores', replacement)\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "private_mixed_setattr.py").write_text(
+        "import b123d_recognisers as br\n"
+        "monkeypatch.setattr(br, name='profiled_bores', value=replacement)\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "private_mixed_delattr.py").write_text(
+        "import b123d_recognisers as br\nmonkeypatch.delattr(br, name='profiled_bores')\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "private_unbound_delattr.py").write_text(
+        "import b123d_recognisers as br\n"
+        "pytest.MonkeyPatch.delattr(monkeypatch, br, name='profiled_bores')\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "private_mixed_object_patch.py").write_text(
+        "from unittest import mock\n"
+        "import b123d_recognisers as br\n"
+        "mock.patch.object(br, attribute='profiled_bores', new=replacement)\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "private_multiple_patch.py").write_text(
+        "from unittest.mock import patch\n"
+        "patch.multiple('b123d_recognisers', profiled_bores=replacement)\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "publication_mutation.py").write_text(
+        "import b123d_recognisers as br\nbr.__all__.append('profiled_bores')\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "public_and_unrelated_controls.py").write_text(
+        "import importlib.util\n"
+        "import b123d_recognisers as br\n"
+        "from b123d_recognisers import Flat\n"
+        "public = br.Flat\n"
+        "also_public = getattr(br, 'Flat')\n"
+        "monkeypatch.setattr(br, 'Flat', 'replacement')\n"
+        "assert_context(br, 'consumer fixture')\n"
+        "target = 'draftwright.layout._solve_strip_1d'\n"
+        "monkeypatch.setattr(target, replacement)\n"
+        "setter = config.setattr\n"
+        "setter('theme', 'dark')\n"
+        "find = importlib.util.find_spec\n"
+        "find('draftwright.layout')\n",
+        encoding="utf-8",
+    )
+
+    violations, stale_exceptions = _consumer_recogniser_contract_violations(tmp_path)
+
+    assert violations == {
+        ("test_grid_lattice_convention.py", "b123d_recognisers._features", "_new_private"),
+        ("private_static.py", _PROVIDER_ROOT, "profiled_bores"),
+        ("private_inspection.py", _PROVIDER_INSPECTION, "_FaceGraph"),
+        ("private_getattr.py", _PROVIDER_ROOT, "polygonal_bosses"),
+        ("private_literal_target.py", _PROVIDER_ROOT, "profiled_bores"),
+        ("private_unbound_patch.py", _PROVIDER_ROOT, "profiled_bores"),
+        ("private_mixed_setattr.py", _PROVIDER_ROOT, "profiled_bores"),
+        ("private_mixed_delattr.py", _PROVIDER_ROOT, "profiled_bores"),
+        ("private_unbound_delattr.py", _PROVIDER_ROOT, "profiled_bores"),
+        ("private_mixed_object_patch.py", _PROVIDER_ROOT, "profiled_bores"),
+        ("private_multiple_patch.py", _PROVIDER_ROOT, "profiled_bores"),
+        ("publication_mutation.py", _PROVIDER_ROOT, "__all__"),
+    }
+    assert not stale_exceptions
+
+
+def test_public_recogniser_member_is_an_immutable_public_snapshot(monkeypatch):
+    import _recogniser_public_contract as contract
+
+    with pytest.raises(KeyError):
+        contract.public_recogniser_member("profiled_bores")
+
+    assert not hasattr(contract, "recognition")
+    assert getattr(contract.public_recogniser_member, "__closure__", None) is None
+    with pytest.raises(AttributeError):
+        contract.public_recogniser_member._root
+    with pytest.raises(AttributeError):
+        contract.public_recogniser_member._root = {"profiled_bores": object()}
+
+    contract._PUBLIC_RECOGNISER_NAMES = frozenset({"profiled_bores"})
+    try:
+        with pytest.raises(KeyError):
+            contract.public_recogniser_member("profiled_bores")
+    finally:
+        del contract._PUBLIC_RECOGNISER_NAMES
+
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            contract,
+            "_PUBLIC_RECOGNISER_NAMES",
+            frozenset({"profiled_bores"}),
+            raising=False,
+        )
+        with pytest.raises(KeyError):
+            contract.public_recogniser_member("profiled_bores")
 
 
 def test_public_root_guard_rejects_module_alias_loopholes(tmp_path):

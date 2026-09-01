@@ -18,9 +18,10 @@ import dataclasses
 import inspect
 import typing
 
-import b123d_recognisers as recognition
 import pytest
 from _recogniser_public_contract import (
+    public_recogniser_member,
+    public_recogniser_names,
     public_record_return_types,
     public_record_universe,
 )
@@ -45,7 +46,7 @@ def _recogniser_record_universe() -> set[type]:
     return public_record_universe()
 
 
-def test_record_return_grammar_rejects_private_mixed_or_non_list_shapes(monkeypatch):
+def test_record_return_grammar_rejects_private_mixed_or_non_list_shapes():
     """Finding one public record cannot bless unrelated members or an arbitrary container."""
 
     @dataclasses.dataclass(frozen=True)
@@ -70,21 +71,25 @@ def test_record_return_grammar_rejects_private_mixed_or_non_list_shapes(monkeypa
         return []
 
     recognise_private.__annotations__ = {"return": list[_UnpublishedRecord]}
-    with monkeypatch.context() as patch:
-        patch.setattr(recognition, "recognise_private", recognise_private, raising=False)
-        patch.setattr(recognition, "__all__", [*recognition.__all__, "recognise_private"])
-        with pytest.raises(AssertionError, match="non-public-record list member"):
-            public_record_universe()
+    published_names = public_recogniser_names()
+    published = {name: public_recogniser_member(name) for name in published_names}
+    injected = {**published, "recognise_private": recognise_private}
+    with pytest.raises(AssertionError, match="non-public-record list member"):
+        public_record_universe(
+            names=published_names | {"recognise_private"},
+            member=injected.__getitem__,
+        )
 
     def recognise_bad():
         return []
 
     recognise_bad.__annotations__ = {"return": list[int]}
-    with monkeypatch.context() as patch:
-        patch.setattr(recognition, "recognise_bad", recognise_bad, raising=False)
-        patch.setattr(recognition, "__all__", [*recognition.__all__, "recognise_bad"])
-        with pytest.raises(AssertionError, match="has no public-record return annotation"):
-            public_record_universe()
+    injected = {**published, "recognise_bad": recognise_bad}
+    with pytest.raises(AssertionError, match="has no public-record return annotation"):
+        public_record_universe(
+            names=published_names | {"recognise_bad"},
+            member=injected.__getitem__,
+        )
 
 
 def test_registry_tiers_partition_every_record_type():

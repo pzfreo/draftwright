@@ -6,8 +6,46 @@ import dataclasses
 import inspect
 import types
 import typing
+from collections.abc import Callable, Iterable
 
 import b123d_recognisers as recognition
+
+
+class _PublicRecogniserRoot:
+    """Read-only live access restricted to the root names published at construction."""
+
+    __slots__ = ("_names", "_root")
+
+    def __init__(self, module: types.ModuleType) -> None:
+        object.__setattr__(self, "_names", frozenset(module.__all__))
+        object.__setattr__(self, "_root", types.MappingProxyType(module.__dict__))
+
+    def __getattribute__(self, name: str) -> object:
+        if name in {"_names", "_root"}:
+            raise AttributeError(name)
+        return object.__getattribute__(self, name)
+
+    def __setattr__(self, name: str, value: object) -> None:
+        raise AttributeError("public recogniser access is immutable")
+
+    def __delattr__(self, name: str) -> None:
+        raise AttributeError("public recogniser access is immutable")
+
+    def names(self) -> frozenset[str]:
+        return object.__getattribute__(self, "_names")
+
+    def __call__(self, name: str) -> object:
+        if name not in object.__getattribute__(self, "_names"):
+            raise KeyError(name)
+        return object.__getattribute__(self, "_root")[name]
+
+
+_public_recogniser_root = _PublicRecogniserRoot(recognition)
+public_recogniser_names: Callable[[], frozenset[str]] = _public_recogniser_root.names
+public_recogniser_member: Callable[[str], object] = _public_recogniser_root
+del _public_recogniser_root
+del _PublicRecogniserRoot
+del recognition
 
 
 def _is_record_like_class(value: object) -> bool:
@@ -30,13 +68,14 @@ def is_public_record_class(value: object) -> bool:
     if not _is_record_like_class(value):
         return False
     name = getattr(value, "__name__", "")
-    return name in recognition.__all__ and getattr(recognition, name, None) is value
+    return name in public_recogniser_names() and public_recogniser_member(name) is value
 
 
 def _nested_record_like_classes(annotation: object) -> set[type]:
     """Find structurally record-like classes anywhere in an annotation."""
 
     if _is_record_like_class(annotation):
+        assert isinstance(annotation, type)
         return {annotation}
     found: set[type] = set()
     for member in typing.get_args(annotation):
@@ -75,12 +114,18 @@ def public_record_return_types(annotation: object, *, source: str) -> set[type]:
     return set(members)
 
 
-def public_record_universe() -> set[type]:
+def public_record_universe(
+    *,
+    names: Iterable[str] | None = None,
+    member: Callable[[str], object] | None = None,
+) -> set[type]:
     """Every record type returned by every released public package function."""
 
     universe: set[type] = set()
-    for name in recognition.__all__:
-        fn = getattr(recognition, name)
+    published_names = public_recogniser_names() if names is None else names
+    get_member = public_recogniser_member if member is None else member
+    for name in published_names:
+        fn = get_member(name)
         if inspect.isclass(fn) or not callable(fn):
             continue
         try:

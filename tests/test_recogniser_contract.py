@@ -18,9 +18,12 @@ import inspect
 import json
 from pathlib import Path
 
-import b123d_recognisers as recognition
 import pytest
-from _recogniser_public_contract import public_record_universe
+from _recogniser_public_contract import (
+    public_recogniser_member,
+    public_recogniser_names,
+    public_record_universe,
+)
 from b123d_recognisers import (
     analyse_cylinders,
     project_step_shoulders,
@@ -324,10 +327,10 @@ def test_records_are_frozen_and_json_serializable():
     for name, rec in records:
         record_type = type(rec)
         type_name = record_type.__name__
-        assert type_name in recognition.__all__, (
+        assert type_name in public_recogniser_names(), (
             f"{name}: {type_name} is not published in b123d_recognisers.__all__"
         )
-        assert getattr(recognition, type_name, None) is record_type, (
+        assert public_recogniser_member(type_name) is record_type, (
             f"{name}: root export {type_name} is not the returned record class"
         )
         assert dataclasses.is_dataclass(rec) and rec.__dataclass_params__.frozen, (

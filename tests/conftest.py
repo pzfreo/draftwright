@@ -100,13 +100,14 @@ def recognition_consumer_calls():
     private registry.
     """
     import b123d_recognisers as recognition
+    from _recogniser_public_contract import public_recogniser_member, public_recogniser_names
 
     aggregate = recognition.build_raw_recognition_result
     functions = {}
-    for name in recognition.__all__:
+    for name in public_recogniser_names():
         if name != "step_level_records" and not name.startswith("recognise_"):
             continue
-        fn = getattr(recognition, name)
+        fn = public_recogniser_member(name)
         if "part" in inspect.signature(fn).parameters:
             functions[name] = fn
     by_code: dict = {}

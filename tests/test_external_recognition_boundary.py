@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 
 import b123d_recognisers as external
+from _recogniser_public_contract import public_recogniser_member, public_recogniser_names
 from build123d import Box
 
 try:
@@ -37,9 +38,9 @@ def test_dependency_is_pinned_to_the_published_stable_release() -> None:
 
 def test_embedded_implementation_is_gone_and_compatibility_is_identity_preserving() -> None:
     assert {path.name for path in RECOGNITION_DIR.glob("*.py")} == {"__init__.py"}
-    assert compatibility.__all__ == external.__all__
-    for name in external.__all__:
-        assert getattr(compatibility, name) is getattr(external, name)
+    assert frozenset(compatibility.__all__) == public_recogniser_names()
+    for name in public_recogniser_names():
+        assert getattr(compatibility, name) is public_recogniser_member(name)
     assert feature_census is external.feature_census
 
 

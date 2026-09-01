@@ -28,7 +28,11 @@ def test_installed_pypi_wheel_satisfies_the_inspection_contract() -> None:
 
     assert distribution.version == "0.4.9"
     assert distribution.read_text("direct_url.json") is None
-    assert Path(inspect.getfile(inspection)).resolve().is_relative_to(ROOT / ".venv")
+    assert (
+        Path(inspect.getfile(inspection.inspection_api_manifest))
+        .resolve()
+        .is_relative_to(ROOT / ".venv")
+    )
     validate_inspection_contract()
 
 
