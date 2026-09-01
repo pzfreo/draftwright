@@ -49,7 +49,14 @@
   families are explicitly deferred under #1421 and remain visible as unscored recognised
   inventories; Draftwright does not coerce their depth, terminal/open-end, or round-floor evidence
   into its ordinary through-slot grammar. The provider's additive evidence API is not consumed by
-  this bounded adoption slice (ADRs 0013, 0015, 0017, 0020).
+  this bounded adoption slice. Recognition output does change under the unchanged schemas: the
+  release closes slot-depth, subdivided paired-ramp/AngledStep, and noisy stubby-pocket gaps; fixes
+  Double-D/Hole ownership, external-cone countersink false positives, Plate tie covariance, and
+  turned-step translation covariance; and can move an edge-open rectangular recess from `Pocket`
+  to the deferred blind-slot inventory. Draftwright regression tests pin the consumer-visible
+  ownership changes while the provider release suite owns its private predicates
+  ([provider release](https://github.com/pzfreo/b123d-recognisers/releases/tag/v0.4.10); ADRs 0013,
+  0015, 0017, 0020).
 
 - Principal-profile lint now correlates its independent extremal-face evidence with the cached
   public `DoubleDBore` aggregate instead of importing provider-private profile helpers. Exact

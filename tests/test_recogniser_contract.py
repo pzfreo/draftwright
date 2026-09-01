@@ -83,6 +83,8 @@ from build123d import (
     make_face,
 )
 
+from draftwright import build_drawing
+
 
 def _csk_plate():
     from build123d import Cone
@@ -398,6 +400,28 @@ def test_every_record_type_is_actually_exercised():
         f"missing={sorted(t.__name__ for t in expected - seen)}, "
         f"unexpected={sorted(t.__name__ for t in seen - expected)}"
     )
+
+
+def test_0410_round_bottom_slot_crosses_the_real_aggregate_without_invented_semantics():
+    drawing = build_drawing(_round_bottom_blind_slot_part())
+    recognition = drawing.recognition()
+
+    assert len(recognition.round_bottom_blind_slots) == 1
+    assert not recognition.slots
+    assert not recognition.pockets
+    assert not {
+        "slot",
+        "slot_pattern",
+        "pocket",
+        "pocket_pattern",
+    } & {feature.kind for feature in drawing.model().features}
+    assert not [name for name in drawing.annotations() if name.startswith(("m_slot", "m_pocket"))]
+
+    completeness = drawing.lint_summary()["quality"]["completeness"]
+    assert completeness["unscored_recognized_families"] == ["round_bottom_blind_slots"]
+    assert completeness["requirements"] == 0
+    assert completeness["audited_score"] is None
+    assert "round_bottom_blind_slots" not in completeness["by_family"]
 
 
 def test_frozen_records_reject_mutation():

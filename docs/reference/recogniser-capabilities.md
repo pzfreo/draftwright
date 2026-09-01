@@ -407,6 +407,17 @@ Draftwright advances its exact package join without widening the set of inspecti
 consumes. The additive `b123d_recognisers.evidence` API is public provider capability, but this
 adoption does not consume it before a concrete correspondence slice demonstrates that need.
 
+Unchanged record schemas do not mean byte-identical recognition output. The 0.4.10 provider closes
+slot-depth, subdivided paired-ramp/AngledStep, and noisy stubby-pocket gaps and fixes Double-D/Hole
+ownership, external-cone countersink false positives, Plate tie covariance, and turned-step
+translation covariance. Draftwright accepts those public aggregate outcomes: its consumer tests pin
+that an external cone no longer creates a countersink requirement and that an edge-open rectangular
+recess now yields to the deferred blind-slot owner instead of retaining a false `Pocket` callout.
+The provider's immutable
+[0.4.10 release](https://github.com/pzfreo/b123d-recognisers/releases/tag/v0.4.10) owns the lower-level
+recognition predicates and counterexamples; Draftwright does not duplicate private provider
+algorithms to restate them.
+
 The release adds `rectangular-blind-slots` and `round-bottom-blind-slots` to the one aggregate.
 Draftwright declares both schema-v1 records and keeps every downstream boundary `deferred` under
 #1421. This is deliberate: an ordinary through `SlotFeature` cannot state a blind depth or terminal
