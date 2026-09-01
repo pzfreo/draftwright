@@ -3,8 +3,8 @@
 Enforces the uniform contract mechanically (epic #584 WP3):
 
 - **Immutable records** — every recogniser returns frozen dataclasses.
-- **Uniform serialization** — each record has ``.to_dict()`` (the :class:`Record`
-  mixin) that yields a *JSON-serializable* nested dict. This is the invariant with
+- **Uniform serialization** — each public record has ``.to_dict()`` that yields a
+  *JSON-serializable* nested dict. This is the invariant with
   teeth: a leaked build123d / OCP object would make ``json.dumps`` raise, so the
   test proves the "geometry-only records, no build123d type leaks out" rule.
 - **Signature shape** — a part-based recogniser takes ``part`` then keyword-only
@@ -18,37 +18,17 @@ import inspect
 import json
 from pathlib import Path
 
+import b123d_recognisers as recognition
 import pytest
+from _recogniser_public_contract import public_record_universe
 from b123d_recognisers import (
-    BoltCircle,
-    BossRecord,
-    Chamfer,
-    Channel,
-    CounterSink,
-    DoubleDBore,
-    FaceLevel,
-    Fillet,
-    Flat,
-    Groove,
-    HoleRecord,
-    LinearArray,
-    Plate,
-    Pocket,
-    PocketArray,
-    PocketGrid,
-    PolygonalBoss,
-    RectGrid,
-    RepeatingRadialProfile,
-    Slot,
-    SlotArray,
-    SlotGrid,
-    StepShoulder,
-    TurnedStep,
     analyse_cylinders,
     project_step_shoulders,
+    recognise_angled_steps,
     recognise_bosses,
     recognise_chamfers,
     recognise_channels,
+    recognise_circular_blind_steps,
     recognise_countersinks,
     recognise_double_d_bores,
     recognise_face_levels,
@@ -57,50 +37,41 @@ from b123d_recognisers import (
     recognise_grooves,
     recognise_hole_patterns,
     recognise_holes,
+    recognise_paired_ramp_steps,
+    recognise_passages,
     recognise_plates,
     recognise_pocket_patterns,
     recognise_pockets,
     recognise_polygonal_bosses,
+    recognise_polygonal_stock,
+    recognise_prismatic_pockets,
+    recognise_rectangular_pads,
     recognise_repeating_radial_profiles,
     recognise_risers,
+    recognise_section_passages,
     recognise_slot_patterns,
     recognise_slots,
+    recognise_through_steps,
     recognise_turned_steps,
+    step_level_records,
 )
-from b123d_recognisers._record import Record
-from build123d import Align, Axis, Box, Cylinder, Pos, Rot, chamfer, fillet, import_step
-
-# Every record class a recogniser returns. The coverage test asserts the drive-parts
-# below actually emit one of each — so a record type that silently stops being produced
-# (or a new recogniser added without contract coverage) fails the test loudly, rather
-# than slipping through a bare count. (CounterBore/HoleSpec/TurnedProfile are sub-records
-# / aggregates, not recogniser returns, so they are exercised nested, not listed here.)
-_EXPECTED_RECORD_TYPES = {
-    HoleRecord,
-    DoubleDBore,
-    CounterSink,
-    BossRecord,
-    BoltCircle,
-    LinearArray,
-    RectGrid,
-    Chamfer,
-    Channel,
-    Fillet,
-    Flat,
-    Groove,
-    Slot,
-    SlotArray,
-    SlotGrid,
-    Pocket,
-    PocketArray,
-    PocketGrid,
-    PolygonalBoss,
-    Plate,
-    FaceLevel,
-    StepShoulder,
-    TurnedStep,
-    RepeatingRadialProfile,
-}
+from build123d import (
+    Align,
+    Axis,
+    Box,
+    BuildPart,
+    BuildSketch,
+    Cylinder,
+    Plane,
+    Polygon,
+    Pos,
+    RegularPolygon,
+    Rot,
+    chamfer,
+    extrude,
+    fillet,
+    import_step,
+)
 
 
 def _csk_plate():
@@ -204,6 +175,52 @@ def _polygonal_boss_plate():
     return Box(100, 80, 10) + Pos(0, 0, 5) * extrude(RegularPolygon(20, 6), 30)
 
 
+def _angled_step_part():
+    return import_step(
+        str(Path(__file__).parent / "fixtures" / "issue_1247_angled_blind_step.step")
+    )
+
+
+def _circular_blind_step_part():
+    return Box(40, 30, 20) - Pos(7.5, 15, 10) * Rot(0, 90, 0) * Cylinder(4, 25)
+
+
+def _paired_ramp_step_part():
+    profile = Polygon((0, -8), (0, 8), (-10, 0))
+    cutter = Pos(20, 20, 0) * extrude(Plane.XZ * profile, 25)
+    return Box(40, 40, 30) - cutter
+
+
+def _through_step_part():
+    return Box(40, 30, 20) - Pos(15, 10, 0) * Box(20, 20, 30)
+
+
+def _hexagonal_passage_plate():
+    plate = Box(120, 80, 20)
+    with BuildPart() as tool:
+        with BuildSketch(Plane.XY.offset(-20)):
+            RegularPolygon(12, 6)
+        extrude(amount=60)
+    return plate - Pos(-30, 0, 0) * tool.part
+
+
+def _hexagonal_pocket_plate():
+    plate = Box(120, 80, 20)
+    with BuildPart() as tool:
+        with BuildSketch(Plane.XY.offset(4)):
+            RegularPolygon(12, 6)
+        extrude(amount=20)
+    return plate - Pos(-30, 0, 0) * tool.part
+
+
+def _polygonal_stock():
+    return extrude(RegularPolygon(20, 6), 30)
+
+
+def _raised_pad_plate():
+    return Box(120, 90, 16) + Pos(0, -30, 10) * Box(30, 20, 4)
+
+
 def _records_from_recognisers():
     """(name, record) pairs across every recogniser, on parts that actually trigger them."""
     csk = _csk_plate()
@@ -256,6 +273,28 @@ def _records_from_recognisers():
         ("recognise_plates", recognise_plates(_l_bracket())),
         ("recognise_face_levels", recognise_face_levels(stepped)),
         ("recognise_risers", recognise_risers(stepped)),
+        ("step_level_records", step_level_records(stepped)),
+        ("recognise_angled_steps", recognise_angled_steps(_angled_step_part())),
+        (
+            "recognise_circular_blind_steps",
+            recognise_circular_blind_steps(_circular_blind_step_part()),
+        ),
+        (
+            "recognise_paired_ramp_steps",
+            recognise_paired_ramp_steps(_paired_ramp_step_part()),
+        ),
+        ("recognise_through_steps", recognise_through_steps(_through_step_part())),
+        ("recognise_passages", recognise_passages(_hexagonal_passage_plate())),
+        (
+            "recognise_section_passages",
+            recognise_section_passages(_hexagonal_passage_plate()),
+        ),
+        (
+            "recognise_prismatic_pockets",
+            recognise_prismatic_pockets(_hexagonal_pocket_plate()),
+        ),
+        ("recognise_polygonal_stock", recognise_polygonal_stock(_polygonal_stock())),
+        ("recognise_rectangular_pads", recognise_rectangular_pads(_raised_pad_plate())),
         (
             "recognise_repeating_radial_profiles",
             recognise_repeating_radial_profiles(
@@ -279,14 +318,22 @@ def _records_from_recognisers():
 
 
 def test_records_are_frozen_and_json_serializable():
-    """Every record from every recogniser is a frozen, JSON-serializable ``Record``."""
+    """Every result is a public, frozen, JSON-serializable record."""
     records = _records_from_recognisers()
 
     for name, rec in records:
-        assert isinstance(rec, Record), f"{name}: {type(rec).__name__} is not a Record"
-        assert dataclasses.is_dataclass(rec) and rec.__dataclass_params__.frozen, (
-            f"{name}: {type(rec).__name__} must be a frozen dataclass"
+        record_type = type(rec)
+        type_name = record_type.__name__
+        assert type_name in recognition.__all__, (
+            f"{name}: {type_name} is not published in b123d_recognisers.__all__"
         )
+        assert getattr(recognition, type_name, None) is record_type, (
+            f"{name}: root export {type_name} is not the returned record class"
+        )
+        assert dataclasses.is_dataclass(rec) and rec.__dataclass_params__.frozen, (
+            f"{name}: {type_name} must be a frozen dataclass"
+        )
+        assert callable(getattr(rec, "to_dict", None)), f"{name}: {type_name} has no to_dict()"
         d = rec.to_dict()
         assert isinstance(d, dict)
         # The teeth: a leaked build123d/OCP object makes this raise.
@@ -299,9 +346,13 @@ def test_every_record_type_is_actually_exercised():
     Guards against the count-only trap: a record type whose drive-part stops producing it
     (or a new record added without coverage) fails here instead of passing on a bare tally.
     """
+    expected = public_record_universe()
     seen = {type(rec) for _, rec in _records_from_recognisers()}
-    missing = _EXPECTED_RECORD_TYPES - seen
-    assert not missing, f"contract test never exercised these record types: {missing}"
+    assert seen == expected, (
+        "runtime contract roster disagrees with the mechanically derived public universe: "
+        f"missing={sorted(t.__name__ for t in expected - seen)}, "
+        f"unexpected={sorted(t.__name__ for t in seen - expected)}"
+    )
 
 
 def test_frozen_records_reject_mutation():
