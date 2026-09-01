@@ -6,10 +6,8 @@ import pytest
 from b123d_recognisers import (
     RecognitionResult,
     build_raw_recognition_result,
-    recognise_plates,
 )
 from build123d import Align, Axis, Box, Cylinder, Pos, chamfer, fillet
-from conftest import counting_calls
 
 from draftwright import build_drawing
 from draftwright.model import build_part_model
@@ -39,8 +37,6 @@ def test_built_drawing_exposes_its_recognition_result_without_private_state(monk
     stop. Stable identity rules out a rebuild-per-call; the poisoned orchestration rules out
     a rebuild-then-cache, which stable identity alone would accept.
     """
-    import b123d_recognisers.result as result_module
-
     import draftwright.analysis as analysis_module
 
     drawing = build_drawing(_plate_with_holes())
@@ -53,7 +49,6 @@ def test_built_drawing_exposes_its_recognition_result_without_private_state(monk
     def forbidden(*args, **kwargs):
         raise AssertionError("Drawing.recognition() re-ran recognition instead of handing back")
 
-    monkeypatch.setattr(result_module, "build_raw_recognition_result", forbidden)
     monkeypatch.setattr(analysis_module, "build_raw_recognition_result", forbidden)
     assert drawing.recognition() is result
 
@@ -66,11 +61,12 @@ def test_built_drawing_exposes_its_recognition_result_without_private_state(monk
 # orchestration (`analyse_cylinders` gave way to `CylinderInventory`), so its patch targets no
 # longer exist.
 #
-# Not retargeted: the property draftwright depends on is "each family runs exactly once per
-# build, and nothing rescans", and that is asserted from OUR side, against the running engine and
-# the public family names, by `test_recognition_manifest.py::
-# test_an_automatic_build_runs_each_family_exactly_once_and_lint_runs_no_migrated_one`. A second
-# copy phrased in the dependency's private vocabulary bought a private reach and no coverage.
+# Not retargeted: released b123d-recognisers v0.4.9 owns the provider-side exactly-once proof in
+# `test_recognition_result.py::test_orchestrator_injects_each_shared_dependency_once`.
+# Draftwright's `recognition_consumer_calls` guards only its side of the boundary: one public
+# aggregate per automatic build, cache reuse, and no public physical-recogniser bypass outside
+# that aggregate. A second provider-orchestration copy here bought a private reach and no
+# consumer coverage.
 
 
 def _grooved_flatted_shaft():
@@ -175,60 +171,3 @@ def test_injecting_the_aggregate_builds_the_same_model_as_detecting(name, build)
     assert injected.features == detected.features, (
         f"{name}: injecting the aggregate changed the features' values"
     )
-
-
-def test_the_gate_is_the_orchestrations_not_the_call_sites():
-    """#1028's actual claim: a family can be MIGRATED *and* not always run.
-
-    Plates remain classification-gated because hoisting them unconditionally would scan every
-    turned build for a prismatic-only result `build_part_model` discards. Chamfers and fillets
-    deliberately stopped sharing this gate in b123d-recognisers 0.2.9, which recognises their
-    conical/toroidal turned forms (#1254/#1281).
-    """
-    # An L-bracket: a base slab plus an upright wall, which is what `recognise_plates` looks
-    # for. A plain box has no plates, so it would make the gate assertion below vacuous.
-    prismatic = Box(80, 40, 8) + Pos(-36, 0, 24) * Box(8, 40, 40)
-    turned = Cylinder(20, 60)
-
-    assert build_raw_recognition_result(prismatic, rotational=False).rotational is False
-    assert build_raw_recognition_result(turned, rotational=True).rotational is True
-
-    # Same solid, both classifications: only the gate differs, so the plate inventory change
-    # is the gate's doing and not the geometry's.
-    ungated = build_raw_recognition_result(prismatic, rotational=False)
-    gated = build_raw_recognition_result(prismatic, rotational=True)
-
-    assert gated.plates == (), "a rotational classification must gate prismatic plates away"
-    assert ungated.plates, "fixture stopped producing plates, so the gate proves nothing here"
-    # And nothing else moved: the gate is narrow, not a blanket suppression.
-    assert ungated.holes == gated.holes
-    assert ungated.risers == gated.risers
-    assert ungated.step_levels == gated.step_levels
-
-
-def test_the_plates_gate_needs_both_halves_not_just_the_rotational_one():
-    """`plates` gates on a CONJUNCTION — not rotational AND no turned profile — and the
-    profile half needs its own counterexample.
-
-    The manifest's exclusion test drives both its turned fixtures through `build_drawing`,
-    where they classify rotational, so weakening the gate to `if prismatic` alone still
-    skipped plates on both and that guard stayed green (Codex #1033 r1). The half that was
-    untested is exactly the documented "caller has no classification" path: a stepped shaft
-    with `rotational=False`, where only the profile keeps the scan away.
-
-    Asserted by COUNTING the call, not by checking the inventory came back empty:
-    `recognise_plates` naturally finds nothing on a shaft, so an empty result proves the scan
-    was skipped only by coincidence. The cost this gate exists to avoid is the scan itself.
-    """
-    shaft = Cylinder(20, 30) + Pos(0, 0, 30) * Cylinder(14, 30)
-
-    with counting_calls({"plates": recognise_plates}) as counts:
-        rec = build_raw_recognition_result(shaft, rotational=False)
-
-    assert rec.turned_steps, "fixture stopped producing a turned profile — the gate's other half"
-    assert counts.get("plates", 0) == 0, (
-        "recognise_plates ran for a part with a turned profile even though the caller said "
-        "not-rotational — the conjunction has collapsed to its rotational half, and every "
-        "unclassified stepped-shaft aggregate now pays for a scan the model discards"
-    )
-    assert rec.plates == ()

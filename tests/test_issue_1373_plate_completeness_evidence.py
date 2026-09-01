@@ -397,6 +397,8 @@ def test_plate_coverage_does_not_duplicate_a_placement_drop() -> None:
 
 
 def test_exact_overlapping_family_owners_do_not_create_a_second_plate_denominator() -> None:
+    from conftest import recognition_consumer_calls
+
     from draftwright import build_drawing
     from draftwright.linting.plate_coverage import plate_requirement_outcomes
     from draftwright.registry import AnnotationRegistry
@@ -410,8 +412,12 @@ def test_exact_overlapping_family_owners_do_not_create_a_second_plate_denominato
     envelope_only = tuple(
         feature for feature in slot_drawing.model().features if feature.kind == "envelope"
     )
-    slot_outcomes = plate_requirement_outcomes(
-        slot_recognition, envelope_only, AnnotationRegistry(), part=slotted
+    with recognition_consumer_calls() as recognition_calls:
+        slot_outcomes = plate_requirement_outcomes(
+            slot_recognition, envelope_only, AnnotationRegistry(), part=slotted
+        )
+    assert recognition_calls == {}, (
+        "replaying a pure slot-pattern projection must not be classified as a physical rescan"
     )
     assert len(slot_outcomes) == 5
     assert {outcome.state for outcome in slot_outcomes} == {"inapplicable"}
