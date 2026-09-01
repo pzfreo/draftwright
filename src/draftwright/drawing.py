@@ -3628,6 +3628,7 @@ class Drawing:
                     lint_principal_profile_coverage(
                         working_part,
                         assembly=resolved_assembly,
+                        double_d_bores=recognition.double_d_bores,
                         prismatic_pockets=recognition.prismatic_pockets,
                         section_passages=recognition.section_passages,
                     )

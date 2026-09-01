@@ -46,8 +46,11 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import b123d_recognisers
+
 _SRC = Path(__file__).resolve().parent.parent / "src" / "draftwright"
 _MODEL_DIR = _SRC / "model"
+_RECOGNISER_PUBLIC = frozenset(b123d_recognisers.__all__)
 
 # ── The declared DAG (mirrors CLAUDE.md ## Architecture) ─────────────────────────────────
 # Rank each top-level submodule (and subpackage) by its layer; a file may import only names
@@ -512,3 +515,57 @@ def test_linting_does_not_import_model():
             f"{path.name} imports draftwright.model — the lint/coverage carve-out "
             "(ADR 0015) forbids IR coupling in linting/"
         )
+
+
+def _private_recogniser_imports(path: Path) -> list[str]:
+    offenders: list[str] = []
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            if (node.module or "").startswith("b123d_recognisers."):
+                offenders.append(f"{path.name}:{node.lineno} imports {node.module}")
+            elif node.module == "b123d_recognisers":
+                offenders.extend(
+                    f"{path.name}:{node.lineno} imports non-public {alias.name}"
+                    for alias in node.names
+                    if alias.name not in _RECOGNISER_PUBLIC
+                )
+        elif isinstance(node, ast.Import):
+            offenders.extend(
+                f"{path.name}:{node.lineno} imports {alias.name}"
+                for alias in node.names
+                if alias.name == "b123d_recognisers" or alias.name.startswith("b123d_recognisers.")
+            )
+    return offenders
+
+
+def test_linting_consumes_recognisers_only_through_the_public_root():
+    """Lint may project public aggregate records, never provider implementation modules."""
+    offenders = [
+        offender
+        for path in sorted((_SRC / "linting").glob("*.py"))
+        for offender in _private_recogniser_imports(path)
+    ]
+    assert not offenders, (
+        "linting/ must consume the released b123d-recognisers contract through its public "
+        f"package root (ADRs 0013/0017; #1411). Private submodule imports: {offenders}"
+    )
+
+
+def test_public_root_guard_rejects_module_alias_loopholes(tmp_path):
+    probe = tmp_path / "private_recogniser_imports.py"
+    probe.write_text(
+        "from b123d_recognisers import profiled_bores, _features\n"
+        "import b123d_recognisers.profiled_bores\n"
+        "import b123d_recognisers as br\n"
+        "private = br.profiled_bores.double_d_profile\n",
+        encoding="utf-8",
+    )
+
+    offenders = _private_recogniser_imports(probe)
+
+    assert len(offenders) == 4
+    assert any("non-public profiled_bores" in offender for offender in offenders)
+    assert any("non-public _features" in offender for offender in offenders)
+    assert any("b123d_recognisers.profiled_bores" in offender for offender in offenders)
+    assert any("imports b123d_recognisers" in offender for offender in offenders)

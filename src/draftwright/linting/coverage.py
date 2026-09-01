@@ -21,7 +21,8 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
-from math import atan2, pi, tau
+from math import asin, atan2, isfinite, pi, sqrt, tau
+from numbers import Real
 from typing import Literal
 
 from b123d_recognisers import (
@@ -37,11 +38,6 @@ from b123d_recognisers import (
     recognise_pockets,
     recognise_rectangular_pads,
     recognise_turned_steps,
-)
-from b123d_recognisers.profiled_bores import (
-    double_d_bores_from_openings,
-    double_d_profile,
-    principal_boundary_plane,
 )
 from build123d import GeomType
 from build123d_drafting.helpers import CenterMark, Dimension, TitleBlock
@@ -756,6 +752,204 @@ def _prismatic_pocket_matches_principal_wire(
     return not unmatched
 
 
+def _principal_boundary_plane(face, bbox) -> tuple[str, tuple[str, str], float] | None:
+    """Return a solid-extremal principal plane as independent lint evidence.
+
+    This is intentionally a small Draftwright-owned physical predicate rather than a
+    provider helper: principal boundary faces are part of lint's independent denominator,
+    while recognised occurrences arrive separately through the build-owned aggregate.
+    """
+    if face.geom_type != GeomType.PLANE:
+        return None
+    fbb = face.bounding_box()
+    extent = {axis: float(getattr(fbb.size, axis.upper())) for axis in "xyz"}
+    part_extent = (float(bbox.size.X), float(bbox.size.Y), float(bbox.size.Z))
+    tol = max(1e-5, max(part_extent) * 1e-5)
+    flat = [axis for axis, value in extent.items() if value <= tol]
+    if len(flat) != 1:
+        return None
+    axis = flat[0]
+    attr = axis.upper()
+    at = float(getattr(fbb.center(), attr))
+    if (
+        min(
+            abs(at - float(getattr(bbox.min, attr))),
+            abs(at - float(getattr(bbox.max, attr))),
+        )
+        > tol
+    ):
+        return None
+    plane_axes = tuple(candidate for candidate in "xyz" if candidate != axis)
+    return axis, (plane_axes[0], plane_axes[1]), at
+
+
+def _double_d_bore_matches_principal_wire(
+    bore,
+    wire,
+    axis: str,
+    plane_axes: tuple[str, str],
+    at: float,
+    bbox,
+    tol: float,
+) -> bool:
+    """Correlate one physical mouth with one public ``DoubleDBore`` occurrence.
+
+    The aggregate proves that the full profile prism is void. Lint independently proves
+    that this exact extremal wire is one of that occurrence's two mouths; neither side
+    alone can certify support. The metric checks reject topology-similar lenses, obrounds,
+    and arbitrary line/arc loops without importing the provider's private classifier.
+    """
+
+    def number(value) -> float:
+        if isinstance(value, bool) or not isinstance(value, Real):
+            raise TypeError("correspondence evidence must be a real number")
+        result = float(value)
+        if not isfinite(result):
+            raise ValueError("non-finite correspondence evidence")
+        return result
+
+    def coord(obj, name: str) -> float:
+        return number(getattr(obj, name.upper()))
+
+    try:
+        if type(bore.through) is not bool or not bore.through:
+            return False
+        axis_i = "xyz".index(axis)
+        axis_vector = tuple(number(value) for value in bore.axis)
+        if len(axis_vector) != 3:
+            return False
+        axis_component = axis_vector[axis_i]
+        if abs(abs(axis_component) - 1.0) > 1e-6 or any(
+            abs(component) > 1e-6 for i, component in enumerate(axis_vector) if i != axis_i
+        ):
+            return False
+
+        location = tuple(number(value) for value in bore.location)
+        if len(location) != 3:
+            return False
+        depth = number(bore.depth)
+        if depth <= tol:
+            return False
+        record_ends = sorted((location[axis_i], location[axis_i] - axis_component * depth))
+        solid_ends = sorted((coord(bbox.min, axis), coord(bbox.max, axis)))
+        span_tol = max(8 * tol, depth * 1e-5, 1e-4)
+        if any(
+            abs(actual - expected) > span_tol for actual, expected in zip(record_ends, solid_ends)
+        ):
+            return False
+        matching_ends = [
+            i for i, endpoint in enumerate(record_ends) if abs(at - endpoint) <= span_tol
+        ]
+        if len(matching_ends) != 1:
+            return False
+
+        major_diameter = number(bore.major_diameter)
+        across_flats = number(bore.across_flats)
+        radius = major_diameter / 2.0
+        half_af = across_flats / 2.0
+        if radius <= tol or half_af <= tol or half_af >= radius - tol:
+            return False
+
+        flat_direction = tuple(number(value) for value in bore.flat_direction)
+        if len(flat_direction) != 3 or abs(flat_direction[axis_i]) > 1e-6:
+            return False
+        flat_norm = sqrt(sum(flat_direction[i] ** 2 for i in range(3) if i != axis_i))
+        if abs(flat_norm - 1.0) > 1e-6:
+            return False
+
+        edges = tuple(wire.edges())
+        lines = tuple(edge for edge in edges if edge.geom_type == GeomType.LINE)
+        arcs = tuple(edge for edge in edges if edge.geom_type == GeomType.CIRCLE)
+        if len(edges) != 4 or len(lines) != 2 or len(arcs) != 2:
+            return False
+
+        centre_values = list(location)
+        centre_values[axis_i] = at
+        centre = (centre_values[0], centre_values[1], centre_values[2])
+        wire_scale = max(coord(wire.bounding_box().size, name) for name in plane_axes)
+        metric_tol = max(8 * tol, wire_scale * 1e-3, 1e-4)
+        for arc in arcs:
+            if abs(number(arc.radius) - radius) > metric_tol:
+                return False
+            if any(
+                abs(coord(arc.arc_center, name) - centre["xyz".index(name)]) > metric_tol
+                for name in plane_axes
+            ):
+                return False
+
+        expected_chord = 2.0 * sqrt(radius * radius - half_af * half_af)
+        offsets: list[float] = []
+        for line in lines:
+            vertices = tuple(line.vertices())
+            if len(vertices) != 2 or abs(number(line.length) - expected_chord) > metric_tol:
+                return False
+            ends = [
+                tuple(number(getattr(vertex, name.upper())) for name in "xyz")
+                for vertex in vertices
+            ]
+            if any(abs(end[axis_i] - at) > metric_tol for end in ends):
+                return False
+            if any(
+                abs(sqrt(sum((end[i] - centre[i]) ** 2 for i in range(3))) - radius) > metric_tol
+                for end in ends
+            ):
+                return False
+            delta = tuple(ends[1][i] - ends[0][i] for i in range(3))
+            length = sqrt(sum(component * component for component in delta))
+            if length <= tol:
+                return False
+            direction = tuple(component / length for component in delta)
+            if abs(sum(direction[i] * flat_direction[i] for i in range(3))) > 1e-4:
+                return False
+            midpoint = tuple((ends[0][i] + ends[1][i]) / 2.0 for i in range(3))
+            offsets.append(sum((midpoint[i] - centre[i]) * flat_direction[i] for i in range(3)))
+        offsets.sort()
+        if abs(offsets[0] + half_af) > metric_tol or abs(offsets[1] - half_af) > metric_tol:
+            return False
+
+        expected_arc = 2.0 * radius * asin(half_af / radius)
+        return all(abs(number(arc.length) - expected_arc) <= metric_tol for arc in arcs)
+    except (AttributeError, OverflowError, TypeError, ValueError):
+        return False
+
+
+def _claim_double_d_bore_mouth(
+    bores,
+    claimed: set[tuple[int, int]],
+    wire,
+    axis: str,
+    plane_axes: tuple[str, str],
+    at: float,
+    bbox,
+    tol: float,
+) -> bool:
+    """Claim one aggregate occurrence endpoint without reusing it for another mouth."""
+    axis_i = "xyz".index(axis)
+    for record_i, bore in enumerate(bores):
+        if not _double_d_bore_matches_principal_wire(
+            bore,
+            wire,
+            axis,
+            plane_axes,
+            at,
+            bbox,
+            tol,
+        ):
+            continue
+        axis_component = float(bore.axis[axis_i])
+        ends = (
+            float(bore.location[axis_i]),
+            float(bore.location[axis_i]) - axis_component * float(bore.depth),
+        )
+        mouth_i = min(range(2), key=lambda i: abs(at - ends[i]))
+        key = (record_i, mouth_i)
+        if key in claimed:
+            continue
+        claimed.add(key)
+        return True
+    return False
+
+
 def _supported_inner_profile(
     wire,
     plane_axes: tuple[str, str],
@@ -763,10 +957,11 @@ def _supported_inner_profile(
     *,
     axis: str | None = None,
     at: float | None = None,
+    solid_bbox=None,
     double_d_bores=(),
+    claimed_double_d_mouths: set[tuple[int, int]] | None = None,
     prismatic_pockets=(),
     section_passages=(),
-    profile=_UNSET,
 ) -> bool:
     """Whether an inner boundary loop has a specific semantic owner.
 
@@ -800,31 +995,22 @@ def _supported_inner_profile(
         )
     ):
         return True
-    profile = double_d_profile(wire, plane_axes, tol=tol) if profile is _UNSET else profile
-    if profile is not None and axis is not None:
-        axis_i = "xyz".index(axis)
-        for bore in double_d_bores:
-            bore_axis_i = max(range(3), key=lambda i: abs(float(bore.axis[i])))
-            if bore_axis_i != axis_i:
-                continue
-            if (
-                abs(float(bore.major_diameter) - profile.major_diameter) <= tol
-                and abs(float(bore.across_flats) - profile.across_flats) <= tol
-                and all(
-                    abs(float(bore.location[i]) - profile.centre[i]) <= tol
-                    for i in range(3)
-                    if i != axis_i
-                )
-                and all(
-                    abs(float(a) - b) <= max(tol, 1e-6)
-                    for a, b in zip(
-                        bore.flat_direction,
-                        profile.flat_direction,
-                        strict=True,
-                    )
-                )
-            ):
-                return True
+    if (
+        axis is not None
+        and at is not None
+        and solid_bbox is not None
+        and _claim_double_d_bore_mouth(
+            double_d_bores,
+            claimed_double_d_mouths if claimed_double_d_mouths is not None else set(),
+            wire,
+            axis,
+            plane_axes,
+            at,
+            solid_bbox,
+            tol,
+        )
+    ):
+        return True
     if all(kind == GeomType.CIRCLE for kind in types):
         try:
             first = edges[0]
@@ -985,6 +1171,8 @@ def _has_unsupported_principal_inner_profile(
     part,
     bbox,
     *,
+    double_d_bores=(),
+    claimed_double_d_mouths: set[tuple[int, int]] | None = None,
     prismatic_pockets=(),
     section_passages=(),
 ) -> bool:
@@ -992,18 +1180,13 @@ def _has_unsupported_principal_inner_profile(
     part_extent = (float(bbox.size.X), float(bbox.size.Y), float(bbox.size.Z))
     tol = max(1e-5, max(part_extent) * 1e-5)
     wires = []
-    openings = []
     for face in part.faces():
-        boundary = principal_boundary_plane(face, bbox)
+        boundary = _principal_boundary_plane(face, bbox)
         if boundary is None:
             continue
         axis, plane_axes, at = boundary
         for wire in face.inner_wires():
-            profile = double_d_profile(wire, plane_axes, tol=tol)
-            wires.append((axis, plane_axes, at, wire, profile))
-            if profile is not None:
-                openings.append((axis, at, profile, wire))
-    double_d_bores = double_d_bores_from_openings(openings, bbox, part=part, tol=tol)
+            wires.append((axis, plane_axes, at, wire))
     return any(
         not _supported_inner_profile(
             wire,
@@ -1011,12 +1194,13 @@ def _has_unsupported_principal_inner_profile(
             tol,
             axis=axis,
             at=at,
+            solid_bbox=bbox,
             double_d_bores=double_d_bores,
+            claimed_double_d_mouths=claimed_double_d_mouths,
             prismatic_pockets=prismatic_pockets,
             section_passages=section_passages,
-            profile=profile,
         )
-        for axis, plane_axes, at, wire, profile in wires
+        for axis, plane_axes, at, wire in wires
     )
 
 
@@ -1032,7 +1216,7 @@ def _radial_outer_arc_count(part, bbox) -> int | None:
     tol = max(1e-5, part_scale * 1e-5)
     best = None
     for face in part.faces():
-        boundary = principal_boundary_plane(face, bbox)
+        boundary = _principal_boundary_plane(face, bbox)
         if boundary is None:
             continue
         _axis, plane_axes, _at = boundary
@@ -1082,6 +1266,7 @@ def _radial_outer_arc_count(part, bbox) -> int | None:
 def lint_principal_profile_coverage(
     part,
     *,
+    double_d_bores,
     assembly=None,
     prismatic_pockets=(),
     section_passages=(),
@@ -1089,19 +1274,23 @@ def lint_principal_profile_coverage(
     """Report principal inner or outer profiles outside the current feature vocabulary.
 
     The scan owns its physical extent: there is deliberately no caller-supplied bounding box
-    that could narrow the answer. The double-D correspondence is the recogniser's shared pure
-    correspondence proof over openings collected during this scan; lint reruns no public
-    recogniser. ``section_passages`` and ``prismatic_pockets`` are explicit projections of the
-    drawing's cached authoritative result used only to replace a matched generic profile finding
-    with the corresponding specific unsupported-family finding. :class:`Drawing` caches the
-    returned issues against the source part identity so repeated lint does not rescan the B-rep.
+    that could narrow the answer. ``double_d_bores``, ``section_passages`` and
+    ``prismatic_pockets`` are explicit projections of the drawing's cached authoritative public
+    aggregate. The Double-D projection is required so an omitted inventory fails loudly instead
+    of changing the physical diagnosis. These records replace a generic profile finding only
+    when independent physical evidence matches the exact occurrence; lint neither imports
+    provider-private helpers nor reruns a recogniser. :class:`Drawing` caches the returned issues
+    against the source part identity so repeated lint does not rescan the B-rep.
     """
     solids = list(part.solids())
     sources = solids if len(solids) > 1 else [part]
+    claimed_double_d_mouths: set[tuple[int, int]] = set()
     unsupported_inner = any(
         _has_unsupported_principal_inner_profile(
             solid,
             solid.bounding_box(),
+            double_d_bores=double_d_bores,
+            claimed_double_d_mouths=claimed_double_d_mouths,
             prismatic_pockets=prismatic_pockets,
             section_passages=section_passages,
         )

@@ -44,6 +44,14 @@
 
 ### Changed
 
+- Principal-profile lint now correlates its independent extremal-face evidence with the cached
+  public `DoubleDBore` aggregate instead of importing provider-private profile helpers. Exact
+  axis/span, end-plane, centre, radius, A/F, chord, arc, and flat-direction checks fail closed;
+  occurrence mouths are consumed with matching multiplicity, and malformed records cannot earn
+  coverage. The exported low-level check now requires the aggregate projection explicitly so an
+  omitted inventory fails loudly; lint still owns its physical denominator and never reruns
+  recognition (#1411, ADRs 0013, 0015, 0017).
+
 - Whole polygonal-stock completeness is now backed by an independently authored, hash-pinned
   13-case STEP corpus covering all principal axes, in-plane rotation, translation, topology
   order and circular/rectangular/irregular/octagonal/attached/recessed/compound negatives. The

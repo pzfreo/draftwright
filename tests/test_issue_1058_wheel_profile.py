@@ -32,6 +32,7 @@ from b123d_recognisers.repeating_profiles import (
 from build123d import (
     Align,
     Box,
+    Compound,
     Cylinder,
     GeomType,
     Plane,
@@ -49,7 +50,11 @@ from draftwright import Sheet, build_drawing
 from draftwright.annotations.from_model import callout_from_spec
 from draftwright.annotations.holes import _record_callout_drop
 from draftwright.builder import detect_part_model
-from draftwright.linting.coverage import CoverageState, lint_principal_profile_coverage
+from draftwright.linting.coverage import (
+    CoverageState,
+    _double_d_bore_matches_principal_wire,
+    lint_principal_profile_coverage,
+)
 from draftwright.linting.profiled_bore_coverage import (
     lint_profiled_bore_coverage,
     profiled_bore_key,
@@ -582,8 +587,73 @@ def test_synthetic_double_d_profile_is_recognised_without_lint_rescans():
 
 def test_physical_profile_scan_accepts_no_caller_extent():
     assert "bbox" not in signature(lint_principal_profile_coverage).parameters
-    issues = lint_principal_profile_coverage(_double_d_bore())
+    part = _double_d_bore()
+    issues = lint_principal_profile_coverage(
+        part,
+        double_d_bores=recognise_double_d_bores(part),
+    )
     assert issues == []
+
+
+def test_physical_profile_scan_requires_the_public_aggregate_projection():
+    with pytest.raises(TypeError, match="double_d_bores"):
+        lint_principal_profile_coverage(_double_d_bore())
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"through": "yes"},
+        {"axis": (0.0, 0.0, float("nan"))},
+        {"axis": (False, False, True)},
+        {"axis": "001"},
+        {"axis": (1.0, 0.0, 0.0)},
+        {"location": (float("nan"), 0.0, 5.0)},
+        {"location": (0.0, 0.0, float("nan"))},
+        {"location": (0.0, 0.0, 4.0)},
+        {"depth": float("nan")},
+        {"depth": 10**10000},
+        {"major_diameter": float("nan")},
+        {"major_diameter": "10.0"},
+        {"major_diameter": 10**10000},
+        {"major_diameter": 9.0},
+        {"across_flats": float("nan")},
+        {"across_flats": 10**10000},
+        {"across_flats": 6.0},
+        {"flat_direction": (float("nan"), 0.0, 0.0)},
+        {"flat_direction": (True, False, False)},
+        {"flat_direction": (0.0, 1.0, 0.0)},
+    ],
+    ids=(
+        "through-type",
+        "axis-nan",
+        "axis-bool",
+        "axis-string",
+        "axis",
+        "location-nan-in-plane",
+        "location-nan-end",
+        "end-plane",
+        "depth-nan",
+        "depth-overflow",
+        "diameter-nan",
+        "diameter-string",
+        "diameter-overflow",
+        "diameter",
+        "across-flats-nan",
+        "across-flats-overflow",
+        "across-flats",
+        "flat-direction-nan",
+        "flat-direction-bool",
+        "flat-direction",
+    ),
+)
+def test_physical_profile_scan_requires_exact_public_double_d_correspondence(changes):
+    part = _double_d_bore()
+    bore = replace(recognise_double_d_bores(part)[0], **changes)
+
+    issues = lint_principal_profile_coverage(part, double_d_bores=(bore,))
+
+    assert [issue.code for issue in issues] == ["unrecognised_defining_geometry"]
 
 
 @pytest.mark.parametrize("part", [_lens_bore(), _l_bore()], ids=("circular-arcs", "linear-l"))
@@ -614,6 +684,101 @@ def test_edge_types_alone_do_not_certify_a_supported_profile(part):
 )
 def test_malformed_line_arc_evidence_fails_closed(case):
     assert double_d_profile(_profile_evidence(case), ("x", "y"), tol=1e-5) is None
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "not-through",
+        "short-axis",
+        "short-location",
+        "zero-depth",
+        "between-endpoints",
+        "invalid-profile-size",
+        "short-flat-direction",
+        "non-unit-flat-direction",
+        "wrong-topology",
+        "wrong-arc-centre",
+        "off-plane-line",
+        "off-circle-end",
+        "zero-line",
+        "same-side",
+        "malformed-record",
+    ],
+)
+def test_public_double_d_to_physical_mouth_correlation_fails_closed(case):
+    bore = SimpleNamespace(
+        axis=(0.0, 0.0, 1.0),
+        location=(0.0, 0.0, 10.0),
+        major_diameter=10.0,
+        across_flats=7.2,
+        depth=10.0,
+        through=True,
+        flat_direction=(1.0, 0.0, 0.0),
+    )
+    wire = _profile_evidence()
+    at = 0.0
+    bbox = SimpleNamespace(min=_point(-15, -15, 0), max=_point(15, 15, 10))
+
+    if case == "not-through":
+        bore.through = False
+    elif case == "short-axis":
+        bore.axis = (0.0, 1.0)
+    elif case == "short-location":
+        bore.location = (0.0, 0.0)
+    elif case == "zero-depth":
+        bore.depth = 0.0
+    elif case == "between-endpoints":
+        at = 5.0
+    elif case == "invalid-profile-size":
+        bore.across_flats = 10.0
+    elif case == "short-flat-direction":
+        bore.flat_direction = (1.0, 0.0)
+    elif case == "non-unit-flat-direction":
+        bore.flat_direction = (0.5, 0.0, 0.0)
+    elif case == "wrong-topology":
+        wire._edges.pop()
+    elif case == "wrong-arc-centre":
+        wire._edges[2].arc_center = _point(1.0, 0.0)
+    elif case == "off-plane-line":
+        wire._edges[0]._vertices[0].Z = 1.0
+    elif case in {"off-circle-end", "zero-line", "same-side"}:
+        wire = _profile_evidence(case)
+    elif case == "malformed-record":
+        bore = object()
+
+    assert not _double_d_bore_matches_principal_wire(
+        bore,
+        wire,
+        "z",
+        ("x", "y"),
+        at,
+        bbox,
+        1e-5,
+    )
+
+
+def test_public_double_d_to_physical_mouth_correlation_accepts_exact_evidence():
+    bore = SimpleNamespace(
+        axis=(0.0, 0.0, 1.0),
+        location=(0.0, 0.0, 10.0),
+        major_diameter=10.0,
+        across_flats=7.2,
+        depth=10.0,
+        through=True,
+        flat_direction=(1.0, 0.0, 0.0),
+    )
+    bbox = SimpleNamespace(min=_point(-15, -15, 0), max=_point(15, 15, 10))
+
+    assert _double_d_bore_matches_principal_wire(
+        bore,
+        _profile_evidence(),
+        "z",
+        ("x", "y"),
+        0.0,
+        bbox,
+        1e-5,
+    )
 
 
 def test_an_unpaired_opening_and_a_failed_void_proof_are_not_bores():
@@ -667,6 +832,23 @@ def test_double_d_orientation_is_not_limited_to_global_flat_axes():
 
 
 @pytest.mark.parametrize(
+    "part",
+    [
+        _double_d_bore(),
+        Rot(0, 0, 30) * _double_d_bore(),
+        Rot(0, 90, 0) * _double_d_bore(),
+        Rot(90, 0, 0) * _double_d_bore(),
+    ],
+    ids=("z", "z-roll-30", "x", "y"),
+)
+def test_lint_correlates_public_double_d_records_across_principal_axes(part):
+    bores = recognise_double_d_bores(part)
+
+    assert len(bores) == 1
+    assert lint_principal_profile_coverage(part, double_d_bores=bores) == []
+
+
+@pytest.mark.parametrize(
     ("part", "axis"),
     [
         (_double_d_bore(), (0.0, 0.0, 1.0)),
@@ -685,7 +867,17 @@ def test_assembly_components_own_their_bore_correspondence():
     bores = recognise_double_d_bores(part)
     assert len(bores) == 2
     assert [bore.depth for bore in bores] == pytest.approx([10, 10])
-    assert lint_principal_profile_coverage(part) == []
+    assert lint_principal_profile_coverage(part, double_d_bores=bores) == []
+
+
+def test_one_public_record_cannot_cover_two_coincident_assembly_occurrences():
+    part = Compound(children=[_double_d_bore(), _double_d_bore()])
+    bores = recognise_double_d_bores(part)
+
+    assert len(part.solids()) == len(bores) == 2
+    assert lint_principal_profile_coverage(part, double_d_bores=bores) == []
+    issues = lint_principal_profile_coverage(part, double_d_bores=bores[:1])
+    assert [issue.code for issue in issues] == ["unrecognised_defining_geometry"]
 
 
 def test_a_blind_double_d_recess_is_not_certified_as_a_through_bore():
