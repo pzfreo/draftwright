@@ -264,19 +264,21 @@ jobs:
     # skips this job, and GitHub counts a skipped required check as satisfied — so a
     # broken test suite would report a green gate.
     if: always()
-    needs: [lint, test, coverage, test-platform-canary]
+    needs: [lint, test, coverage, test-slow, test-platform-canary]
     runs-on: ubuntu-latest
     permissions:
       statuses: write # Attach the dispatched post-release gate to its generated PR head.
     steps:
       - name: Require every gating job to have succeeded or been legitimately skipped
         env:
+          EVENT_NAME: ${{ github.event_name }}
           LINT: ${{ needs.lint.result }}
           TEST: ${{ needs.test.result }}
           COVERAGE: ${{ needs.coverage.result }}
+          SLOW: ${{ needs.test-slow.result }}
           CANARY: ${{ needs.test-platform-canary.result }}
         run: |
-          echo "lint=$LINT test=$TEST coverage=$COVERAGE canary=$CANARY"
+          echo "lint=$LINT test=$TEST coverage=$COVERAGE slow=$SLOW canary=$CANARY"
           failed=0
           for pair in "lint:$LINT" "test:$TEST" "coverage:$COVERAGE" "canary:$CANARY"; do
             name=${pair%%:*}
@@ -288,6 +290,20 @@ jobs:
               *) echo "::error::$name did not pass (result: $result)"; failed=1 ;;
             esac
           done
+
+          # The slow suite is deliberately post-merge only. On a push to main it is a
+          # required result, while every other trigger must see the conditional job as
+          # skipped. Keeping it out of the generic success-or-skipped loop prevents a
+          # skipped or failed main slow suite from being reported as a green aggregate.
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            if [[ "$SLOW" != "success" ]]; then
+              echo "::error::slow did not pass on main (result: $SLOW)"
+              failed=1
+            fi
+          elif [[ "$SLOW" != "skipped" ]]; then
+            echo "::error::slow ran unexpectedly for $EVENT_NAME (result: $SLOW)"
+            failed=1
+          fi
           exit $failed
 
       - name: Attach successful post-release gate to the generated PR head
