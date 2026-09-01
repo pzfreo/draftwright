@@ -176,8 +176,10 @@ looks a little further for one that does not, and otherwise keeps the least-cutt
 candidate. A job whose first acceptable route already clears the body selects it in
 the same place the pre-#798 floor did, so the blast radius is only the defective
 jobs. Because the floor is sequential, a re-chosen winner is a different obstacle for
-later jobs; the placed count is unchanged on every fixture and is pinned per part by
-test, rather than guaranteed by a comparison sweep.
+later jobs; the placed count did not fall on any fixture when this amendment landed.
+The tests retain those values as per-part one-way floors: later placement improvements
+may exceed them, but a route or layout change may not fall below them (clarified
+2026-09-01, #1418).
 
 A post-placement **relocation** pass was built and rejected. Moving an already-placed
 leader instead of re-placing it makes cardinality invariant by construction and
