@@ -51,6 +51,7 @@ from draftwright.linting.polygonal_boss_coverage import polygonal_boss_requireme
 from draftwright.linting.polygonal_stock_coverage import polygonal_stock_outcomes
 from draftwright.linting.slot_coverage import slot_requirement_outcomes
 from draftwright.linting.through_step_coverage import through_step_requirement_outcomes
+from draftwright.linting.turned_step_coverage import turned_step_requirement_outcomes
 
 _OUTCOME_STATES = (
     "placed",
@@ -188,6 +189,7 @@ _AUDITED_FAMILIES = (
     "slot_patterns",
     "slots",
     "through_steps",
+    "turned_steps",
 )
 
 # What the audited score does not cover, emitted as data rather than left to prose. The
@@ -638,6 +640,9 @@ def _completeness_component(
             registry,
             omissions,
             plan=dimension_plan,
+        ),
+        "turned_steps": turned_step_requirement_outcomes(
+            recognition, features, registry, omissions
         ),
         "flats": flat_requirement_outcomes(recognition, features, registry, omissions),
         "grooves": groove_requirement_outcomes(recognition, features, registry, omissions),

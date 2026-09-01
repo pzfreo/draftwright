@@ -125,7 +125,10 @@ from draftwright.model.ir import (
     StepLevelFeature,
     ThroughStepFeature,
 )
-from draftwright.recognition_frame import require_unambiguous_groove_owner
+from draftwright.recognition_frame import (
+    groove_owns_turned_step_band,
+    require_unambiguous_groove_owner,
+)
 
 
 def _member_hole(h, frame: Frame, members: tuple = (), count: int = 1) -> HoleFeature:
@@ -234,10 +237,6 @@ def _boss_is_groove_floor(b, grooves) -> bool:
 
 
 _DIA_TOL = 0.15  # two ø values within this (mm) are the same diameter (#298)
-_GROOVE_STEP_TOL = (
-    0.1  # pad (mm) for a groove centre lying within its own turned-step span (#148c)
-)
-_STEP_LEN_PAD = 1.0  # a groove's step is no longer than its width + this (mm); guards merged runs
 _UNSET = object()  # sentinel: distinguishes "not supplied" from a valid prof=None
 
 
@@ -1440,8 +1439,6 @@ def build_part_model(
             if owners:
                 grooves_by_profile[id(owners[0])].append(groove)
         for profile in profiles:
-            idx = "xyz".index(profile.axis)
-            groove_bands = [(g.at[idx], g.width) for g in grooves_by_profile[id(profile)]]
             for s in profile.steps:
                 # Skip the band a groove owns (its callout dimensions width + floor ø). Match
                 # on axial POSITION, not diameter: a narrow groove's step is reported at the
@@ -1450,9 +1447,8 @@ def build_part_model(
                 # lies within its own step span; the short-length guard keeps a merged shaft run
                 # from matching.
                 if any(
-                    s.lo - _GROOVE_STEP_TOL <= gc <= s.hi + _GROOVE_STEP_TOL
-                    and s.length <= gw + _STEP_LEN_PAD
-                    for gc, gw in groove_bands
+                    groove_owns_turned_step_band(groove, s)
+                    for groove in grooves_by_profile[id(profile)]
                 ):
                     continue
                 features.append(convert(s, ctx))

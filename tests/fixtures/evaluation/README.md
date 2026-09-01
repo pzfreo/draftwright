@@ -219,6 +219,25 @@ round is one radius-callout requirement even when equal radii share ink:
   `fillet-topology-b.step` applies the same operations in reverse order. Their geometry and
   authored requirements are identical while their STEP hashes differ.
 
+`corpus-turned-steps-v1.json` is a separate physical outside-diameter-band corpus. Every
+body-local band owns an axial-length and diameter requirement; its axis line and station identify
+the occurrence independently of recognition output:
+
+- `turned-step-axis-x.step`, `turned-step-axis-y.step` and `turned-step-axis-z.step` independently
+  author unequal adjacent bands on all three principal turning axes.
+- `turned-step-translated-blind-bore.step` moves the axis line to `(91, -37)` and adds a blind
+  axial bore, proving that world-origin assumptions and the bore family cannot supply the answer.
+- `turned-step-repeated-lengths.step` has three adjacent 10 mm bands at different diameters,
+  proving grouped `3× 10` length ink retains every physical identity.
+- `turned-step-compound.step` has two disjoint profile lines and four bands, so equal-axis bodies
+  cannot collapse into one profile.
+- `turned-step-through-bore.step` retains both outside bands around a coaxial through bore.
+- `groove-lone-y.step` contributes only its two outer shaft bands. The narrow middle band is
+  uniquely owned by the groove and is deliberately not counted twice.
+- `turned-step-topology-a.step` and `turned-step-topology-b.step` carry the same three authored
+  bands through different STEP topology ordering and distinct pinned hashes.
+- `plain-block.step` is the negative case and has no rotational profile or OD-band requirement.
+
 The `FILE_NAME` timestamp is normalized. Each corpus manifest pins every fixture SHA-256 and records
 case-level provenance. A changed fixture therefore requires an explicit corpus-version decision;
 regenerating recognition output can never rewrite the expected facts silently.

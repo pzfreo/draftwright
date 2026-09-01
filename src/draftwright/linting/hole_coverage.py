@@ -384,6 +384,19 @@ def _source_at(source) -> tuple[float, float, float]:
 
 def _recognised_turned_axis_center(recognition, axis):
     """Recover the one external-cylinder axis that supports the turned-step ladder."""
+    if not isinstance(recognition.turned_steps, tuple):
+        # This is an optional cross-family structural witness, never authority to normalise a
+        # malformed aggregate.  The turned-step ledger retains the explicit contract failure.
+        return None
+    from draftwright.linting.turned_step_coverage import turned_step_source_key
+
+    try:
+        for step in recognition.turned_steps:
+            turned_step_source_key(step, step)
+    except (AttributeError, TypeError, ValueError):
+        # One malformed member invalidates this optional aggregate-derived witness.  The hole
+        # ledger must neither crash nor certify an alternate from partially trusted steps.
+        return None
     steps = tuple(step for step in recognition.turned_steps if step.axis == axis)
     if not steps:
         return None

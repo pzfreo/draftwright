@@ -158,6 +158,106 @@ def test_groove_ledger_rejects_foreign_results_and_malformed_ir_without_guessing
     assert (outcomes[0].state, outcomes[0].requirement_count) == ("unverifiable", 2)
 
 
+def test_shared_groove_schema_rejects_missing_or_incoherent_ir_frames() -> None:
+    from types import SimpleNamespace
+
+    from b123d_recognisers import build_raw_recognition_result
+
+    from draftwright.recognition_frame import (
+        groove_owns_turned_step_band,
+        validated_groove_geometry,
+    )
+
+    recognition = build_raw_recognition_result(_lone())
+    groove = recognition.grooves[0]
+    without_geometry = SimpleNamespace(
+        axis=groove.axis,
+        at=None,
+        width=groove.width,
+        diameter=groove.diameter,
+    )
+    with pytest.raises(TypeError, match="must carry at or frame geometry"):
+        validated_groove_geometry(without_geometry)
+
+    other_axis = next(axis for axis in "xyz" if axis != groove.axis)
+    incoherent_frame = SimpleNamespace(
+        axis=groove.axis,
+        at=None,
+        frame=SimpleNamespace(axis=other_axis, origin=groove.at),
+        width=groove.width,
+        diameter=groove.diameter,
+    )
+    with pytest.raises(ValueError, match="frame and record axes disagree"):
+        validated_groove_geometry(incoherent_frame)
+
+    assert not groove_owns_turned_step_band(
+        groove,
+        SimpleNamespace(
+            axis=other_axis,
+            lo=-1.0,
+            hi=1.0,
+            length=2.0,
+        ),
+    )
+
+
+@pytest.mark.parametrize("container", ["list", "generator"])
+def test_groove_ledger_requires_the_immutable_root_inventory(container: str) -> None:
+    from b123d_recognisers import build_raw_recognition_result
+
+    from draftwright import build_drawing
+    from draftwright.linting.groove_coverage import groove_requirement_outcomes
+
+    part = _lone()
+    recognition = build_raw_recognition_result(part)
+    replacement = list(recognition.grooves) if container == "list" else iter(recognition.grooves)
+    malformed = replace(recognition, grooves=replacement)
+    drawing = build_drawing(part)
+
+    outcomes = groove_requirement_outcomes(malformed, drawing.model().features, drawing.registry)
+
+    assert len(outcomes) == len(recognition.grooves)
+    assert {(outcome.state, outcome.requirement_count) for outcome in outcomes} == {
+        ("unverifiable", 2)
+    }
+
+
+@pytest.mark.parametrize("value", [None, 42, object()])
+def test_noniterable_root_groove_inventory_retains_an_aggregate_contract_outcome(value) -> None:
+    from b123d_recognisers import build_raw_recognition_result
+
+    from draftwright import build_drawing
+    from draftwright.linting.groove_coverage import groove_requirement_outcomes
+    from draftwright.linting.quality import quality_components
+
+    part = _lone()
+    recognition = build_raw_recognition_result(part)
+    malformed = replace(recognition, grooves=value)
+    drawing = build_drawing(part)
+
+    outcomes = groove_requirement_outcomes(malformed, drawing.model().features, drawing.registry)
+
+    assert len(outcomes) == 1
+    assert (outcomes[0].parameter_id, outcomes[0].state, outcomes[0].requirement_count) == (
+        "?",
+        "unverifiable",
+        1,
+    )
+    completeness = quality_components(
+        recognition=malformed,
+        features=drawing.model().features,
+        registry=drawing.registry,
+        omissions=(),
+        issues=(),
+        error_penalty=0.1,
+        warning_penalty=0.02,
+        has_asserted_content=True,
+        part=part,
+    )["completeness"]
+    assert completeness["by_family"]["grooves"] == 1
+    assert completeness["unverifiable"] >= 1
+
+
 def test_owner_without_measurement_or_note_provenance_is_unverifiable() -> None:
     from draftwright import build_drawing
     from draftwright.linting.groove_coverage import groove_requirement_outcomes
@@ -564,9 +664,14 @@ def test_deleting_groove_declaration_cannot_shrink_quality_denominator() -> None
 
     complete_quality = complete.lint_summary()["quality"]["completeness"]
     sparse_quality = sparse.build().lint_summary()["quality"]["completeness"]
-    assert complete_quality["requirements"] == sparse_quality["requirements"] == 2
+    assert complete_quality["requirements"] == sparse_quality["requirements"] == 6
     assert complete_quality["by_family"]["grooves"] == 2
+    assert complete_quality["by_family"]["turned_steps"] == 4
+    # One part-global OD cannot satisfy both equal outer bands: the groove callout is placed,
+    # both step lengths are explicit drops, and both native band diameters are genuinely missing.
     assert complete_quality["placed"] == 2
-    assert sparse_quality["unverifiable"] == 2
-    assert complete_quality["audited_score"] == 1.0
+    assert complete_quality["dropped"] == 2
+    assert complete_quality["missing"] == 2
+    assert sparse_quality["unverifiable"] == 6
+    assert complete_quality["audited_score"] == pytest.approx(1 / 3)
     assert sparse_quality["audited_score"] == 0.0
