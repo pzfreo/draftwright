@@ -7,7 +7,7 @@
 [![codecov](https://codecov.io/gh/pzfreo/draftwright/branch/main/graph/badge.svg)](https://codecov.io/gh/pzfreo/draftwright)
 [![PyPI](https://img.shields.io/pypi/v/draftwright.svg)](https://pypi.org/project/draftwright/)
 [![Python](https://img.shields.io/pypi/pyversions/draftwright.svg)](https://pypi.org/project/draftwright/)
-[![Downloads](https://img.shields.io/pypi/dm/draftwright.svg)](https://pypi.org/project/draftwright/)
+[![Downloads](https://static.pepy.tech/badge/draftwright/month)](https://pepy.tech/project/draftwright)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](LICENSE)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![mypy](https://img.shields.io/badge/mypy-checked-2a6db2.svg)](https://mypy-lang.org/)
