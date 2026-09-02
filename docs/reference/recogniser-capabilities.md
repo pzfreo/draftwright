@@ -485,11 +485,12 @@ physical corpora.
 ## Historical: recognisers 0.4.8 raw boundary and RaisedPad v2
 
 Draftwright pinned the published `b123d-recognisers==0.4.8` wheel in the preceding release.
-The default route deliberately calls `build_raw_recognition_result`; records remain in the
-caller/world coordinate system. #1357 now provides a reviewed explicit framed-result activation
-added with 0.4.9. The 0.4.8 tests used the public framed API as release evidence for upstream #331, #332,
-and #334, comparing each aggregate inventory with the corresponding public family call on the exact
-returned local solid. Production added no fallback, second aggregate, or family rescan. Face levels,
+At that time the default route deliberately called `build_raw_recognition_result`; records
+remained in the caller/world coordinate system. #1357 now provides a reviewed explicit
+framed-result activation added with 0.4.9. The 0.4.8 tests used the public framed API as release
+evidence for upstream #331, #332, and #334, comparing each aggregate inventory with the
+corresponding public family call on the exact returned local solid. Production added no fallback,
+second aggregate, or family rescan. Face levels,
 risers, and turned profiles remained outside framed production pending their subsequently released
 upstream fixes.
 

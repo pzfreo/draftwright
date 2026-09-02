@@ -854,6 +854,24 @@ def test_consumer_recogniser_contract_guard_covers_static_provider_seams(tmp_pat
         "from b123d_recognisers.inspection import _FaceGraph\n",
         encoding="utf-8",
     )
+    (tmp_path / "private_evidence_import.py").write_text(
+        "from b123d_recognisers.evidence import _PrivateEvidence\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "private_evidence_alias.py").write_text(
+        "import b123d_recognisers.evidence as evidence\nprivate = evidence._private_builder\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "private_evidence_getattr.py").write_text(
+        "import b123d_recognisers.evidence as evidence\n"
+        "private = getattr(evidence, '_private_builder')\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "private_evidence_patch.py").write_text(
+        "import b123d_recognisers.evidence as evidence\n"
+        "monkeypatch.setattr(evidence, '_private_builder', replacement)\n",
+        encoding="utf-8",
+    )
     (tmp_path / "private_getattr.py").write_text(
         "import b123d_recognisers as br\nprivate = getattr(br, 'polygonal_bosses')\n",
         encoding="utf-8",
@@ -901,8 +919,13 @@ def test_consumer_recogniser_contract_guard_covers_static_provider_seams(tmp_pat
     (tmp_path / "public_and_unrelated_controls.py").write_text(
         "import importlib.util\n"
         "import b123d_recognisers as br\n"
+        "import b123d_recognisers.evidence as evidence\n"
         "from b123d_recognisers import Flat\n"
+        "from b123d_recognisers.evidence import RecognitionEvidence\n"
         "public = br.Flat\n"
+        "public_evidence = evidence.build_recognition_evidence\n"
+        "also_public_evidence = getattr(evidence, 'RecognitionEvidence')\n"
+        "monkeypatch.setattr(evidence, 'build_recognition_evidence', replacement)\n"
         "also_public = getattr(br, 'Flat')\n"
         "monkeypatch.setattr(br, 'Flat', 'replacement')\n"
         "assert_context(br, 'consumer fixture')\n"
@@ -921,6 +944,10 @@ def test_consumer_recogniser_contract_guard_covers_static_provider_seams(tmp_pat
         ("test_grid_lattice_convention.py", "b123d_recognisers._features", "_new_private"),
         ("private_static.py", _PROVIDER_ROOT, "profiled_bores"),
         ("private_inspection.py", _PROVIDER_INSPECTION, "_FaceGraph"),
+        ("private_evidence_import.py", _PROVIDER_EVIDENCE, "_PrivateEvidence"),
+        ("private_evidence_alias.py", _PROVIDER_EVIDENCE, "_private_builder"),
+        ("private_evidence_getattr.py", _PROVIDER_EVIDENCE, "_private_builder"),
+        ("private_evidence_patch.py", _PROVIDER_EVIDENCE, "_private_builder"),
         ("private_getattr.py", _PROVIDER_ROOT, "polygonal_bosses"),
         ("private_literal_target.py", _PROVIDER_ROOT, "profiled_bores"),
         ("private_unbound_patch.py", _PROVIDER_ROOT, "profiled_bores"),

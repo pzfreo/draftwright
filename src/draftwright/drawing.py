@@ -969,7 +969,8 @@ class Drawing:
         after the first physical critique of a declared drawing. It is ``None`` before that
         lazy critique, for a bare drawing, and for framed recognition while the provider lacks
         a public framed-evidence contract. Draftwright never reruns recognition merely to fill
-        this value.
+        this value. The returned evidence borrows exact faces from the source part, so callers
+        must not mutate that part while using the evidence view.
         """
 
         return self._build.recognition_evidence
