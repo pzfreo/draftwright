@@ -134,8 +134,32 @@ class RecognitionOwnershipBuilder:
         self._owned_feature_ids.add(id(feature))
         self._bindings.append(OccurrenceBinding(occurrence, feature))
 
-    def freeze(self) -> RecognitionOwnership:
-        """Seal the current ledger without manufacturing owners for missing occurrences."""
+    def remap_feature(self, source: object, replacements: tuple[object, ...]) -> None:
+        """Follow one explicit IR-lowering lineage without reconstructing correspondence."""
+
+        matches = [
+            index for index, binding in enumerate(self._bindings) if binding.feature is source
+        ]
+        if not matches:
+            return
+        if len(matches) != 1:
+            raise ValueError("IR feature has multiple recognition occurrence owners")
+        index = matches[0]
+        self._owned_feature_ids.discard(id(source))
+        if len(replacements) != 1:
+            # A split can no longer satisfy this slice's exact 1:1 contract. Removing the stale
+            # pre-lowering binding makes the expected occurrence unexpectedly_missing rather
+            # than pointing at an object absent from the finished model.
+            del self._bindings[index]
+            return
+        replacement = replacements[0]
+        if id(replacement) in self._owned_feature_ids:
+            raise ValueError("lowered IR feature already owns a recognition occurrence")
+        self._owned_feature_ids.add(id(replacement))
+        self._bindings[index] = OccurrenceBinding(self._bindings[index].occurrence, replacement)
+
+    def snapshot(self) -> RecognitionOwnership:
+        """Copy the current ledger without manufacturing owners for missing occurrences."""
 
         return RecognitionOwnership(
             evidence=self.evidence,

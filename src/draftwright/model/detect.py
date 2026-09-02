@@ -2022,7 +2022,14 @@ def build_part_model(
     # instead of the emitter inventing a second ownership decision (#1116).
     from draftwright.model.pmi_lowering import lower_ap242_dimensions
 
-    return lower_ap242_dimensions(model) if lower_pmi else model
+    return (
+        lower_ap242_dimensions(
+            model,
+            feature_remap=ownership.remap_feature if ownership is not None else None,
+        )
+        if lower_pmi
+        else model
+    )
 
 
 def _is_round(bbox, bosses, tol: float = 0.5) -> bool:

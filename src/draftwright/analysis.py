@@ -1071,7 +1071,7 @@ def _analyse(
         if layout_model is not None
         else _reuse.recognition_ownership
         if _reuse is not None
-        else ownership_builder.freeze()
+        else ownership_builder.snapshot()
         if ownership_builder is not None
         else None
     )

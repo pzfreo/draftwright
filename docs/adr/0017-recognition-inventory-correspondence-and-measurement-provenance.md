@@ -368,9 +368,10 @@ The result is stored in typed `BuildState`, whose builder/lazy-critique path is 
 writer. This makes the result's relationship to its drawing structural: engine consumers do
 not accept an arbitrary aggregate and then attempt to prove it came from the same part.
 
-This answers **result-to-build provenance only**. It does not answer which recognition record
-became which IR feature, requirement, or annotation. That record-to-feature correspondence is
-the subject of the evidence gates below.
+This originally answered **result-to-build provenance only**. Amendment 12 now records exact
+occurrence→IR ownership for unconditional 1:1 adapters. Grouped, nested, absorbed and deferred
+families, and the general feature→requirement→annotation correspondence, remain subjects of the
+evidence gates below.
 
 `lint_prismatic_coverage(recognition=...)` is a known channel outside the structural ownership
 path (#1032). The preferred correction is to remove or narrow the channel when that boundary
