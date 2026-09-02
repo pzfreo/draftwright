@@ -54,7 +54,10 @@ from draftwright._core import (
 from draftwright.linting._registry import annotation_owner, satisfaction_ids
 from draftwright.linting.issues import LintIssue
 from draftwright.linting.profiled_bore_coverage import profiled_bore_key
-from draftwright.recognition_frame import profiles_owning_axial_band
+from draftwright.recognition_frame import (
+    groove_owns_turned_step_band,
+    profiles_owning_axial_band,
+)
 from draftwright.view_plan import VIEW_AXES
 
 _UNSET = object()  # sentinel: distinguishes "not supplied" from a valid prof=None
@@ -65,8 +68,6 @@ _UNSET = object()  # sentinel: distinguishes "not supplied" from a valid prof=No
 _RECON_DIA_TOL = 0.2
 _RECON_POS_TOL = 0.5
 _LOCATION_AXIS_TOL = 1.0
-_GROOVE_STEP_POS_TOL = 0.1  # detect.py's groove-centre/turned-band reconciliation tolerance
-_GROOVE_STEP_LEN_PAD = 1.0  # detect.py's guard against treating a merged shaft run as a groove
 
 
 def _location_ref(owner, point) -> HoleRef:
@@ -2043,16 +2044,10 @@ def _lint_one_axial_profile(
         feature for feature in satisfied_grooves if groove_key(feature) in physical_grooves
     }
     for feature in credited_grooves:
-        centre = float(feature.frame.origin[axis_index])
         for index, step in enumerate(prof.steps):
             # Match the same physical narrow band detect.py delegates from StepFeature to
             # GrooveFeature. The provider may report its wall OD, so diameter is not a join.
-            if (
-                float(step.lo) - _GROOVE_STEP_POS_TOL
-                <= centre
-                <= float(step.hi) + _GROOVE_STEP_POS_TOL
-                and float(step.hi) - float(step.lo) <= float(feature.width) + _GROOVE_STEP_LEN_PAD
-            ):
+            if groove_owns_turned_step_band(feature, step):
                 covered_steps.add(index)
                 break
     covered = len(covered_steps)

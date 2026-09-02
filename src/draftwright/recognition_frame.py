@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+from math import isfinite
+from numbers import Real
 from typing import Any
 
 from b123d_recognisers import (
@@ -41,13 +43,93 @@ class AmbiguousTurnedOwnershipError(RuntimeError):
     """A released recognition record cannot identify one physical turned profile."""
 
 
+_GROOVE_STEP_POSITION_TOLERANCE = 0.1
+_GROOVE_STEP_LENGTH_PAD = 1.0
+# ``Groove.at`` is public at 0.001 mm while ``TurnedProfileKey.axis_origin`` retains eight
+# decimal places.  The two records can therefore describe the same transverse axis line half
+# a Groove quantum apart.  The small arithmetic allowance keeps that inclusive boundary
+# stable without admitting the next published Groove coordinate.
+_GROOVE_PROFILE_AXIS_TOLERANCE = 0.0005 + 5e-9
+
+
+def _strict_real(value: Any, *, field: str, positive: bool = False) -> float:
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise TypeError(f"groove {field} must be a finite real number")
+    try:
+        result = float(value)
+    except OverflowError as error:
+        raise ValueError(f"groove {field} must be finitely representable") from error
+    if not isfinite(result):
+        raise ValueError(f"groove {field} must be finite")
+    if positive and result <= 0:
+        raise ValueError(f"groove {field} must be positive")
+    return result
+
+
+def validated_groove_geometry(
+    groove: Any,
+) -> tuple[str, tuple[float, float, float], float, float]:
+    """Return one Groove/GrooveFeature's strict shared geometric contract.
+
+    Provider records carry ``at`` directly; retained IR carries the same point in ``frame``.
+    Neither path accepts coercible strings, booleans, mutable point lists, or non-finite and
+    non-positive dimensions.  Coverage and cross-family ownership therefore fail closed at
+    the same schema boundary.
+    """
+
+    axis = getattr(groove, "axis", None)
+    if not isinstance(axis, str) or axis not in {"x", "y", "z"}:
+        raise ValueError(f"groove axis must be principal x/y/z, got {axis!r}")
+
+    centre = getattr(groove, "at", None)
+    if centre is None:
+        frame = getattr(groove, "frame", None)
+        if frame is None:
+            raise TypeError("groove must carry at or frame geometry")
+        if getattr(frame, "axis", None) != axis:
+            raise ValueError("groove frame and record axes disagree")
+        centre = getattr(frame, "origin", None)
+    if not isinstance(centre, tuple):
+        raise TypeError("groove location must be an immutable three-number tuple")
+    if len(centre) != 3:
+        raise ValueError("groove location must contain exactly three coordinates")
+    point = tuple(
+        _strict_real(component, field=f"location[{index}]")
+        for index, component in enumerate(centre)
+    )
+    width = _strict_real(getattr(groove, "width", None), field="width", positive=True)
+    diameter = _strict_real(getattr(groove, "diameter", None), field="diameter", positive=True)
+    return axis, point, width, diameter  # type: ignore[return-value]
+
+
+def groove_owns_turned_step_band(groove: Any, step: Any) -> bool:
+    """Whether one uniquely assigned groove consumes one turned-profile band.
+
+    The provider's turned profile includes the narrow annular floor between the two groove
+    walls. Draftwright gives that physical band to ``Groove`` (width + floor diameter), so it
+    must not also become a turned-step length/diameter requirement. Position is authoritative:
+    for a narrow groove the provider may publish the surrounding wall OD for the step band.
+    """
+
+    axis, centre, width, _diameter = validated_groove_geometry(groove)
+    if axis != getattr(step, "axis", None):
+        return False
+    station = centre["xyz".index(axis)]
+    return bool(
+        float(step.lo) - _GROOVE_STEP_POSITION_TOLERANCE
+        <= station
+        <= float(step.hi) + _GROOVE_STEP_POSITION_TOLERANCE
+        and float(step.length) <= width + _GROOVE_STEP_LENGTH_PAD
+    )
+
+
 def profiles_owning_axial_band(
     profiles: Iterable[Any],
     *,
     axis: str,
     centre: tuple[float, float, float],
     width: float,
-    axis_tol: float = 1e-6,
+    axis_tol: float = _GROOVE_PROFILE_AXIS_TOLERANCE,
     span_tol: float = 1e-3 + 1e-9,
 ) -> tuple[Any, ...]:
     """Profiles whose published axis line and axial span contain one record band."""
@@ -79,14 +161,12 @@ def profiles_owning_axial_band(
 def require_unambiguous_groove_owner(groove: Any, profiles: Iterable[Any]) -> tuple[Any, ...]:
     """Return the zero/one groove owner or refuse the missing provider contract."""
 
-    centre = getattr(groove, "at", None)
-    if centre is None:
-        centre = groove.frame.origin
+    axis, centre, width, _diameter = validated_groove_geometry(groove)
     owners = profiles_owning_axial_band(
         profiles,
-        axis=groove.axis if hasattr(groove, "axis") else groove.frame.axis,
+        axis=axis,
         centre=centre,
-        width=groove.width,
+        width=width,
     )
     if len(owners) > 1:
         raise AmbiguousTurnedOwnershipError(
@@ -265,4 +345,6 @@ __all__ = [
     "profiles_owning_axial_band",
     "require_unambiguous_groove_owner",
     "single_turned_profile",
+    "groove_owns_turned_step_band",
+    "validated_groove_geometry",
 ]

@@ -44,6 +44,26 @@
 
 ### Changed
 
+- Turned-step completeness is now backed by an independently authored, hash-pinned 11-case STEP
+  corpus with 26 physical outside-diameter bands, 52 parameter checks and 104 downstream checks.
+  Axis line and station preserve body-local occurrence identity across automatic IR, the existing
+  public `Sheet.step(...)` DSL word, executed-and-built generated code, and exact compiler-confirmed
+  length and OD drawing evidence. Grouped equal-length chains retain every adjacent member identity
+  and their exact compiler-approved multiplier and value; native and global OD labels are checked
+  in full. Generated declarations preserve the half-thousandth midpoint of odd-thousandth spans,
+  complete body-local profile ownership is compared at its full published precision, and malformed
+  or surplus records fail closed—including coercible or non-finite groove evidence that controls
+  band ownership. The root turned-step and groove inventories must remain immutable tuples; a
+  mutable or one-shot substitute is snapshotted once only to preserve its observable requirement
+  denominator, then remains unverifiable; a non-iterable substitute retains one explicit aggregate
+  contract outcome rather than masquerading as an empty family. A profile OD may
+  satisfy one uniquely identifiable equivalent largest-band diameter
+  without multiplying across disjoint bodies; and uniquely groove-owned narrow
+  bands are excluded once by a shared fail-closed Groove schema and ownership rule used by lowering,
+  lint and the evidence ledger. That join accounts for the provider's 0.001 mm Groove coordinate
+  quantum against its eight-decimal profile axis without widening either published identity
+  (#1374; ADRs 0010, 0011, 0013, 0015, 0017, 0020).
+
 - Framed recognition now carries all three 0.4.6 step families through their complete existing
   consumer paths. `CircularBlindStep`, `PairedRampStep` and `ThroughStep` retain the same
   manufacturing requirements from raw recognition through their public `Sheet` words, generated

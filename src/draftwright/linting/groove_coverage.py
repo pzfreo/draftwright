@@ -18,6 +18,7 @@ from b123d_recognisers import RecognitionResult
 
 from draftwright.linting._registry import satisfaction_ids, satisfaction_of
 from draftwright.linting.issues import LintIssue, is_placement_drop
+from draftwright.recognition_frame import validated_groove_geometry
 
 GrooveRequirementState = Literal[
     "placed",
@@ -40,25 +41,14 @@ class GrooveRequirementOutcome:
     features: tuple = ()
 
 
-def _rounded(value) -> float:
-    return round(float(value), 3)
-
-
-def _point(value) -> tuple[float, float, float]:
-    x, y, z = value
-    return (_rounded(x), _rounded(y), _rounded(z))
-
-
 def groove_key(groove) -> tuple:
     """Facts retained identically by the public record and Draftwright IR."""
-    at = getattr(groove, "at", None)
-    if at is None:
-        at = groove.frame.origin
+    axis, at, width, diameter = validated_groove_geometry(groove)
     return (
-        str(groove.axis),
-        _point(at),
-        _rounded(groove.width),
-        _rounded(groove.diameter),
+        axis,
+        tuple(round(component, 3) for component in at),
+        round(width, 3),
+        round(diameter, 3),
     )
 
 
@@ -125,16 +115,43 @@ def groove_requirement_outcomes(
             "groove_requirement_outcomes() requires the run's RecognitionResult; "
             f"got {type(recognition).__name__}"
         )
-    sources = tuple(recognition.grooves)
+    raw_sources = recognition.grooves
+    if isinstance(raw_sources, tuple):
+        sources = raw_sources
+    else:
+        try:
+            sources = tuple(raw_sources)
+        except Exception:
+            # Cardinality is unknowable, so expose one aggregate contract outcome rather
+            # than inventing a physical groove count or silently treating corruption as an
+            # empty tuple.
+            return [
+                GrooveRequirementOutcome((0.0, 0.0, 0.0), "?", "unverifiable", requirement_count=1)
+            ]
+        return [
+            GrooveRequirementOutcome((0.0, 0.0, 0.0), "?", "unverifiable", requirement_count=2)
+            for _source in sources
+        ]
     if not sources:
         return []
     source_counts: dict[tuple, int] = defaultdict(int)
+    source_keys: list[tuple | None] = []
     for source in sources:
-        source_counts[groove_key(source)] += 1
+        try:
+            key = groove_key(source)
+        except (AttributeError, TypeError, ValueError):
+            source_keys.append(None)
+            continue
+        source_keys.append(key)
+        source_counts[key] += 1
     ir_by_key: dict[tuple, list] = defaultdict(list)
+    malformed_ir = False
     for feature in features:
         if getattr(feature, "kind", None) == "groove":
-            ir_by_key[groove_key(feature)].append(feature)
+            try:
+                ir_by_key[groove_key(feature)].append(feature)
+            except (AttributeError, TypeError, ValueError):
+                malformed_ir = True
 
     placed, satisfied, dropped = _index_evidence(registry)
     suppressed = {
@@ -143,13 +160,17 @@ def groove_requirement_outcomes(
         if omission.feature is not None and omission.authored
     }
     outcomes: list[GrooveRequirementOutcome] = []
-    for source in sources:
-        key = groove_key(source)
-        matches = ir_by_key.get(key, ())
-        feature = matches[0] if len(matches) == source_counts[key] == 1 else None
+    for _source, source_key in zip(sources, source_keys, strict=True):
+        if source_key is None:
+            outcomes.append(
+                GrooveRequirementOutcome((0.0, 0.0, 0.0), "?", "unverifiable", requirement_count=2)
+            )
+            continue
+        matches = ir_by_key.get(source_key, ())
+        feature = matches[0] if len(matches) == source_counts[source_key] == 1 else None
         parameter_ids = _parameter_ids(feature) if feature is not None else None
-        at = key[1]
-        if parameter_ids is None:
+        at = source_key[1]
+        if parameter_ids is None or malformed_ir:
             outcomes.append(GrooveRequirementOutcome(at, "?", "unverifiable", requirement_count=2))
             continue
         outcomes.extend(

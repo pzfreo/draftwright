@@ -283,6 +283,7 @@ def test_pattern_and_central_bore_have_a_complete_recognition_owned_ledger():
         "slots": 0,
         "slot_patterns": 0,
         "through_steps": 0,
+        "turned_steps": 0,
     }
     assert "holes" not in completeness["unscored_recognized_families"]
     assert "hole_patterns" not in completeness["unscored_recognized_families"]
@@ -1892,7 +1893,13 @@ def test_mixed_coaxial_group_requires_location_evidence_for_the_offset_member():
         "location_off_axis.y": "missing",
         "location_off_axis.z": "missing",
     }
-    assert _completeness(drawing)["audited_score"] == pytest.approx(3 / 5)
+    completeness = _completeness(drawing)
+    assert completeness["by_family"]["holes"] == 5
+    assert completeness["by_family"]["turned_steps"] == 6
+    assert completeness["requirements"] == 11
+    assert completeness["placed"] == 9
+    assert completeness["missing"] == 2
+    assert completeness["audited_score"] == pytest.approx(9 / 11)
 
 
 def test_live_furniture_retains_physical_member_center_provenance():
@@ -1951,7 +1958,10 @@ def test_coaxial_bore_centerline_accounts_for_two_physical_location_axes():
         "location_off_axis.centerline.z",
     }
     assert all(item.state == "placed" for item in outcomes)
-    assert _completeness(drawing)["requirements"] == 4
+    completeness = _completeness(drawing)
+    assert completeness["by_family"]["holes"] == 4
+    assert completeness["by_family"]["turned_steps"] == 6
+    assert completeness["requirements"] == completeness["placed"] == 10
 
 
 def test_authored_coaxial_location_omissions_remain_suppressed_without_center_furniture():

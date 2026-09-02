@@ -418,6 +418,42 @@ placed or structurally satisfied. Authored omission and placement failure remain
 `dropped`; missing alternate ink remains `missing`. Axis or family presence alone can never claim
 an outcome.
 
+## Turned-step completeness evidence
+
+The `turned-steps` completeness boundary is independently `supported` by
+`tests/fixtures/evaluation/corpus-turned-steps-v1.json`. Eleven hash-pinned STEP cases contribute
+26 physical outside-diameter bands, 52 parameter checks and 104 downstream checks. The corpus
+covers all three principal axes, a translated blind-bored shaft, repeated equal lengths, separate
+body-local axis lines, a coaxial through bore, groove overlap, a plain negative and a distinct-hash
+topology-order pair. Axis line plus axial station identifies a band; its axial length and diameter
+are scored parameters rather than identity, so weakening either lowers fidelity instead of hiding
+as a missed occurrence.
+
+Every retained band must cross the automatic IR, the existing public `Sheet.step(...)` word,
+executed generated Sheet code and compiler-confirmed drawing evidence. Drawing credit requires an
+exact physical shoulder-to-shoulder length witness and exact OD surface evidence, together with the
+complete compiler-approved printed value. Equal adjacent lengths may share `n× value` ink only when
+that annotation carries every member identity, prints the exact multiplier and value, and spans the
+complete claimed run. Generated declarations retain coupled length/midpoint precision for
+odd-thousandth spans rather than rounding the two facts independently. Automatic IR must also
+retain the source band's complete validated `TurnedProfileKey` ownership at the key's full
+published precision. One unique largest band
+in one body-local profile may use the rotational profile's equivalent `od.diameter`
+representation, but only when axis line and exact diameter identify that single physical band; one
+part-global OD never multiplies across equal or disjoint bands. Each uniquely
+correlated groove consumes its own narrow floor band once; ambiguous profile ownership fails
+closed instead of guessing, and malformed groove evidence makes the affected groove and raw
+turned-band rosters unverifiable. Groove coverage and floor-band ownership share one strict schema:
+principal axis, immutable three-finite-real location, and positive finite-real width and diameter;
+coercible strings, booleans, mutable points, infinities and NaNs cannot suppress a band. The
+axis-line join admits only the half-quantum boundary between a 0.001 mm `Groove.at` and an
+eight-decimal `TurnedProfileKey.axis_origin`. The root `turned_steps` and `grooves` inventories must
+remain immutable tuples; a mutable or one-shot substitute is snapshotted once to preserve its
+observable cardinality but receives only unverifiable outcomes. If even cardinality is unavailable,
+one aggregate unverifiable contract outcome remains visible rather than being mistaken for a valid
+empty family. The shared ownership predicate is used by IR lowering, physical lint and the
+completeness ledger so their denominators cannot drift.
+
 ## Framed step-family evidence
 
 The released 0.4.10 framed route is exercised for `circular-blind-steps`, `paired-ramp-steps` and
@@ -439,9 +475,9 @@ while rejecting outside-cell spans and sections. This is consumer normalization 
 released schema, not a changed recogniser contract.
 
 Remaining supported-family completeness work is tracked by family group rather than the closed
-shared design issue: #1371 covers channels, slots and slot patterns; #1372 retains the independent
-rectangular-pad and polygonal-boss benchmark corpora; #1373 retains face levels and risers; and
-#1374 retains turned steps.
+shared design issue: #1371 covers channels, slots and slot patterns, while #1373 retains face
+levels and risers. #1374's chamfer, fillet and turned-step slices are supported by independent
+physical corpora.
 
 ## Historical: recognisers 0.4.8 raw boundary and RaisedPad v2
 

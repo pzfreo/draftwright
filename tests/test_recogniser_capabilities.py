@@ -572,6 +572,19 @@ def test_rich_passage_contract_has_an_explicit_unsupported_completeness_outcome(
             "to": "supported",
             "version": importlib.metadata.version("draftwright"),
         },
+        {
+            "boundary": "completeness",
+            "compatibility_evidence": [
+                "tests/test_issue_1374_turned_step_completeness_evidence.py",
+                "tests/test_recogniser_capabilities.py",
+                "tests/test_step_analysis_evaluation.py",
+            ],
+            "family": "turned-steps",
+            "from": "deferred",
+            "release_notes": "CHANGELOG.md",
+            "to": "supported",
+            "version": importlib.metadata.version("draftwright"),
+        },
     ]
 
 
@@ -664,6 +677,16 @@ def test_fillet_completeness_is_supported_by_independent_physical_round_facts() 
         "state": "supported",
         "implementation": "draftwright.evaluation.step_analysis.evaluate_step_corpus",
         "evidence": ["tests/test_issue_1374_fillet_completeness_evidence.py"],
+    }
+
+
+def test_turned_step_completeness_is_supported_by_independent_physical_band_facts() -> None:
+    family = _families(consumer_capability_declaration())["turned-steps"]
+
+    assert family["completeness"] == {
+        "state": "supported",
+        "implementation": "draftwright.evaluation.step_analysis.evaluate_step_corpus",
+        "evidence": ["tests/test_issue_1374_turned_step_completeness_evidence.py"],
     }
 
 
@@ -789,7 +812,6 @@ def test_each_deferred_supported_family_links_its_real_delivery_slice() -> None:
         "risers": 1373,
         "slot-patterns": 1371,
         "slots": 1371,
-        "turned-steps": 1374,
     }
     families = _families(consumer_capability_declaration())
 

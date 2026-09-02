@@ -743,7 +743,10 @@ def _feature_line(
             "sheet.step("
             f"diameter={_parameter_n(f.diameter, 'step.diameter', exact_parameter)}, "
             f"length={_n(f.length)}, "
-            f'at={_pt(f.frame.origin)}, axis="{f.frame.axis}"{thr}{knurl}{group})'
+            # Public shoulder stations are at 0.001 mm, so an odd-thousandth span has a
+            # half-thousandth midpoint.  Preserve that coupled fact: independently rounding
+            # ``length`` and ``at`` would reconstruct both endpoints 0.0005 mm away.
+            f'at={_authored_pt(f.frame.origin)}, axis="{f.frame.axis}"{thr}{knurl}{group})'
         )
     if k == "slot":
         lo, hi = _n(f.lo), _n(f.hi)
