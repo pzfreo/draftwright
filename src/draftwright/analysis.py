@@ -1026,6 +1026,9 @@ def _analyse(
             rectangular_blind_slots=(
                 list(recognition.rectangular_blind_slots) if recognition else None
             ),
+            round_bottom_blind_slots=(
+                list(recognition.round_bottom_blind_slots) if recognition else None
+            ),
             pads=pads,
             profiles=_profiles,
             step_zs=step_zs,

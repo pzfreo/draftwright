@@ -121,6 +121,7 @@ from draftwright.model.ir import (
     PolygonalStockFeature,
     RectangularBlindSlotFeature,
     RotationalFeature,
+    RoundBottomBlindSlotFeature,
     SlotFeature,
     SlotPatternFeature,
     StepFeature,
@@ -756,6 +757,33 @@ def _convert_rectangular_blind_slot(
     )
 
 
+def _convert_round_bottom_blind_slot(
+    slot: RoundBottomBlindSlot, ctx: ConvContext
+) -> RoundBottomBlindSlotFeature:
+    """Lower the provider's complete round-bottom record without rescanning geometry."""
+    if (
+        not isinstance(slot.at, tuple)
+        or len(slot.at) != 3
+        or any(isinstance(value, bool) or not isinstance(value, Real) for value in slot.at)
+    ):
+        raise ValueError("round-bottom blind slot at must be an immutable real-number 3-vector")
+    for name in ("length", "radius", "flat_width"):
+        value = getattr(slot, name)
+        if isinstance(value, bool) or not isinstance(value, Real):
+            raise ValueError(f"round-bottom blind slot {name} must be a real number")
+    return RoundBottomBlindSlotFeature(
+        frame=Frame((slot.at[0], slot.at[1], slot.at[2]), slot.axis),
+        axis=slot.axis,
+        open_sign=slot.open_sign,
+        width_axis=slot.width_axis,
+        depth_axis=slot.depth_axis,
+        depth_sign=slot.depth_sign,
+        length=slot.length,
+        radius=slot.radius,
+        flat_width=slot.flat_width,
+    )
+
+
 # Tier 1 — uniform converters: a pure (record, ctx) -> Feature mapping.
 _CONVERTERS: dict[type, Converter] = {
     DoubleDBore: _convert_double_d_bore,
@@ -776,6 +804,7 @@ _CONVERTERS: dict[type, Converter] = {
     Flat: _convert_flat,
     Groove: _convert_groove,
     RectangularBlindSlot: _convert_rectangular_blind_slot,
+    RoundBottomBlindSlot: _convert_round_bottom_blind_slot,
 }
 
 # Tier 2 — derived converters: not a 1:1 record map. A hole callout groups identical
@@ -835,10 +864,6 @@ _UNCONSUMED_RECORDS: dict[type, str] = {
         "an aggregate-reconciled polygonal blind recess not owned by `Pocket`; its arbitrary "
         "section has no truthful general Draftwright dimension grammar, so every occurrence has "
         "an explicit unsupported completeness outcome (#1246)"
-    ),
-    RoundBottomBlindSlot: (
-        "a provider-proved blind open-ended slot whose flat width and round floor carry distinct "
-        "requirements absent from the existing slot/pocket grammar; semantics are deferred (#1421)"
     ),
 }
 
@@ -970,6 +995,7 @@ def build_part_model(
     pockets=None,
     pocket_patterns=None,
     rectangular_blind_slots=None,
+    round_bottom_blind_slots=None,
     pads=None,
     prof=_UNSET,
     profiles=_UNSET,
@@ -1035,6 +1061,7 @@ def build_part_model(
                 pockets,
                 pocket_patterns,
                 rectangular_blind_slots,
+                round_bottom_blind_slots,
                 pads,
             )
         )
@@ -1130,6 +1157,11 @@ def build_part_model(
             recognition.rectangular_blind_slots
             if rectangular_blind_slots is None
             else rectangular_blind_slots
+        )
+        round_bottom_blind_slots = (
+            recognition.round_bottom_blind_slots
+            if round_bottom_blind_slots is None
+            else round_bottom_blind_slots
         )
         pads = recognition.pads if pads is None else pads
         # Pattern inventories are projections of their supplied member inventories.  Preserve
@@ -1423,6 +1455,12 @@ def build_part_model(
     # evidence. Consume that exact inventory as a dedicated semantic feature; do not rescan or
     # coerce it into any of those grammars.
     for blind_slot in rectangular_blind_slots:
+        features.append(convert(blind_slot, ctx))
+
+    # Capped, edge-open U-section slots with a straight floor joined by equal round sides.
+    # This released aggregate inventory owns the physical family; ordinary and rectangular
+    # slots, pockets, channels and passages must not regain ownership downstream.
+    for blind_slot in round_bottom_blind_slots:
         features.append(convert(blind_slot, ctx))
 
     # Blind rectangular recesses — floored slots/pockets (#148a). A recognised array of

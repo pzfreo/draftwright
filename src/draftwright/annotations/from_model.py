@@ -2898,6 +2898,20 @@ def _rectangular_blind_slot_label(
     return "OPEN SLOT " + " × ".join(terms)
 
 
+def _round_bottom_blind_slot_label(flat_width, radius, length, draft) -> str:
+    """Name only approved round-bottom requirements with unambiguous role words."""
+    terms = []
+    if flat_width is not None:
+        terms.append(
+            f"{flat_width.value_text}{_tol_suffix(flat_width.tolerance, draft)} BOTTOM FLAT"
+        )
+    if radius is not None:
+        terms.append(f"R{radius.value_text}{_tol_suffix(radius.tolerance, draft)}")
+    if length is not None:
+        terms.append(f"{length.value_text}{_tol_suffix(length.tolerance, draft)} LONG")
+    return "ROUND-BOTTOM OPEN SLOT " + " × ".join(terms)
+
+
 def _pad_height_label(height_text, suffix="") -> str:
     """The font-safe attachment-axis height callout for a side-normal pad."""
     return f"{height_text}{suffix} HIGH"
@@ -3079,6 +3093,67 @@ def _rectangular_blind_slot_candidates(
     x0, y0, x1, y1 = bounds
     for tip, direction in targets:
         norm = math.hypot(*direction)
+        ux, uy = direction[0] / norm, direction[1] / norm
+        exit_d = _ray_exit_dist(tip[0], tip[1], ux, uy, (x0, y0, x1, y1))
+        elbow = (tip[0] + ux * (exit_d + reach), tip[1] + uy * (exit_d + reach), 0)
+        yield (tip, elbow, provenance)
+
+
+def _round_bottom_blind_slot_candidates(
+    dwg,
+    view,
+    bounds,
+    feature,
+    reach,
+    *,
+    length: float | None,
+    flat_width: float | None,
+    radius: float | None,
+    provenance,
+):
+    """Yield physical floor/terminal targets using approved measurements only.
+
+    The compiled facts carry topology but no printable size.  A full group can target the
+    terminal corners and round-side extrema.  Partial authored groups use only geometry
+    their surviving values prove: the terminal centre for run alone, flat-floor endpoints
+    for flat width, and the projected floor centre for radius alone.
+    """
+    origin3 = list(feature.frame.origin)
+    origin = dwg.at(view, *origin3)[:2]
+    targets: list[tuple[tuple[float, float], tuple[float, float]]] = []
+
+    cap3 = None
+    if length is not None:
+        cap3 = origin3.copy()
+        cap3["xyz".index(feature.axis)] -= feature.open_sign * length / 2
+
+    total_width = (
+        flat_width + 2 * radius if flat_width is not None and radius is not None else None
+    )
+    if cap3 is not None and total_width is not None:
+        for side_sign in (-1, 1):
+            corner = cap3.copy()
+            corner["xyz".index(feature.width_axis)] += side_sign * total_width / 2
+            tip = dwg.at(view, *corner)[:2]
+            targets.append((tip, (tip[0] - origin[0], tip[1] - origin[1])))
+    if cap3 is not None:
+        tip = dwg.at(view, *cap3)[:2]
+        targets.append((tip, (tip[0] - origin[0], tip[1] - origin[1])))
+
+    if flat_width is not None:
+        for side_sign in (-1, 1):
+            floor_end = origin3.copy()
+            floor_end["xyz".index(feature.width_axis)] += side_sign * flat_width / 2
+            tip = dwg.at(view, *floor_end)[:2]
+            targets.append((tip, (tip[0] - origin[0], tip[1] - origin[1])))
+    if not targets and radius is not None:
+        targets.extend((origin, direction) for direction in _POCKET_LEAD_DIRS)
+
+    x0, y0, x1, y1 = bounds
+    for tip, direction in targets:
+        norm = math.hypot(*direction)
+        if norm == 0:
+            continue
         ux, uy = direction[0] / norm, direction[1] / norm
         exit_d = _ray_exit_dist(tip[0], tip[1], ux, uy, (x0, y0, x1, y1))
         elbow = (tip[0] + ux * (exit_d + reach), tip[1] + uy * (exit_d + reach), 0)
@@ -3288,6 +3363,72 @@ def render_rectangular_blind_slots(dwg, plan, a, *, ctx, only=None) -> int:
         jobs,
         noun="rectangular blind slot",
         drop_code="rectangular_blind_slot_dropped",
+        ctx=ctx,
+        joint=True,
+    )
+
+
+def render_round_bottom_blind_slots(dwg, plan, a, *, ctx, only=None) -> int:
+    """Place one solver-owned compound leader per round-bottom blind slot."""
+    draft = dwg.draft
+    reach = _leader_callout_reach(draft)
+    jobs = []
+    groups = sorted(
+        plan.of_kind("round_bottom_blind_slot"),
+        key=lambda group: (
+            group.facts.axis,
+            group.facts.open_sign,
+            group.facts.depth_axis,
+            group.facts.depth_sign,
+            group.facts.frame.origin,
+        ),
+    )
+    for index, group in enumerate(groups):
+        if only is not None and group.ref not in only:
+            continue
+        by_key = {(dim.role, dim.kind): dim for dim in group.dims}
+        length = by_key.get(("round_bottom_blind_slot_length", "length"))
+        flat_width = by_key.get(("round_bottom_blind_slot_flat_width", "length"))
+        radius = by_key.get(("round_bottom_blind_slot_radius", "radius"))
+        if length is None and flat_width is None and radius is None:
+            continue
+        facts = group.facts
+        view = _END_ON.get(facts.depth_axis)
+        if view is None:
+            continue
+        bounds = dwg.view_bounds(view)
+        if bounds is None:
+            continue
+        jobs.append(
+            (
+                f"m_round_bottom_blind_slot_{facts.axis}{facts.open_sign}_{index}",
+                view,
+                bounds,
+                _round_bottom_blind_slot_label(flat_width, radius, length, draft),
+                _round_bottom_blind_slot_candidates(
+                    dwg,
+                    view,
+                    bounds,
+                    facts,
+                    reach,
+                    length=length.value if length is not None else None,
+                    flat_width=flat_width.value if flat_width is not None else None,
+                    radius=radius.value if radius is not None else None,
+                    provenance=group.ref,
+                ),
+                tuple(
+                    dimension.id
+                    for dimension in (length, flat_width, radius)
+                    if dimension is not None
+                ),
+            )
+        )
+    return place_machined_leader_jobs(
+        dwg,
+        a,
+        jobs,
+        noun="round-bottom blind slot",
+        drop_code="round_bottom_blind_slot_dropped",
         ctx=ctx,
         joint=True,
     )

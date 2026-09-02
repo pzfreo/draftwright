@@ -210,6 +210,21 @@ blind = sheet.rectangular_blind_slot(
 sheet.dimension(blind, "rectangular_blind_slot_width.length")
 sheet.dimension(blind, "rectangular_blind_slot_length.length")
 sheet.dimension(blind, "rectangular_blind_slot_depth.length")
+
+round_bottom = sheet.round_bottom_blind_slot(
+    axis="z",
+    open_sign=1,
+    length=20,
+    width_axis="x",
+    depth_axis="y",
+    depth_sign=1,
+    radius=3,
+    flat_width=4,
+    at=(0, -1.5, 10),
+)
+sheet.dimension(round_bottom, "round_bottom_blind_slot_length.length")
+sheet.dimension(round_bottom, "round_bottom_blind_slot_flat_width.length")
+sheet.dimension(round_bottom, "round_bottom_blind_slot_radius.radius")
 ```
 
 These declarations are explicit-only. A detached face or cutter cannot prove the aggregate
@@ -221,8 +236,11 @@ feature retains the open source-envelope end, capped terminal wall and flat-bott
 and the solver places one `OPEN SLOT width × length × depth DEEP` leader carrying all three
 compiler-approved measurement identities. In authored-dimension mode, any non-empty subset is
 valid and is role-labelled (`WIDE`, `LONG`, `DEEP`) so every requested identity remains visible.
-The distinct round-bottom family remains deferred
-under #1421 until its flat-width and floor-radius grammar is delivered.
+`round_bottom_blind_slot(...)` is a separate word, not a flag on the rectangular declaration.
+Its independent dimensions are capped run length, straight bottom-flat width and equal side radius;
+the total opening width and profile depth are derived from the latter two and are not duplicated in
+the dimension plan. The solver places one `ROUND-BOTTOM OPEN SLOT …` leader. Authored subsets remain
+role-explicit (`LONG`, `BOTTOM FLAT`, `R`) and never reconstruct an omitted sibling value.
 
 An explicit through-step may use any principal run axis, and automatic detection supports the
 same three axes. Where an X/Y-run record's two exact physical intervals are already proved by the

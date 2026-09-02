@@ -52,6 +52,9 @@ from draftwright.linting.polygonal_stock_coverage import polygonal_stock_outcome
 from draftwright.linting.rectangular_blind_slot_coverage import (
     rectangular_blind_slot_requirement_outcomes,
 )
+from draftwright.linting.round_bottom_blind_slot_coverage import (
+    round_bottom_blind_slot_requirement_outcomes,
+)
 from draftwright.linting.slot_coverage import slot_requirement_outcomes
 from draftwright.linting.through_step_coverage import through_step_requirement_outcomes
 from draftwright.linting.turned_step_coverage import turned_step_requirement_outcomes
@@ -123,6 +126,7 @@ _RECOGNISED_REQUIREMENT_FAMILIES = {
     "flats": "flats",
     "pockets": "pockets",
     "rectangular_blind_slots": "rectangular_blind_slots",
+    "round_bottom_blind_slots": "round_bottom_blind_slots",
     "prismatic_pockets": "prismatic_pockets",
     "pocket_patterns": "pocket_patterns",
     "pads": "pads",
@@ -166,9 +170,7 @@ _NON_REQUIREMENT_INVENTORIES = frozenset(
 #: merging them would let an undecided family look settled (#1244). Passage, PrismaticPocket and
 #: AngledStep left this register when #1245/#1246/#1247 gave every authoritative occurrence an
 #: unsupported outcome.
-_UNDECIDED_INVENTORIES: dict[str, str] = {
-    "round_bottom_blind_slots": "https://github.com/pzfreo/draftwright/issues/1421",
-}
+_UNDECIDED_INVENTORIES: dict[str, str] = {}
 
 _AUDITED_FAMILIES = (
     "angled_steps",
@@ -190,6 +192,7 @@ _AUDITED_FAMILIES = (
     "pocket_patterns",
     "prismatic_pockets",
     "rectangular_blind_slots",
+    "round_bottom_blind_slots",
     "slot_patterns",
     "slots",
     "through_steps",
@@ -393,6 +396,7 @@ _STAGE_ROUTED_CODES = frozenset(
         "polygonal_boss_dropped",
         "polygonal_stock_dropped",
         "rectangular_blind_slot_dropped",
+        "round_bottom_blind_slot_dropped",
         "slot_dropped",
     }
 )
@@ -423,6 +427,7 @@ _UNSCORED_CODE_PREFIXES = (
     "polygonal_boss_requirement_",
     "polygonal_stock_requirement_",
     "rectangular_blind_slot_requirement_",
+    "round_bottom_blind_slot_requirement_",
     "slot_requirement_",
 )
 
@@ -667,6 +672,9 @@ def _completeness_component(
             recognition, features, registry, omissions
         ),
         "rectangular_blind_slots": rectangular_blind_slot_requirement_outcomes(
+            recognition, features, registry, omissions
+        ),
+        "round_bottom_blind_slots": round_bottom_blind_slot_requirement_outcomes(
             recognition, features, registry, omissions
         ),
         "slots": [],

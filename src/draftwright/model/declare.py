@@ -70,6 +70,7 @@ from draftwright.model.ir import (
     PolygonalStockFeature,
     RectangularBlindSlotFeature,
     RotationalFeature,
+    RoundBottomBlindSlotFeature,
     SlotFeature,
     SlotPatternFeature,
     StepFeature,
@@ -1473,6 +1474,38 @@ def rectangular_blind_slot(
         width=width,
         length=length,
         depth=depth,
+    )
+
+
+def round_bottom_blind_slot(
+    *,
+    axis,
+    open_sign,
+    length,
+    width_axis,
+    depth_axis,
+    depth_sign,
+    radius,
+    flat_width,
+    at,
+) -> RoundBottomBlindSlotFeature:
+    """Declare one capped, edge-open round-bottom U-section slot.
+
+    The explicit-only surface mirrors the public recogniser record. Detached cutter geometry
+    cannot prove the source-envelope mouth, blind terminal, material-opening direction, or
+    that the two round sides and intervening flat floor form this physical family.
+    """
+    run_axis = _norm_axis(axis)
+    return RoundBottomBlindSlotFeature(
+        frame=Frame(origin=at, axis=run_axis),
+        axis=run_axis,
+        open_sign=open_sign,
+        width_axis=_norm_axis(width_axis),
+        depth_axis=_norm_axis(depth_axis),
+        depth_sign=depth_sign,
+        length=length,
+        radius=radius,
+        flat_width=flat_width,
     )
 
 

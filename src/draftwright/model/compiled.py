@@ -257,6 +257,14 @@ _FACTS: dict[str, tuple[str, ...]] = {
         "depth_axis",
         "depth_sign",
     ),
+    "round_bottom_blind_slot": (
+        "frame",
+        "axis",
+        "open_sign",
+        "width_axis",
+        "depth_axis",
+        "depth_sign",
+    ),
     "pocket_pattern": (
         "frame",
         "pattern",

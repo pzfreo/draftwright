@@ -402,7 +402,7 @@ def test_every_record_type_is_actually_exercised():
     )
 
 
-def test_0410_round_bottom_slot_crosses_the_real_aggregate_without_invented_semantics():
+def test_0410_round_bottom_slot_crosses_the_dedicated_consumer_path():
     drawing = build_drawing(_round_bottom_blind_slot_part())
     recognition = drawing.recognition()
 
@@ -416,12 +416,23 @@ def test_0410_round_bottom_slot_crosses_the_real_aggregate_without_invented_sema
         "pocket_pattern",
     } & {feature.kind for feature in drawing.model().features}
     assert not [name for name in drawing.annotations() if name.startswith(("m_slot", "m_pocket"))]
+    assert (
+        len(
+            [
+                feature
+                for feature in drawing.model().features
+                if feature.kind == "round_bottom_blind_slot"
+            ]
+        )
+        == 1
+    )
+    assert any(name.startswith("m_round_bottom_blind_slot") for name in drawing.annotations())
 
     completeness = drawing.lint_summary()["quality"]["completeness"]
-    assert completeness["unscored_recognized_families"] == ["round_bottom_blind_slots"]
-    assert completeness["requirements"] == 0
-    assert completeness["audited_score"] is None
-    assert "round_bottom_blind_slots" not in completeness["by_family"]
+    assert completeness["unscored_recognized_families"] == []
+    assert completeness["requirements"] == 3
+    assert completeness["audited_score"] == 1.0
+    assert completeness["by_family"]["round_bottom_blind_slots"] == 3
 
 
 def test_frozen_records_reject_mutation():

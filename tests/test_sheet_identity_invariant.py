@@ -255,6 +255,7 @@ _SAME_PATH_AS_ENVELOPE = {
     "slot",
     "pocket",
     "rectangular_blind_slot",
+    "round_bottom_blind_slot",
     "channel",
     "pad",
     "chamfer",

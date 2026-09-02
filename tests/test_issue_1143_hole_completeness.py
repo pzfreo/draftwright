@@ -281,6 +281,7 @@ def test_pattern_and_central_bore_have_a_complete_recognition_owned_ledger():
         "pockets": 0,
         "pocket_patterns": 0,
         "rectangular_blind_slots": 0,
+        "round_bottom_blind_slots": 0,
         "slots": 0,
         "slot_patterns": 0,
         "through_steps": 0,

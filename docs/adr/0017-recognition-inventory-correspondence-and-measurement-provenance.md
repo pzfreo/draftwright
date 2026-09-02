@@ -200,6 +200,38 @@ executed generated declarations earn the same outcomes, and all three approved i
 present for a fully complete automatic callout. The rectangular family now enters the audited
 completeness denominator; round-bottom blind slots remain separately deferred.
 
+## Amendment 8 — round-bottom blind-slot semantics and completeness are evidence-backed
+
+The round-bottom family now lowers one-to-one into its own `RoundBottomBlindSlotFeature`; it is
+not a through slot, pocket, channel or rectangular blind slot with a rendering flag. The complete
+released structural identity—run axis/open sign, width/depth axes, material-opening sign, run,
+radius, straight bottom-flat width and centre—crosses the record-to-IR boundary unchanged.
+`Sheet.round_bottom_blind_slot(...)` declares that same explicit contract and generated code
+round-trips it. No private recogniser geometry or new provider API is required.
+
+Each occurrence contributes exactly three independent manufacturing requirements: capped
+mouth-to-terminal run length, straight bottom-flat width and the equal side radius. Total opening
+width (`flat_width + 2 × radius`) and profile depth (`radius`) are derived values, so counting them
+again would inflate the physical denominator. One compiler-fed
+`ROUND-BOTTOM OPEN SLOT …` leader carries only approved parameters and their own tolerances through
+the shared post-drain solver. An authored subset keeps explicit `LONG`, `BOTTOM FLAT` and `R` roles;
+structural facts cannot reconstruct a suppressed measurement. Candidate arrows target proved
+terminal/floor/round-side material, never raw page coordinates or the open mouth.
+
+Correspondence uses the full public record at the generated program's 0.001 mm precision and then
+requires the exact parameter-id-to-value/span map. Duplicate source or IR keys, malformed records,
+near neighbours, duplicate/unknown/missing parameters and span disagreement are unverifiable.
+Outcome evidence comes only from the annotation registry, structured satisfaction, authored
+omissions and recorded placement drops; labels, names, views, projections, tips and page positions
+cannot certify completeness.
+
+An independently authored seven-case corpus fixes all six signed principal orientations plus one
+separately sized occurrence: 7 physical slots, 21 parameters and 21 finished drawing outcomes.
+Removing the provider inventory produces zero observed outcomes while the authored denominator
+remains 21. Direct declarations, executed generated declarations, native raw recognition and
+arbitrarily moved framed recognition preserve the same manufacturing meaning. The family therefore
+enters the audited completeness denominator independently of rectangular blind slots.
+
 ## Accepted Contract
 
 ### 1. One orchestration owns the recognition universe

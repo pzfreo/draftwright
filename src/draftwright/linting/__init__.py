@@ -62,6 +62,9 @@ from draftwright.linting.profiled_bore_coverage import lint_profiled_bore_covera
 from draftwright.linting.rectangular_blind_slot_coverage import (
     lint_rectangular_blind_slot_coverage,
 )
+from draftwright.linting.round_bottom_blind_slot_coverage import (
+    lint_round_bottom_blind_slot_coverage,
+)
 from draftwright.linting.slot_coverage import lint_slot_coverage
 from draftwright.linting.structural import is_dimension_like, lint_drawing
 from draftwright.linting.suggest import _suggest_fix
@@ -111,4 +114,5 @@ __all__ = [
     "lint_profiled_bore_coverage",
     "lint_prismatic_coverage",
     "lint_rectangular_blind_slot_coverage",
+    "lint_round_bottom_blind_slot_coverage",
 ]

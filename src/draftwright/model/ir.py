@@ -342,6 +342,9 @@ DimensionParameterId = Literal[
     "rectangular_blind_slot_depth.length",
     "rectangular_blind_slot_length.length",
     "rectangular_blind_slot_width.length",
+    "round_bottom_blind_slot_flat_width.length",
+    "round_bottom_blind_slot_length.length",
+    "round_bottom_blind_slot_radius.radius",
     "stock_length.length",
     "profile_across_flats.length",
     "slot_length.length",
@@ -1132,6 +1135,114 @@ class RectangularBlindSlotFeature:
                 self.depth,
                 span=self._span(self.depth_axis, self.depth),
             ),
+        ]
+
+    def references(self) -> list[Datum]:
+        return []
+
+
+@dataclass(frozen=True)
+class RoundBottomBlindSlotFeature:
+    """A capped, edge-open slot with a flat floor joined by equal round sides.
+
+    This is a separate manufacturing family from both a through slot and a rectangular
+    blind slot. ``axis``/``open_sign`` identify the mouth-to-terminal run;
+    ``width_axis``/``depth_axis``/``depth_sign`` identify the U-section orientation.
+    ``flat_width`` is the straight floor between the two equal ``radius`` arcs.  Together
+    those two independent measurements define the derived opening width
+    ``flat_width + 2 * radius`` and profile depth ``radius``.
+    """
+
+    frame: Frame
+    axis: str
+    open_sign: int
+    width_axis: str
+    depth_axis: str
+    depth_sign: int
+    length: float
+    radius: float
+    flat_width: float
+    kind: ClassVar[str] = "round_bottom_blind_slot"
+
+    def __post_init__(self) -> None:
+        raw_origin = self.frame.origin
+        if (
+            not isinstance(raw_origin, tuple)
+            or len(raw_origin) != 3
+            or any(
+                isinstance(component, bool) or not isinstance(component, Real)
+                for component in raw_origin
+            )
+        ):
+            raise ValueError("round-bottom blind slot frame.origin must be a finite 3-vector")
+        origin = _finite_point3("round-bottom blind slot frame.origin", raw_origin)
+        axes = (self.axis, self.width_axis, self.depth_axis)
+        if (
+            any(not isinstance(axis, str) or axis not in {"x", "y", "z"} for axis in axes)
+            or len(set(axes)) != 3
+        ):
+            raise ValueError(
+                "round-bottom blind slot axis, width_axis and depth_axis must be a "
+                f"permutation of 'xyz' (got {axes!r})"
+            )
+        if self.frame.axis != self.axis:
+            raise ValueError(
+                "round-bottom blind slot frame axis must equal its run axis "
+                f"(got {self.frame.axis!r} and {self.axis!r})"
+            )
+        object.__setattr__(self, "frame", Frame(origin, self.frame.axis))
+        for name, sign in (("open_sign", self.open_sign), ("depth_sign", self.depth_sign)):
+            if not isinstance(sign, int) or isinstance(sign, bool) or sign not in (-1, 1):
+                raise ValueError(f"round-bottom blind slot {name} must be -1 or 1 (got {sign!r})")
+        for name in ("length", "radius", "flat_width"):
+            raw = getattr(self, name)
+            if isinstance(raw, bool) or not isinstance(raw, Real):
+                raise ValueError(f"round-bottom blind slot {name} must be finite and positive")
+            try:
+                value = float(raw)
+            except (OverflowError, TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"round-bottom blind slot {name} must be finite and positive"
+                ) from exc
+            if not isfinite(value) or value <= 0:
+                raise ValueError(f"round-bottom blind slot {name} must be finite and positive")
+            object.__setattr__(self, name, value)
+
+    @property
+    def width(self) -> float:
+        return self.flat_width + 2 * self.radius
+
+    @property
+    def depth(self) -> float:
+        return self.radius
+
+    def _span(self, axis: str, value: float, *, floor: bool = False) -> tuple[Point, Point]:
+        lo = list(self.frame.origin)
+        hi = list(self.frame.origin)
+        if floor:
+            depth_index = "xyz".index(self.depth_axis)
+            lo[depth_index] -= self.depth_sign * self.radius / 2
+            hi[depth_index] -= self.depth_sign * self.radius / 2
+        index = "xyz".index(axis)
+        lo[index] -= value / 2
+        hi[index] += value / 2
+        return ((lo[0], lo[1], lo[2]), (hi[0], hi[1], hi[2]))
+
+    def parameters(self) -> list[DimParameter]:
+        return [
+            DimParameter(
+                "length",
+                "round_bottom_blind_slot_length",
+                self.length,
+                span=self._span(self.axis, self.length),
+            ),
+            DimParameter(
+                "length",
+                "round_bottom_blind_slot_flat_width",
+                self.flat_width,
+                span=self._span(self.width_axis, self.flat_width, floor=True),
+            ),
+            DimParameter("radius", "round_bottom_blind_slot_radius", self.radius),
         ]
 
     def references(self) -> list[Datum]:
