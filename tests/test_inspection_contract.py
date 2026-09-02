@@ -26,7 +26,7 @@ def _manifest() -> dict:
 def test_installed_pypi_wheel_satisfies_the_inspection_contract() -> None:
     distribution = importlib.metadata.distribution("b123d-recognisers")
 
-    assert distribution.version == "0.4.10"
+    assert distribution.version == "0.4.12"
     assert distribution.read_text("direct_url.json") is None
     assert (
         Path(inspect.getfile(inspection.inspection_api_manifest))

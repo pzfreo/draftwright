@@ -120,10 +120,10 @@ def test_installed_package_contract_validates_without_a_sibling_checkout() -> No
     _validate()
     package = recognition.capability_manifest(format_version=2)
     declaration = consumer_capability_declaration()
-    # 30 since 0.4.10 added two blind-slot families (#1421). A literal,
+    # 33 since 0.4.12 added Blend plus oriented slots and patterns (#1430). A literal,
     # not a length comparison against the package: the point is that BOTH sides changed
-    # together, so an upgrade that declared nothing would leave this at 28 and fail.
-    assert len(package["families"]) == len(declaration["families"]) == 30
+    # together, so an upgrade that declared nothing would leave this at 30 and fail.
+    assert len(package["families"]) == len(declaration["families"]) == 33
 
 
 def test_0410_blind_slot_family_dispositions_are_explicit() -> None:
@@ -201,10 +201,79 @@ def test_0410_blind_slot_family_dispositions_are_explicit() -> None:
         assert family_id not in pending_family_declarations()
 
 
+def test_0412_additive_family_dispositions_are_explicit_and_deferred() -> None:
+    package = _families(recognition.capability_manifest())
+    consumer = _families(consumer_capability_declaration())
+    expected = {
+        "blends": {
+            "introduced_in": "0.4.11",
+            "census_output": "RecognitionResult.blends",
+            "records": {"Blend": {"at", "axis", "axis_direction", "radius", "side"}},
+        },
+        "oriented-slot-patterns": {
+            "introduced_in": "0.4.12",
+            "census_output": None,
+            "records": {
+                "OrientedSlotArray": {"direction", "pitch", "slots"},
+                "OrientedSlotGrid": {
+                    "angle",
+                    "center",
+                    "col_pitch",
+                    "cols",
+                    "row_pitch",
+                    "rows",
+                    "slots",
+                },
+            },
+        },
+        "oriented-slots": {
+            "introduced_in": "0.4.12",
+            "census_output": "RecognitionResult.oriented_slots",
+            "records": {
+                "OrientedSlot": {
+                    "body_key",
+                    "center",
+                    "length",
+                    "long_direction",
+                    "source",
+                    "width",
+                    "width_direction",
+                }
+            },
+        },
+    }
+
+    for family_id, contract in expected.items():
+        package_family = package[family_id]
+        assert package_family["introduced_in"] == contract["introduced_in"]
+        assert package_family["census_output"] == contract["census_output"]
+        assert {
+            record["name"]: set(record["fields"]) for record in package_family["records"]
+        } == contract["records"]
+        assert all(record["schema_version"] == 1 for record in package_family["records"])
+
+        declaration = consumer[family_id]
+        assert declaration["record_schemas"] == {name: [1] for name in contract["records"]}
+        assert declaration["disposition"] == "deferred"
+        assert declaration["tracking"] == "https://github.com/pzfreo/draftwright/issues/1430"
+        assert {
+            declaration[boundary]["state"]
+            for boundary in (
+                "ir_adapter",
+                "dsl_declaration",
+                "generated_code",
+                "drawing_consumer",
+                "completeness",
+            )
+        } == {"deferred"}
+        assert declaration["documentation"]["state"] == "supported"
+        assert family_id not in pending_family_declarations()
+
+
 def test_rich_passage_contract_has_an_explicit_unsupported_completeness_outcome() -> None:
     """Pin the 0.4 physical record and compatibility projection to one decision."""
 
-    assert INSTALLED_PACKAGE_VERSION == "0.4.10"
+    assert INSTALLED_PACKAGE_VERSION == "0.4.12"
     installed = tuple(int(component) for component in INSTALLED_PACKAGE_VERSION.split("."))
     assert (0, 4, 0) <= installed < (0, 5, 0)
     package = _families(recognition.capability_manifest())

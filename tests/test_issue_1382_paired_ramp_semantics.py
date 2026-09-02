@@ -27,6 +27,12 @@ def _paired_ramp_part():
     return Box(40, 40, 30) - cutter
 
 
+def _shallow_paired_ramp_part():
+    profile = Polygon((0, -0.5), (0, 0.5), (-10, 0))
+    cutter = Pos(20, 20, 0) * extrude(Plane.XZ * profile, 25)
+    return Box(40, 40, 30) - cutter
+
+
 def _ramp_feature(drawing) -> PairedRampStepFeature:
     return next(
         feature for feature in drawing.model().features if feature.kind == "paired_ramp_step"
@@ -89,6 +95,46 @@ def test_aggregate_record_lowers_to_exact_ir_and_two_planned_requirements() -> N
         "ramp_angle.angle",
         "ramp_run.length",
     ]
+
+
+def test_0412_shallow_nonzero_pair_keeps_the_existing_complete_consumer_meaning() -> None:
+    drawing = build_drawing(_shallow_paired_ramp_part())
+    recognition = drawing.recognition()
+    assert recognition is not None
+    assert len(recognition.paired_ramp_steps) == 1
+    source = recognition.paired_ramp_steps[0]
+    assert (source.axis, source.angle, source.length) == ("y", 87.14, 25.0)
+
+    feature = _ramp_feature(drawing)
+    assert (feature.axis, feature.angle, feature.length, feature.frame.origin) == (
+        source.axis,
+        source.angle,
+        source.length,
+        source.at,
+    )
+    name, annotation = _ramp_annotation(drawing)
+    assert annotation.label == "2× 87.1° × 25 RUN"
+    _assert_owned_ramp_callout(drawing, feature, name)
+    completeness = drawing.lint_summary()["quality"]["completeness"]
+    assert completeness["by_family"]["paired_ramp_steps"] == 2
+    assert completeness["placed"] == completeness["requirements"] == 2
+
+    sheet = Sheet(_shallow_paired_ramp_part())
+    handle = sheet.paired_ramp_step(
+        axis=source.axis,
+        angle=source.angle,
+        length=source.length,
+        at=source.at,
+    )
+    sheet.authored_dimensions().dimension(handle, "ramp_angle.angle").dimension(
+        handle, "ramp_run.length"
+    )
+    declared = sheet.build()
+    declared_feature = _ramp_feature(declared)
+    line = _feature_line(declared_feature)
+    namespace = {"sheet": type("S", (), {"paired_ramp_step": staticmethod(paired_ramp_step)})()}
+    assert eval(line, {"__builtins__": {}}, namespace) == declared_feature  # noqa: S307
+    assert _ramp_annotation(declared)[1].label == annotation.label
 
 
 def test_detected_build_consumes_the_one_aggregate_inventory_without_rescanning(
