@@ -70,6 +70,7 @@ from draftwright.recognition_frame import (
     prepare_framed_detection,
     require_unambiguous_groove_owner,
 )
+from draftwright.recognition_ownership import RecognitionOwnershipBuilder
 from draftwright.view_plan import ViewConstraints, arrangement_of
 
 _log = logging.getLogger(__name__)
@@ -1011,6 +1012,11 @@ def _analyse(
         if is_rotational and od_axis == "z"
         else ()
     )
+    ownership_builder = (
+        RecognitionOwnershipBuilder(recognition_evidence)
+        if layout_model is None and _reuse is None and recognition_evidence is not None
+        else None
+    )
     sizing_model = (
         layout_model
         if layout_model is not None
@@ -1019,6 +1025,7 @@ def _analyse(
         else _build_part_model_from_recognition(
             part,
             cast(RecognitionResult, recognition),
+            ownership=ownership_builder,
             holes=holes,
             double_d_bores=double_d_bores,
             patterns=patterns,
@@ -1058,6 +1065,15 @@ def _analyse(
             lower_pmi=pmi_mode == "annotate",
             cyls=shared_cyls,
         )
+    )
+    recognition_ownership = (
+        None
+        if layout_model is not None
+        else _reuse.recognition_ownership
+        if _reuse is not None
+        else ownership_builder.freeze()
+        if ownership_builder is not None
+        else None
     )
     # Authored omission affects annotation FOOTPRINT sizing, but the analysis model retains
     # its historical automatic requirement inventory for view-feasibility preflight.  The
@@ -1261,6 +1277,7 @@ def _analyse(
         ),
         recognition=recognition,
         recognition_evidence=recognition_evidence,
+        recognition_ownership=recognition_ownership,
         bb=bb,
         x_size=x_size,
         y_size=y_size,

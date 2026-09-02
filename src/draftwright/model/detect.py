@@ -141,6 +141,7 @@ from draftwright.recognition_frame import (
     groove_owns_turned_step_band,
     require_unambiguous_groove_owner,
 )
+from draftwright.recognition_ownership import RecognitionOwnershipBuilder
 
 
 def _member_hole(h, frame: Frame, members: tuple = (), count: int = 1) -> HoleFeature:
@@ -258,6 +259,7 @@ class _RecognitionHandoff:
 
     part: object
     result: RecognitionResult
+    ownership: RecognitionOwnershipBuilder | None = None
 
 
 _RECOGNITION_HANDOFF: ContextVar[_RecognitionHandoff | None] = ContextVar(
@@ -266,12 +268,18 @@ _RECOGNITION_HANDOFF: ContextVar[_RecognitionHandoff | None] = ContextVar(
 
 
 def _build_part_model_from_recognition(
-    part, recognition_result: RecognitionResult, **kwargs
+    part,
+    recognition_result: RecognitionResult,
+    *,
+    ownership: RecognitionOwnershipBuilder | None = None,
+    **kwargs,
 ) -> PartModel:
     """Internal detected-path entry that binds aggregate provenance to its source part."""
     if type(recognition_result) is not RecognitionResult:
         raise TypeError("recognition_result must be an exact RecognitionResult")
-    token = _RECOGNITION_HANDOFF.set(_RecognitionHandoff(part, recognition_result))
+    if ownership is not None and ownership.result is not recognition_result:
+        raise ValueError("recognition ownership and result must come from the same run")
+    token = _RECOGNITION_HANDOFF.set(_RecognitionHandoff(part, recognition_result, ownership))
     try:
         return build_part_model(part, **kwargs)
     finally:
@@ -1183,6 +1191,9 @@ def build_part_model(
         blends = tuple(blends)
     handoff = _RECOGNITION_HANDOFF.get()
     recognition_result = handoff.result if handoff is not None and handoff.part is part else None
+    ownership = (
+        handoff.ownership if recognition_result is not None and handoff is not None else None
+    )
     circular_blind_steps_supplied = circular_blind_steps is not None
     if circular_blind_steps_supplied:
         circular_blind_steps = tuple(circular_blind_steps)
@@ -1237,6 +1248,14 @@ def build_part_model(
             raise ValueError("fillets and blends must preserve aggregate ownership exactly")
     bbox = part.bounding_box()
     features: list[Feature] = []
+
+    def append_direct(record: object) -> None:
+        """Convert and bind while the exact occurrence-to-IR decision is in hand."""
+
+        feature = convert(record, ctx)
+        features.append(feature)
+        if ownership is not None:
+            ownership.bind(record, feature)
 
     # Turned-profile classification up front so the shared convert-context carries the
     # part's turning axis (the StepFeature span axis). Pure detection — no feature is
@@ -1676,7 +1695,8 @@ def build_part_model(
     # established hole location, GD&T, placement and edit paths remain one implementation.
     if double_d_bores is None:
         double_d_bores = recognise_double_d_bores(part)
-    features.extend(convert(bore, ctx) for bore in double_d_bores)
+    for bore in double_d_bores:
+        append_direct(bore)
 
     # Milled slots / reduced across-flats sections (detected for any part). A recognised array
     # of identical slots becomes ONE SlotPatternFeature (count× SLOT W×L + pitch, #841); its
@@ -1700,13 +1720,13 @@ def build_part_model(
     # evidence. Consume that exact inventory as a dedicated semantic feature; do not rescan or
     # coerce it into any of those grammars.
     for blind_slot in rectangular_blind_slots:
-        features.append(convert(blind_slot, ctx))
+        append_direct(blind_slot)
 
     # Capped, edge-open U-section slots with a straight floor joined by equal round sides.
     # This released aggregate inventory owns the physical family; ordinary and rectangular
     # slots, pockets, channels and passages must not regain ownership downstream.
     for blind_slot in round_bottom_blind_slots:
-        features.append(convert(blind_slot, ctx))
+        append_direct(blind_slot)
 
     # Blind rectangular recesses — floored slots/pockets (#148a). A recognised array of
     # identical pockets becomes ONE PocketPatternFeature (count× W×L×D + pitch, #841); its
@@ -1731,18 +1751,21 @@ def build_part_model(
     # Bounded rectangular raised pads: footprint sizing, attachment-axis height, and
     # two in-plane locations. A Z attachment level may also enter the general profile
     # ladder, but that datum-to-level fact does not replace the pad's local rise.
-    features.extend(convert(pad, ctx) for pad in pads)
+    for pad in pads:
+        append_direct(pad)
 
     # Bounded regular polygonal bosses own an across-flats callout and their direct axial
     # height. They are distinct from circular bosses (diameter semantics) and rectangular
     # pads (two orthogonal footprint sizes).
     if polygonal_bosses is None:
         polygonal_bosses = recognise_polygonal_bosses(part)
-    features.extend(convert(boss, ctx) for boss in polygonal_bosses)
+    for boss in polygonal_bosses:
+        append_direct(boss)
 
     # A whole regular polygonal prism is stock, not a boss: it owns the form/A-F
     # definition and its axial stock length independently of attachment evidence.
-    features.extend(convert(stock, ctx) for stock in polygonal_stock)
+    for stock in polygonal_stock:
+        append_direct(stock)
 
     # Turned / circlip grooves (#148c) — recognised up front so the turned-step chain can
     # exclude any band a groove already dimensions: a groove floor is an annular band, and
@@ -1920,25 +1943,25 @@ def build_part_model(
     # both oblique planar and conical turned forms; both lower through the same converter and
     # IR. An injected aggregate inventory is consumed directly, without a sibling rescan.
     for ch in chamfers:
-        features.append(convert(ch, ctx))
+        append_direct(ch)
 
     # Fillets (#561/#1281) — called out R{radius} (grouped n× at render). The package
     # recognises both cylindrical prismatic blends and toroidal turned rounds; both lower
     # through the same converter and IR. An injected aggregate inventory is consumed directly,
     # without a sibling rescan.
     for fl in fillets:
-        features.append(convert(fl, ctx))
+        append_direct(fl)
 
     # Accepted Blend records are the aggregate remainder after exact Fillet precedence.
     # Preserve their free-axis contract in dedicated IR; never rerun or locally rematch Fillets.
     for blend_record in blends:
-        features.append(convert(blend_record, ctx))
+        append_direct(blend_record)
 
     # Quarter-cylindrical corner cuts with one blind terminal (#1382). The aggregate
     # supplies the oriented centreline and transverse quarter arc, so radius and depth
     # lower without topology access or a sibling scan.
     for circular_step in circular_blind_steps:
-        features.append(convert(circular_step, ctx))
+        append_direct(circular_step)
 
     # Mirror-symmetric paired-ramp steps (#1382) — the aggregate proves two equal acute
     # cross-section angles and one open-to-terminal run.  Consume the supplied aggregate
@@ -1948,7 +1971,7 @@ def build_part_model(
         # inventory already embodies that one orchestration decision and is never re-filtered.
         paired_ramp_steps = recognise_paired_ramp_steps(part) if orientation is None else ()
     for ramp in paired_ramp_steps:
-        features.append(convert(ramp, ctx))
+        append_direct(ramp)
 
     # Rectangular open-profile through steps (#1382).  The aggregate record owns the exact
     # run/anchor/section correspondence; Draftwright lowers its two transverse section legs
@@ -1966,7 +1989,7 @@ def build_part_model(
     # yet its flat still needs a callout. The recogniser self-gates on OD adjacency, so a
     # part with no round stock yields none.
     for flat in recognise_flats(part, cyls=cyls) if flats is None else flats:
-        features.append(convert(flat, ctx))
+        append_direct(flat)
 
     # Turned / circlip grooves on round stock (#148c) — an annular channel (a strict
     # local-minimum OD band) dimensioned by width + floor diameter, recognised above so the
@@ -1974,7 +1997,7 @@ def build_part_model(
     # is round stock and classifies rotational, yet the groove still needs its own callout.
     # The recogniser self-gates on external OD bands, so a prismatic part yields none.
     for groove in grooves:
-        features.append(convert(groove, ctx))
+        append_direct(groove)
 
     # Rotational furniture — OD + centrelines + concentric bore leaders (#237). Its
     # presence marks the part rotational; emitted from the classification (od, bores).

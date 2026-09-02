@@ -635,6 +635,7 @@ def _assemble(
         a.recognition,
         evidence=a.recognition_evidence,
         cache=critique_recognition_cache if a.recognition is None else None,
+        ownership=a.recognition_ownership,
     )
     dwg._build.part_model = pm
     # Persist the caller's detail-view setting: on the auto_dims=False path the flag

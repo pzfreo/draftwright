@@ -24,6 +24,8 @@ if TYPE_CHECKING:
     from b123d_recognisers import RecognitionResult
     from b123d_recognisers.evidence import RecognitionEvidence
 
+    from draftwright.recognition_ownership import RecognitionOwnership
+
 # PEP 702 @deprecated. A `sys.version_info` guard (not try/except) so the type checker,
 # which targets the 3.10 floor, resolves the backport branch instead of `warnings.deprecated`
 # (only in 3.13+ typeshed).
@@ -438,6 +440,8 @@ class BuildState:
     - ``part_model`` — the detected/declared ADR-0008 PartModel (read surface for
       semantic edits, #397).
     - ``recognition`` — the ADR 0017 aggregate reused by model detection and critique.
+    - ``recognition_ownership`` — same-run direct occurrence→IR bindings captured while
+      conversion makes the decision; provider references never enter the IR waist.
     - ``view_edge_cache`` — lint's per-view edge bboxes, keyed on id(view shape)
       (helpers #143/#164).
     - ``ann_box_cache`` — lint's annotation bounding boxes (#602): identity- AND
@@ -459,6 +463,7 @@ class BuildState:
 
     analysis: Analysis | None = None
     recognition_cache: RecognitionCache = dataclasses_field(default_factory=RecognitionCache)
+    recognition_ownership: RecognitionOwnership | None = None
     part_model: object | None = None
     view_edge_cache: dict = dataclasses_field(default_factory=dict)
     ann_box_cache: dict = dataclasses_field(default_factory=dict)
@@ -498,6 +503,7 @@ class BuildState:
     @recognition.setter
     def recognition(self, value: RecognitionResult | None) -> None:
         self.recognition_cache.seed(value)
+        self.recognition_ownership = None
 
     def attach_recognition(
         self,
@@ -505,6 +511,7 @@ class BuildState:
         *,
         evidence: RecognitionEvidence | None = None,
         cache: RecognitionCache | None = None,
+        ownership: RecognitionOwnership | None = None,
     ) -> None:
         """Attach one coherent acquisition at the builder's single fill site.
 
@@ -514,11 +521,15 @@ class BuildState:
         """
 
         if cache is not None:
-            if result is not None or evidence is not None:
+            if result is not None or evidence is not None or ownership is not None:
                 raise ValueError("cannot attach both a recognition cache and a new acquisition")
             self.recognition_cache = cache
+            self.recognition_ownership = None
             return
+        if ownership is not None and ownership.evidence is not evidence:
+            raise ValueError("recognition ownership and evidence must come from the same run")
         self.recognition_cache.seed(result, evidence=evidence)
+        self.recognition_ownership = ownership
 
     @property
     def recognition_evidence(self) -> RecognitionEvidence | None:
@@ -974,6 +985,18 @@ class Drawing:
         """
 
         return self._build.recognition_evidence
+
+    def recognition_ownership(self) -> RecognitionOwnership | None:
+        """Run-local accepted-occurrence ownership captured during detected conversion.
+
+        This experimental, read-only ledger is available only when raw automatic recognition
+        supplied :meth:`recognition_evidence`. It currently classifies unconditional one-to-one
+        adapters; all grouped, absorbed, classification-only and deferred families remain
+        explicitly unclassified. It carries opaque provider references and therefore cannot be
+        serialized or used as persistent feature identity.
+        """
+
+        return self._build.recognition_ownership
 
     # --- build-context compat properties (#639): one BuildState, thin views.
     # _part_model and the two caches are GETTER-ONLY by design (#691 review):
