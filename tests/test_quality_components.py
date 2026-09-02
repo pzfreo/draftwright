@@ -216,7 +216,7 @@ def test_an_undecided_inventory_names_a_real_open_issue():
         )
 
 
-def test_0410_blind_slot_occurrences_remain_visible_while_completeness_is_deferred():
+def test_0410_blind_slot_families_keep_independent_completeness_dispositions():
     inventories = {
         name: False if name == "rotational" else ()
         for name in RecognitionResult.__dataclass_fields__
@@ -260,9 +260,7 @@ def test_0410_blind_slot_occurrences_remain_visible_while_completeness_is_deferr
         has_asserted_content=True,
     )["completeness"]
 
-    assert {
-        "rectangular_blind_slots",
-        "round_bottom_blind_slots",
-    } <= set(completeness["unscored_recognized_families"])
-    assert "rectangular_blind_slots" not in completeness["by_family"]
+    assert completeness["unscored_recognized_families"] == ["round_bottom_blind_slots"]
+    assert completeness["by_family"]["rectangular_blind_slots"] == 3
+    assert completeness["requirements"] == completeness["unverifiable"] == 3
     assert "round_bottom_blind_slots" not in completeness["by_family"]

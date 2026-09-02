@@ -132,7 +132,8 @@ def test_datum_starting_blind_slot_does_not_retain_the_superseded_pocket_callout
     assert "2 × 62.1 × 0.9 DEEP" not in labels
     assert len(drawing.recognition().rectangular_blind_slots) == 1
     completeness = drawing.lint_summary()["quality"]["completeness"]
-    assert "rectangular_blind_slots" in completeness["unscored_recognized_families"]
+    assert "rectangular_blind_slots" not in completeness["unscored_recognized_families"]
+    assert completeness["by_family"]["rectangular_blind_slots"] == 3
     assert "pocket_not_located" not in drawing.lint_summary()["by_code"]
 
 

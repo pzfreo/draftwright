@@ -280,6 +280,12 @@ def _family_declaration(family_id: str, spec: _FamilySpec) -> dict[str, Any]:
             "draftwright.linting.circular_blind_step_coverage.lint_circular_blind_step_coverage",
             "tests/test_issue_1382_circular_blind_step_semantics.py",
         )
+    elif family_id == "rectangular-blind-slots":
+        completeness = _supported(
+            "draftwright.linting.rectangular_blind_slot_coverage."
+            "lint_rectangular_blind_slot_coverage",
+            "tests/test_issue_1421_rectangular_blind_slot_completeness.py",
+        )
     elif family_id == "through-steps":
         completeness = _supported(
             "draftwright.linting.through_step_coverage.lint_through_step_coverage",
@@ -756,6 +762,18 @@ def consumer_capability_declaration() -> dict[str, Any]:
                 "from": "deferred",
                 "release_notes": "CHANGELOG.md",
                 "to": "unsupported",
+                "version": distribution_version("draftwright"),
+            },
+            {
+                "boundary": "completeness",
+                "compatibility_evidence": [
+                    "tests/test_issue_1421_rectangular_blind_slot_completeness.py",
+                    "tests/test_recogniser_capabilities.py",
+                ],
+                "family": "rectangular-blind-slots",
+                "from": "deferred",
+                "release_notes": "CHANGELOG.md",
+                "to": "supported",
                 "version": distribution_version("draftwright"),
             },
             {

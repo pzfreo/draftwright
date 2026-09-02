@@ -183,8 +183,7 @@ def test_0410_blind_slot_family_dispositions_are_explicit() -> None:
                     "drawing_consumer",
                 )
             } == {"supported"}
-            assert declaration["completeness"]["state"] == "deferred"
-            assert declaration["completeness"]["tracking"].endswith("/1421")
+            assert declaration["completeness"]["state"] == "supported"
         else:
             assert declaration["disposition"] == "deferred"
             assert declaration["tracking"] == ("https://github.com/pzfreo/draftwright/issues/1421")
@@ -511,6 +510,18 @@ def test_rich_passage_contract_has_an_explicit_unsupported_completeness_outcome(
             "from": "deferred",
             "release_notes": "CHANGELOG.md",
             "to": "unsupported",
+            "version": importlib.metadata.version("draftwright"),
+        },
+        {
+            "boundary": "completeness",
+            "compatibility_evidence": [
+                "tests/test_issue_1421_rectangular_blind_slot_completeness.py",
+                "tests/test_recogniser_capabilities.py",
+            ],
+            "family": "rectangular-blind-slots",
+            "from": "deferred",
+            "release_notes": "CHANGELOG.md",
+            "to": "supported",
             "version": importlib.metadata.version("draftwright"),
         },
         {
