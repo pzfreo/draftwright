@@ -99,7 +99,7 @@ def test_exporting_a_declared_drawing_pays_for_one_aggregate_and_no_more(tmp_pat
         drawing.export(str(tmp_path / "second"), formats=("svg",))
         second = dict(counts)
 
-    assert first == {"build_raw_recognition_result": 1}, (
+    assert first == {"build_recognition_evidence": 1}, (
         f"the first export must request one aggregate and no bypass, got {first}"
     )
     assert dict(second) == {}, f"a second export re-recognised {dict(second)}"
@@ -112,7 +112,7 @@ def test_a_detected_build_still_requests_one_aggregate():
     with recognition_consumer_calls() as counts:
         build_drawing(_prismatic_plate())
 
-    assert counts == {"build_raw_recognition_result": 1}, (
+    assert counts == {"build_recognition_evidence": 1}, (
         f"the detected build must request one aggregate and no bypass, got {counts}"
     )
 
@@ -136,7 +136,7 @@ def test_critique_on_a_declared_drawing_recognises_once_and_then_never_again():
         third_issues = _issue_keys(drawing.lint())
         later = dict(counts)
 
-    assert first == {"build_raw_recognition_result": 1}, (
+    assert first == {"build_recognition_evidence": 1}, (
         f"the first physical lint must request one aggregate and no bypass, got {first} — "
         "without it coverage judges against an empty inventory"
     )
@@ -152,6 +152,8 @@ def test_critique_on_a_declared_drawing_recognises_once_and_then_never_again():
         f"nothing new: {sorted(set(first_issues) ^ set(second_issues))}"
     )
     assert third_issues == first_issues, "the third lint disagreed with the first"
+    assert drawing.recognition_evidence() is not None
+    assert drawing.recognition_evidence().result is drawing.recognition()
 
 
 #: Every way ``export`` can reject a call outright, with the message it rejects it by.

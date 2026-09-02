@@ -286,20 +286,20 @@ def test_zero_or_one_physical_turned_profile_preserves_the_existing_analysis_sha
     assert single_turned_profile(one) == one.turned_profiles[0]
 
 
-def test_production_remains_on_the_explicit_raw_boundary(
+def test_default_production_uses_the_explicit_raw_evidence_boundary(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from draftwright import analysis as analysis_module
     from draftwright import build_drawing
 
     raw_calls = []
-    raw_builder = analysis_module.build_raw_recognition_result
+    raw_builder = analysis_module.build_recognition_evidence
 
     def tracked_raw_builder(*args, **kwargs):
         raw_calls.append((args, kwargs))
         return raw_builder(*args, **kwargs)
 
-    monkeypatch.setattr(analysis_module, "build_raw_recognition_result", tracked_raw_builder)
+    monkeypatch.setattr(analysis_module, "build_recognition_evidence", tracked_raw_builder)
     monkeypatch.setattr(
         frame_module,
         "prepare_framed_part",

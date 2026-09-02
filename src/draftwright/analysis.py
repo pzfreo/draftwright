@@ -24,9 +24,9 @@ from b123d_recognisers import (
     TurnedProfileKey,
     TurnedStep,
     analyse_cylinders,
-    build_raw_recognition_result,
     full_cylinders,
 )
+from b123d_recognisers.evidence import RecognitionEvidence, build_recognition_evidence
 from build123d import Compound, Shape
 from build123d_drafting.helpers import draft_preset
 from OCP.IFSelect import IFSelect_ReturnStatus
@@ -63,6 +63,7 @@ from draftwright.compose import (
 from draftwright.model.detect import _build_part_model_from_recognition
 from draftwright.model.ir import Datum, GrooveFeature, PartModel, StepFeature, StepLevelFeature
 from draftwright.model.planner import plan_dimensions
+from draftwright.recognition_cache import _result_from_evidence
 from draftwright.recognition_frame import (
     FramedDetection,
     FramedDetectionRefusal,
@@ -74,6 +75,21 @@ from draftwright.view_plan import ViewConstraints, arrangement_of
 _log = logging.getLogger(__name__)
 
 _ScalePick = tuple[float, float, float, float]
+
+
+def _raw_recognition(
+    part,
+    *,
+    cylinders,
+    rotational: bool,
+) -> tuple[RecognitionResult, RecognitionEvidence | None]:
+    evidence = build_recognition_evidence(
+        part,
+        cylinders=cylinders,
+        rotational=rotational,
+    )
+    result = _result_from_evidence(evidence)
+    return result, evidence if result is evidence.result else None
 
 
 @dataclass(frozen=True)
@@ -757,6 +773,7 @@ def _analyse(
     # step-count convergence sees it too.
     margin = _content_margin(frame)
     recognition: RecognitionResult | None
+    recognition_evidence: RecognitionEvidence | None = None
     recognition_frame: PartFrame | None = None
     recognition_frame_decision: dict[str, object]
     if _reuse is not None:
@@ -786,6 +803,7 @@ def _analyse(
         is_rotational = _reuse.is_rotational
         layout_model = _coerce_layout_model(model, part, decorations)
         recognition = _reuse.recognition if layout_model is None else None
+        recognition_evidence = _reuse.recognition_evidence if layout_model is None else None
     else:
         if isinstance(step_file, Shape):
             part = step_file
@@ -843,7 +861,7 @@ def _analyse(
                     raw_centre.Y,
                     raw_centre.Z,
                 )
-                recognition = build_raw_recognition_result(
+                recognition, recognition_evidence = _raw_recognition(
                     part,
                     cylinders=(_gc.z_cyls, _gc.cross_cyls),
                     rotational=_gc.is_rotational,
@@ -863,7 +881,7 @@ def _analyse(
                 "refusal_reason": None,
             }
             if layout_model is None:
-                recognition = build_raw_recognition_result(
+                recognition, recognition_evidence = _raw_recognition(
                     part,
                     cylinders=(_gc.z_cyls, _gc.cross_cyls),
                     rotational=_gc.is_rotational,
@@ -1242,6 +1260,7 @@ def _analyse(
             tuple(pmi_records) if recognition_frame is not None and pmi_mode != "off" else None
         ),
         recognition=recognition,
+        recognition_evidence=recognition_evidence,
         bb=bb,
         x_size=x_size,
         y_size=y_size,

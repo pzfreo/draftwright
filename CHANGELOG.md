@@ -4,6 +4,13 @@
 
 ### Added
 
+- Raw automatic recognition now retains the provider's run-scoped `RecognitionEvidence` beside
+  its exact `RecognitionResult`, exposed through the experimental read-only
+  `Drawing.recognition_evidence()`. Declared drawings acquire the pair lazily on first physical
+  critique; bare and framed results remain evidence-less, and Draftwright never rescans merely to
+  backfill evidence. This is a non-visual reporting foundation and changes no rendered artefact
+  (#1438, ADRs 0015, 0017, 0020).
+
 - Automatic drawings can opt into the provider-owned local recognition frame with
   `framed_recognition=True`. The returned drawing exposes caller provenance, the exact downstream
   working solid, frame, and a copied framed/raw/refusal decision. PMI correlation, off-axis pattern

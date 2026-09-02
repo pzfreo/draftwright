@@ -1088,7 +1088,7 @@ def test_generated_drawing_evaluator_requires_the_public_build_boundary(monkeypa
 def test_turned_step_observer_uses_one_build_owned_recognition_aggregate(monkeypatch) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_raw_recognition_result
+    original = analysis.build_recognition_evidence
     calls = 0
 
     def counted(*args, **kwargs):
@@ -1096,7 +1096,7 @@ def test_turned_step_observer_uses_one_build_owned_recognition_aggregate(monkeyp
         calls += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(analysis, "build_raw_recognition_result", counted)
+    monkeypatch.setattr(analysis, "build_recognition_evidence", counted)
     assert _default_observers()["turned-steps"](_shaft())
     assert calls == 1
 
@@ -1434,13 +1434,13 @@ def test_severing_step_measurement_provenance_loses_drawing_credit(monkeypatch) 
 def test_deleting_provider_profiles_cannot_shrink_independent_denominator(monkeypatch) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_raw_recognition_result
+    original = analysis._result_from_evidence
 
     def without_profiles(*args, **kwargs):
         result = original(*args, **kwargs)
         return replace(result, turned_steps=())
 
-    monkeypatch.setattr(analysis, "build_raw_recognition_result", without_profiles)
+    monkeypatch.setattr(analysis, "_result_from_evidence", without_profiles)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))
 
     assert damaged.detection.matched == 0
@@ -1453,7 +1453,7 @@ def test_deleting_provider_profiles_cannot_shrink_independent_denominator(monkey
 def test_weakening_provider_band_parameter_reduces_fidelity(monkeypatch, parameter: str) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_raw_recognition_result
+    original = analysis._result_from_evidence
 
     def weakened(*args, **kwargs):
         result = original(*args, **kwargs)
@@ -1483,7 +1483,7 @@ def test_weakening_provider_band_parameter_reduces_fidelity(monkeypatch, paramet
             )
         return replace(result, turned_steps=steps)
 
-    monkeypatch.setattr(analysis, "build_raw_recognition_result", weakened)
+    monkeypatch.setattr(analysis, "_result_from_evidence", weakened)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))
 
     assert damaged.detection.recall == 1.0

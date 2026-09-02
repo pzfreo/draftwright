@@ -13,6 +13,10 @@
   `b123d-recognisers` `v0.1.0`. Draftwright owns the one per-build/lazy-critique
   `RecognitionCache`, record→IR conversion, and all drafting policy. The former embedded
   implementation is deleted; compatibility re-exports expire in 0.6.0.
+- **Amendment 4** (2026-09-02): raw recognition retains the released provider's run-scoped
+  `RecognitionEvidence` beside its exact aggregate in the same consumer-owned cache. This is
+  report/correspondence evidence below the IR waist; it does not enter the compiler or make the
+  plan a completeness denominator (ADR 0017 Amendment 11).
 - **Date:** 2026-07-18
 - **Deciders:** Paul Fremantle (pzfreo)
 

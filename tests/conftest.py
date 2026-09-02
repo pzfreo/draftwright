@@ -89,7 +89,7 @@ def counting_calls(functions: Mapping[str, Callable[..., object]]):
 
 @contextmanager
 def recognition_consumer_calls():
-    """Count aggregate calls and public physical recogniser calls made outside it.
+    """Count aggregate acquisitions and public physical recogniser calls made outside them.
 
     Draftwright owns whether and when a build requests recognition, and must not bypass the
     aggregate by invoking a public, ``part``-taking recogniser itself. Part-less pattern
@@ -100,9 +100,13 @@ def recognition_consumer_calls():
     private registry.
     """
     import b123d_recognisers as recognition
+    import b123d_recognisers.evidence as recognition_evidence
     from _recogniser_public_contract import public_recogniser_member, public_recogniser_names
 
-    aggregate = recognition.build_raw_recognition_result
+    aggregates = {
+        recognition.build_raw_recognition_result.__code__: "build_raw_recognition_result",
+        recognition_evidence.build_recognition_evidence.__code__: "build_recognition_evidence",
+    }
     functions = {}
     for name in public_recogniser_names():
         if name != "step_level_records" and not name.startswith("recognise_"):
@@ -131,14 +135,12 @@ def recognition_consumer_calls():
     def hook(frame, event, arg):
         nonlocal aggregate_depth
         if event == "call":
-            if frame.f_code is aggregate.__code__:
-                counts["build_raw_recognition_result"] = (
-                    counts.get("build_raw_recognition_result", 0) + 1
-                )
+            if (aggregate_name := aggregates.get(frame.f_code)) is not None:
+                counts[aggregate_name] = counts.get(aggregate_name, 0) + 1
                 aggregate_depth += 1
             elif aggregate_depth == 0 and (name := by_code.get(frame.f_code)) is not None:
                 counts[name] = counts.get(name, 0) + 1
-        elif event == "return" and frame.f_code is aggregate.__code__:
+        elif event == "return" and frame.f_code in aggregates:
             aggregate_depth -= 1
         if previous is not None:
             previous(frame, event, arg)

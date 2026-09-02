@@ -84,6 +84,7 @@ from draftwright.projection import (
     _fit_iso_view,
     _project_iso,
 )
+from draftwright.recognition_cache import RecognitionCache
 from draftwright.view_plan import (
     ARRANGEMENTS,
     UncoveredViewRequirement,
@@ -479,7 +480,7 @@ def _assemble(
     authored=None,
     trace=None,
     shape=None,
-    critique_recognition=None,
+    critique_recognition_cache=None,
     reproducible=False,
 ) -> Drawing:
     """Project the 4 views for analysis *a*, run the automatic annotation
@@ -627,7 +628,14 @@ def _assemble(
     # ADR 0005 §2 (#639): the ONE build-context attachment — analysis + finished model
     # in a single typed BuildState; the compat properties on Drawing read through it.
     dwg._build.analysis = a
-    dwg._build.recognition = a.recognition if a.recognition is not None else critique_recognition
+    # A scale/view fallback is still the same build run. Preserve the exact lazy acquisition
+    # rather than copying only its aggregate and orphaning provider-issued occurrence/face
+    # references from their authority universe.
+    dwg._build.attach_recognition(
+        a.recognition,
+        evidence=a.recognition_evidence,
+        cache=critique_recognition_cache if a.recognition is None else None,
+    )
     dwg._build.part_model = pm
     # Persist the caller's detail-view setting: on the auto_dims=False path the flag
     # reaches no pass here, but the finalize drain gates the prismatic detail
@@ -834,7 +842,7 @@ def _repack(
     requested=None,
     authored=None,
     trace=None,
-    critique_recognition=None,
+    critique_recognition_cache=None,
     reproducible=False,
 ):
     """Measure the laid-out drawing's *real* per-view annotation footprints and,
@@ -1005,7 +1013,7 @@ def _repack(
         requested=requested,
         authored=authored,
         trace=trace,
-        critique_recognition=critique_recognition,
+        critique_recognition_cache=critique_recognition_cache,
         reproducible=reproducible,
     )
     return a2, dwg2
@@ -1024,7 +1032,7 @@ def _repack_to_fixed_point(
     requested=None,
     authored=None,
     trace=None,
-    critique_recognition=None,
+    critique_recognition_cache=None,
     reproducible=False,
 ):
     """Iterate measure→repack→assemble until stable or bounded (#302)."""
@@ -1043,7 +1051,7 @@ def _repack_to_fixed_point(
             requested=requested,
             authored=authored,
             trace=trace,
-            critique_recognition=critique_recognition,
+            critique_recognition_cache=critique_recognition_cache,
             reproducible=reproducible,
         )
         if repacked is None:
@@ -1114,7 +1122,7 @@ def _build_drawing_once(
     framed_recognition: bool = False,
     _analysis_base=None,
     _analysis_sink: Callable[[Analysis], None] | None = None,
-    _critique_recognition=None,
+    _critique_recognition_cache=None,
     _arrangements: tuple[str, ...] | None = None,
     _views: tuple[str, ...] | None = None,
     _include_iso: bool = True,
@@ -1366,7 +1374,7 @@ def _build_drawing_once(
         requested=requested,
         authored=authored,
         trace=tracer,
-        critique_recognition=_critique_recognition,
+        critique_recognition_cache=_critique_recognition_cache,
         reproducible=reproducible,
     )
     if auto_dims:
@@ -1383,7 +1391,7 @@ def _build_drawing_once(
             requested=requested,
             authored=authored,
             trace=tracer,
-            critique_recognition=_critique_recognition,
+            critique_recognition_cache=_critique_recognition_cache,
             reproducible=reproducible,
         )
         if repacked is not None:
@@ -1829,7 +1837,7 @@ def build_drawing(
     )
     analysis_base = None
     latest_analysis = None
-    critique_recognition = None
+    critique_recognition_cache = None
 
     built_arrangement = ARRANGEMENTS[0]
 
@@ -1876,7 +1884,7 @@ def build_drawing(
             page=page if page_override is None else page_override,
             _analysis_base=analysis_base,
             _analysis_sink=retain_analysis,
-            _critique_recognition=critique_recognition,
+            _critique_recognition_cache=critique_recognition_cache,
             _arrangements=arrangements,
             _views=views,
             _include_iso=_include_iso if include_iso is None else include_iso,
@@ -1887,10 +1895,14 @@ def build_drawing(
         return _post_build(built) if _post_build is not None else built
 
     def scale_blockers_for(built: Drawing) -> tuple[dict, ...]:
-        nonlocal critique_recognition
+        nonlocal critique_recognition_cache
         found = _scale_blockers(built)
-        if critique_recognition is None:
-            critique_recognition = built.recognition()
+        if critique_recognition_cache is None:
+            evidence_reader = getattr(built, "recognition_evidence", None)
+            critique_recognition_cache = RecognitionCache(
+                result=built.recognition(),
+                evidence=evidence_reader() if callable(evidence_reader) else None,
+            )
         return found
 
     views_are_automatic = _view_constraints is None or (

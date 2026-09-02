@@ -129,7 +129,7 @@ def test_an_ordinary_hole_on_the_same_span_invalidates_only_double_d_credit(
 
     import draftwright.analysis as analysis
 
-    original = analysis.build_raw_recognition_result
+    original = analysis._result_from_evidence
 
     def with_overlapping_hole(*args, **kwargs):
         recognition = original(*args, **kwargs)
@@ -156,7 +156,7 @@ def test_an_ordinary_hole_on_the_same_span_invalidates_only_double_d_credit(
         )
         return replace(recognition, holes=(*recognition.holes, overlap))
 
-    monkeypatch.setattr(analysis, "build_raw_recognition_result", with_overlapping_hole)
+    monkeypatch.setattr(analysis, "_result_from_evidence", with_overlapping_hole)
     observed = _default_observers()["double-d-bores"](_double_d_part(depth))
 
     assert len(observed) == 1
@@ -591,13 +591,13 @@ def test_missing_or_corrupt_across_flats_unit_loses_drawing_credit(
 def test_deleting_provider_records_cannot_shrink_the_independent_denominator(monkeypatch) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_raw_recognition_result
+    original = analysis._result_from_evidence
 
     def without_double_d(*args, **kwargs):
         result = original(*args, **kwargs)
         return replace(result, double_d_bores=())
 
-    monkeypatch.setattr(analysis, "build_raw_recognition_result", without_double_d)
+    monkeypatch.setattr(analysis, "_result_from_evidence", without_double_d)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))
 
     assert damaged.detection.matched == 0

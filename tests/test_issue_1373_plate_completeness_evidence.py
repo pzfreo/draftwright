@@ -1159,7 +1159,7 @@ def test_derived_plate_drawing_credit_requires_verified_dependency_ink() -> None
 def test_plate_observer_uses_one_build_owned_recognition_aggregate(monkeypatch) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_raw_recognition_result
+    original = analysis.build_recognition_evidence
     calls = 0
 
     def counted(*args, **kwargs):
@@ -1167,7 +1167,7 @@ def test_plate_observer_uses_one_build_owned_recognition_aggregate(monkeypatch) 
         calls += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(analysis, "build_raw_recognition_result", counted)
+    monkeypatch.setattr(analysis, "build_recognition_evidence", counted)
     assert _default_observers()["plates"](_tee())
     assert calls == 1
 
@@ -1292,13 +1292,13 @@ def test_deleting_provider_plates_cannot_shrink_the_independent_denominator(
 ) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_raw_recognition_result
+    original = analysis._result_from_evidence
 
     def without_plates(*args, **kwargs):
         result = original(*args, **kwargs)
         return replace(result, plates=())
 
-    monkeypatch.setattr(analysis, "build_raw_recognition_result", without_plates)
+    monkeypatch.setattr(analysis, "_result_from_evidence", without_plates)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))
 
     assert damaged.detection.matched == 0
@@ -1310,7 +1310,7 @@ def test_deleting_provider_plates_cannot_shrink_the_independent_denominator(
 def test_malformed_provider_plate_cannot_pass_or_shrink_the_denominator(monkeypatch) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_raw_recognition_result
+    original = analysis._result_from_evidence
 
     def malformed(*args, **kwargs):
         result = original(*args, **kwargs)
@@ -1318,7 +1318,7 @@ def test_malformed_provider_plate_cannot_pass_or_shrink_the_denominator(monkeypa
             return result
         return replace(result, plates=(object(), *result.plates[1:]))
 
-    monkeypatch.setattr(analysis, "build_raw_recognition_result", malformed)
+    monkeypatch.setattr(analysis, "_result_from_evidence", malformed)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))
 
     assert damaged.detection.missed > 0
@@ -1331,7 +1331,7 @@ def test_symmetric_provider_interval_damage_preserves_identity_but_loses_fidelit
 ) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_raw_recognition_result
+    original = analysis._result_from_evidence
 
     def weakened(*args, **kwargs):
         result = original(*args, **kwargs)
@@ -1340,7 +1340,7 @@ def test_symmetric_provider_interval_damage_preserves_identity_but_loses_fidelit
         )
         return replace(result, plates=plates)
 
-    monkeypatch.setattr(analysis, "build_raw_recognition_result", weakened)
+    monkeypatch.setattr(analysis, "_result_from_evidence", weakened)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))
 
     assert damaged.detection.recall == 1.0
@@ -1352,7 +1352,7 @@ def test_symmetric_provider_interval_damage_preserves_identity_but_loses_fidelit
 def test_shifting_provider_interval_reduces_detection_recall(monkeypatch) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_raw_recognition_result
+    original = analysis._result_from_evidence
 
     def shifted(*args, **kwargs):
         result = original(*args, **kwargs)
@@ -1361,7 +1361,7 @@ def test_shifting_provider_interval_reduces_detection_recall(monkeypatch) -> Non
         )
         return replace(result, plates=plates)
 
-    monkeypatch.setattr(analysis, "build_raw_recognition_result", shifted)
+    monkeypatch.setattr(analysis, "_result_from_evidence", shifted)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))
 
     assert damaged.detection.recall == 0.0
@@ -1373,7 +1373,7 @@ def test_shifting_provider_interval_reduces_detection_recall(monkeypatch) -> Non
 def test_shifting_provider_transverse_witness_reduces_detection_recall(monkeypatch, field) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_raw_recognition_result
+    original = analysis._result_from_evidence
 
     def shifted(*args, **kwargs):
         result = original(*args, **kwargs)
@@ -1382,7 +1382,7 @@ def test_shifting_provider_transverse_witness_reduces_detection_recall(monkeypat
         )
         return replace(result, plates=plates)
 
-    monkeypatch.setattr(analysis, "build_raw_recognition_result", shifted)
+    monkeypatch.setattr(analysis, "_result_from_evidence", shifted)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))
 
     assert damaged.detection.recall == 0.0

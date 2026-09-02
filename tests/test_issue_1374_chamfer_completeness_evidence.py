@@ -283,7 +283,7 @@ def test_every_chamfer_boundary_is_observed_supported_on_the_real_public_path() 
 def test_chamfer_observer_uses_one_build_owned_recognition_aggregate(monkeypatch) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_raw_recognition_result
+    original = analysis.build_recognition_evidence
     calls = 0
 
     def counted(*args, **kwargs):
@@ -291,7 +291,7 @@ def test_chamfer_observer_uses_one_build_owned_recognition_aggregate(monkeypatch
         calls += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(analysis, "build_raw_recognition_result", counted)
+    monkeypatch.setattr(analysis, "build_recognition_evidence", counted)
     assert _default_observers()["chamfers"](_lone())
     assert calls == 1
 
@@ -512,13 +512,13 @@ def test_severing_chamfer_measurement_provenance_loses_drawing_credit(monkeypatc
 def test_deleting_provider_chamfers_cannot_shrink_independent_denominator(monkeypatch) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_raw_recognition_result
+    original = analysis._result_from_evidence
 
     def without_chamfers(*args, **kwargs):
         result = original(*args, **kwargs)
         return replace(result, chamfers=())
 
-    monkeypatch.setattr(analysis, "build_raw_recognition_result", without_chamfers)
+    monkeypatch.setattr(analysis, "_result_from_evidence", without_chamfers)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))
 
     assert damaged.detection.matched == 0
@@ -531,7 +531,7 @@ def test_deleting_provider_chamfers_cannot_shrink_independent_denominator(monkey
 def test_weakening_provider_chamfer_parameters_reduces_fidelity(monkeypatch, field) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_raw_recognition_result
+    original = analysis._result_from_evidence
 
     def weakened(*args, **kwargs):
         result = original(*args, **kwargs)
@@ -540,7 +540,7 @@ def test_weakening_provider_chamfer_parameters_reduces_fidelity(monkeypatch, fie
         )
         return replace(result, chamfers=values)
 
-    monkeypatch.setattr(analysis, "build_raw_recognition_result", weakened)
+    monkeypatch.setattr(analysis, "_result_from_evidence", weakened)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))
 
     assert damaged.detection.recall == 1.0

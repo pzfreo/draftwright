@@ -485,11 +485,12 @@ physical corpora.
 ## Historical: recognisers 0.4.8 raw boundary and RaisedPad v2
 
 Draftwright pinned the published `b123d-recognisers==0.4.8` wheel in the preceding release.
-The default route deliberately calls `build_raw_recognition_result`; records remain in the
-caller/world coordinate system. #1357 now provides a reviewed explicit framed-result activation
-added with 0.4.9. The 0.4.8 tests used the public framed API as release evidence for upstream #331, #332,
-and #334, comparing each aggregate inventory with the corresponding public family call on the exact
-returned local solid. Production added no fallback, second aggregate, or family rescan. Face levels,
+At that time the default route deliberately called `build_raw_recognition_result`; records
+remained in the caller/world coordinate system. #1357 now provides a reviewed explicit
+framed-result activation added with 0.4.9. The 0.4.8 tests used the public framed API as release
+evidence for upstream #331, #332, and #334, comparing each aggregate inventory with the
+corresponding public family call on the exact returned local solid. Production added no fallback,
+second aggregate, or family rescan. Face levels,
 risers, and turned profiles remained outside framed production pending their subsequently released
 upstream fixes.
 
@@ -580,6 +581,15 @@ supported consumer path without changing meaning: exact record-to-IR lowering, t
 requirements, one solver-owned compound leader, and the established completeness ledger. Existing
 raw and provider-framed contract suites continue to guard the ADR 0020 boundary. Draftwright uses no
 provider-private geometry or sibling checkout for any of these claims.
+
+#1438 now consumes the release's public raw `b123d_recognisers.evidence` acquisition. One
+`RecognitionEvidence` owns the accepted physical occurrence/face references and projects the same
+`RecognitionResult` the existing compiler and lint consumers already read. Draftwright retains
+both in its per-drawing `RecognitionCache`, including across scale/view retries; declared builds
+remain recognition-free until physical critique, and a bare result is never rescanned merely to
+backfill evidence. The framed route remains evidence-less pending upstream
+[`b123d-recognisers#463`](https://github.com/pzfreo/b123d-recognisers/issues/463). This foundation
+does not yet claim a report disposition or change any rendered artefact.
 
 ## Recognisers 0.4.9 prepared frame boundary
 

@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 
 if TYPE_CHECKING:
     from b123d_recognisers import RecognitionResult
+    from b123d_recognisers.evidence import RecognitionEvidence
 
 # PEP 702 @deprecated. A `sys.version_info` guard (not try/except) so the type checker,
 # which targets the 3.10 floor, resolves the backport branch instead of `warnings.deprecated`
@@ -496,7 +497,34 @@ class BuildState:
 
     @recognition.setter
     def recognition(self, value: RecognitionResult | None) -> None:
-        self.recognition_cache.result = value
+        self.recognition_cache.seed(value)
+
+    def attach_recognition(
+        self,
+        result: RecognitionResult | None,
+        *,
+        evidence: RecognitionEvidence | None = None,
+        cache: RecognitionCache | None = None,
+    ) -> None:
+        """Attach one coherent acquisition at the builder's single fill site.
+
+        A rebuilt drawing either receives the prior run's complete cache or a result/evidence
+        pair from its current analysis. Mixing both sources would make run ownership ambiguous
+        and therefore fails closed.
+        """
+
+        if cache is not None:
+            if result is not None or evidence is not None:
+                raise ValueError("cannot attach both a recognition cache and a new acquisition")
+            self.recognition_cache = cache
+            return
+        self.recognition_cache.seed(result, evidence=evidence)
+
+    @property
+    def recognition_evidence(self) -> RecognitionEvidence | None:
+        """Run-scoped provider evidence paired with :attr:`recognition`, when available."""
+
+        return self.recognition_cache.evidence
 
     def clear_geometry_caches(self) -> None:
         """The one invalidation seam (finalize rollback): view edges + annotation
@@ -933,6 +961,19 @@ class Drawing:
         """
 
         return self._build.recognition
+
+    def recognition_evidence(self) -> RecognitionEvidence | None:
+        """The run-scoped provider evidence paired with :meth:`recognition`.
+
+        This experimental, read-only view is available for raw automatic recognition and
+        after the first physical critique of a declared drawing. It is ``None`` before that
+        lazy critique, for a bare drawing, and for framed recognition while the provider lacks
+        a public framed-evidence contract. Draftwright never reruns recognition merely to fill
+        this value. The returned evidence borrows exact faces from the source part, so callers
+        must not mutate that part while using the evidence view.
+        """
+
+        return self._build.recognition_evidence
 
     # --- build-context compat properties (#639): one BuildState, thin views.
     # _part_model and the two caches are GETTER-ONLY by design (#691 review):

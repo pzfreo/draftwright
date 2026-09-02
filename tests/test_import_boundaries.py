@@ -47,12 +47,14 @@ import ast
 from pathlib import Path
 
 import b123d_recognisers
+import b123d_recognisers.evidence as recogniser_evidence
 import b123d_recognisers.inspection as recogniser_inspection
 import pytest
 
 _SRC = Path(__file__).resolve().parent.parent / "src" / "draftwright"
 _MODEL_DIR = _SRC / "model"
 _RECOGNISER_PUBLIC = frozenset(b123d_recognisers.__all__)
+_RECOGNISER_EVIDENCE_PUBLIC = frozenset(recogniser_evidence.__all__)
 _RECOGNISER_INSPECTION_PUBLIC = frozenset(recogniser_inspection.__all__)
 
 # ── The declared DAG (mirrors CLAUDE.md ## Architecture) ─────────────────────────────────
@@ -582,7 +584,9 @@ _ALLOWED_PRIVATE_RECOGNISER_REFERENCES = {
 }
 _RECOGNISER_POLICY_MODULE = "b123d_recognisers.<policy>"
 _PROVIDER_ROOT = "b123d_recognisers"
+_PROVIDER_EVIDENCE = "b123d_recognisers.evidence"
 _PROVIDER_INSPECTION = "b123d_recognisers.inspection"
+_PROVIDER_PUBLIC_MODULES = {_PROVIDER_ROOT, _PROVIDER_EVIDENCE, _PROVIDER_INSPECTION}
 _LITERAL_PREDICATES = {"endswith", "removeprefix", "removesuffix", "startswith"}
 _PROVIDER_MEMBER_CALLS = {"delattr", "object", "setattr"}
 
@@ -617,6 +621,15 @@ def _recogniser_contract_references(path: Path, *, relative_to: Path) -> set[tup
         if actual == _PROVIDER_ROOT or not actual.startswith(f"{_PROVIDER_ROOT}."):
             return
         components = actual.removeprefix(f"{_PROVIDER_ROOT}.").split(".")
+        if components[0] == "evidence":
+            if len(components) == 1:
+                return
+            member = components[1]
+            if member == "__all__":
+                references.add((relative, _PROVIDER_EVIDENCE, member))
+            elif member not in _RECOGNISER_EVIDENCE_PUBLIC:
+                references.add((relative, _PROVIDER_EVIDENCE, member))
+            return
         if components[0] == "inspection":
             if len(components) == 1:
                 return
@@ -658,6 +671,12 @@ def _recogniser_contract_references(path: Path, *, relative_to: Path) -> set[tup
                     for alias in node.names
                     if alias.name not in _RECOGNISER_INSPECTION_PUBLIC | {"*"}
                 )
+            elif module == _PROVIDER_EVIDENCE:
+                references.update(
+                    (relative, module, alias.name)
+                    for alias in node.names
+                    if alias.name not in _RECOGNISER_EVIDENCE_PUBLIC | {"*"}
+                )
             elif module.startswith(f"{_PROVIDER_ROOT}."):
                 references.update((relative, module, alias.name) for alias in node.names)
         elif isinstance(node, ast.Import):
@@ -665,6 +684,9 @@ def _recogniser_contract_references(path: Path, *, relative_to: Path) -> set[tup
                 module = alias.name
                 if module == _PROVIDER_ROOT:
                     module_aliases[alias.asname or module] = module
+                elif module == _PROVIDER_EVIDENCE:
+                    binding = alias.asname or _PROVIDER_ROOT
+                    module_aliases[binding] = module if alias.asname else binding
                 elif module == _PROVIDER_INSPECTION:
                     binding = alias.asname or _PROVIDER_ROOT
                     module_aliases[binding] = module if alias.asname else binding
@@ -736,7 +758,7 @@ def _recogniser_contract_references(path: Path, *, relative_to: Path) -> set[tup
 
         if terminal == "getattr" and len(node.args) >= 2:
             provider = resolve_expr(node.args[0])
-            if provider in {_PROVIDER_ROOT, _PROVIDER_INSPECTION}:
+            if provider in _PROVIDER_PUBLIC_MODULES:
                 member = literal(node.args[1])
                 if member is None:
                     policy("dynamic-provider-member")
@@ -754,13 +776,13 @@ def _recogniser_contract_references(path: Path, *, relative_to: Path) -> set[tup
             for provider_node, member_node in zip(node.args, node.args[1:]):
                 provider = resolve_expr(provider_node)
                 member = literal(member_node)
-                if provider in {_PROVIDER_ROOT, _PROVIDER_INSPECTION} and member is not None:
+                if provider in _PROVIDER_PUBLIC_MODULES and member is not None:
                     record(f"{provider}.{member}")
 
             providers = {
                 provider
                 for value in [*node.args, *target_keywords]
-                if (provider := resolve_expr(value)) in {_PROVIDER_ROOT, _PROVIDER_INSPECTION}
+                if (provider := resolve_expr(value)) in _PROVIDER_PUBLIC_MODULES
             }
             members = {
                 member for value in member_keywords if (member := literal(value)) is not None
@@ -773,9 +795,9 @@ def _recogniser_contract_references(path: Path, *, relative_to: Path) -> set[tup
             target = target_argument(node)
             provider = resolve_expr(target) if target is not None else None
             target_name = literal(target)
-            if provider is None and target_name in {_PROVIDER_ROOT, _PROVIDER_INSPECTION}:
+            if provider is None and target_name in _PROVIDER_PUBLIC_MODULES:
                 provider = target_name
-            if provider in {_PROVIDER_ROOT, _PROVIDER_INSPECTION}:
+            if provider in _PROVIDER_PUBLIC_MODULES:
                 for item in node.keywords:
                     if item.arg not in {None, "create", "spec", "spec_set", "target"}:
                         record(f"{provider}.{item.arg}")
@@ -832,6 +854,24 @@ def test_consumer_recogniser_contract_guard_covers_static_provider_seams(tmp_pat
         "from b123d_recognisers.inspection import _FaceGraph\n",
         encoding="utf-8",
     )
+    (tmp_path / "private_evidence_import.py").write_text(
+        "from b123d_recognisers.evidence import _PrivateEvidence\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "private_evidence_alias.py").write_text(
+        "import b123d_recognisers.evidence as evidence\nprivate = evidence._private_builder\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "private_evidence_getattr.py").write_text(
+        "import b123d_recognisers.evidence as evidence\n"
+        "private = getattr(evidence, '_private_builder')\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "private_evidence_patch.py").write_text(
+        "import b123d_recognisers.evidence as evidence\n"
+        "monkeypatch.setattr(evidence, '_private_builder', replacement)\n",
+        encoding="utf-8",
+    )
     (tmp_path / "private_getattr.py").write_text(
         "import b123d_recognisers as br\nprivate = getattr(br, 'polygonal_bosses')\n",
         encoding="utf-8",
@@ -879,8 +919,13 @@ def test_consumer_recogniser_contract_guard_covers_static_provider_seams(tmp_pat
     (tmp_path / "public_and_unrelated_controls.py").write_text(
         "import importlib.util\n"
         "import b123d_recognisers as br\n"
+        "import b123d_recognisers.evidence as evidence\n"
         "from b123d_recognisers import Flat\n"
+        "from b123d_recognisers.evidence import RecognitionEvidence\n"
         "public = br.Flat\n"
+        "public_evidence = evidence.build_recognition_evidence\n"
+        "also_public_evidence = getattr(evidence, 'RecognitionEvidence')\n"
+        "monkeypatch.setattr(evidence, 'build_recognition_evidence', replacement)\n"
         "also_public = getattr(br, 'Flat')\n"
         "monkeypatch.setattr(br, 'Flat', 'replacement')\n"
         "assert_context(br, 'consumer fixture')\n"
@@ -899,6 +944,10 @@ def test_consumer_recogniser_contract_guard_covers_static_provider_seams(tmp_pat
         ("test_grid_lattice_convention.py", "b123d_recognisers._features", "_new_private"),
         ("private_static.py", _PROVIDER_ROOT, "profiled_bores"),
         ("private_inspection.py", _PROVIDER_INSPECTION, "_FaceGraph"),
+        ("private_evidence_import.py", _PROVIDER_EVIDENCE, "_PrivateEvidence"),
+        ("private_evidence_alias.py", _PROVIDER_EVIDENCE, "_private_builder"),
+        ("private_evidence_getattr.py", _PROVIDER_EVIDENCE, "_private_builder"),
+        ("private_evidence_patch.py", _PROVIDER_EVIDENCE, "_private_builder"),
         ("private_getattr.py", _PROVIDER_ROOT, "polygonal_bosses"),
         ("private_literal_target.py", _PROVIDER_ROOT, "profiled_bores"),
         ("private_unbound_patch.py", _PROVIDER_ROOT, "profiled_bores"),

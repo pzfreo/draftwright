@@ -90,7 +90,7 @@ def test_provider_refusal_has_one_visible_top_level_raw_fallback(monkeypatch):
         drawing = build_drawing(source, auto_dims=False, framed_recognition=True)
 
     assert calls == 1
-    assert recognition_calls == {"build_raw_recognition_result": 1}
+    assert recognition_calls == {"build_recognition_evidence": 1}
     assert drawing.part is drawing.working_part
     assert drawing.recognition_frame is None
     assert drawing.recognition_frame_decision == {

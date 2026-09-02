@@ -107,7 +107,7 @@ def test_every_flat_boundary_is_observed_supported_on_the_real_public_path() -> 
 def test_flat_observer_uses_one_build_owned_recognition_aggregate(monkeypatch) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_raw_recognition_result
+    original = analysis.build_recognition_evidence
     calls = 0
 
     def counted(*args, **kwargs):
@@ -115,7 +115,7 @@ def test_flat_observer_uses_one_build_owned_recognition_aggregate(monkeypatch) -
         calls += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(analysis, "build_raw_recognition_result", counted)
+    monkeypatch.setattr(analysis, "build_recognition_evidence", counted)
     assert _default_observers()["flats"](_double_d())
     assert calls == 1
 
@@ -252,13 +252,13 @@ def test_severing_flat_measurement_provenance_loses_drawing_credit(monkeypatch) 
 def test_deleting_provider_flats_cannot_shrink_the_independent_denominator(monkeypatch) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_raw_recognition_result
+    original = analysis._result_from_evidence
 
     def without_flats(*args, **kwargs):
         result = original(*args, **kwargs)
         return replace(result, flats=())
 
-    monkeypatch.setattr(analysis, "build_raw_recognition_result", without_flats)
+    monkeypatch.setattr(analysis, "_result_from_evidence", without_flats)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))
 
     assert damaged.detection.matched == 0
@@ -270,14 +270,14 @@ def test_deleting_provider_flats_cannot_shrink_the_independent_denominator(monke
 def test_weakening_provider_across_values_reduces_parameter_fidelity(monkeypatch) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_raw_recognition_result
+    original = analysis._result_from_evidence
 
     def weakened_flats(*args, **kwargs):
         result = original(*args, **kwargs)
         flats = tuple(replace(flat, across=flat.across + 1.0) for flat in result.flats)
         return replace(result, flats=flats)
 
-    monkeypatch.setattr(analysis, "build_raw_recognition_result", weakened_flats)
+    monkeypatch.setattr(analysis, "_result_from_evidence", weakened_flats)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))
 
     assert damaged.detection.recall == 1.0
