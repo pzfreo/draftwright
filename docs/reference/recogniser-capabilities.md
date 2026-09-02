@@ -521,7 +521,8 @@ recognition predicates and counterexamples; Draftwright does not duplicate priva
 algorithms to restate them.
 
 The release adds `rectangular-blind-slots` and `round-bottom-blind-slots` to the one aggregate.
-The rectangular family now has a dedicated `RectangularBlindSlotFeature`, public
+Both now have dedicated Draftwright feature types and public Sheet words. The rectangular family
+uses `RectangularBlindSlotFeature` and
 `Sheet.rectangular_blind_slot(...)` declaration, generated-code round trip and solver-owned
 `OPEN SLOT width × capped-run × depth DEEP` callout. Its axes and opening signs remain structural
 correspondence facts while all printed sizes cross the approved compiler boundary. Native raw and
@@ -535,9 +536,18 @@ requirements—width, capped run and flat-bottom depth—and exact released stru
 one IR feature before measurement identities establish placed, structured-note, authored-
 suppressed, dropped, missing or unverifiable outcomes. Labels, annotation names, views, projections,
 leader tips and page coordinates cannot certify correspondence. The rectangular family therefore
-participates in `audited_score`; the distinct round-bottom family remains deferred at every semantic
-boundary because its flat width and floor radius still need their own IR, Sheet word, callout grammar
-and evidence.
+participates in `audited_score`.
+
+The round-bottom family lowers one-to-one to `RoundBottomBlindSlotFeature` and declares through
+`Sheet.round_bottom_blind_slot(...)`. Its three addressable requirements are capped run length,
+straight bottom-flat width and the equal round-side radius. Total opening width
+(`flat_width + 2 × radius`) and profile depth (`radius`) are derived geometry, not extra independent
+requirements. Generated code preserves every structural fact and role-specific decoration; one
+solver-owned `ROUND-BOTTOM OPEN SLOT …` leader carries only compiler-approved values. Its separate
+seven-case corpus covers all signed principal orientations and an independently sized specimen,
+with exact full-record correspondence and parameter/outcome provenance under the same fail-closed
+rules as the rectangular family. It now participates independently in `audited_score`; ordinary
+slots, pockets, channels and rectangular blind slots do not share ownership.
 
 ## Recognisers 0.4.9 prepared frame boundary
 

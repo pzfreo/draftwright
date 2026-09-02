@@ -260,7 +260,7 @@ def test_0410_blind_slot_families_keep_independent_completeness_dispositions():
         has_asserted_content=True,
     )["completeness"]
 
-    assert completeness["unscored_recognized_families"] == ["round_bottom_blind_slots"]
+    assert completeness["unscored_recognized_families"] == []
     assert completeness["by_family"]["rectangular_blind_slots"] == 3
-    assert completeness["requirements"] == completeness["unverifiable"] == 3
-    assert "round_bottom_blind_slots" not in completeness["by_family"]
+    assert completeness["by_family"]["round_bottom_blind_slots"] == 3
+    assert completeness["requirements"] == completeness["unverifiable"] == 6

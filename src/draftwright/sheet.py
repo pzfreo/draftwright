@@ -89,6 +89,7 @@ from draftwright.model import polygonal_boss as _polygonal_boss
 from draftwright.model import polygonal_stock as _polygonal_stock
 from draftwright.model import rectangular_blind_slot as _rectangular_blind_slot
 from draftwright.model import rotational as _rotational
+from draftwright.model import round_bottom_blind_slot as _round_bottom_blind_slot
 from draftwright.model import slot as _slot
 from draftwright.model import slot_pattern as _slot_pattern
 from draftwright.model import step as _step
@@ -1532,6 +1533,15 @@ class Sheet:
         terminal wall, or material-opening direction.
         """
         self._features.append(_rectangular_blind_slot(**kw))
+        return _Params(self, len(self._features) - 1)
+
+    def round_bottom_blind_slot(self, **kw) -> _Params:
+        """Declare a capped, edge-open slot with a flat floor and equal round sides.
+
+        All arguments are explicit because detached cutter geometry cannot establish the
+        open end, terminal wall, material-opening direction, or round-bottom ownership.
+        """
+        self._features.append(_round_bottom_blind_slot(**kw))
         return _Params(self, len(self._features) - 1)
 
     def channel(self, **kw) -> _Params:

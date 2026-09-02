@@ -1291,6 +1291,17 @@ class TestEveryFeatureVerbIsNameable:
             depth=4,
             at=(0, 0, 0),
         ),
+        "round_bottom_blind_slot": dict(
+            axis="z",
+            open_sign=-1,
+            length=20,
+            width_axis="x",
+            depth_axis="y",
+            depth_sign=1,
+            radius=3,
+            flat_width=4,
+            at=(0, 0, 0),
+        ),
         "channel": dict(
             width=8,
             long_axis="x",

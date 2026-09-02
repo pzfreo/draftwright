@@ -106,6 +106,12 @@ _FAMILIES: dict[str, _FamilySpec] = {
         "rectangular_blind_slot",
         "render_rectangular_blind_slots",
     ),
+    "round-bottom-blind-slots": _FamilySpec(
+        ("RoundBottomBlindSlot",),
+        "_convert_round_bottom_blind_slot",
+        "round_bottom_blind_slot",
+        "render_round_bottom_blind_slots",
+    ),
     "risers": _FamilySpec(
         ("RiserEvidence", "StepShoulder"),
         "build_part_model",
@@ -286,6 +292,12 @@ def _family_declaration(family_id: str, spec: _FamilySpec) -> dict[str, Any]:
             "lint_rectangular_blind_slot_coverage",
             "tests/test_issue_1421_rectangular_blind_slot_completeness.py",
         )
+    elif family_id == "round-bottom-blind-slots":
+        completeness = _supported(
+            "draftwright.linting.round_bottom_blind_slot_coverage."
+            "lint_round_bottom_blind_slot_coverage",
+            "tests/test_issue_1421_round_bottom_blind_slot_completeness.py",
+        )
     elif family_id == "through-steps":
         completeness = _supported(
             "draftwright.linting.through_step_coverage.lint_through_step_coverage",
@@ -368,14 +380,6 @@ def _geometry_only_declaration() -> dict[str, Any]:
 #: absent from BOTH this map and ``_FAMILIES``, so the next new family fails closed exactly as
 #: the first three did (#1244), and the 0.4.6 step families do now (#1382).
 _UNSUPPORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
-    "round-bottom-blind-slots": (
-        ("RoundBottomBlindSlot",),
-        "https://github.com/pzfreo/draftwright/issues/1421",
-        "The provider proves a blind open-ended channel with a round floor and separately reports "
-        "flat width and floor radius. Neither the through-slot nor rectangular-pocket grammar can "
-        "state that geometry without losing a requirement, so consumer semantics remain deferred "
-        "pending #1421.",
-    ),
     "passages": (
         (
             "Passage",
@@ -411,11 +415,7 @@ _UNSUPPORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
     ),
 }
 
-_DEFERRED_FAMILIES = frozenset(
-    {
-        "round-bottom-blind-slots",
-    }
-)
+_DEFERRED_FAMILIES: frozenset[str] = frozenset()
 
 
 def _unsupported_declaration(family_id: str) -> dict[str, Any]:
@@ -832,6 +832,66 @@ def consumer_capability_declaration() -> dict[str, Any]:
                     "tests/test_step_analysis_evaluation.py",
                 ],
                 "family": "rectangular-pads",
+                "from": "deferred",
+                "release_notes": "CHANGELOG.md",
+                "to": "supported",
+                "version": distribution_version("draftwright"),
+            },
+            {
+                "boundary": "completeness",
+                "compatibility_evidence": [
+                    "tests/test_issue_1421_round_bottom_blind_slot_completeness.py",
+                    "tests/test_recogniser_capabilities.py",
+                ],
+                "family": "round-bottom-blind-slots",
+                "from": "deferred",
+                "release_notes": "CHANGELOG.md",
+                "to": "supported",
+                "version": distribution_version("draftwright"),
+            },
+            {
+                "boundary": "drawing_consumer",
+                "compatibility_evidence": [
+                    "tests/test_issue_1421_round_bottom_blind_slot_semantics.py",
+                    "tests/test_recogniser_capabilities.py",
+                ],
+                "family": "round-bottom-blind-slots",
+                "from": "deferred",
+                "release_notes": "CHANGELOG.md",
+                "to": "supported",
+                "version": distribution_version("draftwright"),
+            },
+            {
+                "boundary": "dsl_declaration",
+                "compatibility_evidence": [
+                    "tests/test_issue_1421_round_bottom_blind_slot_semantics.py",
+                    "tests/test_recogniser_capabilities.py",
+                ],
+                "family": "round-bottom-blind-slots",
+                "from": "deferred",
+                "release_notes": "CHANGELOG.md",
+                "to": "supported",
+                "version": distribution_version("draftwright"),
+            },
+            {
+                "boundary": "generated_code",
+                "compatibility_evidence": [
+                    "tests/test_issue_1421_round_bottom_blind_slot_semantics.py",
+                    "tests/test_recogniser_capabilities.py",
+                ],
+                "family": "round-bottom-blind-slots",
+                "from": "deferred",
+                "release_notes": "CHANGELOG.md",
+                "to": "supported",
+                "version": distribution_version("draftwright"),
+            },
+            {
+                "boundary": "ir_adapter",
+                "compatibility_evidence": [
+                    "tests/test_issue_1421_round_bottom_blind_slot_semantics.py",
+                    "tests/test_recogniser_capabilities.py",
+                ],
+                "family": "round-bottom-blind-slots",
                 "from": "deferred",
                 "release_notes": "CHANGELOG.md",
                 "to": "supported",

@@ -172,7 +172,7 @@ def test_0410_blind_slot_family_dispositions_are_explicit() -> None:
 
         declaration = consumer[family_id]
         assert declaration["record_schemas"] == {record_name: [1]}
-        if family_id == "rectangular-blind-slots":
+        if family_id in {"rectangular-blind-slots", "round-bottom-blind-slots"}:
             assert declaration["disposition"] == "supported"
             assert {
                 declaration[boundary]["state"]
@@ -580,6 +580,66 @@ def test_rich_passage_contract_has_an_explicit_unsupported_completeness_outcome(
                 "tests/test_step_analysis_evaluation.py",
             ],
             "family": "rectangular-pads",
+            "from": "deferred",
+            "release_notes": "CHANGELOG.md",
+            "to": "supported",
+            "version": importlib.metadata.version("draftwright"),
+        },
+        {
+            "boundary": "completeness",
+            "compatibility_evidence": [
+                "tests/test_issue_1421_round_bottom_blind_slot_completeness.py",
+                "tests/test_recogniser_capabilities.py",
+            ],
+            "family": "round-bottom-blind-slots",
+            "from": "deferred",
+            "release_notes": "CHANGELOG.md",
+            "to": "supported",
+            "version": importlib.metadata.version("draftwright"),
+        },
+        {
+            "boundary": "drawing_consumer",
+            "compatibility_evidence": [
+                "tests/test_issue_1421_round_bottom_blind_slot_semantics.py",
+                "tests/test_recogniser_capabilities.py",
+            ],
+            "family": "round-bottom-blind-slots",
+            "from": "deferred",
+            "release_notes": "CHANGELOG.md",
+            "to": "supported",
+            "version": importlib.metadata.version("draftwright"),
+        },
+        {
+            "boundary": "dsl_declaration",
+            "compatibility_evidence": [
+                "tests/test_issue_1421_round_bottom_blind_slot_semantics.py",
+                "tests/test_recogniser_capabilities.py",
+            ],
+            "family": "round-bottom-blind-slots",
+            "from": "deferred",
+            "release_notes": "CHANGELOG.md",
+            "to": "supported",
+            "version": importlib.metadata.version("draftwright"),
+        },
+        {
+            "boundary": "generated_code",
+            "compatibility_evidence": [
+                "tests/test_issue_1421_round_bottom_blind_slot_semantics.py",
+                "tests/test_recogniser_capabilities.py",
+            ],
+            "family": "round-bottom-blind-slots",
+            "from": "deferred",
+            "release_notes": "CHANGELOG.md",
+            "to": "supported",
+            "version": importlib.metadata.version("draftwright"),
+        },
+        {
+            "boundary": "ir_adapter",
+            "compatibility_evidence": [
+                "tests/test_issue_1421_round_bottom_blind_slot_semantics.py",
+                "tests/test_recogniser_capabilities.py",
+            ],
+            "family": "round-bottom-blind-slots",
             "from": "deferred",
             "release_notes": "CHANGELOG.md",
             "to": "supported",
@@ -1066,6 +1126,7 @@ def test_dsl_and_generated_code_inventories_are_derived_from_live_code() -> None
         "polygonal-stock": "polygonal_stock",
         "rectangular-pads": "pad",
         "rectangular-blind-slots": "rectangular_blind_slot",
+        "round-bottom-blind-slots": "round_bottom_blind_slot",
         "risers": "step_level",
         "slot-patterns": "slot_pattern",
         "slots": "slot",

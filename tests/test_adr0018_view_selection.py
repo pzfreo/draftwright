@@ -414,6 +414,7 @@ class TestAnExtentMovesOrIsReported:
             PadFeature,
             PocketFeature,
             RectangularBlindSlotFeature,
+            RoundBottomBlindSlotFeature,
             SlotFeature,
         )
         from draftwright.model.ir import DimParameter
@@ -470,6 +471,21 @@ class TestAnExtentMovesOrIsReported:
                     depth=5.0,
                 ),
                 "rectangular_blind_slot_depth",
+                ("front",),
+            ),
+            (
+                RoundBottomBlindSlotFeature(
+                    Frame((0.0, 0.0, 0.0), "z"),
+                    axis="z",
+                    open_sign=-1,
+                    width_axis="x",
+                    depth_axis="y",
+                    depth_sign=1,
+                    length=30.0,
+                    radius=4.0,
+                    flat_width=8.0,
+                ),
+                "round_bottom_blind_slot_radius",
                 ("front",),
             ),
             (

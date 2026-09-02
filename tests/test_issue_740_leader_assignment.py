@@ -51,6 +51,7 @@ def test_late_joint_assignment_stays_scoped_to_the_ten_post_drain_adapters():
         ("from_model.py", "render_flats", True),
         ("from_model.py", "render_pockets", True),
         ("from_model.py", "render_rectangular_blind_slots", True),
+        ("from_model.py", "render_round_bottom_blind_slots", True),
         ("from_model.py", "render_pad_heights", True),
         ("from_model.py", "render_grooves", True),
         ("from_model.py", "render_paired_ramp_steps", True),

@@ -106,6 +106,17 @@ _SAMPLES: dict[str, ir.Feature] = {
         length=30.0,
         depth=5.0,
     ),
+    "RoundBottomBlindSlotFeature": ir.RoundBottomBlindSlotFeature(
+        frame=_F,
+        axis="z",
+        open_sign=-1,
+        width_axis="x",
+        depth_axis="y",
+        depth_sign=1,
+        length=30.0,
+        radius=3.0,
+        flat_width=4.0,
+    ),
     "ChannelFeature": ir.ChannelFeature(
         ir.Frame((0.0, 0.0, 9.0), "x"),
         "y",
@@ -265,6 +276,11 @@ _SAMPLE_BINDINGS = {
         ("rectangular_blind_slot_width.length", 8.0),
         ("rectangular_blind_slot_length.length", 30.0),
         ("rectangular_blind_slot_depth.length", 5.0),
+    ),
+    "RoundBottomBlindSlotFeature": (
+        ("round_bottom_blind_slot_length.length", 30.0),
+        ("round_bottom_blind_slot_flat_width.length", 4.0),
+        ("round_bottom_blind_slot_radius.radius", 3.0),
     ),
     "ChannelFeature": (("channel_width.length", 25.0),),
     "PocketPatternFeature": (

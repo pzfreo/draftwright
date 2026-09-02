@@ -130,6 +130,7 @@ by #754 (Amendment 2): those labels are now planner-fed.
 | rectangular through steps (two open-section leg dimensions, #1382) | `from_model.render_through_steps` | `plan_dimensions` |
 | pockets (W × L × D DEEP leader, #728) | `from_model.render_pockets` | `plan_dimensions` |
 | rectangular blind slots (OPEN SLOT W × capped-run × D DEEP leader, #1421) | `from_model.render_rectangular_blind_slots` | `plan_dimensions` |
+| round-bottom blind slots (bottom-flat × R × capped-run leader, #1421) | `from_model.render_round_bottom_blind_slots` | `plan_dimensions` |
 | rectangular pads (footprint dimensions + HIGH leader, #1392) | `from_model.render_slots`, `from_model.render_pad_heights` | `plan_dimensions` |
 | plates (thickness linear dim, #729) | `from_model.render_plates` | `plan_dimensions` |
 | slots (width/length linear dims, #730; the datum position dim stays model-derived — it is drawing state, not a feature parameter) | `from_model.render_slots` | `plan_dimensions` |

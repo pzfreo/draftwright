@@ -77,6 +77,7 @@ from draftwright.annotations.from_model import (
     render_polygonal_stock,
     render_rectangular_blind_slots,
     render_rotational,
+    render_round_bottom_blind_slots,
     render_slots,
     render_step_lengths,
     render_step_positions,
@@ -276,6 +277,7 @@ _PASS_SEQUENCE: tuple[str, ...] = (
     "flats",
     "pockets",
     "rectangular_blind_slots",
+    "round_bottom_blind_slots",
     "pad_heights",
     "grooves",
     # One compatible same-view feature-leader inventory (#1166): side/plan
@@ -382,6 +384,7 @@ def build_model(a: Analysis):
         pockets=a.recognition.pockets,
         pocket_patterns=a.recognition.pocket_patterns,
         rectangular_blind_slots=a.recognition.rectangular_blind_slots,
+        round_bottom_blind_slots=a.recognition.round_bottom_blind_slots,
         pads=a.recognition.pads,
         profiles=a.profiles,
         step_zs=a.step_zs,
@@ -681,6 +684,10 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # Dedicated OPEN SLOT width × capped-run × depth leader (#1421), solver-owned.
         render_rectangular_blind_slots(dwg, _compiled, a, ctx=ctx)
 
+    def _s_round_bottom_blind_slots():
+        # Dedicated flat-floor × side-radius × capped-run leader (#1421), solver-owned.
+        render_round_bottom_blind_slots(dwg, _compiled, a, ctx=ctx)
+
     def _s_pad_heights():
         # A raised pad's local attachment-to-terminal rise is independent of any global
         # datum-to-level ladder. Its HIGH leader is a first-class post-drain candidate,
@@ -881,6 +888,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
             "flats": _s_flats,
             "pockets": _s_pockets,
             "rectangular_blind_slots": _s_rectangular_blind_slots,
+            "round_bottom_blind_slots": _s_round_bottom_blind_slots,
             "pad_heights": _s_pad_heights,
             "pocket_patterns": _s_pocket_patterns,
             "slot_patterns": _s_slot_patterns,

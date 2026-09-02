@@ -47,6 +47,7 @@ from draftwright.model.ir import (
     PocketPatternFeature,
     Point,
     RectangularBlindSlotFeature,
+    RoundBottomBlindSlotFeature,
     SlotFeature,
     SlotPatternFeature,
     StepLevelFeature,
@@ -110,6 +111,10 @@ _CONVENTION = {
     ("rectangular_blind_slot_width", "length"): "leader",
     ("rectangular_blind_slot_length", "length"): "leader",
     ("rectangular_blind_slot_depth", "length"): "leader",
+    # One dedicated round-bottom leader carries the capped run, straight floor and side radius.
+    ("round_bottom_blind_slot_length", "length"): "leader",
+    ("round_bottom_blind_slot_flat_width", "length"): "leader",
+    ("round_bottom_blind_slot_radius", "radius"): "leader",
     # A plate thickness is a linear Dimension. That IS the table default, but the
     # entry is explicit anyway (#744 review): this table is the one convention
     # registry, and a planner-fed kind relying on the implicit default would erode
@@ -371,6 +376,8 @@ def _preferred_group_view(feature: Feature) -> str:
     if isinstance(feature, PocketFeature):
         return _END_ON[feature.depth_axis]
     if isinstance(feature, RectangularBlindSlotFeature):
+        return _END_ON[feature.depth_axis]
+    if isinstance(feature, RoundBottomBlindSlotFeature):
         return _END_ON[feature.depth_axis]
     if isinstance(feature, ChannelFeature):
         return _END_ON[feature.long_axis]
@@ -1240,6 +1247,8 @@ def _parameter_view_preferences(feature: Feature, pd: PlannedDimension) -> tuple
     if isinstance(feature, PocketFeature):
         return (_END_ON[feature.depth_axis],)
     if isinstance(feature, RectangularBlindSlotFeature):
+        return (_END_ON[feature.depth_axis],)
+    if isinstance(feature, RoundBottomBlindSlotFeature):
         return (_END_ON[feature.depth_axis],)
     if kind in {"pocket_pattern", "slot_pattern"}:
         return (_END_ON[axis],)

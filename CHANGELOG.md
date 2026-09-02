@@ -55,8 +55,21 @@
   orientations plus an independently sized specimen: each occurrence contributes separate width,
   capped-run and depth requirements followed by exact structural correspondence and measurement
   provenance to placed, structured-note, suppressed, dropped, missing or unverifiable outcomes.
-  Removing recognition cannot shrink that 21-requirement benchmark, and the distinct round-bottom
-  family remains fully deferred (#1421; ADRs 0011, 0013–0017, 0020).
+  Removing recognition cannot shrink that 21-requirement benchmark (#1421; ADRs 0011,
+  0013–0017, 0020).
+
+- Round-bottom blind slots recognised by `b123d-recognisers` 0.4.10 now have their own complete
+  Draftwright path rather than borrowing through-slot, pocket or rectangular-blind-slot grammar.
+  `RoundBottomBlindSlotFeature` retains the released run/opening topology and exposes the three
+  independent manufacturing requirements: capped run length, straight bottom-flat width and equal
+  side radius. `Sheet.round_bottom_blind_slot(...)`, generated code, role-specific tolerances and
+  one solver-owned `ROUND-BOTTOM OPEN SLOT …` leader all preserve those exact identities; derived
+  total width and depth are not double-counted. A seven-case independently authored corpus covers
+  all six signed principal orientations plus a separately sized specimen (21 physical requirements),
+  proves raw/framed drawing parity, and follows exact source-to-IR correspondence to placed,
+  structured-note, suppressed, dropped, missing or unverifiable outcomes without labels, views or
+  page coordinates. The released 0.4.10 API is sufficient; no recogniser change is required (#1421;
+  ADRs 0011, 0013–0017, 0020).
 
 - Turned-step completeness is now backed by an independently authored, hash-pinned 11-case STEP
   corpus with 26 physical outside-diameter bands, 52 parameter checks and 104 downstream checks.
