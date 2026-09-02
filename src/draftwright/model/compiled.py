@@ -275,6 +275,13 @@ _FACTS: dict[str, tuple[str, ...]] = {
         "cols",
     ),
     "slot": ("frame", "width_axis", "long_axis"),
+    "oriented_slot": (
+        "frame",
+        "width_direction",
+        "long_direction",
+        "run_direction",
+        "passage",
+    ),
     "slot_pattern": (
         "frame",
         "pattern",

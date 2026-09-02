@@ -42,6 +42,7 @@ from draftwright.linting.flat_coverage import flat_requirement_outcomes
 from draftwright.linting.groove_coverage import groove_requirement_outcomes
 from draftwright.linting.hole_coverage import hole_requirement_outcomes
 from draftwright.linting.issues import LintIssue, is_placement_drop
+from draftwright.linting.oriented_slot_coverage import oriented_slot_requirement_outcomes
 from draftwright.linting.pad_coverage import pad_requirement_outcomes
 from draftwright.linting.paired_ramp_step_coverage import paired_ramp_step_requirement_outcomes
 from draftwright.linting.plate_coverage import plate_requirement_outcomes
@@ -121,6 +122,7 @@ _RECOGNISED_REQUIREMENT_FAMILIES = {
     "channels": "channels",
     "circular_blind_steps": "circular_blind_steps",
     "slots": "slots",
+    "oriented_slots": "oriented_slots",
     "slot_patterns": "slot_patterns",
     "grooves": "grooves",
     "flats": "flats",
@@ -173,7 +175,6 @@ _NON_REQUIREMENT_INVENTORIES = frozenset(
 _UNDECIDED_INVENTORIES: dict[str, str] = {
     "blends": "https://github.com/pzfreo/draftwright/issues/1430",
     "oriented_slot_patterns": "https://github.com/pzfreo/draftwright/issues/1430",
-    "oriented_slots": "https://github.com/pzfreo/draftwright/issues/1430",
 }
 
 _AUDITED_FAMILIES = (
@@ -187,6 +188,7 @@ _AUDITED_FAMILIES = (
     "grooves",
     "hole_patterns",
     "holes",
+    "oriented_slots",
     "passages",
     "pads",
     "plates",
@@ -401,6 +403,7 @@ _STAGE_ROUTED_CODES = frozenset(
         "polygonal_stock_dropped",
         "rectangular_blind_slot_dropped",
         "round_bottom_blind_slot_dropped",
+        "oriented_slot_dropped",
         "slot_dropped",
     }
 )
@@ -432,6 +435,7 @@ _UNSCORED_CODE_PREFIXES = (
     "polygonal_stock_requirement_",
     "rectangular_blind_slot_requirement_",
     "round_bottom_blind_slot_requirement_",
+    "oriented_slot_requirement_",
     "slot_requirement_",
 )
 
@@ -679,6 +683,9 @@ def _completeness_component(
             recognition, features, registry, omissions
         ),
         "round_bottom_blind_slots": round_bottom_blind_slot_requirement_outcomes(
+            recognition, features, registry, omissions
+        ),
+        "oriented_slots": oriented_slot_requirement_outcomes(
             recognition, features, registry, omissions
         ),
         "slots": [],

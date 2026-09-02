@@ -38,6 +38,7 @@ from draftwright.model.ir import (
     FilletFeature,
     FlatFeature,
     HoleFeature,
+    OrientedSlotFeature,
     PadFeature,
     ParameterId,
     PartModel,
@@ -124,6 +125,8 @@ _CONVENTION = {
     # again the table default, entered explicitly per the #744 review rule above.
     ("slot_width", "length"): "linear",
     ("slot_length", "length"): "linear",
+    ("oriented_slot_width", "length"): "leader",
+    ("oriented_slot_length", "length"): "leader",
     # A pad height is its terminal-to-attachment rise on every axis.  A Z profile level,
     # when present, measures datum-to-attachment and therefore cannot replace this local
     # feature requirement.
@@ -373,6 +376,8 @@ def _preferred_group_view(feature: Feature) -> str:
         return _PROFILE.get(feature.frame.axis, "front")
     if isinstance(feature, SlotFeature | PadFeature):
         return _END_ON[_plane_normal(feature)]
+    if isinstance(feature, OrientedSlotFeature):
+        return _END_ON[feature.frame.axis]
     if isinstance(feature, PocketFeature):
         return _END_ON[feature.depth_axis]
     if isinstance(feature, RectangularBlindSlotFeature):
@@ -1244,6 +1249,8 @@ def _parameter_view_preferences(feature: Feature, pd: PlannedDimension) -> tuple
         return (_PROFILE.get(axis, "front"),)
     if isinstance(feature, SlotFeature | PadFeature):
         return (_END_ON[_plane_normal(feature)],)
+    if isinstance(feature, OrientedSlotFeature):
+        return (_END_ON[feature.frame.axis],)
     if isinstance(feature, PocketFeature):
         return (_END_ON[feature.depth_axis],)
     if isinstance(feature, RectangularBlindSlotFeature):

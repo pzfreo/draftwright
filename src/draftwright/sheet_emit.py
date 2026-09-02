@@ -758,6 +758,40 @@ def _feature_line(
             f'long_axis="{f.long_axis}", width_axis="{f.width_axis}", '
             f"lo={lo}, hi={hi}, w_center={_n(f.w_center)}, at={_pt(f.frame.origin)})"
         )
+    if k == "oriented_slot":
+        passage = f.passage
+        boundary = (
+            "("
+            + ", ".join(
+                f"({_authored_pt(point)}, {_authored_n(bulge)})"
+                for point, bulge in passage.boundary
+            )
+            + ",)"
+        )
+        body_key = (
+            "None"
+            if passage.body_key is None
+            else (
+                "()"
+                if not passage.body_key
+                else "(" + ", ".join(_authored_n(value) for value in passage.body_key) + ",)"
+            )
+        )
+        return (
+            "sheet.oriented_slot("
+            f"width={_authored_n(f.width)}, length={_authored_n(f.length)}, "
+            f"center={_authored_pt(f.frame.origin)}, "
+            f"width_direction={_authored_pt(f.width_direction)}, "
+            f"long_direction={_authored_pt(f.long_direction)}, "
+            f"run_direction={_authored_pt(f.run_direction)}, "
+            f"source_origin={_authored_pt(passage.origin)}, "
+            f"source_u={_authored_pt(passage.u)}, "
+            f"source_v={_authored_pt(passage.v)}, "
+            f"run_interval=({_authored_n(passage.run_interval[0])}, "
+            f"{_authored_n(passage.run_interval[1])}), source_boundary={boundary}, "
+            f"low_capped={passage.low_capped!r}, high_capped={passage.high_capped!r}, "
+            f"body_key={body_key})"
+        )
     if k == "rectangular_blind_slot":
         return (
             "sheet.rectangular_blind_slot("
@@ -959,6 +993,7 @@ _SECTION = {
     "step": "Turned steps",
     "groove": "Grooves",
     "slot": "Slots",
+    "oriented_slot": "Slots",
     "pocket": "Pockets",
     "channel": "Channels",
     "chamfer": "Edges",
@@ -982,6 +1017,7 @@ _NOUN = {
     "step": "step",
     "groove": "groove",
     "slot": "slot",
+    "oriented_slot": "oriented slot",
     "pocket": "pocket",
     "channel": "channel",
     "chamfer": "chamfer",
@@ -1008,6 +1044,7 @@ _DESCRIBED = frozenset(
         "round_bottom_blind_slot",
         "step",
         "slot",
+        "oriented_slot",
         "pocket",
         "channel",
         "pattern",
@@ -1058,6 +1095,8 @@ def _short_label(f) -> str:
     if k in ("slot", "pocket"):
         s = f"{k} {_n(f.width)} × {_n(f.length)}"
         return s + (f" × {_n(f.depth)} deep" if k == "pocket" else "")
+    if k == "oriented_slot":
+        return f"oriented slot {_n(f.width)} × {_n(f.length)}"
     if k == "rectangular_blind_slot":
         return f"open slot {_n(f.width)} × {_n(f.length)} × {_n(f.depth)} deep"
     if k == "round_bottom_blind_slot":
@@ -1671,6 +1710,7 @@ def _feature_block(
                 "pad",
                 "rectangular_blind_slot",
                 "round_bottom_blind_slot",
+                "oriented_slot",
             ):
                 # Preserve the EFFECTIVE decoration of each independently addressable
                 # through-step leg / pad extent.  Pad height is a new independent public

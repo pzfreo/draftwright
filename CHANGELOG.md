@@ -44,15 +44,28 @@
 
 ### Changed
 
+- Standalone free-axis oriented slots from `b123d-recognisers` 0.4.12 now cross a dedicated,
+  lossless consumer path. `OrientedSlotFeature` retains the provider's complete
+  `SectionPassage` identity and vector width/long/run directions; the public
+  `Sheet.oriented_slot(...)` word and executed generated-Sheet code reproduce that exact waist.
+  The compiler approves width and length as two independent requirements and one solver-owned
+  `ORIENTED SLOT … WIDE × … LONG` leader carries both measurement identities without raw page
+  coordinates. Exact provider pattern members remain exclusively deferred to the array/grid
+  family rather than being double-counted as standalone slots. Independent correspondence and
+  mutation evidence covers raw/framed invariance, source identity, missing provenance, placement
+  drops, and two-requirement cardinality. The released 0.4.12 API is sufficient; no recogniser
+  change is required (#1432; ADRs 0011, 0013–0017, 0020).
+
 - Draftwright now exactly pins the immutable `b123d-recognisers` 0.4.12 release and advances its
   fail-closed capability and inspection joins. The additive `Blend`, `OrientedSlot`,
-  `OrientedSlotArray`, and `OrientedSlotGrid` records are deliberately visible but deferred under
-  #1430: no record is coerced into the existing Fillet, axis-letter Slot, or SlotPattern grammar,
-  no new Sheet word is claimed, and real occurrences remain reported as recognised-but-unscored
-  until their consumer semantics and ownership are reviewed. All earlier record schemas remain
-  compatible. The provider's newly recognised shallow nonzero `PairedRampStep` keeps its existing
-  two-requirement IR, public `Sheet.paired_ramp_step(...)` declaration, generated-code, compiler
-  callout, solver placement, and completeness meaning (#1430; ADRs 0011, 0013–0017, 0020).
+  `OrientedSlotArray`, and `OrientedSlotGrid` records entered through explicit deferred
+  dispositions under #1430 rather than being coerced into the existing Fillet, axis-letter Slot,
+  or SlotPattern grammar. The standalone oriented-slot disposition subsequently advances under
+  #1432 above; blends and oriented-slot patterns remain recognised-but-unscored pending their own
+  ownership decisions. All earlier record schemas remain compatible. The provider's newly
+  recognised shallow nonzero `PairedRampStep` keeps its existing two-requirement IR, public
+  `Sheet.paired_ramp_step(...)` declaration, generated-code, compiler callout, solver placement,
+  and completeness meaning (#1430; ADRs 0011, 0013–0017, 0020).
 
 - Rectangular blind slots recognised by `b123d-recognisers` 0.4.10 now cross a dedicated
   Draftwright semantic path: `RectangularBlindSlotFeature`, the explicit

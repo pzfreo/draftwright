@@ -253,6 +253,7 @@ _SAME_PATH_AS_ENVELOPE = {
     "double_d_bore",
     "measured_dimension",
     "slot",
+    "oriented_slot",
     "pocket",
     "rectangular_blind_slot",
     "round_bottom_blind_slot",

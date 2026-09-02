@@ -11,6 +11,7 @@ keep that table, this document, and `CLAUDE.md`'s compact map in step. The
 The dependency graph is a DAG (the #138 / ADR 0005 split is complete). Bottom to
 top: leaf modules (`layout.py`, `registry.py`, `fonts.py`, `_geometry.py`,
 `fits.py`, `intents.py`, `recognition_cache.py`, `recognition_frame.py`, and the
+oriented-slot boundary leaves (`oriented_slot_contract.py`, `feature_identity.py`), and the
 `linting/` subpackage) →
 `_core.py` → stage modules (`export.py`,
 `repair.py`, `projection.py`, `compose.py`, `analysis.py`, `drawing.py`, the
@@ -209,6 +210,11 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   cylinders, runs one paired aggregate, propagates typed refusal without fallback, and exposes
   conservative FULL/ORTHOGONAL/AXIAL semantic policy. Analysis calls it only for the explicit
   `framed_recognition=True` rollout path and owns any visible raw fallback above this leaf.
+- **`oriented_slot_contract.py` / `feature_identity.py`** — the #1432 trust-boundary leaves.
+  The former validates the exact released public oriented-slot/pattern schema once for both
+  detection and independent completeness, including lossless occurrence keys. The latter
+  registers the exact compiler feature class so lint can reject same-named ducks without the
+  ADR 0015-forbidden `linting` → `model` import.
 - **`recogniser_contract.py`** — the fail-closed cross-repository capability join. It consumes
   only the installed `b123d-recognisers` public manifest, then validates Draftwright-owned IR,
   `Sheet`, generated-code, drawing, completeness, and documentation declarations. It is rank 7

@@ -556,15 +556,22 @@ addition and the 0.4.12 `OrientedSlot`, `OrientedSlotArray`, and `OrientedSlotGr
 provider capability manifest therefore contains 33 families. Every family and public record has an
 explicit consumer declaration and registry home; the inspection API remains format 1 / major 1.
 
-This bounded adoption does not decide the new drawing semantics. `blends`, `oriented_slots`, and
-`oriented_slot_patterns` are separately registered as undecided inventories under #1430. A real
-occurrence is visible in `unscored_recognized_families`, but contributes no invented completeness
-requirement. Blend-chain precedence and defining-face ownership must be reconciled with the existing
-Fillet family before either can suppress or duplicate a radius requirement. The free-axis slot
-record retains vector width/long directions and its authoritative `SectionPassage` source; the
-array/grid records retain those member identities and their vector lattice. Coercing any of them
-into the principal-axis `SlotFeature` / `SlotPatternFeature` would discard that contract, so there
-is no new Sheet word, generated statement, annotation, or completeness claim in the adoption slice.
+The bounded adoption initially made `blends`, `oriented_slots`, and `oriented_slot_patterns`
+separately visible as undecided inventories under #1430. Standalone `oriented_slots` subsequently
+advance to supported under #1432. Their dedicated IR preserves vector width/long/run directions and
+the authoritative `SectionPassage`; public `Sheet.oriented_slot(...)`, executed generated code, a
+compiler-approved two-value callout, and fail-closed completeness correspondence all retain that
+identity. Width and length are exactly two physical requirements. Pattern members are excluded by
+exact provider-record ownership, so the still-deferred array/grid family cannot be double-counted as
+standalone slots.
+
+`blends` and `oriented_slot_patterns` remain undecided. Their real occurrences are visible in
+`unscored_recognized_families` but contribute no invented completeness requirement. Blend-chain
+precedence and defining-face ownership must be reconciled with the existing Fillet family before
+either can suppress or duplicate a radius requirement. Oriented-slot array/grid records retain
+member identities and their vector lattice; coercing them into the principal-axis
+`SlotPatternFeature` would discard that contract. They therefore still have no Sheet word,
+generated statement, annotation, or completeness claim.
 
 The existing schema-v1 `PairedRampStep` record is unchanged, while 0.4.12 expands provider
 recognition to shallow nonzero ramp pairs. A released shallow specimen now crosses the already

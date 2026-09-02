@@ -495,7 +495,7 @@ def test_0410_round_bottom_slot_crosses_the_dedicated_consumer_path():
             OrientedSlot,
             3,
             OrientedSlotArray,
-            ["oriented_slot_patterns", "oriented_slots"],
+            ["oriented_slot_patterns"],
         ),
         (
             _oriented_slot_pattern(
@@ -505,7 +505,7 @@ def test_0410_round_bottom_slot_crosses_the_dedicated_consumer_path():
             OrientedSlot,
             6,
             OrientedSlotGrid,
-            ["oriented_slot_patterns", "oriented_slots"],
+            ["oriented_slot_patterns"],
         ),
     ],
     ids=("blend", "oriented-linear", "oriented-grid"),

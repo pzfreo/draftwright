@@ -125,6 +125,12 @@ _FAMILIES: dict[str, _FamilySpec] = {
         "render_slot_patterns",
     ),
     "slots": _FamilySpec(("Slot",), "_convert_slot", "slot", "render_slots"),
+    "oriented-slots": _FamilySpec(
+        ("OrientedSlot",),
+        "_convert_oriented_slot",
+        "oriented_slot",
+        "render_oriented_slots",
+    ),
     "through-steps": _FamilySpec(
         ("ThroughStep",), "_convert_through_step", "through_step", "render_through_steps"
     ),
@@ -298,6 +304,11 @@ def _family_declaration(family_id: str, spec: _FamilySpec) -> dict[str, Any]:
             "lint_round_bottom_blind_slot_coverage",
             "tests/test_issue_1421_round_bottom_blind_slot_completeness.py",
         )
+    elif family_id == "oriented-slots":
+        completeness = _supported(
+            "draftwright.linting.oriented_slot_coverage.lint_oriented_slot_coverage",
+            "tests/test_issue_1432_oriented_slot_semantics.py",
+        )
     elif family_id == "through-steps":
         completeness = _supported(
             "draftwright.linting.through_step_coverage.lint_through_step_coverage",
@@ -397,14 +408,6 @@ _UNSUPPORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
         "pattern identity. A dedicated consumer contract is being reviewed before any grouping "
         "or dimensions are emitted.",
     ),
-    "oriented-slots": (
-        ("OrientedSlot",),
-        "https://github.com/pzfreo/draftwright/issues/1430",
-        "The record carries free-axis directions and an authoritative SectionPassage source. "
-        "Coercing it into the legacy axis-letter SlotFeature would discard that correspondence, "
-        "so its dedicated IR, Sheet vocabulary, drawing grammar, and completeness denominator "
-        "remain under review.",
-    ),
     "passages": (
         (
             "Passage",
@@ -440,9 +443,7 @@ _UNSUPPORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
     ),
 }
 
-_DEFERRED_FAMILIES: frozenset[str] = frozenset(
-    {"blends", "oriented-slot-patterns", "oriented-slots"}
-)
+_DEFERRED_FAMILIES: frozenset[str] = frozenset({"blends", "oriented-slot-patterns"})
 
 
 def _unsupported_declaration(family_id: str) -> dict[str, Any]:

@@ -19,7 +19,7 @@ from draftwright.layout import _assign_leader_candidates
 from draftwright.model import FilletFeature, Frame, GrooveFeature, PartModel, pocket
 
 
-def test_late_joint_assignment_stays_scoped_to_the_ten_post_drain_adapters():
+def test_late_joint_assignment_stays_scoped_to_the_twelve_post_drain_adapters():
     root = Path(__file__).parents[1] / "src" / "draftwright" / "annotations"
 
     def call_sites(filename):
@@ -52,6 +52,7 @@ def test_late_joint_assignment_stays_scoped_to_the_ten_post_drain_adapters():
         ("from_model.py", "render_pockets", True),
         ("from_model.py", "render_rectangular_blind_slots", True),
         ("from_model.py", "render_round_bottom_blind_slots", True),
+        ("from_model.py", "render_oriented_slots", True),
         ("from_model.py", "render_pad_heights", True),
         ("from_model.py", "render_grooves", True),
         ("from_model.py", "render_paired_ramp_steps", True),

@@ -59,6 +59,8 @@ from draftwright.model.ir import (
     HoleFeature,
     LevelSupport,
     Note,
+    OrientedSlotFeature,
+    OrientedSlotPassage,
     PadFeature,
     PairedRampStepFeature,
     PatternFeature,
@@ -1333,6 +1335,52 @@ def slot(
         w_center=w_center,
         lo=lo,
         hi=hi,
+    )
+
+
+def oriented_slot(
+    *,
+    width,
+    length,
+    center,
+    width_direction,
+    long_direction,
+    run_direction,
+    source_origin,
+    source_u,
+    source_v,
+    run_interval,
+    source_boundary,
+    low_capped=False,
+    high_capped=False,
+    body_key=(),
+) -> OrientedSlotFeature:
+    """Declare a rectangular through slot with free in-plane directions.
+
+    The source fields are explicit because they identify the accepted physical passage used
+    for correspondence; a bounding box cannot recover them without rescanning topology.
+    """
+    passage = OrientedSlotPassage(
+        origin=source_origin,
+        run=run_direction,
+        u=source_u,
+        v=source_v,
+        run_interval=run_interval,
+        boundary=source_boundary,
+        low_capped=low_capped,
+        high_capped=high_capped,
+        body_key=body_key,
+    )
+    run = passage.run
+    dominant = max(range(3), key=lambda index: abs(run[index]))
+    return OrientedSlotFeature(
+        frame=Frame(origin=center, axis="xyz"[dominant]),
+        width_direction=width_direction,
+        long_direction=long_direction,
+        run_direction=run,
+        width=width,
+        length=length,
+        passage=passage,
     )
 
 

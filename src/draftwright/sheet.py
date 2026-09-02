@@ -79,6 +79,7 @@ from draftwright.model import groove as _groove
 from draftwright.model import hole as _hole
 from draftwright.model import measured_dimension as _measured_dimension
 from draftwright.model import note as _declare_note
+from draftwright.model import oriented_slot as _oriented_slot
 from draftwright.model import pad as _pad
 from draftwright.model import paired_ramp_step as _paired_ramp_step
 from draftwright.model import pattern as _pattern
@@ -1517,6 +1518,11 @@ class Sheet:
     def slot(self, obj=None, **kw) -> _Params:
         """Declare a milled slot / reduced across-flats section (width + length)."""
         self._features.append(_slot(obj, **kw))
+        return _Params(self, len(self._features) - 1)
+
+    def oriented_slot(self, **kw) -> _Params:
+        """Declare a free-direction rectangular through slot and its source passage."""
+        self._features.append(_oriented_slot(**kw))
         return _Params(self, len(self._features) - 1)
 
     def pocket(self, obj=None, **kw) -> _Params:

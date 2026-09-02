@@ -71,6 +71,7 @@ _LAYERS: dict[str, int] = {
     # every invocation.
     "_warnings": 0,
     "fits": 0,
+    "feature_identity": 0,
     "fonts": 0,
     "layout": 0,
     "registry": 0,
@@ -80,6 +81,7 @@ _LAYERS: dict[str, int] = {
     "recognition": 0,
     "recognition_cache": 0,
     "recognition_frame": 0,
+    "oriented_slot_contract": 0,
     "score": 0,  # census over recognition/ only — a leaf beside the recognisers (#704)
     # audit: diffs two FINISHED drawings through their public reads (#996). A leaf by
     # construction — it imports nothing from the engine, so the thing it measures can never
@@ -442,11 +444,15 @@ def test_classifier_is_binding_aware_and_context_correct(tmp_path):
 _MODEL_MAY_IMPORT = {
     "_geometry",
     "fits",
+    # Exact compiler type branding without a linting -> model edge (#1432).
+    "feature_identity",
     "fonts",
     "layout",
     "model",
     "recognition",
     "recognition_frame",
+    # One public-provider trust boundary shared by detection and completeness (#1432).
+    "oriented_slot_contract",
     # ADR 0018: the dimension planner resolves requirement ownership against the selected
     # semantic view set.  `view_plan` is a rank-0, drawing-independent leaf.
     "view_plan",

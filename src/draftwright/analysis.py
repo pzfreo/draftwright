@@ -1012,6 +1012,10 @@ def _analyse(
             # three itself, which is the duplicate scan ADR 0017 exists to remove. On this
             # branch `recognition` is non-None by construction (it is the not-declared arm).
             slot_patterns=list(recognition.slot_patterns) if recognition else None,
+            oriented_slots=list(recognition.oriented_slots) if recognition else None,
+            oriented_slot_patterns=(
+                list(recognition.oriented_slot_patterns) if recognition else None
+            ),
             grooves=list(recognition.grooves) if recognition else None,
             risers=list(recognition.risers) if recognition else None,
             chamfers=list(recognition.chamfers) if recognition else None,

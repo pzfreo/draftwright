@@ -10,6 +10,8 @@
   completeness gate with independent physical evidence and semantic outcomes; Amendment 8 does
   the same independently for the round-bottom family. Amendment 9 (2026-09-02) adopts the 0.4.12
   additive inventories fail closed while retaining the existing paired-ramp consumer meaning.
+  Amendment 10 (2026-09-02) advances standalone oriented slots while retaining exclusive deferred
+  ownership for their patterns.
 - **Date:** 2026-08-03
 - **Deciders:** Paul Fremantle (pzfreo)
 
@@ -255,6 +257,35 @@ The release also widens recognition behavior for the unchanged `PairedRampStep` 
 nonzero angles. That is compatible with its existing acute-angle IR and two-requirement consumer
 contract. A released shallow specimen follows the existing aggregate-to-IR, declaration,
 generated-code, compiler, solver, and completeness path without a new Sheet word or placement API.
+
+## Amendment 10 — standalone free-axis slots are semantic; their patterns are not yet
+
+The aggregate's standalone `oriented_slots` inventory now lowers one-to-one to a dedicated
+`OrientedSlotFeature`. The waist retains the provider's full `SectionPassage` source identity,
+body key, and free width/long/run vectors. Its principal-axis `Frame.axis` is only a presentation
+choice for selecting an available orthographic view; it does not replace or approximate those
+normative vectors. The released 0.4.12 public record is complete, so no topology rescan or provider
+API change is needed.
+
+The public declaration is `Sheet.oriented_slot(...)`. It names every normative size, direction,
+source-frame, boundary, end-state and body-identity field, and generated Sheet code executes that
+same declaration. Width and length are exactly two physical requirements. Compilation approves
+them separately while one solver-owned feature leader may present both; the registry retains both
+measurement identities, so either value can be suppressed, dropped, missing, satisfied or
+unverifiable without parsing text or inspecting page coordinates. The label targets the projected
+physical opening and remains a callout even when that opening is oblique in a principal view; no
+projected length is asserted as the true size.
+
+Exact members of `oriented_slot_patterns` are excluded from the standalone denominator and IR.
+Their group, pitch/lattice and member ownership remain deferred under #1430, and no existing
+principal-axis `SlotPatternFeature` is allowed to absorb them. This gives every physical occurrence
+one owner while permitting standalone support to ship before the separate pattern semantics.
+
+Independent evidence fixes the denominator at two requirements per construction-authored
+standalone occurrence and mutates source-passage identity, compiler provenance, placement outcome
+and annotation presence. Raw and provider-framed builds preserve the same nominal values and
+outcome identities. A sparse or ambiguous join fails closed as two unverifiable requirements; it
+cannot disappear merely because the drawing has no matching IR or ink.
 
 ## Accepted Contract
 

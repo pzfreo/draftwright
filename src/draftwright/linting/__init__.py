@@ -42,6 +42,7 @@ from draftwright.linting.gear_coverage import lint_declared_gear_coverage
 from draftwright.linting.groove_coverage import lint_groove_coverage
 from draftwright.linting.hole_coverage import lint_hole_coverage
 from draftwright.linting.issues import LintIssue
+from draftwright.linting.oriented_slot_coverage import lint_oriented_slot_coverage
 from draftwright.linting.pad_coverage import lint_pad_coverage
 from draftwright.linting.paired_ramp_step_coverage import lint_paired_ramp_step_coverage
 from draftwright.linting.passage_coverage import lint_passage_coverage
@@ -101,6 +102,7 @@ __all__ = [
     "lint_slot_coverage",
     "lint_through_step_coverage",
     "lint_location_coverage",
+    "lint_oriented_slot_coverage",
     "lint_passage_coverage",
     "lint_pad_coverage",
     "lint_plate_coverage",

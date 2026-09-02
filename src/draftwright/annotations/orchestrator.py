@@ -68,6 +68,7 @@ from draftwright.annotations.from_model import (
     render_height_ladder,
     render_local_turned_centerlines,
     render_locations,
+    render_oriented_slots,
     render_pad_heights,
     render_paired_ramp_steps,
     render_plates,
@@ -278,6 +279,7 @@ _PASS_SEQUENCE: tuple[str, ...] = (
     "pockets",
     "rectangular_blind_slots",
     "round_bottom_blind_slots",
+    "oriented_slots",
     "pad_heights",
     "grooves",
     # One compatible same-view feature-leader inventory (#1166): side/plan
@@ -372,6 +374,8 @@ def build_model(a: Analysis):
         # `a.pocket_patterns` are list copies of the same records and would do as well —
         # #1024 collapses that duplication.
         slot_patterns=a.recognition.slot_patterns,
+        oriented_slots=a.recognition.oriented_slots,
+        oriented_slot_patterns=a.recognition.oriented_slot_patterns,
         grooves=a.recognition.grooves,
         risers=a.recognition.risers,
         chamfers=a.recognition.chamfers,
@@ -688,6 +692,10 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # Dedicated flat-floor × side-radius × capped-run leader (#1421), solver-owned.
         render_round_bottom_blind_slots(dwg, _compiled, a, ctx=ctx)
 
+    def _s_oriented_slots():
+        # Standalone free-direction slots use one solver-owned width × length callout.
+        render_oriented_slots(dwg, _compiled, a, ctx=ctx)
+
     def _s_pad_heights():
         # A raised pad's local attachment-to-terminal rise is independent of any global
         # datum-to-level ladder. Its HIGH leader is a first-class post-drain candidate,
@@ -889,6 +897,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
             "pockets": _s_pockets,
             "rectangular_blind_slots": _s_rectangular_blind_slots,
             "round_bottom_blind_slots": _s_round_bottom_blind_slots,
+            "oriented_slots": _s_oriented_slots,
             "pad_heights": _s_pad_heights,
             "pocket_patterns": _s_pocket_patterns,
             "slot_patterns": _s_slot_patterns,

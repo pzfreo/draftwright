@@ -201,7 +201,7 @@ def test_0410_blind_slot_family_dispositions_are_explicit() -> None:
         assert family_id not in pending_family_declarations()
 
 
-def test_0412_additive_family_dispositions_are_explicit_and_deferred() -> None:
+def test_0412_additive_family_dispositions_are_explicit() -> None:
     package = _families(recognition.capability_manifest())
     consumer = _families(consumer_capability_declaration())
     expected = {
@@ -254,18 +254,20 @@ def test_0412_additive_family_dispositions_are_explicit_and_deferred() -> None:
 
         declaration = consumer[family_id]
         assert declaration["record_schemas"] == {name: [1] for name in contract["records"]}
-        assert declaration["disposition"] == "deferred"
-        assert declaration["tracking"] == "https://github.com/pzfreo/draftwright/issues/1430"
-        assert {
-            declaration[boundary]["state"]
-            for boundary in (
-                "ir_adapter",
-                "dsl_declaration",
-                "generated_code",
-                "drawing_consumer",
-                "completeness",
-            )
-        } == {"deferred"}
+        boundaries = (
+            "ir_adapter",
+            "dsl_declaration",
+            "generated_code",
+            "drawing_consumer",
+            "completeness",
+        )
+        if family_id == "oriented-slots":
+            assert declaration["disposition"] == "supported"
+            assert {declaration[boundary]["state"] for boundary in boundaries} == {"supported"}
+        else:
+            assert declaration["disposition"] == "deferred"
+            assert declaration["tracking"] == "https://github.com/pzfreo/draftwright/issues/1430"
+            assert {declaration[boundary]["state"] for boundary in boundaries} == {"deferred"}
         assert declaration["documentation"]["state"] == "supported"
         assert family_id not in pending_family_declarations()
 
@@ -1199,6 +1201,7 @@ def test_dsl_and_generated_code_inventories_are_derived_from_live_code() -> None
         "risers": "step_level",
         "slot-patterns": "slot_pattern",
         "slots": "slot",
+        "oriented-slots": "oriented_slot",
         "through-steps": "through_step",
         "turned-steps": "step",
     }
