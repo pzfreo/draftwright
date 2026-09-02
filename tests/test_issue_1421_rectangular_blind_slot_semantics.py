@@ -190,7 +190,9 @@ def test_every_nonempty_authored_parameter_subset_survives_rendering(
     name, annotation = next(iter(annotations.items()))
     assert annotation.label == expected_label
     assert {key["parameter_id"] for key in drawing.measurement_keys(name)} == set(parameters)
-    assert drawing.lint() == []
+    issues = drawing.lint()
+    assert len(issues) == 3 - len(parameters)
+    assert {issue.code for issue in issues} <= {"rectangular_blind_slot_requirement_suppressed"}
 
 
 @pytest.mark.parametrize(

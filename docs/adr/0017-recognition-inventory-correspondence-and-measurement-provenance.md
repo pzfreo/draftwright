@@ -6,7 +6,8 @@
   prismatic step inventories incorporated by Amendment 4 (2026-08-30). Amendment 5
   (2026-09-01) incorporates the 0.4.10 prismatic blind-slot inventories; Amendment 6
   (2026-09-02) adopts the rectangular family's compiler semantics while retaining an
-  evidence gate around completeness.
+  evidence gate around completeness. Amendment 7 (2026-09-02) closes that rectangular
+  completeness gate with independent physical evidence and semantic outcomes.
 - **Date:** 2026-08-03
 - **Deciders:** Paul Fremantle (pzfreo)
 
@@ -175,6 +176,29 @@ audited score on annotation presence. The round-bottom family remains fully defe
 separate flat-width and floor-radius semantics are delivered. Native raw and rigidly moved framed
 tests establish measurement/callout parity without treating an ORTHOGONAL frame representative as
 authored material-axis identity.
+
+## Amendment 7 — rectangular blind-slot completeness is evidence-backed
+
+Each aggregate rectangular blind-slot occurrence now contributes three independent physical
+requirements: U-section width, capped mouth-to-terminal run and flat-bottom depth. Correspondence
+uses the complete released structural record—axis, both opening signs, transverse axis roles, three
+sizes and centre—at the generated Sheet program's documented 0.001 mm precision. Duplicate sources,
+duplicate IR matches, malformed records, near neighbours and parameter/span disagreement are
+unverifiable rather than guessed.
+
+The requirements then follow their exact `DimensionId` values through the ADR 0010 registry seam to
+`placed`, `satisfied_by_structured_note`, authored `suppressed`, placement `dropped`, `missing`, or
+`unverifiable`. The ledger does not parse labels or names and does not use views, projected geometry,
+leader tips, page coordinates or the approved plan as its physical denominator. Compiler omissions
+are read only to distinguish authored suppression after source-to-IR correspondence is established.
+
+An independently authored seven-case corpus fixes all six principal run-axis/open-side orientations
+and a separately sized specimen: 7 physical occurrences, 21 parameters and 21 finished drawing
+outcomes. Removing the rectangular inventory produces zero observed outcomes while the authored
+21-requirement benchmark remains, so recognition loss cannot self-certify. Direct declarations and
+executed generated declarations earn the same outcomes, and all three approved identities must be
+present for a fully complete automatic callout. The rectangular family now enters the audited
+completeness denominator; round-bottom blind slots remain separately deferred.
 
 ## Accepted Contract
 

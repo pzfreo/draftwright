@@ -49,6 +49,9 @@ from draftwright.linting.pocket_coverage import pocket_requirement_outcomes
 from draftwright.linting.pocket_pattern_coverage import pocket_pattern_requirement_outcomes
 from draftwright.linting.polygonal_boss_coverage import polygonal_boss_requirement_outcomes
 from draftwright.linting.polygonal_stock_coverage import polygonal_stock_outcomes
+from draftwright.linting.rectangular_blind_slot_coverage import (
+    rectangular_blind_slot_requirement_outcomes,
+)
 from draftwright.linting.slot_coverage import slot_requirement_outcomes
 from draftwright.linting.through_step_coverage import through_step_requirement_outcomes
 from draftwright.linting.turned_step_coverage import turned_step_requirement_outcomes
@@ -186,6 +189,7 @@ _AUDITED_FAMILIES = (
     "pockets",
     "pocket_patterns",
     "prismatic_pockets",
+    "rectangular_blind_slots",
     "slot_patterns",
     "slots",
     "through_steps",
@@ -418,6 +422,7 @@ _UNSCORED_CODE_PREFIXES = (
     "pocket_pattern_requirement_",
     "polygonal_boss_requirement_",
     "polygonal_stock_requirement_",
+    "rectangular_blind_slot_requirement_",
     "slot_requirement_",
 )
 
@@ -659,6 +664,9 @@ def _completeness_component(
         "polygonal_stock": polygonal_stock_outcomes(recognition, features, registry, omissions),
         "pockets": pocket_requirement_outcomes(recognition, features, registry, omissions),
         "pocket_patterns": pocket_pattern_requirement_outcomes(
+            recognition, features, registry, omissions
+        ),
+        "rectangular_blind_slots": rectangular_blind_slot_requirement_outcomes(
             recognition, features, registry, omissions
         ),
         "slots": [],

@@ -123,6 +123,7 @@ from draftwright.linting import (
     lint_prismatic_coverage,
     lint_prismatic_pocket_coverage,
     lint_profiled_bore_coverage,
+    lint_rectangular_blind_slot_coverage,
     lint_slot_coverage,
     lint_through_step_coverage,
     pmi_stage_summary,
@@ -3695,6 +3696,14 @@ class Drawing:
                 assembly=self.assembly,
             )
             issues += lint_circular_blind_step_coverage(
+                working_part,
+                recognition=recognition,
+                features=getattr(model, "features", ()) if model is not None else (),
+                registry=self._registry,
+                omissions=self._build.omissions,
+                assembly=self.assembly,
+            )
+            issues += lint_rectangular_blind_slot_coverage(
                 working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),

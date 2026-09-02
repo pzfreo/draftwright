@@ -529,10 +529,15 @@ rigidly moved framed builds preserve the same three measurements and drawing sem
 
 This is intentionally not an ordinary through `SlotFeature`, which cannot state a blind terminal
 wall or section depth, and not a rectangular pocket, which cannot state the open end. Independent
-physical completeness scoring remains deferred under #1421, so live rectangular occurrences stay
-in `unscored_recognized_families` and do not silently earn ordinary slot/pocket coverage. The
-round-bottom family remains deferred at every semantic boundary: its separate flat width and floor
-radius still need their own IR, Sheet word, callout grammar and evidence.
+physical completeness is now supported by a seven-case authored corpus covering all six run/open
+orientations and a separately sized specimen. Each recognised occurrence contributes three
+requirements—width, capped run and flat-bottom depth—and exact released structural facts join it to
+one IR feature before measurement identities establish placed, structured-note, authored-
+suppressed, dropped, missing or unverifiable outcomes. Labels, annotation names, views, projections,
+leader tips and page coordinates cannot certify correspondence. The rectangular family therefore
+participates in `audited_score`; the distinct round-bottom family remains deferred at every semantic
+boundary because its flat width and floor radius still need their own IR, Sheet word, callout grammar
+and evidence.
 
 ## Recognisers 0.4.9 prepared frame boundary
 

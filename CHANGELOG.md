@@ -51,9 +51,12 @@
   `OPEN SLOT … DEEP` leader. Authored subsets retain every approved value with explicit
   `WIDE`/`LONG`/`DEEP` roles, and leaders target proved cap/side material rather than the open
   mouth. Native raw and rigidly moved framed builds retain the same three
-  measurement outcomes. Independent physical completeness scoring remains deferred under #1421,
-  and the distinct round-bottom family remains fully deferred (#1421; ADRs 0011, 0013–0017,
-  0020).
+  measurement outcomes. A seven-case independently authored corpus now pins all six run/open-side
+  orientations plus an independently sized specimen: each occurrence contributes separate width,
+  capped-run and depth requirements followed by exact structural correspondence and measurement
+  provenance to placed, structured-note, suppressed, dropped, missing or unverifiable outcomes.
+  Removing recognition cannot shrink that 21-requirement benchmark, and the distinct round-bottom
+  family remains fully deferred (#1421; ADRs 0011, 0013–0017, 0020).
 
 - Turned-step completeness is now backed by an independently authored, hash-pinned 11-case STEP
   corpus with 26 physical outside-diameter bands, 52 parameter checks and 104 downstream checks.
