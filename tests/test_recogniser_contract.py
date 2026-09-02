@@ -25,9 +25,15 @@ from _recogniser_public_contract import (
     public_record_universe,
 )
 from b123d_recognisers import (
+    Blend,
+    OrientedSlot,
+    OrientedSlotArray,
+    OrientedSlotGrid,
     analyse_cylinders,
+    build_raw_recognition_result,
     project_step_shoulders,
     recognise_angled_steps,
+    recognise_blends,
     recognise_bosses,
     recognise_chamfers,
     recognise_channels,
@@ -40,6 +46,8 @@ from b123d_recognisers import (
     recognise_grooves,
     recognise_hole_patterns,
     recognise_holes,
+    recognise_oriented_slot_patterns,
+    recognise_oriented_slots,
     recognise_paired_ramp_steps,
     recognise_passages,
     recognise_plates,
@@ -204,6 +212,27 @@ def _filleted_box():
     return fillet(edge, 3)
 
 
+def _small_blended_box():
+    box = Box(40, 30, 20)
+    return fillet(list(box.edges().filter_by(Axis.Z)), 0.2)
+
+
+def _oriented_slot_pattern(points, *, angle=30.0):
+    part = Box(120, 90, 10)
+    for x, y in points:
+        part -= (
+            Pos(x, y, 0)
+            * Rot(0, 0, angle)
+            * Box(
+                24,
+                6,
+                20,
+                align=(Align.CENTER, Align.CENTER, Align.CENTER),
+            )
+        )
+    return part
+
+
 def _l_bracket():
     return Box(80, 40, 8) + Pos(-36, 0, 24) * Box(8, 40, 40)
 
@@ -275,6 +304,10 @@ def _records_from_recognisers():
     dshaft = Cylinder(10, 30) - Pos(10, 0, 0) * Box(10, 40, 40)  # round stock with one flat
     grooved = Cylinder(10, 40) - (Cylinder(10, 4) - Cylinder(8, 4))  # round stock with one groove
     levels = [f.z for f in recognise_face_levels(stepped)]
+    oriented_array = recognise_oriented_slots(_oriented_slot_pattern(((-30, 0), (0, 0), (30, 0))))
+    oriented_grid = recognise_oriented_slots(
+        _oriented_slot_pattern(((-30, -20), (0, -20), (30, -20), (-30, 20), (0, 20), (30, 20)))
+    )
 
     out: list[tuple[str, object]] = []
     for name, recs in [
@@ -287,9 +320,19 @@ def _records_from_recognisers():
         ("hole_patterns:linear", recognise_hole_patterns(recognise_holes(_linear_array_plate()))),
         ("hole_patterns:grid", recognise_hole_patterns(recognise_holes(_grid_plate()))),
         ("recognise_chamfers", recognise_chamfers(_chamfered_box())),
+        ("recognise_blends", recognise_blends(_small_blended_box())),
         ("recognise_channels", recognise_channels(channel)),
         ("recognise_fillets", recognise_fillets(_filleted_box())),
         ("recognise_slots", recognise_slots(slotted)),
+        ("recognise_oriented_slots", oriented_array),
+        (
+            "oriented_slot_patterns:linear",
+            recognise_oriented_slot_patterns(oriented_array),
+        ),
+        (
+            "oriented_slot_patterns:grid",
+            recognise_oriented_slot_patterns(oriented_grid),
+        ),
         (
             "recognise_rectangular_blind_slots",
             recognise_rectangular_blind_slots(_rectangular_blind_slot_part()),
@@ -433,6 +476,72 @@ def test_0410_round_bottom_slot_crosses_the_dedicated_consumer_path():
     assert completeness["requirements"] == 3
     assert completeness["audited_score"] == 1.0
     assert completeness["by_family"]["round_bottom_blind_slots"] == 3
+
+
+@pytest.mark.parametrize(
+    ("part", "inventory", "record_type", "count", "pattern_type", "unscored"),
+    [
+        (
+            _small_blended_box(),
+            "blends",
+            Blend,
+            4,
+            None,
+            ["blends"],
+        ),
+        (
+            _oriented_slot_pattern(((-30, 0), (0, 0), (30, 0))),
+            "oriented_slots",
+            OrientedSlot,
+            3,
+            OrientedSlotArray,
+            ["oriented_slot_patterns", "oriented_slots"],
+        ),
+        (
+            _oriented_slot_pattern(
+                ((-30, -20), (0, -20), (30, -20), (-30, 20), (0, 20), (30, 20))
+            ),
+            "oriented_slots",
+            OrientedSlot,
+            6,
+            OrientedSlotGrid,
+            ["oriented_slot_patterns", "oriented_slots"],
+        ),
+    ],
+    ids=("blend", "oriented-linear", "oriented-grid"),
+)
+def test_0412_deferred_families_cross_the_aggregate_without_duplicate_ownership(
+    part,
+    inventory,
+    record_type,
+    count,
+    pattern_type,
+    unscored,
+):
+    """The provider aggregate and Drawing keep deferred occurrences explicit and unscored."""
+    raw = build_raw_recognition_result(part)
+    drawing = build_drawing(part)
+    recognition = drawing.recognition()
+
+    for result in (raw, recognition):
+        records = getattr(result, inventory)
+        assert len(records) == count
+        assert {type(record) for record in records} == {record_type}
+        if pattern_type is None:
+            assert not result.oriented_slot_patterns
+        else:
+            assert len(result.oriented_slot_patterns) == 1
+            assert type(result.oriented_slot_patterns[0]) is pattern_type
+
+        # 0.4.12 assigns these physical owners exclusively to the new inventories.
+        assert not result.fillets
+        assert not result.slots
+        assert not result.slot_patterns
+
+    completeness = drawing.lint_summary()["quality"]["completeness"]
+    assert completeness["unscored_recognized_families"] == unscored
+    assert completeness["requirements"] == 0
+    assert completeness["audited_score"] is None
 
 
 def test_frozen_records_reject_mutation():

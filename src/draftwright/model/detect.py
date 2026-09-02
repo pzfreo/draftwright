@@ -21,6 +21,7 @@ from typing import Any
 
 from b123d_recognisers import (
     AngledStep,
+    Blend,
     BoltCircle,
     BossRecord,
     Chamfer,
@@ -35,6 +36,9 @@ from b123d_recognisers import (
     HoleRecord,
     HoleSpec,
     LinearArray,
+    OrientedSlot,
+    OrientedSlotArray,
+    OrientedSlotGrid,
     PairedRampStep,
     Passage,
     Plate,
@@ -850,6 +854,26 @@ _UNCONSUMED_RECORDS: dict[type, str] = {
         "an aggregate-reconciled angled blind step whose slanted face has yielded out of "
         "`chamfers`; its available measurements do not choose a truthful general dimension "
         "grammar, so every occurrence has an explicit unsupported completeness outcome (#1247)"
+    ),
+    Blend: (
+        "a public convex-blend-chain record whose precedence and defining-face ownership against "
+        "the supported Fillet family remain undecided, so it cannot yet create or suppress a "
+        "radius requirement (#1430)"
+    ),
+    OrientedSlot: (
+        "a free-axis slot with authoritative SectionPassage correspondence that the legacy "
+        "axis-letter SlotFeature cannot preserve; its dedicated consumer semantics remain "
+        "undecided (#1430)"
+    ),
+    OrientedSlotArray: (
+        "a derived free-axis slot array whose member correspondence and vector pattern plane "
+        "cannot be represented by SlotPatternFeature; its consumer semantics remain undecided "
+        "(#1430)"
+    ),
+    OrientedSlotGrid: (
+        "a derived free-axis slot grid whose member correspondence, vector plane, and lattice "
+        "identity cannot be represented by SlotPatternFeature; its consumer semantics remain "
+        "undecided (#1430)"
     ),
     Passage: (
         "the accepted-only compatibility projection of authoritative SectionPassage; it is not "

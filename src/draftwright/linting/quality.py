@@ -170,7 +170,11 @@ _NON_REQUIREMENT_INVENTORIES = frozenset(
 #: merging them would let an undecided family look settled (#1244). Passage, PrismaticPocket and
 #: AngledStep left this register when #1245/#1246/#1247 gave every authoritative occurrence an
 #: unsupported outcome.
-_UNDECIDED_INVENTORIES: dict[str, str] = {}
+_UNDECIDED_INVENTORIES: dict[str, str] = {
+    "blends": "https://github.com/pzfreo/draftwright/issues/1430",
+    "oriented_slot_patterns": "https://github.com/pzfreo/draftwright/issues/1430",
+    "oriented_slots": "https://github.com/pzfreo/draftwright/issues/1430",
+}
 
 _AUDITED_FAMILIES = (
     "angled_steps",
@@ -725,7 +729,8 @@ def _completeness_component(
     undecided = {
         inventory for inventory in _UNDECIDED_INVENTORIES if getattr(recognition, inventory, ())
     }
-    unaudited = sorted((recognised - set(_AUDITED_FAMILIES)) | undecided)
+    unaudited_requirements = recognised - set(_AUDITED_FAMILIES)
+    unaudited = sorted(unaudited_requirements | undecided)
     covered = counts["placed"] + counts["satisfied_by_structured_note"]
     audited_score = covered / requirements if requirements else None
     if requirements:
@@ -733,7 +738,17 @@ def _completeness_component(
             "audited_score covers recognized requirements in audited families only; it is "
             "not evidence that the drawing is complete"
         )
-    elif unaudited:
+    elif undecided and unaudited_requirements:
+        reason = (
+            "recognized requirements and inventories with deferred requirement semantics "
+            "exist only in families without outcome ledgers"
+        )
+    elif undecided:
+        reason = (
+            "recognized inventories exist only in families whose requirement semantics and "
+            "outcome ledgers are deferred"
+        )
+    elif unaudited_requirements:
         reason = "recognized requirements exist only in families without outcome ledgers"
     else:
         reason = "no auditable recognized requirements"

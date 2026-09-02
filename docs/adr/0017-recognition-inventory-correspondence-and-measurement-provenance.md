@@ -7,7 +7,9 @@
   (2026-09-01) incorporates the 0.4.10 prismatic blind-slot inventories; Amendment 6
   (2026-09-02) adopts the rectangular family's compiler semantics while retaining an
   evidence gate around completeness. Amendment 7 (2026-09-02) closes that rectangular
-  completeness gate with independent physical evidence and semantic outcomes.
+  completeness gate with independent physical evidence and semantic outcomes; Amendment 8 does
+  the same independently for the round-bottom family. Amendment 9 (2026-09-02) adopts the 0.4.12
+  additive inventories fail closed while retaining the existing paired-ramp consumer meaning.
 - **Date:** 2026-08-03
 - **Deciders:** Paul Fremantle (pzfreo)
 
@@ -231,6 +233,28 @@ Removing the provider inventory produces zero observed outcomes while the author
 remains 21. Direct declarations, executed generated declarations, native raw recognition and
 arbitrarily moved framed recognition preserve the same manufacturing meaning. The family therefore
 enters the audited completeness denominator independently of rectangular blind slots.
+
+## Amendment 9 — 0.4.12 additive inventories are visible before they are semantic
+
+Recognisers 0.4.12 expands the one aggregate with physical `blends` and `oriented_slots`
+inventories plus derived `oriented_slot_patterns`. The capability manifest also adds three family
+declarations and four public records. Draftwright adopts those structural contracts without
+claiming a drawing interpretation: every record has an explicit unconsumed registry home, every
+inventory is classified as undecided under #1430, and every semantic boundary is declared
+`deferred`. A non-empty inventory is reported as recognised-but-unscored rather than silently
+ignored or admitted to the audited denominator.
+
+That disposition is necessary evidence gating, not a permanent non-requirement classification.
+Blend records may overlap the existing Fillet family's physical ownership. Oriented slots carry
+free-axis directions and authoritative `SectionPassage` sources that the axis-letter slot IR cannot
+preserve, while their pattern records carry member and vector-lattice identity. Separate review
+must decide those semantics before adding dedicated IR, Sheet vocabulary, generated code, drawing
+requirements, or completeness outcomes.
+
+The release also widens recognition behavior for the unchanged `PairedRampStep` schema to shallow
+nonzero angles. That is compatible with its existing acute-angle IR and two-requirement consumer
+contract. A released shallow specimen follows the existing aggregate-to-IR, declaration,
+generated-code, compiler, solver, and completeness path without a new Sheet word or placement API.
 
 ## Accepted Contract
 

@@ -1,6 +1,6 @@
 # ADR 0020 — Provider-owned frame boundary for detected compilation
 
-- **Status:** Accepted; prepared boundary and explicit opt-in activation implemented. The 0.4.10
+- **Status:** Accepted; prepared boundary and explicit opt-in activation implemented. The 0.4.12
   adoption leaves the established public frame schemas unchanged. Raw remains the rollout default
   pending platform and corpus canaries.
 - **Date:** 2026-08-31
@@ -14,7 +14,7 @@ rotation can therefore change which feature families are recognised and which se
 Draftwright plans, even though the physical part did not change.
 
 `b123d-recognisers` 0.4.9 introduced the public preparation seam needed to remove that dependence;
-0.4.10 retains it unchanged.
+0.4.12 retains it unchanged.
 `prepare_framed_part` either returns a typed `RefusedPartFrame` or one
 `PreparedFramedPart(frame, part, cylinders)`: the provider-inferred `PartFrame`, the exact
 topology-preserving local working solid, and its reusable local cylinder inventory. Draftwright
@@ -214,8 +214,9 @@ and representative corpus canaries remain release gates, not hidden conditions i
 all gauges and refusal reasons, local multi-diameter classification, body-local levels/risers/turned
 profiles, explicit singular-accessor refusal, and unchanged raw coordinate selection. The
 fail-closed manifest join
-in `tests/test_recogniser_capabilities.py` guards the 0.4.10 record schemas (including the unchanged
-0.4.9 body-local schemas and each blind-slot family's explicit current disposition). Existing
+in `tests/test_recogniser_capabilities.py` guards the 0.4.12 record schemas (including the unchanged
+0.4.9 body-local schemas, each blind-slot family, and the explicitly deferred additive families).
+Existing
 `tests/test_declared_recognition_gate.py` and `tests/test_part_model.py` retain declared no-recognition
 and one-aggregate lifecycle evidence; `tests/test_import_boundaries.py` keeps the boundary at the
 leaf rank. `tests/test_issue_1357_pmi_frame.py` proves point/vector distinction, tight local AABBs

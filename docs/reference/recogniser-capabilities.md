@@ -549,6 +549,31 @@ with exact full-record correspondence and parameter/outcome provenance under the
 rules as the rectangular family. It now participates independently in `audited_score`; ordinary
 slots, pockets, channels and rectangular blind slots do not share ownership.
 
+## Recognisers 0.4.12 adoption and additive-family boundary
+
+Draftwright exactly pins `b123d-recognisers==0.4.12`, including the immutable 0.4.11 `Blend`
+addition and the 0.4.12 `OrientedSlot`, `OrientedSlotArray`, and `OrientedSlotGrid` records. The
+provider capability manifest therefore contains 33 families. Every family and public record has an
+explicit consumer declaration and registry home; the inspection API remains format 1 / major 1.
+
+This bounded adoption does not decide the new drawing semantics. `blends`, `oriented_slots`, and
+`oriented_slot_patterns` are separately registered as undecided inventories under #1430. A real
+occurrence is visible in `unscored_recognized_families`, but contributes no invented completeness
+requirement. Blend-chain precedence and defining-face ownership must be reconciled with the existing
+Fillet family before either can suppress or duplicate a radius requirement. The free-axis slot
+record retains vector width/long directions and its authoritative `SectionPassage` source; the
+array/grid records retain those member identities and their vector lattice. Coercing any of them
+into the principal-axis `SlotFeature` / `SlotPatternFeature` would discard that contract, so there
+is no new Sheet word, generated statement, annotation, or completeness claim in the adoption slice.
+
+The existing schema-v1 `PairedRampStep` record is unchanged, while 0.4.12 expands provider
+recognition to shallow nonzero ramp pairs. A released shallow specimen now crosses the already
+supported consumer path without changing meaning: exact record-to-IR lowering, the existing
+`Sheet.paired_ramp_step(...)` declaration, executed generated code, two compiler-approved angle/run
+requirements, one solver-owned compound leader, and the established completeness ledger. Existing
+raw and provider-framed contract suites continue to guard the ADR 0020 boundary. Draftwright uses no
+provider-private geometry or sibling checkout for any of these claims.
+
 ## Recognisers 0.4.9 prepared frame boundary
 
 Draftwright's 0.4.9 boundary accepted `RiserEvidence` v2,

@@ -11,6 +11,8 @@ is still a literal map.
 from __future__ import annotations
 
 from b123d_recognisers import (
+    Blend,
+    BossRecord,
     RecognitionResult,
     RectangularBlindSlot,
     RoundBottomBlindSlot,
@@ -214,6 +216,68 @@ def test_an_undecided_inventory_names_a_real_open_issue():
             f"{inventory} is unscored pending {issue}, which is not one of the issues the "
             f"capability declaration tracks ({sorted(tracked)}) — the registers disagree"
         )
+
+
+def test_a_real_0412_blend_remains_visible_but_outside_the_denominator() -> None:
+    inventories = {
+        name: False if name == "rotational" else ()
+        for name in RecognitionResult.__dataclass_fields__
+    }
+    inventories["blends"] = (
+        Blend(axis="z", radius=2.0, at=(1.0, 2.0, 3.0), side="convex", axis_direction=(0, 0, 1)),
+    )
+    recognition = RecognitionResult(**inventories)
+
+    completeness = quality_components(
+        recognition=recognition,
+        features=(),
+        registry=AnnotationRegistry(),
+        omissions=(),
+        issues=(),
+        error_penalty=0.15,
+        warning_penalty=0.05,
+        has_asserted_content=True,
+    )["completeness"]
+
+    assert completeness["requirements"] == 0
+    assert completeness["audited_score"] is None
+    assert completeness["unscored_recognized_families"] == ["blends"]
+    assert completeness["reason"] == (
+        "recognized inventories exist only in families whose requirement semantics and "
+        "outcome ledgers are deferred"
+    )
+
+
+def test_deferred_and_established_unaudited_families_are_named_truthfully() -> None:
+    inventories = {
+        name: False if name == "rotational" else ()
+        for name in RecognitionResult.__dataclass_fields__
+    }
+    inventories["blends"] = (
+        Blend(axis="z", radius=2.0, at=(1.0, 2.0, 3.0), side="convex", axis_direction=(0, 0, 1)),
+    )
+    inventories["bosses"] = (
+        BossRecord(axis=(0, 0, 1), location=(0, 0, 0), diameter=8.0, height=3.0),
+    )
+    recognition = RecognitionResult(**inventories)
+
+    completeness = quality_components(
+        recognition=recognition,
+        features=(),
+        registry=AnnotationRegistry(),
+        omissions=(),
+        issues=(),
+        error_penalty=0.15,
+        warning_penalty=0.05,
+        has_asserted_content=True,
+    )["completeness"]
+
+    assert completeness["requirements"] == 0
+    assert completeness["unscored_recognized_families"] == ["blends", "bosses"]
+    assert completeness["reason"] == (
+        "recognized requirements and inventories with deferred requirement semantics "
+        "exist only in families without outcome ledgers"
+    )
 
 
 def test_0410_blind_slot_families_keep_independent_completeness_dispositions():

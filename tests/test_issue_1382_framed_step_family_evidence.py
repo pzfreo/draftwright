@@ -37,6 +37,12 @@ def _paired_ramp_step_part():
     return Box(40, 40, 30) - cutter
 
 
+def _shallow_paired_ramp_step_part():
+    profile = Polygon((0, -0.5), (0, 0.5), (-10, 0))
+    cutter = Pos(20, 20, 0) * extrude(Plane.XZ * profile, 25)
+    return Box(40, 40, 30) - cutter
+
+
 def _through_step_part():
     # Unequal 18/15 mm legs make an accidental local-axis swap visible in the final ink.
     return Box(40, 30, 20) - Pos(15, 7, 0) * Box(20, 20, 30)
@@ -56,6 +62,13 @@ _CASES = (
         "paired_ramp_step",
         "paired_ramp_step",
         id="paired-ramp-step",
+    ),
+    pytest.param(
+        _shallow_paired_ramp_step_part,
+        "paired_ramp_steps",
+        "paired_ramp_step",
+        "paired_ramp_step",
+        id="shallow-paired-ramp-step-0412",
     ),
     pytest.param(
         _through_step_part,

@@ -380,6 +380,31 @@ def _geometry_only_declaration() -> dict[str, Any]:
 #: absent from BOTH this map and ``_FAMILIES``, so the next new family fails closed exactly as
 #: the first three did (#1244), and the 0.4.6 step families do now (#1382).
 _UNSUPPORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
+    "blends": (
+        ("Blend",),
+        "https://github.com/pzfreo/draftwright/issues/1430",
+        "The released record proves a convex blend chain, but consumer review must first decide "
+        "whether it is an independent manufacturing requirement or structural evidence owned "
+        "by the existing Fillet family. Until that precedence and defining-face ownership are "
+        "settled, Draftwright must neither emit duplicate radius requirements nor hide the "
+        "inventory.",
+    ),
+    "oriented-slot-patterns": (
+        ("OrientedSlotArray", "OrientedSlotGrid"),
+        "https://github.com/pzfreo/draftwright/issues/1430",
+        "The derived records group free-axis oriented slots, but the principal-axis "
+        "SlotPatternFeature cannot preserve their vector plane, member passage authority, and "
+        "pattern identity. A dedicated consumer contract is being reviewed before any grouping "
+        "or dimensions are emitted.",
+    ),
+    "oriented-slots": (
+        ("OrientedSlot",),
+        "https://github.com/pzfreo/draftwright/issues/1430",
+        "The record carries free-axis directions and an authoritative SectionPassage source. "
+        "Coercing it into the legacy axis-letter SlotFeature would discard that correspondence, "
+        "so its dedicated IR, Sheet vocabulary, drawing grammar, and completeness denominator "
+        "remain under review.",
+    ),
     "passages": (
         (
             "Passage",
@@ -415,7 +440,9 @@ _UNSUPPORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
     ),
 }
 
-_DEFERRED_FAMILIES: frozenset[str] = frozenset()
+_DEFERRED_FAMILIES: frozenset[str] = frozenset(
+    {"blends", "oriented-slot-patterns", "oriented-slots"}
+)
 
 
 def _unsupported_declaration(family_id: str) -> dict[str, Any]:

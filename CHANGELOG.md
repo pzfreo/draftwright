@@ -44,6 +44,16 @@
 
 ### Changed
 
+- Draftwright now exactly pins the immutable `b123d-recognisers` 0.4.12 release and advances its
+  fail-closed capability and inspection joins. The additive `Blend`, `OrientedSlot`,
+  `OrientedSlotArray`, and `OrientedSlotGrid` records are deliberately visible but deferred under
+  #1430: no record is coerced into the existing Fillet, axis-letter Slot, or SlotPattern grammar,
+  no new Sheet word is claimed, and real occurrences remain reported as recognised-but-unscored
+  until their consumer semantics and ownership are reviewed. All earlier record schemas remain
+  compatible. The provider's newly recognised shallow nonzero `PairedRampStep` keeps its existing
+  two-requirement IR, public `Sheet.paired_ramp_step(...)` declaration, generated-code, compiler
+  callout, solver placement, and completeness meaning (#1430; ADRs 0011, 0013–0017, 0020).
+
 - Rectangular blind slots recognised by `b123d-recognisers` 0.4.10 now cross a dedicated
   Draftwright semantic path: `RectangularBlindSlotFeature`, the explicit
   `Sheet.rectangular_blind_slot(...)` word, generated-code and role-specific tolerance round
