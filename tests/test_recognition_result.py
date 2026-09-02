@@ -49,7 +49,7 @@ def test_built_drawing_exposes_its_recognition_result_without_private_state(monk
     def forbidden(*args, **kwargs):
         raise AssertionError("Drawing.recognition() re-ran recognition instead of handing back")
 
-    monkeypatch.setattr(analysis_module, "build_raw_recognition_result", forbidden)
+    monkeypatch.setattr(analysis_module, "build_recognition_evidence", forbidden)
     assert drawing.recognition() is result
 
 

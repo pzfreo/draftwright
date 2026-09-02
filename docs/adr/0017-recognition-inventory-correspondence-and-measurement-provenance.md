@@ -10,6 +10,8 @@
   completeness gate with independent physical evidence and semantic outcomes; Amendment 8 does
   the same independently for the round-bottom family. Amendment 9 (2026-09-02) adopts the 0.4.12
   additive inventories fail closed while retaining the existing paired-ramp consumer meaning.
+  Amendment 11 (2026-09-02) retains the provider's raw accepted-occurrence evidence in the same
+  consumer-owned cache without adding a second recognition run.
 - **Date:** 2026-08-03
 - **Deciders:** Paul Fremantle (pzfreo)
 
@@ -277,6 +279,29 @@ occurrence multiplicity, and joins only the complete released value before follo
 missing or unverifiable. Raw-default and provider-framed arbitrary rigid-motion tests preserve the
 same radius requirements. `blends` therefore moves from deferred to supported and joins the
 audited denominator. Unreleased concave, toroidal and path schemas are not latent support.
+
+## Amendment 11 — Raw accepted-occurrence evidence shares the one run-owned cache
+
+The released `b123d_recognisers.evidence.build_recognition_evidence` entry point returns one
+run-scoped `RecognitionEvidence` whose `.result` is the existing immutable aggregate and whose
+opaque feature/face references authorise provider-owned accepted-occurrence queries. Raw automatic
+analysis and lazy physical critique now acquire recognition through that entry point once and keep
+the evidence beside its exact result in `RecognitionCache`. Scale, page and view retries carry the
+complete cache forward; they do not retain the aggregate while orphaning its reference authority.
+
+`Drawing.recognition()` remains the established result view, and
+`Drawing.recognition_evidence()` is the matching experimental read-only evidence view. A bare
+injected result is valid but has no evidence. Draftwright never reruns recognition to backfill one,
+and rejects a result/evidence pair that did not come from the same run. The explicit framed path is
+also evidence-less until the provider exposes framed accepted-occurrence evidence; that contract is
+tracked upstream by
+[`b123d-recognisers#463`](https://github.com/pzfreo/b123d-recognisers/issues/463) rather than
+reconstructed from a second raw scan.
+
+This amendment extends the accepted ownership unit, not the completeness denominator. It adds no
+persistent topology identifier, report schema, record-to-IR inference, manufacturing intent,
+compiled-plan dependency, placement path, or visual output. Later #1438 slices must demonstrate the
+consumer disposition rules independently before this evidence can support an authoritative report.
 
 ## Accepted Contract
 

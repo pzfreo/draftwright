@@ -12,6 +12,7 @@ import pytest
 from b123d_recognisers import (
     build_raw_recognition_result,
 )
+from b123d_recognisers.evidence import build_recognition_evidence
 from build123d import (
     Align,
     Box,
@@ -340,7 +341,7 @@ def test_real_wheel_no_longer_gets_a_confident_envelope_only_result(wheel_drawin
 
 def test_synthetic_double_d_profile_is_recognised_without_lint_rescans():
     detected = detect_part_model(_double_d_bore())
-    with counting_calls({"orchestration": build_raw_recognition_result}) as calls:
+    with counting_calls({"orchestration": build_recognition_evidence}) as calls:
         drawing = build_drawing(_double_d_bore())
         assert tuple(detected.features) == tuple(drawing.model().features)
         assert calls == {"orchestration": 1}

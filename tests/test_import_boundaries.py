@@ -47,12 +47,14 @@ import ast
 from pathlib import Path
 
 import b123d_recognisers
+import b123d_recognisers.evidence as recogniser_evidence
 import b123d_recognisers.inspection as recogniser_inspection
 import pytest
 
 _SRC = Path(__file__).resolve().parent.parent / "src" / "draftwright"
 _MODEL_DIR = _SRC / "model"
 _RECOGNISER_PUBLIC = frozenset(b123d_recognisers.__all__)
+_RECOGNISER_EVIDENCE_PUBLIC = frozenset(recogniser_evidence.__all__)
 _RECOGNISER_INSPECTION_PUBLIC = frozenset(recogniser_inspection.__all__)
 
 # ── The declared DAG (mirrors CLAUDE.md ## Architecture) ─────────────────────────────────
@@ -582,7 +584,9 @@ _ALLOWED_PRIVATE_RECOGNISER_REFERENCES = {
 }
 _RECOGNISER_POLICY_MODULE = "b123d_recognisers.<policy>"
 _PROVIDER_ROOT = "b123d_recognisers"
+_PROVIDER_EVIDENCE = "b123d_recognisers.evidence"
 _PROVIDER_INSPECTION = "b123d_recognisers.inspection"
+_PROVIDER_PUBLIC_MODULES = {_PROVIDER_ROOT, _PROVIDER_EVIDENCE, _PROVIDER_INSPECTION}
 _LITERAL_PREDICATES = {"endswith", "removeprefix", "removesuffix", "startswith"}
 _PROVIDER_MEMBER_CALLS = {"delattr", "object", "setattr"}
 
@@ -617,6 +621,15 @@ def _recogniser_contract_references(path: Path, *, relative_to: Path) -> set[tup
         if actual == _PROVIDER_ROOT or not actual.startswith(f"{_PROVIDER_ROOT}."):
             return
         components = actual.removeprefix(f"{_PROVIDER_ROOT}.").split(".")
+        if components[0] == "evidence":
+            if len(components) == 1:
+                return
+            member = components[1]
+            if member == "__all__":
+                references.add((relative, _PROVIDER_EVIDENCE, member))
+            elif member not in _RECOGNISER_EVIDENCE_PUBLIC:
+                references.add((relative, _PROVIDER_EVIDENCE, member))
+            return
         if components[0] == "inspection":
             if len(components) == 1:
                 return
@@ -658,6 +671,12 @@ def _recogniser_contract_references(path: Path, *, relative_to: Path) -> set[tup
                     for alias in node.names
                     if alias.name not in _RECOGNISER_INSPECTION_PUBLIC | {"*"}
                 )
+            elif module == _PROVIDER_EVIDENCE:
+                references.update(
+                    (relative, module, alias.name)
+                    for alias in node.names
+                    if alias.name not in _RECOGNISER_EVIDENCE_PUBLIC | {"*"}
+                )
             elif module.startswith(f"{_PROVIDER_ROOT}."):
                 references.update((relative, module, alias.name) for alias in node.names)
         elif isinstance(node, ast.Import):
@@ -665,6 +684,9 @@ def _recogniser_contract_references(path: Path, *, relative_to: Path) -> set[tup
                 module = alias.name
                 if module == _PROVIDER_ROOT:
                     module_aliases[alias.asname or module] = module
+                elif module == _PROVIDER_EVIDENCE:
+                    binding = alias.asname or _PROVIDER_ROOT
+                    module_aliases[binding] = module if alias.asname else binding
                 elif module == _PROVIDER_INSPECTION:
                     binding = alias.asname or _PROVIDER_ROOT
                     module_aliases[binding] = module if alias.asname else binding
@@ -736,7 +758,7 @@ def _recogniser_contract_references(path: Path, *, relative_to: Path) -> set[tup
 
         if terminal == "getattr" and len(node.args) >= 2:
             provider = resolve_expr(node.args[0])
-            if provider in {_PROVIDER_ROOT, _PROVIDER_INSPECTION}:
+            if provider in _PROVIDER_PUBLIC_MODULES:
                 member = literal(node.args[1])
                 if member is None:
                     policy("dynamic-provider-member")
@@ -754,13 +776,13 @@ def _recogniser_contract_references(path: Path, *, relative_to: Path) -> set[tup
             for provider_node, member_node in zip(node.args, node.args[1:]):
                 provider = resolve_expr(provider_node)
                 member = literal(member_node)
-                if provider in {_PROVIDER_ROOT, _PROVIDER_INSPECTION} and member is not None:
+                if provider in _PROVIDER_PUBLIC_MODULES and member is not None:
                     record(f"{provider}.{member}")
 
             providers = {
                 provider
                 for value in [*node.args, *target_keywords]
-                if (provider := resolve_expr(value)) in {_PROVIDER_ROOT, _PROVIDER_INSPECTION}
+                if (provider := resolve_expr(value)) in _PROVIDER_PUBLIC_MODULES
             }
             members = {
                 member for value in member_keywords if (member := literal(value)) is not None
@@ -773,9 +795,9 @@ def _recogniser_contract_references(path: Path, *, relative_to: Path) -> set[tup
             target = target_argument(node)
             provider = resolve_expr(target) if target is not None else None
             target_name = literal(target)
-            if provider is None and target_name in {_PROVIDER_ROOT, _PROVIDER_INSPECTION}:
+            if provider is None and target_name in _PROVIDER_PUBLIC_MODULES:
                 provider = target_name
-            if provider in {_PROVIDER_ROOT, _PROVIDER_INSPECTION}:
+            if provider in _PROVIDER_PUBLIC_MODULES:
                 for item in node.keywords:
                     if item.arg not in {None, "create", "spec", "spec_set", "target"}:
                         record(f"{provider}.{item.arg}")

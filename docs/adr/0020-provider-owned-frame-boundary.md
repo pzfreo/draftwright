@@ -177,6 +177,13 @@ correct rotational-envelope requirement for such a shaft; its step diameters and
 equal to raw, so that extra requirement is intentional rather than a lost measurement. Platform
 and representative corpus canaries remain release gates, not hidden conditions in the adapter.
 
+The provider's released accepted-occurrence evidence API is raw-coordinate-only. A successful
+framed build therefore exposes its established `RecognitionResult` but no `RecognitionEvidence`;
+Draftwright does not run a second raw acquisition or synthesize references across authority
+universes. Public framed evidence is tracked upstream by
+[`b123d-recognisers#463`](https://github.com/pzfreo/b123d-recognisers/issues/463), and independent
+raw/report work proceeds without claiming that framed occurrence ownership is already available.
+
 ## Consequences
 
 - Draftwright can now exercise the correct normalize→classify→recognise ordering without a second

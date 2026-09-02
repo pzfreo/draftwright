@@ -242,7 +242,7 @@ def test_malformed_source_record_fails_closed_through_drawing_lint(
     import draftwright.recognition_cache as recognition_cache
     from draftwright import Sheet
 
-    original = recognition_cache.build_raw_recognition_result
+    original = recognition_cache._result_from_evidence
 
     def malformed_recognition(*args, **kwargs):
         recognition = original(*args, **kwargs)
@@ -260,7 +260,7 @@ def test_malformed_source_record_fails_closed_through_drawing_lint(
             source = replace(boss, flat_directions=boss.flat_directions[:-1])
         return replace(recognition, polygonal_bosses=(source,))
 
-    monkeypatch.setattr(recognition_cache, "build_raw_recognition_result", malformed_recognition)
+    monkeypatch.setattr(recognition_cache, "_result_from_evidence", malformed_recognition)
     sheet = Sheet(_boss_part()).authored_dimensions()
     envelope = sheet.envelope()
     sheet.dimension(envelope, "width.length")
@@ -508,7 +508,7 @@ def test_polygonal_boss_coverage_does_not_duplicate_a_placement_drop() -> None:
 def test_polygonal_boss_observer_uses_one_build_owned_aggregate(monkeypatch) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_raw_recognition_result
+    original = analysis.build_recognition_evidence
     calls = 0
 
     def counted(*args, **kwargs):
@@ -516,7 +516,7 @@ def test_polygonal_boss_observer_uses_one_build_owned_aggregate(monkeypatch) -> 
         calls += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(analysis, "build_raw_recognition_result", counted)
+    monkeypatch.setattr(analysis, "build_recognition_evidence", counted)
     assert _default_observers()["polygonal-bosses"](_boss_part())
     assert calls == 1
 
@@ -677,13 +677,13 @@ def test_deleting_provider_bosses_cannot_shrink_the_independent_denominator(
 ) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_raw_recognition_result
+    original = analysis._result_from_evidence
 
     def without_bosses(*args, **kwargs):
         result = original(*args, **kwargs)
         return replace(result, polygonal_bosses=())
 
-    monkeypatch.setattr(analysis, "build_raw_recognition_result", without_bosses)
+    monkeypatch.setattr(analysis, "_result_from_evidence", without_bosses)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))
 
     assert damaged.detection.matched == 0
@@ -699,7 +699,7 @@ def test_deleting_provider_bosses_cannot_shrink_the_independent_denominator(
 def test_weakening_provider_parameters_reduces_parameter_fidelity(monkeypatch, parameter) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_raw_recognition_result
+    original = analysis._result_from_evidence
 
     def weakened(*args, **kwargs):
         result = original(*args, **kwargs)
@@ -767,7 +767,7 @@ def test_weakening_provider_parameters_reduces_parameter_fidelity(monkeypatch, p
                 raise AssertionError(parameter)
         return replace(result, polygonal_bosses=tuple(values))
 
-    monkeypatch.setattr(analysis, "build_raw_recognition_result", weakened)
+    monkeypatch.setattr(analysis, "_result_from_evidence", weakened)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))
 
     assert damaged.detection.recall == 1.0
@@ -779,7 +779,7 @@ def test_weakening_provider_parameters_reduces_parameter_fidelity(monkeypatch, p
         import draftwright.recognition_cache as recognition_cache
         from draftwright import build_drawing
 
-        monkeypatch.setattr(recognition_cache, "build_raw_recognition_result", weakened)
+        monkeypatch.setattr(recognition_cache, "_result_from_evidence", weakened)
         drawing = build_drawing(_boss_part())
         summary = drawing.lint_summary()
         issues = summary["by_code"]
@@ -795,7 +795,7 @@ def test_weakening_provider_parameters_reduces_parameter_fidelity(monkeypatch, p
 def test_shifting_provider_identity_reduces_detection_recall(monkeypatch) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_raw_recognition_result
+    original = analysis._result_from_evidence
 
     def shifted(*args, **kwargs):
         result = original(*args, **kwargs)
@@ -817,7 +817,7 @@ def test_shifting_provider_identity_reduces_detection_recall(monkeypatch) -> Non
             )
         return replace(result, polygonal_bosses=tuple(values))
 
-    monkeypatch.setattr(analysis, "build_raw_recognition_result", shifted)
+    monkeypatch.setattr(analysis, "_result_from_evidence", shifted)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))
 
     assert damaged.detection.recall == 0.0

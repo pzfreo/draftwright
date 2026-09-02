@@ -500,9 +500,9 @@ def test_build_state_has_a_single_construction_and_fill_site():
         # and these guards caught it.
         "builder.py": [
             "_build.analysis",
-            # ADR 0017's recognition aggregate is filled beside analysis/model at this
-            # same single construction site; Drawing.recognition() is read-only.
-            "_build.recognition",
+            # ADR 0017's result/evidence pair is attached through the typed
+            # BuildState.attach_recognition() method at this same construction site;
+            # Drawing.recognition()/recognition_evidence() are read-only.
             "_build.part_model",
             "_build.detail_view",
             "_build.trace",
@@ -535,3 +535,17 @@ def test_build_state_has_a_single_construction_and_fill_site():
             "_build.principal_profile_cache",
         ],
     }, writers
+
+    builder_tree = ast.parse((src / "builder.py").read_text(encoding="utf-8"))
+    recognition_attachments = [
+        node
+        for node in ast.walk(builder_tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "attach_recognition"
+        and isinstance(node.func.value, ast.Attribute)
+        and node.func.value.attr == "_build"
+    ]
+    assert len(recognition_attachments) == 1, (
+        "BuildState.attach_recognition must have exactly one builder fill site"
+    )

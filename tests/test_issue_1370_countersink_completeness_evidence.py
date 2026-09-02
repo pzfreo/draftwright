@@ -395,14 +395,14 @@ def test_deleting_provider_seats_cannot_shrink_the_independent_denominator(
 ) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_raw_recognition_result
+    original = analysis._result_from_evidence
 
     def without_countersinks(*args, **kwargs):
         result = original(*args, **kwargs)
         holes = tuple(replace(hole, csink=None) for hole in result.holes)
         return replace(result, countersinks=(), holes=holes, hole_patterns=())
 
-    monkeypatch.setattr(analysis, "build_raw_recognition_result", without_countersinks)
+    monkeypatch.setattr(analysis, "_result_from_evidence", without_countersinks)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))
 
     assert damaged.detection.matched == 0

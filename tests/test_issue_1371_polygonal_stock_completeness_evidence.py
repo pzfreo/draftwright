@@ -853,7 +853,7 @@ def test_polygonal_stock_ledger_distinguishes_suppressed_dropped_structured_and_
 def test_polygonal_stock_observer_uses_one_build_owned_aggregate(monkeypatch) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_raw_recognition_result
+    original = analysis.build_recognition_evidence
     calls = 0
 
     def counted(*args, **kwargs):
@@ -861,7 +861,7 @@ def test_polygonal_stock_observer_uses_one_build_owned_aggregate(monkeypatch) ->
         calls += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(analysis, "build_raw_recognition_result", counted)
+    monkeypatch.setattr(analysis, "build_recognition_evidence", counted)
     assert _default_observers()["polygonal-stock"](_stock())
     assert calls == 1
 
@@ -1080,13 +1080,13 @@ def test_drawing_consumer_requires_both_compiler_approved_stock_dimensions(monke
 def test_deleting_provider_stock_cannot_shrink_the_independent_denominator(monkeypatch) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_raw_recognition_result
+    original = analysis._result_from_evidence
 
     def without_stock(*args, **kwargs):
         result = original(*args, **kwargs)
         return replace(result, polygonal_stock=())
 
-    monkeypatch.setattr(analysis, "build_raw_recognition_result", without_stock)
+    monkeypatch.setattr(analysis, "_result_from_evidence", without_stock)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))
 
     assert damaged.detection.matched == 0
@@ -1099,7 +1099,7 @@ def test_deleting_provider_stock_cannot_shrink_the_independent_denominator(monke
 def test_weakening_provider_parameters_reduces_parameter_fidelity(monkeypatch, parameter) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_raw_recognition_result
+    original = analysis._result_from_evidence
 
     def weakened(*args, **kwargs):
         result = original(*args, **kwargs)
@@ -1140,7 +1140,7 @@ def test_weakening_provider_parameters_reduces_parameter_fidelity(monkeypatch, p
                 raise AssertionError(parameter)
         return replace(result, polygonal_stock=tuple(values))
 
-    monkeypatch.setattr(analysis, "build_raw_recognition_result", weakened)
+    monkeypatch.setattr(analysis, "_result_from_evidence", weakened)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))
 
     assert damaged.detection.recall == 1.0
@@ -1152,7 +1152,7 @@ def test_weakening_provider_parameters_reduces_parameter_fidelity(monkeypatch, p
 def test_constant_canonical_values_cannot_pass_the_varied_positive_oracle(monkeypatch) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_raw_recognition_result
+    original = analysis._result_from_evidence
     canonical_af = 40 * cos(pi / 6)
 
     def hard_coded(*args, **kwargs):
@@ -1176,7 +1176,7 @@ def test_constant_canonical_values_cannot_pass_the_varied_positive_oracle(monkey
             )
         return replace(result, polygonal_stock=tuple(values))
 
-    monkeypatch.setattr(analysis, "build_raw_recognition_result", hard_coded)
+    monkeypatch.setattr(analysis, "_result_from_evidence", hard_coded)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))
 
     assert damaged.detection.recall == 1.0

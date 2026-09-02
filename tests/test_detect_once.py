@@ -44,13 +44,27 @@ def test_detectors_run_once_per_build(aggregate_counter, framed_recognition):
     dwg = build_drawing(_filleted(), framed_recognition=framed_recognition)
 
     assert dwg.recognition_frame_decision["status"] == ("framed" if framed_recognition else "raw")
-    assert aggregate_counter == {"build_raw_recognition_result": 1}, (
+    expected = (
+        {"build_raw_recognition_result": 1}
+        if framed_recognition
+        else {"build_recognition_evidence": 1}
+    )
+    assert aggregate_counter == expected, (
         f"unexpected recognition activity in one "
         f"{'framed' if framed_recognition else 'raw'} build: {aggregate_counter} — the "
         "sizing and render paths must share one inventory with no consumer bypass (ADR 0008)"
     )
     # The drawing's render model IS the stored sizing model — one object, one inventory.
     assert dwg.model() is dwg._analysis.model
+    if framed_recognition:
+        assert dwg.recognition_evidence() is None
+    else:
+        evidence = dwg.recognition_evidence()
+        assert evidence is not None
+        assert evidence.result is dwg.recognition()
+        fillets = tuple(ref for ref in evidence.features if evidence.family(ref) == "fillets")
+        assert len(fillets) == 1
+        assert evidence.record(fillets[0]) in dwg.recognition().fillets
 
 
 def test_generate_script_detects_once(aggregate_counter, tmp_path):
@@ -61,7 +75,7 @@ def test_generate_script_detects_once(aggregate_counter, tmp_path):
     step = str(tmp_path / "filleted.step")
     export_step(_filleted(), step)
     generate_sheet_script(step, out=str(tmp_path / "s"))
-    assert aggregate_counter == {"build_raw_recognition_result": 1}, (
+    assert aggregate_counter == {"build_recognition_evidence": 1}, (
         f"unexpected recognition activity in generate_sheet_script: {aggregate_counter} — "
         "the emitter must reuse one inventory without a consumer bypass"
     )

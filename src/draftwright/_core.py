@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from b123d_recognisers import RecognitionResult, TurnedProfile
+    from b123d_recognisers.evidence import RecognitionEvidence
 
     from draftwright.compose import StripDepths
 
@@ -1219,6 +1220,11 @@ class Analysis:
     # declared a model (ADR 0011) or on a manually-built Analysis — consumers fall
     # back to build_model(a).
     model: object | None = None
+    #: Run-scoped accepted-occurrence/face authority for a raw recognition acquisition.
+    #: ``None`` for declared builds before physical critique, for framed recognition until the
+    #: provider exposes framed evidence, and for a deliberately injected bare aggregate.  It is
+    #: never reconstructed from ``recognition`` because that would create a second run universe.
+    recognition_evidence: RecognitionEvidence | None = None
     #: The relational arrangement the sheet was composed under — ADR 0018 §5's fourth
     #: dimension, decided once by `compose.choose_scale` and carried here so that placement
     #: and the repack loop compose under the arrangement whose feasibility was actually

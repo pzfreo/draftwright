@@ -460,20 +460,21 @@ def test_sheet_fallback_reuses_lazy_physical_recognition(monkeypatch):
 
     sheet = Sheet.from_part(_scale_sensitive_plate(), page="A4", scale=1.0)
     calls = []
-    original = recognition_cache_module.build_raw_recognition_result
+    original = recognition_cache_module.build_recognition_evidence
 
-    def counted(part):
-        result = original(part)
-        calls.append(result)
-        return result
+    def counted(part, *, cylinders=None, rotational=False):
+        evidence = original(part, cylinders=cylinders, rotational=rotational)
+        calls.append(evidence)
+        return evidence
 
-    monkeypatch.setattr(recognition_cache_module, "build_raw_recognition_result", counted)
+    monkeypatch.setattr(recognition_cache_module, "build_recognition_evidence", counted)
     with pytest.warns(ScaleCompletenessWarning, match="fallback scale 0.5"):
         drawing = sheet.build()
 
     assert drawing.scale_decision["attempted_scales"] == (1.0, 0.5)
     assert len(calls) == 1
-    assert drawing.recognition() is calls[0]
+    assert drawing.recognition_evidence() is calls[0]
+    assert drawing.recognition() is calls[0].result
 
 
 @pytest.mark.timeout(120)
@@ -501,7 +502,7 @@ def test_fallback_reuses_geometry_classification_and_recognition(monkeypatch):
 
     calls = {"classify": 0, "recognise": 0}
     original_classify = analysis._classify_geometry
-    original_recognise = analysis.build_raw_recognition_result
+    original_recognise = analysis.build_recognition_evidence
 
     def counted_classify(*args, **kwargs):
         calls["classify"] += 1
@@ -512,7 +513,7 @@ def test_fallback_reuses_geometry_classification_and_recognition(monkeypatch):
         return original_recognise(*args, **kwargs)
 
     monkeypatch.setattr(analysis, "_classify_geometry", counted_classify)
-    monkeypatch.setattr(analysis, "build_raw_recognition_result", counted_recognise)
+    monkeypatch.setattr(analysis, "build_recognition_evidence", counted_recognise)
     with pytest.warns(ScaleCompletenessWarning, match="fallback scale 0.5"):
         drawing = build_drawing(_scale_sensitive_plate(), page="A4", scale=1.0, repair=False)
 

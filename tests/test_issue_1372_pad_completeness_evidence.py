@@ -423,7 +423,7 @@ def test_pad_coverage_does_not_duplicate_a_placement_drop() -> None:
 def test_pad_observer_uses_one_build_owned_recognition_aggregate(monkeypatch) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_raw_recognition_result
+    original = analysis.build_recognition_evidence
     calls = 0
 
     def counted(*args, **kwargs):
@@ -431,7 +431,7 @@ def test_pad_observer_uses_one_build_owned_recognition_aggregate(monkeypatch) ->
         calls += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(analysis, "build_raw_recognition_result", counted)
+    monkeypatch.setattr(analysis, "build_recognition_evidence", counted)
     assert _default_observers()["rectangular-pads"](_lone())
     assert calls == 1
 
@@ -675,13 +675,13 @@ def test_severing_one_pad_measurement_claim_loses_drawing_credit(monkeypatch) ->
 def test_deleting_provider_pads_cannot_shrink_independent_denominator(monkeypatch) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_raw_recognition_result
+    original = analysis._result_from_evidence
 
     def without_pads(*args, **kwargs):
         result = original(*args, **kwargs)
         return replace(result, pads=())
 
-    monkeypatch.setattr(analysis, "build_raw_recognition_result", without_pads)
+    monkeypatch.setattr(analysis, "_result_from_evidence", without_pads)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))
 
     assert damaged.detection.matched == 0
@@ -714,7 +714,7 @@ def test_weakening_provider_measurements_reduces_parameter_fidelity(
 ) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_raw_recognition_result
+    original = analysis._result_from_evidence
 
     def weakened_pads(*args, **kwargs):
         result = original(*args, **kwargs)
@@ -723,7 +723,7 @@ def test_weakening_provider_measurements_reduces_parameter_fidelity(
             pads=tuple(_weaken_parameter(pad, parameter) for pad in result.pads),
         )
 
-    monkeypatch.setattr(analysis, "build_raw_recognition_result", weakened_pads)
+    monkeypatch.setattr(analysis, "_result_from_evidence", weakened_pads)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))
 
     assert damaged.detection.recall == 1.0
@@ -736,7 +736,7 @@ def test_weakening_provider_measurements_reduces_parameter_fidelity(
 def test_weakening_provider_identity_reduces_detection_recall(monkeypatch, field) -> None:
     import draftwright.analysis as analysis
 
-    original = analysis.build_raw_recognition_result
+    original = analysis._result_from_evidence
 
     def weakened_pads(*args, **kwargs):
         result = original(*args, **kwargs)
@@ -757,7 +757,7 @@ def test_weakening_provider_identity_reduces_detection_recall(monkeypatch, field
             )
         return replace(result, pads=tuple(values))
 
-    monkeypatch.setattr(analysis, "build_raw_recognition_result", weakened_pads)
+    monkeypatch.setattr(analysis, "_result_from_evidence", weakened_pads)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))
 
     assert damaged.detection.recall == 0.0
