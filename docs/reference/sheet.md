@@ -122,6 +122,28 @@ callout. More general ordered operation stacks remain tracked by issue #1360. Un
 requirement has a structured parameter, use a feature-linked `note(..., satisfies=(...))` only
 for parameter ids the handle actually exposes; free prose does not satisfy coverage.
 
+### Convex Blend chains
+
+When recognition accepts a complete schema-v1 convex Blend chain that is not superseded by a
+dimension-worthy Fillet, it becomes one radius requirement. Declare the same meaning explicitly
+with the dedicated word:
+
+```python
+blend = sheet.blend(
+    axis="z",                         # dominant component only
+    axis_direction=(0.321394, 0.383022, 0.866025),
+    radius=0.2,
+    at=(12.345, -4.5, 6.789),         # physical leader anchor in part coordinates
+    side="convex",
+)
+sheet.dimension(blend, "blend.radius")
+```
+
+`axis_direction` is authoritative and may be non-principal; it is preserved by generated Sheet
+code. `at` identifies feature geometry, not a page position. The annotation placement solve owns
+the final leader and label coordinates. The word is explicit-only because a detached cylindrical
+face cannot prove a complete chain or the provider aggregate's Fillet precedence.
+
 ## View handle
 
 ::: draftwright.sheet._View

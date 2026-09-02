@@ -48,6 +48,7 @@ class _FamilySpec:
 
 
 _FAMILIES: dict[str, _FamilySpec] = {
+    "blends": _FamilySpec(("Blend",), "_convert_blend", "blend", "render_blends"),
     "bosses": _FamilySpec(("BossRecord",), "_convert_boss", "boss", "render_boss_diameters"),
     "chamfers": _FamilySpec(("Chamfer",), "_convert_chamfer", "chamfer", "render_chamfers"),
     "channels": _FamilySpec(("Channel",), "_convert_channel", "channel", "render_slots"),
@@ -158,6 +159,7 @@ def _supported(implementation: str, evidence: str) -> dict[str, Any]:
 
 
 _COMPLETENESS_TRACKING = {
+    "blends": 1433,
     "chamfers": 1374,
     "channels": 1371,
     "countersinks": 1370,
@@ -205,6 +207,11 @@ def _family_declaration(family_id: str, spec: _FamilySpec) -> dict[str, Any]:
         completeness = _supported(
             "draftwright.evaluation.step_analysis.evaluate_step_corpus",
             "tests/test_issue_1369_hole_completeness_evidence.py",
+        )
+    elif family_id == "blends":
+        completeness = _supported(
+            "draftwright.linting.blend_coverage.lint_blend_coverage",
+            "tests/test_issue_1433_blend_semantics.py",
         )
     elif family_id == "chamfers":
         completeness = _supported(
@@ -380,15 +387,6 @@ def _geometry_only_declaration() -> dict[str, Any]:
 #: absent from BOTH this map and ``_FAMILIES``, so the next new family fails closed exactly as
 #: the first three did (#1244), and the 0.4.6 step families do now (#1382).
 _UNSUPPORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
-    "blends": (
-        ("Blend",),
-        "https://github.com/pzfreo/draftwright/issues/1430",
-        "The released record proves a convex blend chain, but consumer review must first decide "
-        "whether it is an independent manufacturing requirement or structural evidence owned "
-        "by the existing Fillet family. Until that precedence and defining-face ownership are "
-        "settled, Draftwright must neither emit duplicate radius requirements nor hide the "
-        "inventory.",
-    ),
     "oriented-slot-patterns": (
         ("OrientedSlotArray", "OrientedSlotGrid"),
         "https://github.com/pzfreo/draftwright/issues/1430",
@@ -440,9 +438,7 @@ _UNSUPPORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
     ),
 }
 
-_DEFERRED_FAMILIES: frozenset[str] = frozenset(
-    {"blends", "oriented-slot-patterns", "oriented-slots"}
-)
+_DEFERRED_FAMILIES: frozenset[str] = frozenset({"oriented-slot-patterns", "oriented-slots"})
 
 
 def _unsupported_declaration(family_id: str) -> dict[str, Any]:
@@ -548,6 +544,66 @@ def consumer_capability_declaration() -> dict[str, Any]:
                 "from": "deferred",
                 "release_notes": "CHANGELOG.md",
                 "to": "unsupported",
+                "version": distribution_version("draftwright"),
+            },
+            {
+                "boundary": "completeness",
+                "compatibility_evidence": [
+                    "tests/test_issue_1433_blend_semantics.py",
+                    "tests/test_recogniser_capabilities.py",
+                ],
+                "family": "blends",
+                "from": "deferred",
+                "release_notes": "CHANGELOG.md",
+                "to": "supported",
+                "version": distribution_version("draftwright"),
+            },
+            {
+                "boundary": "drawing_consumer",
+                "compatibility_evidence": [
+                    "tests/test_issue_1433_blend_semantics.py",
+                    "tests/test_recogniser_capabilities.py",
+                ],
+                "family": "blends",
+                "from": "deferred",
+                "release_notes": "CHANGELOG.md",
+                "to": "supported",
+                "version": distribution_version("draftwright"),
+            },
+            {
+                "boundary": "dsl_declaration",
+                "compatibility_evidence": [
+                    "tests/test_issue_1433_blend_semantics.py",
+                    "tests/test_recogniser_capabilities.py",
+                ],
+                "family": "blends",
+                "from": "deferred",
+                "release_notes": "CHANGELOG.md",
+                "to": "supported",
+                "version": distribution_version("draftwright"),
+            },
+            {
+                "boundary": "generated_code",
+                "compatibility_evidence": [
+                    "tests/test_issue_1433_blend_semantics.py",
+                    "tests/test_recogniser_capabilities.py",
+                ],
+                "family": "blends",
+                "from": "deferred",
+                "release_notes": "CHANGELOG.md",
+                "to": "supported",
+                "version": distribution_version("draftwright"),
+            },
+            {
+                "boundary": "ir_adapter",
+                "compatibility_evidence": [
+                    "tests/test_issue_1433_blend_semantics.py",
+                    "tests/test_recogniser_capabilities.py",
+                ],
+                "family": "blends",
+                "from": "deferred",
+                "release_notes": "CHANGELOG.md",
+                "to": "supported",
                 "version": distribution_version("draftwright"),
             },
             {

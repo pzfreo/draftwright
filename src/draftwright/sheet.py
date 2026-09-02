@@ -63,6 +63,7 @@ from draftwright.builder import _coerce_model, build_drawing, detect_part_model
 from draftwright.compose import _est_table_size
 from draftwright.fits import fit_class
 from draftwright.model import DimensionParameterId, Feature
+from draftwright.model import blend as _blend
 from draftwright.model import boss as _boss
 from draftwright.model import chamfer as _chamfer
 from draftwright.model import channel as _channel
@@ -1575,6 +1576,15 @@ class Sheet:
         ``n× R`` for equal radii). ``turned=True`` declares that ``axis`` is the shaft axis
         and selects its profile view; generated Sheet programs preserve this flag."""
         self._features.append(_fillet(obj, **kw))
+        return _Params(self, len(self._features) - 1)
+
+    def blend(self, **kw) -> _Params:
+        """Declare a complete convex cylindrical blend chain.
+
+        Explicit-only because one detached face cannot prove whole-chain ownership or Fillet
+        precedence. Non-principal chains retain ``axis_direction`` and receive one radius callout.
+        """
+        self._features.append(_blend(**kw))
         return _Params(self, len(self._features) - 1)
 
     def paired_ramp_step(self, **kw) -> _Params:

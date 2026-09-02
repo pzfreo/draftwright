@@ -374,9 +374,12 @@ ledger follows each requirement to placed, structured-note, suppressed, dropped,
 unverifiable outcomes. Duplicate or malformed source/IR correspondence is never paired by order.
 The aggregate ownership contest is preserved: the curved wall belongs to CircularBlindStep rather
 than also yielding a Fillet requirement. Partial model construction preserves that atomic decision:
-a caller may supply one of the two inventories when it agrees with the aggregate, but an intentional
-override must supply both `fillets` and `circular_blind_steps`; a divergent one-sided override fails
-closed instead of producing duplicate or missing radius semantics.
+a caller may supply either or both inventories when they agree with the aggregate, but every
+divergent override fails closed instead of producing duplicate or missing radius semantics. The two
+public record families are independently quantised and carry no shared provider owner identity, so
+Draftwright does not guess a cross-family correspondence from nearby scalar anchors. On a part whose
+aggregate owns neither family, explicit one-family injection remains available, but simultaneous
+non-empty Fillet and CircularBlindStep inventories are refused for the same reason.
 
 ## Paired-ramp-step completeness evidence
 
@@ -556,15 +559,19 @@ addition and the 0.4.12 `OrientedSlot`, `OrientedSlotArray`, and `OrientedSlotGr
 provider capability manifest therefore contains 33 families. Every family and public record has an
 explicit consumer declaration and registry home; the inspection API remains format 1 / major 1.
 
-This bounded adoption does not decide the new drawing semantics. `blends`, `oriented_slots`, and
-`oriented_slot_patterns` are separately registered as undecided inventories under #1430. A real
-occurrence is visible in `unscored_recognized_families`, but contributes no invented completeness
-requirement. Blend-chain precedence and defining-face ownership must be reconciled with the existing
-Fillet family before either can suppress or duplicate a radius requirement. The free-axis slot
-record retains vector width/long directions and its authoritative `SectionPassage` source; the
-array/grid records retain those member identities and their vector lattice. Coercing any of them
-into the principal-axis `SlotFeature` / `SlotPatternFeature` would discard that contract, so there
-is no new Sheet word, generated statement, annotation, or completeness claim in the adoption slice.
+The adoption initially deferred all three additive families. #1433 has now reviewed and promoted
+schema-v1 `blends`: provider reconciliation is the sole Fillet/Blend precedence authority, and each
+remaining accepted convex chain owns one radius requirement. Dedicated `BlendFeature` IR retains
+the complete canonical `axis_direction`; `Sheet.blend(...)`, generated replay and the shared
+solver-owned `n× R` leader preserve it without pretending it is a legacy Fillet. Exact occurrence
+and measurement provenance place Blend in `audited_score`.
+
+`oriented_slots` and `oriented_slot_patterns` remain separately registered as undecided under
+#1430. Their real occurrences are visible in `unscored_recognized_families`, but contribute no
+invented requirement. The free-axis slot record retains vector width/long directions and its
+authoritative `SectionPassage` source; array/grid records retain those member identities and their
+vector lattice. Coercing either into principal-axis `SlotFeature` / `SlotPatternFeature` would
+discard that contract, so no Sheet word or completeness claim exists for them on main.
 
 The existing schema-v1 `PairedRampStep` record is unchanged, while 0.4.12 expands provider
 recognition to shallow nonzero ramp pairs. A released shallow specimen now crosses the already

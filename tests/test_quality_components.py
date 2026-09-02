@@ -218,7 +218,7 @@ def test_an_undecided_inventory_names_a_real_open_issue():
         )
 
 
-def test_a_real_0412_blend_remains_visible_but_outside_the_denominator() -> None:
+def test_a_real_0412_blend_is_audited_and_fails_closed_without_ir() -> None:
     inventories = {
         name: False if name == "rotational" else ()
         for name in RecognitionResult.__dataclass_fields__
@@ -239,12 +239,13 @@ def test_a_real_0412_blend_remains_visible_but_outside_the_denominator() -> None
         has_asserted_content=True,
     )["completeness"]
 
-    assert completeness["requirements"] == 0
-    assert completeness["audited_score"] is None
-    assert completeness["unscored_recognized_families"] == ["blends"]
+    assert completeness["requirements"] == completeness["unverifiable"] == 1
+    assert completeness["audited_score"] == 0.0
+    assert completeness["by_family"]["blends"] == 1
+    assert completeness["unscored_recognized_families"] == []
     assert completeness["reason"] == (
-        "recognized inventories exist only in families whose requirement semantics and "
-        "outcome ledgers are deferred"
+        "audited_score covers recognized requirements in audited families only; "
+        "it is not evidence that the drawing is complete"
     )
 
 
@@ -272,11 +273,11 @@ def test_deferred_and_established_unaudited_families_are_named_truthfully() -> N
         has_asserted_content=True,
     )["completeness"]
 
-    assert completeness["requirements"] == 0
-    assert completeness["unscored_recognized_families"] == ["blends", "bosses"]
+    assert completeness["requirements"] == completeness["unverifiable"] == 1
+    assert completeness["unscored_recognized_families"] == ["bosses"]
     assert completeness["reason"] == (
-        "recognized requirements and inventories with deferred requirement semantics "
-        "exist only in families without outcome ledgers"
+        "audited_score covers recognized requirements in audited families only; "
+        "it is not evidence that the drawing is complete"
     )
 
 

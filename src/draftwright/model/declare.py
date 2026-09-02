@@ -40,6 +40,7 @@ from draftwright._geometry import (
 from draftwright.model.ir import (
     AUTHORED_DIMENSION_KINDS,
     AuthoredDimension,
+    BlendFeature,
     BossFeature,
     ChamferFeature,
     ChannelFeature,
@@ -688,6 +689,25 @@ def fillet(obj=None, *, axis=None, radius=None, at=None, turned=False) -> Fillet
         axis=axis,
         radius=round(radius, 3),
         turned=bool(turned),
+    )
+
+
+def blend(*, axis, radius, at, side="convex", axis_direction=None) -> BlendFeature:
+    """Declare one complete convex cylindrical rolling-ball chain.
+
+    This word is explicit-only: a detached round face cannot prove a complete chain or the
+    aggregate-owned Fillet precedence. ``axis_direction`` retains a non-principal run; when
+    omitted it defaults to the positive principal direction named by ``axis``.
+    """
+    axis = _norm_axis(axis)
+    if axis_direction is None:
+        axis_direction = tuple(1.0 if letter == axis else 0.0 for letter in "xyz")
+    return BlendFeature(
+        frame=Frame(origin=at, axis=axis),
+        axis=axis,
+        radius=radius,
+        side=side,
+        axis_direction=axis_direction,
     )
 
 

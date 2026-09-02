@@ -1316,6 +1316,13 @@ class TestEveryFeatureVerbIsNameable:
         "envelope": {},
         "chamfer": dict(axis="z", leg=2, at=(0, 0, 0)),
         "fillet": dict(axis="z", radius=2, at=(0, 0, 0)),
+        "blend": dict(
+            axis="z",
+            radius=0.2,
+            at=(0, 0, 0),
+            side="convex",
+            axis_direction=(0, 0, 1),
+        ),
         "circular_blind_step": dict(
             axis="z",
             radius=4,

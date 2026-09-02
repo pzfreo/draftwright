@@ -11,7 +11,7 @@ keep that table, this document, and `CLAUDE.md`'s compact map in step. The
 The dependency graph is a DAG (the #138 / ADR 0005 split is complete). Bottom to
 top: leaf modules (`layout.py`, `registry.py`, `fonts.py`, `_geometry.py`,
 `fits.py`, `intents.py`, `recognition_cache.py`, `recognition_frame.py`, and the
-`linting/` subpackage) →
+strict `blend_contract.py` provider-record boundary, and the `linting/` subpackage) →
 `_core.py` → stage modules (`export.py`,
 `repair.py`, `projection.py`, `compose.py`, `analysis.py`, `drawing.py`, the
 `model/` IR subpackage, the `annotations/` subpackage) → `builder.py` → the
@@ -209,6 +209,9 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   cylinders, runs one paired aggregate, propagates typed refusal without fallback, and exposes
   conservative FULL/ORTHOGONAL/AXIAL semantic policy. Analysis calls it only for the explicit
   `framed_recognition=True` rollout path and owns any visible raw fallback above this leaf.
+- **`blend_contract.py`** — the strict leaf boundary for released schema-v1 `Blend` records.
+  It rejects widened, mutable, non-finite, non-canonical, and unreleased values and owns the
+  exact occurrence key shared by conversion and completeness lint.
 - **`recogniser_contract.py`** — the fail-closed cross-repository capability join. It consumes
   only the installed `b123d-recognisers` public manifest, then validates Draftwright-owned IR,
   `Sheet`, generated-code, drawing, completeness, and documentation declarations. It is rank 7

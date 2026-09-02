@@ -30,6 +30,7 @@ from dataclasses import dataclass, replace
 
 from draftwright._geometry import _EDGE_ON, _END_ON, HoleRef
 from draftwright.model.ir import (
+    BlendFeature,
     ChamferFeature,
     ChannelFeature,
     Datum,
@@ -92,6 +93,7 @@ _CONVENTION = {
     ("chamfer", "length"): "leader",  # C{leg} / {leg}×{angle}° leader callout (#724)
     ("channel_width", "length"): "linear",
     ("fillet", "radius"): "leader",  # R{radius} (grouped n× R) leader callout (#725)
+    ("blend", "radius"): "leader",  # complete convex chain, one R requirement (#1433)
     # One circular blind-step leader carries the quarter-cylinder radius and stopped depth.
     ("circular_step_radius", "radius"): "leader",
     ("circular_step_depth", "length"): "leader",
@@ -365,6 +367,8 @@ def _preferred_group_view(feature: Feature) -> str:
     """
     if isinstance(feature, ChamferFeature | FilletFeature) and feature.turned:
         return _PROFILE.get(feature.frame.axis, "front")
+    if isinstance(feature, BlendFeature):
+        return _END_ON.get(feature.axis, "plan")
     if isinstance(feature, FlatFeature):
         return _END_ON.get(feature.presentation_axis, "plan")
     if isinstance(feature, StepLevelFeature):

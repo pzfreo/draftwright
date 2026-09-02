@@ -201,7 +201,7 @@ def test_0410_blind_slot_family_dispositions_are_explicit() -> None:
         assert family_id not in pending_family_declarations()
 
 
-def test_0412_additive_family_dispositions_are_explicit_and_deferred() -> None:
+def test_0412_additive_family_dispositions_are_explicit_and_fail_closed() -> None:
     package = _families(recognition.capability_manifest())
     consumer = _families(consumer_capability_declaration())
     expected = {
@@ -254,18 +254,32 @@ def test_0412_additive_family_dispositions_are_explicit_and_deferred() -> None:
 
         declaration = consumer[family_id]
         assert declaration["record_schemas"] == {name: [1] for name in contract["records"]}
-        assert declaration["disposition"] == "deferred"
-        assert declaration["tracking"] == "https://github.com/pzfreo/draftwright/issues/1430"
-        assert {
-            declaration[boundary]["state"]
-            for boundary in (
-                "ir_adapter",
-                "dsl_declaration",
-                "generated_code",
-                "drawing_consumer",
-                "completeness",
-            )
-        } == {"deferred"}
+        if family_id == "blends":
+            assert declaration["disposition"] == "supported"
+            assert "tracking" not in declaration
+            assert {
+                declaration[boundary]["state"]
+                for boundary in (
+                    "ir_adapter",
+                    "dsl_declaration",
+                    "generated_code",
+                    "drawing_consumer",
+                    "completeness",
+                )
+            } == {"supported"}
+        else:
+            assert declaration["disposition"] == "deferred"
+            assert declaration["tracking"] == "https://github.com/pzfreo/draftwright/issues/1430"
+            assert {
+                declaration[boundary]["state"]
+                for boundary in (
+                    "ir_adapter",
+                    "dsl_declaration",
+                    "generated_code",
+                    "drawing_consumer",
+                    "completeness",
+                )
+            } == {"deferred"}
         assert declaration["documentation"]["state"] == "supported"
         assert family_id not in pending_family_declarations()
 
@@ -338,6 +352,66 @@ def test_rich_passage_contract_has_an_explicit_unsupported_completeness_outcome(
             "from": "deferred",
             "release_notes": "CHANGELOG.md",
             "to": "unsupported",
+            "version": importlib.metadata.version("draftwright"),
+        },
+        {
+            "boundary": "completeness",
+            "compatibility_evidence": [
+                "tests/test_issue_1433_blend_semantics.py",
+                "tests/test_recogniser_capabilities.py",
+            ],
+            "family": "blends",
+            "from": "deferred",
+            "release_notes": "CHANGELOG.md",
+            "to": "supported",
+            "version": importlib.metadata.version("draftwright"),
+        },
+        {
+            "boundary": "drawing_consumer",
+            "compatibility_evidence": [
+                "tests/test_issue_1433_blend_semantics.py",
+                "tests/test_recogniser_capabilities.py",
+            ],
+            "family": "blends",
+            "from": "deferred",
+            "release_notes": "CHANGELOG.md",
+            "to": "supported",
+            "version": importlib.metadata.version("draftwright"),
+        },
+        {
+            "boundary": "dsl_declaration",
+            "compatibility_evidence": [
+                "tests/test_issue_1433_blend_semantics.py",
+                "tests/test_recogniser_capabilities.py",
+            ],
+            "family": "blends",
+            "from": "deferred",
+            "release_notes": "CHANGELOG.md",
+            "to": "supported",
+            "version": importlib.metadata.version("draftwright"),
+        },
+        {
+            "boundary": "generated_code",
+            "compatibility_evidence": [
+                "tests/test_issue_1433_blend_semantics.py",
+                "tests/test_recogniser_capabilities.py",
+            ],
+            "family": "blends",
+            "from": "deferred",
+            "release_notes": "CHANGELOG.md",
+            "to": "supported",
+            "version": importlib.metadata.version("draftwright"),
+        },
+        {
+            "boundary": "ir_adapter",
+            "compatibility_evidence": [
+                "tests/test_issue_1433_blend_semantics.py",
+                "tests/test_recogniser_capabilities.py",
+            ],
+            "family": "blends",
+            "from": "deferred",
+            "release_notes": "CHANGELOG.md",
+            "to": "supported",
             "version": importlib.metadata.version("draftwright"),
         },
         {
@@ -1175,6 +1249,7 @@ def test_dsl_and_generated_code_inventories_are_derived_from_live_code() -> None
     assert declared_methods <= sheet_methods
 
     family_kinds = {
+        "blends": "blend",
         "bosses": "boss",
         "chamfers": "chamfer",
         "channels": "channel",

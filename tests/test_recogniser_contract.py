@@ -479,7 +479,16 @@ def test_0410_round_bottom_slot_crosses_the_dedicated_consumer_path():
 
 
 @pytest.mark.parametrize(
-    ("part", "inventory", "record_type", "count", "pattern_type", "unscored"),
+    (
+        "part",
+        "inventory",
+        "record_type",
+        "count",
+        "pattern_type",
+        "unscored",
+        "requirements",
+        "audited_score",
+    ),
     [
         (
             _small_blended_box(),
@@ -487,7 +496,9 @@ def test_0410_round_bottom_slot_crosses_the_dedicated_consumer_path():
             Blend,
             4,
             None,
-            ["blends"],
+            [],
+            4,
+            1.0,
         ),
         (
             _oriented_slot_pattern(((-30, 0), (0, 0), (30, 0))),
@@ -496,6 +507,8 @@ def test_0410_round_bottom_slot_crosses_the_dedicated_consumer_path():
             3,
             OrientedSlotArray,
             ["oriented_slot_patterns", "oriented_slots"],
+            0,
+            None,
         ),
         (
             _oriented_slot_pattern(
@@ -506,19 +519,23 @@ def test_0410_round_bottom_slot_crosses_the_dedicated_consumer_path():
             6,
             OrientedSlotGrid,
             ["oriented_slot_patterns", "oriented_slots"],
+            0,
+            None,
         ),
     ],
     ids=("blend", "oriented-linear", "oriented-grid"),
 )
-def test_0412_deferred_families_cross_the_aggregate_without_duplicate_ownership(
+def test_0412_additive_families_cross_the_aggregate_without_duplicate_ownership(
     part,
     inventory,
     record_type,
     count,
     pattern_type,
     unscored,
+    requirements,
+    audited_score,
 ):
-    """The provider aggregate and Drawing keep deferred occurrences explicit and unscored."""
+    """The aggregate preserves exclusive owners across supported and deferred consumers."""
     raw = build_raw_recognition_result(part)
     drawing = build_drawing(part)
     recognition = drawing.recognition()
@@ -540,8 +557,8 @@ def test_0412_deferred_families_cross_the_aggregate_without_duplicate_ownership(
 
     completeness = drawing.lint_summary()["quality"]["completeness"]
     assert completeness["unscored_recognized_families"] == unscored
-    assert completeness["requirements"] == 0
-    assert completeness["audited_score"] is None
+    assert completeness["requirements"] == requirements
+    assert completeness["audited_score"] == audited_score
 
 
 def test_frozen_records_reject_mutation():

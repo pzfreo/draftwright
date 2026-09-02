@@ -185,16 +185,93 @@ def test_partial_models_reject_one_sided_ownership_overrides() -> None:
     with pytest.raises(ValueError, match="fillets and circular_blind_steps"):
         build_part_model(part, circular_blind_steps=())
 
-    intentional = build_part_model(
-        part,
-        fillets=legacy_fillets,
-        circular_blind_steps=(),
+    with pytest.raises(ValueError, match="provider owner identity"):
+        build_part_model(
+            part,
+            fillets=legacy_fillets,
+            circular_blind_steps=(),
+        )
+
+    second_owner = replace(
+        legacy_fillets[0],
+        at=tuple(value + 0.25 for value in legacy_fillets[0].at),
     )
-    assert [feature.kind for feature in intentional.features].count("fillet") == 1
-    assert "circular_blind_step" not in [feature.kind for feature in intentional.features]
+    with pytest.raises(ValueError, match="provider owner identity"):
+        build_part_model(
+            part,
+            fillets=(legacy_fillets[0], second_owner),
+            circular_blind_steps=(),
+        )
+
+    with pytest.raises(ValueError, match="preserve aggregate ownership"):
+        build_part_model(
+            part,
+            fillets=(legacy_fillets[0], legacy_fillets[0]),
+            circular_blind_steps=(),
+        )
+
+    for unrelated in (
+        second_owner,
+        replace(legacy_fillets[0], radius=legacy_fillets[0].radius + 0.5),
+        replace(legacy_fillets[0], axis="z"),
+    ):
+        with pytest.raises(ValueError, match="provider owner identity"):
+            build_part_model(
+                part,
+                fillets=(unrelated,),
+                circular_blind_steps=(),
+            )
 
 
-def test_explicit_fillet_inventory_survives_an_unrelated_circular_step_owner() -> None:
+def test_translated_paired_legacy_override_fails_closed_without_provider_identity() -> None:
+    part = Pos(0.5555, 0.761035, -0.405515) * _part()
+    legacy_fillets = tuple(recognise_fillets(part))
+    assert len(legacy_fillets) == 1
+
+    with pytest.raises(ValueError, match="provider owner identity"):
+        build_part_model(
+            part,
+            fillets=legacy_fillets,
+            circular_blind_steps=(),
+        )
+
+
+def test_owner_free_explicit_injection_accepts_one_family_but_not_both() -> None:
+    source = _part()
+    recognition = build_raw_recognition_result(source)
+    legacy_fillets = tuple(recognise_fillets(source))
+    plain = Box(40, 30, 20)
+
+    fillet_model = build_part_model(plain, fillets=legacy_fillets)
+    circular_model = build_part_model(
+        plain,
+        circular_blind_steps=recognition.circular_blind_steps,
+    )
+    assert [feature.kind for feature in fillet_model.features].count("fillet") == 1
+    assert [feature.kind for feature in circular_model.features].count("circular_blind_step") == 1
+
+    with pytest.raises(ValueError, match="cannot be supplied together"):
+        build_part_model(
+            plain,
+            fillets=legacy_fillets,
+            circular_blind_steps=recognition.circular_blind_steps,
+        )
+
+
+def test_circular_inventory_order_does_not_change_aggregate_ownership() -> None:
+    part = Compound([_part(), Pos(80, 0, 0) * _part()])
+    recognition = build_raw_recognition_result(part)
+    assert len(recognition.circular_blind_steps) == 2
+
+    model = build_part_model(
+        part,
+        circular_blind_steps=(record for record in reversed(recognition.circular_blind_steps)),
+    )
+
+    assert [feature.kind for feature in model.features].count("circular_blind_step") == 2
+
+
+def test_unrelated_circular_owner_does_not_authorize_fillet_erasure() -> None:
     rounded = Box(20, 20, 20)
     edge = sorted(
         rounded.edges().filter_by(Axis.Z),
@@ -204,9 +281,8 @@ def test_explicit_fillet_inventory_survives_an_unrelated_circular_step_owner() -
     recognition = build_raw_recognition_result(part)
 
     assert len(recognition.circular_blind_steps) == len(recognition.fillets) == 1
-    suppressed = build_part_model(part, fillets=())
-    assert [feature.kind for feature in suppressed.features].count("circular_blind_step") == 1
-    assert "fillet" not in [feature.kind for feature in suppressed.features]
+    with pytest.raises(ValueError, match="fillets and blends"):
+        build_part_model(part, fillets=())
 
 
 def test_standalone_model_runs_one_aggregate_and_one_cylinder_scan(monkeypatch) -> None:

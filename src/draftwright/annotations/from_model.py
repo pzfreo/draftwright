@@ -2367,19 +2367,74 @@ def render_fillets(dwg, plan, a, *, ctx, only=None) -> int:
     the IR remains one semantic feature per
     physical fillet (ADR 0013), while the annotation registry records all N measurement
     identities (ADR 0017 / #1002)."""
+    return _render_radius_callouts(
+        dwg,
+        plan,
+        a,
+        ctx=ctx,
+        only=only,
+        kind="fillet",
+        role="fillet",
+        name_stem="fillet",
+        noun="fillet",
+        drop_code="fillet_dropped",
+    )
+
+
+def render_blends(dwg, plan, a, *, ctx, only=None) -> int:
+    """One solver-owned ``R`` leader for each equal-radius group of accepted Blend chains.
+
+    The aggregate already removed exact Fillet owners. ``axis_direction`` remains compiled
+    structure; its dominant ``axis`` selects the least-foreshortened standard orthographic view.
+    """
+    return _render_radius_callouts(
+        dwg,
+        plan,
+        a,
+        ctx=ctx,
+        only=only,
+        kind="blend",
+        role="blend",
+        name_stem="blend",
+        noun="blend",
+        drop_code="blend_dropped",
+    )
+
+
+def _render_radius_callouts(
+    dwg,
+    plan,
+    a,
+    *,
+    ctx,
+    only,
+    kind: str,
+    role: str,
+    name_stem: str,
+    noun: str,
+    drop_code: str,
+) -> int:
+    """Shared solver path for one-radius rounded-feature families."""
     draft = dwg.draft
     reach = _leader_callout_reach(draft)
     collapse: dict = {}
-    for g in plan.of_kind("fillet"):
+    for g in plan.of_kind(kind):
         pd = next(
-            (d for d in g.dims if (d.role, d.kind) == ("fillet", "radius")),
+            (d for d in g.dims if (d.role, d.kind) == (role, "radius")),
             None,
         )
         if pd is None:
             continue
-        collapse.setdefault(round(pd.value, 3), []).append((g, pd))
+        # Group by what the drawing will actually print. Authored Blend radii can carry
+        # more precision than provider geometry, and two distinct display values must
+        # never share one n× label while receiving separate measurement credit (#1433).
+        collapse.setdefault(pd.value_text, []).append((g, pd))
     jobs = []
-    for gi, (_radius, members) in enumerate(sorted(collapse.items())):
+    ordered_groups = sorted(
+        collapse.items(),
+        key=lambda item: (min(pd.value for _g, pd in item[1]), item[0]),
+    )
+    for gi, (_value_text, members) in enumerate(ordered_groups):
         if only is not None:
             # #426 Ph2b subset (finalize): filter members AFTER the collapse is enumerated so
             # gi stays the full-drawing group index — a survivor keeps its m_fillet name even
@@ -2403,10 +2458,10 @@ def render_fillets(dwg, plan, a, *, ctx, only=None) -> int:
         vb = dwg.view_bounds(view)
         if vb is None:
             continue
-        tol = _collapsed_tolerance(members, ctx=ctx, noun="fillet")
+        tol = _collapsed_tolerance(members, ctx=ctx, noun=noun)
         jobs.append(
             (
-                f"m_fillet_{axis}{gi}",
+                f"m_{name_stem}_{axis}{gi}",
                 view,
                 vb,
                 _fillet_label(members[0][1].value_text, len(members)) + _tol_suffix(tol, draft),
@@ -2428,8 +2483,8 @@ def render_fillets(dwg, plan, a, *, ctx, only=None) -> int:
         dwg,
         a,
         jobs,
-        noun="fillet",
-        drop_code="fillet_dropped",
+        noun=noun,
+        drop_code=drop_code,
         ctx=ctx,
         joint=True,
     )

@@ -80,6 +80,8 @@ _LAYERS: dict[str, int] = {
     "recognition": 0,
     "recognition_cache": 0,
     "recognition_frame": 0,
+    # Strict shared validator for the released provider Blend record and its occurrence key.
+    "blend_contract": 0,
     "score": 0,  # census over recognition/ only — a leaf beside the recognisers (#704)
     # audit: diffs two FINISHED drawings through their public reads (#996). A leaf by
     # construction — it imports nothing from the engine, so the thing it measures can never
@@ -441,6 +443,7 @@ def test_classifier_is_binding_aware_and_context_correct(tmp_path):
 
 _MODEL_MAY_IMPORT = {
     "_geometry",
+    "blend_contract",
     "fits",
     "fonts",
     "layout",

@@ -1062,6 +1062,7 @@ class TestTheBoundaryIsLoadBearing:
                         break
 
         assert sorted(by_contract["plan"]) == [
+            "render_blends",
             "render_boss_diameters",
             "render_boss_heights",
             "render_chamfers",

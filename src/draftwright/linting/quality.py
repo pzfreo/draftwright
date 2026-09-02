@@ -32,6 +32,7 @@ from __future__ import annotations
 
 from collections import Counter
 
+from draftwright.linting.blend_coverage import blend_requirement_outcomes
 from draftwright.linting.chamfer_coverage import chamfer_requirement_outcomes
 from draftwright.linting.channel_coverage import channel_requirement_outcomes
 from draftwright.linting.circular_blind_step_coverage import (
@@ -112,6 +113,7 @@ _LEGIBILITY_CODES = frozenset(
 # Recognition inventories that represent potentially dimension-bearing physical families.
 _RECOGNISED_REQUIREMENT_FAMILIES = {
     "angled_steps": "angled_steps",
+    "blends": "blends",
     "holes": "holes",
     "double_d_bores": "profiled_bores",
     "hole_patterns": "hole_patterns",
@@ -171,13 +173,13 @@ _NON_REQUIREMENT_INVENTORIES = frozenset(
 #: AngledStep left this register when #1245/#1246/#1247 gave every authoritative occurrence an
 #: unsupported outcome.
 _UNDECIDED_INVENTORIES: dict[str, str] = {
-    "blends": "https://github.com/pzfreo/draftwright/issues/1430",
     "oriented_slot_patterns": "https://github.com/pzfreo/draftwright/issues/1430",
     "oriented_slots": "https://github.com/pzfreo/draftwright/issues/1430",
 }
 
 _AUDITED_FAMILIES = (
     "angled_steps",
+    "blends",
     "chamfers",
     "channels",
     "circular_blind_steps",
@@ -388,6 +390,7 @@ _STAGE_ROUTED_CODES = frozenset(
         "gdt_dropped",
         "pmi_dropped",
         "boss_dia_dropped",
+        "blend_dropped",
         "chamfer_dropped",
         "circular_blind_step_dropped",
         "diameter_dropped",
@@ -414,6 +417,7 @@ _STAGE_ROUTED_CODES = frozenset(
 #: individually, so the prefix register governs only the interpolating sites — it can never
 #: reclassify a code somebody spelled out.
 _UNSCORED_CODE_PREFIXES = (
+    "blend_requirement_",
     "chamfer_requirement_",
     "channel_requirement_",
     "circular_blind_step_requirement_",
@@ -641,6 +645,7 @@ def _completeness_component(
     # their shared runtime ``state``/``requirement_count`` protocol.
     outcomes: dict[str, list] = {
         "chamfers": chamfer_requirement_outcomes(recognition, features, registry, omissions),
+        "blends": blend_requirement_outcomes(recognition, features, registry, omissions),
         "channels": channel_requirement_outcomes(recognition, features, registry, omissions),
         "circular_blind_steps": circular_blind_step_requirement_outcomes(
             recognition, features, registry, omissions

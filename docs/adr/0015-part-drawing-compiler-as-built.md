@@ -123,6 +123,7 @@ by #754 (Amendment 2): those labels are now planner-fed.
 | turned step lengths (the chain) | `from_model.render_step_lengths` | `plan_dimensions` |
 | chamfers (C{leg} / {leg}×{angle}° leader, #724) | `from_model.render_chamfers` | `plan_dimensions` |
 | fillets (R{radius} / n× R leader, #725) | `from_model.render_fillets` | `plan_dimensions` |
+| convex Blend chains (R{radius} / n× R leader, #1433) | `from_model.render_blends` | `plan_dimensions` |
 | circular blind steps (R{radius} × {depth} DEEP compound leader, #1382) | `from_model.render_circular_blind_steps` | `plan_dimensions` |
 | flats ({across} A/F leader, #726) | `from_model.render_flats` | `plan_dimensions` |
 | grooves ({width} WIDE × ø{diameter} leader, #727) | `from_model.render_grooves` | `plan_dimensions` |

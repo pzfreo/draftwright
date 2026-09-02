@@ -302,6 +302,9 @@ _FACTS: dict[str, tuple[str, ...]] = {
     # changes output, and a migration that claims byte-identity is the wrong place for it.
     "chamfer": ("frame", "axis", "leg2", "angle", "turned"),
     "fillet": ("frame", "axis", "turned"),
+    # Full free-axis direction is structural identity and survives to the renderer/replay.
+    # Radius remains an approved dimension and cannot leak through these facts.
+    "blend": ("frame", "axis", "side", "axis_direction"),
     # The frame origin is the physical curved-wall arrow anchor. Radius and depth remain
     # approved dimensions, so neither can be reconstructed when authored intent omits it.
     "circular_blind_step": ("frame", "axis"),

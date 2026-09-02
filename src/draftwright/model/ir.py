@@ -33,6 +33,7 @@ from draftwright._geometry import (
     quantised_radius_agrees,
     quantised_span_agrees,
 )
+from draftwright.blend_contract import register_blend_ir_types, validate_blend_fields
 
 if TYPE_CHECKING:
     from draftwright.fits import FitClass
@@ -307,6 +308,7 @@ ParameterId = str
 #: A discriminated variant is spelled in full (`grid_pitch.length.row`); `axis=` still
 #: works with the bare role, for scripts that already wrote it that way.
 DimensionParameterId = Literal[
+    "blend.radius",
     "bolt_circle.diameter",
     "bore.depth",
     "bore.diameter",
@@ -1863,6 +1865,47 @@ class FilletFeature:
 
     def references(self) -> list[Datum]:
         return []
+
+
+@dataclass(frozen=True)
+class BlendFeature:
+    """One complete convex cylindrical rolling-ball chain from the released schema-v1 family.
+
+    Unlike :class:`FilletFeature`, a Blend retains its canonical full free-axis direction.
+    Aggregate reconciliation has already removed chains owned by dimension-worthy Fillets.
+    """
+
+    frame: Frame
+    axis: str
+    radius: float
+    side: str
+    axis_direction: tuple[float, float, float]
+    kind: ClassVar[str] = "blend"
+
+    def __post_init__(self) -> None:
+        if type(self.frame) is not Frame:
+            raise TypeError("blend frame must be an exact Frame value")
+        axis, radius, at, side, direction = validate_blend_fields(
+            axis=self.axis,
+            radius=self.radius,
+            at=self.frame.origin,
+            side=self.side,
+            axis_direction=self.axis_direction,
+        )
+        if self.frame.axis != axis:
+            raise ValueError("blend frame axis must match its dominant axis")
+        object.__setattr__(self, "radius", radius)
+        object.__setattr__(self, "side", side)
+        object.__setattr__(self, "axis_direction", direction)
+
+    def parameters(self) -> list[DimParameter]:
+        return [DimParameter("radius", "blend", self.radius)]
+
+    def references(self) -> list[Datum]:
+        return []
+
+
+register_blend_ir_types(BlendFeature, Frame)
 
 
 @dataclass(frozen=True)

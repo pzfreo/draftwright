@@ -93,6 +93,7 @@ from draftwright.linting import (
     is_dimension_like,
     lint_angled_step_coverage,
     lint_axial_coverage,
+    lint_blend_coverage,
     lint_boss_height_coverage,
     lint_chamfer_coverage,
     lint_channel_coverage,
@@ -328,6 +329,7 @@ _MACHINED_CALLOUT_KINDS = (
     "chamfer",
     "circular_blind_step",
     "fillet",
+    "blend",
     "paired_ramp_step",
     "flat",
     "pocket",
@@ -1704,7 +1706,7 @@ class Drawing:
 
         Raises ``ValueError`` if *feature* exposes no callout (use :meth:`dimension` for a
         linear param). A machined-feature callout
-        (pocket/pad-height/circular-blind-step/fillet/paired-ramp/flat/chamfer/groove) is
+        (pocket/pad-height/circular-blind-step/fillet/blend/paired-ramp/flat/chamfer/groove) is
         auto-named and placed in its characteristic view by the kind's renderer, so
         ``view=``/``name=`` are unsupported for those kinds and raise ``ValueError`` rather
         than being silently ignored (Codex #811). Placed reasonably, not via the auto-pass's
@@ -1754,6 +1756,7 @@ class Drawing:
                     "add it to a drawing built by build_drawing(), not a bare Drawing"
                 )
             from draftwright.annotations.from_model import (
+                render_blends,
                 render_chamfers,
                 render_circular_blind_steps,
                 render_fillets,
@@ -1767,6 +1770,7 @@ class Drawing:
             )
 
             renderers = {
+                "blend": render_blends,
                 "chamfer": render_chamfers,
                 "circular_blind_step": render_circular_blind_steps,
                 "fillet": render_fillets,
@@ -2434,6 +2438,7 @@ class Drawing:
         :meth:`_classify_intents`; finalize wraps this call in the snapshot/rollback/finally,
         so a raise here still rolls the drawing back as before."""
         from draftwright.annotations.from_model import (
+            render_blends,
             render_chamfers,
             render_circular_blind_steps,
             render_diameters,
@@ -2781,6 +2786,9 @@ class Drawing:
         def _s_fillets():
             _s_machined("fillet", render_fillets)
 
+        def _s_blends():
+            _s_machined("blend", render_blends)
+
         def _s_paired_ramp_steps():
             _s_machined("paired_ramp_step", render_paired_ramp_steps)
 
@@ -2972,6 +2980,7 @@ class Drawing:
                 "chamfers": _s_chamfers,
                 "circular_blind_steps": _s_circular_blind_steps,
                 "fillets": _s_fillets,
+                "blends": _s_blends,
                 "paired_ramp_steps": _s_paired_ramp_steps,
                 "flats": _s_flats,
                 "pockets": _s_pockets,
@@ -3689,6 +3698,14 @@ class Drawing:
                 assembly=self.assembly,
             )
             issues += lint_fillet_coverage(
+                working_part,
+                recognition=recognition,
+                features=getattr(model, "features", ()) if model is not None else (),
+                registry=self._registry,
+                omissions=self._build.omissions,
+                assembly=self.assembly,
+            )
+            issues += lint_blend_coverage(
                 working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),

@@ -60,7 +60,7 @@ from draftwright.compose import (
     _measure_strips,
     choose_scale,
 )
-from draftwright.model import build_part_model
+from draftwright.model.detect import _build_part_model_from_recognition
 from draftwright.model.ir import Datum, GrooveFeature, PartModel, StepFeature, StepLevelFeature
 from draftwright.model.planner import plan_dimensions
 from draftwright.recognition_frame import (
@@ -998,8 +998,9 @@ def _analyse(
         if layout_model is not None
         else cast(PartModel, _reuse.model)
         if _reuse is not None and _reuse.model is not None
-        else build_part_model(
+        else _build_part_model_from_recognition(
             part,
+            cast(RecognitionResult, recognition),
             holes=holes,
             double_d_bores=double_d_bores,
             patterns=patterns,
@@ -1016,6 +1017,7 @@ def _analyse(
             risers=list(recognition.risers) if recognition else None,
             chamfers=list(recognition.chamfers) if recognition else None,
             fillets=list(recognition.fillets) if recognition else None,
+            blends=list(recognition.blends) if recognition else None,
             circular_blind_steps=(list(recognition.circular_blind_steps) if recognition else None),
             paired_ramp_steps=list(recognition.paired_ramp_steps) if recognition else None,
             through_steps=list(recognition.through_steps) if recognition else None,

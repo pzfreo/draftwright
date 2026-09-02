@@ -758,6 +758,13 @@ def _feature_line(
             f'long_axis="{f.long_axis}", width_axis="{f.width_axis}", '
             f"lo={lo}, hi={hi}, w_center={_n(f.w_center)}, at={_pt(f.frame.origin)})"
         )
+    if k == "blend":
+        return (
+            "sheet.blend("
+            f"axis={f.axis!r}, radius={_authored_n(f.radius)}, "
+            f"at={_authored_pt(f.frame.origin)}, side={f.side!r}, "
+            f"axis_direction={_authored_pt(f.axis_direction)})"
+        )
     if k == "rectangular_blind_slot":
         return (
             "sheet.rectangular_blind_slot("
@@ -963,6 +970,7 @@ _SECTION = {
     "channel": "Channels",
     "chamfer": "Edges",
     "fillet": "Edges",
+    "blend": "Edges",
     "flat": "Flats",
     "plate": "Plates",
     "envelope": "Envelope",
@@ -986,6 +994,7 @@ _NOUN = {
     "channel": "channel",
     "chamfer": "chamfer",
     "fillet": "fillet",
+    "blend": "blend",
     "flat": "flat",
     "plate": "plate",
     "envelope": "envelope",
@@ -1013,6 +1022,7 @@ _DESCRIBED = frozenset(
         "pattern",
         "chamfer",
         "fillet",
+        "blend",
         "flat",
         "plate",
         "groove",
@@ -1074,6 +1084,8 @@ def _short_label(f) -> str:
         return f"C{_n(f.leg1)}" if equal else f"chamfer {_n(f.leg1)} × {_n(f.leg2)}"
     if k == "fillet":
         return f"R{_n(f.radius)}"
+    if k == "blend":
+        return f"R{_n(f.radius)} convex blend"
     if k == "flat":
         return f"{_n(f.across)} A/F flat"
     if k == "groove":
