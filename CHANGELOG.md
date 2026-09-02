@@ -44,6 +44,17 @@
 
 ### Changed
 
+- Rectangular blind slots recognised by `b123d-recognisers` 0.4.10 now cross a dedicated
+  Draftwright semantic path: `RectangularBlindSlotFeature`, the explicit
+  `Sheet.rectangular_blind_slot(...)` word, generated-code and role-specific tolerance round
+  trips, compiler-approved width/capped-run/depth measurements, and one solver-owned
+  `OPEN SLOT … DEEP` leader. Authored subsets retain every approved value with explicit
+  `WIDE`/`LONG`/`DEEP` roles, and leaders target proved cap/side material rather than the open
+  mouth. Native raw and rigidly moved framed builds retain the same three
+  measurement outcomes. Independent physical completeness scoring remains deferred under #1421,
+  and the distinct round-bottom family remains fully deferred (#1421; ADRs 0011, 0013–0017,
+  0020).
+
 - Turned-step completeness is now backed by an independently authored, hash-pinned 11-case STEP
   corpus with 26 physical outside-diameter bands, 52 parameter checks and 104 downstream checks.
   Axis line and station preserve body-local occurrence identity across automatic IR, the existing
@@ -93,14 +104,15 @@
   0017).
 - Updated the immutable `b123d-recognisers` pin and fail-closed inspection/capability joins to
   0.4.10. All 28 previously consumed family schemas remain unchanged. The two new blind-slot
-  families are explicitly deferred under #1421 and remain visible as unscored recognised
-  inventories; Draftwright does not coerce their depth, terminal/open-end, or round-floor evidence
-  into its ordinary through-slot grammar. The provider's additive evidence API is not consumed by
+  families were adopted fail-closed under #1421 and remain visible as unscored recognised
+  inventories until each gains independent completeness evidence; Draftwright does not coerce
+  their depth, terminal/open-end, or round-floor evidence into its ordinary through-slot grammar.
+  The provider's additive evidence API is not consumed by
   this bounded adoption slice. Recognition output does change under the unchanged schemas: the
   release closes slot-depth, subdivided paired-ramp/AngledStep, and noisy stubby-pocket gaps; fixes
   Double-D/Hole ownership, external-cone countersink false positives, Plate tie covariance, and
   turned-step translation covariance; and can move an edge-open rectangular recess from `Pocket`
-  to the deferred blind-slot inventory. Draftwright regression tests pin the consumer-visible
+  to the dedicated blind-slot inventory. Draftwright regression tests pin the consumer-visible
   ownership changes while the provider release suite owns its private predicates
   ([provider release](https://github.com/pzfreo/b123d-recognisers/releases/tag/v0.4.10); ADRs 0013,
   0015, 0017, 0020).

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+from numbers import Real
 from typing import Any
 
 from b123d_recognisers import (
@@ -118,6 +119,7 @@ from draftwright.model.ir import (
     PocketPatternFeature,
     PolygonalBossFeature,
     PolygonalStockFeature,
+    RectangularBlindSlotFeature,
     RotationalFeature,
     SlotFeature,
     SlotPatternFeature,
@@ -727,6 +729,33 @@ def _convert_groove(groove: Groove, ctx: ConvContext) -> GrooveFeature:
     )
 
 
+def _convert_rectangular_blind_slot(
+    slot: RectangularBlindSlot, ctx: ConvContext
+) -> RectangularBlindSlotFeature:
+    """Lower the provider's complete, principal-axis blind-slot record without rescanning."""
+    if (
+        not isinstance(slot.at, tuple)
+        or len(slot.at) != 3
+        or any(isinstance(value, bool) or not isinstance(value, Real) for value in slot.at)
+    ):
+        raise ValueError("rectangular blind slot at must be an immutable real-number 3-vector")
+    for name in ("width", "length", "depth"):
+        value = getattr(slot, name)
+        if isinstance(value, bool) or not isinstance(value, Real):
+            raise ValueError(f"rectangular blind slot {name} must be a real number")
+    return RectangularBlindSlotFeature(
+        frame=Frame((slot.at[0], slot.at[1], slot.at[2]), slot.axis),
+        axis=slot.axis,
+        open_sign=slot.open_sign,
+        width_axis=slot.width_axis,
+        depth_axis=slot.depth_axis,
+        depth_sign=slot.depth_sign,
+        width=slot.width,
+        length=slot.length,
+        depth=slot.depth,
+    )
+
+
 # Tier 1 — uniform converters: a pure (record, ctx) -> Feature mapping.
 _CONVERTERS: dict[type, Converter] = {
     DoubleDBore: _convert_double_d_bore,
@@ -746,6 +775,7 @@ _CONVERTERS: dict[type, Converter] = {
     ThroughStep: _convert_through_step,
     Flat: _convert_flat,
     Groove: _convert_groove,
+    RectangularBlindSlot: _convert_rectangular_blind_slot,
 }
 
 # Tier 2 — derived converters: not a 1:1 record map. A hole callout groups identical
@@ -805,10 +835,6 @@ _UNCONSUMED_RECORDS: dict[type, str] = {
         "an aggregate-reconciled polygonal blind recess not owned by `Pocket`; its arbitrary "
         "section has no truthful general Draftwright dimension grammar, so every occurrence has "
         "an explicit unsupported completeness outcome (#1246)"
-    ),
-    RectangularBlindSlot: (
-        "a provider-proved blind rectangular slot whose depth, terminal wall, and open end do "
-        "not fit the existing through-slot grammar; consumer semantics remain deferred (#1421)"
     ),
     RoundBottomBlindSlot: (
         "a provider-proved blind open-ended slot whose flat width and round floor carry distinct "
@@ -943,6 +969,7 @@ def build_part_model(
     flats=None,
     pockets=None,
     pocket_patterns=None,
+    rectangular_blind_slots=None,
     pads=None,
     prof=_UNSET,
     profiles=_UNSET,
@@ -1007,6 +1034,7 @@ def build_part_model(
                 flats,
                 pockets,
                 pocket_patterns,
+                rectangular_blind_slots,
                 pads,
             )
         )
@@ -1097,6 +1125,11 @@ def build_part_model(
         pockets = recognition.pockets if pockets is None else pockets
         pocket_patterns = (
             recognition.pocket_patterns if pocket_patterns is None else pocket_patterns
+        )
+        rectangular_blind_slots = (
+            recognition.rectangular_blind_slots
+            if rectangular_blind_slots is None
+            else rectangular_blind_slots
         )
         pads = recognition.pads if pads is None else pads
         # Pattern inventories are projections of their supplied member inventories.  Preserve
@@ -1384,6 +1417,13 @@ def build_part_model(
         if sl in patterned_sl:
             continue
         features.append(convert(sl, ctx))
+
+    # Capped, edge-open rectangular U-section slots (#1421). The aggregate has already
+    # reconciled their topology against ordinary through slots, pockets, channels and passage
+    # evidence. Consume that exact inventory as a dedicated semantic feature; do not rescan or
+    # coerce it into any of those grammars.
+    for blind_slot in rectangular_blind_slots:
+        features.append(convert(blind_slot, ctx))
 
     # Blind rectangular recesses — floored slots/pockets (#148a). A recognised array of
     # identical pockets becomes ONE PocketPatternFeature (count× W×L×D + pitch, #841); its

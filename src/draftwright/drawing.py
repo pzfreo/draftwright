@@ -329,6 +329,7 @@ _MACHINED_CALLOUT_KINDS = (
     "paired_ramp_step",
     "flat",
     "pocket",
+    "rectangular_blind_slot",
     "pad",
     "groove",
 )
@@ -1758,6 +1759,7 @@ class Drawing:
                 render_pad_heights,
                 render_paired_ramp_steps,
                 render_pockets,
+                render_rectangular_blind_slots,
             )
 
             renderers = {
@@ -1767,6 +1769,7 @@ class Drawing:
                 "paired_ramp_step": render_paired_ramp_steps,
                 "flat": render_flats,
                 "pocket": render_pockets,
+                "rectangular_blind_slot": render_rectangular_blind_slots,
                 "pad": render_pad_heights,
                 "groove": render_grooves,
             }
@@ -2438,6 +2441,7 @@ class Drawing:
             render_pad_heights,
             render_paired_ramp_steps,
             render_pockets,
+            render_rectangular_blind_slots,
             render_rotational,
             render_slots,
             render_step_lengths,
@@ -2780,6 +2784,9 @@ class Drawing:
         def _s_pockets():
             _s_machined("pocket", render_pockets)
 
+        def _s_rectangular_blind_slots():
+            _s_machined("rectangular_blind_slot", render_rectangular_blind_slots)
+
         def _s_pad_heights():
             _s_machined("pad", render_pad_heights)
 
@@ -2959,6 +2966,7 @@ class Drawing:
                 "paired_ramp_steps": _s_paired_ramp_steps,
                 "flats": _s_flats,
                 "pockets": _s_pockets,
+                "rectangular_blind_slots": _s_rectangular_blind_slots,
                 "pad_heights": _s_pad_heights,
                 "grooves": _s_grooves,
                 "feature_leaders": _s_feature_leaders,

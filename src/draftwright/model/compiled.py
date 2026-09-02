@@ -249,6 +249,14 @@ _FACTS: dict[str, tuple[str, ...]] = {
     "channel": ("frame", "width_axis", "long_axis", "depth_axis", "open_sign"),
     "pattern": ("frame", "pattern", "count", "members", "direction", "rows", "cols"),
     "pocket": ("frame", "width_axis", "long_axis", "depth_axis", "edge_anchored"),
+    "rectangular_blind_slot": (
+        "frame",
+        "axis",
+        "open_sign",
+        "width_axis",
+        "depth_axis",
+        "depth_sign",
+    ),
     "pocket_pattern": (
         "frame",
         "pattern",

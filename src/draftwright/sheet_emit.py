@@ -758,6 +758,14 @@ def _feature_line(
             f'long_axis="{f.long_axis}", width_axis="{f.width_axis}", '
             f"lo={lo}, hi={hi}, w_center={_n(f.w_center)}, at={_pt(f.frame.origin)})"
         )
+    if k == "rectangular_blind_slot":
+        return (
+            "sheet.rectangular_blind_slot("
+            f"axis={f.axis!r}, open_sign={f.open_sign}, length={_n(f.length)}, "
+            f"width_axis={f.width_axis!r}, depth_axis={f.depth_axis!r}, "
+            f"depth_sign={f.depth_sign}, width={_n(f.width)}, depth={_n(f.depth)}, "
+            f"at={_pt(f.frame.origin)})"
+        )
     if k == "pocket":
         lo, hi = _n(f.lo), _n(f.hi)
         # Derive length from the EMITTED lo/hi so hi - lo == length exactly — declare.pocket()
@@ -938,6 +946,7 @@ _SECTION = {
     "polygonal_boss": "Bosses",
     "polygonal_stock": "Stock",
     "external_spur_gear": "Gear requirements",
+    "rectangular_blind_slot": "Blind slots",
     "step": "Turned steps",
     "groove": "Grooves",
     "slot": "Slots",
@@ -959,6 +968,7 @@ _NOUN = {
     "polygonal_boss": "polygonal boss",
     "polygonal_stock": "polygonal stock",
     "external_spur_gear": "external spur gear",
+    "rectangular_blind_slot": "rectangular blind slot",
     "step": "step",
     "groove": "groove",
     "slot": "slot",
@@ -984,6 +994,7 @@ _DESCRIBED = frozenset(
         "polygonal_boss",
         "polygonal_stock",
         "external_spur_gear",
+        "rectangular_blind_slot",
         "step",
         "slot",
         "pocket",
@@ -1036,6 +1047,8 @@ def _short_label(f) -> str:
     if k in ("slot", "pocket"):
         s = f"{k} {_n(f.width)} × {_n(f.length)}"
         return s + (f" × {_n(f.depth)} deep" if k == "pocket" else "")
+    if k == "rectangular_blind_slot":
+        return f"open slot {_n(f.width)} × {_n(f.length)} × {_n(f.depth)} deep"
     if k == "channel":
         return f"channel {_n(f.width)} wide"
     if k == "pattern":
@@ -1637,7 +1650,7 @@ def _feature_block(
                     show = "" if tolerance.show == "class" else f", show={tolerance.show!r}"
                     line += f".fit({tolerance.code!r}{show})"
 
-            if f.kind in ("through_step", "pad"):
+            if f.kind in ("through_step", "pad", "rectangular_blind_slot"):
                 # Preserve the EFFECTIVE decoration of each independently addressable
                 # through-step leg / pad extent.  Pad height is a new independent public
                 # parameter; replay must not lose its tolerance merely because all three

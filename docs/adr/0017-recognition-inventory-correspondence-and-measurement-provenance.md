@@ -4,7 +4,9 @@
   external-package/cache ownership clarified by Amendment 2 (2026-08-15) and turned
   edge-treatment applicability widened by Amendment 3 (2026-08-22), and the 0.4.6
   prismatic step inventories incorporated by Amendment 4 (2026-08-30). Amendment 5
-  (2026-09-01) incorporates the 0.4.10 prismatic blind-slot inventories.
+  (2026-09-01) incorporates the 0.4.10 prismatic blind-slot inventories; Amendment 6
+  (2026-09-02) adopts the rectangular family's compiler semantics while retaining an
+  evidence gate around completeness.
 - **Date:** 2026-08-03
 - **Deciders:** Paul Fremantle (pzfreo)
 
@@ -145,11 +147,34 @@ shared aggregate, not a second recognition scan.
 Recognisers 0.4.10 adds rectangular and round-bottom blind slots as two more prismatic-only
 physical families. The current aggregate runs 30 families for a prismatic part and 24 for a turned
 part, with six gated out: the two new gated families are offset by Plate becoming applicable to
-turned builds. Draftwright keeps both additions visible but deferred under #1421 until
+turned builds. At adoption, Draftwright kept both additions visible but deferred under #1421 until
 their depth, open-end, bottom-form, declaration, annotation, and completeness semantics are
-independently reviewed. A live occurrence is reported as an unscored recognised family; it is not
-coerced into the existing through-slot or rectangular-pocket grammar and does not enter the audited
-completeness denominator.
+independently reviewed. At that point, a live occurrence was reported as an unscored recognised
+family; it was not coerced into the existing through-slot or rectangular-pocket grammar and did
+not enter the audited completeness denominator.
+
+## Amendment 6 — rectangular blind-slot semantics cross the compiler waist
+
+The rectangular family is no longer deferred at every consumer boundary. Its released schema-v1
+record lowers one-to-one into a dedicated `RectangularBlindSlotFeature`: the penetration/run axis,
+source-envelope mouth sign, U-section width/depth axes and material-opening sign are immutable
+structural facts; width, capped run and flat-bottom depth are three independently addressable
+measurements. `Sheet.rectangular_blind_slot(...)` declares the same exact contract, generated code
+round-trips it, and one `OPEN SLOT W × L × D DEEP` leader carries only compiler-approved values
+through the shared post-drain placement solve. The aggregate inventory is consumed directly and
+ordinary slots, pockets and channels do not regain ownership.
+
+Automatic planning approves all three measurements. Authored planning may approve any non-empty
+subset; its callout spells the surviving roles as `WIDE`, `LONG`, and `DEEP`, so an approved
+identity cannot silently vanish or be mistaken for another position in the compound grammar.
+
+This amendment strengthens the rectangular family's IR, declaration, generated-code and drawing
+stages only. Its independent physical completeness denominator and outcome ledger remain deferred
+under #1421, so occurrences stay visible as an unscored recognised family rather than entering the
+audited score on annotation presence. The round-bottom family remains fully deferred until its
+separate flat-width and floor-radius semantics are delivered. Native raw and rigidly moved framed
+tests establish measurement/callout parity without treating an ORTHOGONAL frame representative as
+authored material-axis identity.
 
 ## Accepted Contract
 

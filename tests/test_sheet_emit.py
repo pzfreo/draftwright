@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 from build123d import (
+    Align,
     Box,
     Cylinder,
     Plane,
@@ -142,6 +143,12 @@ def _circular_blind_step():
 
 def _through_step():
     return Box(40, 30, 20) - Pos(15, 10, 0) * Box(20, 20, 30)
+
+
+def _rectangular_blind_slot():
+    stock = Box(30, 20, 40, align=(Align.CENTER, Align.CENTER, Align.MIN))
+    tool = Pos(0, 5, 0) * Box(10, 5, 20, align=(Align.CENTER, Align.MIN, Align.MIN))
+    return stock - tool
 
 
 def _script_for(part, part_expr="part = PART", stem="drawing", **kw):
@@ -2533,6 +2540,7 @@ class TestTheDimensionMirror:
             "circular blind step": _circular_blind_step(),
             "paired ramp": _paired_ramp_step(),
             "through step": _through_step(),
+            "rectangular blind slot": _rectangular_blind_slot(),
             "flat": Cylinder(10, 30) - Pos(10, 0, 0) * Box(10, 40, 40),  # D-shaft
             "groove": Cylinder(10, 40) - (Cylinder(10, 4) - Cylinder(8, 4)),  # circlip groove
             "plate": Box(80, 50, 8) + Pos(-36, 0, 29) * Box(8, 50, 50),  # base + upright
@@ -2576,6 +2584,7 @@ class TestTheDimensionMirror:
         "circular blind step": {"circular_blind_step"},
         "paired ramp": {"paired_ramp_step"},
         "through step": {"through_step"},
+        "rectangular blind slot": {"rectangular_blind_slot"},
         "flat": {"flat"},
         "groove": {"groove"},
         "plate": {"plate"},
@@ -2867,6 +2876,7 @@ _KIND_MIRROR_COVERAGE = {
     "step_level": "corpus",
     "slot": "corpus",
     "pocket": "corpus",
+    "rectangular_blind_slot": "corpus",
     "pad": "corpus",
     "envelope": "corpus",
     "rotational": "corpus",
@@ -3379,6 +3389,7 @@ _FIDELITY_ROUTE = {
     "circular_blind_step": ("detected", "circular blind step"),
     "paired_ramp_step": ("detected", "paired ramp"),
     "through_step": ("detected", "through step"),
+    "rectangular_blind_slot": ("detected", "rectangular blind slot"),
     "flat": ("detected", "flat"),
     "groove": ("detected", "groove"),
     "rotational": ("detected", "turned shaft"),
@@ -3634,6 +3645,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
             "circular blind step": _circular_blind_step(),
             "paired ramp": _paired_ramp_step(),
             "through step": _through_step(),
+            "rectangular blind slot": _rectangular_blind_slot(),
             "flat": Cylinder(10, 30) - Pos(10, 0, 0) * Box(10, 40, 40),
             "groove": Cylinder(10, 40) - (Cylinder(10, 4) - Cylinder(8, 4)),
             "pad": Box(80, 60, 10) + Pos(0, 0, 7) * Box(30, 20, 4),
@@ -3695,6 +3707,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
         "circular blind step": {"circular_blind_step"},
         "paired ramp": {"paired_ramp_step"},
         "through step": {"through_step"},
+        "rectangular blind slot": {"rectangular_blind_slot"},
         "flat": {"flat"},
         "groove": {"groove"},
         "pad": {"pad"},

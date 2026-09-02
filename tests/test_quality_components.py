@@ -216,7 +216,7 @@ def test_an_undecided_inventory_names_a_real_open_issue():
         )
 
 
-def test_0410_blind_slot_occurrences_remain_visible_while_semantics_are_deferred():
+def test_0410_blind_slot_occurrences_remain_visible_while_completeness_is_deferred():
     inventories = {
         name: False if name == "rotational" else ()
         for name in RecognitionResult.__dataclass_fields__

@@ -514,20 +514,25 @@ slot-depth, subdivided paired-ramp/AngledStep, and noisy stubby-pocket gaps and 
 ownership, external-cone countersink false positives, Plate tie covariance, and turned-step
 translation covariance. Draftwright accepts those public aggregate outcomes: its consumer tests pin
 that an external cone no longer creates a countersink requirement and that an edge-open rectangular
-recess now yields to the deferred blind-slot owner instead of retaining a false `Pocket` callout.
+recess now yields to the dedicated blind-slot owner instead of retaining a false `Pocket` callout.
 The provider's immutable
 [0.4.10 release](https://github.com/pzfreo/b123d-recognisers/releases/tag/v0.4.10) owns the lower-level
 recognition predicates and counterexamples; Draftwright does not duplicate private provider
 algorithms to restate them.
 
 The release adds `rectangular-blind-slots` and `round-bottom-blind-slots` to the one aggregate.
-Draftwright declares both schema-v1 records and keeps every downstream boundary `deferred` under
-#1421. This is deliberate: an ordinary through `SlotFeature` cannot state a blind depth or terminal
-wall, while a rectangular pocket cannot state an open end; the round-bottom record additionally
-separates flat width from floor radius. Both live inventories therefore appear in
-`unscored_recognized_families` instead of silently earning ordinary slot coverage. No IR adapter,
-Sheet declaration, generated code, annotation grammar, raw coordinate, or completeness denominator
-is invented by the dependency update.
+The rectangular family now has a dedicated `RectangularBlindSlotFeature`, public
+`Sheet.rectangular_blind_slot(...)` declaration, generated-code round trip and solver-owned
+`OPEN SLOT width × capped-run × depth DEEP` callout. Its axes and opening signs remain structural
+correspondence facts while all printed sizes cross the approved compiler boundary. Native raw and
+rigidly moved framed builds preserve the same three measurements and drawing semantics.
+
+This is intentionally not an ordinary through `SlotFeature`, which cannot state a blind terminal
+wall or section depth, and not a rectangular pocket, which cannot state the open end. Independent
+physical completeness scoring remains deferred under #1421, so live rectangular occurrences stay
+in `unscored_recognized_families` and do not silently earn ordinary slot/pocket coverage. The
+round-bottom family remains deferred at every semantic boundary: its separate flat width and floor
+radius still need their own IR, Sheet word, callout grammar and evidence.
 
 ## Recognisers 0.4.9 prepared frame boundary
 
