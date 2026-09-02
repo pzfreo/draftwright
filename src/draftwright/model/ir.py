@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from math import atan2, cos, hypot, isclose, isfinite, pi
+from numbers import Real
 from typing import TYPE_CHECKING, ClassVar, Literal, Protocol, runtime_checkable
 
 from draftwright._geometry import (
@@ -134,7 +135,7 @@ def authored_dimension_target_view(
 def _finite_point3(name: str, value) -> Point:
     try:
         result = tuple(float(component) for component in value)
-    except (TypeError, ValueError) as exc:
+    except (OverflowError, TypeError, ValueError) as exc:
         raise ValueError(f"{name} must be a finite 3-vector") from exc
     if len(result) != 3 or not all(isfinite(component) for component in result):
         raise ValueError(f"{name} must be a finite 3-vector")
@@ -338,6 +339,9 @@ DimensionParameterId = Literal[
     "polygon_across_flats.length",
     "ramp_angle.angle",
     "ramp_run.length",
+    "rectangular_blind_slot_depth.length",
+    "rectangular_blind_slot_length.length",
+    "rectangular_blind_slot_width.length",
     "stock_length.length",
     "profile_across_flats.length",
     "slot_length.length",
@@ -1029,6 +1033,106 @@ class ChannelFeature:
 
     def parameters(self) -> list[DimParameter]:
         return [DimParameter("length", "channel_width", self.width, span=self._span())]
+
+    def references(self) -> list[Datum]:
+        return []
+
+
+@dataclass(frozen=True)
+class RectangularBlindSlotFeature:
+    """A capped, edge-open rectangular U-section slot.
+
+    This is deliberately distinct from both :class:`SlotFeature` (through, with no floor)
+    and :class:`PocketFeature` (closed in-plane). ``axis`` is the penetration/run direction;
+    ``open_sign`` selects its source-envelope mouth. ``depth_sign`` selects the material-
+    outward opening of the flat-bottomed U section along ``depth_axis``. The provider's
+    ``at`` point becomes ``frame.origin`` and is the centre of all three measured spans.
+    """
+
+    frame: Frame
+    axis: str
+    open_sign: int
+    width_axis: str
+    depth_axis: str
+    depth_sign: int
+    width: float
+    length: float
+    depth: float
+    kind: ClassVar[str] = "rectangular_blind_slot"
+
+    def __post_init__(self) -> None:
+        raw_origin = self.frame.origin
+        if (
+            not isinstance(raw_origin, tuple)
+            or len(raw_origin) != 3
+            or any(
+                isinstance(component, bool) or not isinstance(component, Real)
+                for component in raw_origin
+            )
+        ):
+            raise ValueError("rectangular blind slot frame.origin must be a finite 3-vector")
+        origin = _finite_point3("rectangular blind slot frame.origin", self.frame.origin)
+        axes = (self.axis, self.width_axis, self.depth_axis)
+        if (
+            any(not isinstance(axis, str) or axis not in {"x", "y", "z"} for axis in axes)
+            or len(set(axes)) != 3
+        ):
+            raise ValueError(
+                "rectangular blind slot axis, width_axis and depth_axis must be a permutation "
+                f"of 'xyz' (got {axes!r})"
+            )
+        if self.frame.axis != self.axis:
+            raise ValueError(
+                "rectangular blind slot frame axis must equal its run axis "
+                f"(got {self.frame.axis!r} and {self.axis!r})"
+            )
+        object.__setattr__(self, "frame", Frame(origin, self.frame.axis))
+        for name, sign in (("open_sign", self.open_sign), ("depth_sign", self.depth_sign)):
+            if not isinstance(sign, int) or isinstance(sign, bool) or sign not in (-1, 1):
+                raise ValueError(f"rectangular blind slot {name} must be -1 or 1 (got {sign!r})")
+        for name in ("width", "length", "depth"):
+            raw = getattr(self, name)
+            if isinstance(raw, bool) or not isinstance(raw, Real):
+                raise ValueError(f"rectangular blind slot {name} must be finite and positive")
+            try:
+                value = float(raw)
+            except (OverflowError, TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"rectangular blind slot {name} must be finite and positive"
+                ) from exc
+            if not isfinite(value) or value <= 0:
+                raise ValueError(f"rectangular blind slot {name} must be finite and positive")
+            object.__setattr__(self, name, value)
+
+    def _span(self, axis: str, value: float) -> tuple[Point, Point]:
+        lo = list(self.frame.origin)
+        hi = list(self.frame.origin)
+        index = "xyz".index(axis)
+        lo[index] -= value / 2
+        hi[index] += value / 2
+        return ((lo[0], lo[1], lo[2]), (hi[0], hi[1], hi[2]))
+
+    def parameters(self) -> list[DimParameter]:
+        return [
+            DimParameter(
+                "length",
+                "rectangular_blind_slot_width",
+                self.width,
+                span=self._span(self.width_axis, self.width),
+            ),
+            DimParameter(
+                "length",
+                "rectangular_blind_slot_length",
+                self.length,
+                span=self._span(self.axis, self.length),
+            ),
+            DimParameter(
+                "length",
+                "rectangular_blind_slot_depth",
+                self.depth,
+                span=self._span(self.depth_axis, self.depth),
+            ),
+        ]
 
     def references(self) -> list[Datum]:
         return []

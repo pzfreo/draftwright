@@ -126,7 +126,7 @@ def test_installed_package_contract_validates_without_a_sibling_checkout() -> No
     assert len(package["families"]) == len(declaration["families"]) == 30
 
 
-def test_0410_blind_slot_families_are_explicitly_deferred() -> None:
+def test_0410_blind_slot_family_dispositions_are_explicit() -> None:
     package = _families(recognition.capability_manifest())
     consumer = _families(consumer_capability_declaration())
 
@@ -172,18 +172,32 @@ def test_0410_blind_slot_families_are_explicitly_deferred() -> None:
 
         declaration = consumer[family_id]
         assert declaration["record_schemas"] == {record_name: [1]}
-        assert declaration["disposition"] == "deferred"
-        assert declaration["tracking"] == "https://github.com/pzfreo/draftwright/issues/1421"
-        assert {
-            declaration[boundary]["state"]
-            for boundary in (
-                "ir_adapter",
-                "dsl_declaration",
-                "generated_code",
-                "drawing_consumer",
-                "completeness",
-            )
-        } == {"deferred"}
+        if family_id == "rectangular-blind-slots":
+            assert declaration["disposition"] == "supported"
+            assert {
+                declaration[boundary]["state"]
+                for boundary in (
+                    "ir_adapter",
+                    "dsl_declaration",
+                    "generated_code",
+                    "drawing_consumer",
+                )
+            } == {"supported"}
+            assert declaration["completeness"]["state"] == "deferred"
+            assert declaration["completeness"]["tracking"].endswith("/1421")
+        else:
+            assert declaration["disposition"] == "deferred"
+            assert declaration["tracking"] == ("https://github.com/pzfreo/draftwright/issues/1421")
+            assert {
+                declaration[boundary]["state"]
+                for boundary in (
+                    "ir_adapter",
+                    "dsl_declaration",
+                    "generated_code",
+                    "drawing_consumer",
+                    "completeness",
+                )
+            } == {"deferred"}
         assert declaration["documentation"]["state"] == "supported"
         assert family_id not in pending_family_declarations()
 
@@ -497,6 +511,54 @@ def test_rich_passage_contract_has_an_explicit_unsupported_completeness_outcome(
             "from": "deferred",
             "release_notes": "CHANGELOG.md",
             "to": "unsupported",
+            "version": importlib.metadata.version("draftwright"),
+        },
+        {
+            "boundary": "drawing_consumer",
+            "compatibility_evidence": [
+                "tests/test_issue_1421_rectangular_blind_slot_semantics.py",
+                "tests/test_recogniser_capabilities.py",
+            ],
+            "family": "rectangular-blind-slots",
+            "from": "deferred",
+            "release_notes": "CHANGELOG.md",
+            "to": "supported",
+            "version": importlib.metadata.version("draftwright"),
+        },
+        {
+            "boundary": "dsl_declaration",
+            "compatibility_evidence": [
+                "tests/test_issue_1421_rectangular_blind_slot_semantics.py",
+                "tests/test_recogniser_capabilities.py",
+            ],
+            "family": "rectangular-blind-slots",
+            "from": "deferred",
+            "release_notes": "CHANGELOG.md",
+            "to": "supported",
+            "version": importlib.metadata.version("draftwright"),
+        },
+        {
+            "boundary": "generated_code",
+            "compatibility_evidence": [
+                "tests/test_issue_1421_rectangular_blind_slot_semantics.py",
+                "tests/test_recogniser_capabilities.py",
+            ],
+            "family": "rectangular-blind-slots",
+            "from": "deferred",
+            "release_notes": "CHANGELOG.md",
+            "to": "supported",
+            "version": importlib.metadata.version("draftwright"),
+        },
+        {
+            "boundary": "ir_adapter",
+            "compatibility_evidence": [
+                "tests/test_issue_1421_rectangular_blind_slot_semantics.py",
+                "tests/test_recogniser_capabilities.py",
+            ],
+            "family": "rectangular-blind-slots",
+            "from": "deferred",
+            "release_notes": "CHANGELOG.md",
+            "to": "supported",
             "version": importlib.metadata.version("draftwright"),
         },
         {
@@ -992,6 +1054,7 @@ def test_dsl_and_generated_code_inventories_are_derived_from_live_code() -> None
         "polygonal-bosses": "polygonal_boss",
         "polygonal-stock": "polygonal_stock",
         "rectangular-pads": "pad",
+        "rectangular-blind-slots": "rectangular_blind_slot",
         "risers": "step_level",
         "slot-patterns": "slot_pattern",
         "slots": "slot",

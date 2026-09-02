@@ -87,6 +87,7 @@ from draftwright.model import pocket as _pocket
 from draftwright.model import pocket_pattern as _pocket_pattern
 from draftwright.model import polygonal_boss as _polygonal_boss
 from draftwright.model import polygonal_stock as _polygonal_stock
+from draftwright.model import rectangular_blind_slot as _rectangular_blind_slot
 from draftwright.model import rotational as _rotational
 from draftwright.model import slot as _slot
 from draftwright.model import slot_pattern as _slot_pattern
@@ -1019,8 +1020,9 @@ class Sheet:
     Each declaration method mirrors a :mod:`draftwright.model` constructor: pass the
     build123d object to read its geometry, or explicit values. :meth:`hole` returns a
     chainable :class:`_Hole` (``.through()`` / ``.depth()``), :meth:`diameter` / :meth:`step`
-    a :class:`_Dim`, for their own aspects; :meth:`pocket` / :meth:`slot` / :meth:`envelope`
-    a :class:`_Params` (``.tolerance(on=…)``) which forwards unknown attributes to the
+    a :class:`_Dim`, for their own aspects; :meth:`pocket` / :meth:`slot` /
+    :meth:`rectangular_blind_slot` / :meth:`envelope` a :class:`_Params`
+    (``.tolerance(on=…)``) which forwards unknown attributes to the
     ``Sheet`` so those verbs still chain to any further declaration (preserving their prior
     return-``Sheet`` behaviour); the remaining verbs return the ``Sheet``. :meth:`build` /
     :meth:`export` hand the declared features to the engine with detection skipped.
@@ -1521,6 +1523,15 @@ class Sheet:
         depth). From an object the depth axis defaults to the shortest bbox span; pass
         ``depth_axis=`` for a recess deeper than it is wide."""
         self._features.append(_pocket(obj, **kw))
+        return _Params(self, len(self._features) - 1)
+
+    def rectangular_blind_slot(self, **kw) -> _Params:
+        """Declare a capped, edge-open rectangular U-section slot.
+
+        All arguments are explicit because cutter geometry alone cannot establish its open end,
+        terminal wall, or material-opening direction.
+        """
+        self._features.append(_rectangular_blind_slot(**kw))
         return _Params(self, len(self._features) - 1)
 
     def channel(self, **kw) -> _Params:

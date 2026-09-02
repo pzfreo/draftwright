@@ -195,11 +195,34 @@ step = sheet.through_step(
 )
 sheet.dimension(step, "through_step_leg.length.x")
 sheet.dimension(step, "through_step_leg.length.y")
+
+blind = sheet.rectangular_blind_slot(
+    axis="z",                 # capped penetration/run direction
+    open_sign=-1,             # source-envelope mouth along that run
+    length=20,
+    width_axis="x",
+    depth_axis="y",
+    depth_sign=1,             # material-outward U-section opening
+    width=10,
+    depth=5,
+    at=(0, 7.5, 10),
+)
+sheet.dimension(blind, "rectangular_blind_slot_width.length")
+sheet.dimension(blind, "rectangular_blind_slot_length.length")
+sheet.dimension(blind, "rectangular_blind_slot_depth.length")
 ```
 
-All three declarations are explicit-only. A detached face or cutter cannot prove the aggregate
+These declarations are explicit-only. A detached face or cutter cannot prove the aggregate
 material-removal topology. Placement remains solver-owned; the engine selects the end-on view
 and positions the compound leader or linear section dimensions.
+
+`rectangular_blind_slot(...)` is not an alias for `slot(...)` or `pocket(...)`. Its dedicated
+feature retains the open source-envelope end, capped terminal wall and flat-bottomed U-section,
+and the solver places one `OPEN SLOT width × length × depth DEEP` leader carrying all three
+compiler-approved measurement identities. In authored-dimension mode, any non-empty subset is
+valid and is role-labelled (`WIDE`, `LONG`, `DEEP`) so every requested identity remains visible.
+The distinct round-bottom family remains deferred
+under #1421 until its flat-width and floor-radius grammar is delivered.
 
 An explicit through-step may use any principal run axis, and automatic detection supports the
 same three axes. Where an X/Y-run record's two exact physical intervals are already proved by the

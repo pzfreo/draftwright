@@ -98,7 +98,7 @@ _LEGIBILITY_CODES = frozenset(
 # against legibility on the day it is introduced instead of scoring as perfectly legible
 # until somebody notices (#1127 review). Codes that cannot be read off their suffix carry an
 # explicit ``outcome_stage`` from their producers instead (see ``is_placement_drop``); there
-# were two when this was written and there are fourteen now, enumerated in
+# were two when this was written and there are fifteen now, enumerated in
 # :data:`_STAGE_ROUTED_CODES` and :data:`_UNSCORED_CODES` — and the suffix shortcut turned
 # out to be exactly as forgettable as the list it replaced, because nothing checked that the
 # suffix still meant what it says.
@@ -119,6 +119,7 @@ _RECOGNISED_REQUIREMENT_FAMILIES = {
     "grooves": "grooves",
     "flats": "flats",
     "pockets": "pockets",
+    "rectangular_blind_slots": "rectangular_blind_slots",
     "prismatic_pockets": "prismatic_pockets",
     "pocket_patterns": "pocket_patterns",
     "pads": "pads",
@@ -163,7 +164,6 @@ _NON_REQUIREMENT_INVENTORIES = frozenset(
 #: AngledStep left this register when #1245/#1246/#1247 gave every authoritative occurrence an
 #: unsupported outcome.
 _UNDECIDED_INVENTORIES: dict[str, str] = {
-    "rectangular_blind_slots": "https://github.com/pzfreo/draftwright/issues/1421",
     "round_bottom_blind_slots": "https://github.com/pzfreo/draftwright/issues/1421",
 }
 
@@ -361,10 +361,10 @@ _UNSCORED_CODES = frozenset(
 #: can check rather than assume. It found `section_dropped` scoring nowhere while a comment
 #: beside its emission asserted the opposite.
 #:
-#: Fourteen of these — every entry except `gdt_dropped` and `pmi_dropped` — are codes handed
+#: Fifteen of these — every entry except `gdt_dropped` and `pmi_dropped` — are codes handed
 #: to a leader job as ``drop_code`` data: `leaders.py`'s one drop recorder stages them
 #: ``"validation"`` on a rendered-geometry failure and ``"placement"`` otherwise, so all
-#: fourteen have the `section_dropped` shape. Ten of the original thirteen were invisible
+#: fifteen have the `section_dropped` shape. Ten of the original thirteen were invisible
 #: to the first audit,
 #: which read only codes written as literals AT a producer call, and were new to these
 #: registers; `callout_dropped` is the eleventh and was neither — it is also written as a
@@ -388,6 +388,7 @@ _STAGE_ROUTED_CODES = frozenset(
         "pocket_dropped",
         "polygonal_boss_dropped",
         "polygonal_stock_dropped",
+        "rectangular_blind_slot_dropped",
         "slot_dropped",
     }
 )

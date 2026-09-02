@@ -100,6 +100,12 @@ _FAMILIES: dict[str, _FamilySpec] = {
         "render_polygonal_stock",
     ),
     "rectangular-pads": _FamilySpec(("RaisedPad",), "_convert_pad", "pad", "render_slots"),
+    "rectangular-blind-slots": _FamilySpec(
+        ("RectangularBlindSlot",),
+        "_convert_rectangular_blind_slot",
+        "rectangular_blind_slot",
+        "render_rectangular_blind_slots",
+    ),
     "risers": _FamilySpec(
         ("RiserEvidence", "StepShoulder"),
         "build_part_model",
@@ -162,6 +168,7 @@ _COMPLETENESS_TRACKING = {
     "polygonal-bosses": 1372,
     "polygonal-stock": 1371,
     "rectangular-pads": 1372,
+    "rectangular-blind-slots": 1421,
     "risers": 1373,
     "slot-patterns": 1371,
     "slots": 1371,
@@ -355,14 +362,6 @@ def _geometry_only_declaration() -> dict[str, Any]:
 #: absent from BOTH this map and ``_FAMILIES``, so the next new family fails closed exactly as
 #: the first three did (#1244), and the 0.4.6 step families do now (#1382).
 _UNSUPPORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
-    "rectangular-blind-slots": (
-        ("RectangularBlindSlot",),
-        "https://github.com/pzfreo/draftwright/issues/1421",
-        "The provider proves a blind rectangular channel with an open end, terminal wall, "
-        "and flat floor. Reusing Draftwright's through-slot feature would omit the independently "
-        "dimension-bearing depth and invent the wrong bottom semantics, so the complete consumer "
-        "grammar remains deferred pending #1421.",
-    ),
     "round-bottom-blind-slots": (
         ("RoundBottomBlindSlot",),
         "https://github.com/pzfreo/draftwright/issues/1421",
@@ -408,7 +407,6 @@ _UNSUPPORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
 
 _DEFERRED_FAMILIES = frozenset(
     {
-        "rectangular-blind-slots",
         "round-bottom-blind-slots",
     }
 )
@@ -758,6 +756,54 @@ def consumer_capability_declaration() -> dict[str, Any]:
                 "from": "deferred",
                 "release_notes": "CHANGELOG.md",
                 "to": "unsupported",
+                "version": distribution_version("draftwright"),
+            },
+            {
+                "boundary": "drawing_consumer",
+                "compatibility_evidence": [
+                    "tests/test_issue_1421_rectangular_blind_slot_semantics.py",
+                    "tests/test_recogniser_capabilities.py",
+                ],
+                "family": "rectangular-blind-slots",
+                "from": "deferred",
+                "release_notes": "CHANGELOG.md",
+                "to": "supported",
+                "version": distribution_version("draftwright"),
+            },
+            {
+                "boundary": "dsl_declaration",
+                "compatibility_evidence": [
+                    "tests/test_issue_1421_rectangular_blind_slot_semantics.py",
+                    "tests/test_recogniser_capabilities.py",
+                ],
+                "family": "rectangular-blind-slots",
+                "from": "deferred",
+                "release_notes": "CHANGELOG.md",
+                "to": "supported",
+                "version": distribution_version("draftwright"),
+            },
+            {
+                "boundary": "generated_code",
+                "compatibility_evidence": [
+                    "tests/test_issue_1421_rectangular_blind_slot_semantics.py",
+                    "tests/test_recogniser_capabilities.py",
+                ],
+                "family": "rectangular-blind-slots",
+                "from": "deferred",
+                "release_notes": "CHANGELOG.md",
+                "to": "supported",
+                "version": distribution_version("draftwright"),
+            },
+            {
+                "boundary": "ir_adapter",
+                "compatibility_evidence": [
+                    "tests/test_issue_1421_rectangular_blind_slot_semantics.py",
+                    "tests/test_recogniser_capabilities.py",
+                ],
+                "family": "rectangular-blind-slots",
+                "from": "deferred",
+                "release_notes": "CHANGELOG.md",
+                "to": "supported",
                 "version": distribution_version("draftwright"),
             },
             {

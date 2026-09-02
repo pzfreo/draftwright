@@ -2877,6 +2877,27 @@ def _pocket_label(width_text, length_text, depth_text, wsfx="", lsfx="", dsfx=""
     return f"{width_text}{wsfx} × {length_text}{lsfx} × {depth_text}{dsfx} DEEP"
 
 
+def _rectangular_blind_slot_label(
+    width_text=None, length_text=None, depth_text=None, wsfx="", lsfx="", dsfx=""
+) -> str:
+    """Name only the compiler-approved open-slot terms.
+
+    The full automatic grammar stays compact. An authored subset spells each surviving role
+    explicitly so one approved value never disappears or masquerades as another position in
+    the compound callout (ADR 0016).
+    """
+    if width_text is not None and length_text is not None and depth_text is not None:
+        return f"OPEN SLOT {width_text}{wsfx} × {length_text}{lsfx} × {depth_text}{dsfx} DEEP"
+    terms = []
+    if width_text is not None:
+        terms.append(f"{width_text}{wsfx} WIDE")
+    if length_text is not None:
+        terms.append(f"{length_text}{lsfx} LONG")
+    if depth_text is not None:
+        terms.append(f"{depth_text}{dsfx} DEEP")
+    return "OPEN SLOT " + " × ".join(terms)
+
+
 def _pad_height_label(height_text, suffix="") -> str:
     """The font-safe attachment-axis height callout for a side-normal pad."""
     return f"{height_text}{suffix} HIGH"
@@ -3010,17 +3031,71 @@ def _radial_candidates(
         yield (tip, elbow, provenance if provenance is not None else feature)
 
 
-def _pocket_rim_bounds(
-    dwg, view, pocket, *, length: float, width: float
+def _rectangular_blind_slot_candidates(
+    dwg,
+    view,
+    bounds,
+    feature,
+    reach,
+    *,
+    length: float | None,
+    width: float | None,
+    depth_approved: bool,
+    provenance,
+):
+    """Yield leaders anchored only on proved material belonging to an open slot.
+
+    With run/width approved, candidates touch the capped terminal edge, either side wall,
+    or their two capped corners. The source-envelope mouth midpoint is air and is never a
+    target. A depth-only authored callout instead points at the visible floor centre; that
+    needs neither of the suppressed in-plane measurements.
+    """
+    origin3 = list(feature.frame.origin)
+    origin = dwg.at(view, *origin3)[:2]
+    targets: list[tuple[tuple[float, float], tuple[float, float]]] = []
+
+    cap3 = None
+    if length is not None:
+        cap3 = origin3.copy()
+        cap3["xyz".index(feature.axis)] -= feature.open_sign * length / 2
+    if cap3 is not None and width is not None:
+        for side_sign in (-1, 1):
+            corner = cap3.copy()
+            corner["xyz".index(feature.width_axis)] += side_sign * width / 2
+            tip = dwg.at(view, *corner)[:2]
+            targets.append((tip, (tip[0] - origin[0], tip[1] - origin[1])))
+    if cap3 is not None:
+        tip = dwg.at(view, *cap3)[:2]
+        targets.append((tip, (tip[0] - origin[0], tip[1] - origin[1])))
+    if width is not None:
+        for side_sign in (-1, 1):
+            side = origin3.copy()
+            side["xyz".index(feature.width_axis)] += side_sign * width / 2
+            tip = dwg.at(view, *side)[:2]
+            targets.append((tip, (tip[0] - origin[0], tip[1] - origin[1])))
+    if not targets and depth_approved:
+        targets.extend((origin, direction) for direction in _POCKET_LEAD_DIRS)
+
+    x0, y0, x1, y1 = bounds
+    for tip, direction in targets:
+        norm = math.hypot(*direction)
+        ux, uy = direction[0] / norm, direction[1] / norm
+        exit_d = _ray_exit_dist(tip[0], tip[1], ux, uy, (x0, y0, x1, y1))
+        elbow = (tip[0] + ux * (exit_d + reach), tip[1] + uy * (exit_d + reach), 0)
+        yield (tip, elbow, provenance)
+
+
+def _rectangular_rim_bounds(
+    dwg, view, feature, *, long_axis: str, width_axis: str, length: float, width: float
 ) -> tuple[float, float, float, float]:
-    """Projected bounds of a rectangular pocket opening."""
-    centre = list(pocket.frame.origin)
+    """Projected bounds of a rectangular opening in its face-on view."""
+    centre = list(feature.frame.origin)
     points = []
     for long_sign in (-1, 1):
         for width_sign in (-1, 1):
             corner = centre.copy()
-            corner["xyz".index(pocket.long_axis)] += long_sign * length / 2
-            corner["xyz".index(pocket.width_axis)] += width_sign * width / 2
+            corner["xyz".index(long_axis)] += long_sign * length / 2
+            corner["xyz".index(width_axis)] += width_sign * width / 2
             points.append(dwg.at(view, *corner))
     return (
         min(point[0] for point in points),
@@ -3116,8 +3191,14 @@ def render_pockets(dwg, plan, a, *, ctx, only=None) -> int:
                     vb,
                     pk,
                     reach,
-                    source_bounds=_pocket_rim_bounds(
-                        dwg, view, pk, length=lpd.value, width=wpd.value
+                    source_bounds=_rectangular_rim_bounds(
+                        dwg,
+                        view,
+                        pk,
+                        long_axis=pk.long_axis,
+                        width_axis=pk.width_axis,
+                        length=lpd.value,
+                        width=wpd.value,
                     ),
                     provenance=g.ref,
                 ),
@@ -3130,6 +3211,83 @@ def render_pockets(dwg, plan, a, *, ctx, only=None) -> int:
         jobs,
         noun="pocket",
         drop_code="pocket_dropped",
+        ctx=ctx,
+        joint=True,
+    )
+
+
+def render_rectangular_blind_slots(dwg, plan, a, *, ctx, only=None) -> int:
+    """Place one solver-owned open-slot leader per rectangular family.
+
+    Every printed value and tolerance crosses the approved compiler boundary; an authored
+    subset produces an explicitly role-labelled subset callout rather than vanishing. The public
+    topology signs remain structural facts: they preserve correspondence identity and select
+    the physical feature, while the leader participates in the same post-drain joint assignment
+    as pockets and the other machined callouts (ADRs 0014/0015).
+    """
+    reach = _leader_callout_reach(dwg.draft)
+    jobs = []
+    groups = sorted(
+        plan.of_kind("rectangular_blind_slot"),
+        key=lambda group: (
+            group.facts.axis,
+            group.facts.open_sign,
+            group.facts.depth_axis,
+            group.facts.depth_sign,
+            group.facts.frame.origin,
+        ),
+    )
+    for index, group in enumerate(groups):
+        if only is not None and group.ref not in only:
+            continue
+        by_key = {(dim.role, dim.kind): dim for dim in group.dims}
+        width = by_key.get(("rectangular_blind_slot_width", "length"))
+        length = by_key.get(("rectangular_blind_slot_length", "length"))
+        depth = by_key.get(("rectangular_blind_slot_depth", "length"))
+        if width is None and length is None and depth is None:
+            continue
+        facts = group.facts
+        view = _END_ON.get(facts.depth_axis)
+        if view is None:
+            continue
+        bounds = dwg.view_bounds(view)
+        if bounds is None:
+            continue
+        jobs.append(
+            (
+                f"m_rectangular_blind_slot_{facts.axis}{facts.open_sign}_{index}",
+                view,
+                bounds,
+                _rectangular_blind_slot_label(
+                    width.value_text if width is not None else None,
+                    length.value_text if length is not None else None,
+                    depth.value_text if depth is not None else None,
+                    wsfx=_tol_suffix(width.tolerance, dwg.draft) if width is not None else "",
+                    lsfx=_tol_suffix(length.tolerance, dwg.draft) if length is not None else "",
+                    dsfx=_tol_suffix(depth.tolerance, dwg.draft) if depth is not None else "",
+                ),
+                _rectangular_blind_slot_candidates(
+                    dwg,
+                    view,
+                    bounds,
+                    facts,
+                    reach,
+                    length=length.value if length is not None else None,
+                    width=width.value if width is not None else None,
+                    depth_approved=depth is not None,
+                    provenance=group.ref,
+                ),
+                tuple(
+                    dimension.id for dimension in (width, length, depth) if dimension is not None
+                ),
+            )
+        )
+    return place_machined_leader_jobs(
+        dwg,
+        a,
+        jobs,
+        noun="rectangular blind slot",
+        drop_code="rectangular_blind_slot_dropped",
         ctx=ctx,
         joint=True,
     )
@@ -3172,10 +3330,12 @@ def render_pad_heights(dwg, plan, a, *, ctx, only=None) -> int:
         width = by_key.get(("pad_width", "length"))
         length = by_key.get(("pad_length", "length"))
         source_bounds = (
-            _pocket_rim_bounds(
+            _rectangular_rim_bounds(
                 dwg,
                 view,
                 pad,
+                long_axis=pad.long_axis,
+                width_axis=pad.width_axis,
                 length=length.value,
                 width=width.value,
             )

@@ -1280,6 +1280,17 @@ class TestEveryFeatureVerbIsNameable:
         "pocket": dict(
             width=8, length=20, depth=4, long_axis="x", width_axis="y", w_center=0, lo=-10, hi=10
         ),
+        "rectangular_blind_slot": dict(
+            axis="z",
+            open_sign=-1,
+            length=20,
+            width_axis="x",
+            depth_axis="y",
+            depth_sign=1,
+            width=8,
+            depth=4,
+            at=(0, 0, 0),
+        ),
         "channel": dict(
             width=8,
             long_axis="x",

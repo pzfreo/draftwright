@@ -68,6 +68,7 @@ from draftwright.model.ir import (
     Point,
     PolygonalBossFeature,
     PolygonalStockFeature,
+    RectangularBlindSlotFeature,
     RotationalFeature,
     SlotFeature,
     SlotPatternFeature,
@@ -1439,6 +1440,39 @@ def pocket(
         hi=hi,
         edge_anchored=bool(edge_anchored),
         open_sign=int(open_sign),
+    )
+
+
+def rectangular_blind_slot(
+    *,
+    axis,
+    open_sign,
+    length,
+    width_axis,
+    depth_axis,
+    depth_sign,
+    width,
+    depth,
+    at,
+) -> RectangularBlindSlotFeature:
+    """Declare one capped, edge-open rectangular U-section slot.
+
+    The explicit-only surface is intentional. A detached cutter's bounding box cannot prove
+    which end is open to the source envelope, which end terminates in material, or which side
+    is the U-section opening. Callers state those topological facts exactly as the public
+    recogniser record does; the IR validates the complete axis/sign contract.
+    """
+    run_axis = _norm_axis(axis)
+    return RectangularBlindSlotFeature(
+        frame=Frame(origin=at, axis=run_axis),
+        axis=run_axis,
+        open_sign=open_sign,
+        width_axis=_norm_axis(width_axis),
+        depth_axis=_norm_axis(depth_axis),
+        depth_sign=depth_sign,
+        width=width,
+        length=length,
+        depth=depth,
     )
 
 

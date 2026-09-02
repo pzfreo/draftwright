@@ -1023,6 +1023,9 @@ def _analyse(
             flats=list(recognition.flats) if recognition else None,
             pockets=pockets,
             pocket_patterns=pocket_patterns,
+            rectangular_blind_slots=(
+                list(recognition.rectangular_blind_slots) if recognition else None
+            ),
             pads=pads,
             profiles=_profiles,
             step_zs=step_zs,

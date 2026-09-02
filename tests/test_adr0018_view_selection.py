@@ -408,7 +408,14 @@ class TestAnExtentMovesOrIsReported:
         """Mutation guard for the conservative ownership table, including uncommon IR arms."""
         from types import SimpleNamespace
 
-        from draftwright.model import ChannelFeature, Frame, PadFeature, PocketFeature, SlotFeature
+        from draftwright.model import (
+            ChannelFeature,
+            Frame,
+            PadFeature,
+            PocketFeature,
+            RectangularBlindSlotFeature,
+            SlotFeature,
+        )
         from draftwright.model.ir import DimParameter
         from draftwright.model.planner import PlannedDimension, _parameter_view_preferences
 
@@ -449,6 +456,21 @@ class TestAnExtentMovesOrIsReported:
                 ),
                 "pocket_depth",
                 ("side",),
+            ),
+            (
+                RectangularBlindSlotFeature(
+                    Frame((0.0, 0.0, 0.0), "z"),
+                    axis="z",
+                    open_sign=-1,
+                    width_axis="x",
+                    depth_axis="y",
+                    depth_sign=1,
+                    width=8.0,
+                    length=30.0,
+                    depth=5.0,
+                ),
+                "rectangular_blind_slot_depth",
+                ("front",),
             ),
             (
                 SimpleNamespace(kind="pocket_pattern", frame=Frame((0.0, 0.0, 0.0), "z")),

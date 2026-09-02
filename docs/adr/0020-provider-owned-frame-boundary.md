@@ -215,7 +215,7 @@ all gauges and refusal reasons, local multi-diameter classification, body-local 
 profiles, explicit singular-accessor refusal, and unchanged raw coordinate selection. The
 fail-closed manifest join
 in `tests/test_recogniser_capabilities.py` guards the 0.4.10 record schemas (including the unchanged
-0.4.9 body-local schemas and the explicitly deferred blind-slot additions). Existing
+0.4.9 body-local schemas and each blind-slot family's explicit current disposition). Existing
 `tests/test_declared_recognition_gate.py` and `tests/test_part_model.py` retain declared no-recognition
 and one-aggregate lifecycle evidence; `tests/test_import_boundaries.py` keeps the boundary at the
 leaf rank. `tests/test_issue_1357_pmi_frame.py` proves point/vector distinction, tight local AABBs
