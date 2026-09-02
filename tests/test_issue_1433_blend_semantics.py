@@ -13,7 +13,7 @@ from b123d_recognisers import (
     build_raw_recognition_result,
     recognise_blends,
 )
-from build123d import Axis, Box, Compound, Pos, Rot, fillet
+from build123d import Axis, Box, Compound, Cylinder, Pos, Rot, fillet
 
 from draftwright import Sheet, build_drawing
 from draftwright.blend_contract import blend_provider_key, register_blend_ir_types
@@ -200,6 +200,40 @@ def test_internal_aggregate_handoff_reuses_its_cylinders_without_rescan(monkeypa
     monkeypatch.setattr(detect, "analyse_cylinders", unexpected_scan)
     model = detect._build_part_model_from_recognition(part, recognition)
     assert len(_blend_features(model)) == 4
+
+
+def test_model_boundary_rejects_non_records_and_malformed_fillet_primitives() -> None:
+    blank = Box(5, 5, 5)
+    with pytest.raises(TypeError, match="exact Fillet"):
+        build_part_model(blank, fillets=(object(),))
+    with pytest.raises(TypeError, match="exact CircularBlindStep"):
+        build_part_model(blank, circular_blind_steps=(object(),))
+
+    malformed_fields = (
+        ("axis", "q", "axis"),
+        ("turned", 1, "turned"),
+        ("radius", Fraction(1, 5), "radius"),
+        ("at", [0.0, 0.0, 0.0], "immutable"),
+        ("at", (Fraction(0), 0.0, 0.0), "components"),
+        ("radius", 10**400, "finite"),
+        ("radius", 0.0, "positive"),
+    )
+    for field, value, message in malformed_fields:
+        record = Fillet("z", 0.2, (0.0, 0.0, 0.0))
+        object.__setattr__(record, field, value)
+        with pytest.raises(ValueError, match=message):
+            build_part_model(blank, fillets=(record,))
+
+
+def test_duplicate_explicit_circular_steps_fail_closed_without_aggregate_owners() -> None:
+    stepped = Box(40, 30, 20) - Pos(7.5, 15, 10) * Rot(0, 90, 0) * Cylinder(4, 25)
+    source = build_raw_recognition_result(stepped, rotational=False).circular_blind_steps[0]
+    blank = Box(5, 5, 5)
+
+    with pytest.raises(ValueError, match="duplicate an ownership occurrence"):
+        build_part_model(blank, circular_blind_steps=(source, source))
+    with pytest.raises(ValueError, match="duplicate an ownership occurrence"):
+        build_part_model(blank, fillets=(), circular_blind_steps=(source, source))
 
 
 def test_sheet_word_and_generated_line_preserve_every_released_field() -> None:
@@ -467,8 +501,21 @@ def test_exact_ir_identity_and_frame_registration_cannot_be_spoofed() -> None:
     )
     with pytest.raises(TypeError, match="exact BlendFeature"):
         blend_feature_key(FakeFeature())
+    register_blend_ir_types(BlendFeature, Frame)
     with pytest.raises(RuntimeError, match="already registered"):
         register_blend_ir_types(FakeFeature, Frame)
+
+    forged = object.__new__(BlendFeature)
+    for name, value in (
+        ("frame", Frame((1.0, 2.0, 3.0), "y")),
+        ("axis", "x"),
+        ("radius", 0.2),
+        ("side", "convex"),
+        ("axis_direction", (1.0, 0.0, 0.0)),
+    ):
+        object.__setattr__(forged, name, value)
+    with pytest.raises(ValueError, match="frame axis disagrees"):
+        blend_feature_key(forged)
 
 
 def test_hostile_or_overflowing_fields_refuse_without_executing_user_protocols() -> None:
@@ -517,6 +564,16 @@ def test_mutated_recognition_or_ir_is_unverifiable_not_false_credit() -> None:
         object.__setattr__(forged, name, value)
     with pytest.raises(ValueError):
         blend_feature_key(forged)
+
+
+def test_parameter_introspection_failure_is_unverifiable() -> None:
+    drawing = build_drawing(_single_blend())
+    recognition = drawing.recognition()
+    feature = _blend_features(drawing.model())[0]
+
+    object.__setattr__(feature, "parameters", None)
+    outcomes = blend_requirement_outcomes(recognition, (feature,), AnnotationRegistry())
+    assert [outcome.state for outcome in outcomes] == ["unverifiable"]
 
 
 def test_blend_ledger_distinguishes_every_explicit_outcome() -> None:
