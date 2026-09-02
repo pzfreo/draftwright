@@ -54,6 +54,7 @@ from draftwright.annotations._common import (
 from draftwright.annotations.balloons import render_balloons
 from draftwright.annotations.from_model import (
     ladder_plan_for,
+    render_blends,
     render_boss_diameters,
     render_boss_heights,
     render_centermarks,
@@ -105,11 +106,11 @@ from draftwright.model import (
     PatternFeature,
     RotationalFeature,
     SectionPlan,
-    build_part_model,
     plan_dimensions,
     plan_sections,
 )
 from draftwright.model.compiled import compile_dimensions, resolve_feature
+from draftwright.model.detect import _build_part_model_from_recognition
 from draftwright.repair import reconcile_witness_labels
 from draftwright.view_plan import ViewConstraints
 
@@ -272,6 +273,7 @@ _PASS_SEQUENCE: tuple[str, ...] = (
     # and yields (drops with a warning) where a principal dim now sits.
     "chamfers",
     "fillets",
+    "blends",
     "circular_blind_steps",
     "paired_ramp_steps",
     "flats",
@@ -281,7 +283,7 @@ _PASS_SEQUENCE: tuple[str, ...] = (
     "pad_heights",
     "grooves",
     # One compatible same-view feature-leader inventory (#1166): side/plan
-    # hole leaders collected before the corridor drain and the six machined
+    # hole leaders collected before the corridor drain and the machined-feature
     # leader passes collected after it commit together here.
     "feature_leaders",
     "section",
@@ -356,8 +358,9 @@ def build_model(a: Analysis):
         "build_model needs the recognition aggregate, which a declared build does not have — "
         "the declared path uses the caller's model (dwg.model()) instead of building one."
     )
-    return build_part_model(
+    return _build_part_model_from_recognition(
         a.part,
+        a.recognition,
         holes=a.holes,
         double_d_bores=a.recognition.double_d_bores,
         patterns=a.patterns,
@@ -376,6 +379,7 @@ def build_model(a: Analysis):
         risers=a.recognition.risers,
         chamfers=a.recognition.chamfers,
         fillets=a.recognition.fillets,
+        blends=a.recognition.blends,
         circular_blind_steps=a.recognition.circular_blind_steps,
         paired_ramp_steps=a.recognition.paired_ramp_steps,
         through_steps=a.recognition.through_steps,
@@ -658,6 +662,10 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # Planner-fed (#725): consumes the DimensionGroups so an authored tolerance renders.
         render_fillets(dwg, _compiled, a, ctx=ctx)
 
+    def _s_blends():
+        # Accepted aggregate Blend chains carry one dedicated free-axis radius requirement.
+        render_blends(dwg, _compiled, a, ctx=ctx)
+
     def _s_paired_ramp_steps():
         # Two equal ramp angles + their run share one solver-owned leader (#1382).
         render_paired_ramp_steps(dwg, _compiled, a, ctx=ctx)
@@ -883,6 +891,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
             "step_positions": _s_step_positions,
             "chamfers": _s_chamfers,
             "fillets": _s_fillets,
+            "blends": _s_blends,
             "circular_blind_steps": _s_circular_blind_steps,
             "paired_ramp_steps": _s_paired_ramp_steps,
             "flats": _s_flats,

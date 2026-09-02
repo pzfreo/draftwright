@@ -23,6 +23,7 @@ reads recognised geometry, by design (ground truth, not the plan).
 from __future__ import annotations
 
 from draftwright.model.declare import (
+    blend,
     boss,
     chamfer,
     channel,
@@ -60,6 +61,7 @@ from draftwright.model.detect import build_part_model, build_pmi_features
 from draftwright.model.ir import (
     AUTHORED_DIMENSION_KINDS,
     AuthoredDimension,
+    BlendFeature,
     BossFeature,
     ChamferFeature,
     ChannelFeature,
@@ -121,6 +123,7 @@ __all__ = [
     "AuthoredDimension",
     "AUTHORED_DIMENSION_KINDS",
     "BossFeature",
+    "BlendFeature",
     "ChamferFeature",
     "ChannelFeature",
     "CircularBlindStepFeature",
@@ -174,6 +177,7 @@ __all__ = [
     "build_part_model",
     "build_pmi_features",
     "boss",
+    "blend",
     "double_d_bore",
     "chamfer",
     "channel",

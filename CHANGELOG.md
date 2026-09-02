@@ -44,13 +44,22 @@
 
 ### Changed
 
+- Accepted schema-v1 convex `Blend` chains now cross a dedicated end-to-end consumer path:
+  `BlendFeature`, explicit `Sheet.blend(...)`, executable generated declarations, one
+  compiler-approved `blend.radius` requirement, and a solver-owned grouped `n× R` leader. The
+  full canonical `axis_direction` remains in IR instead of being coerced to legacy Fillet
+  semantics; the provider aggregate remains the sole exact Fillet/Blend precedence authority.
+  Exact public-record/IR validation and completeness follow every accepted occurrence to placed,
+  structured-note, authored-suppressed, dropped, missing, or unverifiable outcomes. Raw and
+  provider-framed arbitrary rigid motions retain the same radius meaning (#1433; ADRs 0011,
+  0013–0017, 0020).
+
 - Draftwright now exactly pins the immutable `b123d-recognisers` 0.4.12 release and advances its
-  fail-closed capability and inspection joins. The additive `Blend`, `OrientedSlot`,
-  `OrientedSlotArray`, and `OrientedSlotGrid` records are deliberately visible but deferred under
-  #1430: no record is coerced into the existing Fillet, axis-letter Slot, or SlotPattern grammar,
-  no new Sheet word is claimed, and real occurrences remain reported as recognised-but-unscored
-  until their consumer semantics and ownership are reviewed. All earlier record schemas remain
-  compatible. The provider's newly recognised shallow nonzero `PairedRampStep` keeps its existing
+  fail-closed capability and inspection joins. This adoption first made the additive `Blend`,
+  `OrientedSlot`, `OrientedSlotArray`, and `OrientedSlotGrid` records visible and deferred under
+  #1430; Blend is now promoted by #1433 above, while oriented slots/patterns remain deferred and
+  recognised-but-unscored. All earlier record schemas remain compatible. The provider's newly
+  recognised shallow nonzero `PairedRampStep` keeps its existing
   two-requirement IR, public `Sheet.paired_ramp_step(...)` declaration, generated-code, compiler
   callout, solver placement, and completeness meaning (#1430; ADRs 0011, 0013–0017, 0020).
 

@@ -14,8 +14,11 @@ for any part.
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Callable
+from contextvars import ContextVar
 from dataclasses import dataclass, replace
+from math import isfinite
 from numbers import Real
 from typing import Any
 
@@ -49,6 +52,7 @@ from b123d_recognisers import (
     PolygonalStock,
     PrismaticPocket,
     RaisedPad,
+    RecognitionResult,
     RectangularBlindSlot,
     RectGrid,
     RepeatingRadialProfile,
@@ -99,6 +103,7 @@ from draftwright.model.declare import circular_blind_step, control_frame, datum
 from draftwright.model.ir import (
     AUTHORED_DIMENSION_KINDS,
     AuthoredDimension,
+    BlendFeature,
     BossFeature,
     ChamferFeature,
     ChannelFeature,
@@ -245,6 +250,115 @@ def _boss_is_groove_floor(b, grooves) -> bool:
 
 _DIA_TOL = 0.15  # two ø values within this (mm) are the same diameter (#298)
 _UNSET = object()  # sentinel: distinguishes "not supplied" from a valid prof=None
+
+
+@dataclass(frozen=True)
+class _RecognitionHandoff:
+    """One internal, task-local binding between a part and its completed aggregate."""
+
+    part: object
+    result: RecognitionResult
+
+
+_RECOGNITION_HANDOFF: ContextVar[_RecognitionHandoff | None] = ContextVar(
+    "draftwright_recognition_handoff", default=None
+)
+
+
+def _build_part_model_from_recognition(
+    part, recognition_result: RecognitionResult, **kwargs
+) -> PartModel:
+    """Internal detected-path entry that binds aggregate provenance to its source part."""
+    if type(recognition_result) is not RecognitionResult:
+        raise TypeError("recognition_result must be an exact RecognitionResult")
+    token = _RECOGNITION_HANDOFF.set(_RecognitionHandoff(part, recognition_result))
+    try:
+        return build_part_model(part, **kwargs)
+    finally:
+        _RECOGNITION_HANDOFF.reset(token)
+
+
+def _fillet_ownership_key(record) -> tuple:
+    """Strict primitive-only key for aggregate Fillet/Blend partition comparisons."""
+    if type(record) is not Fillet:
+        raise TypeError("fillet inventory members must be exact Fillet records")
+    if type(record.axis) is not str or record.axis not in ("x", "y", "z"):
+        raise ValueError("fillet axis must be exactly 'x', 'y', or 'z'")
+    if type(record.turned) is not bool:
+        raise ValueError("fillet turned must be an exact bool")
+    if type(record.radius) not in (int, float):
+        raise ValueError("fillet radius must be an exact non-boolean int or float")
+    if type(record.at) is not tuple or len(record.at) != 3:
+        raise ValueError("fillet at must be an immutable 3-vector")
+    if any(type(component) not in (int, float) for component in record.at):
+        raise ValueError("fillet at components must be exact non-boolean ints or floats")
+    try:
+        radius = float(record.radius)
+        at = tuple(float(component) for component in record.at)
+    except (OverflowError, ValueError) as exc:
+        raise ValueError("fillet radius and at must be finite") from exc
+    if radius <= 0.0 or not isfinite(radius) or not all(isfinite(component) for component in at):
+        raise ValueError("fillet radius and at must be finite, with a positive radius")
+    return record.axis, radius, at, record.turned
+
+
+def _fillet_blend_ownership_keys(fillets, blends) -> tuple[tuple, tuple]:
+    """Validate both public inventories before comparing only built-in primitive values."""
+    from draftwright.blend_contract import blend_provider_key
+
+    return (
+        tuple(_fillet_ownership_key(record) for record in fillets),
+        tuple(blend_provider_key(record) for record in blends),
+    )
+
+
+def _preserves_ownership_with_unique_additions(
+    supplied_keys: tuple, aggregate_keys: tuple
+) -> bool:
+    """Keep every aggregate occurrence without cloning an existing or added owner."""
+    supplied_counts = Counter(supplied_keys)
+    aggregate_counts = Counter(aggregate_keys)
+    if not (aggregate_counts <= supplied_counts):
+        return False
+    additions = supplied_counts - aggregate_counts
+    return all(count == 1 and key not in aggregate_counts for key, count in additions.items())
+
+
+def _same_ownership_occurrences(supplied_keys: tuple, aggregate_keys: tuple) -> bool:
+    """Compare order-independent occurrence inventories while retaining multiplicity."""
+    return Counter(supplied_keys) == Counter(aggregate_keys)
+
+
+def _same_fillet_blend_partition(
+    supplied: tuple[tuple, tuple], aggregate: tuple[tuple, tuple]
+) -> bool:
+    """Compare both aggregate sibling inventories as occurrence multisets."""
+    return all(
+        _same_ownership_occurrences(supplied_family, aggregate_family)
+        for supplied_family, aggregate_family in zip(supplied, aggregate, strict=True)
+    )
+
+
+def _circular_blind_step_ownership_key(record) -> tuple:
+    """Strict canonical key for circular-step ownership and multiplicity comparisons."""
+    if type(record) is not CircularBlindStep:
+        raise TypeError(
+            "circular_blind_steps inventory members must be exact CircularBlindStep records"
+        )
+    feature = circular_blind_step(
+        axis=record.axis,
+        radius=record.radius,
+        length=record.length,
+        centreline=record.centreline,
+        section=record.section,
+    )
+    return (
+        feature.axis,
+        feature.radius,
+        feature.length,
+        feature.centreline,
+        feature.section,
+    )
 
 
 def build_pmi_features(
@@ -682,6 +796,19 @@ def _convert_fillet(fl: Fillet, ctx: ConvContext) -> FilletFeature:
     )
 
 
+def _convert_blend(blend: Blend, ctx: ConvContext) -> BlendFeature:
+    from draftwright.blend_contract import blend_provider_key
+
+    axis, radius, at, side, direction = blend_provider_key(blend)
+    return BlendFeature(
+        frame=Frame(at, axis),
+        axis=axis,
+        radius=radius,
+        side=side,
+        axis_direction=direction,
+    )
+
+
 def _convert_circular_blind_step(
     step: CircularBlindStep, ctx: ConvContext
 ) -> CircularBlindStepFeature:
@@ -802,6 +929,7 @@ _CONVERTERS: dict[type, Converter] = {
     Plate: _convert_plate,
     Chamfer: _convert_chamfer,
     Fillet: _convert_fillet,
+    Blend: _convert_blend,
     CircularBlindStep: _convert_circular_blind_step,
     PairedRampStep: _convert_paired_ramp_step,
     ThroughStep: _convert_through_step,
@@ -854,11 +982,6 @@ _UNCONSUMED_RECORDS: dict[type, str] = {
         "an aggregate-reconciled angled blind step whose slanted face has yielded out of "
         "`chamfers`; its available measurements do not choose a truthful general dimension "
         "grammar, so every occurrence has an explicit unsupported completeness outcome (#1247)"
-    ),
-    Blend: (
-        "a public convex-blend-chain record whose precedence and defining-face ownership against "
-        "the supported Fillet family remain undecided, so it cannot yet create or suppress a "
-        "radius requirement (#1430)"
     ),
     OrientedSlot: (
         "a free-axis slot with authoritative SectionPassage correspondence that the legacy "
@@ -1010,6 +1133,7 @@ def build_part_model(
     risers=None,
     chamfers=None,
     fillets=None,
+    blends=None,
     circular_blind_steps=None,
     paired_ramp_steps=None,
     through_steps=None,
@@ -1044,6 +1168,7 @@ def build_part_model(
     *classification* inputs from `_analyse` — feeding the prismatic step ladder (#237/#915)
     and the rotational OD/bore furniture (#237).
 
+    The internal detected path carries its completed aggregate in a task-local handoff.
     ``cyls`` is a precomputed ``analyse_cylinders(part)`` result threaded into every
     cylinder-substrate recogniser called here (holes/bosses/turned/grooves/flats), so
     the solid is scanned once per build (#703); a standalone/partial call derives it once
@@ -1051,7 +1176,16 @@ def build_part_model(
     annotate mode uses the default and correlates supported requirements onto canonical
     feature parameters (#1116)."""
     fillets_supplied = fillets is not None
+    blends_supplied = blends is not None
+    if fillets_supplied:
+        fillets = tuple(fillets)
+    if blends_supplied:
+        blends = tuple(blends)
+    handoff = _RECOGNITION_HANDOFF.get()
+    recognition_result = handoff.result if handoff is not None and handoff.part is part else None
     circular_blind_steps_supplied = circular_blind_steps is not None
+    if circular_blind_steps_supplied:
+        circular_blind_steps = tuple(circular_blind_steps)
     derive_hole_patterns = holes is not None and patterns is None
     derive_slot_patterns = slots is not None and slot_patterns is None
     derive_pocket_patterns = pockets is not None and pocket_patterns is None
@@ -1076,6 +1210,7 @@ def build_part_model(
                 risers,
                 chamfers,
                 fillets,
+                blends,
                 circular_blind_steps,
                 paired_ramp_steps,
                 through_steps,
@@ -1090,6 +1225,16 @@ def build_part_model(
             )
         )
     )
+    if not needs_aggregate and fillets_supplied and blends_supplied and recognition_result is None:
+        raise ValueError(
+            "fully supplied fillets and blends require aggregate recognition_result provenance"
+        )
+    if not needs_aggregate and recognition_result is not None:
+        if not _same_fillet_blend_partition(
+            _fillet_blend_ownership_keys(fillets, blends),
+            _fillet_blend_ownership_keys(recognition_result.fillets, recognition_result.blends),
+        ):
+            raise ValueError("fillets and blends must preserve aggregate ownership exactly")
     bbox = part.bounding_box()
     features: list[Feature] = []
 
@@ -1102,49 +1247,124 @@ def build_part_model(
     # aggregate's applicability flag from the shared cylinder substrate rather than probing a
     # public family first; the aggregate remains the only family orchestration (ADR 0017).
     if needs_aggregate:
-        if cyls is None:
-            cyls = analyse_cylinders(part)
-        centre = bbox.center()
-        cylinder_class = _classify_rotational_cylinders(
-            cyls,
-            sizes=(bbox.size.X, bbox.size.Y, bbox.size.Z),
-            centre=(centre.X, centre.Y, centre.Z),
-        )
-        recognition = build_raw_recognition_result(
-            part,
-            cylinders=cyls,
-            rotational=(
-                rotational is not None
-                or (profiles is not _UNSET and bool(profiles))
-                or (prof is not _UNSET and prof is not None)
-                or cylinder_class.is_rotational
-            ),
-        )
+        recognition = recognition_result
+        if recognition is None:
+            if cyls is None:
+                cyls = analyse_cylinders(part)
+            centre = bbox.center()
+            cylinder_class = _classify_rotational_cylinders(
+                cyls,
+                sizes=(bbox.size.X, bbox.size.Y, bbox.size.Z),
+                centre=(centre.X, centre.Y, centre.Z),
+            )
+            recognition = build_raw_recognition_result(
+                part,
+                cylinders=cyls,
+                rotational=(
+                    rotational is not None
+                    or (profiles is not _UNSET and bool(profiles))
+                    or (prof is not _UNSET and prof is not None)
+                    or cylinder_class.is_rotational
+                ),
+            )
+        else:
+            cyls = recognition.cylinders
+        # Fillet and Blend are two projections of the same rounded-chain geometry. The
+        # aggregate owns their exact defining-face precedence, so a divergent one-sided
+        # override can double-own or erase a radius requirement. A one-sided value must
+        # preserve every aggregate-owned occurrence; additions remain available for legacy
+        # explicit injection only when the sibling aggregate is empty. A fully supplied pair
+        # is accepted only through the detected path's source-part-bound aggregate handoff.
+        if fillets_supplied and not blends_supplied:
+            supplied_keys = _fillet_blend_ownership_keys(fillets, ())[0]
+            aggregate_keys = _fillet_blend_ownership_keys(recognition.fillets, ())[0]
+            ownership_changed = (
+                not _same_ownership_occurrences(supplied_keys, aggregate_keys)
+                if recognition.blends
+                else not _preserves_ownership_with_unique_additions(supplied_keys, aggregate_keys)
+            )
+            if ownership_changed:
+                raise ValueError("fillets and blends must preserve aggregate ownership exactly")
+        elif blends_supplied and not fillets_supplied:
+            supplied_keys = _fillet_blend_ownership_keys((), blends)[1]
+            aggregate_keys = _fillet_blend_ownership_keys((), recognition.blends)[1]
+            ownership_changed = (
+                not _same_ownership_occurrences(supplied_keys, aggregate_keys)
+                if recognition.fillets
+                else not _preserves_ownership_with_unique_additions(supplied_keys, aggregate_keys)
+            )
+            if ownership_changed:
+                raise ValueError("fillets and blends must preserve aggregate ownership exactly")
+        elif fillets_supplied and blends_supplied:
+            if not _same_fillet_blend_partition(
+                _fillet_blend_ownership_keys(fillets, blends),
+                _fillet_blend_ownership_keys(recognition.fillets, recognition.blends),
+            ):
+                raise ValueError("fillets and blends must preserve aggregate ownership exactly")
         # A circular blind step and its legacy fillet projection compete for the same
         # curved wall.  The aggregate resolves that ownership atomically.  A partial caller
         # may still supply either inventory when it agrees with the aggregate (or when no
         # competing aggregate owner exists), but a divergent one-sided override is ambiguous:
-        # accepting it could emit two radius requirements or silently emit neither.  Require
-        # both inventories for an intentional ownership override and fail closed otherwise.
+        # accepting it could emit two radius requirements or silently emit neither. The two
+        # public record families are independently quantised and carry no shared provider
+        # owner identity, so even a paired divergent override cannot be reconciled safely.
+        # Preserve the aggregate partition exactly whenever either family owns geometry.
+        aggregate_fillet_keys = _fillet_blend_ownership_keys(recognition.fillets, ())[0]
+        aggregate_circular_keys = tuple(
+            _circular_blind_step_ownership_key(record)
+            for record in recognition.circular_blind_steps
+        )
         if fillets_supplied and not circular_blind_steps_supplied:
-            fillets = tuple(fillets)
-            aggregate_fillets = tuple(recognition.fillets)
-            if recognition.circular_blind_steps and any(
-                record not in aggregate_fillets for record in fillets
+            supplied_fillet_keys = _fillet_blend_ownership_keys(fillets, ())[0]
+            if recognition.circular_blind_steps and not _same_ownership_occurrences(
+                supplied_fillet_keys, aggregate_fillet_keys
             ):
                 raise ValueError(
                     "fillets and circular_blind_steps must be supplied together when "
                     "overriding aggregate ownership"
                 )
         elif circular_blind_steps_supplied and not fillets_supplied:
-            circular_blind_steps = tuple(circular_blind_steps)
+            supplied_circular_keys = tuple(
+                _circular_blind_step_ownership_key(record) for record in circular_blind_steps
+            )
             if (
                 recognition.circular_blind_steps or recognition.fillets
-            ) and circular_blind_steps != tuple(recognition.circular_blind_steps):
+            ) and not _same_ownership_occurrences(supplied_circular_keys, aggregate_circular_keys):
                 raise ValueError(
                     "fillets and circular_blind_steps must be supplied together when "
                     "overriding aggregate ownership"
                 )
+            if (
+                not recognition.circular_blind_steps
+                and not _preserves_ownership_with_unique_additions(
+                    supplied_circular_keys, aggregate_circular_keys
+                )
+            ):
+                raise ValueError("circular_blind_steps must not duplicate an ownership occurrence")
+        elif fillets_supplied and circular_blind_steps_supplied:
+            supplied_fillet_keys = _fillet_blend_ownership_keys(fillets, ())[0]
+            supplied_circular_keys = tuple(
+                _circular_blind_step_ownership_key(record) for record in circular_blind_steps
+            )
+            if recognition.circular_blind_steps or recognition.fillets:
+                if not _same_ownership_occurrences(
+                    supplied_fillet_keys, aggregate_fillet_keys
+                ) or not _same_ownership_occurrences(
+                    supplied_circular_keys, aggregate_circular_keys
+                ):
+                    raise ValueError(
+                        "fillets and circular_blind_steps must preserve aggregate ownership "
+                        "exactly; divergent paired overrides require provider owner identity"
+                    )
+            elif fillets and circular_blind_steps:
+                raise ValueError(
+                    "nonempty fillets and circular_blind_steps cannot be supplied together "
+                    "without provider owner identity"
+                )
+            elif not _preserves_ownership_with_unique_additions(
+                supplied_circular_keys, aggregate_circular_keys
+            ):
+                raise ValueError("circular_blind_steps must not duplicate an ownership occurrence")
         holes = recognition.holes if holes is None else holes
         double_d_bores = recognition.double_d_bores if double_d_bores is None else double_d_bores
         patterns = recognition.hole_patterns if patterns is None else patterns
@@ -1161,6 +1381,7 @@ def build_part_model(
         risers = recognition.risers if risers is None else risers
         chamfers = recognition.chamfers if chamfers is None else chamfers
         fillets = recognition.fillets if fillets is None else fillets
+        blends = recognition.blends if blends is None else blends
         circular_blind_steps = (
             recognition.circular_blind_steps
             if circular_blind_steps is None
@@ -1707,6 +1928,11 @@ def build_part_model(
     # without a sibling rescan.
     for fl in fillets:
         features.append(convert(fl, ctx))
+
+    # Accepted Blend records are the aggregate remainder after exact Fillet precedence.
+    # Preserve their free-axis contract in dedicated IR; never rerun or locally rematch Fillets.
+    for blend_record in blends:
+        features.append(convert(blend_record, ctx))
 
     # Quarter-cylindrical corner cuts with one blind terminal (#1382). The aggregate
     # supplies the oriented centreline and transverse quarter arc, so radius and depth

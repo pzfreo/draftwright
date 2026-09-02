@@ -256,6 +256,28 @@ nonzero angles. That is compatible with its existing acute-angle IR and two-requ
 contract. A released shallow specimen follows the existing aggregate-to-IR, declaration,
 generated-code, compiler, solver, and completeness path without a new Sheet word or placement API.
 
+## Amendment 10 — Released convex Blend chains are independent radius requirements
+
+Review under #1433 settles the schema-v1 `Blend` disposition. The provider aggregate already owns
+the only lawful precedence decision: an accepted dimension-worthy `Fillet` suppresses a Blend only
+when exact defining-face evidence covers the complete chain. Draftwright consumes that reconciled
+inventory once and neither rescans topology nor repeats face ownership policy.
+
+Each remaining accepted Blend is one complete convex cylindrical rolling-ball chain and one
+`blend.radius` requirement. It lowers to dedicated `BlendFeature` IR retaining `axis`, canonical
+full `axis_direction`, subdivision-invariant `at`, radius and `side="convex"`. It does not lower to
+`FilletFeature`: the dominant axis letter is not a substitute for a non-principal direction.
+`Sheet.blend(...)` is the explicit declaration word; generated programs replay every released
+field. A single shared-solver leader carries `R{radius}` or groups equal radii as `n× R`; the
+feature anchor is physical geometry, never a page coordinate.
+
+The completeness observer independently validates exact public record and exact IR types, retains
+occurrence multiplicity, and joins only the complete released value before following
+`blend.radius` measurement identity to placed, structured-note, authored-suppressed, dropped,
+missing or unverifiable. Raw-default and provider-framed arbitrary rigid-motion tests preserve the
+same radius requirements. `blends` therefore moves from deferred to supported and joins the
+audited denominator. Unreleased concave, toroidal and path schemas are not latent support.
+
 ## Accepted Contract
 
 ### 1. One orchestration owns the recognition universe

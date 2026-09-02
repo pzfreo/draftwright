@@ -39,7 +39,8 @@ Compact map, bottom to top:
   bottom leaf), `fonts.py` (pinned IBM Plex, ADR 0006), `fits.py` (ISO 286),
   `intents.py` (deferred-edit low IR), `recognition_cache.py` (ADR 0017 one-result
   lifecycle), `recognition_frame.py` (ADR 0020 prepared local-frame boundary and fail-closed
-  body-local occurrence joins),
+  body-local occurrence joins), `blend_contract.py` (strict released-Blend schema and
+  occurrence identity),
   `_warnings.py`, `_pmi_part21.py`, and the `linting/` subpackage
   (draftwright owns lint, ADR 0007).
 - **`_core.py`** — shared primitives: the `Analysis` namespace, dim/format helpers,
