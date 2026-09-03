@@ -165,7 +165,7 @@ def test_automatic_build_binds_each_direct_occurrence_to_its_exact_ir_feature() 
     } == {id(record) for record in drawing.recognition().fillets}
 
 
-def test_grouped_family_stays_unclassified_instead_of_becoming_a_false_missing() -> None:
+def test_singleton_hole_is_represented_by_its_exact_finished_ir_feature() -> None:
     part = Box(40, 30, 10, align=(Align.CENTER, Align.CENTER, Align.CENTER)) - Cylinder(3, 20)
     drawing = build_drawing(part)
     ownership = drawing.recognition_ownership()
@@ -176,8 +176,13 @@ def test_grouped_family_stays_unclassified_instead_of_becoming_a_false_missing()
         for occurrence in ownership.evidence.features
         if ownership.evidence.family(occurrence) == "holes"
     )
-    assert ownership.status(hole) == "unclassified"
-    assert ownership.binding_for(hole) is None
+    binding = ownership.binding_for(hole)
+
+    assert ownership.status(hole) == "represented"
+    assert binding is not None
+    assert binding.reason_code == "hole_adapter"
+    assert binding.member_index == 0
+    assert any(binding.feature is feature for feature in drawing.model().features)
     assert ownership.unexpectedly_missing == ()
 
 

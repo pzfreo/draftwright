@@ -4,10 +4,18 @@
 
 ### Added
 
+- Accepted physical hole, slot, and pocket occurrences now retain explicit run-local ownership
+  when conversion represents a singleton or absorbs members into one same-spec hole group or
+  derived pattern feature. Family-specific reason codes and transient member lineage follow
+  member-specific AP242 splits to the exact final IR objects; missing lineage fails closed rather
+  than retaining a stale owner. Provider-derived patterns do not become invented occurrences, and
+  no report ID, extra recognition scan, generated artefact, or visual output is introduced (#1438,
+  ADR 0017 Amendment 13).
+
 - Raw automatic builds now capture run-local, conversion-time ownership from accepted provider
   occurrences to their exact Draftwright IR features for unconditional one-to-one adapters. Equal
   record values, order, coordinates and topology indices cannot create a binding; an omitted direct
-  binding fails closed as unexpectedly missing, while grouped/absorbed/deferred families remain
+  binding fails closed as unexpectedly missing, while ownership rules not yet implemented remain
   explicitly unclassified. The experimental read-only `Drawing.recognition_ownership()` exposes
   the non-serializable ledger; it stays outside the IR/compiler and changes no generated or visual
   artefact (#1438, ADR 0017 Amendment 12).

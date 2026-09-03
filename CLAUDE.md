@@ -38,7 +38,8 @@ Compact map, bottom to top:
   `_geometry.py` (page-plane maths + the ADR 0014 Amdt 3 material field; the DAG's
   bottom leaf), `fonts.py` (pinned IBM Plex, ADR 0006), `fits.py` (ISO 286),
   `intents.py` (deferred-edit low IR), `recognition_cache.py` (ADR 0017 one-result
-  lifecycle), `recognition_ownership.py` (run-local accepted-occurrence→IR bindings),
+  lifecycle), `recognition_ownership.py` (run-local accepted-occurrence→final-IR bindings,
+  including explicit group/pattern absorption),
   `recognition_frame.py` (ADR 0020 prepared local-frame boundary and fail-closed
   body-local occurrence joins), `blend_contract.py` (strict released-Blend schema and
   occurrence identity),

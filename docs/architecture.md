@@ -208,9 +208,10 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   remains valid without evidence; the cache never rescans to backfill it.
 - **`recognition_ownership.py`** — the run-local consumer ledger below/beside the ADR 0015 IR
   waist. During record→IR conversion it binds opaque provider occurrences to the exact IR
-  feature objects that represent them, by same-run record identity. It exposes no persistent
-  topology/order/address ID. The first ownership slice classifies only unconditional 1:1 adapters;
-  grouped, nested, absorbed, classification-only and deferred families remain unclassified.
+  feature objects that represent or absorb them, by same-run record identity and explicit
+  aggregate membership. It exposes no persistent topology/order/address ID. Unconditional 1:1
+  adapters plus singleton/grouped/pattern hole, slot, and pocket members are classified; nested,
+  classification-only, unsupported, evidence-only, and deferred families remain unclassified.
 - **`recognition_frame.py`** — the ADR 0020 prepared local-frame boundary. It calls the public
   provider preparation seam, classifies the exact normalized solid from its already-scanned
   cylinders, runs one paired aggregate, propagates typed refusal without fallback, and exposes
@@ -562,9 +563,10 @@ policy) live in `CLAUDE.md`. This is the per-ADR status trail; each ADR's
   compiler grammar and placement solve, and a side-normal footprint is filtered from the legacy
   Z-level projection only when exact support correspondence proves that ownership. No renderer
   consumes the provider record or places an annotation at a caller-supplied page coordinate.
-  Amendment 12 additionally gives unconditional 1:1 adapters exact run-local
-  occurrence→IR-feature ownership in `BuildState`. Grouped, nested, absorbed and deferred
-  families, plus general IR-feature→requirement correspondence, are not yet provided. The original
+  Amendments 12–13 give unconditional 1:1 adapters and hole/slot/pocket singleton, grouped, and
+  pattern-member paths exact run-local occurrence→final-IR ownership in `BuildState`. Nested,
+  classification-only, unsupported, evidence-only, and deferred families, plus general
+  IR-feature→requirement correspondence, are not yet provided. The original
   four-type identity taxonomy, shared requirements module, general outcome ledger,
   reconciliation stage, and diagnostics model are candidate extensions rather than an
   approved phase sequence. #1018 now requires two end-to-end slices before any of them is
