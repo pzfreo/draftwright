@@ -991,9 +991,10 @@ class Drawing:
 
         This experimental, read-only ledger is available only when raw automatic recognition
         supplied :meth:`recognition_evidence`. It currently classifies unconditional one-to-one
-        adapters; all grouped, absorbed, classification-only and deferred families remain
-        explicitly unclassified. It carries opaque provider references and therefore cannot be
-        serialized or used as persistent feature identity.
+        adapters; singleton/grouped/pattern holes, slots, and pockets; and settled ownerless
+        unsupported, deferred, and evidence-only policy. Remaining nested and classification-only
+        families stay explicitly unclassified. It carries opaque provider references and therefore
+        cannot be serialized or used as persistent feature identity.
         """
 
         return self._build.recognition_ownership

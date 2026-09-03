@@ -82,6 +82,7 @@ _LAYERS: dict[str, int] = {
     "recognition": 0,
     "recognition_cache": 0,
     "recognition_ownership": 0,
+    "recogniser_policy": 0,
     "recognition_frame": 0,
     # Strict shared validator for the released provider Blend record and its occurrence key.
     "blend_contract": 0,

@@ -17,6 +17,17 @@ from typing import Any
 
 from b123d_recognisers import capability_manifest
 
+from draftwright.recogniser_policy import (
+    DEFERRED_FAMILIES as _DEFERRED_FAMILIES,
+)
+from draftwright.recogniser_policy import (
+    GEOMETRY_ONLY_FAMILY_ID,
+    GEOMETRY_ONLY_RATIONALE,
+)
+from draftwright.recogniser_policy import (
+    UNSUPPORTED_FAMILIES as _UNSUPPORTED,
+)
+
 CONSUMER_CAPABILITY_FORMAT = "draftwright-recogniser-capabilities"
 CONSUMER_CAPABILITY_FORMAT_VERSION = 1
 _RECOGNISER_DISTRIBUTION = "b123d-recognisers"
@@ -346,16 +357,13 @@ def _family_declaration(family_id: str, spec: _FamilySpec) -> dict[str, Any]:
 
 
 def _geometry_only_declaration() -> dict[str, Any]:
-    rationale = (
-        "Independent repeating-profile evidence critiques a separately authored gear; geometry "
-        "alone must not create inferred gear intent."
-    )
+    rationale = GEOMETRY_ONLY_RATIONALE
     no_inferred = {
         "state": "not-applicable",
         "rationale": "No inferred drafting feature exists for geometry-only critique evidence.",
     }
     return {
-        "id": "repeating-radial-profiles",
+        "id": GEOMETRY_ONLY_FAMILY_ID,
         "record_schemas": _record_schema_versions(
             "repeating-radial-profiles", ("RepeatingRadialProfile",)
         ),
@@ -378,67 +386,6 @@ def _geometry_only_declaration() -> dict[str, Any]:
             ],
         },
     }
-
-
-#: Families the installed package proves but Draftwright does not fully support, each with the
-#: issue recording its consumer disposition. Not a parking bay: an undecided family must still
-#: have a live decision issue, while a settled unsupported boundary must carry an explicit
-#: outcome such as Passage completeness below. ``pending_family_declarations`` reports anything
-#: absent from BOTH this map and ``_FAMILIES``, so the next new family fails closed exactly as
-#: the first three did (#1244), and the 0.4.6 step families do now (#1382).
-_UNSUPPORTED: dict[str, tuple[tuple[str, ...], str, str]] = {
-    "oriented-slot-patterns": (
-        ("OrientedSlotArray", "OrientedSlotGrid"),
-        "https://github.com/pzfreo/draftwright/issues/1430",
-        "The derived records group free-axis oriented slots, but the principal-axis "
-        "SlotPatternFeature cannot preserve their vector plane, member passage authority, and "
-        "pattern identity. A dedicated consumer contract is being reviewed before any grouping "
-        "or dimensions are emitted.",
-    ),
-    "oriented-slots": (
-        ("OrientedSlot",),
-        "https://github.com/pzfreo/draftwright/issues/1430",
-        "The record carries free-axis directions and an authoritative SectionPassage source. "
-        "Coercing it into the legacy axis-letter SlotFeature would discard that correspondence, "
-        "so its dedicated IR, Sheet vocabulary, drawing grammar, and completeness denominator "
-        "remain under review.",
-    ),
-    "passages": (
-        (
-            "Passage",
-            "PassageEnds",
-            "PassageFrame",
-            "PassageSection",
-            "PassageSectionVertex",
-            "SectionPassage",
-        ),
-        "https://github.com/pzfreo/draftwright/issues/1245",
-        "A prismatic through-opening — the internal counterpart to polygonal stock. The rich "
-        "record permits arbitrary line/arc sections, so treating its regular-polygon subset as "
-        "a supported IR feature or HEX callout would overstate the drawing contract. Draftwright "
-        "therefore reports every occurrence as an unsupported completeness requirement.",
-    ),
-    "prismatic-pockets": (
-        ("PrismaticPocket",),
-        "https://github.com/pzfreo/draftwright/issues/1246",
-        "The aggregate removes candidates also owned by the supported `pockets` family, so each "
-        "remaining PrismaticPocket is a distinct recess not superseded by Pocket. Its section may "
-        "be any planar polygon: width/length is false for triangles and a regular-polygon A/F "
-        "callout is incomplete in the general case. Draftwright therefore reports every "
-        "surviving occurrence as an unsupported completeness requirement.",
-    ),
-    "angled-steps": (
-        ("AngledStep",),
-        "https://github.com/pzfreo/draftwright/issues/1247",
-        "Introduced by 0.2.5 to stop `recognise_chamfers` reporting step slants as chamfers "
-        "(precision 44% -> 78%). The aggregate reconciles the shared slanted face in favour of "
-        "AngledStep, but its angle, legs and run length do not themselves decide which drawing "
-        "requirements or section/detail view are required. Draftwright therefore reports every "
-        "occurrence as an unsupported completeness requirement.",
-    ),
-}
-
-_DEFERRED_FAMILIES: frozenset[str] = frozenset({"oriented-slot-patterns", "oriented-slots"})
 
 
 def _unsupported_declaration(family_id: str) -> dict[str, Any]:

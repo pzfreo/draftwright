@@ -13,7 +13,8 @@
   Amendment 11 (2026-09-02) retains the provider's raw accepted-occurrence evidence in the same
   consumer-owned cache without adding a second recognition run. Amendment 12 (2026-09-03)
   records the first conversion-time, run-local occurrence→IR ownership bindings. Amendment 13
-  (2026-09-03) records explicit member ownership for hole, slot, and pocket groupings.
+  (2026-09-03) records explicit member ownership for hole, slot, and pocket groupings. Amendment
+  14 records settled ownerless consumer-policy outcomes per accepted occurrence.
 - **Date:** 2026-08-03
 - **Deciders:** Paul Fremantle (pzfreo)
 
@@ -352,6 +353,31 @@ ADR 0013 remains the provider boundary; ADR 0020's framed path remains evidence-
 released upstream contract. Declared builds therefore remain recognition-free until physical
 critique/report/export, and these ownership outcomes alone do not claim drawing completeness.
 
+## Amendment 14 — Settled ownerless policy is explicit per occurrence
+
+Five accepted physical families intentionally have no Draftwright IR owner. Each raw automatic
+build now projects the already-reviewed top-level disposition in the consumer capability
+declaration onto every exact same-run `FeatureRef`: angled steps, passages, and prismatic pockets
+are `unsupported`; oriented slots are `deferred`; and repeating radial profiles are
+`evidence_only` because they may critique separately authored gear intent but cannot create it.
+Each outcome carries a closed reason code and, for unsupported/deferred policy, the declaration's
+existing tracking issue. This is a pure Draftwright policy projection; the geometry provider does
+not decide drafting support.
+
+Occurrence identity remains the provider-issued opaque reference. Equal-valued oriented slots
+therefore retain distinct outcomes, while records, faces, registry order, coordinates, and
+topology are never used to reconstruct identity. These occurrences are not expected to produce an
+IR feature and cannot become `unexpectedly_missing`; conversely, an ownerless policy outcome cannot
+certify a drawing requirement as complete. Remaining supported nested/classification-only families
+stay `unclassified` until their exact ownership rules are separately demonstrated.
+
+This adds no provider API, recognition scan, persistent/report identifier, IR feature,
+manufacturing inference, annotation, requirement, compiled-plan dependency, generated artefact, or
+visual change. The policy is derived from the existing fail-closed consumer capability declaration
+rather than copied into a second registry. ADRs 0010 and 0014 are untouched; ADRs 0011 and 0015
+retain the declared/compiler boundaries; ADR 0013 retains provider geometry versus consumer policy;
+and ADR 0020's framed path remains honestly evidence-less until a released provider contract exists.
+
 ## Accepted Contract
 
 ### 1. One orchestration owns the recognition universe
@@ -398,8 +424,9 @@ not accept an arbitrary aggregate and then attempt to prove it came from the sam
 This originally answered **result-to-build provenance only**. Amendment 12 records exact
 occurrence→IR ownership for unconditional 1:1 adapters, and Amendment 13 adds explicit singleton,
 grouped, and pattern-member ownership for holes, slots, and pockets. Nested, classification-only,
-unsupported, evidence-only and deferred families, and the general
-feature→requirement→annotation correspondence, remain subjects of the evidence gates below.
+supported nested and classification-only families, and the general feature→requirement→annotation
+correspondence, remain subjects of the evidence gates below. Settled unsupported, evidence-only,
+and deferred policy is explicit per accepted occurrence under Amendment 14.
 
 `lint_prismatic_coverage(recognition=...)` is a known channel outside the structural ownership
 path (#1032). The preferred correction is to remove or narrow the channel when that boundary
