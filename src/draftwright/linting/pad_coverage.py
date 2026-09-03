@@ -12,7 +12,7 @@ evidence.
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 from b123d_recognisers import RecognitionResult
@@ -44,6 +44,7 @@ class PadRequirementOutcome:
     state: PadRequirementState
     requirement_count: int = 1
     features: tuple = ()
+    source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
 
 
 def _rounded(value) -> float:
@@ -319,7 +320,15 @@ def pad_requirement_outcomes(
         at = pad_attachment_point(source)
         location = pad_center(source)
         if parameter_ids is None:
-            outcomes.append(PadRequirementOutcome(at, "?", "unverifiable", requirement_count=5))
+            outcomes.append(
+                PadRequirementOutcome(
+                    at,
+                    "?",
+                    "unverifiable",
+                    requirement_count=5,
+                    source_records=(source,),
+                )
+            )
             continue
         outcomes.extend(
             PadRequirementOutcome(
@@ -338,6 +347,7 @@ def pad_requirement_outcomes(
                     registry=registry,
                 ),
                 features=(feature,),
+                source_records=(source,),
             )
             for parameter in parameter_ids
         )

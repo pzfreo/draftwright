@@ -43,13 +43,17 @@
     "recognition": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["coverage", "identity_scope", "occurrences", "summary"],
+      "required": ["coverage", "identity_scope", "occurrences", "requirements", "summary"],
       "properties": {
         "coverage": { "const": "accepted-occurrences" },
         "identity_scope": { "const": "report-local" },
         "occurrences": {
           "type": "array",
           "items": { "$ref": "#/$defs/occurrence" }
+        },
+        "requirements": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/requirement_outcome" }
         },
         "summary": { "$ref": "#/$defs/summary" }
       }
@@ -69,13 +73,70 @@
         "kind": { "type": "string", "minLength": 1 }
       }
     },
-    "requirements": {
+    "requirement_refs": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["coverage", "outcomes"],
+      "required": ["coverage", "ids"],
       "properties": {
-        "coverage": { "const": "not-projected" },
-        "outcomes": { "type": "array", "maxItems": 0 }
+        "coverage": {
+          "enum": ["ledger", "not-projected", "not-applicable", "deferred", "unavailable"]
+        },
+        "ids": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        }
+      }
+    },
+    "requirement_outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "family",
+        "occurrence_ids",
+        "owner_ids",
+        "parameter_id",
+        "state",
+        "reason_code",
+        "annotations",
+        "representation",
+        "representation_reason"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "family": { "type": "string", "minLength": 1 },
+        "occurrence_ids": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "owner_ids": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "parameter_id": { "type": ["string", "null"], "minLength": 1 },
+        "state": {
+          "enum": [
+            "placed",
+            "satisfied_by_structured_note",
+            "suppressed",
+            "dropped",
+            "missing",
+            "unverifiable",
+            "unsupported"
+          ]
+        },
+        "reason_code": { "type": "string", "minLength": 1 },
+        "annotations": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "representation": { "type": ["string", "null"] },
+        "representation_reason": { "type": ["string", "null"] }
       }
     },
     "occurrence": {
@@ -115,7 +176,7 @@
           "type": "array",
           "items": { "$ref": "#/$defs/owner" }
         },
-        "requirements": { "$ref": "#/$defs/requirements" }
+        "requirements": { "$ref": "#/$defs/requirement_refs" }
       }
     },
     "summary": {

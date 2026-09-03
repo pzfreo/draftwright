@@ -11,7 +11,7 @@ evidence.
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from math import isfinite
 from typing import Literal
 
@@ -56,6 +56,7 @@ class PlateRequirementOutcome:
     requirement_count: int = 1
     features: tuple = ()
     dependencies: tuple[tuple[object, str], ...] = ()
+    source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
 
 
 def _parameter_id(feature, source) -> str | None:
@@ -695,10 +696,13 @@ def plate_requirement_outcomes(
                         "thickness.length",
                         "inapplicable",
                         dependencies=dependencies,
+                        source_records=(source_record,),
                     )
                 )
                 continue
-            outcomes.append(PlateRequirementOutcome(at, "?", "unverifiable"))
+            outcomes.append(
+                PlateRequirementOutcome(at, "?", "unverifiable", source_records=(source_record,))
+            )
             continue
         outcomes.append(
             PlateRequirementOutcome(
@@ -716,6 +720,7 @@ def plate_requirement_outcomes(
                 ),
                 features=(feature,),
                 dependencies=derived_dependencies.get(feature, ()),
+                source_records=(source_record,),
             )
         )
     return outcomes

@@ -23,7 +23,9 @@
   owner selected for every accepted round-boss occurrence. Amendment 20 gives every accepted
   face-level and riser evidence occurrence an explicit evidence-only outcome. Amendment 21
   publishes the first bounded, versioned JSON projection
-  of the completed raw occurrence-disposition ledger.
+  of the completed raw occurrence-disposition ledger. Amendments 22–25 add atomic persistence,
+  Plate ownership, generated-Python gap evidence, and direct CLI sidecars. Amendment 26 projects
+  the existing typed physical-requirement outcomes without rebuilding a denominator from IR.
 - **Date:** 2026-08-03
 - **Deciders:** Paul Fremantle (pzfreo)
 
@@ -709,6 +711,42 @@ The build-owned evidence and ownership used by export lint and report are reused
 provider API, persistent identity, placement path, or completeness claim is introduced. Declared
 generated-script reconciliation, report-only CLI operation, and output manifests remain later
 slices under the existing ADR 0010/0011/0013/0014/0015/0017/0020 boundaries.
+
+## Amendment 26 — Reports project the recognition-owned semantic requirement ledger
+
+Schema-v1 reports now reuse the same family-specific typed outcomes that feed conditional
+completeness. A report-level requirement is therefore owned by the recognised physical source,
+not manufactured by enumerating `PartModel.parameters()`. Each typed outcome retains the exact
+same-run public source-record object or objects that establish it. The report translates those
+run-local identities to occurrence IDs, final recorded owners, semantic states, and exact
+annotation names where the ADR-0010 registry exposes measurement or structured-satisfaction
+provenance.
+
+This shape preserves physical cardinality. Pattern/group members share one set of requirement IDs;
+nested countersinks reference the same hole-owned seat requirements; already-conveyed alternate
+requirements remain inapplicable rather than entering the denominator again; and an outcome whose
+specific parameter vocabulary cannot be proved expands its recognition-owned cardinality into
+explicit `unverifiable` rows. Correlated IR surfaces such as `StepLevelFeature.parameters()` are
+never flattened or treated as unique identities merely because they expose repeated parameter
+IDs. Removing registry provenance changes the typed state and therefore the report instead of
+leaving stale credit.
+
+This amendment finalizes schema version 1 before its first release: the report commits landed after
+v0.4.17 and remain in the unreleased v0.4.18 development line. It may therefore replace the
+placeholder `not-projected` requirement shape without breaking a published v1 consumer. Once this
+shape ships, report-owned objects remain closed and any incompatible change requires a new schema
+version as the reference contract states.
+
+The compiled plan may help an existing family ledger verify the exact rendered member of a
+correlated grammar, but it never determines what physical requirements exist. A report evaluates
+the typed requirement roster once and passes that same immutable result to completeness and JSON
+projection. Existing family verification may query the already-held working solid (for example,
+Plate correspondence); the report does not start a second recognition scan or derive another
+physical denominator. It does not compare public record values, rely on provider order to recover
+ownership, serialize object identities, or place annotations. `bounded-clear` remains explicitly
+conditional on recognised/audited geometry and says nothing about unrecognised geometry or missing
+manufacturing intent. ADRs 0010, 0011, 0013, 0014, 0015, and 0020 therefore retain their existing
+boundaries; this amendment only exposes already-audited semantic evidence through the report.
 
 ## Accepted Contract
 

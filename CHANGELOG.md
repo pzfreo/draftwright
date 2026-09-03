@@ -4,6 +4,14 @@
 
 ### Added
 
+- Report schema v1 now projects one recognition-owned physical requirement ledger shared with
+  completeness. Each bounded requirement identifies its accepted source occurrence(s), final IR
+  owner(s), semantic parameter where applicable, placement/satisfaction state, annotation names,
+  and representation rationale. The roster is evaluated once per report and fails closed when
+  exact same-run evidence or provenance is absent; it does not create a second recognition scan,
+  persistent topology identity, inferred manufacturing intent, or visual change (#1438, ADR 0017
+  Amendment 26).
+
 - Direct CLI rendering now writes `<output>.draftwright.json` by default, after successful visual
   export, and prints its path with the requested artefacts. `--no-report` is the explicit opt-out;
   library `Drawing.export()` remains free of report-writing side effects (#1438, ADR 0017
@@ -34,10 +42,10 @@
   projection of every accepted recognition occurrence, its explicit consumer disposition and
   report-local final IR owner(s), plus the existing lint summary. The published schema never
   serializes provider references, topology IDs, object addresses, or transient member positions;
-  it marks requirement coverage as not yet projected and calls a clean result `bounded-clear`, not
-  manufacturing-ready. Paths without exact occurrence ownership and raw paths with an unclassified
-  accepted occurrence fail explicitly rather than emit an empty or inferred report. Rendering
-  remains unchanged (#1438, ADR 0017 Amendment 21).
+  it makes requirement coverage an explicit field (subsequently populated by Amendment 26) and
+  calls a clean result `bounded-clear`, not manufacturing-ready. Paths without exact occurrence
+  ownership and raw paths with an unclassified accepted occurrence fail explicitly rather than
+  emit an empty or inferred report. Rendering remains unchanged (#1438, ADR 0017 Amendment 21).
 
 - Accepted `FaceLevel` and `RiserEvidence` occurrences now receive explicit `evidence_only`
   outcomes. The released records remain shared substrate for the supported correlated height

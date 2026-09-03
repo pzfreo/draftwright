@@ -8,7 +8,7 @@ suppressed, and dropped outcomes. Rendered labels and annotation names are never
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from math import hypot
 from typing import Literal
 
@@ -56,6 +56,7 @@ class HoleRequirementOutcome:
     #: to go and check.
     members: tuple[tuple[float, float, float], ...] = ()
     features: tuple = ()
+    source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
 
 
 def _rounded(value) -> float:
@@ -802,7 +803,7 @@ def hole_requirement_outcomes(
     # Carries the group's member SITES explicitly (#1217 PR 2). The source object is the
     # representative `holes[0]`, so deriving members from it yields one site for a group of
     # eight — which a consumer attributing per hole then silently misses seven of.
-    sources: list[tuple[HoleSourceKind, object, tuple, int, tuple]] = []
+    sources: list[tuple[HoleSourceKind, object, tuple, int, tuple, tuple[object, ...]]] = []
     for (spec, _direction), holes in loose_groups.items():
         axis_index = "xyz".index(spec[0])
         through = spec[3]
@@ -813,7 +814,7 @@ def hole_requirement_outcomes(
                 site[axis_index] = 0.0
             member_sites.append((site[0], site[1], site[2]))
         members = tuple(sorted(member_sites))
-        sources.append(("hole", holes[0], (spec, members), len(holes), members))
+        sources.append(("hole", holes[0], (spec, members), len(holes), members, tuple(holes)))
     sources.extend(
         (
             "hole_pattern",
@@ -821,6 +822,7 @@ def hole_requirement_outcomes(
             _pattern_key(pattern),
             len(pattern.holes),
             tuple(_members(pattern)),
+            tuple(pattern.holes),
         )
         for pattern in recognition.hole_patterns
     )
@@ -870,7 +872,7 @@ def hole_requirement_outcomes(
     # recognition-owned sources is ambiguous even when only one source would otherwise
     # propose it as an exact match.
     owner_source_indices: dict[int, set[int]] = defaultdict(set)
-    for index, (kind, _source, key, _member_count, _sites) in enumerate(sources):
+    for index, (kind, _source, key, _member_count, _sites, _records) in enumerate(sources):
         if kind == "hole":
             spec, members = key
         else:
@@ -894,7 +896,7 @@ def hole_requirement_outcomes(
     # remain unverifiable.
     exact_proposals: list[tuple] = []
     exact_evidence: list[bool] = []
-    for kind, _source, key, _member_count, _sites in sources:
+    for kind, _source, key, _member_count, _sites, _records in sources:
         if kind == "hole":
             source_spec, source_members = key
             spec_features = hole_features_by_spec.get(source_spec, ())
@@ -940,7 +942,7 @@ def hole_requirement_outcomes(
     # simultaneously certify another source at its projected cutter centre.
 
     residual_proposals: dict[int, tuple] = {}
-    for index, (kind, source, key, _member_count, _sites) in enumerate(sources):
+    for index, (kind, source, key, _member_count, _sites, _records) in enumerate(sources):
         if matches_by_source[index]:
             continue
         # A partial, duplicate, or multiply-claimed exact owner is contradictory
@@ -1004,7 +1006,9 @@ def hole_requirement_outcomes(
         if omission.feature is not None and omission.authored
     }
     outcomes = []
-    for index, (kind, source, _key, member_count, source_sites) in enumerate(sources):
+    for index, (kind, source, _key, member_count, source_sites, source_records) in enumerate(
+        sources
+    ):
         matched = matches_by_source[index]
         representative = matched[0] if matched else None
         parameters = (
@@ -1027,6 +1031,7 @@ def hole_requirement_outcomes(
                     "unverifiable",
                     requirement_count=_physical_requirement_count(kind, source, member_count),
                     members=source_sites,
+                    source_records=source_records,
                 )
             )
             continue
@@ -1053,6 +1058,7 @@ def hole_requirement_outcomes(
                     representation_reason=representation_reason,
                     members=source_sites,
                     features=tuple(matched),
+                    source_records=source_records,
                 )
             )
     # The current HoleRecord waist has one countersink slot.  A second seat on the
@@ -1090,7 +1096,15 @@ def hole_requirement_outcomes(
         # that finds nothing to join is correctly informed. Closing the gap properly means the
         # waist carrying more than one countersink slot, which is #1229's real remainder.
         outcomes.extend(
-            HoleRequirementOutcome("hole", at, 1, parameter, "unverifiable", members=())
+            HoleRequirementOutcome(
+                "hole",
+                at,
+                1,
+                parameter,
+                "unverifiable",
+                members=(),
+                source_records=(countersink,),
+            )
             for parameter in ("countersink.diameter", "countersink.angle")
         )
     return outcomes

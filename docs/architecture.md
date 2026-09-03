@@ -11,12 +11,12 @@ keep that table, this document, and `CLAUDE.md`'s compact map in step. The
 The dependency graph is a DAG (the #138 / ADR 0005 split is complete). Bottom to
 top: leaf modules (`layout.py`, `registry.py`, `fonts.py`, `_geometry.py`,
 `fits.py`, `intents.py`, `recognition_cache.py`, `recognition_ownership.py`,
-`plate_correspondence.py`, `recogniser_policy.py`, `recogniser_schema.py`, `reporting.py`,
-`recognition_frame.py`, and the
-strict `blend_contract.py` provider-record boundary, and the `linting/` subpackage) →
+`plate_correspondence.py`, `recogniser_policy.py`, `recogniser_schema.py`,
+`recognition_frame.py`, and the strict `blend_contract.py` provider-record boundary) →
 `_core.py` → stage modules (`export.py`,
-`repair.py`, `projection.py`, `compose.py`, `analysis.py`, `drawing.py`, the
-`model/` IR subpackage, the `annotations/` subpackage) → `builder.py` → the
+`repair.py`, `projection.py`, `compose.py`, `analysis.py`, `drawing.py`, `reporting.py`,
+the `linting/` subpackage, the `model/` IR subpackage, the `annotations/` subpackage) →
+`builder.py` → the
 user-facing surfaces: the `make_drawing.py` / `annotate.py` compat facades, the
 fluent `Sheet` facade (`sheet.py`), the Sheet-script emitter
 (`sheet_emit.py`), the recognition-evaluation package (`evaluation/`), and the

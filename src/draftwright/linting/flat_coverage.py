@@ -8,7 +8,7 @@ projected geometry, annotation names, and page coordinates are never evidence.
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 from b123d_recognisers import RecognitionResult
@@ -46,6 +46,9 @@ class FlatRequirementOutcome:
     stock_span: tuple[float, float]
     across: float
     state: FlatRequirementState
+    features: tuple = ()
+    parameter_id: str = "flat.length"
+    source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
 
 
 def _rounded_pair(values) -> tuple[float, float]:
@@ -102,8 +105,11 @@ def flat_requirement_outcomes(
         )
 
     physical: dict[_FlatRequirementKey, set[tuple[float, float, float]]] = defaultdict(set)
+    source_records: dict[_FlatRequirementKey, list[object]] = defaultdict(list)
     for flat in recognition.flats:
-        physical[_key(flat)].add(_source_point(flat))
+        requirement = _key(flat)
+        physical[requirement].add(_source_point(flat))
+        source_records[requirement].append(flat)
     if not physical:
         return []
 
@@ -181,6 +187,8 @@ def flat_requirement_outcomes(
                 stock_span=requirement.stock_span,
                 across=requirement.across,
                 state=state,
+                features=tuple(matched),
+                source_records=tuple(source_records[requirement]),
             )
         )
     return outcomes

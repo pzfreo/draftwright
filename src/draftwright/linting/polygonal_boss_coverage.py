@@ -12,7 +12,7 @@ leader tips, projections and page coordinates are never correspondence evidence.
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from math import atan2, cos, hypot, isclose, isfinite, pi
 from typing import Literal
 
@@ -42,6 +42,7 @@ class PolygonalBossRequirementOutcome:
     state: PolygonalBossRequirementState
     requirement_count: int = 1
     features: tuple = ()
+    source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
 
 
 def _rounded(value) -> float:
@@ -326,6 +327,7 @@ def polygonal_boss_requirement_outcomes(
                     "?",
                     "unverifiable",
                     requirement_count=2,
+                    source_records=(source,),
                 )
             )
             continue
@@ -343,6 +345,7 @@ def polygonal_boss_requirement_outcomes(
                     registry=registry,
                 ),
                 features=(feature,),
+                source_records=(source,),
             )
             for parameter in parameter_ids
         )

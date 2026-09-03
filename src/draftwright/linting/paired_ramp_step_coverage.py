@@ -9,7 +9,7 @@ then follow each requirement to its drawing outcome.
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 from b123d_recognisers import PairedRampStep, RecognitionResult
@@ -36,6 +36,7 @@ class PairedRampRequirementOutcome:
     state: PairedRampRequirementState
     requirement_count: int = 1
     features: tuple = ()
+    source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
 
 
 def _rounded(value) -> float:
@@ -152,7 +153,12 @@ def paired_ramp_step_requirement_outcomes(
         )
         if feature is None or not _has_parameters(feature):
             outcomes.extend(
-                PairedRampRequirementOutcome(_source_at(source), parameter, "unverifiable")
+                PairedRampRequirementOutcome(
+                    _source_at(source),
+                    parameter,
+                    "unverifiable",
+                    source_records=(source,),
+                )
                 for parameter in parameters
             )
             continue
@@ -178,7 +184,11 @@ def paired_ramp_step_requirement_outcomes(
                 )
             outcomes.append(
                 PairedRampRequirementOutcome(
-                    _source_at(source), parameter, state, features=(feature,)
+                    _source_at(source),
+                    parameter,
+                    state,
+                    features=(feature,),
+                    source_records=(source,),
                 )
             )
     return outcomes
