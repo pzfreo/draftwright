@@ -11,7 +11,7 @@ correspondence evidence.
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 from b123d_recognisers import RecognitionResult
@@ -39,6 +39,7 @@ class GrooveRequirementOutcome:
     state: GrooveRequirementState
     requirement_count: int = 1
     features: tuple = ()
+    source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
 
 
 def groove_key(groove) -> tuple:
@@ -129,7 +130,13 @@ def groove_requirement_outcomes(
                 GrooveRequirementOutcome((0.0, 0.0, 0.0), "?", "unverifiable", requirement_count=1)
             ]
         return [
-            GrooveRequirementOutcome((0.0, 0.0, 0.0), "?", "unverifiable", requirement_count=2)
+            GrooveRequirementOutcome(
+                (0.0, 0.0, 0.0),
+                "?",
+                "unverifiable",
+                requirement_count=2,
+                source_records=(_source,),
+            )
             for _source in sources
         ]
     if not sources:
@@ -163,7 +170,13 @@ def groove_requirement_outcomes(
     for _source, source_key in zip(sources, source_keys, strict=True):
         if source_key is None:
             outcomes.append(
-                GrooveRequirementOutcome((0.0, 0.0, 0.0), "?", "unverifiable", requirement_count=2)
+                GrooveRequirementOutcome(
+                    (0.0, 0.0, 0.0),
+                    "?",
+                    "unverifiable",
+                    requirement_count=2,
+                    source_records=(_source,),
+                )
             )
             continue
         matches = ir_by_key.get(source_key, ())
@@ -171,7 +184,15 @@ def groove_requirement_outcomes(
         parameter_ids = _parameter_ids(feature) if feature is not None else None
         at = source_key[1]
         if parameter_ids is None or malformed_ir:
-            outcomes.append(GrooveRequirementOutcome(at, "?", "unverifiable", requirement_count=2))
+            outcomes.append(
+                GrooveRequirementOutcome(
+                    at,
+                    "?",
+                    "unverifiable",
+                    requirement_count=2,
+                    source_records=(_source,),
+                )
+            )
             continue
         outcomes.extend(
             GrooveRequirementOutcome(
@@ -187,6 +208,7 @@ def groove_requirement_outcomes(
                     registry=registry,
                 ),
                 features=(feature,),
+                source_records=(_source,),
             )
             for parameter in parameter_ids
         )

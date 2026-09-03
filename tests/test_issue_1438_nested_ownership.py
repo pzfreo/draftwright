@@ -76,6 +76,34 @@ def test_each_countersink_is_absorbed_by_its_exact_hole_owner() -> None:
     assert ownership.unexpectedly_missing == ()
 
 
+def test_grouped_nested_occurrences_reference_shared_requirements_without_duplication() -> None:
+    recognition = build_drawing(_same_spec_countersinks()).report()["recognition"]
+    countersinks = [
+        occurrence
+        for occurrence in recognition["occurrences"]
+        if occurrence["family"] == "countersinks"
+    ]
+    holes = [
+        occurrence for occurrence in recognition["occurrences"] if occurrence["family"] == "holes"
+    ]
+
+    assert len(countersinks) == len(holes) == 2
+    assert countersinks[0]["requirements"] == countersinks[1]["requirements"]
+    countersink_requirement_ids = countersinks[0]["requirements"]["ids"]
+    assert len(countersink_requirement_ids) == 2
+    requirements = {requirement["id"]: requirement for requirement in recognition["requirements"]}
+    assert {
+        requirements[requirement_id]["parameter_id"]
+        for requirement_id in countersink_requirement_ids
+    } == {"countersink.diameter", "countersink.angle"}
+    assert all(
+        requirement["occurrence_ids"] == ["countersinks:1", "countersinks:2", "holes:1", "holes:2"]
+        for requirement in (
+            requirements[requirement_id] for requirement_id in countersink_requirement_ids
+        )
+    )
+
+
 def test_unbound_countersink_fails_closed_as_unexpectedly_missing() -> None:
     evidence = build_recognition_evidence(_mixed_countersinks())
     ownership = RecognitionOwnershipBuilder(evidence).snapshot()

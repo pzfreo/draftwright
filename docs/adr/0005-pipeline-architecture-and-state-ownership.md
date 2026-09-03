@@ -327,3 +327,11 @@ history. They are not current work instructions. The lasting decision is:
 
 This amendment is the reader's current entry point. The dated sections above
 explain how the package reached it.
+
+**Amendment (2026-09-03) — reporting consumes recognition-owned requirement ledgers
+(#1438):** `reporting.py` is no longer a rank-0 leaf. A truthful report must expose the
+same typed physical-requirement denominator as completeness, so the shared aggregation
+lives in `linting/requirements.py` and both `linting/quality.py` and `reporting.py`
+consume it. Reporting therefore sits beside linting at rank 2. It still receives finished
+build state explicitly and never reaches through `Drawing` internals; the executable DAG
+guard prevents this reviewed dependency from becoming a cycle or an upward edge.

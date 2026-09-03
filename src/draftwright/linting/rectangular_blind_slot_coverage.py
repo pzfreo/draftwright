@@ -10,7 +10,7 @@ views, projected geometry, leader tips and page coordinates are never correspond
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from math import isfinite
 from numbers import Real
 from typing import Literal
@@ -45,6 +45,7 @@ class RectangularBlindSlotRequirementOutcome:
     state: RectangularBlindSlotRequirementState
     requirement_count: int = 1
     features: tuple = ()
+    source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
 
 
 def _rounded(value) -> float:
@@ -243,7 +244,10 @@ def rectangular_blind_slot_requirement_outcomes(
         if parameter_ids is None:
             outcomes.extend(
                 RectangularBlindSlotRequirementOutcome(
-                    _source_at(source), parameter, "unverifiable"
+                    _source_at(source),
+                    parameter,
+                    "unverifiable",
+                    source_records=(source,),
                 )
                 for parameter in _PARAMETERS
             )
@@ -270,7 +274,11 @@ def rectangular_blind_slot_requirement_outcomes(
                 )
             outcomes.append(
                 RectangularBlindSlotRequirementOutcome(
-                    _source_at(source), parameter, state, features=(feature,)
+                    _source_at(source),
+                    parameter,
+                    state,
+                    features=(feature,),
+                    source_records=(source,),
                 )
             )
     return outcomes

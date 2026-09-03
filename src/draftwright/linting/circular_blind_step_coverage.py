@@ -9,7 +9,7 @@ each requirement to its drawing outcome without using labels or page coordinates
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from math import hypot, isclose, isfinite
 from typing import Literal
 
@@ -38,6 +38,7 @@ class CircularBlindStepRequirementOutcome:
     state: CircularBlindStepRequirementState
     requirement_count: int = 1
     features: tuple = ()
+    source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
 
 
 def _rounded(value) -> float:
@@ -276,7 +277,12 @@ def circular_blind_step_requirement_outcomes(
         )
         if feature is None or not _has_parameters(feature):
             outcomes.extend(
-                CircularBlindStepRequirementOutcome(_source_at(source), parameter, "unverifiable")
+                CircularBlindStepRequirementOutcome(
+                    _source_at(source),
+                    parameter,
+                    "unverifiable",
+                    source_records=(source,),
+                )
                 for parameter in parameters
             )
             continue
@@ -302,7 +308,11 @@ def circular_blind_step_requirement_outcomes(
                 )
             outcomes.append(
                 CircularBlindStepRequirementOutcome(
-                    _source_at(source), parameter, state, features=(feature,)
+                    _source_at(source),
+                    parameter,
+                    state,
+                    features=(feature,),
+                    source_records=(source,),
                 )
             )
     return outcomes

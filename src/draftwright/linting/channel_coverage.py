@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 from b123d_recognisers import RecognitionResult, has_multi_axis_plates
@@ -27,6 +27,8 @@ class ChannelRequirementOutcome:
     feature_kind: str
     parameter_id: str
     state: ChannelRequirementState
+    features: tuple = ()
+    source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
 
 
 def _rounded(value) -> float:
@@ -166,6 +168,8 @@ def channel_requirement_outcomes(
                         dropped=dropped,
                         registry=registry,
                     ),
+                    features=(feature,) if feature is not None else (),
+                    source_records=(source,),
                 )
             )
     return outcomes

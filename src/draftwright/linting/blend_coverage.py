@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 from b123d_recognisers import RecognitionResult
@@ -35,6 +35,7 @@ class BlendRequirementOutcome:
     requirement_count: int = 1
     features: tuple = ()
     parameter_id: str = "blend.radius"
+    source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
 
 
 def _source_at(key: tuple | None) -> tuple[float, float, float]:
@@ -148,7 +149,11 @@ def blend_requirement_outcomes(
             ):
                 feature = matches[offset]
         if feature is None or not _has_parameter(feature):
-            outcomes.append(BlendRequirementOutcome(_source_at(key), "unverifiable"))
+            outcomes.append(
+                BlendRequirementOutcome(
+                    _source_at(key), "unverifiable", source_records=(source_record,)
+                )
+            )
             continue
         identity = (id(feature), "blend.radius")
         if identity in placed:
@@ -169,7 +174,14 @@ def blend_requirement_outcomes(
                 )
                 else "missing"
             )
-        outcomes.append(BlendRequirementOutcome(_source_at(key), state, features=(feature,)))
+        outcomes.append(
+            BlendRequirementOutcome(
+                _source_at(key),
+                state,
+                features=(feature,),
+                source_records=(source_record,),
+            )
+        )
     return outcomes
 
 

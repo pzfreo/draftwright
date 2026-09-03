@@ -15,6 +15,8 @@ import os
 import sys
 import tempfile
 import warnings
+from collections.abc import Mapping
+from contextvars import ContextVar
 from dataclasses import dataclass
 from dataclasses import field as dataclasses_field
 from itertools import permutations
@@ -270,6 +272,24 @@ _GEOMETRY_AWARE_CODES = frozenset(
 # severity/code counts in the summary are the authoritative output.
 _SCORE_ERROR_PENALTY = 0.2
 _SCORE_WARNING_PENALTY = 0.05
+
+# ``Drawing.report()`` and the completeness component must project one identical physical
+# requirement roster.  Keep that report-scoped evidence task-local so the public
+# ``lint_summary()`` signature and subclass dispatch remain unchanged.
+_REPORT_REQUIREMENTS: ContextVar[tuple[object, Mapping[str, tuple[Any, ...]], object] | None] = (
+    ContextVar("draftwright_report_requirements", default=None)
+)
+
+
+@contextlib.contextmanager
+def _reuse_report_requirements(
+    owner: object, outcomes: Mapping[str, tuple[Any, ...]], dimension_plan: object
+):
+    token = _REPORT_REQUIREMENTS.set((owner, outcomes, dimension_plan))
+    try:
+        yield
+    finally:
+        _REPORT_REQUIREMENTS.reset(token)
 
 
 @dataclass
@@ -1004,10 +1024,11 @@ class Drawing:
         """Return the versioned machine-readable recognition and drawing report.
 
         Schema version 1 projects accepted raw recognition occurrences, their exact run-local
-        consumer dispositions and final IR owners, plus the existing structured lint summary.
+        consumer dispositions, final IR owners, recognition-owned semantic requirement outcomes,
+        and the existing structured lint summary.
         Report IDs are deterministic within this document only; they are not topology or durable
-        feature identifiers. ``bounded-clear`` is not manufacturing readiness because requirement
-        outcomes are not projected yet.
+        feature identifiers. ``bounded-clear`` is not manufacturing readiness because recognition
+        can miss geometry and material, process, finish, fit, and tolerance intent remains authored.
 
         A declared, framed, injected, or bare drawing whose exact occurrence ownership is
         unavailable, or a raw drawing with an unclassified accepted occurrence, raises
@@ -1024,13 +1045,34 @@ class Drawing:
         model = self.model()
         # Preserve schema-v1's fail-before-critique boundary. In particular, a declared drawing
         # with no conversion-time ownership must refuse without lint lazily running recognition.
-        validate_report_inputs(evidence, ownership, model)
+        evidence, ownership, model = validate_report_inputs(evidence, ownership, model)
+        from draftwright.linting.requirements import recognized_requirement_outcomes
+        from draftwright.model.compiled import compile_dimensions
+
+        dimension_plan = compile_dimensions(model)
+        requirement_outcomes = recognized_requirement_outcomes(
+            evidence.result,
+            tuple(model.features),
+            self.registry,
+            self._build.omissions,
+            dimension_plan=dimension_plan,
+            part=self._working_part,
+        )
+
+        with _reuse_report_requirements(self, requirement_outcomes, dimension_plan):
+            lint = self.lint_summary()
+
         return drawing_report(
             evidence=evidence,
             ownership=ownership,
             model=model,
-            lint=self.lint_summary(),
+            lint=lint,
             source=source,
+            registry=self.registry,
+            omissions=self._build.omissions,
+            dimension_plan=dimension_plan,
+            part=self._working_part,
+            requirement_outcomes=requirement_outcomes,
         )
 
     def write_report(self, path: str | os.PathLike[str]) -> str:
@@ -4006,6 +4048,8 @@ class Drawing:
         )
         from draftwright.model.compiled import compile_dimensions
 
+        candidate = _REPORT_REQUIREMENTS.get()
+        report_requirements = candidate if candidate is not None and candidate[0] is self else None
         quality = quality_components(
             recognition=self._build.recognition,
             features=getattr(self._part_model, "features", ()),
@@ -4042,7 +4086,14 @@ class Drawing:
             error_penalty=_SCORE_ERROR_PENALTY,
             warning_penalty=_SCORE_WARNING_PENALTY,
             dimension_plan=(
-                compile_dimensions(self._part_model) if self._part_model is not None else None
+                report_requirements[2]
+                if report_requirements is not None
+                else (
+                    compile_dimensions(self._part_model) if self._part_model is not None else None
+                )
+            ),
+            requirement_outcomes=(
+                report_requirements[1] if report_requirements is not None else None
             ),
             _aggregation=aggregation,
         )

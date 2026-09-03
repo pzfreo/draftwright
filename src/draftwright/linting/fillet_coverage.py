@@ -9,7 +9,7 @@ outcome. Labels, annotation names, views, and page coordinates are not correspon
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 from b123d_recognisers import RecognitionResult
@@ -36,6 +36,7 @@ class FilletRequirementOutcome:
     requirement_count: int = 1
     features: tuple = ()
     parameter_id: str = "fillet.radius"
+    source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
 
 
 def _rounded(value) -> float:
@@ -130,7 +131,9 @@ def fillet_requirement_outcomes(
         matches = ir_by_key.get(key, ())
         feature = matches[0] if len(matches) == source_counts[key] == 1 else None
         if feature is None or not _has_parameter(feature):
-            outcomes.append(FilletRequirementOutcome(key[1], "unverifiable"))
+            outcomes.append(
+                FilletRequirementOutcome(key[1], "unverifiable", source_records=(source,))
+            )
             continue
         identity = (feature, parameter)
         if identity in placed:
@@ -151,7 +154,9 @@ def fillet_requirement_outcomes(
                 )
                 else "missing"
             )
-        outcomes.append(FilletRequirementOutcome(key[1], state, features=(feature,)))
+        outcomes.append(
+            FilletRequirementOutcome(key[1], state, features=(feature,), source_records=(source,))
+        )
     return outcomes
 
 

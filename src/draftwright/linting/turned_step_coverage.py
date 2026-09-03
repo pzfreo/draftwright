@@ -10,7 +10,7 @@ are deliberately not correspondence evidence.
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from math import isfinite
 from numbers import Real
 from typing import Literal
@@ -53,6 +53,7 @@ class TurnedStepRequirementOutcome:
     features: tuple = ()
     representation_feature: object | None = None
     representation_parameter: str | None = None
+    source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
 
 
 def _number(value, *, digits: int | None = 6) -> float:
@@ -329,7 +330,14 @@ def turned_step_requirement_outcomes(
         # Snapshot an iterable impostor once so a generator cannot be consumed by ownership
         # and then silently shrink this denominator on the conservative fallback.
         return [
-            TurnedStepRequirementOutcome(None, None, None, parameter, "unverifiable")
+            TurnedStepRequirementOutcome(
+                None,
+                None,
+                None,
+                parameter,
+                "unverifiable",
+                source_records=(_source,),
+            )
             for _source in raw_steps
             for parameter in ("step.length", "step.diameter")
         ]
@@ -347,7 +355,14 @@ def turned_step_requirement_outcomes(
         # malformed or ownership is ambiguous, retaining every raw band as unverifiable is
         # conservative; guessing an owner would either invent or erase requirements.
         return [
-            TurnedStepRequirementOutcome(None, None, None, parameter, "unverifiable")
+            TurnedStepRequirementOutcome(
+                None,
+                None,
+                None,
+                parameter,
+                "unverifiable",
+                source_records=(_source,),
+            )
             for _source in raw_steps
             for parameter in ("step.length", "step.diameter")
         ]
@@ -419,13 +434,20 @@ def turned_step_requirement_outcomes(
         )
 
     outcomes: list[TurnedStepRequirementOutcome] = []
-    for (profile, _source), source_key, source_profile_id in zip(
+    for (profile, source), source_key, source_profile_id in zip(
         sources, source_keys, source_profile_ids, strict=True
     ):
         if source_key is None:
             for parameter in ("step.length", "step.diameter"):
                 outcomes.append(
-                    TurnedStepRequirementOutcome(None, None, None, parameter, "unverifiable")
+                    TurnedStepRequirementOutcome(
+                        None,
+                        None,
+                        None,
+                        parameter,
+                        "unverifiable",
+                        source_records=(source,),
+                    )
                 )
             continue
         key = source_key
@@ -440,7 +462,14 @@ def turned_step_requirement_outcomes(
         for parameter in ("step.length", "step.diameter"):
             if feature is None or malformed or not _has_parameters(feature):
                 outcomes.append(
-                    TurnedStepRequirementOutcome(key[0], key[1], key[2], parameter, "unverifiable")
+                    TurnedStepRequirementOutcome(
+                        key[0],
+                        key[1],
+                        key[2],
+                        parameter,
+                        "unverifiable",
+                        source_records=(source,),
+                    )
                 )
                 continue
             representation = feature
@@ -490,6 +519,7 @@ def turned_step_requirement_outcomes(
                     features=(feature,),
                     representation_feature=representation,
                     representation_parameter=representation_parameter,
+                    source_records=(source,),
                 )
             )
     return outcomes

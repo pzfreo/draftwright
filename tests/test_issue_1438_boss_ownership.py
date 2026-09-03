@@ -58,6 +58,23 @@ def test_a_plain_prismatic_boss_is_represented_by_its_exact_feature() -> None:
     assert ownership.unexpectedly_missing == ()
 
 
+def test_report_marks_a_supported_family_without_a_requirement_ledger_for_attention() -> None:
+    drawing = build_drawing(Box(60, 60, 10) + Pos(0, 0, 9) * Cylinder(12, 8))
+    report = drawing.report()
+    bosses = [
+        occurrence
+        for occurrence in report["recognition"]["occurrences"]
+        if occurrence["family"] == "bosses"
+    ]
+
+    assert bosses
+    assert all(
+        occurrence["requirements"] == {"coverage": "not-projected", "ids": []}
+        for occurrence in bosses
+    )
+    assert report["status"] == "needs-attention"
+
+
 def test_equal_diameter_bosses_retain_occurrence_membership_in_one_existing_owner() -> None:
     drawing = build_drawing(_two_equal_bosses())
     ownership = drawing.recognition_ownership()

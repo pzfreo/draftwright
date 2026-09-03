@@ -97,14 +97,14 @@ _LAYERS: dict[str, int] = {
     # construction — it imports nothing from the engine, so the thing it measures can never
     # come to depend on it.
     "audit": 0,
-    # Pure schema-v1 projection over explicitly supplied finished-build state. Drawing owns the
-    # state reads and passes them down; this leaf never reaches through Drawing internals.
-    "reporting": 0,
     "model": 0,  # the ADR 0008 IR waist — depends only on rank-0 leaves (guarded below too)
     # 1 — the shared drawing/layout primitives
     "_core": 1,
     # 2 — core-consumers: depend on _core, sit below the stages
     "linting": 2,
+    # Schema-v1 projection over explicitly supplied finished-build state. It consumes linting's
+    # recognition-owned typed requirement ledgers but never reaches through Drawing internals.
+    "reporting": 2,
     "pmi": 2,
     "export": 2,
     "repair": 2,

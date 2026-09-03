@@ -10,7 +10,7 @@ annotation names, views, and page coordinates are never correspondence evidence.
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from math import hypot
 from typing import Literal
 
@@ -41,6 +41,7 @@ class PocketPatternRequirementOutcome:
     requirement_count: int = 1
     members: tuple[tuple[float, float, float], ...] = ()
     features: tuple = ()
+    source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
 
 
 def _rounded(value) -> float:
@@ -317,6 +318,7 @@ def pocket_pattern_requirement_outcomes(
                     "unverifiable",
                     requirement_count=_physical_requirement_count(source),
                     members=members,
+                    source_records=tuple(source.pockets),
                 )
             )
             continue
@@ -340,6 +342,7 @@ def pocket_pattern_requirement_outcomes(
                 ),
                 members=members,
                 features=(feature,),
+                source_records=tuple(source.pockets),
             )
             for parameter in parameter_ids
         )

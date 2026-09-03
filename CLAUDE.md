@@ -43,19 +43,19 @@ Compact map, bottom to top:
   `plate_correspondence.py` (pure shared Plate-record/final-IR correspondence predicates),
   `recogniser_policy.py` (single Draftwright-owned unsupported/deferred/evidence-only policy),
   `recogniser_schema.py` (consumer-owned public record schema versions shared by validation and
-  reporting), `reporting.py` (pure versioned projection over explicitly supplied finished-build
-  state),
+  reporting),
   `recognition_frame.py` (ADR 0020 prepared local-frame boundary and fail-closed
   body-local occurrence joins), `blend_contract.py` (strict released-Blend schema and
   occurrence identity),
-  `_warnings.py`, `_pmi_part21.py`, and the `linting/` subpackage
-  (draftwright owns lint, ADR 0007).
+  `_warnings.py`, and `_pmi_part21.py`.
 - **`_core.py`** — shared primitives: the `Analysis` namespace, dim/format helpers,
   page/slot/margin constants.
 - **Stage modules** — `analysis.py` (classification + one-shot feature inventory),
   `projection.py` (HLR + material lowering), `compose.py` (the ADR 0004 outer
   compose-then-pack layout), `export.py` (SVG→PDF→PNG chain, DXF), `repair.py`
-  (the ADR 0002 lint→repair safety net), `pmi.py` (STEP AP242 PMI),
+  (the ADR 0002 lint→repair safety net), `pmi.py` (STEP AP242 PMI), `linting/`
+  (draftwright-owned lint and recognition requirement ledgers, ADR 0007), `reporting.py`
+  (versioned projection over explicitly supplied finished-build state and those ledgers),
   `model/` (the ADR 0015 IR waist: `ir`/`detect`/`planner`/`declare`/`compiled`),
   `drawing.py` (the `Drawing` result object; single-owner `BuildState`), and
   `annotations/` (the render passes; `orchestrator.py` owns `_PASS_SEQUENCE`, the one

@@ -13,7 +13,7 @@ source-to-IR correspondence evidence.
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from math import atan2, cos, hypot, isfinite, pi, sin
 from typing import Literal
 
@@ -57,6 +57,7 @@ class PolygonalStockOutcome:
     state: PolygonalStockState
     requirement_count: int = 1
     features: tuple = ()
+    source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
 
 
 def _rounded(value) -> float:
@@ -354,7 +355,15 @@ def polygonal_stock_outcomes(
     # PolygonalStock is a whole-part proof, so the public aggregate contract is zero-or-one.
     # Any larger inventory is one malformed family observation, never extra denominator credit.
     if len(sources) != 1:
-        return [PolygonalStockOutcome(None, "?", "unverifiable", requirement_count=2)]
+        return [
+            PolygonalStockOutcome(
+                None,
+                "?",
+                "unverifiable",
+                requirement_count=2,
+                source_records=sources,
+            )
+        ]
     source = sources[0]
     try:
         if not isinstance(source, PolygonalStock):
@@ -363,7 +372,15 @@ def polygonal_stock_outcomes(
         key = polygonal_stock_key(source)
         at = polygonal_stock_center(source)
     except (AttributeError, OverflowError, TypeError, ValueError):
-        return [PolygonalStockOutcome(None, "?", "unverifiable", requirement_count=2)]
+        return [
+            PolygonalStockOutcome(
+                None,
+                "?",
+                "unverifiable",
+                requirement_count=2,
+                source_records=(source,),
+            )
+        ]
 
     ir_by_key: dict[tuple, list] = defaultdict(list)
     for feature in features:
@@ -384,7 +401,15 @@ def polygonal_stock_outcomes(
     feature = matches[0] if len(matches) == 1 else None
     parameter_ids = _parameter_ids(feature, source) if feature is not None else None
     if parameter_ids is None:
-        return [PolygonalStockOutcome(at, "?", "unverifiable", requirement_count=2)]
+        return [
+            PolygonalStockOutcome(
+                at,
+                "?",
+                "unverifiable",
+                requirement_count=2,
+                source_records=(source,),
+            )
+        ]
     return [
         PolygonalStockOutcome(
             at,
@@ -399,6 +424,7 @@ def polygonal_stock_outcomes(
                 registry=registry,
             ),
             features=(feature,),
+            source_records=(source,),
         )
         for parameter in parameter_ids
     ]

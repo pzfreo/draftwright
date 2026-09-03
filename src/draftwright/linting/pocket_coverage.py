@@ -9,7 +9,7 @@ views, projections, and page coordinates are never evidence.
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 from b123d_recognisers import RecognitionResult
@@ -40,6 +40,7 @@ class PocketRequirementOutcome:
     state: PocketRequirementState
     requirement_count: int = 1
     features: tuple = ()
+    source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
 
 
 def _rounded(value) -> float:
@@ -247,11 +248,14 @@ def pocket_requirement_outcomes(
                     "?",
                     "unverifiable",
                     requirement_count=_physical_requirement_count(source),
+                    source_records=(source,),
                 )
             )
             if source.edge_anchored:
                 outcomes.extend(
-                    PocketRequirementOutcome(at, parameter, "inapplicable")
+                    PocketRequirementOutcome(
+                        at, parameter, "inapplicable", source_records=(source,)
+                    )
                     for parameter in (
                         "location_pocket.location.x",
                         "location_pocket.location.y",
@@ -277,6 +281,7 @@ def pocket_requirement_outcomes(
                     registry=registry,
                 ),
                 features=(feature,),
+                source_records=(source,),
             )
             for parameter in parameter_ids
         )

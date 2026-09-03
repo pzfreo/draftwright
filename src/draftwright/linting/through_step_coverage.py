@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 from b123d_recognisers import RecognitionResult, ThroughStep
@@ -40,6 +40,8 @@ class ThroughStepRequirementOutcome:
     state: ThroughStepRequirementState
     requirement_count: int = 1
     features: tuple = ()
+    measurement_ids: tuple[tuple[object, str], ...] = ()
+    source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
 
 
 @dataclass(frozen=True)
@@ -555,6 +557,12 @@ def through_step_requirement_outcomes(
                             rendered,
                             approved_by_id,
                         ),
+                        measurement_ids=tuple(
+                            term.identity
+                            for alternative in plans[parameter]
+                            for term in alternative
+                        ),
+                        source_records=(source,),
                     )
                     for parameter in expected
                 )
@@ -565,7 +573,12 @@ def through_step_requirement_outcomes(
             or not _has_parameters(feature, record_parameters)
         ):
             outcomes.extend(
-                ThroughStepRequirementOutcome(_source_at(source), parameter, "unverifiable")
+                ThroughStepRequirementOutcome(
+                    _source_at(source),
+                    parameter,
+                    "unverifiable",
+                    source_records=(source,),
+                )
                 for parameter in expected
             )
             continue
@@ -591,7 +604,12 @@ def through_step_requirement_outcomes(
                 )
             outcomes.append(
                 ThroughStepRequirementOutcome(
-                    _source_at(source), parameter, state, features=(feature,)
+                    _source_at(source),
+                    parameter,
+                    state,
+                    features=(feature,),
+                    measurement_ids=((feature, parameter),),
+                    source_records=(source,),
                 )
             )
     return outcomes
