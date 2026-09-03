@@ -15,9 +15,8 @@ from typing import TYPE_CHECKING, Any, TypeAlias, cast
 from draftwright.recogniser_schema import consumed_record_schema_versions_for_type
 
 if TYPE_CHECKING:
-    from b123d_recognisers.evidence import RecognitionEvidence
-
     from draftwright.model import PartModel
+    from draftwright.recognition_cache import RecognitionEvidenceView
     from draftwright.recognition_ownership import RecognitionOwnership
 
 REPORT_SCHEMA = "draftwright-report"
@@ -69,6 +68,32 @@ def _producer() -> dict[str, str]:
     return {
         "draftwright": distribution_version("draftwright"),
         "b123d-recognisers": distribution_version("b123d-recognisers"),
+    }
+
+
+def _recognition_coordinates(evidence: RecognitionEvidenceView) -> dict[str, JsonValue]:
+    """Describe where public record coordinates live without conflating source and working."""
+
+    from b123d_recognisers.evidence import FramedRecognitionEvidence, RecognitionEvidence
+
+    if type(evidence) is RecognitionEvidence:
+        return {
+            "record_space": "caller",
+            "caller_from_record": {"kind": "identity"},
+        }
+    if type(evidence) is not FramedRecognitionEvidence:
+        raise ReportUnavailableError("recognition evidence has an unsupported authority type")
+    frame = evidence.frame
+    return {
+        "record_space": "provider-working",
+        "caller_from_record": {
+            "kind": "rigid-frame",
+            "origin_mm": _json_value(frame.origin),
+            "x_axis": _json_value(frame.x),
+            "y_axis": _json_value(frame.y),
+            "z_axis": _json_value(frame.z),
+            "gauge": frame.gauge.value,
+        },
     }
 
 
@@ -192,7 +217,7 @@ def _annotation_names(index: AnnotationIndex, outcome: object) -> list[str]:
 
 def _requirements(
     *,
-    evidence: RecognitionEvidence,
+    evidence: RecognitionEvidenceView,
     model: PartModel,
     occurrences: list[dict[str, Any]],
     registry: object,
@@ -328,16 +353,16 @@ def _requirements(
 
 
 def validate_report_inputs(
-    evidence: RecognitionEvidence | None,
+    evidence: RecognitionEvidenceView | None,
     ownership: RecognitionOwnership | None,
     model: PartModel | None,
-) -> tuple[RecognitionEvidence, RecognitionOwnership, PartModel]:
+) -> tuple[RecognitionEvidenceView, RecognitionOwnership, PartModel]:
     """Refuse unavailable authority before any diagnostic work can trigger recognition."""
 
     if evidence is None or ownership is None or ownership.evidence is not evidence:
         raise ReportUnavailableError(
             "accepted occurrence ownership is unavailable for this drawing; "
-            "raw automatic recognition is required by report schema version 1"
+            "raw or exact framed automatic recognition is required by report schema version 1"
         )
     if model is None:
         raise ReportUnavailableError("the drawing has no final IR model")
@@ -345,7 +370,7 @@ def validate_report_inputs(
 
 
 def _occurrences(
-    evidence: RecognitionEvidence | None,
+    evidence: RecognitionEvidenceView | None,
     ownership: RecognitionOwnership | None,
     model: PartModel | None,
     *,
@@ -457,7 +482,7 @@ def _occurrences(
 
 def drawing_report(
     *,
-    evidence: RecognitionEvidence | None,
+    evidence: RecognitionEvidenceView | None,
     ownership: RecognitionOwnership | None,
     model: PartModel | None,
     lint: dict[str, object],
@@ -468,7 +493,7 @@ def drawing_report(
     part: object | None = None,
     requirement_outcomes: Mapping[str, tuple[Any, ...]] | None = None,
 ) -> dict[str, object]:
-    """Build the strict schema-v1 report for one raw automatic drawing.
+    """Build the strict schema-v1 report for one raw or exact-framed automatic drawing.
 
     ``bounded-clear`` means only that this report found no known occurrence, semantic
     requirement, or lint blocker. It is deliberately not manufacturing readiness: recognition
@@ -507,6 +532,7 @@ def drawing_report(
         "recognition": {
             "coverage": "accepted-occurrences",
             "identity_scope": "report-local",
+            "coordinates": _recognition_coordinates(cast("RecognitionEvidenceView", evidence)),
             "occurrences": occurrences,
             "requirements": requirements,
             "summary": summary,
@@ -517,7 +543,7 @@ def drawing_report(
 
 def _generation_snapshot(
     *,
-    evidence: RecognitionEvidence | None,
+    evidence: RecognitionEvidenceView | None,
     ownership: RecognitionOwnership | None,
     model: PartModel | None,
     source: str | PathLike[str] | None,
@@ -572,6 +598,7 @@ def _generation_snapshot(
             "coverage": "accepted-occurrence-gaps",
             "producer": _producer(),
             "source": snapshot_source,
+            "coordinates": _recognition_coordinates(cast("RecognitionEvidenceView", evidence)),
             "summary": summary,
             "gaps": gaps,
         },

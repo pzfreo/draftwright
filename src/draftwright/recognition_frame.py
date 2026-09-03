@@ -16,12 +16,15 @@ from numbers import Real
 from typing import Any
 
 from b123d_recognisers import (
+    FramedEvidenceRefusalReason,
+    FramedRecognitionEvidence,
     FramedRecognitionResult,
     FrameGauge,
     FrameRefusalReason,
     PartFrame,
     PreparedFramedPart,
     RecognitionResult,
+    RefusedFramedEvidence,
     RefusedPartFrame,
     TurnedProfile,
     prepare_framed_part,
@@ -225,7 +228,8 @@ class FramedDetection:
     source_part: Shape
     prepared: PreparedFramedPart
     classification: GeometryClassification
-    framed: FramedRecognitionResult
+    framed: FramedRecognitionResult | FramedRecognitionEvidence[PartFrame]
+    evidence_refusal: FramedEvidenceRefusalReason | None = None
 
     @property
     def frame(self) -> PartFrame:
@@ -238,6 +242,12 @@ class FramedDetection:
     @property
     def result(self) -> RecognitionResult:
         return self.framed.result
+
+    @property
+    def evidence(self) -> FramedRecognitionEvidence[PartFrame] | None:
+        """The exact one-run framed evidence, or ``None`` after a typed mapping refusal."""
+
+        return self.framed if type(self.framed) is FramedRecognitionEvidence else None
 
     @property
     def policy(self) -> FramePolicy:
@@ -284,7 +294,10 @@ def classify_geometry(
     )
 
 
-def _same_cylinder_objects(prepared: PreparedFramedPart, framed: FramedRecognitionResult) -> bool:
+def _same_cylinder_objects(
+    prepared: PreparedFramedPart,
+    framed: FramedRecognitionResult | FramedRecognitionEvidence[PartFrame],
+) -> bool:
     if len(prepared.cylinders) != len(framed.result.cylinders):
         return False
     return all(
@@ -307,7 +320,22 @@ def prepare_framed_detection(part: Shape) -> FramedDetection | FramedDetectionRe
         return FramedDetectionRefusal(part, prepared.reason)
 
     classification = classify_geometry(prepared.part, cylinders=prepared.cylinders)
-    framed = prepared.recognise(rotational=classification.is_rotational)
+    evidence_refusal = None
+    evidence = prepared.recognise_evidence(rotational=classification.is_rotational)
+    if type(evidence) is RefusedFramedEvidence:
+        # The provider refuses before running the aggregate when it cannot prove an exact
+        # caller-face bijection. Preserve the established framed-result path with one aggregate
+        # run, but keep occurrence evidence honestly unavailable.
+        evidence_refusal = evidence.reason
+        framed: FramedRecognitionResult | FramedRecognitionEvidence[PartFrame] = (
+            prepared.recognise(rotational=classification.is_rotational)
+        )
+    elif type(evidence) is FramedRecognitionEvidence:
+        framed = evidence
+    else:
+        raise FramedRecognitionContractError(
+            "framed evidence acquisition returned an unsupported authority type"
+        )
     if (
         framed.frame is not prepared.frame
         or framed.part is not prepared.part
@@ -316,7 +344,11 @@ def prepare_framed_detection(part: Shape) -> FramedDetection | FramedDetectionRe
         raise FramedRecognitionContractError(
             "framed recognition did not preserve its prepared frame, part, and cylinders"
         )
-    return FramedDetection(part, prepared, classification, framed)
+    if type(framed) is FramedRecognitionEvidence and framed.caller_part is not part:
+        raise FramedRecognitionContractError(
+            "framed recognition evidence did not preserve its caller part"
+        )
+    return FramedDetection(part, prepared, classification, framed, evidence_refusal)
 
 
 def single_turned_profile(result: RecognitionResult) -> TurnedProfile | None:

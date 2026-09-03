@@ -282,14 +282,11 @@ def test_builder_rejects_invalid_evidence_and_duplicate_ownership() -> None:
         repeated_builder.bind(repeated.record(second), shared_feature)
 
 
-def test_declared_and_framed_builds_do_not_invent_occurrence_ownership() -> None:
+def test_declared_build_does_not_invent_occurrence_ownership() -> None:
     part = _single_fillet()
     declared = build_drawing(part, model=[])
-    framed = build_drawing(part, framed_recognition=True)
 
     assert declared.recognition_ownership() is None
-    assert framed.recognition_evidence() is None
-    assert framed.recognition_ownership() is None
 
 
 def test_scale_retry_reuses_the_exact_model_evidence_and_ownership_authority() -> None:

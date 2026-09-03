@@ -24,8 +24,8 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 
 if TYPE_CHECKING:
     from b123d_recognisers import RecognitionResult
-    from b123d_recognisers.evidence import RecognitionEvidence
 
+    from draftwright.recognition_cache import RecognitionEvidenceView
     from draftwright.recognition_ownership import RecognitionOwnership
 
 # PEP 702 @deprecated. A `sys.version_info` guard (not try/except) so the type checker,
@@ -530,7 +530,7 @@ class BuildState:
         self,
         result: RecognitionResult | None,
         *,
-        evidence: RecognitionEvidence | None = None,
+        evidence: RecognitionEvidenceView | None = None,
         cache: RecognitionCache | None = None,
         ownership: RecognitionOwnership | None = None,
     ) -> None:
@@ -553,7 +553,7 @@ class BuildState:
         self.recognition_ownership = ownership
 
     @property
-    def recognition_evidence(self) -> RecognitionEvidence | None:
+    def recognition_evidence(self) -> RecognitionEvidenceView | None:
         """Run-scoped provider evidence paired with :attr:`recognition`, when available."""
 
         return self.recognition_cache.evidence
@@ -994,15 +994,15 @@ class Drawing:
 
         return self._build.recognition
 
-    def recognition_evidence(self) -> RecognitionEvidence | None:
+    def recognition_evidence(self) -> RecognitionEvidenceView | None:
         """The run-scoped provider evidence paired with :meth:`recognition`.
 
-        This experimental, read-only view is available for raw automatic recognition and
-        after the first physical critique of a declared drawing. It is ``None`` before that
-        lazy critique, for a bare drawing, and for framed recognition while the provider lacks
-        a public framed-evidence contract. Draftwright never reruns recognition merely to fill
-        this value. The returned evidence borrows exact faces from the source part, so callers
-        must not mutate that part while using the evidence view.
+        This experimental, read-only view is available for raw and successful framed automatic
+        recognition and after the first physical critique of a declared drawing. It is ``None``
+        before that lazy critique, for a bare drawing, or when framed caller-face correspondence
+        is explicitly refused. Draftwright never reruns recognition merely to fill this value.
+        Raw evidence borrows source faces; framed evidence exposes distinct exact working and
+        caller-face resolvers. Callers must not mutate either retained part while using the view.
         """
 
         return self._build.recognition_evidence
@@ -1010,12 +1010,11 @@ class Drawing:
     def recognition_ownership(self) -> RecognitionOwnership | None:
         """Run-local accepted-occurrence ownership captured during detected conversion.
 
-        This experimental, read-only ledger is available only when raw automatic recognition
-        supplied :meth:`recognition_evidence`. It currently classifies unconditional one-to-one
-        adapters; singleton/grouped/pattern holes, slots, and pockets; nested countersinks; and
-        settled ownerless unsupported, deferred, and evidence-only policy. Remaining nested and
-        classification-only families stay explicitly unclassified. It carries opaque provider
-        references and therefore cannot be serialized or used as persistent feature identity.
+        This experimental, read-only ledger is available when raw or successful framed automatic
+        recognition supplied :meth:`recognition_evidence`. It classifies the supported direct,
+        grouped, nested, conditional, and ownerless-policy occurrence families. It carries opaque
+        provider references and therefore cannot be serialized or used as persistent feature
+        identity.
         """
 
         return self._build.recognition_ownership
@@ -1023,15 +1022,15 @@ class Drawing:
     def report(self) -> dict[str, object]:
         """Return the versioned machine-readable recognition and drawing report.
 
-        Schema version 1 projects accepted raw recognition occurrences, their exact run-local
+        Schema version 1 projects accepted raw or framed recognition occurrences, their exact run-local
         consumer dispositions, final IR owners, recognition-owned semantic requirement outcomes,
         and the existing structured lint summary.
         Report IDs are deterministic within this document only; they are not topology or durable
         feature identifiers. ``bounded-clear`` is not manufacturing readiness because recognition
         can miss geometry and material, process, finish, fit, and tolerance intent remains authored.
 
-        A declared, framed, injected, or bare drawing whose exact occurrence ownership is
-        unavailable, or a raw drawing with an unclassified accepted occurrence, raises
+        A declared, injected, bare, or framed-evidence-refused drawing whose exact occurrence
+        ownership is unavailable, or a drawing with an unclassified accepted occurrence, raises
         :class:`draftwright.ReportUnavailableError` rather than inventing correspondence or
         shrinking the denominator. Calling this method never changes rendered drawing content.
         """

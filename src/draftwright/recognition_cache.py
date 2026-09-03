@@ -8,12 +8,19 @@ consumer state at the bottom of Draftwright's dependency graph.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TypeAlias
 
-from b123d_recognisers import RecognitionResult
-from b123d_recognisers.evidence import RecognitionEvidence, build_recognition_evidence
+from b123d_recognisers import PartFrame, RecognitionResult
+from b123d_recognisers.evidence import (
+    FramedRecognitionEvidence,
+    RecognitionEvidence,
+    build_recognition_evidence,
+)
+
+RecognitionEvidenceView: TypeAlias = RecognitionEvidence | FramedRecognitionEvidence[PartFrame]
 
 
-def _result_from_evidence(evidence: RecognitionEvidence) -> RecognitionResult:
+def _result_from_evidence(evidence: RecognitionEvidenceView) -> RecognitionResult:
     """Project the established aggregate from one evidence acquisition.
 
     Keeping this as one tiny seam lets semantic mutation tests replace the provider result
@@ -30,14 +37,14 @@ class RecognitionCache:
     """One drawing's optional recognition run, built at most once on demand.
 
     ``result`` remains the established geometry inventory consumed by Draftwright.  When the
-    run entered through the provider's raw evidence API, ``evidence`` retains that same run's
-    accepted-occurrence/face authority for later reporting.  A cache may still be seeded with a
-    bare result (notably framed recognition); it must not rerun recognition merely to backfill
-    evidence from a different authority universe.
+    run entered through the provider's raw or framed evidence API, ``evidence`` retains that same
+    run's accepted-occurrence/face authority for later reporting. A cache may still be seeded with
+    a bare result (notably after a framed evidence-mapping refusal); it must not rerun recognition
+    merely to backfill evidence from a different authority universe.
     """
 
     result: RecognitionResult | None = None
-    evidence: RecognitionEvidence | None = None
+    evidence: RecognitionEvidenceView | None = None
 
     def __post_init__(self) -> None:
         if self.evidence is None:
@@ -51,7 +58,7 @@ class RecognitionCache:
         self,
         result: RecognitionResult | None,
         *,
-        evidence: RecognitionEvidence | None = None,
+        evidence: RecognitionEvidenceView | None = None,
     ) -> None:
         """Replace the cache atomically with one coherent recognition acquisition."""
 

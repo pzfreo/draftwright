@@ -105,6 +105,7 @@ def recognition_consumer_calls():
 
     aggregates = {
         recognition.build_raw_recognition_result.__code__: "build_raw_recognition_result",
+        recognition.PreparedFramedPart.recognise_evidence.__code__: "recognise_framed_evidence",
         recognition_evidence.build_recognition_evidence.__code__: "build_recognition_evidence",
     }
     functions = {}

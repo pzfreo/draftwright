@@ -20,7 +20,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from math import isfinite, ulp
 from numbers import Real
-from typing import Any, Literal
+from typing import Any, Literal, TypeAlias
 
 from b123d_recognisers import (
     AngledStep,
@@ -35,6 +35,7 @@ from b123d_recognisers import (
     FaceLevel,
     Fillet,
     Flat,
+    FramedRecognitionEvidence,
     Groove,
     HoleRecord,
     HoleSpec,
@@ -43,6 +44,7 @@ from b123d_recognisers import (
     OrientedSlotArray,
     OrientedSlotGrid,
     PairedRampStep,
+    PartFrame,
     Passage,
     Plate,
     Pocket,
@@ -143,6 +145,8 @@ from draftwright.recognition_frame import (
     require_unambiguous_groove_owner,
 )
 from draftwright.recognition_ownership import RecognitionOwnershipBuilder
+
+RecognitionEvidenceView: TypeAlias = RecognitionEvidence | FramedRecognitionEvidence[PartFrame]
 
 
 def _member_hole(h, frame: Frame, members: tuple = (), count: int = 1) -> HoleFeature:
@@ -266,7 +270,7 @@ class _RecognitionHandoff:
 
     part: object
     result: RecognitionResult
-    evidence: RecognitionEvidence | None = None
+    evidence: RecognitionEvidenceView | None = None
     ownership: RecognitionOwnershipBuilder | None = None
 
 
@@ -279,7 +283,7 @@ def _build_part_model_from_recognition(
     part,
     recognition_result: RecognitionResult,
     *,
-    evidence: RecognitionEvidence | None = None,
+    evidence: RecognitionEvidenceView | None = None,
     ownership: RecognitionOwnershipBuilder | None = None,
     **kwargs,
 ) -> PartModel:
@@ -1235,7 +1239,7 @@ class _ThroughStepLegacyOwner:
 
 
 def _through_step_plate_owner_record_ids(
-    evidence: RecognitionEvidence,
+    evidence: RecognitionEvidenceView,
     step: ThroughStep,
     plates: tuple[Plate, ...],
 ) -> frozenset[int] | None:
@@ -1262,7 +1266,7 @@ def _through_step_plate_owner_record_ids(
 
 
 def _evidence_occurrence_for_record(
-    evidence: RecognitionEvidence,
+    evidence: RecognitionEvidenceView,
     family: str,
     record: object,
 ):
@@ -1277,7 +1281,7 @@ def _evidence_occurrence_for_record(
 
 
 def _plate_owner_has_evidence_scope(
-    evidence: RecognitionEvidence,
+    evidence: RecognitionEvidenceView,
     plate: Plate,
     owners: tuple[Feature, ...],
     *,

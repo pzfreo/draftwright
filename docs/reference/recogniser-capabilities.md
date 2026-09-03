@@ -553,7 +553,7 @@ with exact full-record correspondence and parameter/outcome provenance under the
 rules as the rectangular family. It now participates independently in `audited_score`; ordinary
 slots, pockets, channels and rectangular blind slots do not share ownership.
 
-## Recognisers 0.4.14 adoption and path-complete Blends
+## Recognisers 0.4.14 adoption, path-complete Blends, and framed evidence
 
 Draftwright exactly pins `b123d-recognisers==0.4.14`; the provider family count remains 33 and
 the inspection API remains format 1 / major 1. The fail-closed record join now accepts `Blend`
@@ -573,6 +573,15 @@ occurrence/IR ownership and the provider-issued defining face to select the phys
 tangency instead of the rolling path or its centre. A declaration without that face authority
 refuses competing support radii rather than choosing another body's cylinder; the shared placement
 solve still owns the page position.
+
+The same release supplies `PreparedFramedPart.recognise_evidence(...)`. On success, Draftwright
+retains its exact `FramedRecognitionEvidence`: public records and working-face references stay in
+the provider working frame, while `caller_face(...)` resolves the exact caller-space partners.
+Occurrence ownership and report v1 therefore use the same one run as compilation. Reports label
+their record coordinate space and include the released rigid frame for caller interpretation. If
+the provider returns a typed caller-face-mapping refusal, Draftwright performs the established
+framed result acquisition once, keeps evidence/reporting unavailable, and never substitutes a raw
+scan or inferred cross-frame identity.
 
 ## Historical 0.4.12 adoption and additive-family boundary
 
@@ -608,10 +617,8 @@ provider-private geometry or sibling checkout for any of these claims.
 `RecognitionResult` the existing compiler and lint consumers already read. Draftwright retains
 both in its per-drawing `RecognitionCache`, including across scale/view retries; declared builds
 remain recognition-free until physical critique, and a bare result is never rescanned merely to
-backfill evidence. Recognisers 0.4.14 publishes the framed-evidence contract requested by
-[`b123d-recognisers#463`](https://github.com/pzfreo/b123d-recognisers/issues/463), but Draftwright's
-framed route remains evidence-less until the independent #1438 consumer slice adopts it; it does
-not infer cross-frame occurrence identity in the interim.
+backfill evidence. The subsequent 0.4.14 contract above resolves the former framed-evidence gap
+tracked by [`b123d-recognisers#463`](https://github.com/pzfreo/b123d-recognisers/issues/463).
 
 Round-boss ownership is now explicit at that same run-local boundary. Each accepted `BossRecord`
 retains the exact consumer-selected final owner: its singleton `BossFeature`, the one existing

@@ -85,6 +85,10 @@ def test_generated_python_exposes_each_deferred_oriented_slot_without_execution(
     assert snapshot["schema_version"] == 1
     assert snapshot["status"] == "accepted_occurrences_unrepresented"
     assert snapshot["coverage"] == "accepted-occurrence-gaps"
+    assert snapshot["coordinates"] == {
+        "record_space": "caller",
+        "caller_from_record": {"kind": "identity"},
+    }
     assert snapshot["source"] == {"kind": "build123d", "name": None, "sha256": None}
     assert snapshot["summary"] == {
         "total": 3,

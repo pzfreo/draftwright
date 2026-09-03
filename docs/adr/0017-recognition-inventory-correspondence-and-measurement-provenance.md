@@ -788,6 +788,29 @@ annotation, or completeness credit. These changes use only released public recor
 aggregate, introduce no page coordinates or persistent identity, and leave declared builds
 recognition-free.
 
+## Amendment 28 — Framed occurrence evidence shares the report authority
+
+Recognisers 0.4.14 supplies a released `PreparedFramedPart.recognise_evidence(...)` lifecycle. A
+successful `FramedRecognitionEvidence` wraps the same local `RecognitionResult` used by compilation,
+issues the same run-local feature/face references needed by occurrence ownership, resolves working
+faces through `face(...)`, and exposes their exact caller-space topology partners through
+`caller_face(...)`. Draftwright retains that object in the existing drawing cache and uses it for
+ownership, requirements, reports, and generation snapshots. It never performs a raw backfill scan
+or reconstructs correspondence from values, order, proximity, or topology indices.
+
+Record payloads remain in provider-working coordinates. Report schema v1 now makes that authority
+explicit with `recognition.coordinates`: raw evidence declares caller-space identity; framed
+evidence declares provider-working space and carries the exact rigid frame origin, basis, and gauge
+for caller interpretation. Those coordinates describe recognised geometry only. They are not
+annotation positions and do not weaken ADR 0014's solver-owned placement boundary.
+
+The provider may refuse framed evidence before aggregate recognition when it cannot prove an exact
+caller-face mapping. Draftwright then performs the established framed result acquisition once so
+the drawing path remains available, records the typed evidence refusal, and leaves occurrence
+ownership/reporting unavailable. It does not fall back to raw recognition or emit a partial report.
+Declared builds retain ADR 0011's recognition-free lifecycle until physical critique, and their
+later raw evidence remains separate from this automatic framed authority.
+
 ## Accepted Contract
 
 ### 1. One orchestration owns the recognition universe

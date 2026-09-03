@@ -45,7 +45,7 @@ def test_detectors_run_once_per_build(aggregate_counter, framed_recognition):
 
     assert dwg.recognition_frame_decision["status"] == ("framed" if framed_recognition else "raw")
     expected = (
-        {"build_raw_recognition_result": 1}
+        {"recognise_framed_evidence": 1}
         if framed_recognition
         else {"build_recognition_evidence": 1}
     )
@@ -56,15 +56,12 @@ def test_detectors_run_once_per_build(aggregate_counter, framed_recognition):
     )
     # The drawing's render model IS the stored sizing model — one object, one inventory.
     assert dwg.model() is dwg._analysis.model
-    if framed_recognition:
-        assert dwg.recognition_evidence() is None
-    else:
-        evidence = dwg.recognition_evidence()
-        assert evidence is not None
-        assert evidence.result is dwg.recognition()
-        fillets = tuple(ref for ref in evidence.features if evidence.family(ref) == "fillets")
-        assert len(fillets) == 1
-        assert evidence.record(fillets[0]) in dwg.recognition().fillets
+    evidence = dwg.recognition_evidence()
+    assert evidence is not None
+    assert evidence.result is dwg.recognition()
+    fillets = tuple(ref for ref in evidence.features if evidence.family(ref) == "fillets")
+    assert len(fillets) == 1
+    assert evidence.record(fillets[0]) in dwg.recognition().fillets
 
 
 def test_generate_script_detects_once(aggregate_counter, tmp_path):

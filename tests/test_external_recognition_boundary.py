@@ -46,7 +46,12 @@ def test_consumed_evidence_api_is_the_released_public_major() -> None:
     assert manifest["format_version"] == 1
     assert manifest["api"]["major"] == 1
     assert manifest["api"]["namespace"] == "b123d_recognisers.evidence"
-    assert {"RecognitionEvidence", "build_recognition_evidence"} <= set(manifest["api"]["symbols"])
+    assert {
+        "FramedRecognitionEvidence",
+        "RecognitionEvidence",
+        "RefusedFramedEvidence",
+        "build_recognition_evidence",
+    } <= set(manifest["api"]["symbols"])
 
 
 def test_embedded_implementation_is_gone_and_compatibility_is_identity_preserving() -> None:

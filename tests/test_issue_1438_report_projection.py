@@ -91,6 +91,10 @@ def test_raw_report_has_the_closed_v1_shape_and_exact_owner() -> None:
     recognition = report["recognition"]
     assert recognition["coverage"] == "accepted-occurrences"
     assert recognition["identity_scope"] == "report-local"
+    assert recognition["coordinates"] == {
+        "record_space": "caller",
+        "caller_from_record": {"kind": "identity"},
+    }
     (occurrence,) = recognition["occurrences"]
     assert occurrence == {
         "id": "through_steps:1",
@@ -832,17 +836,11 @@ def test_report_refuses_an_unclassified_accepted_occurrence() -> None:
         )
 
 
-@pytest.mark.parametrize("boundary", ("declared", "framed"))
-def test_report_refuses_to_invent_ownership_across_an_unavailable_boundary(boundary) -> None:
-    drawing = build_drawing(
-        _through_step_part(),
-        model=[] if boundary == "declared" else None,
-        framed_recognition=boundary == "framed",
-    )
+def test_report_refuses_to_invent_ownership_across_a_declared_boundary() -> None:
+    drawing = build_drawing(_through_step_part(), model=[])
     with pytest.raises(ReportUnavailableError, match="occurrence ownership is unavailable"):
         drawing.report()
-    if boundary == "declared":
-        assert drawing.recognition_evidence() is None
+    assert drawing.recognition_evidence() is None
 
 
 def test_report_projection_does_not_change_visual_output(tmp_path) -> None:

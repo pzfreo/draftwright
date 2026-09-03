@@ -63,7 +63,7 @@ from draftwright.compose import (
 from draftwright.model.detect import _build_part_model_from_recognition
 from draftwright.model.ir import Datum, GrooveFeature, PartModel, StepFeature, StepLevelFeature
 from draftwright.model.planner import plan_dimensions
-from draftwright.recognition_cache import _result_from_evidence
+from draftwright.recognition_cache import RecognitionEvidenceView, _result_from_evidence
 from draftwright.recognition_frame import (
     FramedDetection,
     FramedDetectionRefusal,
@@ -774,7 +774,7 @@ def _analyse(
     # step-count convergence sees it too.
     margin = _content_margin(frame)
     recognition: RecognitionResult | None
-    recognition_evidence: RecognitionEvidence | None = None
+    recognition_evidence: RecognitionEvidenceView | None = None
     recognition_frame: PartFrame | None = None
     recognition_frame_decision: dict[str, object]
     if _reuse is not None:
@@ -831,6 +831,7 @@ def _analyse(
             if isinstance(framed, FramedDetection):
                 part = framed.part
                 recognition = framed.result
+                recognition_evidence = framed.evidence
                 classification = framed.classification
                 _gc = _GeomClass(
                     list(classification.z_cyls),
@@ -845,7 +846,11 @@ def _analyse(
                 recognition_frame_decision = {
                     "status": "framed",
                     "gauge": framed.frame.gauge.value,
-                    "refusal_reason": None,
+                    "refusal_reason": (
+                        framed.evidence_refusal.value
+                        if framed.evidence_refusal is not None
+                        else None
+                    ),
                 }
             else:
                 assert isinstance(framed, FramedDetectionRefusal)

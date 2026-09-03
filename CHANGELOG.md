@@ -4,6 +4,14 @@
 
 ### Added
 
+- Successful provider-framed automatic builds now retain the released one-run
+  `FramedRecognitionEvidence`, including exact working/caller face resolvers, and expose the same
+  occurrence ownership, semantic requirements, report v1, and generation snapshot as raw builds.
+  Reports state whether public record coordinates are caller-space identity or provider-working
+  coordinates with the exact rigid caller transform. A typed caller-face mapping refusal preserves
+  the established framed drawing through one aggregate run but keeps reporting unavailable; there
+  is no raw rescan or cross-authority inference (#1438; ADR 0017 Amendment 28; ADR 0020 Amendment 1).
+
 - Report schema v1 now projects one recognition-owned physical requirement ledger shared with
   completeness. Each bounded requirement identifies its accepted source occurrence(s), final IR
   owner(s), semantic parameter where applicable, placement/satisfaction state, annotation names,
@@ -38,7 +46,7 @@
   failures leave any existing destination untouched, with best-effort temporary cleanup that does
   not mask the primary error (#1438, ADR 0017 Amendment 22).
 
-- Raw automatic drawings now expose `Drawing.report()`, a strict version-1 JSON-compatible
+- Raw automatic drawings first exposed `Drawing.report()`, a strict version-1 JSON-compatible
   projection of every accepted recognition occurrence, its explicit consumer disposition and
   report-local final IR owner(s), plus the existing lint summary. The published schema never
   serializes provider references, topology IDs, object addresses, or transient member positions;
@@ -107,12 +115,12 @@
   the non-serializable ledger; it stays outside the IR/compiler and changes no generated or visual
   artefact (#1438, ADR 0017 Amendment 12).
 
-- Raw automatic recognition now retains the provider's run-scoped `RecognitionEvidence` beside
+- Automatic recognition now retains the provider's run-scoped raw or framed evidence beside
   its exact `RecognitionResult`, exposed through the experimental read-only
-  `Drawing.recognition_evidence()`. Declared drawings acquire the pair lazily on first physical
-  critique; bare and framed results remain evidence-less, and Draftwright never rescans merely to
-  backfill evidence. This is a non-visual reporting foundation and changes no rendered artefact
-  (#1438, ADRs 0015, 0017, 0020).
+  `Drawing.recognition_evidence()`. Declared drawings acquire raw evidence lazily on first physical
+  critique; bare and framed-evidence-refused results remain evidence-less, and Draftwright never
+  rescans merely to backfill evidence. This is a non-visual reporting foundation and changes no
+  rendered artefact (#1438, ADRs 0015, 0017, 0020).
 
 - Automatic drawings can opt into the provider-owned local recognition frame with
   `framed_recognition=True`. The returned drawing exposes caller provenance, the exact downstream

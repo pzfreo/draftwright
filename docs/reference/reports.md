@@ -1,9 +1,9 @@
 # Machine-readable reports
 
 `Drawing.report()` returns a JSON-compatible Draftwright report. Version 1 is deliberately a
-bounded first contract: it projects the accepted occurrences from one raw automatic recognition
-run, their exact consumer dispositions and final IR owners, the recognition-owned semantic
-requirement ledger, and `Drawing.lint_summary()`.
+bounded first contract: it projects the accepted occurrences from one raw or successful
+provider-framed automatic recognition run, their exact consumer dispositions and final IR owners,
+the recognition-owned semantic requirement ledger, and `Drawing.lint_summary()`.
 
 ```python
 from draftwright import build_drawing
@@ -33,6 +33,13 @@ semantic completeness ledgers; they are not persistent topology IDs and must not
 identities across recognition runs. `record` is the public recogniser record's JSON projection,
 and `record_schema_version` comes from Draftwright's installed consumer capability declaration.
 
+`recognition.coordinates` makes the record coordinate authority explicit. Raw reports use
+`record_space="caller"` with an identity transform. Framed reports use
+`record_space="provider-working"` and carry the exact rigid `caller_from_record` frame—origin,
+three basis axes, and provider gauge—needed to interpret local record geometry in caller space.
+This is coordinate provenance, not a persistent feature identity or permission to place drawing
+annotations at those coordinates.
+
 `recognition.requirements` contains each auditable physical requirement once. Its
 `occurrence_ids` point to the exact accepted records that establish the requirement and its
 `owner_ids` point to the final IR consumers. Grouped hole/slot/pocket members and nested
@@ -61,13 +68,12 @@ recogniser output rather than every physical feature a recogniser might fail to 
 thread, fit, tolerance, finish, and process intent also remain separately authored readiness facts;
 the report never invents them.
 
-Version 1 refuses declared, provider-framed, foreign-result, and bare drawings with
+Version 1 refuses declared, foreign-result, bare, and framed-evidence-refused drawings with
 `ReportUnavailableError` because those paths do not carry exact run-local occurrence ownership.
-It also refuses a raw automatic drawing when any accepted occurrence remains unclassified; the
-report never silently removes that occurrence from its denominator. It does not reconstruct
-ownership from values, labels, rendered coordinates, topology traversal, or a second recognition
-scan. Declared reconciliation and framed evidence remain explicit later contracts rather than
-holes disguised as an empty report.
+It also refuses any automatic drawing when an accepted occurrence remains unclassified; the report
+never silently removes that occurrence from its denominator. It does not reconstruct ownership
+from values, labels, rendered coordinates, topology traversal, or a second recognition scan.
+Declared reconciliation remains a later contract rather than a hole disguised as an empty report.
 
 `generate_sheet_script(...)` also embeds
 `DRAFTWRIGHT_RECOGNITION_SNAPSHOT`, a version-1 JSON-compatible Python dictionary containing only
@@ -77,6 +83,10 @@ when the script was generated: `unsupported`, `deferred`, `evidence_only`, and
 record schema version, disposition, deterministic reason, and tracking issue. Represented and
 absorbed occurrences remain expressed by the existing semantic Sheet declarations and are not
 duplicated into this compact block.
+
+The snapshot carries the same `coordinates` object as the report projection. Today the public
+generated-script path uses raw caller-space recognition; retaining the coordinate contract keeps a
+future explicitly framed generator from silently emitting local record geometry as caller geometry.
 
 The snapshot is generation-time evidence, not current authority. For a STEP source it records the
 original input basename and SHA-256 of one immutable byte snapshot. Recognition, PMI, and any

@@ -1,8 +1,8 @@
 # ADR 0020 — Provider-owned frame boundary for detected compilation
 
-- **Status:** Accepted; prepared boundary and explicit opt-in activation implemented. The 0.4.14
-  adoption leaves the established public frame schemas unchanged. Raw remains the rollout default
-  pending platform and corpus canaries.
+- **Status:** Accepted; prepared boundary and explicit opt-in activation implemented. Amendment 1
+  adopts the released 0.4.14 framed-evidence lifecycle. Raw remains the rollout default pending
+  platform and corpus canaries.
 - **Date:** 2026-08-31
 - **Deciders:** Paul Fremantle (pzfreo)
 
@@ -14,7 +14,7 @@ rotation can therefore change which feature families are recognised and which se
 Draftwright plans, even though the physical part did not change.
 
 `b123d-recognisers` 0.4.9 introduced the public preparation seam needed to remove that dependence;
-0.4.14 retains it unchanged.
+0.4.14 retains it and adds exact framed accepted-occurrence evidence.
 `prepare_framed_part` either returns a typed `RefusedPartFrame` or one
 `PreparedFramedPart(frame, part, cylinders)`: the provider-inferred `PartFrame`, the exact
 topology-preserving local working solid, and its reusable local cylinder inventory. Draftwright
@@ -37,9 +37,10 @@ solid would mix coordinate systems.
 1. calls the provider's public `prepare_framed_part` once;
 2. derives Draftwright's rotational classification from the returned local solid and exact
    prepared cylinders;
-3. calls `PreparedFramedPart.recognise` once with that classification; and
+3. calls `PreparedFramedPart.recognise_evidence` once with that classification, using the
+   established result-only call only after a typed pre-recognition evidence refusal; and
 4. returns an immutable `FramedDetection` that keeps the caller-space source, prepared unit,
-   classification, and `FramedRecognitionResult` together.
+   classification, and framed result/evidence authority together.
 
 The boundary verifies by identity that preparation and recognition retain the same frame, working
 solid, and cylinder records. It does not import provider-private normalization or graph machinery.
@@ -177,13 +178,30 @@ correct rotational-envelope requirement for such a shaft; its step diameters and
 equal to raw, so that extra requirement is intentional rather than a lost measurement. Platform
 and representative corpus canaries remain release gates, not hidden conditions in the adapter.
 
-The provider's released 0.4.14 API now includes `build_framed_recognition_evidence` and
-`FramedRecognitionEvidence`, resolving the contract tracked by
-[`b123d-recognisers#463`](https://github.com/pzfreo/b123d-recognisers/issues/463). Draftwright's
-current framed route has not yet adopted that new evidence carrier: a successful framed build
-therefore still exposes its established `RecognitionResult` but no `RecognitionEvidence`.
+The provider's 0.4.14 accepted-occurrence evidence API covers the framed route. A successful framed
+build retains one `FramedRecognitionEvidence` whose records and working faces share the local
+compiler space and whose caller-face resolver uses the provider's exact topology-preserving map.
 Draftwright does not run a second raw acquisition or synthesize references across authority
-universes; the next independent #1438 consumer slice adopts the released framed authority.
+universes. The former gap tracked by
+[`b123d-recognisers#463`](https://github.com/pzfreo/b123d-recognisers/issues/463) is resolved by that
+released contract.
+
+## Amendment 1 — Framed evidence remains one coordinate-explicit authority
+
+Successful framed evidence enters the existing build-owned recognition cache and exact occurrence
+ownership conversion. Report schema v1 labels every public record as `provider-working` and carries
+the exact `PartFrame` origin, ordered basis, and gauge as `caller_from_record`; raw reports label the
+same relationship as caller-space identity. The frame is interpretation metadata, not a durable
+feature identity, a coordinate transformation performed by Draftwright, or an annotation-placement
+surface. Compilation, completeness, reporting, and rendering continue to consume the local working
+part and local records coherently.
+
+`RefusedFramedEvidence` is distinct from `RefusedPartFrame`. It means preparation succeeded but an
+exact caller-face bijection could not be proved before the aggregate ran. Draftwright preserves the
+established framed drawing by invoking the result-only aggregate once, records the evidence-refusal
+reason, and refuses ownership/report projection. It neither invokes raw recognition nor emits a
+partial/empty occurrence denominator. A preparation refusal retains the existing explicit
+top-level raw-fallback policy.
 
 ## Consequences
 
@@ -231,6 +249,9 @@ leaf rank. `tests/test_issue_1357_pmi_frame.py` proves point/vector distinction,
 from arbitrarily rotated non-square topology, default caller-space compatibility, and exact framed
 AP242 dimension, datum, finite-cylinder, and manufacturing-topology evidence on real CTC-03 and
 GRM-03 fixtures.
+`tests/test_issue_1438_framed_evidence.py` guards successful result/evidence/cache/ownership/report
+identity, exact working/caller face resolution, coordinate-space serialization, and typed evidence
+refusal without a raw or duplicate aggregate scan.
 `tests/test_issue_1357_framed_activation.py` guards explicit selection/fallback, source versus
 working ownership, scale-retry reuse, rigid-motion build parity, cross-axis turned measurement
 completeness, arbitrary-frame PMI evidence, and off-axis pattern location completeness.

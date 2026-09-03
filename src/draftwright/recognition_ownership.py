@@ -10,12 +10,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from b123d_recognisers.evidence import FeatureRef, RecognitionEvidence
+from b123d_recognisers.evidence import FeatureRef, FramedRecognitionEvidence, RecognitionEvidence
 
 from draftwright.recogniser_policy import (
     OwnerlessDisposition,
     ownerless_occurrence_policy,
 )
+from draftwright.recognition_cache import RecognitionEvidenceView
 
 # These aggregate families have an unconditional one-record -> one-feature adapter in
 # model.detect. Remaining nested and classification-only families stay unclassified until a later
@@ -188,7 +189,7 @@ class OccurrencePolicyOutcome:
     tracking: str | None
 
 
-def _policy_outcomes(evidence: RecognitionEvidence) -> tuple[OccurrencePolicyOutcome, ...]:
+def _policy_outcomes(evidence: RecognitionEvidenceView) -> tuple[OccurrencePolicyOutcome, ...]:
     """Project the existing consumer capability declaration onto exact occurrences."""
 
     outcomes: list[OccurrencePolicyOutcome] = []
@@ -211,7 +212,7 @@ def _policy_outcomes(evidence: RecognitionEvidence) -> tuple[OccurrencePolicyOut
 class RecognitionOwnership:
     """Immutable run-local ownership ledger paired with one evidence authority."""
 
-    evidence: RecognitionEvidence
+    evidence: RecognitionEvidenceView
     expected_direct: tuple[FeatureRef, ...]
     expected_groupable: tuple[FeatureRef, ...]
     expected_nested: tuple[FeatureRef, ...]
@@ -291,9 +292,11 @@ class RecognitionOwnership:
 class RecognitionOwnershipBuilder:
     """Mutable conversion-time collector; snapshot before attaching it to a drawing."""
 
-    def __init__(self, evidence: RecognitionEvidence) -> None:
-        if type(evidence) is not RecognitionEvidence:
-            raise TypeError("evidence must be an exact RecognitionEvidence")
+    def __init__(self, evidence: RecognitionEvidenceView) -> None:
+        if type(evidence) not in {RecognitionEvidence, FramedRecognitionEvidence}:
+            raise TypeError(
+                "evidence must be an exact RecognitionEvidence or FramedRecognitionEvidence"
+            )
         self.evidence = evidence
         self._expected_direct = tuple(
             occurrence

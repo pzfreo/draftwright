@@ -1,4 +1,4 @@
-"""Consumer evidence for the prepared frame boundary and recognisers 0.4.9 (#1357)."""
+"""Consumer evidence for the prepared frame boundary and recognisers 0.4.14 (#1357)."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from dataclasses import replace
 
 import pytest
 from b123d_recognisers import (
+    FramedRecognitionEvidence,
     FramedRecognitionResult,
     FrameGauge,
     FrameRefusalReason,
@@ -128,7 +129,7 @@ def test_every_typed_frame_refusal_propagates_without_a_raw_fallback(
 
 
 class _PreparedOutcome:
-    def __init__(self, prepared: PreparedFramedPart, framed: FramedRecognitionResult):
+    def __init__(self, prepared: PreparedFramedPart, framed: object):
         self.frame = prepared.frame
         self.part = prepared.part
         self.cylinders = prepared.cylinders
@@ -136,17 +137,25 @@ class _PreparedOutcome:
 
     def recognise(self, *, rotational: bool = False) -> FramedRecognitionResult:
         del rotational
+        assert isinstance(self._framed, FramedRecognitionEvidence)
+        return self._framed.result
+
+    def recognise_evidence(self, *, rotational: bool = False) -> object:
+        del rotational
         return self._framed
 
 
-@pytest.mark.parametrize("mismatch", ["frame", "part", "cylinders", "cylinder_groups"])
+@pytest.mark.parametrize(
+    "mismatch", ["frame", "part", "cylinders", "cylinder_groups", "caller_part"]
+)
 def test_boundary_rejects_every_mismatched_prepared_result_pair(
     monkeypatch: pytest.MonkeyPatch, mismatch: str
 ) -> None:
     source = _stepped_shaft()
     prepared = prepare_framed_part(source)
     assert isinstance(prepared, PreparedFramedPart)
-    framed = prepared.recognise(rotational=True)
+    framed = prepared.recognise_evidence(rotational=True)
+    assert isinstance(framed, FramedRecognitionEvidence)
     if mismatch == "frame":
         bad_frame = PartFrame(
             framed.frame.origin,
@@ -155,18 +164,29 @@ def test_boundary_rejects_every_mismatched_prepared_result_pair(
             framed.frame.z,
             framed.frame.gauge,
         )
-        framed = replace(framed, frame=bad_frame)
+        monkeypatch.setattr(FramedRecognitionEvidence, "frame", property(lambda _self: bad_frame))
     elif mismatch == "part":
-        framed = replace(framed, part=Box(1, 2, 3))
+        bad_part = Box(1, 2, 3)
+        monkeypatch.setattr(FramedRecognitionEvidence, "part", property(lambda _self: bad_part))
     elif mismatch == "cylinders":
         copied = tuple(
             tuple(dict(cylinder) for cylinder in group) for group in framed.result.cylinders
         )
-        framed = replace(framed, result=replace(framed.result, cylinders=copied))
+        bad_result = replace(framed.result, cylinders=copied)
+        monkeypatch.setattr(
+            FramedRecognitionEvidence, "result", property(lambda _self: bad_result)
+        )
+    elif mismatch == "cylinder_groups":
+        bad_result = replace(framed.result, cylinders=framed.result.cylinders[:1])
+        monkeypatch.setattr(
+            FramedRecognitionEvidence, "result", property(lambda _self: bad_result)
+        )
     else:
-        framed = replace(
-            framed,
-            result=replace(framed.result, cylinders=framed.result.cylinders[:1]),
+        bad_caller = Box(1, 2, 3)
+        monkeypatch.setattr(
+            FramedRecognitionEvidence,
+            "caller_part",
+            property(lambda _self: bad_caller),
         )
     monkeypatch.setattr(
         frame_module,
@@ -174,9 +194,23 @@ def test_boundary_rejects_every_mismatched_prepared_result_pair(
         lambda _part: _PreparedOutcome(prepared, framed),
     )
 
-    with pytest.raises(
-        FramedRecognitionContractError, match="prepared frame, part, and cylinders"
-    ):
+    expected = (
+        "preserve its caller part"
+        if mismatch == "caller_part"
+        else "prepared frame, part, and cylinders"
+    )
+    with pytest.raises(FramedRecognitionContractError, match=expected):
+        prepare_framed_detection(source)
+
+
+def test_boundary_rejects_an_unpublished_framed_evidence_value(monkeypatch) -> None:
+    source = _stepped_shaft()
+    prepared = prepare_framed_part(source)
+    assert isinstance(prepared, PreparedFramedPart)
+    malformed = _PreparedOutcome(prepared, object())
+    monkeypatch.setattr(frame_module, "prepare_framed_part", lambda _part: malformed)
+
+    with pytest.raises(FramedRecognitionContractError, match="unsupported authority type"):
         prepare_framed_detection(source)
 
 

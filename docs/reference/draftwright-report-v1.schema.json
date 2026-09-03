@@ -43,10 +43,18 @@
     "recognition": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["coverage", "identity_scope", "occurrences", "requirements", "summary"],
+      "required": [
+        "coverage",
+        "identity_scope",
+        "coordinates",
+        "occurrences",
+        "requirements",
+        "summary"
+      ],
       "properties": {
         "coverage": { "const": "accepted-occurrences" },
         "identity_scope": { "const": "report-local" },
+        "coordinates": { "$ref": "#/$defs/recognition_coordinates" },
         "occurrences": {
           "type": "array",
           "items": { "$ref": "#/$defs/occurrence" }
@@ -64,6 +72,51 @@
     }
   },
   "$defs": {
+    "vector3": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": { "type": "number" }
+    },
+    "recognition_coordinates": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["record_space", "caller_from_record"],
+          "properties": {
+            "record_space": { "const": "caller" },
+            "caller_from_record": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind"],
+              "properties": { "kind": { "const": "identity" } }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["record_space", "caller_from_record"],
+          "properties": {
+            "record_space": { "const": "provider-working" },
+            "caller_from_record": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "origin_mm", "x_axis", "y_axis", "z_axis", "gauge"],
+              "properties": {
+                "kind": { "const": "rigid-frame" },
+                "origin_mm": { "$ref": "#/$defs/vector3" },
+                "x_axis": { "$ref": "#/$defs/vector3" },
+                "y_axis": { "$ref": "#/$defs/vector3" },
+                "z_axis": { "$ref": "#/$defs/vector3" },
+                "gauge": { "enum": ["full", "orthogonal", "axial"] }
+              }
+            }
+          }
+        }
+      ]
+    },
     "owner": {
       "type": "object",
       "additionalProperties": false,
