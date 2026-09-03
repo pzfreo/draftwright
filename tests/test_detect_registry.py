@@ -25,7 +25,7 @@ from _recogniser_public_contract import (
     public_record_return_types,
     public_record_universe,
 )
-from b123d_recognisers import HoleRecord
+from b123d_recognisers import FramedEvidence, HoleRecord
 from build123d import Box, Cylinder, Pos
 
 from draftwright.model.detect import (
@@ -90,6 +90,33 @@ def test_record_return_grammar_rejects_private_mixed_or_non_list_shapes():
             names=published_names | {"recognise_bad"},
             member=injected.__getitem__,
         )
+
+
+def test_record_universe_ignores_public_callable_type_aliases():
+    """A public contract alias is not a record-emitting package function."""
+
+    assert (
+        public_record_universe(
+            names={"FramedEvidence"},
+            member=lambda _name: FramedEvidence,
+        )
+        == set()
+    )
+
+
+def test_record_universe_includes_callable_object_emitters():
+    """An object-based decorator cannot hide a public record emitter."""
+
+    class _CallableEmitter:
+        __annotations__ = {"return": list[HoleRecord]}
+
+        def __call__(self):
+            return []
+
+    assert public_record_universe(
+        names={"recognise_future"},
+        member=lambda _name: _CallableEmitter(),
+    ) == {HoleRecord}
 
 
 def test_registry_tiers_partition_every_record_type():

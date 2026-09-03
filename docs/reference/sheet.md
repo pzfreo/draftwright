@@ -122,27 +122,35 @@ callout. More general ordered operation stacks remain tracked by issue #1360. Un
 requirement has a structured parameter, use a feature-linked `note(..., satisfies=(...))` only
 for parameter ids the handle actually exposes; free prose does not satisfy coverage.
 
-### Convex Blend chains
+### Straight and circular Blend chains
 
-When recognition accepts a complete schema-v1 convex Blend chain that is not superseded by a
-dimension-worthy Fillet, it becomes one radius requirement. Declare the same meaning explicitly
-with the dedicated word:
+When recognition accepts a complete schema-v3 straight or circular rolling-ball Blend path that is
+not superseded by a dimension-worthy Fillet, it becomes one radius requirement. Declare the same
+meaning explicitly with the dedicated word:
 
 ```python
 blend = sheet.blend(
-    axis="z",                         # dominant component only
+    axis="z",                         # canonical dominant component (x/y/z tie-break)
     axis_direction=(0.321394, 0.383022, 0.866025),
     radius=0.2,
-    at=(12.345, -4.5, 6.789),         # physical leader anchor in part coordinates
+    at=(12.345, -4.5, 6.789),         # straight anchor / circular centre in part coordinates
     side="convex",
 )
 sheet.dimension(blend, "blend.radius")
 ```
 
-`axis_direction` is authoritative and may be non-principal; it is preserved by generated Sheet
-code. `at` identifies feature geometry, not a page position. The annotation placement solve owns
-the final leader and label coordinates. The word is explicit-only because a detached cylindrical
-face cannot prove a complete chain or the provider aggregate's Fillet precedence.
+For a straight path, `at` is a point on its analytic line and `axis_direction` is the canonical
+line direction. A circular path uses `path_kind="circular"`, treats `at` as its centre and
+`axis_direction` as its normal, and requires `path_radius=` for the centre-line circle's major
+radius. `radius` remains the rolling-ball radius; `side` may be `"convex"` or `"concave"`.
+`axis` must match the same first-maximum `x`/`y`/`z` tie-break used by automatic conversion, so an
+explicit declaration has the same exact occurrence identity and view routing as its released
+record.
+Generated Sheet code preserves every field.
+
+These are part-space feature coordinates, never page positions. The annotation placement solve
+owns the final leader and label coordinates. The word is explicit-only because detached surface
+geometry cannot prove a complete chain or the provider aggregate's Fillet precedence.
 
 ## View handle
 

@@ -1,4 +1,4 @@
-"""End-to-end contract for released schema-v1 convex Blend chains (#1433)."""
+"""End-to-end contract for released schema-v3 Blend paths (#1433/#1438)."""
 
 from __future__ import annotations
 
@@ -9,13 +9,15 @@ from types import SimpleNamespace
 import pytest
 from b123d_recognisers import (
     Blend,
+    CircularBlendPath,
     Fillet,
+    StraightBlendPath,
     build_raw_recognition_result,
     recognise_blends,
 )
-from build123d import Axis, Box, Compound, Cylinder, Pos, Rot, fillet
+from build123d import Axis, Box, Compound, Cylinder, GeomType, Pos, Rot, Vertex, fillet
 
-from draftwright import Sheet, build_drawing
+from draftwright import ScaleCompletenessWarning, Sheet, build_drawing
 from draftwright.blend_contract import blend_provider_key, register_blend_ir_types
 from draftwright.linting.blend_coverage import (
     blend_feature_key,
@@ -23,7 +25,12 @@ from draftwright.linting.blend_coverage import (
 )
 from draftwright.linting.issues import LintIssue
 from draftwright.model import BlendFeature, Frame
-from draftwright.model.compiled import DimensionId
+from draftwright.model.compiled import (
+    DimensionId,
+    FeatureInstanceIndex,
+    compile_dimensions,
+    resolve_feature,
+)
 from draftwright.model.detect import build_part_model
 from draftwright.registry import AnnotationRegistry
 from draftwright.sheet_emit import _feature_line, emit_sheet_script
@@ -39,8 +46,29 @@ def _single_blend(radius: float = 0.4):
     return fillet([stock.edges().filter_by(Axis.Z)[0]], radius)
 
 
+def _circular_concave_blend():
+    pocket = Box(60, 60, 20) - Pos(0, 0, 8) * Cylinder(5, 12)
+    bottom = min(pocket.edges().filter_by(GeomType.CIRCLE), key=lambda edge: edge.center().Z)
+    return fillet(bottom, 1.0)
+
+
+def _circular_concave_boss_blend():
+    boss = Box(30, 30, 5) + Pos(0, 0, 5) * Cylinder(5, 5)
+    base = min(boss.edges().filter_by(GeomType.CIRCLE), key=lambda edge: edge.center().Z)
+    return fillet(base, 0.2)
+
+
 def _blend_features(model):
     return tuple(feature for feature in model.features if feature.kind == "blend")
+
+
+def _straight_blend(
+    radius=0.2,
+    at=(1.0, 2.0, 3.0),
+    side="convex",
+    direction=(0.0, 0.0, 1.0),
+):
+    return Blend(radius, side, StraightBlendPath(at, direction))
 
 
 def test_public_aggregate_precedence_and_dedicated_ir_are_singular() -> None:
@@ -77,7 +105,8 @@ def test_partial_inventory_overrides_preserve_atomic_fillet_blend_ownership() ->
 
     blend_owned = _small_blends()
     owned_blend = recognise_blends(blend_owned)[0]
-    standalone_fillets = (Fillet(owned_blend.axis, owned_blend.radius, owned_blend.at),)
+    axis, radius, at, _side, _direction, _path_kind, _path_radius = blend_provider_key(owned_blend)
+    standalone_fillets = (Fillet(axis, radius, at),)
     with pytest.raises(ValueError, match="fillets and blends"):
         build_part_model(blend_owned, fillets=standalone_fillets)
     with pytest.raises(ValueError, match="preserve aggregate ownership"):
@@ -107,7 +136,7 @@ def test_partial_inventory_overrides_preserve_atomic_fillet_blend_ownership() ->
 
     # Scalar anchors are not provider defining-face evidence: shifted and coincident sites
     # both fail because neither pair is the aggregate-owned partition.
-    shifted_fillet = Fillet(owned_blend.axis, owned_blend.radius, (0.001, 0.0, 0.0))
+    shifted_fillet = Fillet(axis, radius, (0.001, 0.0, 0.0))
     for candidate in (standalone_fillets, (shifted_fillet,)):
         with pytest.raises(ValueError, match="preserve aggregate ownership"):
             build_part_model(
@@ -151,7 +180,8 @@ def test_fully_supplied_competing_inventory_requires_internal_provenance() -> No
     part = _small_blends()
     recognition = build_raw_recognition_result(part, rotational=False)
     source = recognition.blends[0]
-    fabricated = Fillet(source.axis, source.radius, source.at)
+    axis, radius, at, _side, _direction, _path_kind, _path_radius = blend_provider_key(source)
+    fabricated = Fillet(axis, radius, at)
     supplied = {
         "holes": recognition.holes,
         "double_d_bores": recognition.double_d_bores,
@@ -246,6 +276,8 @@ def test_sheet_word_and_generated_line_preserve_every_released_field() -> None:
         at=source.frame.origin,
         side=source.side,
         axis_direction=source.axis_direction,
+        path_kind=source.path_kind,
+        path_radius=source.path_radius,
     )
     assert sheet.model().features[0] == source
 
@@ -279,6 +311,256 @@ def test_authored_blend_precision_survives_generated_replay_losslessly() -> None
     assert replay.model().features == [source]
 
 
+def test_circular_concave_path_survives_sheet_and_generated_replay_losslessly() -> None:
+    sheet = Sheet(_single_blend()).authored_dimensions()
+    sheet.blend(
+        axis="z",
+        radius=1.0,
+        at=(3.0, -2.0, 7.0),
+        side="concave",
+        axis_direction=(0.0, 0.0, 1.0),
+        path_kind="circular",
+        path_radius=4.0,
+    )
+    source = sheet.model().features[0]
+    line = _feature_line(source)
+    assert "side='concave'" in line
+    assert "path_kind='circular', path_radius=4" in line
+
+    replay = Sheet(_single_blend()).authored_dimensions()
+    exec(  # noqa: S102 - repository-generated public Sheet source is under test
+        compile(line, "<circular-blend-sheet>", "exec"),
+        {"sheet": replay},
+    )
+    assert replay.model().features == [source]
+
+
+def test_released_circular_concave_occurrence_crosses_detection_report_and_sheet() -> None:
+    part = _circular_concave_blend()
+    drawing = build_drawing(part)
+    source = drawing.recognition().blends
+    features = _blend_features(drawing.model())
+
+    assert source == (
+        Blend(1.0, "concave", CircularBlendPath((0.0, 0.0, 3.0), (0.0, 0.0, 1.0), 4.0)),
+    )
+    assert len(features) == 1
+    feature = features[0]
+    assert (feature.path_kind, feature.path_radius, feature.side) == (
+        "circular",
+        4.0,
+        "concave",
+    )
+
+    occurrence = next(
+        item
+        for item in drawing.report()["recognition"]["occurrences"]
+        if item["family"] == "blends"
+    )
+    assert occurrence["record_schema_version"] == 3
+    assert occurrence["record"]["path"] == {
+        "center": [0.0, 0.0, 3.0],
+        "normal": [0.0, 0.0, 1.0],
+        "radius": 4.0,
+    }
+    assert occurrence["disposition"] == "represented"
+
+    replay = Sheet(part)
+    namespace = {"sheet": replay}
+    exec(  # noqa: S102 - repository-generated public Sheet source is under test
+        compile("blend = " + _feature_line(feature), "<circular-provider-blend>", "exec"),
+        namespace,
+    )
+    replay.dimension(namespace["blend"], "blend.radius")
+    assert replay.model().features == [feature]
+
+    # A circular record stores the rolling-ball centre trajectory, not a surface point. Both
+    # the detected and generated/declaration routes target its physical cylinder tangency.
+    for rendered in (drawing, replay.build()):
+        rendered_feature = _blend_features(rendered.model())[0]
+        name = next(iter(rendered.annotations_of(rendered_feature)))
+        assert rendered.view_of(name) == "plan"
+        site = (0.0, 5.0, 3.0)
+        assert rendered.get_annotation(name).tip == pytest.approx(rendered.at("plan", *site)[:2])
+        torus = next(
+            face for face in rendered.working_part.faces() if face.geom_type == GeomType.TORUS
+        )
+        assert torus.distance_to(Vertex(*site)) == pytest.approx(0.0, abs=1e-9)
+
+
+def test_circular_blend_surface_site_selects_the_inner_cylinder_tangency() -> None:
+    drawing = build_drawing(_circular_concave_boss_blend())
+    feature = _blend_features(drawing.model())[0]
+    assert (feature.path_radius, feature.radius, feature.side) == (5.2, 0.2, "concave")
+
+    name = next(iter(drawing.annotations_of(feature)))
+    site = (0.0, 5.0, 2.7)
+    assert drawing.get_annotation(name).tip == pytest.approx(drawing.at("plan", *site)[:2])
+    torus = next(face for face in drawing.working_part.faces() if face.geom_type == GeomType.TORUS)
+    assert torus.distance_to(Vertex(*site)) == pytest.approx(0.0, abs=1e-9)
+
+
+def test_circular_blend_surface_site_ignores_unrelated_cylinders() -> None:
+    part = Compound(
+        children=[
+            _circular_concave_blend(),
+            Pos(0, 0, 1) * Cylinder(3, 4),
+            Pos(100, 0, 0) * Rot(0, 90, 0) * Cylinder(2, 5),
+            Pos(100, 100, 0) * Cylinder(2, 5),
+        ]
+    )
+    drawing = build_drawing(part)
+    feature = _blend_features(drawing.model())[0]
+    cylinders = tuple(
+        cylinder for family in drawing.recognition().cylinders for cylinder in family
+    )
+
+    # A perpendicular cylinder, a parallel cylinder on another axis, and an exact coaxial
+    # opposite-radius donor must not displace the leader from the Blend's defining face. This
+    # exercises selection through the public aggregate/evidence rather than fabricating
+    # renderer-private cylinder dictionaries.
+    assert any(cylinder["dir_xyz"] == (1.0, 0.0, 0.0) for cylinder in cylinders)
+    assert any(
+        cylinder["dir_xyz"] == (0.0, 0.0, 1.0) and cylinder["axis_xyz"][:2] == (100.0, 100.0)
+        for cylinder in cylinders
+    )
+    assert any(
+        cylinder["diameter"] == 6.0
+        and cylinder["axis_xyz"][:2] == (0.0, 0.0)
+        and cylinder["s_hi"] == 3.0
+        for cylinder in cylinders
+    )
+    name = next(iter(drawing.annotations_of(feature)))
+    site = (0.0, 5.0, 3.0)
+    assert drawing.get_annotation(name).tip == pytest.approx(drawing.at("plan", *site)[:2])
+    target_torus = min(
+        (face for face in drawing.working_part.faces() if face.geom_type == GeomType.TORUS),
+        key=lambda face: face.distance_to(Vertex(*site)),
+    )
+    assert target_torus.distance_to(Vertex(*site)) == pytest.approx(0.0, abs=1e-9)
+
+
+def test_equal_valued_blend_occurrences_keep_distinct_defining_face_authority(monkeypatch) -> None:
+    part = Compound(children=[_circular_concave_blend(), _circular_concave_blend()])
+    observed: list[tuple[object, tuple[object, ...]]] = []
+    original = FeatureInstanceIndex.values_for
+
+    def record_faces(index, ref):
+        faces = original(index, ref)
+        observed.append((ref, faces))
+        return faces
+
+    monkeypatch.setattr(FeatureInstanceIndex, "values_for", record_faces)
+    drawing = build_drawing(part)
+    features = _blend_features(drawing.model())
+    groups = compile_dimensions(drawing.model()).of_kind("blend")
+    evidence = drawing.recognition_evidence()
+    ownership = drawing.recognition_ownership()
+
+    assert evidence is not None and ownership is not None
+    bindings = [
+        binding
+        for binding in ownership.bindings
+        if evidence.family(binding.occurrence) == "blends"
+    ]
+    assert len(features) == len(groups) == len(bindings) == 2
+    assert features[0] == features[1] and features[0] is not features[1]
+    assert groups[0].ref == groups[1].ref  # ordinary mark addressing remains structural
+    assert bindings[0].feature is features[0] and bindings[1].feature is features[1]
+    # The actual automatic render path asks the production index for both structurally equal
+    # compiled refs. Each receives only its exact provider defining face; structural conflation
+    # would return two faces per lookup, while bypassing the index would record no calls.
+    assert len(observed) >= 2 and all(len(faces) == 1 for _ref, faces in observed)
+    assert len({id(faces[0]) for _ref, faces in observed}) == 2
+    for ref, faces in observed:
+        binding = next(binding for binding in bindings if binding.feature is resolve_feature(ref))
+        expected = tuple(
+            evidence.face(face_ref) for face_ref in evidence.defining_faces(binding.occurrence)
+        )
+        assert len(expected) == 1 and faces[0] is expected[0]
+
+
+def test_declared_circular_blend_refuses_ambiguous_disconnected_support() -> None:
+    part = Compound(
+        children=[
+            _circular_concave_blend(),
+            Pos(0, 0, 1) * Cylinder(3, 4),
+        ]
+    )
+    sheet = Sheet(part).authored_dimensions()
+    handle = sheet.blend(
+        axis="z",
+        radius=1.0,
+        at=(0.0, 0.0, 3.0),
+        side="concave",
+        axis_direction=(0.0, 0.0, 1.0),
+        path_kind="circular",
+        path_radius=4.0,
+    )
+    sheet.dimension(handle, "blend.radius")
+    with pytest.warns(ScaleCompletenessWarning, match="blend_dropped"):
+        drawing = sheet.build()
+    feature = _blend_features(drawing.model())[0]
+
+    # Declared builds remain recognition-free and therefore have no exact occurrence face with
+    # which to distinguish the real R5 support from the disconnected R3 donor. Refuse the shared
+    # callout and retain an explicit dropped requirement instead of choosing by scalar ordering.
+    assert drawing.recognition_evidence() is None
+    assert not drawing.annotations_of(feature)
+    issue = next(issue for issue in drawing.lint() if issue.code == "blend_dropped")
+    assert "without guessing" in issue.message
+    assert issue.measurement_ids == (DimensionId(feature, "blend.radius"),)
+    outcomes = blend_requirement_outcomes(
+        drawing.recognition(),
+        (feature,),
+        drawing.registry,
+    )
+    assert [outcome.state for outcome in outcomes] == ["dropped"]
+
+
+def test_grouped_declared_blends_keep_a_safe_surface_alternative() -> None:
+    part = Compound(
+        children=[
+            _circular_concave_blend(),
+            Pos(100, 0, 0) * _circular_concave_blend(),
+            Pos(0, 0, 1) * Cylinder(3, 4),
+        ]
+    )
+    sheet = Sheet(part).authored_dimensions()
+    handles = [
+        sheet.blend(
+            axis="z",
+            radius=1.0,
+            at=(x, 0.0, 3.0),
+            side="concave",
+            axis_direction=(0.0, 0.0, 1.0),
+            path_kind="circular",
+            path_radius=4.0,
+        )
+        for x in (0.0, 100.0)
+    ]
+    for handle in handles:
+        sheet.dimension(handle, "blend.radius")
+    drawing = sheet.build()
+    features = _blend_features(drawing.model())
+
+    # The first member has competing R3/R5 supports, while the second has one R5 support.
+    # A grouped leader needs only one truthful representative, so retain the safe alternative
+    # for the shared 2× callout and give both declared requirements their intended group credit.
+    assert drawing.recognition_evidence() is None
+    name = next(iter(drawing.annotations_of(features[1])))
+    assert drawing.get_annotation(name).label == "2× R1"
+    site = (100.0, 5.0, 3.0)
+    assert drawing.get_annotation(name).tip == pytest.approx(drawing.at("plan", *site)[:2])
+    assert drawing.registry.measurement_of(name) == (
+        DimensionId(features[0], "blend.radius"),
+        DimensionId(features[1], "blend.radius"),
+    )
+    assert not [issue for issue in drawing.lint() if issue.code.startswith("blend_")]
+    outcomes = blend_requirement_outcomes(drawing.recognition(), features, drawing.registry)
+    assert [outcome.state for outcome in outcomes] == ["placed", "placed"]
+
+
 def test_sheet_default_direction_and_ir_invariants_are_explicit() -> None:
     sheet = Sheet(_single_blend()).authored_dimensions()
     handle = sheet.blend(axis="x", radius=0.2, at=(0.0, 0.0, 0.0))
@@ -289,6 +571,72 @@ def test_sheet_default_direction_and_ir_invariants_are_explicit() -> None:
 
     with pytest.raises(ValueError, match="frame axis"):
         BlendFeature(Frame((0.0, 0.0, 0.0), "y"), "x", 0.2, "convex", (1.0, 0.0, 0.0))
+
+    with pytest.raises(ValueError, match="path_kind"):
+        sheet.blend(
+            axis="z",
+            radius=0.2,
+            at=(0.0, 0.0, 0.0),
+            path_kind="spiral",
+        )
+    with pytest.raises(ValueError, match="released public record contract"):
+        sheet.blend(
+            axis="z",
+            radius=0.2,
+            at=(0.0, 0.0, 0.0),
+            path_radius=4.0,
+        )
+
+
+@pytest.mark.parametrize(("path_kind", "path_radius"), (("straight", None), ("circular", 4.0)))
+def test_declared_axis_must_be_a_dominant_path_component(path_kind, path_radius) -> None:
+    values = {
+        "axis": "x",
+        "radius": 0.2,
+        "at": (0.0, 0.0, 0.0),
+        "axis_direction": (0.0, 0.0, 1.0),
+        "path_kind": path_kind,
+        "path_radius": path_radius,
+    }
+    with pytest.raises(ValueError, match="canonical dominant axis_direction component"):
+        Sheet(_single_blend()).blend(**values)
+    with pytest.raises(ValueError, match="canonical dominant axis_direction component"):
+        BlendFeature(
+            Frame(values["at"], "x"),
+            axis=values["axis"],
+            radius=values["radius"],
+            side="convex",
+            axis_direction=values["axis_direction"],
+            path_kind=values["path_kind"],
+            path_radius=values["path_radius"],
+        )
+
+    # Ties use the same stable first-axis rule as provider conversion and exact completeness.
+    tied_values = dict(values, axis_direction=(1.0, 1.0, 0.0))
+    with pytest.raises(ValueError, match="canonical dominant axis_direction component"):
+        Sheet(_single_blend()).blend(**dict(tied_values, axis="y"))
+
+    tied = Sheet(_single_blend()).authored_dimensions()
+    tied.blend(
+        axis="x",
+        radius=0.2,
+        at=(0.0, 0.0, 0.0),
+        axis_direction=(1.0, 1.0, 0.0),
+        path_kind=path_kind,
+        path_radius=path_radius,
+    )
+    feature = _blend_features(tied.model())[0]
+    assert feature.axis == "x"
+    path = (
+        StraightBlendPath(values["at"], (1.0, 1.0, 0.0))
+        if path_kind == "straight"
+        else CircularBlendPath(values["at"], (1.0, 1.0, 0.0), path_radius)
+    )
+    record = Blend(0.2, "convex", path)
+    assert blend_provider_key(record) == blend_feature_key(feature)
+    recognition = replace(build_drawing(_single_blend()).recognition(), blends=(record,))
+    outcomes = blend_requirement_outcomes(recognition, (feature,), AnnotationRegistry())
+    assert [outcome.state for outcome in outcomes] == ["missing"]
 
 
 def test_complete_generated_sheet_program_rebuilds_every_blend_requirement() -> None:
@@ -417,6 +765,33 @@ def test_raw_and_framed_arbitrary_rigid_motion_keep_four_radius_requirements() -
         assert not [issue for issue in drawing.lint() if issue.code.startswith("blend_")]
 
 
+def test_framed_arbitrary_motion_retains_a_circular_blend_requirement() -> None:
+    # Raw circular-path transform invariance is tracked upstream as
+    # b123d-recognisers#491; the released framed route already preserves this meaning.
+    drawing = build_drawing(Rot(17, 31, 43) * _circular_concave_blend(), framed_recognition=True)
+    features = _blend_features(drawing.model())
+
+    assert len(features) == 1
+    assert (features[0].path_kind, features[0].path_radius, features[0].side) == (
+        "circular",
+        4.0,
+        "concave",
+    )
+    assert [
+        outcome.state
+        for outcome in blend_requirement_outcomes(
+            drawing.recognition(), features, drawing.registry, drawing.suppressions()
+        )
+    ] == ["placed"]
+    assert not [issue for issue in drawing.lint() if issue.code.startswith("blend_")]
+    name = next(iter(drawing.annotations_of(features[0])))
+    site = (features[0].frame.origin[0], 0.0, 5.0)
+    assert drawing.view_of(name) == "side"
+    assert drawing.get_annotation(name).tip == pytest.approx(drawing.at("side", *site)[:2])
+    torus = next(face for face in drawing.working_part.faces() if face.geom_type == GeomType.TORUS)
+    assert torus.distance_to(Vertex(*site)) <= 1e-3
+
+
 @pytest.mark.parametrize("motion", (Rot(0, 90, 0), Rot(90, 0, 0), Rot(17, 31, 43)))
 def test_independently_authored_single_chain_corpus_survives_orientation(motion) -> None:
     for drawing in (
@@ -433,28 +808,43 @@ def test_independently_authored_single_chain_corpus_survives_orientation(motion)
 
 
 @pytest.mark.parametrize(
-    ("field", "value"),
+    ("target", "field", "value"),
     (
-        ("radius", Fraction(1, 5)),
-        ("at", [0.0, 0.0, 0.0]),
-        ("axis_direction", [0.0, 0.0, 1.0]),
-        ("side", "concave"),
-        ("axis", "q"),
-        ("radius", float("nan")),
-        ("at", (0.0001, 0.0, 0.0)),
-        ("radius", 0.2001),
-        ("axis_direction", (0.0, 0.0, 0.9999999)),
-        ("axis_direction", (0.0, 0.0, 0.0)),
-        ("axis_direction", (1.0, 1.0, 1.0)),
-        ("at", (10**400, 0.0, 0.0)),
-        ("axis_direction", (10**400, 0.0, 0.0)),
+        ("record", "radius", Fraction(1, 5)),
+        ("path", "at", [0.0, 0.0, 0.0]),
+        ("path", "direction", [0.0, 0.0, 1.0]),
+        ("record", "side", "inside"),
+        ("record", "radius", float("nan")),
+        ("path", "at", (0.0001, 0.0, 0.0)),
+        ("record", "radius", 0.2001),
+        ("path", "direction", (0.0, 0.0, 0.9999999)),
+        ("path", "direction", (0.0, 0.0, 0.0)),
+        ("path", "direction", (1.0, 1.0, 1.0)),
+        ("path", "at", (10**400, 0.0, 0.0)),
+        ("path", "direction", (10**400, 0.0, 0.0)),
     ),
 )
-def test_public_boundary_refuses_values_outside_released_schema_v1(field, value) -> None:
-    genuine = Blend("z", 0.2, (1.0, 2.0, 3.0), "convex", (0.0, 0.0, 1.0))
-    object.__setattr__(genuine, field, value)
+def test_public_boundary_refuses_values_outside_released_schema_v3(target, field, value) -> None:
+    genuine = _straight_blend()
+    object.__setattr__(genuine if target == "record" else genuine.path, field, value)
     with pytest.raises((TypeError, ValueError)):
         blend_provider_key(genuine)
+
+
+def test_public_boundary_refuses_forged_path_type_and_noncanonical_circular_radius() -> None:
+    forged_path = _straight_blend()
+    object.__setattr__(forged_path, "path", object())
+    with pytest.raises(TypeError, match="exact StraightBlendPath or CircularBlendPath"):
+        blend_provider_key(forged_path)
+
+    noncanonical_radius = Blend(
+        1.0,
+        "concave",
+        CircularBlendPath((0.0, 0.0, 3.0), (0.0, 0.0, 1.0), 4.0),
+    )
+    object.__setattr__(noncanonical_radius.path, "radius", 4.0001)
+    with pytest.raises(ValueError, match="path_radius.*three-decimal"):
+        blend_provider_key(noncanonical_radius)
 
 
 def test_record_and_ir_subclasses_cannot_publish_completeness_identity() -> None:
@@ -464,7 +854,7 @@ def test_record_and_ir_subclasses_cannot_publish_completeness_identity() -> None
     class FeatureSubclass(BlendFeature):
         pass
 
-    record = BlendSubclass("z", 0.2, (1.0, 2.0, 3.0), "convex", (0.0, 0.0, 1.0))
+    record = BlendSubclass(0.2, "convex", StraightBlendPath((1.0, 2.0, 3.0), (0, 0, 1)))
     feature = FeatureSubclass(
         frame=Frame((1.0, 2.0, 3.0), "z"),
         axis="z",
@@ -496,6 +886,8 @@ def test_exact_ir_identity_and_frame_registration_cannot_be_spoofed() -> None:
             "radius": 0.2,
             "side": "convex",
             "axis_direction": (0.0, 0.0, 1.0),
+            "path_kind": "straight",
+            "path_radius": None,
             "kind": "blend",
         },
     )
@@ -512,6 +904,8 @@ def test_exact_ir_identity_and_frame_registration_cannot_be_spoofed() -> None:
         ("radius", 0.2),
         ("side", "convex"),
         ("axis_direction", (1.0, 0.0, 0.0)),
+        ("path_kind", "straight"),
+        ("path_radius", None),
     ):
         object.__setattr__(forged, name, value)
     with pytest.raises(ValueError, match="frame axis disagrees"):
@@ -523,7 +917,7 @@ def test_hostile_or_overflowing_fields_refuse_without_executing_user_protocols()
         def __ne__(self, _other):
             raise RuntimeError("comparison must not execute")
 
-    malformed = Blend("z", 0.2, (1.0, 2.0, 3.0), "convex", (0.0, 0.0, 1.0))
+    malformed = _straight_blend()
     object.__setattr__(malformed, "side", ExplosiveSide())
     recognition = replace(build_drawing(_single_blend()).recognition(), blends=(malformed,))
     outcomes = blend_requirement_outcomes(recognition, (), AnnotationRegistry())
@@ -531,19 +925,33 @@ def test_hostile_or_overflowing_fields_refuse_without_executing_user_protocols()
         ((0.0, 0.0, 0.0), "unverifiable")
     ]
 
-    huge = Blend("z", 0.2, (1.0, 2.0, 3.0), "convex", (0.0, 0.0, 1.0))
+    huge = _straight_blend()
     object.__setattr__(huge, "radius", 10**400)
     with pytest.raises(ValueError, match="finite"):
         blend_provider_key(huge)
     with pytest.raises(ValueError, match="finite"):
         Sheet(_single_blend()).blend(axis="z", radius=10**400, at=(0, 0, 0))
 
+    class ExplosiveComponent:
+        called = False
+
+        def __float__(self):
+            self.called = True
+            raise RuntimeError("numeric protocol must not execute")
+
+    component = ExplosiveComponent()
+    hostile_direction = _straight_blend()
+    object.__setattr__(hostile_direction.path, "direction", (component, 0.0, 1.0))
+    with pytest.raises(ValueError, match="exact non-boolean int or float"):
+        blend_provider_key(hostile_direction)
+    assert component.called is False
+
 
 def test_mutated_recognition_or_ir_is_unverifiable_not_false_credit() -> None:
     drawing = build_drawing(_small_blends())
     recognition = drawing.recognition()
     bad_source = recognition.blends[0]
-    object.__setattr__(bad_source, "at", (Fraction(0), 0.0, 0.0))
+    object.__setattr__(bad_source.path, "at", (Fraction(0), 0.0, 0.0))
     bad_recognition = replace(recognition, blends=(bad_source,))
     assert (
         blend_requirement_outcomes(
@@ -560,6 +968,8 @@ def test_mutated_recognition_or_ir_is_unverifiable_not_false_credit() -> None:
         ("radius", Fraction(1, 5)),
         ("side", genuine.side),
         ("axis_direction", genuine.axis_direction),
+        ("path_kind", genuine.path_kind),
+        ("path_radius", genuine.path_radius),
     ):
         object.__setattr__(forged, name, value)
     with pytest.raises(ValueError):

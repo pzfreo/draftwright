@@ -277,35 +277,66 @@ class TestTheRendererCannotSeeContent:
         }
         assert "resolve_feature" not in calls
 
-    def test_no_new_plan_renderer_can_resolve_a_provenance_handle(self):
-        """Global ratchet: every direct FeatureRef escape is named existing debt."""
+    def test_no_new_annotation_helper_can_resolve_a_provenance_handle(self):
+        """Global ratchet: every direct annotation-layer FeatureRef escape is named debt.
+
+        Scan every function and method, regardless of its signature. Restricting this to a
+        ``plan`` parameter let a renderer hide a new escape in a natural ``ref``/``analysis``
+        helper while still claiming the helper boundary was guarded.
+        """
         actual: dict[tuple[str, str], int] = {}
         root = pathlib.Path(__file__).resolve().parents[1] / "src" / "draftwright" / "annotations"
-        for module in ("from_model", "holes"):
-            tree = ast.parse((root / f"{module}.py").read_text(encoding="utf-8"))
-            for node in tree.body:
-                if not isinstance(node, ast.FunctionDef) or not node.name.startswith("render_"):
-                    continue
-                args = {arg.arg for arg in node.args.args} | {
-                    arg.arg for arg in node.args.kwonlyargs
-                }
-                if "plan" not in args:
-                    continue
-                count = sum(
-                    isinstance(call, ast.Call)
-                    and isinstance(call.func, ast.Name)
-                    and call.func.id == "resolve_feature"
-                    for call in ast.walk(node)
-                )
-                if count:
-                    actual[module, node.name] = count
+        for path in root.glob("*.py"):
+            module = path.stem
+            tree = ast.parse(path.read_text(encoding="utf-8"))
 
-        # Slots still resolve structural witness geometry; locations resolve only annotation
-        # ownership. Both predate this ratchet and are separately visible migration debt. No
-        # new plan renderer may silently join them, and neither count may grow.
+            class DirectEscapeInventory(ast.NodeVisitor):
+                def __init__(self) -> None:
+                    self.scope: list[str] = []
+
+                def visit_ClassDef(self, node):  # noqa: N802 - ast visitor protocol
+                    self.scope.append(node.name)
+                    self.generic_visit(node)
+                    self.scope.pop()
+
+                def visit_FunctionDef(self, node):  # noqa: N802 - ast visitor protocol
+                    self.scope.append(node.name)
+                    for child in node.body:
+                        self.visit(child)
+                    self.scope.pop()
+
+                def visit_AsyncFunctionDef(self, node):  # noqa: N802 - ast visitor protocol
+                    self.visit_FunctionDef(node)
+
+                def visit_Call(self, node):  # noqa: N802 - ast visitor protocol
+                    if (
+                        self.scope
+                        and isinstance(node.func, ast.Name)
+                        and node.func.id == "resolve_feature"
+                    ):
+                        key = (module, ".".join(self.scope))
+                        actual[key] = actual.get(key, 0) + 1
+                    self.generic_visit(node)
+
+            DirectEscapeInventory().visit(tree)
+
+        # These are the exact legacy provenance/placement seams. Any new helper, method, nested
+        # function, or additional call is visible here regardless of whether it accepts `plan`.
         assert actual == {
+            ("_common", "_hole_location_coverage_fact"): 1,
+            ("_common", "SolveTrace.record_escalations"): 1,
+            ("_common", "solve_corridor._group_owners"): 1,
+            ("_common", "PlacementContext.place"): 1,
             ("from_model", "render_locations"): 1,
             ("from_model", "render_slots"): 1,
+            ("holes", "_approved_off_axis_holes"): 1,
+            ("holes", "_furnish_uncalled_patterns"): 1,
+            ("holes", "_add_grid_pitch_dims"): 1,
+            ("holes", "_place_pitch_dim"): 1,
+            ("holes", "_place_pitch_dim._place"): 1,
+            ("leaders", "_candidate_hits_component"): 1,
+            ("leaders", "place_feature_leader_jobs.place"): 1,
+            ("orchestrator", "_maybe_tabulate_holes_impl"): 7,
         }
 
     def test_the_provenance_handle_exposes_no_measurement(self):
@@ -319,6 +350,30 @@ class TestTheRendererCannotSeeContent:
         assert ladder.ref.kind == "step_level", "category is fine — it is not a measurement"
         for content in ("levels", "shoulders", "base", "datum", "parameters"):
             assert not hasattr(ladder.ref, content), f"FeatureRef exposes {content}"
+
+    def test_exact_instance_authority_refuses_copy_and_serialization(self):
+        """A run-local identity join cannot survive detached from its ownership universe."""
+        from draftwright.model.compiled import FeatureInstanceIndex
+
+        model = detect_part_model(_staircase())
+        ref = compile_dimensions(model).groups[0].ref
+        index = FeatureInstanceIndex()
+        index.extend(model.features[0], (object(),))
+        index.extend(model.features[0], (object(),))
+        assert len(index) == 1
+        assert len(index.values_for(ref)) == 2
+        with pytest.raises(TypeError, match="exact FeatureRef"):
+            index.values_for(object())
+
+        for operation in (
+            lambda: copy.copy(index),
+            lambda: copy.deepcopy(index),
+            lambda: pickle.dumps(index),
+            lambda: index.__reduce__(),
+            lambda: index.__getstate__(),
+        ):
+            with pytest.raises(TypeError, match="run-local"):
+                operation()
 
     def test_identities_survive_the_compile(self):
         """`DimensionId` is ADR 0016's stable addressable identity; a renderer-facing result

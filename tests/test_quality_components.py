@@ -16,6 +16,7 @@ from b123d_recognisers import (
     RecognitionResult,
     RectangularBlindSlot,
     RoundBottomBlindSlot,
+    StraightBlendPath,
 )
 
 from draftwright.linting.issues import LintIssue
@@ -224,7 +225,7 @@ def test_a_real_0412_blend_is_audited_and_fails_closed_without_ir() -> None:
         for name in RecognitionResult.__dataclass_fields__
     }
     inventories["blends"] = (
-        Blend(axis="z", radius=2.0, at=(1.0, 2.0, 3.0), side="convex", axis_direction=(0, 0, 1)),
+        Blend(radius=2.0, side="convex", path=StraightBlendPath((1.0, 2.0, 3.0), (0, 0, 1))),
     )
     recognition = RecognitionResult(**inventories)
 
@@ -255,7 +256,7 @@ def test_deferred_and_established_unaudited_families_are_named_truthfully() -> N
         for name in RecognitionResult.__dataclass_fields__
     }
     inventories["blends"] = (
-        Blend(axis="z", radius=2.0, at=(1.0, 2.0, 3.0), side="convex", axis_direction=(0, 0, 1)),
+        Blend(radius=2.0, side="convex", path=StraightBlendPath((1.0, 2.0, 3.0), (0, 0, 1))),
     )
     inventories["bosses"] = (
         BossRecord(axis=(0, 0, 1), location=(0, 0, 0), diameter=8.0, height=3.0),

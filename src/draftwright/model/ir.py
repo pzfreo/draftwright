@@ -1869,10 +1869,13 @@ class FilletFeature:
 
 @dataclass(frozen=True)
 class BlendFeature:
-    """One complete convex cylindrical rolling-ball chain from the released schema-v1 family.
+    """One complete straight or circular rolling-ball path from released schema v3.
 
-    Unlike :class:`FilletFeature`, a Blend retains its canonical full free-axis direction.
-    Aggregate reconciliation has already removed chains owned by dimension-worthy Fillets.
+    ``frame.origin`` is the straight-path anchor or circular-path centre; ``axis_direction``
+    is the straight direction or circular normal. ``axis`` is its canonical first-maximum x/y/z
+    component so detected and declared correspondence uses one deterministic routing identity.
+    ``path_radius`` is present only for a circular path. Aggregate reconciliation has already
+    removed paths owned by dimension-worthy Fillets.
     """
 
     frame: Frame
@@ -1880,23 +1883,29 @@ class BlendFeature:
     radius: float
     side: str
     axis_direction: tuple[float, float, float]
+    path_kind: str = "straight"
+    path_radius: float | None = None
     kind: ClassVar[str] = "blend"
 
     def __post_init__(self) -> None:
         if type(self.frame) is not Frame:
             raise TypeError("blend frame must be an exact Frame value")
-        axis, radius, at, side, direction = validate_blend_fields(
+        axis, radius, at, side, direction, path_kind, path_radius = validate_blend_fields(
             axis=self.axis,
             radius=self.radius,
             at=self.frame.origin,
             side=self.side,
             axis_direction=self.axis_direction,
+            path_kind=self.path_kind,
+            path_radius=self.path_radius,
         )
         if self.frame.axis != axis:
             raise ValueError("blend frame axis must match its dominant axis")
         object.__setattr__(self, "radius", radius)
         object.__setattr__(self, "side", side)
         object.__setattr__(self, "axis_direction", direction)
+        object.__setattr__(self, "path_kind", path_kind)
+        object.__setattr__(self, "path_radius", path_radius)
 
     def parameters(self) -> list[DimParameter]:
         return [DimParameter("radius", "blend", self.radius)]

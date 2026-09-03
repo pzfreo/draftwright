@@ -60,7 +60,12 @@ class _FamilySpec:
 
 
 _FAMILIES: dict[str, _FamilySpec] = {
-    "blends": _FamilySpec(("Blend",), "_convert_blend", "blend", "render_blends"),
+    "blends": _FamilySpec(
+        ("Blend", "CircularBlendPath", "StraightBlendPath"),
+        "_convert_blend",
+        "blend",
+        "render_blends",
+    ),
     "bosses": _FamilySpec(("BossRecord",), "_convert_boss", "boss", "render_boss_diameters"),
     "chamfers": _FamilySpec(("Chamfer",), "_convert_chamfer", "chamfer", "render_chamfers"),
     "channels": _FamilySpec(("Channel",), "_convert_channel", "channel", "render_slots"),

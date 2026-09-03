@@ -1579,10 +1579,12 @@ class Sheet:
         return _Params(self, len(self._features) - 1)
 
     def blend(self, **kw) -> _Params:
-        """Declare a complete convex cylindrical blend chain.
+        """Declare a complete straight or circular rolling-ball blend path.
 
-        Explicit-only because one detached face cannot prove whole-chain ownership or Fillet
-        precedence. Non-principal chains retain ``axis_direction`` and receive one radius callout.
+        Explicit-only because one detached face cannot prove whole-path ownership or Fillet
+        precedence. ``path_kind='circular'`` additionally requires the centre-line
+        ``path_radius``; non-principal paths retain ``axis_direction`` and receive one radius
+        callout.
         """
         self._features.append(_blend(**kw))
         return _Params(self, len(self._features) - 1)

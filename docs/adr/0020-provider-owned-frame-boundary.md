@@ -1,6 +1,6 @@
 # ADR 0020 — Provider-owned frame boundary for detected compilation
 
-- **Status:** Accepted; prepared boundary and explicit opt-in activation implemented. The 0.4.12
+- **Status:** Accepted; prepared boundary and explicit opt-in activation implemented. The 0.4.14
   adoption leaves the established public frame schemas unchanged. Raw remains the rollout default
   pending platform and corpus canaries.
 - **Date:** 2026-08-31
@@ -14,7 +14,7 @@ rotation can therefore change which feature families are recognised and which se
 Draftwright plans, even though the physical part did not change.
 
 `b123d-recognisers` 0.4.9 introduced the public preparation seam needed to remove that dependence;
-0.4.12 retains it unchanged.
+0.4.14 retains it unchanged.
 `prepare_framed_part` either returns a typed `RefusedPartFrame` or one
 `PreparedFramedPart(frame, part, cylinders)`: the provider-inferred `PartFrame`, the exact
 topology-preserving local working solid, and its reusable local cylinder inventory. Draftwright
@@ -177,12 +177,13 @@ correct rotational-envelope requirement for such a shaft; its step diameters and
 equal to raw, so that extra requirement is intentional rather than a lost measurement. Platform
 and representative corpus canaries remain release gates, not hidden conditions in the adapter.
 
-The provider's released accepted-occurrence evidence API is raw-coordinate-only. A successful
-framed build therefore exposes its established `RecognitionResult` but no `RecognitionEvidence`;
+The provider's released 0.4.14 API now includes `build_framed_recognition_evidence` and
+`FramedRecognitionEvidence`, resolving the contract tracked by
+[`b123d-recognisers#463`](https://github.com/pzfreo/b123d-recognisers/issues/463). Draftwright's
+current framed route has not yet adopted that new evidence carrier: a successful framed build
+therefore still exposes its established `RecognitionResult` but no `RecognitionEvidence`.
 Draftwright does not run a second raw acquisition or synthesize references across authority
-universes. Public framed evidence is tracked upstream by
-[`b123d-recognisers#463`](https://github.com/pzfreo/b123d-recognisers/issues/463), and independent
-raw/report work proceeds without claiming that framed occurrence ownership is already available.
+universes; the next independent #1438 consumer slice adopts the released framed authority.
 
 ## Consequences
 
@@ -221,7 +222,7 @@ raw/report work proceeds without claiming that framed occurrence ownership is al
 all gauges and refusal reasons, local multi-diameter classification, body-local levels/risers/turned
 profiles, explicit singular-accessor refusal, and unchanged raw coordinate selection. The
 fail-closed manifest join
-in `tests/test_recogniser_capabilities.py` guards the 0.4.12 record schemas (including the unchanged
+in `tests/test_recogniser_capabilities.py` guards the 0.4.14 record schemas (including the unchanged
 0.4.9 body-local schemas, each blind-slot family, and the explicitly deferred additive families).
 Existing
 `tests/test_declared_recognition_gate.py` and `tests/test_part_model.py` retain declared no-recognition

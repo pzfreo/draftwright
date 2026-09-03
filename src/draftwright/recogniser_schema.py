@@ -9,7 +9,6 @@ from __future__ import annotations
 
 _SCHEMA_1_RECORDS = {
     ("angled-steps", "AngledStep"),
-    ("blends", "Blend"),
     ("bosses", "BossRecord"),
     ("channels", "Channel"),
     ("circular-blind-steps", "CircularBlindStep"),
@@ -29,11 +28,8 @@ _SCHEMA_1_RECORDS = {
     ("oriented-slots", "OrientedSlot"),
     ("paired-ramp-steps", "PairedRampStep"),
     ("passages", "Passage"),
-    ("passages", "PassageEnds"),
     ("passages", "PassageFrame"),
-    ("passages", "PassageSection"),
     ("passages", "PassageSectionVertex"),
-    ("passages", "SectionPassage"),
     ("plates", "Plate"),
     ("pocket-patterns", "PocketArray"),
     ("pocket-patterns", "PocketGrid"),
@@ -54,8 +50,14 @@ _SCHEMA_1_RECORDS = {
 
 _RECORD_SCHEMA_VERSIONS: dict[tuple[str, str], tuple[int, ...]] = {
     **{key: (1,) for key in _SCHEMA_1_RECORDS},
+    ("blends", "Blend"): (3,),
+    ("blends", "CircularBlendPath"): (1,),
+    ("blends", "StraightBlendPath"): (1,),
     ("chamfers", "Chamfer"): (2,),
     ("fillets", "Fillet"): (2,),
+    ("passages", "PassageEnds"): (2,),
+    ("passages", "PassageSection"): (2,),
+    ("passages", "SectionPassage"): (2,),
     ("rectangular-pads", "RaisedPad"): (2,),
     ("risers", "RiserEvidence"): (2,),
     ("turned-steps", "TurnedProfile"): (2,),

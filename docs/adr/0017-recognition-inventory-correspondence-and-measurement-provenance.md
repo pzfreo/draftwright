@@ -748,6 +748,46 @@ conditional on recognised/audited geometry and says nothing about unrecognised g
 manufacturing intent. ADRs 0010, 0011, 0013, 0014, 0015, and 0020 therefore retain their existing
 boundaries; this amendment only exposes already-audited semantic evidence through the report.
 
+## Amendment 27 — 0.4.14 Blend paths retain their released semantics
+
+Recognisers 0.4.14 replaces the previously consumed schema-v1 flat `Blend` record with schema v3:
+one rolling-ball `radius`, a proved convex/concave material `side`, and an exact discriminated
+`StraightBlendPath` or `CircularBlendPath`. The straight path carries its anchor and canonical line
+direction. The circular path carries its centre, canonical normal, and major centre-line radius.
+Draftwright must accept every occurrence in that released physical family without flattening a
+circle into a line, treating an internal round as external, or conflating rolling-ball and path
+radii.
+
+The dedicated `BlendFeature` therefore adds `path_kind` and optional `path_radius`; its existing
+frame origin and full direction carry the path anchor/centre and line direction/normal. The
+dominant axis remains a compiler/view hint, not a replacement for either vector. The existing
+`Sheet.blend(...)` word accepts and generated code replays the same fields. One occurrence still
+owns exactly one `blend.radius` requirement and uses the shared placement solver; the path major
+radius is structural geometry, not a second independently dimensioned requirement. The provider
+aggregate remains the sole Fillet/Blend precedence authority.
+
+For a circular path, the frame origin and rolling-path circle are construction geometry rather
+than physical leader sites. The renderer combines the retained path and rolling radii with the
+analysis-owned coaxial finite-cylinder supports to derive candidate tangencies in part space. On
+an automatic raw build, the exact accepted-occurrence → final-IR ownership join selects that
+occurrence's provider-issued defining face, and only a candidate on that face may become the
+natural site. The compiler's ordinary `FeatureRef` equality remains structural for re-planning and
+mark selection, so the evidence join uses a compiler-owned opaque run-local instance index;
+equal-valued IR features therefore retain distinct physical face authority. The index accepts a
+`FeatureRef` directly, exposes neither an identity key nor model content, and explicitly refuses
+copying or serialization. A declared build deliberately has no occurrence authority: one
+unambiguous support may supply the site, but competing support radii refuse the grouped callout rather than borrowing
+another body's cylinder. The renderer does not rescan recognition, reconstruct face ownership
+from scalar proximity, treat the centreline as placed evidence, choose a page coordinate, or bypass
+ADR 0014 placement.
+
+The capability join also accepts the 0.4.14 schema-v2 passage support records. Their family remains
+explicitly unsupported under the settled #1245 consumer policy because no evidence establishes a
+truthful Draftwright requirement grammar; schema acceptance alone creates no IR, Sheet word,
+annotation, or completeness credit. These changes use only released public records, preserve one
+aggregate, introduce no page coordinates or persistent identity, and leave declared builds
+recognition-free.
+
 ## Accepted Contract
 
 ### 1. One orchestration owns the recognition universe
