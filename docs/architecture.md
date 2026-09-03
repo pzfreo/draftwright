@@ -212,8 +212,8 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   aggregate membership. Ownerless outcomes are projected from the existing consumer capability
   declaration, not a second policy table. It exposes no persistent topology/order/address ID.
   Unconditional 1:1 adapters, singleton/grouped/pattern hole/slot/pocket members, nested
-  countersinks, and settled unsupported/deferred/evidence-only occurrences are classified;
-  remaining nested and classification-only families stay unclassified.
+  countersinks, conditional channel owners, and settled unsupported/deferred/evidence-only
+  occurrences are classified; remaining conditional cross-family records stay unclassified.
 - **`recogniser_policy.py`** — the rank-0 Draftwright-owned source for reviewed unsupported,
   deferred, and geometry-only family policy. Both the cross-repository capability declaration and
   the run-local occurrence ledger project this same immutable data; recognition remains
@@ -570,10 +570,10 @@ policy) live in `CLAUDE.md`. This is the per-ADR status trail; each ADR's
   compiler grammar and placement solve, and a side-normal footprint is filtered from the legacy
   Z-level projection only when exact support correspondence proves that ownership. No renderer
   consumes the provider record or places an annotation at a caller-supplied page coordinate.
-  Amendments 12–15 give unconditional 1:1 adapters, hole/slot/pocket singleton/grouped/pattern
-  members, and nested countersinks exact run-local occurrence→final-IR ownership in `BuildState`,
-  while settled unsupported, evidence-only, and deferred occurrences have explicit ownerless
-  outcomes. Remaining nested and classification-only families, plus general
+  Amendments 12–16 give unconditional 1:1 adapters, hole/slot/pocket singleton/grouped/pattern
+  members, nested countersinks, and conditional channel decisions exact run-local
+  occurrence→final-IR ownership in `BuildState`, while settled unsupported, evidence-only, and
+  deferred occurrences have explicit ownerless outcomes. Remaining conditional families, plus general
   IR-feature→requirement correspondence, are not yet provided. The original
   four-type identity taxonomy, shared requirements module, general outcome ledger,
   reconciliation stage, and diagnostics model are candidate extensions rather than an

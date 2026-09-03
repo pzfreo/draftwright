@@ -18,7 +18,7 @@ from collections import Counter
 from collections.abc import Callable
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
-from math import isfinite
+from math import isfinite, ulp
 from numbers import Real
 from typing import Any
 
@@ -626,6 +626,136 @@ def _convert_channel(channel: Channel, ctx: ConvContext) -> ChannelFeature:
         d_hi=channel.d_hi,
         open_sign=channel.open_sign,
     )
+
+
+_CHANNEL_PUBLICATION_HALF_CELL = 0.005
+_CHANNEL_DERIVED_SHOULDER_RAW_TOL = 0.0075
+_CHANNEL_DERIVED_SHOULDER_PROJECTED_TOL = 0.008
+
+
+def _channel_coordinate_matches(
+    published: float,
+    raw: float,
+    *,
+    tolerance: float = _CHANNEL_PUBLICATION_HALF_CELL,
+) -> bool:
+    """Match published and raw evidence within a semantic cell plus one float ULP."""
+
+    return abs(published - raw) <= tolerance + max(ulp(published), ulp(raw))
+
+
+def _channel_coordinate_in_span(
+    published: float,
+    raw_span: tuple[float, float],
+    *,
+    tolerance: float,
+) -> bool:
+    """Whether a published coordinate lies within a raw span modulo publication loss."""
+
+    return (
+        published >= raw_span[0]
+        or _channel_coordinate_matches(published, raw_span[0], tolerance=tolerance)
+    ) and (
+        published <= raw_span[1]
+        or _channel_coordinate_matches(published, raw_span[1], tolerance=tolerance)
+    )
+
+
+def _step_level_owns_channel(
+    channel: Channel,
+    feature: StepLevelFeature,
+    *,
+    face_levels: tuple[FaceLevel, ...],
+    risers: tuple[RiserEvidence, ...],
+) -> bool:
+    """Whether one body-local support carries the channel into the final Z ladder."""
+
+    if channel.depth_axis != feature.frame.axis:
+        return False
+    floor = channel.d_lo if channel.open_sign > 0 else channel.d_hi
+    shoulder_positions = (
+        channel.w_center - channel.width / 2,
+        channel.w_center + channel.width / 2,
+    )
+    if not any(_channel_coordinate_matches(floor, level) for level in feature.levels):
+        return False
+
+    # Scalar floor/shoulder values are not sufficient ownership evidence: a disconnected
+    # body may happen to establish the same values.  Couple the facts through one retained
+    # FaceLevel support and the risers whose public body_levels provenance names it.
+    long_span = (channel.lo, channel.hi)
+    for support in face_levels:
+        if (
+            support.x_span is None
+            or support.y_span is None
+            or not _channel_coordinate_matches(floor, support.z)
+        ):
+            continue
+        support_spans = {"x": support.x_span, "y": support.y_span}
+        if any(
+            not _channel_coordinate_matches(expected, actual)
+            for actual, expected in zip(support_spans[channel.long_axis], long_span, strict=True)
+        ):
+            continue
+        width_span = support_spans[channel.width_axis]
+        if not all(
+            _channel_coordinate_in_span(
+                shoulder,
+                width_span,
+                tolerance=_CHANNEL_DERIVED_SHOULDER_RAW_TOL,
+            )
+            for shoulder in shoulder_positions
+        ):
+            continue
+        if not any(
+            abs(retained.level - support.z) <= 1e-6
+            and all(
+                abs(actual - expected) <= 1e-6
+                for actual, expected in zip(retained.x_span, support.x_span, strict=True)
+            )
+            and all(
+                abs(actual - expected) <= 1e-6
+                for actual, expected in zip(retained.y_span, support.y_span, strict=True)
+            )
+            for retained in feature.level_supports
+        ):
+            continue
+
+        body_risers = tuple(
+            riser
+            for riser in risers
+            if riser.body_levels is not None
+            and any(body_level is support for body_level in riser.body_levels)
+            and _channel_coordinate_matches(channel.d_lo, riser.z_lo)
+            and _channel_coordinate_matches(channel.d_hi, riser.z_hi)
+        )
+        body_shoulders = tuple(
+            (shoulder.axis, shoulder.position)
+            for shoulder in project_step_shoulders(body_risers, levels=list(feature.levels))
+        )
+        if all(
+            any(
+                axis == channel.width_axis
+                and _channel_coordinate_matches(
+                    shoulder,
+                    position,
+                    tolerance=_CHANNEL_DERIVED_SHOULDER_PROJECTED_TOL,
+                )
+                for axis, position in body_shoulders
+            )
+            and any(
+                axis == channel.width_axis
+                and _channel_coordinate_matches(
+                    shoulder,
+                    position,
+                    tolerance=_CHANNEL_DERIVED_SHOULDER_PROJECTED_TOL,
+                )
+                for axis, position in feature.shoulders
+            )
+            for shoulder in shoulder_positions
+        ):
+            return True
+    return False
 
 
 def _convert_pad(pad: RaisedPad, ctx: ConvContext) -> PadFeature:
@@ -1647,7 +1777,11 @@ def build_part_model(
     through_level_zs = _through_step_level_zs(lowered_through_steps)
     through_shoulder_sites = _through_step_shoulder_sites(lowered_through_steps, bbox)
     if not profiles and rotational is None and multi_plate:
-        features.extend(convert(channel, ctx) for channel in channels)
+        for channel in channels:
+            channel_feature = convert(channel, ctx)
+            features.append(channel_feature)
+            if ownership is not None:
+                ownership.bind(channel, channel_feature, reason_code="channel_adapter")
 
     # Holes and hole patterns. A recognised pattern becomes one PatternFeature
     # (count× member-diameter + pattern dims); its member holes are NOT also
@@ -1978,16 +2112,28 @@ def build_part_model(
                     for owner_axis, owner_position in through_shoulder_sites
                 )
             )
-            features.append(
-                StepLevelFeature(
-                    frame=Frame((c.X, c.Y, bbox.min.Z), "z"),
-                    base=bbox.min.Z,
-                    levels=_levels,
-                    shoulders=_shoulders,
-                    datum=(bbox.min.X, bbox.min.Y, bbox.min.Z),
-                    level_supports=_level_supports,
-                )
+            step_level_feature = StepLevelFeature(
+                frame=Frame((c.X, c.Y, bbox.min.Z), "z"),
+                base=bbox.min.Z,
+                levels=_levels,
+                shoulders=_shoulders,
+                datum=(bbox.min.X, bbox.min.Y, bbox.min.Z),
+                level_supports=_level_supports,
             )
+            features.append(step_level_feature)
+            if ownership is not None and not multi_plate:
+                for channel in channels:
+                    if _step_level_owns_channel(
+                        channel,
+                        step_level_feature,
+                        face_levels=face_levels,
+                        risers=risers,
+                    ):
+                        ownership.absorb_into(
+                            channel,
+                            step_level_feature,
+                            reason_code="channel_step_level_owner",
+                        )
 
     # Chamfers (#560/#1254) — called out C{leg} / {leg}×{angle}°. The package recognises
     # both oblique planar and conical turned forms; both lower through the same converter and
