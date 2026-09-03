@@ -4,6 +4,11 @@
 
 ### Added
 
+- `Drawing.write_report(path)` now atomically writes the versioned report as deterministic,
+  strict UTF-8 JSON without coupling library export to sidecar generation. Report and filesystem
+  failures leave any existing destination untouched, with best-effort temporary cleanup that does
+  not mask the primary error (#1438, ADR 0017 Amendment 22).
+
 - Raw automatic drawings now expose `Drawing.report()`, a strict version-1 JSON-compatible
   projection of every accepted recognition occurrence, its explicit consumer disposition and
   report-local final IR owner(s), plus the existing lint summary. The published schema never

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import os
 from collections import Counter
 from importlib.metadata import version as distribution_version
 from os import PathLike
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import TYPE_CHECKING, Any, cast
 
 from draftwright.recogniser_schema import consumed_record_schema_versions_for_type
@@ -199,6 +201,48 @@ def drawing_report(
         },
         "lint": lint,
     }
+
+
+def _write_report_document(report: dict[str, object], path: str | PathLike[str]) -> str:
+    """Atomically write one strict, deterministic UTF-8 report document."""
+
+    destination = Path(path)
+    payload = (
+        json.dumps(
+            report,
+            allow_nan=False,
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    )
+    temporary: Path | None = None
+    try:
+        with NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            newline="\n",
+            prefix=".draftwright-report-",
+            suffix=".tmp",
+            dir=destination.parent,
+            delete=False,
+        ) as handle:
+            temporary = Path(handle.name)
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, destination)
+    except BaseException:
+        if temporary is not None:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                # Cleanup is best-effort: never hide the write/replace failure that tells the
+                # caller whether the requested report reached its destination.
+                pass
+        raise
+    return str(destination)
 
 
 __all__ = [

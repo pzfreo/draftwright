@@ -9,7 +9,15 @@ from draftwright import build_drawing
 
 drawing = build_drawing("part.step")
 report = drawing.report()
+drawing.write_report("part.draftwright.json")
 ```
+
+`write_report(path)` writes the same report as deterministic, indented UTF-8 JSON with a trailing
+newline and returns the destination path as a string. The write is atomic within the destination
+directory: Draftwright first flushes a sibling temporary file, then replaces the destination. A
+report or filesystem failure leaves an existing destination unchanged. Temporary-file cleanup is
+best-effort when the filesystem itself refuses it, and a cleanup error never masks the primary
+failure. Parent directories are not created implicitly.
 
 The closed top-level schema is published as
 [`draftwright-report-v1.schema.json`](draftwright-report-v1.schema.json). `schema` is always
@@ -41,6 +49,6 @@ ownership from values, labels, rendered coordinates, topology traversal, or a se
 scan. Declared reconciliation and framed evidence remain explicit later contracts rather than
 holes disguised as an empty report.
 
-The report is in-memory only in this slice. Atomic JSON writing, output manifests, generated-Python
-gap snapshots, and CLI/script sidecars follow as separate vertical slices. Calling `report()` does
-not alter PDF, SVG, DXF, or PNG content.
+Output manifests, generated-Python gap snapshots, and CLI/script sidecars follow as separate
+vertical slices. Calling `report()` or `write_report()` does not alter PDF, SVG, DXF, or PNG
+content; library export does not write a report unless the caller requests one.
