@@ -1674,7 +1674,14 @@ def build_part_model(
             # ADR 0015 waist; that option stays recorded on #971.
             continue
         patterned.update(id(h) for h in members)
-        features.append(_pattern_feature(pat, members))
+        hole_pattern_feature = _pattern_feature(pat, members)
+        features.append(hole_pattern_feature)
+        if ownership is not None:
+            ownership.absorb(
+                tuple(members),
+                hole_pattern_feature,
+                reason_code="hole_pattern_member",
+            )
     # Un-patterned holes: group by machining spec so identical holes share one
     # count× callout (the engine's grouped-callout rule); HoleSpec keys on the
     # snapped axis and the countersink too, so opposite-face drillings and csk-vs-plain
@@ -1688,7 +1695,22 @@ def build_part_model(
         rep = grp[0]
         frame = Frame(origin=_xyz(rep.location), axis=_axis_letter(rep))
         mem_locs = tuple(_xyz(h.location) for h in grp)
-        features.append(_member_hole(rep, frame, members=mem_locs, count=len(grp)))
+        hole_feature = _member_hole(rep, frame, members=mem_locs, count=len(grp))
+        features.append(hole_feature)
+        if ownership is not None:
+            if len(grp) == 1:
+                ownership.bind(
+                    rep,
+                    hole_feature,
+                    reason_code="hole_adapter",
+                    member_index=0,
+                )
+            else:
+                ownership.absorb(
+                    tuple(grp),
+                    hole_feature,
+                    reason_code="grouped_hole_member",
+                )
 
     # Profiled bores are their own recognition family because full-cylinder recognition
     # cannot see their partial cylindrical faces. They still lower to HoleFeature so the
@@ -1709,11 +1731,21 @@ def build_part_model(
     patterned_sl: set = set()
     for pat in slot_patterns:
         patterned_sl.update(pat.slots)
-        features.append(_slot_pattern_feature(pat, list(pat.slots)))
+        slot_pattern_feature = _slot_pattern_feature(pat, list(pat.slots))
+        features.append(slot_pattern_feature)
+        if ownership is not None:
+            ownership.absorb(
+                tuple(pat.slots),
+                slot_pattern_feature,
+                reason_code="slot_pattern_member",
+            )
     for sl in slots:
         if sl in patterned_sl:
             continue
-        features.append(convert(sl, ctx))
+        slot_feature = convert(sl, ctx)
+        features.append(slot_feature)
+        if ownership is not None:
+            ownership.bind(sl, slot_feature, reason_code="slot_adapter")
 
     # Capped, edge-open rectangular U-section slots (#1421). The aggregate has already
     # reconciled their topology against ordinary through slots, pockets, channels and passage
@@ -1742,11 +1774,21 @@ def build_part_model(
     patterned_pk: set = set()
     for pat in pocket_patterns:
         patterned_pk.update(pat.pockets)
-        features.append(_pocket_pattern_feature(pat, list(pat.pockets)))
+        pocket_pattern_feature = _pocket_pattern_feature(pat, list(pat.pockets))
+        features.append(pocket_pattern_feature)
+        if ownership is not None:
+            ownership.absorb(
+                tuple(pat.pockets),
+                pocket_pattern_feature,
+                reason_code="pocket_pattern_member",
+            )
     for pk in pockets:
         if pk in patterned_pk:
             continue
-        features.append(convert(pk, ctx))
+        pocket_feature = convert(pk, ctx)
+        features.append(pocket_feature)
+        if ownership is not None:
+            ownership.bind(pk, pocket_feature, reason_code="pocket_adapter")
 
     # Bounded rectangular raised pads: footprint sizing, attachment-axis height, and
     # two in-plane locations. A Z attachment level may also enter the general profile

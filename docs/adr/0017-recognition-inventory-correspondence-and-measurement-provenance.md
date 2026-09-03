@@ -12,7 +12,8 @@
   additive inventories fail closed while retaining the existing paired-ramp consumer meaning.
   Amendment 11 (2026-09-02) retains the provider's raw accepted-occurrence evidence in the same
   consumer-owned cache without adding a second recognition run. Amendment 12 (2026-09-03)
-  records the first conversion-time, run-local occurrence→IR ownership bindings.
+  records the first conversion-time, run-local occurrence→IR ownership bindings. Amendment 13
+  (2026-09-03) records explicit member ownership for hole, slot, and pocket groupings.
 - **Date:** 2026-08-03
 - **Deciders:** Paul Fremantle (pzfreo)
 
@@ -325,6 +326,32 @@ not invent ownership. `Drawing.recognition_ownership()` exposes the non-serializ
 experimental read-only view so consumers need not reach into private build state. This remains
 reporting foundation: no public report schema or completeness claim is introduced by this amendment.
 
+## Amendment 13 — Group and pattern members have explicit final owners
+
+The provider evidence ledger exposes accepted physical holes, slots, and pockets as opaque
+`FeatureRef` occurrences. Its derived hole/slot/pocket pattern records are not occurrences and
+Draftwright does not manufacture occurrence identity for them. At the existing conversion decision
+sites, a lone unpatterned member is now recorded as `represented`; every member folded into one
+same-spec hole group or one derived pattern feature is recorded as `absorbed`, with a closed,
+family-specific reason code and the exact shared final IR owner. Pattern membership supplied by the
+same aggregate establishes this N:1 decision. Record equality, feature order, coordinates, face
+overlap, and topology traversal do not.
+
+A member's integer position within that run-local owner is retained only as transient lowering
+lineage. When member-specific AP242 PMI splits a grouped `HoleFeature`, the lowering seam returns the
+exact source-member partition alongside its replacement objects. Each occurrence is rebound to its
+exact final owner; a resulting singleton becomes `represented`, a remaining multi-member owner stays
+`absorbed`, and absent or ambiguous lineage fails closed rather than retaining a stale pre-lowering
+object. This position is neither serialized nor presented as a persistent topology/report ID.
+
+The amendment uses only the released public `RecognitionEvidence` surface and the existing
+consumer-owned aggregate. It adds no recognition scan, manufacturing inference, compiled-plan
+dependency, annotation placement, generated-script/report schema, or visual change. ADR 0010's
+annotation provenance and ADR 0014's solve are untouched; ADRs 0011/0015 retain the IR/compiler waist;
+ADR 0013 remains the provider boundary; ADR 0020's framed path remains evidence-less pending the
+released upstream contract. Declared builds therefore remain recognition-free until physical
+critique/report/export, and these ownership outcomes alone do not claim drawing completeness.
+
 ## Accepted Contract
 
 ### 1. One orchestration owns the recognition universe
@@ -368,10 +395,11 @@ The result is stored in typed `BuildState`, whose builder/lazy-critique path is 
 writer. This makes the result's relationship to its drawing structural: engine consumers do
 not accept an arbitrary aggregate and then attempt to prove it came from the same part.
 
-This originally answered **result-to-build provenance only**. Amendment 12 now records exact
-occurrence→IR ownership for unconditional 1:1 adapters. Grouped, nested, absorbed and deferred
-families, and the general feature→requirement→annotation correspondence, remain subjects of the
-evidence gates below.
+This originally answered **result-to-build provenance only**. Amendment 12 records exact
+occurrence→IR ownership for unconditional 1:1 adapters, and Amendment 13 adds explicit singleton,
+grouped, and pattern-member ownership for holes, slots, and pockets. Nested, classification-only,
+unsupported, evidence-only and deferred families, and the general
+feature→requirement→annotation correspondence, remain subjects of the evidence gates below.
 
 `lint_prismatic_coverage(recognition=...)` is a known channel outside the structural ownership
 path (#1032). The preferred correction is to remove or narrow the channel when that boundary

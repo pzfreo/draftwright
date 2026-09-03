@@ -33,7 +33,7 @@ from draftwright.model.ir import (
 )
 
 ToleranceValue = float | tuple[float, float]
-FeatureRemap = Callable[[Feature, tuple[Feature, ...]], None]
+FeatureRemap = Callable[[Feature, tuple[Feature, ...], tuple[tuple[int, ...], ...] | None], None]
 
 
 def _members(feature: HoleFeature | PatternFeature):
@@ -261,6 +261,7 @@ def lower_ap242_hole_tolerances(
             groups.setdefault(value, []).append(member_index)
             group_sources.setdefault(value, []).extend(dim_indices)
         replacements: list[Feature] = []
+        replacement_member_groups: list[tuple[int, ...]] = []
         for value, group_member_indices in groups.items():
             members = tuple(points[index] for index in group_member_indices)
             split = replace(
@@ -271,6 +272,7 @@ def lower_ap242_hole_tolerances(
             )
             rebuilt.append(split)
             replacements.append(split)
+            replacement_member_groups.append(tuple(group_member_indices))
             for tail, inherited_value in inherited:
                 decorations[(split, *tail)] = inherited_value
             if value is not None:
@@ -285,7 +287,11 @@ def lower_ap242_hole_tolerances(
                     value=value, source="ap242_pmi", source_ids=ids
                 )
         if feature_remap is not None:
-            feature_remap(feature, tuple(replacements))
+            feature_remap(
+                feature,
+                tuple(replacements),
+                tuple(replacement_member_groups),
+            )
 
     return replace(model, features=rebuilt, decorations=decorations)
 
@@ -837,7 +843,7 @@ def lower_ap242_manufacturing_requirements(
     lowered = _remap_model_features(model, replacements)
     if feature_remap is not None:
         for source, replacement in replacement_pairs:
-            feature_remap(source, (replacement,))
+            feature_remap(source, (replacement,), None)
     rebuilt: list[Feature] = []
     for index, lowered_feature in enumerate(lowered.features):
         if index in consumed:
