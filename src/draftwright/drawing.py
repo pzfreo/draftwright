@@ -440,8 +440,9 @@ class BuildState:
     - ``part_model`` — the detected/declared ADR-0008 PartModel (read surface for
       semantic edits, #397).
     - ``recognition`` — the ADR 0017 aggregate reused by model detection and critique.
-    - ``recognition_ownership`` — same-run direct occurrence→IR bindings captured while
-      conversion makes the decision; provider references never enter the IR waist.
+    - ``recognition_ownership`` — same-run represented, grouped/pattern, nested, and ownerless
+      occurrence outcomes captured while conversion makes the decision; provider references
+      never enter the IR waist.
     - ``view_edge_cache`` — lint's per-view edge bboxes, keyed on id(view shape)
       (helpers #143/#164).
     - ``ann_box_cache`` — lint's annotation bounding boxes (#602): identity- AND
@@ -991,10 +992,10 @@ class Drawing:
 
         This experimental, read-only ledger is available only when raw automatic recognition
         supplied :meth:`recognition_evidence`. It currently classifies unconditional one-to-one
-        adapters; singleton/grouped/pattern holes, slots, and pockets; and settled ownerless
-        unsupported, deferred, and evidence-only policy. Remaining nested and classification-only
-        families stay explicitly unclassified. It carries opaque provider references and therefore
-        cannot be serialized or used as persistent feature identity.
+        adapters; singleton/grouped/pattern holes, slots, and pockets; nested countersinks; and
+        settled ownerless unsupported, deferred, and evidence-only policy. Remaining nested and
+        classification-only families stay explicitly unclassified. It carries opaque provider
+        references and therefore cannot be serialized or used as persistent feature identity.
         """
 
         return self._build.recognition_ownership

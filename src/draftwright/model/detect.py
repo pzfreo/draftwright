@@ -1711,6 +1711,14 @@ def build_part_model(
                     hole_feature,
                     reason_code="grouped_hole_member",
                 )
+    if ownership is not None:
+        for hole in holes:
+            if hole.csink is not None:
+                ownership.absorb_nested(
+                    hole.csink,
+                    hole,
+                    reason_code="countersink_hole_owner",
+                )
 
     # Profiled bores are their own recognition family because full-cylinder recognition
     # cannot see their partial cylindrical faces. They still lower to HoleFeature so the

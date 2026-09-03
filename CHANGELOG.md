@@ -4,6 +4,11 @@
 
 ### Added
 
+- Accepted countersink occurrences now receive an exact run-local outcome. A seat carried by a
+  `HoleRecord` is `absorbed` by that hole's final feature and transient member lineage; an unattached,
+  unowned, or duplicate nested occurrence fails closed without dimension matching, topology IDs, a
+  second scan, duplicate IR requirements, or visual changes (#1438, ADR 0017 Amendment 15).
+
 - Accepted angled-step, passage, prismatic-pocket, oriented-slot, and repeating-radial-profile
   occurrences now receive exact run-local ownerless outcomes from Draftwright's existing consumer
   capability declaration: `unsupported`, `deferred`, or report-facing `evidence_only`, with closed
