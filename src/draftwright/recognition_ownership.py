@@ -1,6 +1,6 @@
-"""Run-local ownership between provider occurrences and Draftwright IR features.
+"""Run-local consumer outcomes for provider occurrences and Draftwright IR features.
 
-This is consumer-owned correspondence state below and beside the ADR-0015 IR waist.  It keeps
+This is consumer-owned correspondence state below and beside the ADR-0015 IR waist. It keeps
 the provider's opaque :class:`FeatureRef` only for the lifetime of one recognition run and never
 turns object addresses, feature order, record values, or topology indices into persistent IDs.
 """
@@ -12,9 +12,15 @@ from typing import Literal
 
 from b123d_recognisers.evidence import FeatureRef, RecognitionEvidence
 
+from draftwright.recogniser_policy import (
+    OwnerlessDisposition,
+    ownerless_occurrence_policy,
+)
+
 # These aggregate families have an unconditional one-record -> one-feature adapter in
-# model.detect.  Nested, classification-only, and intentionally deferred families stay
-# unclassified until a later slice can state their ownership honestly.
+# model.detect.  Nested and classification-only families stay unclassified until a later slice
+# can state their ownership honestly. Consumer-policy-only occurrences are classified separately
+# below because they deliberately have no IR owner.
 DIRECT_FAMILIES = frozenset(
     {
         "blends",
@@ -40,6 +46,16 @@ DIRECT_FAMILIES = frozenset(
 GROUPABLE_FAMILIES = frozenset({"holes", "pockets", "slots"})
 
 OwnershipDisposition = Literal["represented", "absorbed"]
+PolicyDisposition = OwnerlessDisposition
+OccurrenceStatus = Literal[
+    "represented",
+    "absorbed",
+    "unsupported",
+    "deferred",
+    "evidence_only",
+    "unexpectedly_missing",
+    "unclassified",
+]
 
 _REPRESENTED_REASON_CODES = frozenset(
     {
@@ -84,6 +100,35 @@ class OccurrenceBinding:
 
 
 @dataclass(frozen=True)
+class OccurrencePolicyOutcome:
+    """One exact accepted occurrence with an explicit ownerless consumer policy."""
+
+    occurrence: FeatureRef
+    disposition: PolicyDisposition
+    reason_code: str
+    tracking: str | None
+
+
+def _policy_outcomes(evidence: RecognitionEvidence) -> tuple[OccurrencePolicyOutcome, ...]:
+    """Project the existing consumer capability declaration onto exact occurrences."""
+
+    outcomes: list[OccurrencePolicyOutcome] = []
+    for occurrence in evidence.features:
+        policy = ownerless_occurrence_policy(evidence.family(occurrence))
+        if policy is None:
+            continue
+        outcomes.append(
+            OccurrencePolicyOutcome(
+                occurrence=occurrence,
+                disposition=policy.disposition,
+                reason_code=policy.reason_code,
+                tracking=policy.tracking,
+            )
+        )
+    return tuple(outcomes)
+
+
+@dataclass(frozen=True)
 class RecognitionOwnership:
     """Immutable run-local ownership ledger paired with one evidence authority."""
 
@@ -91,12 +136,21 @@ class RecognitionOwnership:
     expected_direct: tuple[FeatureRef, ...]
     expected_groupable: tuple[FeatureRef, ...]
     bindings: tuple[OccurrenceBinding, ...]
+    policy_outcomes: tuple[OccurrencePolicyOutcome, ...]
+
+    @property
+    def owner_expected_occurrences(self) -> tuple[FeatureRef, ...]:
+        """Supported occurrences whose adapters must record an IR owner."""
+
+        return self.expected_direct + self.expected_groupable
 
     @property
     def expected_occurrences(self) -> tuple[FeatureRef, ...]:
         """Occurrences whose implemented consumer paths must produce an explicit outcome."""
 
-        return self.expected_direct + self.expected_groupable
+        return self.owner_expected_occurrences + tuple(
+            outcome.occurrence for outcome in self.policy_outcomes
+        )
 
     def binding_for(self, occurrence: FeatureRef) -> OccurrenceBinding | None:
         """Return the ownership binding for an occurrence, validating its authority first."""
@@ -106,19 +160,34 @@ class RecognitionOwnership:
             (binding for binding in self.bindings if binding.occurrence is occurrence), None
         )
 
-    def status(
+    def policy_for(self, occurrence: FeatureRef) -> OccurrencePolicyOutcome | None:
+        """Return an ownerless policy outcome, validating its evidence authority first."""
+
+        self.evidence.family(occurrence)
+        return next(
+            (outcome for outcome in self.policy_outcomes if outcome.occurrence is occurrence),
+            None,
+        )
+
+    def outcome_for(
         self, occurrence: FeatureRef
-    ) -> Literal["represented", "absorbed", "unexpectedly_missing", "unclassified"]:
+    ) -> OccurrenceBinding | OccurrencePolicyOutcome | None:
+        """Return the implemented outcome for one exact accepted occurrence."""
+
+        binding = self.binding_for(occurrence)
+        return binding if binding is not None else self.policy_for(occurrence)
+
+    def status(self, occurrence: FeatureRef) -> OccurrenceStatus:
         """Classify only the ownership contracts implemented so far.
 
         ``unclassified`` is deliberately not a report disposition.  It is the migration state
-        for nested/deferred families whose ownership rules are not implemented yet.
+        for nested and classification-only families whose ownership rules are not implemented.
         """
 
-        binding = self.binding_for(occurrence)
-        if binding is not None:
-            return binding.disposition
-        if any(expected is occurrence for expected in self.expected_occurrences):
+        outcome = self.outcome_for(occurrence)
+        if outcome is not None:
+            return outcome.disposition
+        if any(expected is occurrence for expected in self.owner_expected_occurrences):
             return "unexpectedly_missing"
         return "unclassified"
 
@@ -128,7 +197,7 @@ class RecognitionOwnership:
 
         return tuple(
             occurrence
-            for occurrence in self.expected_occurrences
+            for occurrence in self.owner_expected_occurrences
             if self.binding_for(occurrence) is None
         )
 
@@ -155,6 +224,12 @@ class RecognitionOwnershipBuilder:
             record = evidence.record(occurrence)
             self._by_record_identity.setdefault(id(record), []).append((occurrence, record))
         self._bindings: list[OccurrenceBinding] = []
+        self._policy_outcomes = _policy_outcomes(evidence)
+        expected_ids = {
+            id(occurrence) for occurrence in self._expected_direct + self._expected_groupable
+        }
+        if any(id(outcome.occurrence) in expected_ids for outcome in self._policy_outcomes):
+            raise RuntimeError("recognition occurrence has conflicting owner and policy contracts")
         self._bound_occurrence_ids: set[int] = set()
         self._owned_feature_ids: set[int] = set()
 
@@ -349,4 +424,5 @@ class RecognitionOwnershipBuilder:
             expected_direct=self._expected_direct,
             expected_groupable=self._expected_groupable,
             bindings=tuple(self._bindings),
+            policy_outcomes=self._policy_outcomes,
         )

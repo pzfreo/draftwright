@@ -11,7 +11,7 @@ keep that table, this document, and `CLAUDE.md`'s compact map in step. The
 The dependency graph is a DAG (the #138 / ADR 0005 split is complete). Bottom to
 top: leaf modules (`layout.py`, `registry.py`, `fonts.py`, `_geometry.py`,
 `fits.py`, `intents.py`, `recognition_cache.py`, `recognition_ownership.py`,
-`recognition_frame.py`, and the
+`recogniser_policy.py`, `recognition_frame.py`, and the
 strict `blend_contract.py` provider-record boundary, and the `linting/` subpackage) →
 `_core.py` → stage modules (`export.py`,
 `repair.py`, `projection.py`, `compose.py`, `analysis.py`, `drawing.py`, the
@@ -209,9 +209,15 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
 - **`recognition_ownership.py`** — the run-local consumer ledger below/beside the ADR 0015 IR
   waist. During record→IR conversion it binds opaque provider occurrences to the exact IR
   feature objects that represent or absorb them, by same-run record identity and explicit
-  aggregate membership. It exposes no persistent topology/order/address ID. Unconditional 1:1
-  adapters plus singleton/grouped/pattern hole, slot, and pocket members are classified; nested,
-  classification-only, unsupported, evidence-only, and deferred families remain unclassified.
+  aggregate membership. Ownerless outcomes are projected from the existing consumer capability
+  declaration, not a second policy table. It exposes no persistent topology/order/address ID.
+  Unconditional 1:1 adapters, singleton/grouped/pattern hole/slot/pocket members, and settled
+  unsupported/deferred/evidence-only occurrences are classified; remaining nested and
+  classification-only families stay unclassified.
+- **`recogniser_policy.py`** — the rank-0 Draftwright-owned source for reviewed unsupported,
+  deferred, and geometry-only family policy. Both the cross-repository capability declaration and
+  the run-local occurrence ledger project this same immutable data; recognition remains
+  geometry-only and no engine leaf imports the rank-7 contract validator.
 - **`recognition_frame.py`** — the ADR 0020 prepared local-frame boundary. It calls the public
   provider preparation seam, classifies the exact normalized solid from its already-scanned
   cylinders, runs one paired aggregate, propagates typed refusal without fallback, and exposes
@@ -221,7 +227,8 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   It rejects widened, mutable, non-finite, non-canonical, and unreleased values and owns the
   exact occurrence key shared by conversion and completeness lint.
 - **`recogniser_contract.py`** — the fail-closed cross-repository capability join. It consumes
-  only the installed `b123d-recognisers` public manifest, then validates Draftwright-owned IR,
+  only the installed `b123d-recognisers` public manifest and rank-0 consumer policy, then validates
+  Draftwright-owned IR,
   `Sheet`, generated-code, drawing, completeness, and documentation declarations. It is rank 7
   because validation dynamically resolves implementation references across every lower layer;
   package geometry policy never imports or owns this consumer overlay.

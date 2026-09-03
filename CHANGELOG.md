@@ -4,6 +4,13 @@
 
 ### Added
 
+- Accepted angled-step, passage, prismatic-pocket, oriented-slot, and repeating-radial-profile
+  occurrences now receive exact run-local ownerless outcomes from Draftwright's existing consumer
+  capability declaration: `unsupported`, `deferred`, or report-facing `evidence_only`, with closed
+  reason codes and existing tracking issues. Equal-valued occurrences stay distinct; policy does
+  not invent IR owners, requirements, topology IDs, recognition scans, generated artefacts, or
+  visual output (#1438, ADR 0017 Amendment 14).
+
 - Accepted physical hole, slot, and pocket occurrences now retain explicit run-local ownership
   when conversion represents a singleton or absorbs members into one same-spec hole group or
   derived pattern feature. Family-specific reason codes and transient member lineage follow
