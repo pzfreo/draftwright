@@ -3353,8 +3353,13 @@ def test_cli_inherits_automatic_detail_default(monkeypatch):
     forwarded = []
 
     class _Drawing:
+        out = "out"
+
         def export(self, *, formats):
             return {name: f"out.{name}" for name in formats}
+
+        def write_report(self, path):
+            return path
 
     def _build(*args, **kwargs):
         forwarded.append(kwargs)

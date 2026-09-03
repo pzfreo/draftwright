@@ -688,6 +688,28 @@ comparison, output manifests, and CLI sidecar default remain later slices. The s
 compiles nor places annotations, changes no visual output, and preserves ADRs 0010, 0011, 0013,
 0014, 0015, 0017's one-run lifecycle, and 0020's framed boundary.
 
+## Amendment 25 — Direct CLI rendering writes the machine report by default
+
+The direct rendering path now calls `Drawing.write_report(<output>.draftwright.json)` after all
+requested visual formats export successfully and prints that path after the visual paths.
+`--no-report` is the explicit opt-out. The sidecar therefore uses the same strict, atomic report
+surface as a library caller. A failed visual export does not create or update the sidecar; an
+already-existing sidecar is deliberately left untouched rather than being treated as output of the
+failed invocation. Output manifests and cross-run freshness validation remain later slices.
+
+This ordering is intentionally non-transactional. The CLI prints each successfully exported visual
+path before attempting the report write. If that atomic write then fails, the command exits nonzero
+without printing a report path; the visual files and any pre-existing sidecar remain untouched.
+Consumers must not treat an old sidecar as evidence for the failed invocation. A future output
+manifest is the contract that will bind one successful invocation's artefacts together.
+
+This is CLI orchestration, not a new side effect of `Drawing.export()`: library export remains
+unchanged and visually identical, and report persistence still requires an explicit method call.
+The build-owned evidence and ownership used by export lint and report are reused; no second scan,
+provider API, persistent identity, placement path, or completeness claim is introduced. Declared
+generated-script reconciliation, report-only CLI operation, and output manifests remain later
+slices under the existing ADR 0010/0011/0013/0014/0015/0017/0020 boundaries.
+
 ## Accepted Contract
 
 ### 1. One orchestration owns the recognition universe
