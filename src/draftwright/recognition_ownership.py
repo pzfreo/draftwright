@@ -50,6 +50,11 @@ GROUPABLE_FAMILIES = frozenset({"holes", "pockets", "slots"})
 # duplicate feature or requirement.
 NESTED_FAMILIES = frozenset({"countersinks"})
 
+# These accepted occurrences have a supported consumer path, but the final owner depends on
+# Draftwright's cross-family classification.  The conversion site must record either the direct
+# adapter or the exact aggregate feature that intentionally absorbs the occurrence.
+CONDITIONAL_FAMILIES = frozenset({"channels"})
+
 OwnershipDisposition = Literal["represented", "absorbed"]
 PolicyDisposition = OwnerlessDisposition
 OccurrenceStatus = Literal[
@@ -65,6 +70,7 @@ OccurrenceStatus = Literal[
 _REPRESENTED_REASON_CODES = frozenset(
     {
         "direct_adapter",
+        "channel_adapter",
         "hole_adapter",
         "pmi_split_member",
         "pocket_adapter",
@@ -79,7 +85,10 @@ _ABSORBED_REASON_CODES = frozenset(
         "slot_pattern_member",
     }
 )
+_FEATURE_ABSORPTION_REASON_CODES = frozenset({"channel_step_level_owner"})
 _REASON_FAMILY = {
+    "channel_adapter": "channels",
+    "channel_step_level_owner": "channels",
     "countersink_hole_owner": "countersinks",
     "grouped_hole_member": "holes",
     "hole_adapter": "holes",
@@ -92,6 +101,7 @@ _REASON_FAMILY = {
 }
 _NESTED_OWNER_FAMILY = {"countersink_hole_owner": "holes"}
 _NESTED_OWNER_FIELD = {"countersink_hole_owner": "csink"}
+_FEATURE_ABSORPTION_OWNER_KIND = {"channel_step_level_owner": "step_level"}
 
 
 @dataclass(frozen=True)
@@ -144,6 +154,7 @@ class RecognitionOwnership:
     expected_direct: tuple[FeatureRef, ...]
     expected_groupable: tuple[FeatureRef, ...]
     expected_nested: tuple[FeatureRef, ...]
+    expected_conditional: tuple[FeatureRef, ...]
     bindings: tuple[OccurrenceBinding, ...]
     policy_outcomes: tuple[OccurrencePolicyOutcome, ...]
 
@@ -151,7 +162,12 @@ class RecognitionOwnership:
     def owner_expected_occurrences(self) -> tuple[FeatureRef, ...]:
         """Supported occurrences whose adapters must record an IR owner."""
 
-        return self.expected_direct + self.expected_groupable + self.expected_nested
+        return (
+            self.expected_direct
+            + self.expected_groupable
+            + self.expected_nested
+            + self.expected_conditional
+        )
 
     @property
     def expected_occurrences(self) -> tuple[FeatureRef, ...]:
@@ -190,8 +206,7 @@ class RecognitionOwnership:
         """Classify only the ownership contracts implemented so far.
 
         ``unclassified`` is deliberately not a report disposition.  It is the migration state
-        for remaining nested and classification-only families whose ownership rules are not
-        implemented.
+        for remaining conditional cross-family records whose ownership rules are not implemented.
         """
 
         outcome = self.outcome_for(occurrence)
@@ -234,8 +249,18 @@ class RecognitionOwnershipBuilder:
             for occurrence in evidence.features
             if evidence.family(occurrence) in NESTED_FAMILIES
         )
+        self._expected_conditional = tuple(
+            occurrence
+            for occurrence in evidence.features
+            if evidence.family(occurrence) in CONDITIONAL_FAMILIES
+        )
         self._by_record_identity: dict[int, list[tuple[FeatureRef, object]]] = {}
-        for occurrence in self._expected_direct + self._expected_groupable + self._expected_nested:
+        for occurrence in (
+            self._expected_direct
+            + self._expected_groupable
+            + self._expected_nested
+            + self._expected_conditional
+        ):
             record = evidence.record(occurrence)
             self._by_record_identity.setdefault(id(record), []).append((occurrence, record))
         self._bindings: list[OccurrenceBinding] = []
@@ -243,7 +268,10 @@ class RecognitionOwnershipBuilder:
         expected_ids = {
             id(occurrence)
             for occurrence in (
-                self._expected_direct + self._expected_groupable + self._expected_nested
+                self._expected_direct
+                + self._expected_groupable
+                + self._expected_nested
+                + self._expected_conditional
             )
         }
         if any(id(outcome.occurrence) in expected_ids for outcome in self._policy_outcomes):
@@ -379,6 +407,35 @@ class RecognitionOwnershipBuilder:
             )
         )
 
+    def absorb_into(self, record: object, feature: object, *, reason_code: str) -> None:
+        """Bind an exact occurrence to a consumer-selected aggregate IR owner."""
+
+        if type(reason_code) is not str or reason_code not in _FEATURE_ABSORPTION_REASON_CODES:
+            raise ValueError("unknown feature-absorption ownership reason_code")
+        occurrence = self._occurrence_for(record)
+        if self.evidence.family(occurrence) != _REASON_FAMILY[reason_code]:
+            raise ValueError("feature-absorption reason_code does not match occurrence family")
+        if getattr(feature, "kind", None) != _FEATURE_ABSORPTION_OWNER_KIND[reason_code]:
+            raise ValueError("feature-absorption reason_code does not match IR owner kind")
+        if id(occurrence) in self._bound_occurrence_ids:
+            raise ValueError("recognition occurrence already has an IR owner")
+        if id(feature) in self._owned_feature_ids and any(
+            binding.feature is feature
+            and (binding.disposition != "absorbed" or binding.reason_code != reason_code)
+            for binding in self._bindings
+        ):
+            raise ValueError("IR feature already has an incompatible recognition owner")
+        self._bound_occurrence_ids.add(id(occurrence))
+        self._owned_feature_ids.add(id(feature))
+        self._bindings.append(
+            OccurrenceBinding(
+                occurrence,
+                feature,
+                disposition="absorbed",
+                reason_code=reason_code,
+            )
+        )
+
     def remap_feature(
         self,
         source: object,
@@ -480,6 +537,7 @@ class RecognitionOwnershipBuilder:
             expected_direct=self._expected_direct,
             expected_groupable=self._expected_groupable,
             expected_nested=self._expected_nested,
+            expected_conditional=self._expected_conditional,
             bindings=tuple(self._bindings),
             policy_outcomes=self._policy_outcomes,
         )

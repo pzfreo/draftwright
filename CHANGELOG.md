@@ -4,6 +4,13 @@
 
 ### Added
 
+- Accepted channel occurrences now receive an exact conditional consumer outcome. A genuine
+  multi-axis plate channel is `represented` by its `ChannelFeature`; a monolithic Z-depth rebate is
+  `absorbed` only when one retained body-local support carries its floor and both shoulders into the
+  final step ladder. Cross-axis, disconnected, or filtered channels fail closed as
+  `unexpectedly_missing` instead of inheriting an unrelated ladder, without a second scan,
+  persistent ID, generated artefact, or visual change (#1438, ADR 0017 Amendment 16).
+
 - Accepted countersink occurrences now receive an exact run-local outcome. A seat carried by a
   `HoleRecord` is `absorbed` by that hole's final feature and transient member lineage; an unattached,
   unowned, or duplicate nested occurrence fails closed without dimension matching, topology IDs, a

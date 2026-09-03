@@ -15,7 +15,8 @@
   records the first conversion-time, run-local occurrence→IR ownership bindings. Amendment 13
   (2026-09-03) records explicit member ownership for hole, slot, and pocket groupings. Amendment
   14 records settled ownerless consumer-policy outcomes per accepted occurrence. Amendment 15
-  records each accepted countersink as absorbed by its exact same-run hole owner.
+  records each accepted countersink as absorbed by its exact same-run hole owner. Amendment 16
+  records the conditional direct-or-step-ladder owner of every accepted channel occurrence.
 - **Date:** 2026-08-03
 - **Deciders:** Paul Fremantle (pzfreo)
 
@@ -400,6 +401,40 @@ annotation placement, generated artefact, report ID, topology ID, or visual chan
 the semantic Sheet/IR waist; ADR 0013 remains the released provider boundary; and ADR 0020's framed
 path remains evidence-less pending the upstream correspondence contract.
 
+## Amendment 16 — Channels retain the consumer's conditional owner
+
+Every accepted raw channel occurrence now enters the supported-owner denominator. In a genuine
+multi-axis plate assembly, the existing channel adapter produces a `ChannelFeature` and records that
+exact object as `represented`. A monolithic Z-depth rebate continues to use the established
+prismatic `StepLevelFeature`; the channel is `absorbed` only when that final ladder contains its
+floor and both width-axis shoulders, coupled through one retained body-local face support and that
+exact support occurrence's riser provenance over the channel's depth span. This records the
+existing consumer classification where it is made rather than reconstructing ownership from a
+finished model.
+
+Direct cross-record coordinate comparisons allow half of the `Channel` record's two-decimal
+publication cell. A shoulder reconstructed from independently published centre and width allows
+the composed 0.0075 loss against raw support bounds, plus half of the shoulder projection's 0.001
+publication cell against its three-decimal output (0.008 total). Comparisons add one scale-aware
+float ULP only at the boundary; provider occurrence identity and final-support retention remain
+exact. Thus ordinary
+or large translations cannot erase honest ownership, while the tolerances cannot bridge a
+different published channel coordinate.
+
+The support/floor/shoulder check is deliberately fail closed. A cross-axis channel or disconnected
+body cannot inherit an unrelated Z ladder merely because matching scalar facts exist, and a
+filtered or absent defining support, level, or shoulder leaves the accepted occurrence
+`unexpectedly_missing`. Multiple exact channel records may share one aggregate ladder when their
+body-local provenance reaches it, but value-equal support occurrences, feature ordering, rendered
+dimensions, labels, topology indices, or page coordinates never establish that relationship.
+
+The implementation consumes the released same-run public `Channel` record and existing aggregate;
+it adds no provider API, recognition scan, persistent/report identity, manufacturing inference,
+compiled-plan dependency, annotation placement, generated artefact, or visual change. ADRs 0010 and
+0014 remain untouched; ADRs 0011 and 0015 retain the semantic Sheet/IR waist and recognition-free
+declared build; ADR 0013 keeps geometry recognition separate from consumer classification; and ADR
+0020's framed evidence boundary is unchanged.
+
 ## Accepted Contract
 
 ### 1. One orchestration owns the recognition universe
@@ -446,10 +481,11 @@ not accept an arbitrary aggregate and then attempt to prove it came from the sam
 This originally answered **result-to-build provenance only**. Amendment 12 records exact
 occurrence→IR ownership for unconditional 1:1 adapters, and Amendment 13 adds explicit singleton,
 grouped, and pattern-member ownership for holes, slots, and pockets. Amendment 15 adds exact nested
-countersink→hole ownership. Remaining supported nested and classification-only families, and the
-general feature→requirement→annotation correspondence, remain subjects of the evidence gates below.
-Settled unsupported, evidence-only, and deferred policy is explicit per accepted occurrence under
-Amendment 14.
+countersink→hole ownership, and Amendment 16 adds conditional direct-or-step-ladder channel
+ownership. Remaining supported conditional families, and the general
+feature→requirement→annotation correspondence, remain subjects of the evidence gates below. Settled
+unsupported, evidence-only, and deferred policy is explicit per accepted occurrence under Amendment
+14.
 
 `lint_prismatic_coverage(recognition=...)` is a known channel outside the structural ownership
 path (#1032). The preferred correction is to remove or narrow the channel when that boundary

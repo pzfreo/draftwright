@@ -440,9 +440,9 @@ class BuildState:
     - ``part_model`` — the detected/declared ADR-0008 PartModel (read surface for
       semantic edits, #397).
     - ``recognition`` — the ADR 0017 aggregate reused by model detection and critique.
-    - ``recognition_ownership`` — same-run represented, grouped/pattern, nested, and ownerless
-      occurrence outcomes captured while conversion makes the decision; provider references
-      never enter the IR waist.
+    - ``recognition_ownership`` — same-run represented, grouped/pattern, nested, conditional
+      aggregate, and ownerless occurrence outcomes captured while conversion makes the decision;
+      provider references never enter the IR waist.
     - ``view_edge_cache`` — lint's per-view edge bboxes, keyed on id(view shape)
       (helpers #143/#164).
     - ``ann_box_cache`` — lint's annotation bounding boxes (#602): identity- AND
