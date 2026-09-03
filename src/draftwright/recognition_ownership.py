@@ -18,9 +18,9 @@ from draftwright.recogniser_policy import (
 )
 
 # These aggregate families have an unconditional one-record -> one-feature adapter in
-# model.detect.  Nested and classification-only families stay unclassified until a later slice
-# can state their ownership honestly. Consumer-policy-only occurrences are classified separately
-# below because they deliberately have no IR owner.
+# model.detect. Remaining nested and classification-only families stay unclassified until a later
+# slice can state their ownership honestly. Consumer-policy-only occurrences are classified
+# separately below because they deliberately have no IR owner.
 DIRECT_FAMILIES = frozenset(
     {
         "blends",
@@ -44,6 +44,11 @@ DIRECT_FAMILIES = frozenset(
 # The derived pattern records are deliberately not FeatureRefs and must not be promoted into
 # invented persistent occurrences.
 GROUPABLE_FAMILIES = frozenset({"holes", "pockets", "slots"})
+
+# These accepted occurrences are nested records carried by a supported parent occurrence. They
+# must retain their own outcome while sharing the parent's final IR owner rather than creating a
+# duplicate feature or requirement.
+NESTED_FAMILIES = frozenset({"countersinks"})
 
 OwnershipDisposition = Literal["represented", "absorbed"]
 PolicyDisposition = OwnerlessDisposition
@@ -75,6 +80,7 @@ _ABSORBED_REASON_CODES = frozenset(
     }
 )
 _REASON_FAMILY = {
+    "countersink_hole_owner": "countersinks",
     "grouped_hole_member": "holes",
     "hole_adapter": "holes",
     "hole_pattern_member": "holes",
@@ -84,6 +90,8 @@ _REASON_FAMILY = {
     "slot_adapter": "slots",
     "slot_pattern_member": "slots",
 }
+_NESTED_OWNER_FAMILY = {"countersink_hole_owner": "holes"}
+_NESTED_OWNER_FIELD = {"countersink_hole_owner": "csink"}
 
 
 @dataclass(frozen=True)
@@ -135,6 +143,7 @@ class RecognitionOwnership:
     evidence: RecognitionEvidence
     expected_direct: tuple[FeatureRef, ...]
     expected_groupable: tuple[FeatureRef, ...]
+    expected_nested: tuple[FeatureRef, ...]
     bindings: tuple[OccurrenceBinding, ...]
     policy_outcomes: tuple[OccurrencePolicyOutcome, ...]
 
@@ -142,7 +151,7 @@ class RecognitionOwnership:
     def owner_expected_occurrences(self) -> tuple[FeatureRef, ...]:
         """Supported occurrences whose adapters must record an IR owner."""
 
-        return self.expected_direct + self.expected_groupable
+        return self.expected_direct + self.expected_groupable + self.expected_nested
 
     @property
     def expected_occurrences(self) -> tuple[FeatureRef, ...]:
@@ -181,7 +190,8 @@ class RecognitionOwnership:
         """Classify only the ownership contracts implemented so far.
 
         ``unclassified`` is deliberately not a report disposition.  It is the migration state
-        for nested and classification-only families whose ownership rules are not implemented.
+        for remaining nested and classification-only families whose ownership rules are not
+        implemented.
         """
 
         outcome = self.outcome_for(occurrence)
@@ -219,14 +229,22 @@ class RecognitionOwnershipBuilder:
             for occurrence in evidence.features
             if evidence.family(occurrence) in GROUPABLE_FAMILIES
         )
+        self._expected_nested = tuple(
+            occurrence
+            for occurrence in evidence.features
+            if evidence.family(occurrence) in NESTED_FAMILIES
+        )
         self._by_record_identity: dict[int, list[tuple[FeatureRef, object]]] = {}
-        for occurrence in self._expected_direct + self._expected_groupable:
+        for occurrence in self._expected_direct + self._expected_groupable + self._expected_nested:
             record = evidence.record(occurrence)
             self._by_record_identity.setdefault(id(record), []).append((occurrence, record))
         self._bindings: list[OccurrenceBinding] = []
         self._policy_outcomes = _policy_outcomes(evidence)
         expected_ids = {
-            id(occurrence) for occurrence in self._expected_direct + self._expected_groupable
+            id(occurrence)
+            for occurrence in (
+                self._expected_direct + self._expected_groupable + self._expected_nested
+            )
         }
         if any(id(outcome.occurrence) in expected_ids for outcome in self._policy_outcomes):
             raise RuntimeError("recognition occurrence has conflicting owner and policy contracts")
@@ -322,6 +340,44 @@ class RecognitionOwnershipBuilder:
                     member_index=member_index,
                 )
             )
+
+    def absorb_nested(
+        self,
+        record: object,
+        owner_record: object,
+        *,
+        reason_code: str,
+    ) -> None:
+        """Bind one exact nested occurrence to its exact parent's existing IR owner."""
+
+        if type(reason_code) is not str or reason_code not in _NESTED_OWNER_FAMILY:
+            raise ValueError("unknown nested ownership reason_code")
+        occurrence = self._occurrence_for(record)
+        owner_occurrence = self._occurrence_for(owner_record)
+        if self.evidence.family(occurrence) != _REASON_FAMILY[reason_code]:
+            raise ValueError("nested ownership reason_code does not match occurrence family")
+        if self.evidence.family(owner_occurrence) != _NESTED_OWNER_FAMILY[reason_code]:
+            raise ValueError("nested ownership reason_code does not match owner family")
+        if getattr(owner_record, _NESTED_OWNER_FIELD[reason_code]) is not record:
+            raise ValueError("nested recognition occurrence does not belong to its exact parent")
+        if id(occurrence) in self._bound_occurrence_ids:
+            raise ValueError("recognition occurrence already has an IR owner")
+        owner_binding = next(
+            (binding for binding in self._bindings if binding.occurrence is owner_occurrence),
+            None,
+        )
+        if owner_binding is None:
+            raise ValueError("nested recognition occurrence requires an existing parent owner")
+        self._bound_occurrence_ids.add(id(occurrence))
+        self._bindings.append(
+            OccurrenceBinding(
+                occurrence,
+                owner_binding.feature,
+                disposition="absorbed",
+                reason_code=reason_code,
+                member_index=owner_binding.member_index,
+            )
+        )
 
     def remap_feature(
         self,
@@ -423,6 +479,7 @@ class RecognitionOwnershipBuilder:
             evidence=self.evidence,
             expected_direct=self._expected_direct,
             expected_groupable=self._expected_groupable,
+            expected_nested=self._expected_nested,
             bindings=tuple(self._bindings),
             policy_outcomes=self._policy_outcomes,
         )

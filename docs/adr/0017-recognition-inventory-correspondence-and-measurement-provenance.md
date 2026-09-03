@@ -14,7 +14,8 @@
   consumer-owned cache without adding a second recognition run. Amendment 12 (2026-09-03)
   records the first conversion-time, run-local occurrence→IR ownership bindings. Amendment 13
   (2026-09-03) records explicit member ownership for hole, slot, and pocket groupings. Amendment
-  14 records settled ownerless consumer-policy outcomes per accepted occurrence.
+  14 records settled ownerless consumer-policy outcomes per accepted occurrence. Amendment 15
+  records each accepted countersink as absorbed by its exact same-run hole owner.
 - **Date:** 2026-08-03
 - **Deciders:** Paul Fremantle (pzfreo)
 
@@ -378,6 +379,27 @@ rather than copied into a second registry. ADRs 0010 and 0014 are untouched; ADR
 retain the declared/compiler boundaries; ADR 0013 retains provider geometry versus consumer policy;
 and ADR 0020's framed path remains honestly evidence-less until a released provider contract exists.
 
+## Amendment 15 — Nested countersinks retain their exact hole owner
+
+Every accepted raw countersink occurrence now receives an explicit consumer result. When the public
+aggregate attaches that exact record to a `HoleRecord.csink`, it receives an `absorbed` outcome and
+shares that hole's final `HoleFeature` owner. The binding is made only after the parent hole has an
+owner and retains the parent's transient member lineage, so single holes, same-spec groups,
+patterns, and later PMI splits preserve one bore/countersink feature and one countersink requirement
+rather than duplicating either.
+
+The correspondence uses the released public evidence records and same-run object identity. It does
+not match dimensions, coordinates, faces, record equality, or traversal order. A countersink that
+is accepted but absent from its parent hole, whose parent is unowned, or whose binding is duplicated
+fails closed as `unexpectedly_missing` or a conversion invariant violation; it cannot silently look
+complete. No recogniser API change or second scan is required.
+
+This adds no standalone countersink IR feature, manufacturing inference, compiled-plan dependency,
+annotation placement, generated artefact, report ID, topology ID, or visual change. ADRs 0010 and
+0014 retain the established hole annotation provenance and shared solve; ADRs 0011 and 0015 retain
+the semantic Sheet/IR waist; ADR 0013 remains the released provider boundary; and ADR 0020's framed
+path remains evidence-less pending the upstream correspondence contract.
+
 ## Accepted Contract
 
 ### 1. One orchestration owns the recognition universe
@@ -423,10 +445,11 @@ not accept an arbitrary aggregate and then attempt to prove it came from the sam
 
 This originally answered **result-to-build provenance only**. Amendment 12 records exact
 occurrence→IR ownership for unconditional 1:1 adapters, and Amendment 13 adds explicit singleton,
-grouped, and pattern-member ownership for holes, slots, and pockets. Nested, classification-only,
-supported nested and classification-only families, and the general feature→requirement→annotation
-correspondence, remain subjects of the evidence gates below. Settled unsupported, evidence-only,
-and deferred policy is explicit per accepted occurrence under Amendment 14.
+grouped, and pattern-member ownership for holes, slots, and pockets. Amendment 15 adds exact nested
+countersink→hole ownership. Remaining supported nested and classification-only families, and the
+general feature→requirement→annotation correspondence, remain subjects of the evidence gates below.
+Settled unsupported, evidence-only, and deferred policy is explicit per accepted occurrence under
+Amendment 14.
 
 `lint_prismatic_coverage(recognition=...)` is a known channel outside the structural ownership
 path (#1032). The preferred correction is to remove or narrow the channel when that boundary
