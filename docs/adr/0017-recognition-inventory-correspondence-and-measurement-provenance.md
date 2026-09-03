@@ -20,7 +20,8 @@
   Amendment 17 records each turned-profile step as directly represented or absorbed by its exact
   groove owner. Amendment 18 records direct and multi-feature legacy ownership for accepted
   through-step occurrences. Amendment 19 records the direct, consolidated, turned-step, or groove
-  owner selected for every accepted round-boss occurrence.
+  owner selected for every accepted round-boss occurrence. Amendment 20 gives every accepted
+  face-level and riser evidence occurrence an explicit evidence-only outcome.
 - **Date:** 2026-08-03
 - **Deciders:** Paul Fremantle (pzfreo)
 
@@ -551,6 +552,31 @@ inference, compiled-plan dependency, annotation placement, generated artefact, o
 ADRs 0010 and 0014 remain untouched; ADRs 0011 and 0015 retain the semantic Sheet/IR waist and
 recognition-free declared build; ADR 0013 keeps geometry recognition separate from consumer
 classification; and ADR 0020's framed evidence boundary is unchanged.
+
+## Amendment 20 — Face levels and risers are explicit projection evidence
+
+Every accepted raw `FaceLevel` and `RiserEvidence` occurrence now receives an `evidence_only`
+consumer outcome with a closed, family-specific reason code. This follows the released provider
+manifest rather than inferring a new ownership relation: both record types have role `evidence`,
+are deliberately absent from the provider feature census, and are not independent drafting
+requirements. `FaceLevel` records are body-local support for the correlated height ladder;
+`RiserEvidence` is the shared scan product from which consumers project `StepShoulder` values.
+
+The face-level and riser capability families remain supported. Their evidence contributes to the
+existing `StepLevelFeature`, sizing, and physical critique paths, but an individual evidence record
+is not itself a feature that should demand a one-to-one IR owner. Reporting it as
+`unexpectedly_missing` would manufacture a requirement the provider explicitly excludes;
+reporting it as `absorbed` would falsely promise exact per-record correspondence through consumer
+filters that intentionally operate on correlated level sets. The evidence-only outcome states the
+narrow truth without downgrading the aggregate feature grammar.
+
+The outcome is projected from the same run-owned evidence authority as every other occurrence.
+Equal-valued body-local records remain distinct, while record equality, scalar coordinates,
+feature order, face indices, and object addresses never become persistent identity. It introduces
+no IR adapter, Sheet DSL word, recognition scan, provider API, annotation, requirement,
+compiled-plan dependency, generated artefact, or visual change. ADRs 0010 and 0014 are untouched;
+ADRs 0011 and 0015 retain the declared/compiler waist; ADR 0013 retains the released provider
+boundary; and ADR 0020's evidence-less framed path remains unchanged.
 
 ## Accepted Contract
 

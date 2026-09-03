@@ -15,6 +15,16 @@ GEOMETRY_ONLY_RATIONALE = (
     "alone must not create inferred gear intent."
 )
 
+# These aggregate records are released as physical recognition evidence, not feature-census
+# entries. Draftwright consumes them as substrate for its correlated StepLevelFeature projection;
+# an individual evidence record is not itself a drafting feature or completeness requirement.
+EVIDENCE_ONLY_FAMILIES: Mapping[str, str] = MappingProxyType(
+    {
+        "step-levels": "step_level_projection_evidence",
+        "risers": "riser_projection_evidence",
+    }
+)
+
 # Families the installed package proves but Draftwright does not fully support. This is the
 # single consumer-policy source used by both the capability declaration and occurrence ledger.
 # It is not a parking bay: an undecided family needs a live decision issue, while a settled
@@ -92,6 +102,13 @@ def ownerless_occurrence_policy(family: str) -> OwnerlessOccurrencePolicy | None
     if type(family) is not str:
         raise TypeError("recognition evidence family must be an exact str")
     family_id = family.replace("_", "-")
+    evidence_only = EVIDENCE_ONLY_FAMILIES.get(family_id)
+    if evidence_only is not None:
+        return OwnerlessOccurrencePolicy(
+            disposition="evidence_only",
+            reason_code=evidence_only,
+            tracking=None,
+        )
     if family_id == GEOMETRY_ONLY_FAMILY_ID:
         return OwnerlessOccurrencePolicy(
             disposition="evidence_only",
