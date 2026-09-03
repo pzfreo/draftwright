@@ -616,6 +616,22 @@ placement and changes no PDF/SVG/DXF/PNG content. ADR 0010's annotation registry
 recognition-free declared build, ADR 0013's released provider boundary, ADR 0014's shared solve,
 ADR 0015's compiler waist, and ADR 0020's framed boundary remain unchanged.
 
+## Amendment 22 — Report persistence is explicit and atomic
+
+`Drawing.write_report(path)` persists the same schema-v1 document returned by `Drawing.report()`
+as deterministic, strict, indented UTF-8 JSON. It writes and flushes a uniquely named sibling
+temporary file before atomically replacing the destination, and removes that temporary on any
+failure when the filesystem permits cleanup. A cleanup error never masks the primary persistence
+failure. Report construction happens before temporary-file creation, so an unavailable or invalid
+report cannot disturb an existing destination. Parent directories remain caller-owned.
+
+Persistence is an explicit library operation, not a side effect of `Drawing.export()`. It does not
+render, place, or change PDF/SVG/DXF/PNG content. Output manifests, generated-Python snapshots,
+declared runtime reconciliation, and CLI/script sidecars remain later slices. This amendment adds
+no recogniser call, provider API, correspondence inference, persistent topology identity,
+annotation path, or completeness claim; Amendment 21's raw-only fail-closed report boundary and
+all ADR 0010/0011/0013/0014/0015/0020 constraints remain unchanged.
+
 ## Accepted Contract
 
 ### 1. One orchestration owns the recognition universe

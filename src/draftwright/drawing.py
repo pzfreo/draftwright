@@ -1033,6 +1033,20 @@ class Drawing:
             source=source,
         )
 
+    def write_report(self, path: str | os.PathLike[str]) -> str:
+        """Atomically write :meth:`report` as deterministic UTF-8 JSON.
+
+        The destination is replaced only after the complete strict-JSON document has been
+        flushed to a temporary file in the same directory. A report or filesystem failure leaves
+        an existing destination untouched; temporary-file cleanup is best-effort when the
+        filesystem itself refuses it. This method does not export or modify any visual drawing
+        artefact.
+        """
+
+        from draftwright.reporting import _write_report_document
+
+        return _write_report_document(self.report(), path)
+
     # --- build-context compat properties (#639): one BuildState, thin views.
     # _part_model and the two caches are GETTER-ONLY by design (#691 review):
     # zero assignment sites exist in src/ or tests/, and a future wholesale
