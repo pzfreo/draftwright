@@ -320,7 +320,7 @@ def test_fixed_point_reprojects_shoulders_after_an_owned_level_disappears() -> N
     riser = replace(recognition.risers[0], positions=(-5,))
     model = build_part_model(
         part,
-        through_steps=(aggregate_owned, initially_legacy_owned),
+        through_steps=(initially_legacy_owned, aggregate_owned),
         step_zs=(0, 5),
         face_levels=(),
         risers=(riser,),
@@ -333,7 +333,11 @@ def test_fixed_point_reprojects_shoulders_after_an_owned_level_disappears() -> N
     # The first aggregate removes level 0. The remaining level 5 no longer supports the
     # riser's foot at 0, so the second aggregate must be promoted rather than trusting a
     # shoulder that will disappear from the emitted StepLevelFeature.
-    assert [feature.kind for feature in model.features].count("through_step") == 2
+    through_features = [feature for feature in model.features if feature.kind == "through_step"]
+    assert [feature.frame.origin for feature in through_features] == [
+        aggregate_owned.at,
+        initially_legacy_owned.at,
+    ]
     assert not [feature for feature in model.features if feature.kind == "step_level"]
 
 

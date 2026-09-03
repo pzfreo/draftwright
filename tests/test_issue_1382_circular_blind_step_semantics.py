@@ -289,13 +289,13 @@ def test_standalone_model_runs_one_aggregate_and_one_cylinder_scan(monkeypatch) 
     import draftwright.model.detect as detect
 
     rotational_flags = []
-    real_build = detect.build_raw_recognition_result
+    real_build = detect.build_recognition_evidence
 
     def recording_build(*args, **kwargs):
         rotational_flags.append(kwargs["rotational"])
         return real_build(*args, **kwargs)
 
-    monkeypatch.setattr(detect, "build_raw_recognition_result", recording_build)
+    monkeypatch.setattr(detect, "build_recognition_evidence", recording_build)
     with counting_calls(
         {"turned_steps": recognise_turned_steps, "cylinders": analyse_cylinders}
     ) as counts:

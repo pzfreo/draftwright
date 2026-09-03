@@ -18,7 +18,8 @@
   records each accepted countersink as absorbed by its exact same-run hole owner. Amendment 16
   records the conditional direct-or-step-ladder owner of every accepted channel occurrence.
   Amendment 17 records each turned-profile step as directly represented or absorbed by its exact
-  groove owner.
+  groove owner. Amendment 18 records direct and multi-feature legacy ownership for accepted
+  through-step occurrences.
 - **Date:** 2026-08-03
 - **Deciders:** Paul Fremantle (pzfreo)
 
@@ -464,6 +465,53 @@ and 0014 remain untouched; ADRs 0011 and 0015 retain the semantic Sheet/IR waist
 recognition-free declared build; ADR 0013 keeps provider recognition separate from consumer
 precedence; and ADR 0020's framed evidence boundary is unchanged.
 
+## Amendment 18 — Through steps retain direct or multi-feature legacy ownership
+
+Every accepted through-step occurrence now enters the supported-owner denominator. A record that
+crosses the aggregate adapter is `represented` by its exact `ThroughStepFeature`. When the existing
+Z-up compatibility grammar intentionally preempts an X/Y-running aggregate, the occurrence remains
+`represented` by the complete set of final IR features that jointly define both transverse legs:
+the exact `PlateFeature` where a plate interval is direct, the `StepLevelFeature` for a retained
+level or shoulder, and the `EnvelopeFeature` where the complementary maximum-side interval needs
+the overall extent. One occurrence therefore has one disposition but may have multiple semantic
+feature bindings.
+
+The owner set is captured from the same fixed-point classification that decides whether the
+aggregate lowers. The released evidence ledger limits plate candidates to exact same-run records
+that share a defining face with the accepted through-step occurrence; the existing interval grammar,
+not face overlap alone, still decides whether that candidate defines a leg. Equal spans in
+disconnected bodies therefore cannot cross-own one another, while asymmetric plates remain valid.
+Multiple scoped plate records matching one leg are ambiguous and force direct aggregate lowering.
+Plate lineage then uses exact record identity; step-level and envelope claims resolve only to the
+corresponding feature objects created by that build. The multi-feature owner set is conjunctive and
+replacement validation is atomic: if any selected owner does not reach the final IR, no partial
+binding is recorded and the accepted occurrence becomes `unexpectedly_missing`. Equal-valued
+occurrences remain distinct, and the implementation does not reconstruct correspondence from
+feature order, labels, rendered dimensions, topology indices, or object addresses.
+
+The evidence-bearing aggregate is a classification input independent of whether an ownership
+collector observes the build. The standalone detected-model entry obtains that same product in its
+existing single aggregate run, while the ordinary build handoff carries it beside the projected
+`RecognitionResult`; automatic and standalone model assembly therefore make the same decision
+without a second recognition scan.
+
+Supported paths that deliberately lack same-run evidence — framed recognition and a caller-supplied
+aggregate — retain the established unscoped compatibility classification. They do not pretend to
+know occurrence correspondence, reject a projection merely because the observation boundary hid
+that evidence, or acquire another recognition run. Evidence-specific ownership remains unavailable
+there; the model itself does not change solely because evidence cannot cross that boundary. ADR
+0020's independently selected provider frame may still change coordinate-dependent classification,
+as it did before this amendment; this ownership slice does not redefine framed recognition.
+
+This consumes only the released public `ThroughStep`, `Plate`, aggregate, level, and riser records.
+It adds no provider API, recognition scan, persistent/report identity, manufacturing inference,
+compiled-plan dependency, annotation placement, or generated artefact. It does not alter rendering
+machinery or established unambiguous projections; a newly proven ambiguous projection may instead
+take the truthful direct aggregate path. ADRs 0010 and 0014 remain untouched; ADRs 0011 and 0015
+retain the semantic Sheet/IR waist and recognition-free declared build; ADR 0013 keeps provider
+recognition separate from consumer classification; and ADR 0020's framed evidence boundary is
+unchanged.
+
 ## Accepted Contract
 
 ### 1. One orchestration owns the recognition universe
@@ -511,11 +559,11 @@ This originally answered **result-to-build provenance only**. Amendment 12 recor
 occurrence→IR ownership for unconditional 1:1 adapters, and Amendment 13 adds explicit singleton,
 grouped, and pattern-member ownership for holes, slots, and pockets. Amendment 15 adds exact nested
 countersink→hole ownership, Amendment 16 adds conditional direct-or-step-ladder channel ownership,
-and Amendment 17 adds direct-or-groove turned-step ownership. Remaining supported conditional
-families, and the general
-feature→requirement→annotation correspondence, remain subjects of the evidence gates below. Settled
-unsupported, evidence-only, and deferred policy is explicit per accepted occurrence under Amendment
-14.
+Amendment 17 adds direct-or-groove turned-step ownership, and Amendment 18 adds direct or
+multi-feature legacy through-step ownership. Remaining supported conditional families, and the
+general feature→requirement→annotation correspondence, remain subjects of the evidence gates below.
+Settled unsupported, evidence-only, and deferred policy is explicit per accepted occurrence under
+Amendment 14.
 
 `lint_prismatic_coverage(recognition=...)` is a known channel outside the structural ownership
 path (#1032). The preferred correction is to remove or narrow the channel when that boundary

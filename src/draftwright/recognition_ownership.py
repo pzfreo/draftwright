@@ -53,7 +53,7 @@ NESTED_FAMILIES = frozenset({"countersinks"})
 # These accepted occurrences have a supported consumer path, but the final owner depends on
 # Draftwright's cross-family classification.  The conversion site must record either the direct
 # adapter or the exact aggregate feature that intentionally absorbs the occurrence.
-CONDITIONAL_FAMILIES = frozenset({"channels", "turned_steps"})
+CONDITIONAL_FAMILIES = frozenset({"channels", "through_steps", "turned_steps"})
 
 OwnershipDisposition = Literal["represented", "absorbed"]
 PolicyDisposition = OwnerlessDisposition
@@ -75,9 +75,11 @@ _REPRESENTED_REASON_CODES = frozenset(
         "pmi_split_member",
         "pocket_adapter",
         "slot_adapter",
+        "through_step_adapter",
         "turned_step_adapter",
     }
 )
+_MULTI_FEATURE_REASON_CODES = frozenset({"through_step_legacy_projection"})
 _ABSORBED_REASON_CODES = frozenset(
     {
         "grouped_hole_member",
@@ -101,6 +103,8 @@ _REASON_FAMILY = {
     "pocket_pattern_member": "pockets",
     "slot_adapter": "slots",
     "slot_pattern_member": "slots",
+    "through_step_adapter": "through_steps",
+    "through_step_legacy_projection": "through_steps",
     "turned_step_adapter": "turned_steps",
     "turned_step_groove_owner": "turned_steps",
 }
@@ -117,7 +121,7 @@ _FEATURE_ABSORPTION_EXISTING_OWNER = {
 
 @dataclass(frozen=True)
 class OccurrenceBinding:
-    """One exact accepted occurrence consumed by one exact final IR feature object."""
+    """One exact accepted occurrence consumed by one or more exact final IR features."""
 
     occurrence: FeatureRef
     feature: object
@@ -126,6 +130,24 @@ class OccurrenceBinding:
     # Run-local position within a grouped IR feature.  This is explicit lineage used to follow
     # later IR splits; it is not a topology index or a persistent report identifier.
     member_index: int | None = None
+    # Some established projections need more than one semantic owner to define the accepted
+    # occurrence. Keep ``feature`` as the primary compatibility spelling while exposing the
+    # complete, explicitly recorded owner set through ``features``.
+    additional_features: tuple[object, ...] = ()
+
+    @property
+    def features(self) -> tuple[object, ...]:
+        """Exact final owners in conversion-decision order."""
+
+        return (self.feature, *self.additional_features)
+
+    def __post_init__(self) -> None:
+        if type(self.additional_features) is not tuple:
+            raise TypeError("additional_features must be an exact tuple")
+        if any(owner is self.feature for owner in self.additional_features) or len(
+            {id(owner) for owner in self.additional_features}
+        ) != len(self.additional_features):
+            raise ValueError("occurrence binding repeats an IR owner")
 
 
 @dataclass(frozen=True)
@@ -349,6 +371,49 @@ class RecognitionOwnershipBuilder:
             )
         )
 
+    def bind_many(
+        self,
+        record: object,
+        features: tuple[object, ...],
+        *,
+        reason_code: str,
+    ) -> None:
+        """Bind one occurrence to an explicitly selected set of final IR owners."""
+
+        occurrence = self._occurrence_for(record)
+        if type(reason_code) is not str or reason_code not in _MULTI_FEATURE_REASON_CODES:
+            raise ValueError("unknown multi-feature ownership reason_code")
+        if self.evidence.family(occurrence) != _REASON_FAMILY[reason_code]:
+            raise ValueError(
+                "multi-feature ownership reason_code does not match occurrence family"
+            )
+        if id(occurrence) in self._bound_occurrence_ids:
+            raise ValueError("recognition occurrence already has an IR owner")
+        if type(features) is not tuple:
+            raise TypeError("multi-feature owners must be an exact tuple")
+        if not features:
+            raise ValueError("multi-feature ownership requires at least one IR owner")
+        if len({id(feature) for feature in features}) != len(features):
+            raise ValueError("multi-feature ownership repeats an IR owner")
+        if any(
+            getattr(feature, "kind", None) not in {"envelope", "plate", "step_level"}
+            for feature in features
+        ):
+            raise ValueError(
+                "through-step legacy ownership requires envelope, plate, or step-level IR"
+            )
+
+        self._bound_occurrence_ids.add(id(occurrence))
+        self._owned_feature_ids.update(id(feature) for feature in features)
+        self._bindings.append(
+            OccurrenceBinding(
+                occurrence,
+                features[0],
+                reason_code=reason_code,
+                additional_features=features[1:],
+            )
+        )
+
     def absorb(self, records: tuple[object, ...], feature: object, *, reason_code: str) -> None:
         """Record an explicit N:1 aggregate decision for exact member records."""
 
@@ -431,7 +496,9 @@ class RecognitionOwnershipBuilder:
         if id(occurrence) in self._bound_occurrence_ids:
             raise ValueError("recognition occurrence already has an IR owner")
         existing_bindings = tuple(
-            binding for binding in self._bindings if binding.feature is feature
+            binding
+            for binding in self._bindings
+            if any(owner is feature for owner in binding.features)
         )
         existing_owner = _FEATURE_ABSORPTION_EXISTING_OWNER.get(reason_code)
         if existing_owner is not None and not any(
@@ -479,7 +546,9 @@ class RecognitionOwnershipBuilder:
         """Follow one explicit IR-lowering lineage without reconstructing correspondence."""
 
         matches = [
-            index for index, binding in enumerate(self._bindings) if binding.feature is source
+            index
+            for index, binding in enumerate(self._bindings)
+            if any(feature is source for feature in binding.features)
         ]
         if not matches:
             return
@@ -490,7 +559,10 @@ class RecognitionOwnershipBuilder:
         ):
             raise ValueError("IR replacement groups must use distinct replacement objects")
         externally_owned_ids = {
-            id(binding.feature) for binding in self._bindings if binding.feature is not source
+            id(feature)
+            for binding in self._bindings
+            if not any(owner is source for owner in binding.features)
+            for feature in binding.features
         }
         if any(id(replacement) in externally_owned_ids for replacement in replacements):
             raise ValueError("lowered IR feature already owns a recognition occurrence")
@@ -498,20 +570,40 @@ class RecognitionOwnershipBuilder:
         if source_member_groups is None:
             if len(replacements) == 1:
                 replacement = replacements[0]
-                for index in matches:
-                    binding = self._bindings[index]
-                    self._bindings[index] = OccurrenceBinding(
-                        binding.occurrence,
-                        replacement,
-                        binding.disposition,
-                        binding.reason_code,
-                        binding.member_index,
+                rewritten_bindings: list[OccurrenceBinding] = []
+                for binding in self._bindings:
+                    owners = tuple(
+                        replacement if owner is source else owner for owner in binding.features
                     )
+                    if len({id(owner) for owner in owners}) != len(owners):
+                        raise ValueError("IR replacement duplicates an existing owner")
+                    rewritten_bindings.append(
+                        OccurrenceBinding(
+                            binding.occurrence,
+                            owners[0],
+                            binding.disposition,
+                            binding.reason_code,
+                            binding.member_index,
+                            owners[1:],
+                        )
+                    )
+                self._bindings = rewritten_bindings
             else:
+                # A multi-feature owner set is conjunctive: every selected feature jointly
+                # carries the occurrence. If any required owner disappears without an explicit
+                # replacement, partial credit would contradict the recorded conversion decision.
                 self._bindings = [
-                    binding for binding in self._bindings if binding.feature is not source
+                    binding
+                    for binding in self._bindings
+                    if not any(owner is source for owner in binding.features)
                 ]
         else:
+            if any(
+                self._bindings[index].feature is not source
+                or self._bindings[index].additional_features
+                for index in matches
+            ):
+                raise ValueError("grouped IR lineage requires a sole source owner")
             member_lineage: dict[int, tuple[object, int, int]] = {}
             for replacement, group in zip(replacements, source_member_groups, strict=True):
                 for replacement_index, source_index in enumerate(group):
@@ -561,7 +653,9 @@ class RecognitionOwnershipBuilder:
             self._bindings = rewritten
 
         self._bound_occurrence_ids = {id(binding.occurrence) for binding in self._bindings}
-        self._owned_feature_ids = {id(binding.feature) for binding in self._bindings}
+        self._owned_feature_ids = {
+            id(feature) for binding in self._bindings for feature in binding.features
+        }
 
     def snapshot(self) -> RecognitionOwnership:
         """Copy the current ledger without manufacturing owners for missing occurrences."""

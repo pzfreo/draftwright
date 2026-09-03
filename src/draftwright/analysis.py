@@ -1025,6 +1025,7 @@ def _analyse(
         else _build_part_model_from_recognition(
             part,
             cast(RecognitionResult, recognition),
+            evidence=recognition_evidence,
             ownership=ownership_builder,
             holes=holes,
             double_d_bores=double_d_bores,
