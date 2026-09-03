@@ -11,7 +11,7 @@ keep that table, this document, and `CLAUDE.md`'s compact map in step. The
 The dependency graph is a DAG (the #138 / ADR 0005 split is complete). Bottom to
 top: leaf modules (`layout.py`, `registry.py`, `fonts.py`, `_geometry.py`,
 `fits.py`, `intents.py`, `recognition_cache.py`, `recognition_ownership.py`,
-`recogniser_policy.py`, `recognition_frame.py`, and the
+`recogniser_policy.py`, `recogniser_schema.py`, `reporting.py`, `recognition_frame.py`, and the
 strict `blend_contract.py` provider-record boundary, and the `linting/` subpackage) →
 `_core.py` → stage modules (`export.py`,
 `repair.py`, `projection.py`, `compose.py`, `analysis.py`, `drawing.py`, the
@@ -220,6 +220,13 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   deferred, and geometry-only family policy. Both the cross-repository capability declaration and
   the run-local occurrence ledger project this same immutable data; recognition remains
   geometry-only and no engine leaf imports the rank-7 contract validator.
+- **`recogniser_schema.py`** — the rank-0 Draftwright-owned table of public provider record
+  schema versions consumed by adapters. The report projector and rank-7 cross-repository
+  validator share this leaf, so the engine never imports the validator to learn schema metadata.
+- **`reporting.py`** — the rank-0 pure schema-v1 projector. `Drawing` owns all reads from its
+  `BuildState` and passes the exact evidence, ownership, final model, lint summary, and source
+  metadata down explicitly; reporting never reaches through `Drawing` private state or triggers
+  recognition, placement, or export.
 - **`recognition_frame.py`** — the ADR 0020 prepared local-frame boundary. It calls the public
   provider preparation seam, classifies the exact normalized solid from its already-scanned
   cylinders, runs one paired aggregate, propagates typed refusal without fallback, and exposes

@@ -83,6 +83,9 @@ _LAYERS: dict[str, int] = {
     "recognition_cache": 0,
     "recognition_ownership": 0,
     "recogniser_policy": 0,
+    # Consumer-owned public record schema versions, shared by the report projector and the
+    # rank-7 cross-repository validator without either leaf depending on the validator.
+    "recogniser_schema": 0,
     "recognition_frame": 0,
     # Strict shared validator for the released provider Blend record and its occurrence key.
     "blend_contract": 0,
@@ -91,6 +94,9 @@ _LAYERS: dict[str, int] = {
     # construction — it imports nothing from the engine, so the thing it measures can never
     # come to depend on it.
     "audit": 0,
+    # Pure schema-v1 projection over explicitly supplied finished-build state. Drawing owns the
+    # state reads and passes them down; this leaf never reaches through Drawing internals.
+    "reporting": 0,
     "model": 0,  # the ADR 0008 IR waist — depends only on rank-0 leaves (guarded below too)
     # 1 — the shared drawing/layout primitives
     "_core": 1,

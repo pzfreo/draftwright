@@ -27,6 +27,7 @@ from draftwright.recogniser_policy import (
 from draftwright.recogniser_policy import (
     UNSUPPORTED_FAMILIES as _UNSUPPORTED,
 )
+from draftwright.recogniser_schema import consumed_record_schema_versions
 
 CONSUMER_CAPABILITY_FORMAT = "draftwright-recogniser-capabilities"
 CONSUMER_CAPABILITY_FORMAT_VERSION = 1
@@ -148,21 +149,9 @@ _FAMILIES: dict[str, _FamilySpec] = {
     ),
 }
 
-# Record schemas are explicit and family-specific. The exact dependency pin selects the installed
-# package version; this table records only the schemas its Draftwright adapters actually consume.
-_RECORD_SCHEMA_VERSIONS: dict[tuple[str, str], tuple[int, ...]] = {
-    ("chamfers", "Chamfer"): (2,),
-    ("fillets", "Fillet"): (2,),
-    ("rectangular-pads", "RaisedPad"): (2,),
-    ("risers", "RiserEvidence"): (2,),
-    ("turned-steps", "TurnedProfile"): (2,),
-    ("turned-steps", "TurnedProfileKey"): (1,),
-    ("turned-steps", "TurnedStep"): (2,),
-}
-
 
 def _record_schema_versions(family_id: str, names: tuple[str, ...]) -> dict[str, list[int]]:
-    return {name: list(_RECORD_SCHEMA_VERSIONS.get((family_id, name), (1,))) for name in names}
+    return {name: list(consumed_record_schema_versions(family_id, name)) for name in names}
 
 
 def _supported(implementation: str, evidence: str) -> dict[str, Any]:

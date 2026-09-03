@@ -1000,6 +1000,39 @@ class Drawing:
 
         return self._build.recognition_ownership
 
+    def report(self) -> dict[str, object]:
+        """Return the versioned machine-readable recognition and drawing report.
+
+        Schema version 1 projects accepted raw recognition occurrences, their exact run-local
+        consumer dispositions and final IR owners, plus the existing structured lint summary.
+        Report IDs are deterministic within this document only; they are not topology or durable
+        feature identifiers. ``bounded-clear`` is not manufacturing readiness because requirement
+        outcomes are not projected yet.
+
+        A declared, framed, injected, or bare drawing whose exact occurrence ownership is
+        unavailable, or a raw drawing with an unclassified accepted occurrence, raises
+        :class:`draftwright.ReportUnavailableError` rather than inventing correspondence or
+        shrinking the denominator. Calling this method never changes rendered drawing content.
+        """
+
+        from draftwright.reporting import drawing_report, validate_report_inputs
+
+        analysis = self._analysis
+        source = getattr(analysis, "step_file", None) if analysis is not None else None
+        evidence = self.recognition_evidence()
+        ownership = self.recognition_ownership()
+        model = self.model()
+        # Preserve schema-v1's fail-before-critique boundary. In particular, a declared drawing
+        # with no conversion-time ownership must refuse without lint lazily running recognition.
+        validate_report_inputs(evidence, ownership, model)
+        return drawing_report(
+            evidence=evidence,
+            ownership=ownership,
+            model=model,
+            lint=self.lint_summary(),
+            source=source,
+        )
+
     # --- build-context compat properties (#639): one BuildState, thin views.
     # _part_model and the two caches are GETTER-ONLY by design (#691 review):
     # zero assignment sites exist in src/ or tests/, and a future wholesale

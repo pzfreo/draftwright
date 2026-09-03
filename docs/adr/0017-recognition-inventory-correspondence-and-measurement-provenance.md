@@ -21,7 +21,9 @@
   groove owner. Amendment 18 records direct and multi-feature legacy ownership for accepted
   through-step occurrences. Amendment 19 records the direct, consolidated, turned-step, or groove
   owner selected for every accepted round-boss occurrence. Amendment 20 gives every accepted
-  face-level and riser evidence occurrence an explicit evidence-only outcome.
+  face-level and riser evidence occurrence an explicit evidence-only outcome. Amendment 21
+  publishes the first bounded, versioned JSON projection
+  of the completed raw occurrence-disposition ledger.
 - **Date:** 2026-08-03
 - **Deciders:** Paul Fremantle (pzfreo)
 
@@ -577,6 +579,42 @@ no IR adapter, Sheet DSL word, recognition scan, provider API, annotation, requi
 compiled-plan dependency, generated artefact, or visual change. ADRs 0010 and 0014 are untouched;
 ADRs 0011 and 0015 retain the declared/compiler waist; ADR 0013 retains the released provider
 boundary; and ADR 0020's evidence-less framed path remains unchanged.
+
+## Amendment 21 — The raw occurrence ledger has a bounded versioned report
+
+`Drawing.report()` now projects one raw automatic build's exact `RecognitionEvidence` and
+`RecognitionOwnership` into the closed top level of `draftwright-report` schema version 1. Every
+accepted occurrence receives a deterministic report-local ID, its provider family, public
+JSON-compatible record and consumer-declared record schema version, one of the six settled
+dispositions, a closed reason, optional tracking issue, and zero or more report-local final IR
+owners. The counts cover every provider-issued accepted occurrence; an unclassified family,
+ambiguous record schema, foreign authority, absent model, or unavailable ownership boundary
+refuses the report instead of shrinking its denominator.
+
+Occurrence IDs follow the provider's documented accepted-occurrence order and owner IDs follow
+the final IR order. They explain references within one document only. The projection does not
+serialize `FeatureRef`, `FaceRef`, transient group-member positions, topology traversal, object
+addresses, or any identifier intended to survive another recognition run. Records cross only via
+their public `to_dict()` surface and are normalized to strict JSON primitives with NaN and Infinity
+rejected. A recorded owner missing from the current final model becomes `unexpectedly_missing`;
+it cannot retain represented credit.
+
+The report incorporates `Drawing.lint_summary()` but deliberately marks per-occurrence requirement
+coverage `not-projected`. `bounded-clear` therefore means only that this bounded accepted-occurrence
+and lint projection found no known blocker; it is not physical completeness, manufacturing
+readiness, or evidence that recognisers found everything. Unsupported, deferred, evidence-only,
+unexpectedly-missing, or lint-failing evidence produces `needs-attention`. Feature→requirement→
+annotation reconciliation remains an independent later evidence gate and never uses the compiled
+plan as its completeness denominator.
+
+Schema version 1 is raw-automatic and in-memory only. Declared, provider-framed, foreign-result,
+and bare paths refuse with `ReportUnavailableError` because they do not carry the exact
+conversion-time ownership authority; no value/proximity reconstruction or second scan fills that
+gap. Atomic writing, source/output manifests, generated-Python gap snapshots, declared runtime
+reconciliation, and CLI/script sidecars remain separate vertical slices. The report path invokes no
+placement and changes no PDF/SVG/DXF/PNG content. ADR 0010's annotation registry, ADR 0011's
+recognition-free declared build, ADR 0013's released provider boundary, ADR 0014's shared solve,
+ADR 0015's compiler waist, and ADR 0020's framed boundary remain unchanged.
 
 ## Accepted Contract
 
