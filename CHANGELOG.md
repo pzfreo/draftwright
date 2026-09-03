@@ -4,6 +4,13 @@
 
 ### Added
 
+- Accepted turned-step occurrences now retain the conversion decision that already gives an
+  ordinary profile band its exact `StepFeature` or absorbs a groove-floor band into the exact
+  same-run `GrooveFeature`. The takeover must be one-to-one in both directions, so an ambiguous
+  groove, an adjacent band inside its positional tolerance, or any missing final owner fails closed
+  as `unexpectedly_missing`, with no second scan, persistent ID, generated artefact, or visual
+  change (#1438, ADR 0017 Amendment 17).
+
 - Accepted channel occurrences now receive an exact conditional consumer outcome. A genuine
   multi-axis plate channel is `represented` by its `ChannelFeature`; a monolithic Z-depth rebate is
   `absorbed` only when one retained body-local support carries its floor and both shoulders into the

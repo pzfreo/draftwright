@@ -17,6 +17,8 @@
   14 records settled ownerless consumer-policy outcomes per accepted occurrence. Amendment 15
   records each accepted countersink as absorbed by its exact same-run hole owner. Amendment 16
   records the conditional direct-or-step-ladder owner of every accepted channel occurrence.
+  Amendment 17 records each turned-profile step as directly represented or absorbed by its exact
+  groove owner.
 - **Date:** 2026-08-03
 - **Deciders:** Paul Fremantle (pzfreo)
 
@@ -435,6 +437,33 @@ compiled-plan dependency, annotation placement, generated artefact, or visual ch
 declared build; ADR 0013 keeps geometry recognition separate from consumer classification; and ADR
 0020's framed evidence boundary is unchanged.
 
+## Amendment 17 — Turned steps retain direct or groove ownership
+
+Every accepted turned-step occurrence now enters the supported-owner denominator. An ordinary
+profile band records the exact `StepFeature` created by its existing adapter as `represented`. When
+the established groove-precedence rule suppresses a narrow floor band, that step is `absorbed` by
+the exact `GrooveFeature` created from the same-run groove record. The groove retains its own
+represented occurrence outcome; sharing its final feature does not manufacture a duplicate
+requirement.
+
+The relationship is captured where the consumer already evaluates
+`groove_owns_turned_step_band()`. A band with no matching groove keeps its direct adapter. A
+groove-suppressed band is absorbed only when exactly one groove from its unambiguously assigned
+body-local profile owns it **and that groove owns exactly one accepted step band**. Ambiguity in
+either direction leaves every affected accepted step `unexpectedly_missing`; in particular, a
+sub-millimetre adjacent band inside the positional tolerance cannot silently share a groove whose
+width and floor diameter do not represent it. Both the conversion decision and the ownership
+ledger enforce the groove-to-step cardinality, so another builder caller cannot manufacture an
+invalid snapshot. Feature order, equal diameters, labels, topology indices, and object addresses
+are never used as persistent correspondence.
+
+This consumes only released public `TurnedStep`, `Groove`, profile-key, and aggregate records. It
+adds no provider API, recognition scan, persistent/report identity, manufacturing inference,
+compiled-plan dependency, annotation placement, generated artefact, or visual change. ADRs 0010
+and 0014 remain untouched; ADRs 0011 and 0015 retain the semantic Sheet/IR waist and
+recognition-free declared build; ADR 0013 keeps provider recognition separate from consumer
+precedence; and ADR 0020's framed evidence boundary is unchanged.
+
 ## Accepted Contract
 
 ### 1. One orchestration owns the recognition universe
@@ -481,8 +510,9 @@ not accept an arbitrary aggregate and then attempt to prove it came from the sam
 This originally answered **result-to-build provenance only**. Amendment 12 records exact
 occurrence→IR ownership for unconditional 1:1 adapters, and Amendment 13 adds explicit singleton,
 grouped, and pattern-member ownership for holes, slots, and pockets. Amendment 15 adds exact nested
-countersink→hole ownership, and Amendment 16 adds conditional direct-or-step-ladder channel
-ownership. Remaining supported conditional families, and the general
+countersink→hole ownership, Amendment 16 adds conditional direct-or-step-ladder channel ownership,
+and Amendment 17 adds direct-or-groove turned-step ownership. Remaining supported conditional
+families, and the general
 feature→requirement→annotation correspondence, remain subjects of the evidence gates below. Settled
 unsupported, evidence-only, and deferred policy is explicit per accepted occurrence under Amendment
 14.
