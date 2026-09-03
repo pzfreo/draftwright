@@ -4,6 +4,15 @@
 
 ### Added
 
+- Generated Sheet Python now embeds a deterministic, versioned, JSON-compatible snapshot of
+  actionable accepted-occurrence gaps from the exact recognition run that produced its model.
+  The compact snapshot carries only unsupported, deferred, evidence-only, and unexpectedly
+  missing public records; STEP inputs are read once and recognition uses a private copy of the
+  exact bytes named by the embedded basename and SHA-256, with a best-effort final replay-target
+  check before writing. The hash is a later reconciliation boundary, not a lock on the mutable
+  source path. It is explicitly generation-time evidence, never current completeness authority
+  (#1438, ADR 0017 Amendment 24).
+
 - Accepted Plate occurrences now retain exact conditional ownership. Genuine multi-axis plates
   keep their direct `PlateFeature`; other slabs are absorbed only when released same-run AAG
   evidence joins them to the exact retained face-level, riser-shoulder, or slot-pattern owner.

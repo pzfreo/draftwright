@@ -1,4 +1,4 @@
-"""Versioned machine-readable projection of one drawing's accepted recognition evidence."""
+"""Versioned machine-readable drawing reports and generation-time gap snapshots."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from importlib.metadata import version as distribution_version
 from os import PathLike
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, TypeAlias, cast
 
 from draftwright.recogniser_schema import consumed_record_schema_versions_for_type
 
@@ -32,16 +32,20 @@ _DISPOSITIONS = (
 _ATTENTION_DISPOSITIONS = frozenset(
     {"unsupported", "deferred", "evidence_only", "unexpectedly_missing"}
 )
+_SNAPSHOT_SCHEMA = "draftwright-recognition-snapshot"
+_SNAPSHOT_SCHEMA_VERSION = 1
+
+JsonValue: TypeAlias = None | bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"]
 
 
 class ReportUnavailableError(RuntimeError):
     """The drawing cannot yet produce a truthful occurrence-level report."""
 
 
-def _json_value(value: object) -> object:
+def _json_value(value: object) -> JsonValue:
     """Return isolated strict JSON primitives, rejecting NaN/Infinity and repr fallbacks."""
 
-    return json.loads(json.dumps(value, allow_nan=False, sort_keys=True))
+    return cast(JsonValue, json.loads(json.dumps(value, allow_nan=False, sort_keys=True)))
 
 
 def _record_schema_version(family: str, record: object) -> int:
@@ -58,6 +62,13 @@ def _source(source: str | PathLike[str] | None) -> dict[str, str | None]:
     if isinstance(source, (str, PathLike)):
         return {"kind": "step", "name": Path(source).name}
     return {"kind": "build123d", "name": None}
+
+
+def _producer() -> dict[str, str]:
+    return {
+        "draftwright": distribution_version("draftwright"),
+        "b123d-recognisers": distribution_version("b123d-recognisers"),
+    }
 
 
 def _feature_ids(model: object) -> dict[int, tuple[object, dict[str, str]]]:
@@ -187,10 +198,7 @@ def drawing_report(
         "schema": REPORT_SCHEMA,
         "schema_version": REPORT_SCHEMA_VERSION,
         "status": "needs-attention" if needs_attention else "bounded-clear",
-        "producer": {
-            "draftwright": distribution_version("draftwright"),
-            "b123d-recognisers": distribution_version("b123d-recognisers"),
-        },
+        "producer": _producer(),
         "source": _source(source),
         "outputs": {},
         "recognition": {
@@ -201,6 +209,69 @@ def drawing_report(
         },
         "lint": lint,
     }
+
+
+def _generation_snapshot(
+    *,
+    evidence: RecognitionEvidence | None,
+    ownership: RecognitionOwnership | None,
+    model: PartModel | None,
+    source: str | PathLike[str] | None,
+    source_sha256: str | None,
+) -> dict[str, JsonValue]:
+    """Project generation-time accepted-occurrence gaps without compiling or rendering."""
+
+    occurrences, _summary = _occurrences(evidence, ownership, model)
+    gaps = [
+        {
+            key: occurrence[key]
+            for key in (
+                "id",
+                "family",
+                "record_type",
+                "record_schema_version",
+                "record",
+                "disposition",
+                "reason_code",
+                "tracking",
+            )
+        }
+        for occurrence in occurrences
+        if occurrence["disposition"] in _ATTENTION_DISPOSITIONS
+    ]
+    summary = {
+        "total": len(gaps),
+        **{
+            disposition: sum(gap["disposition"] == disposition for gap in gaps)
+            for disposition in (
+                "unsupported",
+                "deferred",
+                "evidence_only",
+                "unexpectedly_missing",
+            )
+        },
+    }
+    snapshot_source: dict[str, str | None] = {
+        **_source(source),
+        "sha256": source_sha256,
+    }
+    return cast(
+        dict[str, JsonValue],
+        {
+            "schema": _SNAPSHOT_SCHEMA,
+            "schema_version": _SNAPSHOT_SCHEMA_VERSION,
+            "status": (
+                "accepted_occurrences_unrepresented"
+                if gaps
+                else "no_unrepresented_accepted_occurrences"
+            ),
+            "coverage": "accepted-occurrence-gaps",
+            "producer": _producer(),
+            "source": snapshot_source,
+            "summary": summary,
+            "gaps": gaps,
+        },
+    )
 
 
 def _write_report_document(report: dict[str, object], path: str | PathLike[str]) -> str:

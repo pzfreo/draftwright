@@ -229,10 +229,10 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
 - **`recogniser_schema.py`** — the rank-0 Draftwright-owned table of public provider record
   schema versions consumed by adapters. The report projector and rank-7 cross-repository
   validator share this leaf, so the engine never imports the validator to learn schema metadata.
-- **`reporting.py`** — the rank-0 pure schema-v1 projector. `Drawing` owns all reads from its
-  `BuildState` and passes the exact evidence, ownership, final model, lint summary, and source
-  metadata down explicitly; reporting never reaches through `Drawing` private state or triggers
-  recognition, placement, or export.
+- **`reporting.py`** — the rank-0 pure schema-v1 report and generation-snapshot projector.
+  `Drawing` owns all report reads from its `BuildState`, while generated Python passes the exact
+  retained evidence, ownership, detected model, and source digest explicitly. Reporting never
+  reaches through `Drawing` private state or triggers recognition, placement, or export.
 - **`recognition_frame.py`** — the ADR 0020 prepared local-frame boundary. It calls the public
   provider preparation seam, classifies the exact normalized solid from its already-scanned
   cylinders, runs one paired aggregate, propagates typed refusal without fallback, and exposes
@@ -292,12 +292,13 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   alias shim was deleted at 0.4.0, #720).
 - **`sheet_emit.py`** — **the** script emitter, behind `--script` (#940 retired the
   imperative alternative): generates an editable `Sheet` script from a detected
-  model — one named binding per feature, an explicit dimension source. Facade tier;
-  imports `builder` downward at module level. The old builder→cli→sheet_emit
+  model — one named binding per feature, an explicit dimension source, and a bounded
+  generation-time recognition-gap snapshot. Facade tier; imports `builder` and the pure
+  `reporting` projector downward at module level. The old builder→cli→sheet_emit
   lazy cycle is **gone** (#523): the `_cli` compat shim moved from `builder` to
   `cli.py` (beside the Typer `app`), so `builder` no longer imports `cli` and
   `_LAZY_UPWARD_EXEMPT` is now empty. The graph is a plain DAG —
-  `cli → {builder, sheet_emit}`, `sheet_emit → builder`, `builder → ∅`.
+  `cli → {builder, sheet_emit}`, `sheet_emit → {builder, reporting}`, `builder → ∅`.
 - **`score.py` / `recognition/`** — temporary public compatibility re-exports of
   `b123d_recognisers`, identity-preserving and scheduled for removal in 0.6.0. There are no
   embedded recogniser modules. Engine code imports the external package directly; private

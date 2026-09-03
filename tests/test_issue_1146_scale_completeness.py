@@ -546,7 +546,9 @@ def test_script_emitter_rejects_nondefault_policy_without_scale(tmp_path, monkey
     def detection_must_not_run(*_args, **_kwargs):
         raise AssertionError("invalid script options must fail before model detection")
 
-    monkeypatch.setattr("draftwright.sheet_emit.detect_part_model", detection_must_not_run)
+    monkeypatch.setattr(
+        "draftwright.sheet_emit._detect_part_model_analysis", detection_must_not_run
+    )
 
     with pytest.raises(ValueError, match="only when an explicit scale"):
         generate_sheet_script(

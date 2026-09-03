@@ -29,17 +29,24 @@ fixtures (#472).
 
 from __future__ import annotations
 
+import hashlib
 import math
+import pprint
 import re
 from collections.abc import Mapping, Sequence
+from contextlib import ExitStack
 from dataclasses import dataclass, fields, is_dataclass
 from numbers import Real
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Literal, cast
 
 from build123d import Shape
 
-from draftwright.builder import build_drawing, detect_part_model
+from draftwright.builder import (
+    _detect_part_model_analysis,
+    build_drawing,
+)
 from draftwright.fits import FitClass
 from draftwright.model.ir import (
     KnurlRequirement,
@@ -48,6 +55,7 @@ from draftwright.model.ir import (
     ThreadRequirement,
     ToleranceDecoration,
 )
+from draftwright.reporting import JsonValue, _generation_snapshot, _json_value
 from draftwright.view_plan import ViewConstraints
 
 
@@ -1934,6 +1942,7 @@ def emit_sheet_script(
     formats: Sequence[str] = ("pdf",),
     settled_layout: Mapping | None = None,
     view_constraints: ViewConstraints | None = None,
+    recognition_snapshot: Mapping[str, JsonValue] | None = None,
 ) -> str:
     """The generated declarative ``Sheet`` script text for a detected *model*.
 
@@ -1966,8 +1975,18 @@ def emit_sheet_script(
     without pretending an edited authored set is still automatic. ``view_constraints`` lets a
     caller emitting an adopted :class:`~draftwright.Sheet` preserve its independent principal
     and derived source choices plus semantic view declarations; targets remain stable feature
-    bindings rather than raw page coordinates."""
+    bindings rather than raw page coordinates.
+
+    ``recognition_snapshot``, when supplied by the generation front door, must contain only
+    strict JSON values. It is normalized through that boundary before becoming a Python literal,
+    so cyclic, non-finite, or arbitrary repr-bearing objects cannot make the emitted script
+    syntactically invalid."""
     _validate_scale_policy(scale, scale_policy)
+    normalized_snapshot = (
+        cast(dict[str, JsonValue], _json_value(dict(recognition_snapshot)))
+        if recognition_snapshot is not None
+        else None
+    )
     # The script declares this model — `model` plus an envelope when the overall height would
     # otherwise be unnameable under the mirrored (authored) set. BEFORE the import scan, since
     # a synthesised envelope needs `EnvelopeFeature` imported like a detected one.
@@ -2077,6 +2096,16 @@ def emit_sheet_script(
             else []
         ),
         "",
+        *(
+            [
+                "# Generation-time evidence only: the fresh runtime report remains authoritative.",
+                "DRAFTWRIGHT_RECOGNITION_SNAPSHOT = "
+                + pprint.pformat(normalized_snapshot, sort_dicts=False, width=99),
+                "",
+            ]
+            if normalized_snapshot is not None
+            else []
+        ),
         part_expr,
         "",
         f"sheet = Sheet(part, {', '.join(ctor)})",
@@ -2336,35 +2365,85 @@ def generate_sheet_script(
             break
     title = title or (Path(stem).name.replace("_", " ").upper() if not is_shape else "DRAWING")
 
+    # A STEP path is mutable and may be a retargetable symlink. Resolve its replay seam once,
+    # then read one immutable byte snapshot. Recognition, PMI, and any semantic-correction build
+    # all consume a private copy of those exact hashed bytes; no endpoint re-hash can be fooled by
+    # an A→B→A replacement during recognition (ADR 0017 Amendment 24).
+    source_display = None if is_shape else Path(step_file)
+    source_resolved = None if source_display is None else source_display.resolve()
+    source_bytes = None if source_resolved is None else source_resolved.read_bytes()
+    source_sha256 = None if source_bytes is None else hashlib.sha256(source_bytes).hexdigest()
+
     if part_expr is not None:
         pass  # caller-supplied seam (e.g. an import of a live module, #469)
     elif is_shape:
         part_expr = "part = ...   # ← wire in your build123d object (built above)"
     else:
         # absolute so the generated script runs from any working directory
-        abspath = str(Path(step_file).resolve())
+        assert source_resolved is not None
+        abspath = str(source_resolved)
         part_expr = f"from build123d import import_step\npart = import_step({abspath!r})"
 
-    model = detect_part_model(step_file, pmi=pmi)
-    settled_layout = None
-    # The two current semantic correction passes apply to turned shoulder chains (#443)
-    # and prismatic step ladders that requested a recovery detail (#1155). Generated
-    # scripts mirror the selected dimensions as AUTHORED lines, correctly disabling those
-    # automatic-only retries on re-run. Resolve just these candidate families once during
-    # generation; if a correction actually wins, carry its result into the editable script.
-    # Ordinary parts retain the cheap detect-only generation path.
-    may_need_semantic_correction = model.orientation is not None or any(
-        feature.kind == "step_level" for feature in model.features
-    )
-    if scale is None and may_need_semantic_correction:
-        settled = build_drawing(
-            step_file,
+    with ExitStack() as source_stack:
+        detection_source: str | Shape | Path = step_file
+        if source_bytes is not None:
+            snapshot_dir = Path(
+                source_stack.enter_context(TemporaryDirectory(prefix="draftwright-source-"))
+            )
+            snapshot_name = source_resolved.name if source_resolved is not None else "source.step"
+            detection_source = snapshot_dir / snapshot_name
+            detection_source.write_bytes(source_bytes)
+
+        model, analysis = _detect_part_model_analysis(detection_source, pmi=pmi)
+        recognition_snapshot = _generation_snapshot(
+            evidence=analysis.recognition_evidence,
+            ownership=analysis.recognition_ownership,
+            model=model,
+            source=source_display,
+            source_sha256=source_sha256,
+        )
+        settled_layout = None
+        # Generated scripts mirror dimensions as an authored set. Resolve the two established
+        # semantic-correction families against the same immutable STEP snapshot as recognition.
+        may_need_semantic_correction = model.orientation is not None or any(
+            feature.kind == "step_level" for feature in model.features
+        )
+        if scale is None and may_need_semantic_correction:
+            settled = build_drawing(
+                detection_source,
+                title=title,
+                number=number,
+                tolerance=tolerance,
+                drawn_by=drawn_by,
+                page=page,
+                scale_policy=scale_policy,
+                material=material,
+                date=date,
+                revision=revision,
+                company=company,
+                frame=frame,
+                zones=zones,
+                projection=projection,
+                pmi=pmi,
+                model=model,
+            )
+            if settled.scale_decision.get("status") == "automatic_replanned":
+                settled_layout = {
+                    "scale": settled.scale,
+                    "page": (settled.page_w, settled.page_h),
+                    "views": tuple(settled.views),
+                }
+        script = emit_sheet_script(
+            model,
+            part_expr,
+            stem,
             title=title,
             number=number,
-            tolerance=tolerance,
             drawn_by=drawn_by,
-            page=page,
+            tolerance=tolerance,
+            scale=scale,
             scale_policy=scale_policy,
+            page=page,
             material=material,
             date=date,
             revision=revision,
@@ -2372,39 +2451,24 @@ def generate_sheet_script(
             frame=frame,
             zones=zones,
             projection=projection,
-            pmi=pmi,
-            model=model,
+            object_ref=is_shape,
+            object_candidates=object_candidates,
+            source_part=step_file if isinstance(step_file, Shape) else None,
+            formats=formats,
+            settled_layout=settled_layout,
+            recognition_snapshot=recognition_snapshot,
         )
-        if settled.scale_decision.get("status") == "automatic_replanned":
-            settled_layout = {
-                "scale": settled.scale,
-                "page": (settled.page_w, settled.page_h),
-                "views": tuple(settled.views),
-            }
-    script = emit_sheet_script(
-        model,
-        part_expr,
-        stem,
-        title=title,
-        number=number,
-        drawn_by=drawn_by,
-        tolerance=tolerance,
-        scale=scale,
-        scale_policy=scale_policy,
-        page=page,
-        material=material,
-        date=date,
-        revision=revision,
-        company=company,
-        frame=frame,
-        zones=zones,
-        projection=projection,
-        object_ref=is_shape,  # a live Shape / resolved object-spec has objects to reference (#771)
-        object_candidates=object_candidates,
-        source_part=step_file if isinstance(step_file, Shape) else None,
-        formats=formats,
-        settled_layout=settled_layout,
-    )
+    if source_resolved is not None:
+        try:
+            replay_sha256 = hashlib.sha256(source_resolved.read_bytes()).hexdigest()
+        except OSError as error:
+            raise RuntimeError(
+                "STEP replay source became unavailable while generating its recognition snapshot"
+            ) from error
+        if replay_sha256 != source_sha256:
+            raise RuntimeError(
+                "STEP replay source changed while generating its recognition snapshot"
+            )
     py_path = f"{stem}.py"
     Path(py_path).write_text(script, encoding="utf-8")  # the script has box-drawing / × / ← glyphs
     return py_path

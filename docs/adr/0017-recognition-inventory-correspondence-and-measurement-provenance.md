@@ -656,6 +656,38 @@ placement behavior, or inferred requirement. The raw automatic path records the 
 decision only; declared and provider-framed boundaries remain unchanged under ADRs 0011, 0013,
 0015, and 0020.
 
+## Amendment 24 — Generated Python carries a bounded recognition-gap snapshot
+
+`generate_sheet_script(...)` now retains the exact `Analysis` that produced its detected model and
+embeds `DRAFTWRIGHT_RECOGNITION_SNAPSHOT`, a versioned JSON-compatible Python dictionary projected
+from that run's evidence and ownership ledger. The compact snapshot includes only accepted
+occurrences with `unsupported`, `deferred`, `evidence_only`, or `unexpectedly_missing`
+dispositions. Ordinary represented and absorbed facts remain the existing editable semantic Sheet
+declarations rather than being duplicated into a second model.
+
+The snapshot is explicitly generation-time evidence, not present authority. It carries the public
+record and consumer schema version, deterministic report-local occurrence ID, disposition, reason,
+and tracking issue, but no provider reference, face reference, topology index, object address,
+annotation coordinate, or persistent identity. For a STEP source, the generator resolves the
+replay seam once, reads one immutable byte snapshot, and hashes those exact bytes. Recognition,
+PMI, and any semantic-correction build consume a private copy of the same bytes, so path mutation,
+symlink retargeting, and A→B→A replacement cannot split provenance from the generated model. Only
+the original input basename and byte SHA-256 are embedded; the private copy is discarded. Before
+committing the script, the generator makes a best-effort final observation and refuses a replay
+target that is then missing or has a different digest. It cannot lock that pathname against a
+later replacement, including one concurrent with the output write; the embedded digest is the
+comparison boundary for the later fresh-runtime reconciliation slice, not a freshness guarantee
+for a mutable source path. A live build123d object truthfully has no file hash. An empty snapshot is
+named
+`no_unrepresented_accepted_occurrences`, never complete or manufacturing-ready.
+
+This slice adds no recognition call: model and snapshot project the same build-owned analysis.
+It does not yet make the generated declared build a raw-report authority or reconcile an edited
+script with current recognition; the visible runtime `write_report(...)` call, fresh drift
+comparison, output manifests, and CLI sidecar default remain later slices. The snapshot neither
+compiles nor places annotations, changes no visual output, and preserves ADRs 0010, 0011, 0013,
+0014, 0015, 0017's one-run lifecycle, and 0020's framed boundary.
+
 ## Accepted Contract
 
 ### 1. One orchestration owns the recognition universe
