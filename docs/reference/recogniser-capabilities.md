@@ -591,6 +591,13 @@ backfill evidence. The framed route remains evidence-less pending upstream
 [`b123d-recognisers#463`](https://github.com/pzfreo/b123d-recognisers/issues/463). This foundation
 does not yet claim a report disposition or change any rendered artefact.
 
+Round-boss ownership is now explicit at that same run-local boundary. Each accepted `BossRecord`
+retains the exact consumer-selected final owner: its singleton `BossFeature`, the one existing
+same-diameter representative, its body-local turned step, or the groove that absorbs that step or
+the profile-gate fallback. The occurrence's own geometry remains available even when the drawing
+uses a consolidated owner. Ambiguous selection fails closed as `unexpectedly_missing`; it cannot be
+certified by equal values, ordering, rendered labels, or topology identity.
+
 ## Recognisers 0.4.9 prepared frame boundary
 
 Draftwright's 0.4.9 boundary accepted `RiserEvidence` v2,

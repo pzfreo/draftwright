@@ -222,12 +222,12 @@ def _pattern_feature(pat, members) -> PatternFeature:
     return PatternFeature(frame, "other", n, _member_hole(members[0], frame), members=locs)
 
 
-def _distinct_by_diameter(bosses, tol: float = 0.15):
-    """One representative boss per distinct external diameter."""
-    out: dict[float, object] = {}
+def _groups_by_diameter(bosses, tol: float = 0.15):
+    """Group bosses exactly as the existing diameter representative projection does."""
+    out: dict[float, list[object]] = {}
     for b in bosses:
         key = next((k for k in out if abs(k - b.diameter) <= tol), b.diameter)
-        out.setdefault(key, b)
+        out.setdefault(key, []).append(b)
     return list(out.values())
 
 
@@ -235,17 +235,23 @@ def _boss_is_groove_floor(b, grooves) -> bool:
     """A recognised boss coinciding with a groove floor — same turning axis and (floor) ø — is
     that floor. The groove callout already dimensions it, so it must not also get a boss ø
     (#148c review; applies whether or not the part read as a turned profile)."""
+    return bool(_boss_groove_floor_candidates(b, grooves))
+
+
+def _boss_groove_floor_candidates(b, grooves):
+    """Exact groove records satisfying the established boss-floor consumer predicate."""
     ax = _axis_letter(b)
     axis_index = "xyz".index(ax)
-    return any(
-        abs(b.diameter - g.diameter) <= _DIA_TOL
+    return tuple(
+        g
+        for g in grooves
+        if abs(b.diameter - g.diameter) <= _DIA_TOL
         and g.axis == ax
         and all(
             abs(float(b.location[index]) - float(g.at[index])) <= 0.5
             for index in range(3)
             if index != axis_index
         )
-        for g in grooves
     )
 
 
@@ -1727,7 +1733,9 @@ def build_part_model(
     # before aggregate ownership is decided; the bbox alone is private geometry, not ink.
     if bosses is None:
         bosses = recognise_bosses(part, cyls=cyls)
-    bosses_d = _distinct_by_diameter(bosses)
+    boss_groups = _groups_by_diameter(bosses)
+    bosses_d = [group[0] for group in boss_groups]
+    pending_boss_owners: list[tuple[object, object, str]] = []
     if polygonal_stock is None:
         polygonal_stock = recognise_polygonal_stock(part)
     envelope_emittable = bool(
@@ -2158,6 +2166,8 @@ def build_part_model(
         # with the feature_diameters inventory the coverage lint checks against. A groove
         # floor is likewise a narrow reduced band, but the groove callout already carries its
         # ø, so it is suppressed here (_boss_is_groove_floor) to avoid a duplicate boss ø.
+        boss_step_candidates: list[tuple[object, tuple[object, ...]]] = []
+        boss_groove_candidates: list[tuple[object, tuple[object, ...]]] = []
         for b in bosses:
             axis = _axis_letter(b)
             axis_index = "xyz".index(axis)
@@ -2167,8 +2177,10 @@ def build_part_model(
                     float(b.location[axis_index] - b.axis[axis_index] * b.height),
                 )
             )
-            owned = any(
-                profile.axis == axis
+            candidate_steps = tuple(
+                step
+                for profile in profiles
+                if profile.axis == axis
                 and (
                     profile.profile is None
                     or all(
@@ -2177,25 +2189,87 @@ def build_part_model(
                         if index != axis_index
                     )
                 )
-                and any(
+                for step in profile.steps
+                if (
                     abs(b.diameter - step.diameter) <= _DIA_TOL
                     and abs(b_lo - step.lo) <= 0.5
                     and abs(b_hi - step.hi) <= 0.5
-                    for step in profile.steps
                 )
-                for profile in profiles
             )
-            if not owned and not _boss_is_groove_floor(b, grooves):
-                features.append(convert(b, ctx))
+            boss_step_candidates.append((b, candidate_steps))
+            owned = bool(candidate_steps)
+            if not owned:
+                candidate_grooves = _boss_groove_floor_candidates(b, grooves)
+                boss_groove_candidates.append((b, candidate_grooves))
+                if not candidate_grooves:
+                    boss_feature = convert(b, ctx)
+                    features.append(boss_feature)
+                    if ownership is not None:
+                        ownership.bind(b, boss_feature, reason_code="boss_adapter")
+        if ownership is not None:
+            step_claim_counts = Counter(
+                id(candidate) for _, candidates in boss_step_candidates for candidate in candidates
+            )
+            pending_boss_owners.extend(
+                (boss, candidates[0], "boss_turned_step_owner")
+                for boss, candidates in boss_step_candidates
+                if len(candidates) == 1 and step_claim_counts[id(candidates[0])] == 1
+            )
+            groove_claim_counts = Counter(
+                id(candidate)
+                for _, candidates in boss_groove_candidates
+                for candidate in candidates
+            )
+            pending_boss_owners.extend(
+                (boss, candidates[0], "boss_groove_owner")
+                for boss, candidates in boss_groove_candidates
+                if len(candidates) == 1 and groove_claim_counts[id(candidates[0])] == 1
+            )
     else:
-        for b in bosses_d:
+        boss_groove_candidates = [
+            (boss, _boss_groove_floor_candidates(boss, grooves)) for boss in bosses
+        ]
+        groove_claim_counts = Counter(
+            id(candidate) for _, candidates in boss_groove_candidates for candidate in candidates
+        )
+        groove_candidates_by_boss_id = {
+            id(boss): candidates for boss, candidates in boss_groove_candidates
+        }
+        for group in boss_groups:
+            b = group[0]
             # A grooved round body can still fail the turned-step squareness gate (e.g. a
             # shaft with a rectangular flange) and land here with prof=None. Suppress the
             # groove-floor boss so its ø is not dimensioned twice — boss ø + groove callout
             # (#148c 3rd-pass review).
             if _boss_is_groove_floor(b, grooves):
+                if ownership is not None:
+                    pending_boss_owners.extend(
+                        (member, candidates[0], "boss_groove_owner")
+                        for member in group
+                        if len(candidates := groove_candidates_by_boss_id[id(member)]) == 1
+                        and groove_claim_counts[id(candidates[0])] == 1
+                    )
                 continue
-            features.append(convert(b, ctx))
+            boss_feature = convert(b, ctx)
+            features.append(boss_feature)
+            if ownership is not None:
+                represented = tuple(
+                    member for member in group if not groove_candidates_by_boss_id[id(member)]
+                )
+                if len(represented) == 1:
+                    ownership.bind(represented[0], boss_feature, reason_code="boss_adapter")
+                else:
+                    ownership.absorb(
+                        represented,
+                        boss_feature,
+                        reason_code="boss_diameter_group_member",
+                    )
+                pending_boss_owners.extend(
+                    (member, candidates[0], "boss_groove_owner")
+                    for member in group
+                    if len(candidates := groove_candidates_by_boss_id[id(member)]) == 1
+                    and groove_claim_counts[id(candidates[0])] == 1
+                )
         # Overall envelope dims for a *prismatic* part — not a round single-OD body
         # (a boss whose diameter fills the footprint is the body, dimensioned by its
         # OD, not a box).
@@ -2411,6 +2485,20 @@ def build_part_model(
                         groove_feature,
                         reason_code="turned_step_groove_owner",
                     )
+
+    if ownership is not None:
+        # A turned step is the more specific correspondence. Resolve it before the direct
+        # groove-floor fallback so the builder's final-owner cardinality guard leaves a
+        # disconnected same-diameter boss honestly missing rather than crediting both.
+        ordered_boss_owners = sorted(
+            pending_boss_owners,
+            key=lambda pending: pending[2] != "boss_turned_step_owner",
+        )
+        for boss_record, owner_record, reason_code in ordered_boss_owners:
+            if ownership.has_owner(owner_record) and not ownership.has_chained_dependent(
+                owner_record
+            ):
+                ownership.absorb_via(boss_record, owner_record, reason_code=reason_code)
 
     # Rotational furniture — OD + centrelines + concentric bore leaders (#237). Its
     # presence marks the part rotational; emitted from the classification (od, bores).

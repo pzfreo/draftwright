@@ -19,7 +19,8 @@
   records the conditional direct-or-step-ladder owner of every accepted channel occurrence.
   Amendment 17 records each turned-profile step as directly represented or absorbed by its exact
   groove owner. Amendment 18 records direct and multi-feature legacy ownership for accepted
-  through-step occurrences.
+  through-step occurrences. Amendment 19 records the direct, consolidated, turned-step, or groove
+  owner selected for every accepted round-boss occurrence.
 - **Date:** 2026-08-03
 - **Deciders:** Paul Fremantle (pzfreo)
 
@@ -512,6 +513,45 @@ retain the semantic Sheet/IR waist and recognition-free declared build; ADR 0013
 recognition separate from consumer classification; and ADR 0020's framed evidence boundary is
 unchanged.
 
+## Amendment 19 — Round bosses retain their exact consumer-selected owner
+
+Every accepted round-boss occurrence now enters the supported-owner denominator. A singleton that
+crosses the prismatic adapter is `represented` by its exact `BossFeature`. Where the established
+prismatic projection intentionally keeps one representative per diameter, every same-diameter
+occurrence is `absorbed` by that one feature with explicit transient member lineage. When a boss
+occurrence matches an existing turned-profile step, it is absorbed through that exact same-run
+`TurnedStep` occurrence to the step's final owner: ordinarily a `StepFeature`, or the
+`GrooveFeature` that already absorbs a groove-floor step. When the profile gate is absent but the
+existing groove-floor predicate still suppresses a boss, the occurrence is absorbed directly
+through the exact same-run groove record.
+
+These are records of the existing consumer decisions, not a new grouping or rendering policy. The
+diameter representative still follows the established insertion-stable tolerance grouping, and no
+extra boss feature, count prefix, annotation, requirement, or generated declaration is introduced.
+The accepted occurrence retains its own provider geometry beside the final IR owner, so a later
+report can distinguish two equal-diameter physical bosses even though the current drawing projects
+one representative. Turned correspondence is captured from the exact step record selected by the
+existing axis-line, diameter, and span decision; final ownership is followed through the step's
+already-recorded binding rather than reconstructed from the resulting feature's coordinates.
+
+The conditional paths fail closed. A boss that matches zero or multiple candidate steps, two boss
+occurrences competing for one step, a groove-floor group that lacks a unique same-run groove, or a
+missing intermediate owner remains `unexpectedly_missing`; equal values, feature order, labels,
+rendered dimensions, topology indices, page coordinates, and object addresses cannot manufacture a
+binding. Chained correspondence retains its exact intermediate lineage through IR remapping, and
+at most one boss may depend on either an intermediate occurrence or its final IR owner. Where a
+turned-step route and the direct groove fallback compete for one final groove, the more specific
+turned-step route wins and the other occurrence remains missing. Declared builds and evidence-less
+framed or bare-result paths retain their existing recognition behavior without inventing
+occurrence ownership.
+
+This consumes only released public `BossRecord`, `TurnedStep`, `Groove`, aggregate, and evidence
+contracts. It adds no provider API, recognition scan, persistent/report identity, manufacturing
+inference, compiled-plan dependency, annotation placement, generated artefact, or visual change.
+ADRs 0010 and 0014 remain untouched; ADRs 0011 and 0015 retain the semantic Sheet/IR waist and
+recognition-free declared build; ADR 0013 keeps geometry recognition separate from consumer
+classification; and ADR 0020's framed evidence boundary is unchanged.
+
 ## Accepted Contract
 
 ### 1. One orchestration owns the recognition universe
@@ -560,7 +600,8 @@ occurrence→IR ownership for unconditional 1:1 adapters, and Amendment 13 adds 
 grouped, and pattern-member ownership for holes, slots, and pockets. Amendment 15 adds exact nested
 countersink→hole ownership, Amendment 16 adds conditional direct-or-step-ladder channel ownership,
 Amendment 17 adds direct-or-groove turned-step ownership, and Amendment 18 adds direct or
-multi-feature legacy through-step ownership. Remaining supported conditional families, and the
+multi-feature legacy through-step ownership. Amendment 19 adds direct, diameter-consolidated,
+turned-step, or groove ownership for round bosses. Remaining supported conditional families, and the
 general feature→requirement→annotation correspondence, remain subjects of the evidence gates below.
 Settled unsupported, evidence-only, and deferred policy is explicit per accepted occurrence under
 Amendment 14.

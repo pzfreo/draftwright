@@ -46,7 +46,7 @@ def _channel_occurrence(ownership):
 
 
 def test_conditional_family_roster_is_explicit() -> None:
-    assert CONDITIONAL_FAMILIES == {"channels", "through_steps", "turned_steps"}
+    assert CONDITIONAL_FAMILIES == {"bosses", "channels", "through_steps", "turned_steps"}
 
 
 def test_multi_plate_channel_is_represented_by_its_exact_channel_feature() -> None:
