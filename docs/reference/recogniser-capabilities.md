@@ -598,6 +598,13 @@ the profile-gate fallback. The occurrence's own geometry remains available even 
 uses a consolidated owner. Ambiguous selection fails closed as `unexpectedly_missing`; it cannot be
 certified by equal values, ordering, rendered labels, or topology identity.
 
+`FaceLevel` and `RiserEvidence` occurrences now receive explicit `evidence_only` outcomes. This
+follows the released provider manifest: both are role=`evidence`, deliberately absent from the
+feature census, and consumed as shared substrate for Draftwright's correlated `StepLevelFeature`
+height/shoulder projection. The aggregate face-level and riser families remain supported; the
+outcome says only that each raw evidence record is not itself an independent inferred feature or
+completeness requirement. It adds no Sheet word, IR adapter, drawing ink, or provider API.
+
 ## Recognisers 0.4.9 prepared frame boundary
 
 Draftwright's 0.4.9 boundary accepted `RiserEvidence` v2,

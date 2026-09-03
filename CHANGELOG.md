@@ -4,6 +4,11 @@
 
 ### Added
 
+- Accepted `FaceLevel` and `RiserEvidence` occurrences now receive explicit `evidence_only`
+  outcomes. The released records remain shared substrate for the supported correlated height
+  ladder and shoulder projection, not independent inferred features or drawing requirements; no
+  IR, Sheet DSL, renderer, or recogniser API change is introduced (#1438, ADR 0017 Amendment 20).
+
 - Accepted round-boss occurrences now retain the exact existing consumer outcome: a singleton
   `BossFeature`, one diameter-consolidated representative with transient member lineage, the exact
   turned-step owner, or the exact groove owner reached through that step or the profile-gate

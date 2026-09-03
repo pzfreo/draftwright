@@ -5,12 +5,14 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from b123d_recognisers import capability_manifest
 from b123d_recognisers.evidence import build_recognition_evidence
 from build123d import (
     Align,
     Box,
     BuildPart,
     BuildSketch,
+    Compound,
     Cylinder,
     Plane,
     Pos,
@@ -23,7 +25,11 @@ from build123d import (
 from draftwright import build_drawing
 from draftwright import recognition_ownership as ownership_module
 from draftwright.recogniser_contract import consumer_capability_declaration
-from draftwright.recogniser_policy import UNSUPPORTED_FAMILIES, ownerless_occurrence_policy
+from draftwright.recogniser_policy import (
+    EVIDENCE_ONLY_FAMILIES,
+    UNSUPPORTED_FAMILIES,
+    ownerless_occurrence_policy,
+)
 from draftwright.recognition_ownership import (
     OccurrencePolicyOutcome,
     RecognitionOwnershipBuilder,
@@ -58,6 +64,11 @@ def _oriented_slot_part():
 
 def _repeating_profile_part():
     return import_step(str(_FIXTURES / "issue_1058_wheel_rh.step"))
+
+
+def _step_projection_evidence_part():
+    aligned = (Align.MIN, Align.MIN, Align.MIN)
+    return Box(60, 40, 20, align=aligned) - Pos(30, 0, 10) * Box(30, 40, 10, align=aligned)
 
 
 @pytest.mark.parametrize(
@@ -103,8 +114,32 @@ def _repeating_profile_part():
             "geometry_only_critique",
             None,
         ),
+        (
+            _step_projection_evidence_part,
+            "step_levels",
+            1,
+            "evidence_only",
+            "step_level_projection_evidence",
+            None,
+        ),
+        (
+            _step_projection_evidence_part,
+            "risers",
+            1,
+            "evidence_only",
+            "riser_projection_evidence",
+            None,
+        ),
     ),
-    ids=("angled-step", "passage", "prismatic-pocket", "oriented-slots", "radial-profile"),
+    ids=(
+        "angled-step",
+        "passage",
+        "prismatic-pocket",
+        "oriented-slots",
+        "radial-profile",
+        "face-level-evidence",
+        "riser-evidence",
+    ),
 )
 def test_settled_policy_classifies_each_exact_accepted_occurrence(
     part_factory,
@@ -160,6 +195,72 @@ def test_supported_unknown_and_malformed_families_cannot_gain_ownerless_policy()
 def test_shared_ownerless_policy_table_is_immutable() -> None:
     with pytest.raises(TypeError, match="does not support item assignment"):
         UNSUPPORTED_FAMILIES["passages"] = UNSUPPORTED_FAMILIES["angled-steps"]  # type: ignore[index]
+    with pytest.raises(TypeError, match="does not support item assignment"):
+        EVIDENCE_ONLY_FAMILIES["risers"] = EVIDENCE_ONLY_FAMILIES["step-levels"]  # type: ignore[index]
+
+
+def test_evidence_occurrence_policy_does_not_downgrade_supported_aggregate_families() -> None:
+    declarations = {
+        family["id"]: family for family in consumer_capability_declaration()["families"]
+    }
+
+    assert declarations["face-levels"]["disposition"] == "supported"
+    assert declarations["risers"]["disposition"] == "supported"
+    step_policy = ownerless_occurrence_policy("step_levels")
+    riser_policy = ownerless_occurrence_policy("risers")
+    assert step_policy is not None and step_policy.disposition == "evidence_only"
+    assert riser_policy is not None and riser_policy.disposition == "evidence_only"
+
+
+def test_equal_body_local_projection_evidence_keeps_distinct_outcomes() -> None:
+    def stepped_block():
+        return Box(40, 30, 10) + Pos(0, 0, 10) * Box(20, 30, 10)
+
+    part = Compound(children=[Pos(-60, 0, 0) * stepped_block(), Pos(60, 0, 0) * stepped_block()])
+    evidence = build_recognition_evidence(part)
+    ownership = RecognitionOwnershipBuilder(evidence).snapshot()
+
+    for family, expected_count in (("step_levels", 2), ("risers", 4)):
+        occurrences = tuple(
+            occurrence for occurrence in evidence.features if evidence.family(occurrence) == family
+        )
+        outcomes = tuple(ownership.policy_for(occurrence) for occurrence in occurrences)
+
+        assert len(occurrences) == expected_count
+        assert len({id(occurrence) for occurrence in occurrences}) == expected_count
+        assert all(outcome is not None for outcome in outcomes)
+        assert len({id(outcome) for outcome in outcomes}) == expected_count
+        assert all(outcome.disposition == "evidence_only" for outcome in outcomes if outcome)
+
+
+def test_projection_evidence_policy_matches_the_released_provider_roles() -> None:
+    manifest = {family["id"]: family for family in capability_manifest()["families"]}
+
+    assert manifest["face-levels"]["census_output"] is None
+    assert manifest["risers"]["census_output"] is None
+    assert {record["role"] for record in manifest["face-levels"]["records"]} == {"evidence"}
+    assert {record["name"]: record["role"] for record in manifest["risers"]["records"]} == {
+        "RiserEvidence": "evidence",
+        "StepShoulder": "projection",
+    }
+
+
+def test_raw_step_ladder_keeps_supported_ir_beside_evidence_only_inputs() -> None:
+    drawing = build_drawing(_step_projection_evidence_part())
+    ownership = drawing.recognition_ownership()
+
+    assert ownership is not None
+    assert any(feature.kind == "step_level" for feature in drawing.model().features)
+    for family in ("step_levels", "risers"):
+        occurrences = tuple(
+            occurrence
+            for occurrence in ownership.evidence.features
+            if ownership.evidence.family(occurrence) == family
+        )
+        assert occurrences
+        assert all(ownership.status(occurrence) == "evidence_only" for occurrence in occurrences)
+        assert all(ownership.binding_for(occurrence) is None for occurrence in occurrences)
+        assert all(occurrence not in ownership.unexpectedly_missing for occurrence in occurrences)
 
 
 def test_an_occurrence_cannot_have_both_owner_and_ownerless_policy(monkeypatch) -> None:
