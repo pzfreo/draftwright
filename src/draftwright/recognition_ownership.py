@@ -53,7 +53,7 @@ NESTED_FAMILIES = frozenset({"countersinks"})
 # These accepted occurrences have a supported consumer path, but the final owner depends on
 # Draftwright's cross-family classification.  The conversion site must record either the direct
 # adapter or the exact aggregate feature that intentionally absorbs the occurrence.
-CONDITIONAL_FAMILIES = frozenset({"bosses", "channels", "through_steps", "turned_steps"})
+CONDITIONAL_FAMILIES = frozenset({"bosses", "channels", "plates", "through_steps", "turned_steps"})
 
 OwnershipDisposition = Literal["represented", "absorbed"]
 PolicyDisposition = OwnerlessDisposition
@@ -75,6 +75,7 @@ _REPRESENTED_REASON_CODES = frozenset(
         "hole_adapter",
         "pmi_split_member",
         "pocket_adapter",
+        "plate_adapter",
         "slot_adapter",
         "through_step_adapter",
         "turned_step_adapter",
@@ -93,6 +94,14 @@ _ABSORBED_REASON_CODES = frozenset(
 _FEATURE_ABSORPTION_REASON_CODES = frozenset(
     {"channel_step_level_owner", "turned_step_groove_owner"}
 )
+_MULTI_FEATURE_ABSORPTION_OWNER_KINDS = {
+    "plate_slot_pattern_owner": ("envelope", "slot_pattern"),
+    "plate_step_ladder_owner": ("envelope", "step_level"),
+    "plate_step_level_owner": ("step_level",),
+}
+_MULTI_FEATURE_ABSORPTION_EXISTING_OWNER = {
+    "plate_slot_pattern_owner": ("slot_pattern", "slots", "slot_pattern_member"),
+}
 _REASON_FAMILY = {
     "boss_adapter": "bosses",
     "boss_diameter_group_member": "bosses",
@@ -107,6 +116,10 @@ _REASON_FAMILY = {
     "pmi_split_member": "holes",
     "pocket_adapter": "pockets",
     "pocket_pattern_member": "pockets",
+    "plate_adapter": "plates",
+    "plate_slot_pattern_owner": "plates",
+    "plate_step_ladder_owner": "plates",
+    "plate_step_level_owner": "plates",
     "slot_adapter": "slots",
     "slot_pattern_member": "slots",
     "through_step_adapter": "through_steps",
@@ -609,6 +622,57 @@ class RecognitionOwnershipBuilder:
                 feature,
                 disposition="absorbed",
                 reason_code=reason_code,
+            )
+        )
+
+    def absorb_into_many(
+        self,
+        record: object,
+        features: tuple[object, ...],
+        *,
+        reason_code: str,
+    ) -> None:
+        """Bind one exact Plate occurrence to its explicitly selected aggregate IR owners."""
+
+        expected_kinds = _MULTI_FEATURE_ABSORPTION_OWNER_KINDS.get(reason_code)
+        if expected_kinds is None:
+            raise ValueError("unknown multi-feature absorption reason_code")
+        occurrence = self._occurrence_for(record)
+        if self.evidence.family(occurrence) != _REASON_FAMILY[reason_code]:
+            raise ValueError(
+                "multi-feature absorption reason_code does not match occurrence family"
+            )
+        if type(features) is not tuple:
+            raise TypeError("multi-feature absorption owners must be an exact tuple")
+        if tuple(getattr(feature, "kind", None) for feature in features) != expected_kinds:
+            raise ValueError("multi-feature absorption reason_code does not match IR owners")
+        if id(occurrence) in self._bound_occurrence_ids:
+            raise ValueError("recognition occurrence already has an IR owner")
+        existing_owner = _MULTI_FEATURE_ABSORPTION_EXISTING_OWNER.get(reason_code)
+        if existing_owner is not None:
+            owner_kind, owner_family, owner_reason = existing_owner
+            owner = next(
+                feature for feature in features if getattr(feature, "kind", None) == owner_kind
+            )
+            if not any(
+                binding.disposition in {"represented", "absorbed"}
+                and binding.reason_code == owner_reason
+                and self.evidence.family(binding.occurrence) == owner_family
+                and any(candidate is owner for candidate in binding.features)
+                for binding in self._bindings
+            ):
+                raise ValueError(
+                    "multi-feature absorption requires an existing exact recognition owner"
+                )
+        self._bound_occurrence_ids.add(id(occurrence))
+        self._owned_feature_ids.update(id(feature) for feature in features)
+        self._bindings.append(
+            OccurrenceBinding(
+                occurrence,
+                features[0],
+                disposition="absorbed",
+                reason_code=reason_code,
+                additional_features=features[1:],
             )
         )
 

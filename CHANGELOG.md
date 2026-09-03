@@ -4,6 +4,13 @@
 
 ### Added
 
+- Accepted Plate occurrences now retain exact conditional ownership. Genuine multi-axis plates
+  keep their direct `PlateFeature`; other slabs are absorbed only when released same-run AAG
+  evidence joins them to the exact retained face-level, riser-shoulder, or slot-pattern owner.
+  Multi-owner claims are conjunctive, while whole-envelope, polygonal-boss, disconnected,
+  ambiguous, or malformed cases remain visibly `unexpectedly_missing` rather than borrowing an
+  owner from matching values or traversal order (#1438, ADR 0017 Amendment 23).
+
 - `Drawing.write_report(path)` now atomically writes the versioned report as deterministic,
   strict UTF-8 JSON without coupling library export to sidecar generation. Report and filesystem
   failures leave any existing destination untouched, with best-effort temporary cleanup that does

@@ -632,6 +632,30 @@ no recogniser call, provider API, correspondence inference, persistent topology 
 annotation path, or completeness claim; Amendment 21's raw-only fail-closed report boundary and
 all ADR 0010/0011/0013/0014/0015/0020 constraints remain unchanged.
 
+## Amendment 23 — Plate ownership is conditional and AAG-backed
+
+Accepted `Plate` occurrences now enter the conditional ownership family. A genuine multi-axis
+plate represented by Draftwright's existing direct adapter retains its exact `PlateFeature`.
+Otherwise, an occurrence is absorbed only when released same-run AAG evidence proves one of the
+existing compatibility projections: its defining face supports the exact retained `FaceLevel`,
+its defining face supports the exact `RiserEvidence` shoulder, or its defining face is shared by
+an exact `Slot` member whose existing ownership already names the retained slot-pattern feature.
+The corresponding final owners are respectively the step level, the envelope plus step level, or
+the envelope plus slot pattern.
+
+These multi-owner bindings are conjunctive: every recorded owner must remain in the final model or
+the occurrence becomes `unexpectedly_missing`; partial credit is forbidden. Numeric interval and
+support predicates live in one pure leaf shared by model conversion and Plate-completeness lint,
+but numbers, labels, ordering, equal-valued records, and topology traversal never establish report
+ownership by themselves. Whole-envelope and polygonal-boss compatibility remain completeness-only
+until a released recogniser relation proves exact occurrence lineage. Malformed, disconnected,
+ambiguous, and otherwise unproved cases therefore remain visibly `unexpectedly_missing`.
+
+This amendment adds no recognition scan, provider API, persistent topology ID, rendering or
+placement behavior, or inferred requirement. The raw automatic path records the conversion-time
+decision only; declared and provider-framed boundaries remain unchanged under ADRs 0011, 0013,
+0015, and 0020.
+
 ## Accepted Contract
 
 ### 1. One orchestration owns the recognition universe

@@ -46,7 +46,13 @@ def _channel_occurrence(ownership):
 
 
 def test_conditional_family_roster_is_explicit() -> None:
-    assert CONDITIONAL_FAMILIES == {"bosses", "channels", "through_steps", "turned_steps"}
+    assert CONDITIONAL_FAMILIES == {
+        "bosses",
+        "channels",
+        "plates",
+        "through_steps",
+        "turned_steps",
+    }
 
 
 def test_multi_plate_channel_is_represented_by_its_exact_channel_feature() -> None:
@@ -95,7 +101,11 @@ def test_cross_axis_rebate_does_not_inherit_an_unrelated_z_step_ladder() -> None
     assert any(feature.kind == "step_level" for feature in drawing.model().features)
     assert ownership.binding_for(occurrence) is None
     assert ownership.status(occurrence) == "unexpectedly_missing"
-    assert ownership.unexpectedly_missing == (occurrence,)
+    assert tuple(
+        candidate
+        for candidate in ownership.unexpectedly_missing
+        if ownership.evidence.family(candidate) == "channels"
+    ) == (occurrence,)
 
 
 def test_disconnected_body_cannot_donate_a_channel_step_ladder_owner() -> None:
@@ -313,10 +323,18 @@ def test_unbound_channel_fails_closed_as_unexpectedly_missing() -> None:
     ownership = RecognitionOwnershipBuilder(evidence).snapshot()
     occurrence = _channel_occurrence(ownership)
 
-    assert ownership.expected_conditional == (occurrence,)
+    assert tuple(
+        candidate
+        for candidate in ownership.expected_conditional
+        if ownership.evidence.family(candidate) == "channels"
+    ) == (occurrence,)
     assert occurrence in ownership.owner_expected_occurrences
     assert ownership.status(occurrence) == "unexpectedly_missing"
-    assert ownership.unexpectedly_missing == (occurrence,)
+    assert tuple(
+        candidate
+        for candidate in ownership.unexpectedly_missing
+        if ownership.evidence.family(candidate) == "channels"
+    ) == (occurrence,)
 
 
 def test_feature_absorption_rejects_unknown_wrong_family_wrong_owner_and_duplicates() -> None:

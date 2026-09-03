@@ -60,10 +60,6 @@ def _coincident_body_local_evidence_part():
     return Compound(children=[stepped_block(), stepped_block()])
 
 
-def _unclassified_plate_part():
-    return Box(60, 40, 4) + Pos(0, -18, 12) * Box(60, 4, 20)
-
-
 def test_raw_report_has_the_closed_v1_shape_and_exact_owner() -> None:
     drawing = build_drawing(_through_step_part())
 
@@ -384,17 +380,25 @@ def test_report_refuses_an_unknown_ledger_status() -> None:
         )
 
 
-def test_raw_report_refuses_an_unclassified_accepted_occurrence() -> None:
-    drawing = build_drawing(_unclassified_plate_part())
+def test_report_refuses_an_unclassified_accepted_occurrence() -> None:
+    drawing = build_drawing(_through_step_part())
     evidence = drawing.recognition_evidence()
-    assert evidence is not None
-    assert any(evidence.family(occurrence) == "plates" for occurrence in evidence.features)
+    ownership = drawing.recognition_ownership()
+    model = drawing.model()
+    assert evidence is not None and ownership is not None
+    unclassified = replace(ownership, expected_conditional=(), bindings=())
 
     with pytest.raises(
         ReportUnavailableError,
-        match="accepted occurrence family 'plates' has no reportable disposition",
+        match="accepted occurrence family 'through_steps' has no reportable disposition",
     ):
-        drawing.report()
+        reporting_module.drawing_report(
+            evidence=evidence,
+            ownership=unclassified,
+            model=model,
+            lint=drawing.lint_summary(),
+            source=None,
+        )
 
 
 @pytest.mark.parametrize("boundary", ("declared", "framed"))
