@@ -449,11 +449,9 @@ def _check_dimension_sources(model: PartModel) -> None:
         )
 
 
-def detect_part_model(part, *, pmi="off") -> PartModel:
-    """The **detected** :class:`PartModel` for *part* — feature recognition + analysis only,
-    with no view projection, annotation, repack, repair, or export (ADR 0011 #453). The cheap
-    seed path behind :meth:`draftwright.Sheet.from_part`, so pure feature inspection no longer
-    pays for a full drawing (nor its layout/rendering failure modes)."""
+def _detect_part_model_analysis(part, *, pmi="off") -> tuple[PartModel, Analysis]:
+    """Return one detected model together with the exact analysis run that produced it."""
+
     a = _analyse(
         part, title="", number="", tolerance="ISO 2768-m", drawn_by="", out="model", pmi=pmi
     )
@@ -465,7 +463,17 @@ def detect_part_model(part, *, pmi="off") -> PartModel:
     # hand-built Analysis with no stored model still detects.
     # `Analysis.model` is `object | None` (it sits below the IR in the DAG), so the cast is
     # what says the stored value is the same PartModel `build_model` would have rebuilt.
-    return cast("PartModel", a.model if a.model is not None else build_model(a))
+    model = cast("PartModel", a.model if a.model is not None else build_model(a))
+    return model, a
+
+
+def detect_part_model(part, *, pmi="off") -> PartModel:
+    """The **detected** :class:`PartModel` for *part* — feature recognition + analysis only,
+    with no view projection, annotation, repack, repair, or export (ADR 0011 #453). The cheap
+    seed path behind :meth:`draftwright.Sheet.from_part`, so pure feature inspection no longer
+    pays for a full drawing (nor its layout/rendering failure modes)."""
+
+    return _detect_part_model_analysis(part, pmi=pmi)[0]
 
 
 def _assemble(
