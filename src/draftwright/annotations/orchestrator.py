@@ -361,6 +361,7 @@ def build_model(a: Analysis):
     return _build_part_model_from_recognition(
         a.part,
         a.recognition,
+        evidence=a.recognition_evidence,
         holes=a.holes,
         double_d_bores=a.recognition.double_d_bores,
         patterns=a.patterns,

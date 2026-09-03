@@ -20,7 +20,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from math import isfinite, ulp
 from numbers import Real
-from typing import Any
+from typing import Any, Literal
 
 from b123d_recognisers import (
     AngledStep,
@@ -66,7 +66,6 @@ from b123d_recognisers import (
     ThroughStep,
     TurnedStep,
     analyse_cylinders,
-    build_raw_recognition_result,
     has_multi_axis_plates,
     project_step_shoulders,
     recognise_bosses,
@@ -91,6 +90,7 @@ from b123d_recognisers import (
     recognise_through_steps,
     step_level_records,
 )
+from b123d_recognisers.evidence import RecognitionEvidence, build_recognition_evidence
 
 from draftwright._geometry import (
     _axis_letter,
@@ -259,6 +259,7 @@ class _RecognitionHandoff:
 
     part: object
     result: RecognitionResult
+    evidence: RecognitionEvidence | None = None
     ownership: RecognitionOwnershipBuilder | None = None
 
 
@@ -271,6 +272,7 @@ def _build_part_model_from_recognition(
     part,
     recognition_result: RecognitionResult,
     *,
+    evidence: RecognitionEvidence | None = None,
     ownership: RecognitionOwnershipBuilder | None = None,
     **kwargs,
 ) -> PartModel:
@@ -279,7 +281,13 @@ def _build_part_model_from_recognition(
         raise TypeError("recognition_result must be an exact RecognitionResult")
     if ownership is not None and ownership.result is not recognition_result:
         raise ValueError("recognition ownership and result must come from the same run")
-    token = _RECOGNITION_HANDOFF.set(_RecognitionHandoff(part, recognition_result, ownership))
+    if evidence is None and ownership is not None:
+        evidence = ownership.evidence
+    if evidence is not None and evidence.result is not recognition_result:
+        raise ValueError("recognition evidence and result must come from the same run")
+    token = _RECOGNITION_HANDOFF.set(
+        _RecognitionHandoff(part, recognition_result, evidence, ownership)
+    )
     try:
         return build_part_model(part, **kwargs)
     finally:
@@ -1209,8 +1217,132 @@ def _through_step_shoulder_sites(steps, bbox) -> tuple[tuple[str, float], ...]:
     return tuple(sites)
 
 
+@dataclass(frozen=True)
+class _ThroughStepLegacyOwner:
+    """One exact semantic input selected to own a through-step leg projection."""
+
+    kind: Literal["envelope", "plate", "step_level"]
+    record: Plate | None = None
+
+
+def _through_step_plate_owner_record_ids(
+    evidence: RecognitionEvidence,
+    step: ThroughStep,
+    plates: tuple[Plate, ...],
+) -> frozenset[int] | None:
+    """Same-run plate scope, or ``None`` when *step* is not from that evidence run."""
+
+    step_occurrences = tuple(
+        occurrence
+        for occurrence in evidence.features
+        if evidence.family(occurrence) == "through_steps" and evidence.record(occurrence) is step
+    )
+    if len(step_occurrences) != 1:
+        return None
+    defining_faces = evidence.defining_faces(step_occurrences[0])
+    candidate_by_id = {id(plate): plate for plate in plates}
+    owners: set[int] = set()
+    for occurrence in evidence.features:
+        if evidence.family(occurrence) != "plates":
+            continue
+        record = evidence.record(occurrence)
+        candidate = candidate_by_id.get(id(record))
+        if candidate is record and defining_faces & evidence.defining_faces(occurrence):
+            owners.add(id(record))
+    return frozenset(owners)
+
+
+def _through_step_legacy_owners(
+    step,
+    bbox,
+    step_zs,
+    shoulders,
+    plates,
+    *,
+    envelope_emittable: bool,
+    plate_owner_record_ids: frozenset[int] | None = None,
+) -> tuple[_ThroughStepLegacyOwner, ...] | None:
+    """Return the exact legacy projection inputs that jointly define both section legs."""
+
+    bounds = {
+        "x": (float(bbox.min.X), float(bbox.max.X)),
+        "y": (float(bbox.min.Y), float(bbox.max.Y)),
+        "z": (float(bbox.min.Z), float(bbox.max.Z)),
+    }
+    step_level_owner = _ThroughStepLegacyOwner("step_level")
+    envelope_owner = _ThroughStepLegacyOwner("envelope")
+    intervals: list[tuple[str, float, float, tuple[_ThroughStepLegacyOwner, ...]]] = []
+    for z in step_zs or ():
+        intervals.append(("z", *sorted((bounds["z"][0], z)), (step_level_owner,)))
+        if envelope_emittable:
+            intervals.append(
+                (
+                    "z",
+                    *sorted((z, bounds["z"][1])),
+                    (step_level_owner, envelope_owner),
+                )
+            )
+    for shoulder in shoulders:
+        lo, hi = bounds[shoulder.axis]
+        intervals.append((shoulder.axis, *sorted((lo, shoulder.position)), (step_level_owner,)))
+        if envelope_emittable:
+            intervals.append(
+                (
+                    shoulder.axis,
+                    *sorted((shoulder.position, hi)),
+                    (step_level_owner, envelope_owner),
+                )
+            )
+    for plate in plates or ():
+        if plate_owner_record_ids is not None and id(plate) not in plate_owner_record_ids:
+            continue
+        axis = plate.axis
+        plate_lo, plate_hi = sorted((plate.lo, plate.hi))
+        plate_owner = _ThroughStepLegacyOwner("plate", plate)
+        intervals.append((axis, plate_lo, plate_hi, (plate_owner,)))
+        if envelope_emittable:
+            bound_lo, bound_hi = bounds[axis]
+            if abs(plate_lo - bound_lo) < 0.5:
+                intervals.append((axis, plate_hi, bound_hi, (plate_owner, envelope_owner)))
+            if abs(plate_hi - bound_hi) < 0.5:
+                intervals.append((axis, bound_lo, plate_lo, (plate_owner, envelope_owner)))
+
+    selected: list[_ThroughStepLegacyOwner] = []
+    selected_keys: set[tuple[str, int | None]] = set()
+    for axis, lo, hi in _through_step_leg_spans((step,)):
+        matches = tuple(
+            owners
+            for owner_axis, owner_lo, owner_hi, owners in intervals
+            if owner_axis == axis and abs(owner_lo - lo) < 0.5 and abs(owner_hi - hi) < 0.5
+        )
+        if not matches:
+            return None
+        matching_plate_ids = {
+            id(owner.record) for owners in matches for owner in owners if owner.kind == "plate"
+        }
+        if plate_owner_record_ids is not None and len(matching_plate_ids) > 1:
+            # Equal spans in distinct body-local plates are not enough evidence to choose a
+            # physical owner when the same-run evidence scope is authoritative. Evidence-less
+            # framed/injected paths retain the established unscoped compatibility decision.
+            return None
+        for owners in matches:
+            for owner in owners:
+                key = (owner.kind, id(owner.record) if owner.record is not None else None)
+                if key not in selected_keys:
+                    selected_keys.add(key)
+                    selected.append(owner)
+    return tuple(selected)
+
+
 def _through_step_legacy_complete(
-    step, bbox, step_zs, shoulders, plates, *, envelope_emittable: bool
+    step,
+    bbox,
+    step_zs,
+    shoulders,
+    plates,
+    *,
+    envelope_emittable: bool,
+    plate_owner_record_ids: frozenset[int] | None = None,
 ) -> bool:
     """Whether the established Z-up grammar directly defines both open-section legs.
 
@@ -1221,39 +1353,18 @@ def _through_step_legacy_complete(
     family preference: if either physical leg has no owner the aggregate record must lower
     instead of disappearing from completeness (#1382).
     """
-    bounds = {
-        "x": (float(bbox.min.X), float(bbox.max.X)),
-        "y": (float(bbox.min.Y), float(bbox.max.Y)),
-        "z": (float(bbox.min.Z), float(bbox.max.Z)),
-    }
-    intervals: list[tuple[str, float, float]] = []
-    for z in step_zs or ():
-        intervals.append(("z", *sorted((bounds["z"][0], z))))
-        if envelope_emittable:
-            intervals.append(("z", *sorted((z, bounds["z"][1]))))
-    for shoulder in shoulders:
-        lo, hi = bounds[shoulder.axis]
-        intervals.append((shoulder.axis, *sorted((lo, shoulder.position))))
-        if envelope_emittable:
-            intervals.append((shoulder.axis, *sorted((shoulder.position, hi))))
-    for plate in plates or ():
-        axis = plate.axis
-        plate_lo, plate_hi = sorted((plate.lo, plate.hi))
-        intervals.append((axis, plate_lo, plate_hi))
-        if envelope_emittable:
-            bound_lo, bound_hi = bounds[axis]
-            if abs(plate_lo - bound_lo) < 0.5:
-                intervals.append((axis, plate_hi, bound_hi))
-            if abs(plate_hi - bound_hi) < 0.5:
-                intervals.append((axis, bound_lo, plate_lo))
-
-    def _owned(axis: str, lo: float, hi: float) -> bool:
-        return any(
-            owner_axis == axis and abs(owner_lo - lo) < 0.5 and abs(owner_hi - hi) < 0.5
-            for owner_axis, owner_lo, owner_hi in intervals
+    return (
+        _through_step_legacy_owners(
+            step,
+            bbox,
+            step_zs,
+            shoulders,
+            plates,
+            envelope_emittable=envelope_emittable,
+            plate_owner_record_ids=plate_owner_record_ids,
         )
-
-    return all(_owned(axis, lo, hi) for axis, lo, hi in _through_step_leg_spans((step,)))
+        is not None
+    )
 
 
 def build_part_model(
@@ -1320,7 +1431,9 @@ def build_part_model(
     if blends_supplied:
         blends = tuple(blends)
     handoff = _RECOGNITION_HANDOFF.get()
-    recognition_result = handoff.result if handoff is not None and handoff.part is part else None
+    handoff_matches = handoff is not None and handoff.part is part
+    recognition_result = handoff.result if handoff_matches and handoff is not None else None
+    recognition_evidence = handoff.evidence if handoff_matches and handoff is not None else None
     ownership = (
         handoff.ownership if recognition_result is not None and handoff is not None else None
     )
@@ -1378,6 +1491,9 @@ def build_part_model(
             raise ValueError("fillets and blends must preserve aggregate ownership exactly")
     bbox = part.bounding_box()
     features: list[Feature] = []
+    envelope_feature: Feature | None = None
+    plate_features_by_record_id: dict[int, Feature] = {}
+    step_level_feature: Feature | None = None
 
     def append_direct(record: object) -> None:
         """Convert and bind while the exact occurrence-to-IR decision is in hand."""
@@ -1406,7 +1522,7 @@ def build_part_model(
                 sizes=(bbox.size.X, bbox.size.Y, bbox.size.Z),
                 centre=(centre.X, centre.Y, centre.Z),
             )
-            recognition = build_raw_recognition_result(
+            recognition_evidence = build_recognition_evidence(
                 part,
                 cylinders=cyls,
                 rotational=(
@@ -1416,6 +1532,7 @@ def build_part_model(
                     or cylinder_class.is_rotational
                 ),
             )
+            recognition = recognition_evidence.result
         else:
             cyls = recognition.cylinders
         # Fillet and Blend are two projections of the same rounded-chain geometry. The
@@ -1711,6 +1828,18 @@ def build_part_model(
         else ()
     )
     shoulders = project_step_shoulders(risers, levels=list(ownership_step_zs))
+    through_step_plate_owner_ids = (
+        {
+            id(step): _through_step_plate_owner_record_ids(
+                recognition_evidence,
+                step,
+                ownership_plates,
+            )
+            for step in through_steps
+        }
+        if recognition_evidence is not None
+        else {}
+    )
     # Z-run records are the native through-step projection. X/Y-run records remain with the
     # established Z-up grammar only when that grammar proves BOTH exact physical legs; a
     # partial legacy projection is replaced by the complete aggregate owner.
@@ -1725,6 +1854,7 @@ def build_part_model(
             shoulders,
             ownership_plates,
             envelope_emittable=envelope_emittable,
+            plate_owner_record_ids=through_step_plate_owner_ids.get(id(step)),
         )
     )
     # Ownership is a fixed point, not a per-record vote over the unfiltered inventory. One
@@ -1760,7 +1890,7 @@ def build_part_model(
         promoted = tuple(
             step
             for step in through_steps
-            if step not in lowered_through_steps
+            if all(step is not lowered for lowered in lowered_through_steps)
             and not _through_step_legacy_complete(
                 step,
                 bbox,
@@ -1768,11 +1898,26 @@ def build_part_model(
                 remaining_shoulders,
                 remaining_plates,
                 envelope_emittable=envelope_emittable,
+                plate_owner_record_ids=through_step_plate_owner_ids.get(id(step)),
             )
         )
         if not promoted:
             break
         lowered_through_steps += promoted
+    lowered_through_step_ids = {id(step) for step in lowered_through_steps}
+    legacy_through_step_owners = {
+        id(step): _through_step_legacy_owners(
+            step,
+            bbox,
+            remaining_levels,
+            remaining_shoulders,
+            remaining_plates,
+            envelope_emittable=envelope_emittable,
+            plate_owner_record_ids=through_step_plate_owner_ids.get(id(step)),
+        )
+        for step in through_steps
+        if id(step) not in lowered_through_step_ids
+    }
     through_leg_spans = _through_step_leg_spans(lowered_through_steps)
     through_level_zs = _through_step_level_zs(lowered_through_steps)
     through_shoulder_sites = _through_step_shoulder_sites(lowered_through_steps, bbox)
@@ -2061,7 +2206,8 @@ def build_part_model(
             # rather than one the code held. Now there is one spelling.
             from draftwright.model.declare import _envelope_from_bbox
 
-            features.append(_envelope_from_bbox(bbox))
+            envelope_feature = _envelope_from_bbox(bbox)
+            features.append(envelope_feature)
 
     # Plate/wall thicknesses on a multi-plate prismatic (#559) — the thin extent of a
     # slab that no other prismatic dim recovers (a wall along X/Y, or a Z base plate too
@@ -2084,7 +2230,9 @@ def build_part_model(
                     # The aggregate open section is the higher-level owner of this exact
                     # thickness interval. Keeping the plate too prints one physical leg twice.
                     continue
-                features.append(convert(pl, ctx))
+                plate_feature = convert(pl, ctx)
+                features.append(plate_feature)
+                plate_features_by_record_id[id(pl)] = plate_feature
 
     # Prismatic step-height ladder — horizontal face levels on a NON-turned part
     # (a turned part's steps are StepFeatures, dimensioned by the IR length chain).
@@ -2201,7 +2349,42 @@ def build_part_model(
     # exact matching transition/thickness is removed from those legacy projections so the local
     # two-leg grammar reaches the sheet once, on every principal run axis.
     for through in lowered_through_steps:
-        features.append(convert(through, ctx))
+        through_feature = convert(through, ctx)
+        features.append(through_feature)
+        if ownership is not None:
+            ownership.bind(
+                through,
+                through_feature,
+                reason_code="through_step_adapter",
+            )
+    if ownership is not None:
+        for through in through_steps:
+            if id(through) in lowered_through_step_ids:
+                continue
+            claims = legacy_through_step_owners.get(id(through))
+            if claims is None:
+                continue
+            owner_features: list[Feature] = []
+            unresolved = False
+            for claim in claims:
+                owner_feature = (
+                    envelope_feature
+                    if claim.kind == "envelope"
+                    else step_level_feature
+                    if claim.kind == "step_level"
+                    else plate_features_by_record_id.get(id(claim.record))
+                )
+                if owner_feature is None:
+                    unresolved = True
+                    break
+                if not any(existing is owner_feature for existing in owner_features):
+                    owner_features.append(owner_feature)
+            if not unresolved:
+                ownership.bind_many(
+                    through,
+                    tuple(owner_features),
+                    reason_code="through_step_legacy_projection",
+                )
 
     # Machined flats on round stock (#148b) — a planar face truncating a cylinder,
     # called out by its across-flats size. Detected UNCONDITIONALLY (not gated by the
