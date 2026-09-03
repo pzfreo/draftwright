@@ -4,6 +4,15 @@
 
 ### Added
 
+- Raw automatic drawings now expose `Drawing.report()`, a strict version-1 JSON-compatible
+  projection of every accepted recognition occurrence, its explicit consumer disposition and
+  report-local final IR owner(s), plus the existing lint summary. The published schema never
+  serializes provider references, topology IDs, object addresses, or transient member positions;
+  it marks requirement coverage as not yet projected and calls a clean result `bounded-clear`, not
+  manufacturing-ready. Paths without exact occurrence ownership and raw paths with an unclassified
+  accepted occurrence fail explicitly rather than emit an empty or inferred report. Rendering
+  remains unchanged (#1438, ADR 0017 Amendment 21).
+
 - Accepted `FaceLevel` and `RiserEvidence` occurrences now receive explicit `evidence_only`
   outcomes. The released records remain shared substrate for the supported correlated height
   ladder and shoulder projection, not independent inferred features or drawing requirements; no

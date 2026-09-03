@@ -28,6 +28,7 @@ _LAZY = {
     "make_drawing": "draftwright.builder",
     "Drawing": "draftwright.drawing",
     "FeatureInfo": "draftwright.drawing",
+    "ReportUnavailableError": "draftwright.reporting",
     "Sheet": "draftwright.sheet",
     "lint_feature_coverage": "draftwright.linting",
     "PmiExtractionReport": "draftwright.pmi",
@@ -93,6 +94,7 @@ if TYPE_CHECKING:  # static analysers / IDEs — no runtime import, no kernel co
         extract_pmi,
         extract_pmi_report,
     )
+    from draftwright.reporting import ReportUnavailableError
     from draftwright.sheet import Sheet
     from draftwright.view_plan import ViewConstraints, ViewPlanIncomplete, ViewSpec
 
@@ -111,6 +113,7 @@ __all__ = [
     "PmiExtractionReport",
     "PmiRecord",
     "PmiSourceEntity",
+    "ReportUnavailableError",
     "Sheet",
     "ScaleIncompatibilityError",
     "ScaleCompletenessWarning",

@@ -41,6 +41,9 @@ Compact map, bottom to top:
   lifecycle), `recognition_ownership.py` (run-local accepted-occurrence outcomes, including
   final-IR binding, group/pattern absorption, and settled ownerless consumer policy),
   `recogniser_policy.py` (single Draftwright-owned unsupported/deferred/evidence-only policy),
+  `recogniser_schema.py` (consumer-owned public record schema versions shared by validation and
+  reporting), `reporting.py` (pure versioned projection over explicitly supplied finished-build
+  state),
   `recognition_frame.py` (ADR 0020 prepared local-frame boundary and fail-closed
   body-local occurrence joins), `blend_contract.py` (strict released-Blend schema and
   occurrence identity),
