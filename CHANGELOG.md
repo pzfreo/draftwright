@@ -4,6 +4,14 @@
 
 ### Added
 
+- Raw automatic builds now capture run-local, conversion-time ownership from accepted provider
+  occurrences to their exact Draftwright IR features for unconditional one-to-one adapters. Equal
+  record values, order, coordinates and topology indices cannot create a binding; an omitted direct
+  binding fails closed as unexpectedly missing, while grouped/absorbed/deferred families remain
+  explicitly unclassified. The experimental read-only `Drawing.recognition_ownership()` exposes
+  the non-serializable ledger; it stays outside the IR/compiler and changes no generated or visual
+  artefact (#1438, ADR 0017 Amendment 12).
+
 - Raw automatic recognition now retains the provider's run-scoped `RecognitionEvidence` beside
   its exact `RecognitionResult`, exposed through the experimental read-only
   `Drawing.recognition_evidence()`. Declared drawings acquire the pair lazily on first physical

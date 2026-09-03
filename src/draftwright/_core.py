@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from b123d_recognisers.evidence import RecognitionEvidence
 
     from draftwright.compose import StripDepths
+    from draftwright.recognition_ownership import RecognitionOwnership
 
 from build123d import (
     Align,
@@ -1225,6 +1226,10 @@ class Analysis:
     #: provider exposes framed evidence, and for a deliberately injected bare aggregate.  It is
     #: never reconstructed from ``recognition`` because that would create a second run universe.
     recognition_evidence: RecognitionEvidence | None = None
+    #: Conversion-time, run-local accepted-occurrence -> IR ownership.  This stays beside the
+    #: model rather than entering the ADR-0015 compiler waist.  Only direct 1:1 adapters are
+    #: classified initially; grouped/absorbed families remain explicitly unclassified.
+    recognition_ownership: RecognitionOwnership | None = None
     #: The relational arrangement the sheet was composed under — ADR 0018 §5's fourth
     #: dimension, decided once by `compose.choose_scale` and carried here so that placement
     #: and the repack loop compose under the arrangement whose feasibility was actually

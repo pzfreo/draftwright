@@ -81,6 +81,7 @@ _LAYERS: dict[str, int] = {
     "intents": 0,
     "recognition": 0,
     "recognition_cache": 0,
+    "recognition_ownership": 0,
     "recognition_frame": 0,
     # Strict shared validator for the released provider Blend record and its occurrence key.
     "blend_contract": 0,
@@ -452,6 +453,9 @@ _MODEL_MAY_IMPORT = {
     "model",
     "recognition",
     "recognition_frame",
+    # ADR 0017 Amendment 12: detect records exact run-local occurrence→IR ownership at the
+    # conversion site. The leaf ledger depends on neither the model nor any upper stage.
+    "recognition_ownership",
     # ADR 0018: the dimension planner resolves requirement ownership against the selected
     # semantic view set.  `view_plan` is a rank-0, drawing-independent leaf.
     "view_plan",

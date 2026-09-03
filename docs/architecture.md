@@ -10,7 +10,8 @@ keep that table, this document, and `CLAUDE.md`'s compact map in step. The
 
 The dependency graph is a DAG (the #138 / ADR 0005 split is complete). Bottom to
 top: leaf modules (`layout.py`, `registry.py`, `fonts.py`, `_geometry.py`,
-`fits.py`, `intents.py`, `recognition_cache.py`, `recognition_frame.py`, and the
+`fits.py`, `intents.py`, `recognition_cache.py`, `recognition_ownership.py`,
+`recognition_frame.py`, and the
 strict `blend_contract.py` provider-record boundary, and the `linting/` subpackage) →
 `_core.py` → stage modules (`export.py`,
 `repair.py`, `projection.py`, `compose.py`, `analysis.py`, `drawing.py`, the
@@ -199,11 +200,17 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   `b123d_recognisers` (typed hole records in `coverage.py`) + build123d_drafting.
   `_QUOTED_RE` (a lint-message label regex shared with the
   repair loop) lives in `_core`.
-- **`recognition_cache.py`** — Draftwright's ADR 0017 one-result lifecycle owner. It calls
-  external `build_raw_recognition_result(part)` at most once for a build/lazy-critique run.
-  The explicit name records that the default IR consumes caller/world coordinates; the package
-  owns recognition, while Draftwright owns when the result is computed and reused. Explicit
-  framed builds bypass this raw cache with their already-paired aggregate.
+- **`recognition_cache.py`** — Draftwright's ADR 0017 one-result lifecycle owner. Raw automatic
+  analysis seeds it with one external `build_recognition_evidence(part)` acquisition; on a lazy
+  declared critique the empty cache makes that call itself. It retains the exact
+  `RecognitionResult` projection and evidence authority together. The package owns recognition,
+  while Draftwright owns when the pair is computed and reused. A bare or explicit framed result
+  remains valid without evidence; the cache never rescans to backfill it.
+- **`recognition_ownership.py`** — the run-local consumer ledger below/beside the ADR 0015 IR
+  waist. During record→IR conversion it binds opaque provider occurrences to the exact IR
+  feature objects that represent them, by same-run record identity. It exposes no persistent
+  topology/order/address ID. The first ownership slice classifies only unconditional 1:1 adapters;
+  grouped, nested, absorbed, classification-only and deferred families remain unclassified.
 - **`recognition_frame.py`** — the ADR 0020 prepared local-frame boundary. It calls the public
   provider preparation seam, classifies the exact normalized solid from its already-scanned
   cylinders, runs one paired aggregate, propagates typed refusal without fallback, and exposes
@@ -555,8 +562,9 @@ policy) live in `CLAUDE.md`. This is the per-ADR status trail; each ADR's
   compiler grammar and placement solve, and a side-normal footprint is filtered from the legacy
   Z-level projection only when exact support correspondence proves that ownership. No renderer
   consumes the provider record or places an annotation at a caller-supplied page coordinate.
-  The accepted contract stops there. `BuildState` proves result-to-build provenance; it does
-  **not** yet provide recognition-record→IR-feature→requirement correspondence. The original
+  Amendment 12 additionally gives unconditional 1:1 adapters exact run-local
+  occurrence→IR-feature ownership in `BuildState`. Grouped, nested, absorbed and deferred
+  families, plus general IR-feature→requirement correspondence, are not yet provided. The original
   four-type identity taxonomy, shared requirements module, general outcome ledger,
   reconciliation stage, and diagnostics model are candidate extensions rather than an
   approved phase sequence. #1018 now requires two end-to-end slices before any of them is

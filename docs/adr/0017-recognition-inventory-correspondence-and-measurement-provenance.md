@@ -11,7 +11,8 @@
   the same independently for the round-bottom family. Amendment 9 (2026-09-02) adopts the 0.4.12
   additive inventories fail closed while retaining the existing paired-ramp consumer meaning.
   Amendment 11 (2026-09-02) retains the provider's raw accepted-occurrence evidence in the same
-  consumer-owned cache without adding a second recognition run.
+  consumer-owned cache without adding a second recognition run. Amendment 12 (2026-09-03)
+  records the first conversion-time, run-local occurrence→IR ownership bindings.
 - **Date:** 2026-08-03
 - **Deciders:** Paul Fremantle (pzfreo)
 
@@ -303,6 +304,27 @@ persistent topology identifier, report schema, record-to-IR inference, manufactu
 compiled-plan dependency, placement path, or visual output. Later #1438 slices must demonstrate the
 consumer disposition rules independently before this evidence can support an authoritative report.
 
+## Amendment 12 — Direct occurrence ownership is captured at conversion time
+
+Draftwright now retains a sibling `RecognitionOwnership` ledger for raw automatic builds. For each
+aggregate family whose adapter unconditionally converts one accepted record into one IR feature,
+`model.detect` binds the provider's opaque `FeatureRef` to that exact newly-created feature at the
+conversion site. Resolution uses exact same-run record identity: equal-valued copies, feature
+ordering, labels, coordinates, face overlap, object addresses and topology indices cannot establish
+ownership. The immutable ledger is paired with the same `RecognitionEvidence`, survives scale/view
+retries with the stored sizing model, and is attached beside the model in `BuildState`; provider
+references do not enter `PartModel`, compilation, placement, generated programs, or visual output.
+
+This first vertical slice covers only unconditional 1:1 adapters: blends, chamfers, circular blind
+steps, double-D bores, fillets, flats, grooves, pads, paired ramp steps, polygonal bosses/stock, and
+rectangular/round-bottom blind slots. An expected direct occurrence without a recorded owner is
+retained as `unexpectedly_missing`. Every grouped, nested, absorbed, classification-only, or
+deferred family remains explicitly `unclassified` until its N:1 or 1:0 consumer rule is implemented;
+it is not falsely reported as missing. Declared builds and evidence-less framed/bare aggregates do
+not invent ownership. `Drawing.recognition_ownership()` exposes the non-serializable ledger as an
+experimental read-only view so consumers need not reach into private build state. This remains
+reporting foundation: no public report schema or completeness claim is introduced by this amendment.
+
 ## Accepted Contract
 
 ### 1. One orchestration owns the recognition universe
@@ -346,9 +368,10 @@ The result is stored in typed `BuildState`, whose builder/lazy-critique path is 
 writer. This makes the result's relationship to its drawing structural: engine consumers do
 not accept an arbitrary aggregate and then attempt to prove it came from the same part.
 
-This answers **result-to-build provenance only**. It does not answer which recognition record
-became which IR feature, requirement, or annotation. That record-to-feature correspondence is
-the subject of the evidence gates below.
+This originally answered **result-to-build provenance only**. Amendment 12 now records exact
+occurrence→IR ownership for unconditional 1:1 adapters. Grouped, nested, absorbed and deferred
+families, and the general feature→requirement→annotation correspondence, remain subjects of the
+evidence gates below.
 
 `lint_prismatic_coverage(recognition=...)` is a known channel outside the structural ownership
 path (#1032). The preferred correction is to remove or narrow the channel when that boundary
