@@ -4,6 +4,12 @@
 
 ### Added
 
+- Accepted round-boss occurrences now retain the exact existing consumer outcome: a singleton
+  `BossFeature`, one diameter-consolidated representative with transient member lineage, the exact
+  turned-step owner, or the exact groove owner reached through that step or the profile-gate
+  fallback. Ambiguous or missing correspondence fails closed without another scan, persistent ID,
+  generated artefact, or visual change (#1438, ADR 0017 Amendment 19).
+
 - Accepted through-step occurrences now retain either their exact `ThroughStepFeature` or every
   exact final `StepLevelFeature`, `PlateFeature`, and `EnvelopeFeature` that jointly carries the
   established compatibility projection. Plate claims are body-local, replacement is atomic, and a

@@ -53,7 +53,7 @@ NESTED_FAMILIES = frozenset({"countersinks"})
 # These accepted occurrences have a supported consumer path, but the final owner depends on
 # Draftwright's cross-family classification.  The conversion site must record either the direct
 # adapter or the exact aggregate feature that intentionally absorbs the occurrence.
-CONDITIONAL_FAMILIES = frozenset({"channels", "through_steps", "turned_steps"})
+CONDITIONAL_FAMILIES = frozenset({"bosses", "channels", "through_steps", "turned_steps"})
 
 OwnershipDisposition = Literal["represented", "absorbed"]
 PolicyDisposition = OwnerlessDisposition
@@ -69,6 +69,7 @@ OccurrenceStatus = Literal[
 
 _REPRESENTED_REASON_CODES = frozenset(
     {
+        "boss_adapter",
         "direct_adapter",
         "channel_adapter",
         "hole_adapter",
@@ -82,6 +83,7 @@ _REPRESENTED_REASON_CODES = frozenset(
 _MULTI_FEATURE_REASON_CODES = frozenset({"through_step_legacy_projection"})
 _ABSORBED_REASON_CODES = frozenset(
     {
+        "boss_diameter_group_member",
         "grouped_hole_member",
         "hole_pattern_member",
         "pocket_pattern_member",
@@ -92,6 +94,10 @@ _FEATURE_ABSORPTION_REASON_CODES = frozenset(
     {"channel_step_level_owner", "turned_step_groove_owner"}
 )
 _REASON_FAMILY = {
+    "boss_adapter": "bosses",
+    "boss_diameter_group_member": "bosses",
+    "boss_groove_owner": "bosses",
+    "boss_turned_step_owner": "bosses",
     "channel_adapter": "channels",
     "channel_step_level_owner": "channels",
     "countersink_hole_owner": "countersinks",
@@ -117,6 +123,10 @@ _FEATURE_ABSORPTION_OWNER_KIND = {
 _FEATURE_ABSORPTION_EXISTING_OWNER = {
     "turned_step_groove_owner": ("grooves", "direct_adapter"),
 }
+_CHAINED_OWNER_FAMILY = {
+    "boss_groove_owner": "grooves",
+    "boss_turned_step_owner": "turned_steps",
+}
 
 
 @dataclass(frozen=True)
@@ -134,6 +144,9 @@ class OccurrenceBinding:
     # occurrence. Keep ``feature`` as the primary compatibility spelling while exposing the
     # complete, explicitly recorded owner set through ``features``.
     additional_features: tuple[object, ...] = ()
+    # Exact run-local intermediate occurrence selected by a chained ownership decision. This
+    # makes reverse cardinality derivable after IR remapping; it is not a persistent identifier.
+    via_occurrence: FeatureRef | None = None
 
     @property
     def features(self) -> tuple[object, ...]:
@@ -148,6 +161,8 @@ class OccurrenceBinding:
             {id(owner) for owner in self.additional_features}
         ) != len(self.additional_features):
             raise ValueError("occurrence binding repeats an IR owner")
+        if (self.reason_code in _CHAINED_OWNER_FAMILY) != (self.via_occurrence is not None):
+            raise ValueError("chained ownership bindings require exact intermediate lineage")
 
 
 @dataclass(frozen=True)
@@ -483,6 +498,66 @@ class RecognitionOwnershipBuilder:
             )
         )
 
+    def absorb_via(self, record: object, owner_record: object, *, reason_code: str) -> None:
+        """Bind one occurrence to another occurrence's already-selected final IR owner."""
+
+        if type(reason_code) is not str or reason_code not in _CHAINED_OWNER_FAMILY:
+            raise ValueError("unknown chained ownership reason_code")
+        occurrence = self._occurrence_for(record)
+        owner_occurrence = self._occurrence_for(owner_record)
+        if self.evidence.family(occurrence) != _REASON_FAMILY[reason_code]:
+            raise ValueError("chained ownership reason_code does not match occurrence family")
+        if self.evidence.family(owner_occurrence) != _CHAINED_OWNER_FAMILY[reason_code]:
+            raise ValueError("chained ownership reason_code does not match owner family")
+        if id(occurrence) in self._bound_occurrence_ids:
+            raise ValueError("recognition occurrence already has an IR owner")
+        owner_binding = next(
+            (binding for binding in self._bindings if binding.occurrence is owner_occurrence),
+            None,
+        )
+        if owner_binding is None:
+            raise ValueError("chained recognition ownership requires an existing exact owner")
+        if any(binding.via_occurrence is owner_occurrence for binding in self._bindings):
+            raise ValueError("chained recognition owner occurrence already has a dependent")
+        if any(
+            binding.via_occurrence is not None and binding.feature is owner_binding.feature
+            for binding in self._bindings
+        ):
+            raise ValueError("chained final IR owner already has a dependent")
+        self._bound_occurrence_ids.add(id(occurrence))
+        self._owned_feature_ids.add(id(owner_binding.feature))
+        self._bindings.append(
+            OccurrenceBinding(
+                occurrence,
+                owner_binding.feature,
+                disposition="absorbed",
+                reason_code=reason_code,
+                via_occurrence=owner_occurrence,
+            )
+        )
+
+    def has_owner(self, record: object) -> bool:
+        """Return whether an exact same-run record already has a final IR owner."""
+
+        occurrence = self._occurrence_for(record)
+        return any(binding.occurrence is occurrence for binding in self._bindings)
+
+    def has_chained_dependent(self, record: object) -> bool:
+        """Return whether this occurrence or its final owner already carries a chain."""
+
+        owner_occurrence = self._occurrence_for(record)
+        owner_binding = next(
+            (binding for binding in self._bindings if binding.occurrence is owner_occurrence),
+            None,
+        )
+        if owner_binding is None:
+            return False
+        return any(
+            binding.via_occurrence is owner_occurrence
+            or (binding.via_occurrence is not None and binding.feature is owner_binding.feature)
+            for binding in self._bindings
+        )
+
     def absorb_into(self, record: object, feature: object, *, reason_code: str) -> None:
         """Bind an exact occurrence to a consumer-selected aggregate IR owner."""
 
@@ -585,6 +660,7 @@ class RecognitionOwnershipBuilder:
                             binding.reason_code,
                             binding.member_index,
                             owners[1:],
+                            binding.via_occurrence,
                         )
                     )
                 self._bindings = rewritten_bindings
@@ -648,6 +724,7 @@ class RecognitionOwnershipBuilder:
                         disposition,
                         reason_code,
                         replacement_index,
+                        via_occurrence=binding.via_occurrence,
                     )
                 )
             self._bindings = rewritten

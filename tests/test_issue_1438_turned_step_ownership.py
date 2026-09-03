@@ -165,7 +165,14 @@ def test_one_groove_cannot_absorb_two_nearby_accepted_step_bands() -> None:
     )
     assert all(ownership.binding_for(occurrence) is None for occurrence in ambiguous)
     assert all(ownership.status(occurrence) == "unexpectedly_missing" for occurrence in ambiguous)
-    assert ownership.unexpectedly_missing == ambiguous
+    assert (
+        tuple(
+            occurrence
+            for occurrence in ownership.unexpectedly_missing
+            if ownership.evidence.family(occurrence) == "turned_steps"
+        )
+        == ambiguous
+    )
 
 
 def test_unbound_turned_step_fails_closed_as_unexpectedly_missing() -> None:
@@ -173,12 +180,26 @@ def test_unbound_turned_step_fails_closed_as_unexpectedly_missing() -> None:
     ownership = RecognitionOwnershipBuilder(evidence).snapshot()
     occurrences = _occurrences(ownership, "turned_steps")
 
-    assert ownership.expected_conditional == occurrences
+    assert (
+        tuple(
+            occurrence
+            for occurrence in ownership.expected_conditional
+            if ownership.evidence.family(occurrence) == "turned_steps"
+        )
+        == occurrences
+    )
     assert all(occurrence in ownership.owner_expected_occurrences for occurrence in occurrences)
     assert all(
         ownership.status(occurrence) == "unexpectedly_missing" for occurrence in occurrences
     )
-    assert ownership.unexpectedly_missing == occurrences
+    assert (
+        tuple(
+            occurrence
+            for occurrence in ownership.unexpectedly_missing
+            if ownership.evidence.family(occurrence) == "turned_steps"
+        )
+        == occurrences
+    )
 
 
 def test_groove_absorption_requires_an_exact_same_run_groove_owner() -> None:
