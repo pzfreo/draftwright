@@ -327,6 +327,134 @@ def test_requirement_without_exact_source_record_fails_closed(monkeypatch) -> No
         drawing.report()
 
 
+def test_report_rejects_repeated_evidence_record_identity(monkeypatch) -> None:
+    drawing = build_drawing(_grouped_holes_part())
+    evidence = drawing.recognition_evidence()
+    assert evidence is not None and len(evidence.features) > 1
+    record = evidence.record(evidence.features[0])
+    monkeypatch.setattr(type(evidence), "record", lambda _self, _reference: record)
+
+    with pytest.raises(ReportUnavailableError, match="repeats the same recognition record"):
+        drawing.report()
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    (
+        ({"state": "invalid"}, "invalid state"),
+        ({"source_records": (object(),)}, "not bound to this evidence authority"),
+        ({"requirement_count": 0}, "invalid cardinality"),
+        ({"parameter_id": None}, "invalid parameter identity"),
+        ({"requirement_count": 2}, "ambiguous parameter cardinality"),
+        ({"representation": 1}, "invalid representation"),
+        ({"representation_reason": 1}, "invalid representation reason"),
+    ),
+)
+def test_report_rejects_malformed_typed_outcomes(monkeypatch, changes, message) -> None:
+    drawing = build_drawing(_through_step_part())
+    evidence = drawing.recognition_evidence()
+    assert evidence is not None
+    record = evidence.record(evidence.features[0])
+    values = {
+        "state": "placed",
+        "source_records": (record,),
+        "parameter_id": "diameter",
+        "requirement_count": 1,
+        "representation": None,
+        "representation_reason": None,
+    }
+    values.update(changes)
+    monkeypatch.setattr(
+        requirement_module,
+        "recognized_requirement_outcomes",
+        lambda *_args, **_kwargs: {"through_steps": (SimpleNamespace(**values),)},
+    )
+
+    with pytest.raises(ReportUnavailableError, match=message):
+        drawing.report()
+
+
+def test_report_collapses_duplicate_requirement_source_occurrence_ids(monkeypatch) -> None:
+    drawing = build_drawing(_through_step_part())
+    evidence = drawing.recognition_evidence()
+    assert evidence is not None
+    record = evidence.record(evidence.features[0])
+    outcome = SimpleNamespace(
+        state="placed",
+        source_records=(record, record),
+        parameter_id="diameter",
+        requirement_count=1,
+        representation=None,
+        representation_reason=None,
+    )
+    monkeypatch.setattr(
+        requirement_module,
+        "recognized_requirement_outcomes",
+        lambda *_args, **_kwargs: {"through_steps": (outcome,)},
+    )
+
+    report = drawing.report()
+
+    assert report["recognition"]["requirements"][0]["occurrence_ids"] == ["through_steps:1"]
+
+
+def test_report_refuses_a_registry_without_the_provenance_contract(monkeypatch) -> None:
+    drawing = build_drawing(_through_step_part())
+    monkeypatch.setattr(
+        requirement_module, "recognized_requirement_outcomes", lambda *_a, **_k: {}
+    )
+    monkeypatch.setattr(drawing, "lint_summary", lambda: {"passed": True})
+    monkeypatch.setattr(AnnotationRegistry, "names", None)
+
+    with pytest.raises(ReportUnavailableError, match="registry is unavailable"):
+        drawing.report()
+
+
+def test_report_refuses_invalid_annotation_names(monkeypatch) -> None:
+    drawing = build_drawing(_through_step_part())
+    monkeypatch.setattr(
+        requirement_module, "recognized_requirement_outcomes", lambda *_a, **_k: {}
+    )
+    monkeypatch.setattr(drawing, "lint_summary", lambda: {"passed": True})
+    monkeypatch.setattr(AnnotationRegistry, "names", lambda _self: (1,))
+
+    with pytest.raises(ReportUnavailableError, match="invalid name"):
+        drawing.report()
+
+
+def test_report_ignores_a_registry_entry_without_semantic_identity(monkeypatch) -> None:
+    drawing = build_drawing(_through_step_part())
+    evidence = drawing.recognition_evidence()
+    assert evidence is not None
+    record = evidence.record(evidence.features[0])
+    outcome = SimpleNamespace(
+        state="placed",
+        source_records=(record,),
+        measurement_ids=((None, "diameter"),),
+        parameter_id="diameter",
+        requirement_count=1,
+        representation=None,
+        representation_reason=None,
+    )
+    monkeypatch.setattr(
+        requirement_module,
+        "recognized_requirement_outcomes",
+        lambda *_a, **_k: {"through_steps": (outcome,)},
+    )
+    monkeypatch.setattr(drawing, "lint_summary", lambda: {"passed": True})
+    monkeypatch.setattr(AnnotationRegistry, "names", lambda _self: ("annotation",))
+    monkeypatch.setattr(
+        AnnotationRegistry,
+        "measurement_of",
+        lambda _self, _name: (SimpleNamespace(feature=None, parameter="diameter"),),
+    )
+    monkeypatch.setattr(AnnotationRegistry, "satisfaction_of", lambda _self, _name: ())
+
+    report = drawing.report()
+
+    assert report["recognition"]["requirements"][0]["annotations"] == []
+
+
 def test_annotation_provenance_is_indexed_once_per_report() -> None:
     features = [object() for _ in range(500)]
     names = tuple(f"annotation:{index}" for index in range(len(features)))

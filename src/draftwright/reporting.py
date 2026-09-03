@@ -131,13 +131,7 @@ def _outcome_records(outcome: object) -> tuple[object, ...]:
             for record in records
             if (countersink := getattr(record, "csink", None)) is not None
         )
-    unique: list[object] = []
-    seen: set[int] = set()
-    for record in records:
-        if id(record) not in seen:
-            seen.add(id(record))
-            unique.append(record)
-    return tuple(unique)
+    return records
 
 
 def _outcome_measurements(outcome: object) -> tuple[tuple[object, str], ...]:
