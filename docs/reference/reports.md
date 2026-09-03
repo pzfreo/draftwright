@@ -71,7 +71,20 @@ snapshot contains no `FeatureRef`, `FaceRef`, topology index, object address, an
 or Python object representation. An empty snapshot says
 `no_unrepresented_accepted_occurrences`; it does not claim physical completeness.
 
+Direct CLI rendering writes `<output>.draftwright.json` after the requested visual formats by
+default and prints the sidecar path after the visual paths. `--no-report` opts out. The CLI calls
+the same explicit atomic `Drawing.write_report(...)` surface; `Drawing.export(...)` itself still
+does not write a report. A visual-export failure does not create or update the sidecar; any
+pre-existing sidecar remains untouched and is not evidence of that failed invocation. Report-only
+generation, cross-run freshness validation, and output manifests remain later slices.
+
+The visual/report sequence is not a transaction: each successfully exported visual path is printed
+before the report write is attempted. If that write fails, the command exits nonzero without
+printing a report path; the visual files and any pre-existing sidecar remain. Until an output
+manifest binds one invocation's artefacts, consumers must not associate that old sidecar with the
+failed run.
+
 The fresh runtime report and its future reconciliation with this embedded snapshot remain a later
-slice, as do output manifests and CLI/script sidecars. Calling `report()` or `write_report()` does
+slice, as do output manifests and generated-script sidecars. Calling `report()` or `write_report()` does
 not alter PDF, SVG, DXF, or PNG content; library export does not write a report unless the caller
 requests one.

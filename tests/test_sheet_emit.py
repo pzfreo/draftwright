@@ -1632,8 +1632,13 @@ class TestCli:
         seen = []
 
         class DrawingStub:
+            out = str(tmp_path / "out")
+
             def export(self, *, formats):
                 return {name: str(tmp_path / f"out.{name}") for name in formats}
+
+            def write_report(self, path):
+                return path
 
         def build_stub(**kwargs):
             seen.append(kwargs["pmi"])

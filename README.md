@@ -40,13 +40,14 @@ Point it at a STEP file — that's the whole workflow:
 
 ```
 draftwright my_part.step --title "Mounting Plate" --number DWG-001
-# writes my_part.pdf (the default)
+# writes my_part.pdf and my_part.draftwright.json (the defaults)
 ```
 
 Choose formats, scale, and page; or emit an editable drawing script:
 
 ```
 draftwright my_part.step --format pdf,dxf     # also: svg, all
+draftwright my_part.step --no-report          # opt out of the JSON sidecar
 draftwright my_part.step --scale 2 --page A3  # override the auto scale / page
 draftwright my_part.step --scale 1 --page A4 --scale-policy strict
 draftwright my_part.step --script             # write an editable declarative Sheet script

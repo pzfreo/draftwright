@@ -4,6 +4,11 @@
 
 ### Added
 
+- Direct CLI rendering now writes `<output>.draftwright.json` by default, after successful visual
+  export, and prints its path with the requested artefacts. `--no-report` is the explicit opt-out;
+  library `Drawing.export()` remains free of report-writing side effects (#1438, ADR 0017
+  Amendment 25).
+
 - Generated Sheet Python now embeds a deterministic, versioned, JSON-compatible snapshot of
   actionable accepted-occurrence gaps from the exact recognition run that produced its model.
   The compact snapshot carries only unsupported, deferred, evidence-only, and unexpectedly
