@@ -82,6 +82,9 @@ _LAYERS: dict[str, int] = {
     "recognition": 0,
     "recognition_cache": 0,
     "recognition_ownership": 0,
+    # Shared pure Plate-record/final-IR correspondence predicates. Both model assembly and
+    # completeness lint consume them without either layer importing the other.
+    "plate_correspondence": 0,
     "recogniser_policy": 0,
     # Consumer-owned public record schema versions, shared by the report projector and the
     # rank-7 cross-repository validator without either leaf depending on the validator.
@@ -458,6 +461,7 @@ _MODEL_MAY_IMPORT = {
     "fonts",
     "layout",
     "model",
+    "plate_correspondence",
     "recognition",
     "recognition_frame",
     # ADR 0017 Amendment 12: detect records exact run-local occurrence→IR ownership at the

@@ -40,6 +40,7 @@ Compact map, bottom to top:
   `intents.py` (deferred-edit low IR), `recognition_cache.py` (ADR 0017 one-result
   lifecycle), `recognition_ownership.py` (run-local accepted-occurrence outcomes, including
   final-IR binding, group/pattern absorption, and settled ownerless consumer policy),
+  `plate_correspondence.py` (pure shared Plate-record/final-IR correspondence predicates),
   `recogniser_policy.py` (single Draftwright-owned unsupported/deferred/evidence-only policy),
   `recogniser_schema.py` (consumer-owned public record schema versions shared by validation and
   reporting), `reporting.py` (pure versioned projection over explicitly supplied finished-build

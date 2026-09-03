@@ -11,7 +11,8 @@ keep that table, this document, and `CLAUDE.md`'s compact map in step. The
 The dependency graph is a DAG (the #138 / ADR 0005 split is complete). Bottom to
 top: leaf modules (`layout.py`, `registry.py`, `fonts.py`, `_geometry.py`,
 `fits.py`, `intents.py`, `recognition_cache.py`, `recognition_ownership.py`,
-`recogniser_policy.py`, `recogniser_schema.py`, `reporting.py`, `recognition_frame.py`, and the
+`plate_correspondence.py`, `recogniser_policy.py`, `recogniser_schema.py`, `reporting.py`,
+`recognition_frame.py`, and the
 strict `blend_contract.py` provider-record boundary, and the `linting/` subpackage) →
 `_core.py` → stage modules (`export.py`,
 `repair.py`, `projection.py`, `compose.py`, `analysis.py`, `drawing.py`, the
@@ -196,7 +197,8 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   owns linting): `coverage.py` (`lint_feature_coverage` + `CoverageState`),
   `structural.py` (geometry/standards checks), `issues.py` (the `LintIssue` type),
   `gear_coverage.py` (declared gear table/profile reconciliation), and `suggest.py`
-  (`_suggest_fix`, #29 snippets). Depends only on `_core`,
+  (`_suggest_fix`, #29 snippets). Depends only on `_core`, the pure
+  `plate_correspondence` leaf,
   `b123d_recognisers` (typed hole records in `coverage.py`) + build123d_drafting.
   `_QUOTED_RE` (a lint-message label regex shared with the
   repair loop) lives in `_core`.
@@ -216,6 +218,10 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   owners, and settled
   unsupported/deferred/evidence-only occurrences are classified; remaining conditional
   cross-family records stay unclassified.
+- **`plate_correspondence.py`** — pure shared Plate-record/final-IR correspondence predicates.
+  Model assembly uses their feature dependency sets only while recording exact same-run
+  occurrence ownership; completeness lint uses the same predicates for requirement ownership.
+  The leaf imports neither consumer, recogniser implementation, nor drawing state.
 - **`recogniser_policy.py`** — the rank-0 Draftwright-owned source for reviewed unsupported,
   deferred, and geometry-only family policy. Both the cross-repository capability declaration and
   the run-local occurrence ledger project this same immutable data; recognition remains

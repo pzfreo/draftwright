@@ -137,6 +137,7 @@ from draftwright.model.ir import (
     StepLevelFeature,
     ThroughStepFeature,
 )
+from draftwright.plate_correspondence import plate_owner_dependencies
 from draftwright.recognition_frame import (
     groove_owns_turned_step_band,
     require_unambiguous_groove_owner,
@@ -1258,6 +1259,92 @@ def _through_step_plate_owner_record_ids(
     return frozenset(owners)
 
 
+def _evidence_occurrence_for_record(
+    evidence: RecognitionEvidence,
+    family: str,
+    record: object,
+):
+    """Return one exact same-run occurrence, never a value-equal substitute."""
+
+    matches = tuple(
+        occurrence
+        for occurrence in evidence.features
+        if evidence.family(occurrence) == family and evidence.record(occurrence) is record
+    )
+    return matches[0] if len(matches) == 1 else None
+
+
+def _plate_owner_has_evidence_scope(
+    evidence: RecognitionEvidence,
+    plate: Plate,
+    owners: tuple[Feature, ...],
+    *,
+    slot_pattern_members: dict[int, tuple[Slot, ...]],
+) -> bool:
+    """Require an exact AAG lineage for every cross-family Plate absorption."""
+
+    occurrence = _evidence_occurrence_for_record(evidence, "plates", plate)
+    if occurrence is None:
+        return False
+    defining_faces = evidence.defining_faces(occurrence)
+    kinds = tuple(owner.kind for owner in owners)
+
+    def shares_defining_face(family: str, record: object) -> bool:
+        candidate = _evidence_occurrence_for_record(evidence, family, record)
+        return candidate is not None and bool(defining_faces & evidence.defining_faces(candidate))
+
+    if kinds == ("step_level",):
+        step = owners[0]
+        if not isinstance(step, StepLevelFeature):
+            return False
+        try:
+            return any(
+                shares_defining_face("step_levels", level)
+                and any(
+                    abs(retained.level - level.z) <= 1e-6
+                    and retained.x_span == level.x_span
+                    and retained.y_span == level.y_span
+                    for retained in step.level_supports
+                )
+                for level in evidence.result.step_levels
+            )
+        except (AttributeError, TypeError, ValueError):
+            return False
+
+    if kinds == ("envelope", "step_level"):
+        step = owners[1]
+        if not isinstance(step, StepLevelFeature):
+            return False
+        try:
+            boundaries = {round(float(plate.lo), 3), round(float(plate.hi), 3)}
+            return any(
+                shares_defining_face("risers", riser)
+                and any(
+                    round(float(position), 3) in boundaries
+                    and any(
+                        axis == str(plate.axis) and abs(float(shoulder) - float(position)) <= 1e-6
+                        for axis, shoulder in step.shoulders
+                    )
+                    for position in riser.positions
+                )
+                for riser in evidence.result.risers
+                if str(riser.axis) == str(plate.axis)
+            )
+        except (AttributeError, TypeError, ValueError):
+            return False
+
+    if kinds == ("envelope", "slot_pattern"):
+        return any(
+            shares_defining_face("slots", member)
+            for member in slot_pattern_members.get(id(owners[1]), ())
+        )
+
+    # Whole-envelope and polygonal-boss derivations have no released AAG relation that proves
+    # the selected final IR belongs to this exact Plate occurrence. Keep them visibly missing
+    # instead of recovering correspondence from coordinates or traversal order.
+    return False
+
+
 def _through_step_legacy_owners(
     step,
     bbox,
@@ -1499,6 +1586,7 @@ def build_part_model(
     features: list[Feature] = []
     envelope_feature: Feature | None = None
     plate_features_by_record_id: dict[int, Feature] = {}
+    slot_pattern_members_by_feature_id: dict[int, tuple[Slot, ...]] = {}
     step_level_feature: Feature | None = None
 
     def append_direct(record: object) -> None:
@@ -2028,6 +2116,7 @@ def build_part_model(
         patterned_sl.update(pat.slots)
         slot_pattern_feature = _slot_pattern_feature(pat, list(pat.slots))
         features.append(slot_pattern_feature)
+        slot_pattern_members_by_feature_id[id(slot_pattern_feature)] = tuple(pat.slots)
         if ownership is not None:
             ownership.absorb(
                 tuple(pat.slots),
@@ -2307,6 +2396,8 @@ def build_part_model(
                 plate_feature = convert(pl, ctx)
                 features.append(plate_feature)
                 plate_features_by_record_id[id(pl)] = plate_feature
+                if ownership is not None:
+                    ownership.bind(pl, plate_feature, reason_code="plate_adapter")
 
     # Prismatic step-height ladder — horizontal face levels on a NON-turned part
     # (a turned part's steps are StepFeatures, dimensioned by the IR length chain).
@@ -2458,6 +2549,37 @@ def build_part_model(
                     through,
                     tuple(owner_features),
                     reason_code="through_step_legacy_projection",
+                )
+
+        reason_for_owner_kinds = {
+            ("step_level",): "plate_step_level_owner",
+            ("envelope", "step_level"): "plate_step_ladder_owner",
+            ("envelope", "slot_pattern"): "plate_slot_pattern_owner",
+        }
+        for plate in plates or ():
+            if ownership.has_owner(plate):
+                continue
+            dependencies = plate_owner_dependencies(plate, features)
+            owners = tuple(feature for feature, _parameter in dependencies)
+            unique_owners = tuple(
+                feature
+                for index, feature in enumerate(owners)
+                if not any(previous is feature for previous in owners[:index])
+            )
+            owner_kinds: tuple[Any, ...] = tuple(
+                getattr(feature, "kind", None) for feature in unique_owners
+            )
+            reason_code = reason_for_owner_kinds.get(owner_kinds)
+            if reason_code is not None and _plate_owner_has_evidence_scope(
+                ownership.evidence,
+                plate,
+                unique_owners,
+                slot_pattern_members=slot_pattern_members_by_feature_id,
+            ):
+                ownership.absorb_into_many(
+                    plate,
+                    unique_owners,
+                    reason_code=reason_code,
                 )
 
     # Machined flats on round stock (#148b) — a planar face truncating a cylinder,

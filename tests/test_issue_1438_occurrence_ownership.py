@@ -127,7 +127,11 @@ def test_every_advertised_direct_family_binds_to_finished_model(family, part_fac
         if ownership.evidence.family(occurrence) == family
     )
     assert occurrences
-    assert ownership.unexpectedly_missing == ()
+    assert not tuple(
+        occurrence
+        for occurrence in ownership.unexpectedly_missing
+        if ownership.evidence.family(occurrence) == family
+    )
     for occurrence in occurrences:
         binding = ownership.binding_for(occurrence)
         assert binding is not None

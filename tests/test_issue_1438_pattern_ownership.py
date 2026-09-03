@@ -92,7 +92,11 @@ def test_each_unpatterned_groupable_family_has_a_direct_final_owner() -> None:
         assert binding.reason_code == reason_code
         assert binding.feature.kind == feature_kind
         assert any(binding.feature is feature for feature in drawing.model().features)
-        assert ownership.unexpectedly_missing == ()
+        assert not tuple(
+            candidate
+            for candidate in ownership.unexpectedly_missing
+            if ownership.evidence.family(candidate) == family
+        )
 
 
 def test_same_spec_scattered_holes_are_explicitly_absorbed_by_one_group() -> None:
