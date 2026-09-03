@@ -53,7 +53,7 @@ NESTED_FAMILIES = frozenset({"countersinks"})
 # These accepted occurrences have a supported consumer path, but the final owner depends on
 # Draftwright's cross-family classification.  The conversion site must record either the direct
 # adapter or the exact aggregate feature that intentionally absorbs the occurrence.
-CONDITIONAL_FAMILIES = frozenset({"channels"})
+CONDITIONAL_FAMILIES = frozenset({"channels", "turned_steps"})
 
 OwnershipDisposition = Literal["represented", "absorbed"]
 PolicyDisposition = OwnerlessDisposition
@@ -75,6 +75,7 @@ _REPRESENTED_REASON_CODES = frozenset(
         "pmi_split_member",
         "pocket_adapter",
         "slot_adapter",
+        "turned_step_adapter",
     }
 )
 _ABSORBED_REASON_CODES = frozenset(
@@ -85,7 +86,9 @@ _ABSORBED_REASON_CODES = frozenset(
         "slot_pattern_member",
     }
 )
-_FEATURE_ABSORPTION_REASON_CODES = frozenset({"channel_step_level_owner"})
+_FEATURE_ABSORPTION_REASON_CODES = frozenset(
+    {"channel_step_level_owner", "turned_step_groove_owner"}
+)
 _REASON_FAMILY = {
     "channel_adapter": "channels",
     "channel_step_level_owner": "channels",
@@ -98,10 +101,18 @@ _REASON_FAMILY = {
     "pocket_pattern_member": "pockets",
     "slot_adapter": "slots",
     "slot_pattern_member": "slots",
+    "turned_step_adapter": "turned_steps",
+    "turned_step_groove_owner": "turned_steps",
 }
 _NESTED_OWNER_FAMILY = {"countersink_hole_owner": "holes"}
 _NESTED_OWNER_FIELD = {"countersink_hole_owner": "csink"}
-_FEATURE_ABSORPTION_OWNER_KIND = {"channel_step_level_owner": "step_level"}
+_FEATURE_ABSORPTION_OWNER_KIND = {
+    "channel_step_level_owner": "step_level",
+    "turned_step_groove_owner": "groove",
+}
+_FEATURE_ABSORPTION_EXISTING_OWNER = {
+    "turned_step_groove_owner": ("grooves", "direct_adapter"),
+}
 
 
 @dataclass(frozen=True)
@@ -419,10 +430,33 @@ class RecognitionOwnershipBuilder:
             raise ValueError("feature-absorption reason_code does not match IR owner kind")
         if id(occurrence) in self._bound_occurrence_ids:
             raise ValueError("recognition occurrence already has an IR owner")
-        if id(feature) in self._owned_feature_ids and any(
-            binding.feature is feature
-            and (binding.disposition != "absorbed" or binding.reason_code != reason_code)
-            for binding in self._bindings
+        existing_bindings = tuple(
+            binding for binding in self._bindings if binding.feature is feature
+        )
+        existing_owner = _FEATURE_ABSORPTION_EXISTING_OWNER.get(reason_code)
+        if existing_owner is not None and not any(
+            binding.disposition == "represented"
+            and self.evidence.family(binding.occurrence) == existing_owner[0]
+            and binding.reason_code == existing_owner[1]
+            for binding in existing_bindings
+        ):
+            raise ValueError("feature absorption requires an existing exact recognition owner")
+        if reason_code == "turned_step_groove_owner" and any(
+            binding.disposition == "absorbed" and binding.reason_code == "turned_step_groove_owner"
+            for binding in existing_bindings
+        ):
+            raise ValueError("groove feature already absorbs a turned-step occurrence")
+        if any(
+            not (
+                (binding.disposition == "absorbed" and binding.reason_code == reason_code)
+                or (
+                    existing_owner is not None
+                    and binding.disposition == "represented"
+                    and self.evidence.family(binding.occurrence) == existing_owner[0]
+                    and binding.reason_code == existing_owner[1]
+                )
+            )
+            for binding in existing_bindings
         ):
             raise ValueError("IR feature already has an incompatible recognition owner")
         self._bound_occurrence_ids.add(id(occurrence))

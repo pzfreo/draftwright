@@ -1962,6 +1962,7 @@ def build_part_model(
     # Body-local turned profiles → step segments; else external bosses → diameters. Profile
     # identity owns the axis line, so parallel shafts never inherit the part bbox centre or
     # each other's groove bands (#1357).
+    groove_owned_steps: list[tuple[TurnedStep, Groove]] = []
     if profiles:
         grooves_by_profile: dict[int, list[Groove]] = {id(profile): [] for profile in profiles}
         for groove in grooves:
@@ -1969,19 +1970,42 @@ def build_part_model(
             if owners:
                 grooves_by_profile[id(owners[0])].append(groove)
         for profile in profiles:
-            for s in profile.steps:
+            step_groove_candidates = tuple(
+                (
+                    step,
+                    tuple(
+                        groove
+                        for groove in grooves_by_profile[id(profile)]
+                        if groove_owns_turned_step_band(groove, step)
+                    ),
+                )
+                for step in profile.steps
+            )
+            groove_candidate_counts = Counter(
+                id(groove)
+                for _step, candidate_grooves in step_groove_candidates
+                for groove in candidate_grooves
+            )
+            for s, step_groove_owners in step_groove_candidates:
                 # Skip the band a groove owns (its callout dimensions width + floor ø). Match
                 # on axial POSITION, not diameter: a narrow groove's step is reported at the
                 # WALL OD (local_od's pad engulfs both walls when the groove is < ~1.4 mm), so
                 # a floor-ø match would silently miss the common circlip case. The groove centre
                 # lies within its own step span; the short-length guard keeps a merged shaft run
-                # from matching.
-                if any(
-                    groove_owns_turned_step_band(groove, s)
-                    for groove in grooves_by_profile[id(profile)]
-                ):
+                # from matching. Require a one-to-one relation in both directions: a sub-mm
+                # neighbour can fall within the position tolerance of the same groove, whose
+                # width/floor diameter cannot represent both accepted physical bands.
+                if step_groove_owners:
+                    if (
+                        len(step_groove_owners) == 1
+                        and groove_candidate_counts[id(step_groove_owners[0])] == 1
+                    ):
+                        groove_owned_steps.append((s, step_groove_owners[0]))
                     continue
-                features.append(convert(s, ctx))
+                step_feature = convert(s, ctx)
+                features.append(step_feature)
+                if ownership is not None:
+                    ownership.bind(s, step_feature, reason_code="turned_step_adapter")
         # A narrow external band nested under / beside a larger OD reads as that OD in
         # local_od's max(), so it never becomes a step diameter and goes silently
         # undimensioned (#298). Emit each band the silhouette steps miss as a boss, so
@@ -2193,7 +2217,17 @@ def build_part_model(
     # is round stock and classifies rotational, yet the groove still needs its own callout.
     # The recogniser self-gates on external OD bands, so a prismatic part yields none.
     for groove in grooves:
-        append_direct(groove)
+        groove_feature = convert(groove, ctx)
+        features.append(groove_feature)
+        if ownership is not None:
+            ownership.bind(groove, groove_feature)
+            for step, owner_groove in groove_owned_steps:
+                if owner_groove is groove:
+                    ownership.absorb_into(
+                        step,
+                        groove_feature,
+                        reason_code="turned_step_groove_owner",
+                    )
 
     # Rotational furniture — OD + centrelines + concentric bore leaders (#237). Its
     # presence marks the part rotational; emitted from the classification (od, bores).
