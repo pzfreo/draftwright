@@ -808,6 +808,48 @@ def test_inspect_false_generates_the_script_without_a_sidecar(tmp_path, monkeypa
     assert not sidecar.exists()
 
 
+def test_regenerating_without_a_sidecar_removes_the_previous_one(tmp_path, monkeypatch) -> None:
+    """A stale document beside a fresh script describes a different part and says nothing about
+    it — exactly what this evidence exists to prevent."""
+
+    from draftwright.sheet_emit import generate_sheet_script, inspection_sidecar_path
+
+    first = tmp_path / "a.step"
+    first.write_bytes(_PLATE_FIXTURE.read_bytes())
+    second = tmp_path / "b.step"
+    second.write_bytes(_PMI_FIXTURE.read_bytes())
+    monkeypatch.chdir(tmp_path)
+
+    py_path = generate_sheet_script("a.step", out="drawing")
+    sidecar = Path(inspection_sidecar_path(py_path))
+    assert json.loads(sidecar.read_text(encoding="utf-8"))["source"]["name"] == "a.step"
+
+    generate_sheet_script("b.step", out="drawing", inspect=False)
+
+    assert not sidecar.exists(), "the previous run's document must not survive beside a new script"
+
+
+def test_a_source_that_cannot_be_inspected_removes_a_previous_sidecar(
+    tmp_path, monkeypatch, caplog
+) -> None:
+    from build123d import Line, export_step
+
+    from draftwright.sheet_emit import generate_sheet_script, inspection_sidecar_path
+
+    source = tmp_path / "a.step"
+    source.write_bytes(_PLATE_FIXTURE.read_bytes())
+    monkeypatch.chdir(tmp_path)
+    sidecar = Path(inspection_sidecar_path(generate_sheet_script("a.step", out="drawing")))
+    assert sidecar.exists()
+
+    export_step(Line((0, 0, 0), (10, 0, 0)), "curve.step")
+    with caplog.at_level(logging.WARNING, logger="draftwright.sheet_emit"):
+        generate_sheet_script("curve.step", out="drawing")
+
+    assert "No inspection sidecar written" in caplog.text
+    assert not sidecar.exists()
+
+
 def test_the_sidecar_records_the_pmi_mode_the_generating_run_used(tmp_path, monkeypatch) -> None:
     """PMI lowering can rewrite a grouped hole member into a singleton owner, so the document
     must state which mode produced the ownership rather than let a reader assume geometry-only."""

@@ -2518,6 +2518,12 @@ def generate_sheet_script(
             )
     py_path = f"{stem}.py"
     Path(py_path).write_text(script, encoding="utf-8")  # the script has box-drawing / × / ← glyphs
+    sidecar = inspection_sidecar_path(py_path)
     if inspection is not None:
-        _write_report_document(inspection, inspection_sidecar_path(py_path))
+        _write_report_document(inspection, sidecar)
+    else:
+        # This run owns that path. An earlier run's document left beside a freshly generated
+        # script is evidence about a different part, and nothing in it would say so — the one
+        # failure the document exists to prevent.
+        Path(sidecar).unlink(missing_ok=True)
     return py_path
