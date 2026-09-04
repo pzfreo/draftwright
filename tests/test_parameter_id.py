@@ -1,4 +1,4 @@
-"""ADR 0016 identity — `DimParameter.parameter_id`, the derived semantic key (#869).
+"""ADR 4 (was 0016) identity — `DimParameter.parameter_id`, the derived semantic key (#869).
 
 Three guards, matching the three tiers the ADR's identity section names:
 
@@ -52,6 +52,12 @@ def _feature_classes() -> dict[str, type]:
 
 
 _F = ir.Frame((0.0, 0.0, 0.0), "z")
+_CBS_CENTRELINE = ((0.0, 0.0, -5.0), (0.0, 0.0, 5.0))
+_CBS_SECTION = ((-4.0, 0.0), (0.0, 0.0), (0.0, -4.0))
+_CBS_FRAME = ir.Frame(
+    ir.CircularBlindStepFeature.anchor_for("z", 4.0, _CBS_CENTRELINE, _CBS_SECTION),
+    "z",
+)
 _BBOX = Box(80, 50, 12).bounding_box()  # some planner rules consult the footprint
 
 
@@ -89,6 +95,28 @@ _SAMPLES: dict[str, ir.Feature] = {
     "SlotFeature": ir.SlotFeature(_F, "y", "x", 8.0, 30.0, 0.0, -15.0, 15.0),
     "PadFeature": ir.PadFeature(_F, "y", "x", 8.0, 30.0, 0.0, -15.0, 15.0, 12.0, 20.0),
     "PocketFeature": ir.PocketFeature(_F, "y", "x", 8.0, 30.0, 5.0, 0.0, -15.0, 15.0),
+    "RectangularBlindSlotFeature": ir.RectangularBlindSlotFeature(
+        frame=_F,
+        axis="z",
+        open_sign=-1,
+        width_axis="x",
+        depth_axis="y",
+        depth_sign=1,
+        width=8.0,
+        length=30.0,
+        depth=5.0,
+    ),
+    "RoundBottomBlindSlotFeature": ir.RoundBottomBlindSlotFeature(
+        frame=_F,
+        axis="z",
+        open_sign=-1,
+        width_axis="x",
+        depth_axis="y",
+        depth_sign=1,
+        length=30.0,
+        radius=3.0,
+        flat_width=4.0,
+    ),
     "ChannelFeature": ir.ChannelFeature(
         ir.Frame((0.0, 0.0, 9.0), "x"),
         "y",
@@ -180,6 +208,14 @@ _SAMPLES: dict[str, ir.Feature] = {
     ),
     "ChamferFeature": ir.ChamferFeature(_F, "z", 2.0, 2.0, 45.0),
     "FilletFeature": ir.FilletFeature(_F, "z", 3.0),
+    "BlendFeature": ir.BlendFeature(_F, "z", 0.2, "convex", (0.0, 0.0, 1.0)),
+    "CircularBlindStepFeature": ir.CircularBlindStepFeature(
+        _CBS_FRAME, "z", 4.0, 10.0, _CBS_CENTRELINE, _CBS_SECTION
+    ),
+    "PairedRampStepFeature": ir.PairedRampStepFeature(_F, "z", 45.0, 12.0),
+    "ThroughStepFeature": ir.ThroughStepFeature(
+        _F, "z", 12.0, ((-5.0, 5.0), (-5.0, -5.0), (5.0, -5.0))
+    ),
     "FlatFeature": ir.FlatFeature(_F, "z", 18.0),
     "GrooveFeature": ir.GrooveFeature(_F, "z", 3.0, 20.0),
     "StepLevelFeature": ir.StepLevelFeature(_F, 0.0, (5.0, 10.0, 15.0)),
@@ -227,11 +263,25 @@ _SAMPLE_BINDINGS = {
     ),
     "EnvelopeFeature": (("width.length", 80.0), ("height.length", 8.0), ("depth.length", 50.0)),
     "SlotFeature": (("slot_width.length", 8.0), ("slot_length.length", 30.0)),
-    "PadFeature": (("pad_width.length", 8.0), ("pad_length.length", 30.0)),
+    "PadFeature": (
+        ("pad_width.length", 8.0),
+        ("pad_length.length", 30.0),
+        ("pad_height.length", 8.0),
+    ),
     "PocketFeature": (
         ("pocket_width.length", 8.0),
         ("pocket_length.length", 30.0),
         ("pocket_depth.length", 5.0),
+    ),
+    "RectangularBlindSlotFeature": (
+        ("rectangular_blind_slot_width.length", 8.0),
+        ("rectangular_blind_slot_length.length", 30.0),
+        ("rectangular_blind_slot_depth.length", 5.0),
+    ),
+    "RoundBottomBlindSlotFeature": (
+        ("round_bottom_blind_slot_length.length", 30.0),
+        ("round_bottom_blind_slot_flat_width.length", 4.0),
+        ("round_bottom_blind_slot_radius.radius", 3.0),
     ),
     "ChannelFeature": (("channel_width.length", 25.0),),
     "PocketPatternFeature": (
@@ -261,6 +311,19 @@ _SAMPLE_BINDINGS = {
     "ExternalSpurGearFeature": (),
     "ChamferFeature": (("chamfer.length", 2.0),),
     "FilletFeature": (("fillet.radius", 3.0),),
+    "BlendFeature": (("blend.radius", 0.2),),
+    "CircularBlindStepFeature": (
+        ("circular_step_radius.radius", 4.0),
+        ("circular_step_depth.length", 10.0),
+    ),
+    "PairedRampStepFeature": (
+        ("ramp_angle.angle", 45.0),
+        ("ramp_run.length", 12.0),
+    ),
+    "ThroughStepFeature": (
+        ("through_step_leg.length.y", 10.0),
+        ("through_step_leg.length.x", 10.0),
+    ),
     "FlatFeature": (("flat.length", 18.0),),
     "GrooveFeature": (("groove.length", 3.0), ("groove.diameter", 20.0)),
     "StepLevelFeature": (
@@ -597,7 +660,7 @@ class TestStability:
     def test_ids_are_readable_semantic_strings(self):
         """Not opaque tokens — they surface in diagnostics and emitted scripts, so a
         UUID or a list position would be unreadable in a diff or unstable across runs
-        (both rejected by ADR 0016)."""
+        (both rejected by ADR 4 (was 0016))."""
         for _, _, pid, _ in self._measurements(self._part()):
             assert pid and not pid[0].isdigit()
             assert pid.replace(".", "").replace("_", "").isalnum()

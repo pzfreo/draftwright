@@ -1,4 +1,4 @@
-"""Tests for recognise_turned_steps — axial step recognition for turned parts (ADR 0007).
+"""Tests for recognise_turned_steps — axial step recognition for turned parts (ADR 3 (was 0007)).
 
 Geometry-level: build stepped shafts with build123d and assert the recognised
 step lengths, ignoring the OCC face-iteration order. Fixtures lie along X (the

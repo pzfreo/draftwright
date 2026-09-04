@@ -3,7 +3,7 @@
 build123d 0.11 (the cadquery-ocp-novtk kernel, required for Python 3.13+ wheels) shifts the
 HLR projection very slightly for some geometries.
 
-``test_layout_snapshot`` — a TEMPORARY, byte-exact ADR 0009 characterization gate marked
+``test_layout_snapshot`` — a TEMPORARY, byte-exact ADR 2 (was 0009) characterization gate marked
 "delete at P5 (#319)" — is **retired** (#641 gap 3). It skipped exactly one of its ten cases on
 0.11 (``box``); the other nine ran. Retiring it deliberately drops its *absolute*-position
 coverage (expected label/geometry positions, view bboxes, item count) — that was always

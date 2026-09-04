@@ -1,8 +1,8 @@
-"""Sheet anchored manufacturing notes — `sheet.note()` / `.note()` (ADR 0011 P2c, #488).
+"""Sheet anchored manufacturing notes — `sheet.note()` / `.note()` (ADR 4 (was 0011) P2c, #488).
 
 A free-text leader note is the shop callout detection can't infer: thread specs (`M3x0.5 TAP`),
 `DEBURR`, chip-relief, knurl. It reuses the P2b GD&T corridor machinery whole — a note is a
-GD&T-kind IR item whose glyph is a single-line `TextBlock`, placed as a first-class ADR 0009
+GD&T-kind IR item whose glyph is a single-line `TextBlock`, placed as a first-class ADR 2 (was 0009)
 corridor candidate (NOT the dimension planner). These tests pin the target derivation
 (view/side/site/origin), that a placed note is lint-clean, and provenance re-binding.
 """

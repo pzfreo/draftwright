@@ -8,7 +8,7 @@ suppressed, and dropped outcomes. Rendered labels and annotation names are never
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from math import hypot
 from typing import Literal
 
@@ -56,6 +56,7 @@ class HoleRequirementOutcome:
     #: to go and check.
     members: tuple[tuple[float, float, float], ...] = ()
     features: tuple = ()
+    source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
 
 
 def _rounded(value) -> float:
@@ -384,6 +385,19 @@ def _source_at(source) -> tuple[float, float, float]:
 
 def _recognised_turned_axis_center(recognition, axis):
     """Recover the one external-cylinder axis that supports the turned-step ladder."""
+    if not isinstance(recognition.turned_steps, tuple):
+        # This is an optional cross-family structural witness, never authority to normalise a
+        # malformed aggregate.  The turned-step ledger retains the explicit contract failure.
+        return None
+    from draftwright.linting.turned_step_coverage import turned_step_source_key
+
+    try:
+        for step in recognition.turned_steps:
+            turned_step_source_key(step, step)
+    except (AttributeError, TypeError, ValueError):
+        # One malformed member invalidates this optional aggregate-derived witness.  The hole
+        # ledger must neither crash nor certify an alternate from partially trusted steps.
+        return None
     steps = tuple(step for step in recognition.turned_steps if step.axis == axis)
     if not steps:
         return None
@@ -474,11 +488,9 @@ def _parameter_ids(
             in_plane = "y" if feature.frame.axis == "x" else "x"
             ids.extend((f"{stem}.{in_plane}", f"{stem}.z"))
     else:
-        # Pitch/direction/count define only relative arrangement. The current compiler has
-        # no off-axis pattern location producer, so retain both absolute in-plane physical
-        # requirements as explicit missing outcomes instead of deleting them from the
-        # recognition denominator. These stable ids extend the feature-owned location stem;
-        # a future compiler/renderer can make them placed without changing the ledger schema.
+        # Pitch/direction/count define only relative arrangement. Retain both absolute
+        # in-plane physical requirements independently; the compiler's one feature-level
+        # location unit can prove both without changing this physical ledger schema.
         stem = getattr(feature, "LOCATION_STEM", None)
         if stem is None:
             return None
@@ -497,7 +509,7 @@ def _evidence_parameter(parameter: str) -> str:
         # those compiler-owned ids instead of inventing a second suppression vocabulary.
         return parameter.replace(".centerline.", ".")
     if parameter.startswith(("location.location.", "location_pattern.location.")):
-        # X/Y are independent physical critique requirements, while ADR 0016 / #883 keeps
+        # X/Y are independent physical critique requirements, while ADR 4 (was 0016) / #883 keeps
         # their authored addressability as one feature-level location unit.
         return parameter.rsplit(".", 1)[0]
     return parameter
@@ -791,7 +803,7 @@ def hole_requirement_outcomes(
     # Carries the group's member SITES explicitly (#1217 PR 2). The source object is the
     # representative `holes[0]`, so deriving members from it yields one site for a group of
     # eight — which a consumer attributing per hole then silently misses seven of.
-    sources: list[tuple[HoleSourceKind, object, tuple, int, tuple]] = []
+    sources: list[tuple[HoleSourceKind, object, tuple, int, tuple, tuple[object, ...]]] = []
     for (spec, _direction), holes in loose_groups.items():
         axis_index = "xyz".index(spec[0])
         through = spec[3]
@@ -802,7 +814,7 @@ def hole_requirement_outcomes(
                 site[axis_index] = 0.0
             member_sites.append((site[0], site[1], site[2]))
         members = tuple(sorted(member_sites))
-        sources.append(("hole", holes[0], (spec, members), len(holes), members))
+        sources.append(("hole", holes[0], (spec, members), len(holes), members, tuple(holes)))
     sources.extend(
         (
             "hole_pattern",
@@ -810,6 +822,7 @@ def hole_requirement_outcomes(
             _pattern_key(pattern),
             len(pattern.holes),
             tuple(_members(pattern)),
+            tuple(pattern.holes),
         )
         for pattern in recognition.hole_patterns
     )
@@ -859,7 +872,7 @@ def hole_requirement_outcomes(
     # recognition-owned sources is ambiguous even when only one source would otherwise
     # propose it as an exact match.
     owner_source_indices: dict[int, set[int]] = defaultdict(set)
-    for index, (kind, _source, key, _member_count, _sites) in enumerate(sources):
+    for index, (kind, _source, key, _member_count, _sites, _records) in enumerate(sources):
         if kind == "hole":
             spec, members = key
         else:
@@ -883,7 +896,7 @@ def hole_requirement_outcomes(
     # remain unverifiable.
     exact_proposals: list[tuple] = []
     exact_evidence: list[bool] = []
-    for kind, _source, key, _member_count, _sites in sources:
+    for kind, _source, key, _member_count, _sites, _records in sources:
         if kind == "hole":
             source_spec, source_members = key
             spec_features = hole_features_by_spec.get(source_spec, ())
@@ -929,7 +942,7 @@ def hole_requirement_outcomes(
     # simultaneously certify another source at its projected cutter centre.
 
     residual_proposals: dict[int, tuple] = {}
-    for index, (kind, source, key, _member_count, _sites) in enumerate(sources):
+    for index, (kind, source, key, _member_count, _sites, _records) in enumerate(sources):
         if matches_by_source[index]:
             continue
         # A partial, duplicate, or multiply-claimed exact owner is contradictory
@@ -993,7 +1006,9 @@ def hole_requirement_outcomes(
         if omission.feature is not None and omission.authored
     }
     outcomes = []
-    for index, (kind, source, _key, member_count, source_sites) in enumerate(sources):
+    for index, (kind, source, _key, member_count, source_sites, source_records) in enumerate(
+        sources
+    ):
         matched = matches_by_source[index]
         representative = matched[0] if matched else None
         parameters = (
@@ -1016,6 +1031,7 @@ def hole_requirement_outcomes(
                     "unverifiable",
                     requirement_count=_physical_requirement_count(kind, source, member_count),
                     members=source_sites,
+                    source_records=source_records,
                 )
             )
             continue
@@ -1042,6 +1058,7 @@ def hole_requirement_outcomes(
                     representation_reason=representation_reason,
                     members=source_sites,
                     features=tuple(matched),
+                    source_records=source_records,
                 )
             )
     # The current HoleRecord waist has one countersink slot.  A second seat on the
@@ -1070,7 +1087,7 @@ def hole_requirement_outcomes(
         # is in the right space, but `countersink_matches_hole` can accept more than one hole —
         # its tolerances scale with diameter — so the lookup needs a rule for choosing among
         # them, and `next()` silently chose "first". Which hole a seat physically sits on is the
-        # recogniser's question (ADR 0013), not a policy for draftwright to invent in a lint
+        # recogniser's question (ADR 3 (was 0013)), not a policy for draftwright to invent in a lint
         # module; getting it wrong publishes a confident, canonical-looking key pointing at the
         # wrong hole, which is worse than publishing none.
         #
@@ -1079,7 +1096,15 @@ def hole_requirement_outcomes(
         # that finds nothing to join is correctly informed. Closing the gap properly means the
         # waist carrying more than one countersink slot, which is #1229's real remainder.
         outcomes.extend(
-            HoleRequirementOutcome("hole", at, 1, parameter, "unverifiable", members=())
+            HoleRequirementOutcome(
+                "hole",
+                at,
+                1,
+                parameter,
+                "unverifiable",
+                members=(),
+                source_records=(countersink,),
+            )
             for parameter in ("countersink.diameter", "countersink.angle")
         )
     return outcomes

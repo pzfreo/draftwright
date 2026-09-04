@@ -1,4 +1,4 @@
-"""ADR 0013 Phase 1c — the typed record→Feature converter registry (#752).
+"""ADR 3 (was 0013) Phase 1c — the typed record→Feature converter registry (#752).
 
 `model/detect.py` translates recognition records into IR `Feature`s through one
 typed registry seam. These tests are the fail-closed guard on that seam:
@@ -14,12 +14,18 @@ typed registry seam. These tests are the fail-closed guard on that seam:
 
 from __future__ import annotations
 
+import dataclasses
 import inspect
 import typing
 
-import b123d_recognisers as recognition
 import pytest
-from b123d_recognisers._record import Record
+from _recogniser_public_contract import (
+    public_recogniser_member,
+    public_recogniser_names,
+    public_record_return_types,
+    public_record_universe,
+)
+from b123d_recognisers import FramedEvidence, HoleRecord
 from build123d import Box, Cylinder, Pos
 
 from draftwright.model.detect import (
@@ -31,70 +37,86 @@ from draftwright.model.detect import (
     build_part_model,
     convert,
 )
-from draftwright.model.ir import Feature
-
-
-def _record_types_in(annot) -> set[type]:
-    """Every `Record` subclass reachable in a return annotation — unwrapping
-    ``list[...]``, unions/``| None`` and nesting.
-
-    Decompose parameterised generics (``get_args``) BEFORE the bare-class check: on
-    Python 3.10 ``isinstance(list[X], type)`` is ``True`` (a GenericAlias quirk fixed in
-    3.11), so an ``isinstance``-first order would treat ``list[BossRecord]`` as a plain
-    class and never reach its args — silently dropping the record type on 3.10."""
-    args = typing.get_args(annot)
-    if args:
-        out: set[type] = set()
-        for arg in args:
-            out |= _record_types_in(arg)
-        return out
-    if isinstance(annot, type):
-        return {annot} if issubclass(annot, Record) else set()
-    return set()
-
-
-#: Prefixes of the public functions that emit records into the IR. ``project_`` joined
-#: ``recognise_`` in #1025: ``project_step_shoulders`` produces ``StepShoulder``, which reaches
-#: ``StepLevelFeature.shoulders`` exactly as a recogniser's record would. Deriving the universe
-#: from ``recognise_`` alone would have quietly dropped that type from the completeness guard
-#: the moment it moved behind a projection — and left a future ``project_*`` record type with
-#: no home and no test saying so.
-_RECORD_EMITTING_PREFIXES = ("recognise_", "project_")
+from draftwright.model.ir import Feature, Frame
 
 
 def _recogniser_record_universe() -> set[type]:
-    """The authoritative set of record types, derived MECHANICALLY from the public
-    record-emitting functions' return annotations (not a hand-maintained list). This is what
-    makes the completeness guard genuinely fail-closed: add ``recognise_threads() ->
-    list[ThreadRecord]`` and ``ThreadRecord`` enters this universe automatically, so the
-    partition test below fails until it is given a home — matching the ADR 0013 claim
-    that a new recogniser cannot silently emit features with no converter."""
-    universe: set[type] = set()
-    for name in dir(recognition):
-        if not name.startswith(_RECORD_EMITTING_PREFIXES):
-            continue
-        fn = getattr(recognition, name)
-        # Fail loud, not open: an unresolvable return annotation must surface as a test
-        # failure naming the recogniser, never be silently skipped (which would let a new
-        # record type escape the universe and defeat the completeness guard below).
-        try:
-            hints = typing.get_type_hints(fn)
-        except Exception as exc:
-            raise AssertionError(
-                f"could not resolve return hints for recognition.{name}: {exc!r}"
-            ) from exc
-        # Every recogniser must *declare* a Record-typed return (all 14 today do:
-        # `list[<Record...>]`). A missing annotation (`get_type_hints` → no "return")
-        # or a non-Record return contributes nothing to the universe — which would let a
-        # new recogniser's record type escape the completeness guard. Reject it here so
-        # the fail-closed property survives a recogniser added with a bad/absent annotation.
-        found = _record_types_in(hints.get("return"))
-        assert found, (
-            f"recognition.{name} has no Record-typed return annotation "
-            f"(got {hints.get('return')!r}) — the record→Feature completeness guard needs one"
+    """The mechanically derived public record universe (kept as the historical test seam)."""
+
+    return public_record_universe()
+
+
+def test_record_return_grammar_rejects_private_mixed_or_non_list_shapes():
+    """Finding one public record cannot bless unrelated members or an arbitrary container."""
+
+    @dataclasses.dataclass(frozen=True)
+    class _UnpublishedRecord:
+        value: int
+
+        def to_dict(self):
+            return {"value": self.value}
+
+    with pytest.raises(AssertionError, match="non-public-record list member"):
+        public_record_return_types(
+            list[_UnpublishedRecord], source="recognition.recognise_private"
         )
-        universe |= found
-    return universe
+    with pytest.raises(AssertionError, match=r"expected list\[PublicRecord\]"):
+        public_record_return_types(tuple[HoleRecord, int], source="recognition.recognise_bad")
+    with pytest.raises(AssertionError, match="non-public-record list member"):
+        public_record_return_types(list[HoleRecord | int], source="recognition.recognise_bad")
+    with pytest.raises(AssertionError, match="non-public-record list member"):
+        public_record_return_types(list[list[HoleRecord]], source="recognition.recognise_bad")
+
+    def recognise_private():
+        return []
+
+    recognise_private.__annotations__ = {"return": list[_UnpublishedRecord]}
+    published_names = public_recogniser_names()
+    published = {name: public_recogniser_member(name) for name in published_names}
+    injected = {**published, "recognise_private": recognise_private}
+    with pytest.raises(AssertionError, match="non-public-record list member"):
+        public_record_universe(
+            names=published_names | {"recognise_private"},
+            member=injected.__getitem__,
+        )
+
+    def recognise_bad():
+        return []
+
+    recognise_bad.__annotations__ = {"return": list[int]}
+    injected = {**published, "recognise_bad": recognise_bad}
+    with pytest.raises(AssertionError, match="has no public-record return annotation"):
+        public_record_universe(
+            names=published_names | {"recognise_bad"},
+            member=injected.__getitem__,
+        )
+
+
+def test_record_universe_ignores_public_callable_type_aliases():
+    """A public contract alias is not a record-emitting package function."""
+
+    assert (
+        public_record_universe(
+            names={"FramedEvidence"},
+            member=lambda _name: FramedEvidence,
+        )
+        == set()
+    )
+
+
+def test_record_universe_includes_callable_object_emitters():
+    """An object-based decorator cannot hide a public record emitter."""
+
+    class _CallableEmitter:
+        __annotations__ = {"return": list[HoleRecord]}
+
+        def __call__(self):
+            return []
+
+    assert public_record_universe(
+        names={"recognise_future"},
+        member=lambda _name: _CallableEmitter(),
+    ) == {HoleRecord}
 
 
 def test_registry_tiers_partition_every_record_type():
@@ -126,18 +148,18 @@ def test_registry_tiers_partition_every_record_type():
 
 
 def test_orchestrated_records_document_their_residual_reason():
-    """Tier 3 is the ADR 0013 Phase 1 accepted residual — each entry states why."""
+    """Tier 3 is the ADR 3 (was 0013) Phase 1 accepted residual — each entry states why."""
     for rec_type, reason in _ORCHESTRATED_RECORDS.items():
         assert isinstance(reason, str) and reason.strip(), f"{rec_type.__name__} needs a reason"
 
 
-def test_unconsumed_records_name_the_issue_deciding_them():
-    """Tier 4 is a WAITING ROOM, not a bin: each entry cites the issue that will empty it.
+def test_unconsumed_records_name_the_issue_recording_their_disposition():
+    """Tier 4 is an explicit consumer boundary, not a bin: every entry cites its decision.
 
-    Tier 3 entries have design reasons that will not change; these are open questions, and the
-    difference has to survive in the register or the two collapse into "we do not convert this"
-    (#1244). The issue reference is the thing that expires — when it closes, the record either
-    moves to a converter or its reason has to be rewritten as a permanent one.
+    Tier 3 entries are non-requirement substrate. Tier 4 entries belong to unsupported families:
+    an open issue may still decide their meaning, or a closed issue may record a reviewed
+    unsupported outcome. That distinction has to survive in the register or both tiers collapse
+    into an unexplained "we do not convert this" (#1244).
     """
     import re
 
@@ -186,6 +208,83 @@ def test_convert_fails_closed_on_unregistered_record():
         convert(_NotARecord(), ctx)
 
 
+def test_every_uniform_converter_lowers_a_representative_public_record_to_ir():
+    """The no-leak guard executes every registered 1:1 converter, not a lucky subset."""
+
+    from test_recogniser_contract import _records_from_recognisers
+
+    records = {type(record): record for _, record in _records_from_recognisers()}
+    missing = set(_CONVERTERS) - records.keys()
+    assert not missing, (
+        f"no representative record for converters: {sorted(t.__name__ for t in missing)}"
+    )
+
+    ctx = ConvContext(bbox=Box(200, 200, 200).bounding_box(), orientation="z")
+    provider_types = _recogniser_record_universe()
+    for record_type in _CONVERTERS:
+        converted = convert(records[record_type], ctx)
+        assert type(converted) not in provider_types, (
+            f"{record_type.__name__} converter leaked {type(converted).__name__}"
+        )
+        assert isinstance(converted, Feature), (
+            f"{record_type.__name__} converter returned {type(converted).__name__}, not IR"
+        )
+
+
+def test_every_derived_converter_lowers_representative_public_records_to_ir():
+    """Every grouped converter is called with real provider records and member evidence."""
+
+    from b123d_recognisers import (
+        HoleRecord,
+        recognise_hole_patterns,
+        recognise_holes,
+        recognise_pocket_patterns,
+        recognise_pockets,
+        recognise_slot_patterns,
+        recognise_slots,
+    )
+    from test_recogniser_contract import (
+        _bolt_circle_plate,
+        _csk_plate,
+        _grid_plate,
+        _linear_array_plate,
+        _pocket_array_plate,
+        _pocket_grid_plate,
+        _slot_array_plate,
+        _slot_grid_plate,
+    )
+
+    hole = recognise_holes(_csk_plate())[0]
+    converted: list[Feature] = [
+        _DERIVED_CONVERTERS[HoleRecord](hole, Frame(tuple(hole.location), "z"))
+    ]
+    cases = (
+        (recognise_holes, recognise_hole_patterns, _bolt_circle_plate),
+        (recognise_holes, recognise_hole_patterns, _linear_array_plate),
+        (recognise_holes, recognise_hole_patterns, _grid_plate),
+        (recognise_pockets, recognise_pocket_patterns, _pocket_array_plate),
+        (recognise_pockets, recognise_pocket_patterns, _pocket_grid_plate),
+        (recognise_slots, recognise_slot_patterns, _slot_array_plate),
+        (recognise_slots, recognise_slot_patterns, _slot_grid_plate),
+    )
+    exercised = {HoleRecord}
+    for recognise_members, recognise_patterns, build_part in cases:
+        members = recognise_members(build_part())
+        patterns = recognise_patterns(members)
+        assert len(patterns) == 1, build_part.__name__
+        pattern = patterns[0]
+        exercised.add(type(pattern))
+        converted.append(_DERIVED_CONVERTERS[type(pattern)](pattern, members))
+
+    assert exercised == set(_DERIVED_CONVERTERS), (
+        "derived converter corpus mismatch: "
+        f"missing={sorted(t.__name__ for t in set(_DERIVED_CONVERTERS) - exercised)}"
+    )
+    provider_types = _recogniser_record_universe()
+    assert all(type(feature) not in provider_types for feature in converted)
+    assert all(isinstance(feature, Feature) for feature in converted)
+
+
 def _rich_parts():
     """Parts spanning the feature families detect.py emits — holes, prismatic
     envelope, a turned profile (steps/boss), and a chamfer."""
@@ -196,13 +295,14 @@ def _rich_parts():
 
 def test_build_part_model_never_leaks_a_recognition_record():
     """The seam always lowers to the IR: no `build_part_model` output is a
-    recognition-layer `Record`; every feature satisfies the IR `Feature` shape."""
+    provider object; every feature satisfies the IR `Feature` shape."""
+    provider_types = _recogniser_record_universe()
     for part in _rich_parts():
         model = build_part_model(part)
         assert model.features, "expected the drive part to yield features"
         for f in model.features:
-            assert not isinstance(f, Record), (
-                f"recognition record leaked into IR: {type(f).__name__}"
+            assert type(f) not in provider_types, (
+                f"recognition-layer object leaked into IR: {type(f).__name__}"
             )
             # IR Feature shape (kind + frame + parameters), incl. the PMI/authored features.
             assert hasattr(f, "kind") and hasattr(f, "frame") and hasattr(f, "parameters")

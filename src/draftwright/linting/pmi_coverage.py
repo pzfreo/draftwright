@@ -324,7 +324,7 @@ _EXPLAINED_OMISSION_CODES = frozenset(
 def lint_pmi_rendering(features, registry, mode: str, *, decorations=None) -> list[LintIssue]:
     """Report source-bearing typed PMI that produced no annotation or placement drop.
 
-    ADR 0010's registry is the existing annotation-to-feature provenance owner. A placement
+    ADR 5 (was 0010)'s registry is the existing annotation-to-feature provenance owner. A placement
     rejection is already a structured source-bearing ``*_dropped`` build issue (the code stays
     specific to the ordinary renderer typed PMI entered), so this reconciliation is derived
     from those two outcomes rather than maintained in a parallel ledger.

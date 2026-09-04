@@ -1,4 +1,4 @@
-"""ADR 0016's boundary: a dimensional renderer draws only what the compiler approved.
+"""ADR 4 (was 0016)'s boundary: a dimensional renderer draws only what the compiler approved.
 
 The rule — *renderers may emit dimensional content only from the compiled plan* — exists
 because the previous arrangement made honouring suppression a convention each renderer had
@@ -265,6 +265,80 @@ class TestTheRendererCannotSeeContent:
             "compiled plan's approved entries, whose spans carry every coordinate it needs"
         )
 
+    def test_through_step_renderer_cannot_resolve_its_provenance_handle(self):
+        """Its outside corner is a compiled placement fact, not a raw-feature escape."""
+        from draftwright.annotations.from_model import render_through_steps
+
+        tree = ast.parse(inspect.getsource(render_through_steps))
+        calls = {
+            node.func.id
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        }
+        assert "resolve_feature" not in calls
+
+    def test_no_new_annotation_helper_can_resolve_a_provenance_handle(self):
+        """Global ratchet: every direct annotation-layer FeatureRef escape is named debt.
+
+        Scan every function and method, regardless of its signature. Restricting this to a
+        ``plan`` parameter let a renderer hide a new escape in a natural ``ref``/``analysis``
+        helper while still claiming the helper boundary was guarded.
+        """
+        actual: dict[tuple[str, str], int] = {}
+        root = pathlib.Path(__file__).resolve().parents[1] / "src" / "draftwright" / "annotations"
+        for path in root.glob("*.py"):
+            module = path.stem
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+
+            class DirectEscapeInventory(ast.NodeVisitor):
+                def __init__(self) -> None:
+                    self.scope: list[str] = []
+
+                def visit_ClassDef(self, node):  # noqa: N802 - ast visitor protocol
+                    self.scope.append(node.name)
+                    self.generic_visit(node)
+                    self.scope.pop()
+
+                def visit_FunctionDef(self, node):  # noqa: N802 - ast visitor protocol
+                    self.scope.append(node.name)
+                    for child in node.body:
+                        self.visit(child)
+                    self.scope.pop()
+
+                def visit_AsyncFunctionDef(self, node):  # noqa: N802 - ast visitor protocol
+                    self.visit_FunctionDef(node)
+
+                def visit_Call(self, node):  # noqa: N802 - ast visitor protocol
+                    if (
+                        self.scope
+                        and isinstance(node.func, ast.Name)
+                        and node.func.id == "resolve_feature"
+                    ):
+                        key = (module, ".".join(self.scope))
+                        actual[key] = actual.get(key, 0) + 1
+                    self.generic_visit(node)
+
+            DirectEscapeInventory().visit(tree)
+
+        # These are the exact legacy provenance/placement seams. Any new helper, method, nested
+        # function, or additional call is visible here regardless of whether it accepts `plan`.
+        assert actual == {
+            ("_common", "_hole_location_coverage_fact"): 1,
+            ("_common", "SolveTrace.record_escalations"): 1,
+            ("_common", "solve_corridor._group_owners"): 1,
+            ("_common", "PlacementContext.place"): 1,
+            ("from_model", "render_locations"): 1,
+            ("from_model", "render_slots"): 1,
+            ("holes", "_approved_off_axis_holes"): 1,
+            ("holes", "_furnish_uncalled_patterns"): 1,
+            ("holes", "_add_grid_pitch_dims"): 1,
+            ("holes", "_place_pitch_dim"): 1,
+            ("holes", "_place_pitch_dim._place"): 1,
+            ("leaders", "_candidate_hits_component"): 1,
+            ("leaders", "place_feature_leader_jobs.place"): 1,
+            ("orchestrator", "_maybe_tabulate_holes_impl"): 7,
+        }
+
     def test_the_provenance_handle_exposes_no_measurement(self):
         """Carrying the `Feature` on an approved entry left the bypass one attribute access
         away — `.feature.levels` rebuilds exactly what the compiler withheld (#923 review).
@@ -277,8 +351,32 @@ class TestTheRendererCannotSeeContent:
         for content in ("levels", "shoulders", "base", "datum", "parameters"):
             assert not hasattr(ladder.ref, content), f"FeatureRef exposes {content}"
 
+    def test_exact_instance_authority_refuses_copy_and_serialization(self):
+        """A run-local identity join cannot survive detached from its ownership universe."""
+        from draftwright.model.compiled import FeatureInstanceIndex
+
+        model = detect_part_model(_staircase())
+        ref = compile_dimensions(model).groups[0].ref
+        index = FeatureInstanceIndex()
+        index.extend(model.features[0], (object(),))
+        index.extend(model.features[0], (object(),))
+        assert len(index) == 1
+        assert len(index.values_for(ref)) == 2
+        with pytest.raises(TypeError, match="exact FeatureRef"):
+            index.values_for(object())
+
+        for operation in (
+            lambda: copy.copy(index),
+            lambda: copy.deepcopy(index),
+            lambda: pickle.dumps(index),
+            lambda: index.__reduce__(),
+            lambda: index.__getstate__(),
+        ):
+            with pytest.raises(TypeError, match="run-local"):
+                operation()
+
     def test_identities_survive_the_compile(self):
-        """`DimensionId` is ADR 0016's stable addressable identity; a renderer-facing result
+        """`DimensionId` is ADR 4 (was 0016)'s stable addressable identity; a renderer-facing result
         that discarded it would create identity debt on the boundary meant to remove it."""
         plan = compile_dimensions(detect_part_model(_staircase()))
         for ladder in plan.ladders:
@@ -548,24 +646,8 @@ class TestAPositionIsADimension:
     @pytest.mark.parametrize(
         "roles", [("location",), ("bore.diameter", "location")], ids=["alone", "with-bore"]
     )
-    def test_an_off_axis_pattern_location_is_refused_not_accepted_and_lost(self, axis, roles):
-        """Eligibility must match what a compiler will actually produce.
-
-        `_LOCATION_ROLE` said every pattern is locatable; `plan_locations` planned only
-        Z-normal ones and the bbox compiler handled only holes, so an X/Y pattern fell
-        between them — `dimension(pattern, "location")` was ACCEPTED and produced nothing,
-        with no diagnostic. That is precisely the blank-drawing failure
-        `_check_authored_targets` exists to prevent (#925 review).
-
-        The engine has never drawn an off-axis pattern position (the off-axis pass excluded
-        patterns by construction), so the honest fix is for the vocabulary to say so rather
-        than for the compiler to invent output. `location_datum` is now the single answer
-        that `plan_locations`, the bbox compiler and this check all read.
-
-        The `with-bore` case is the one that survived the first fix: the target check asked
-        whether the FEATURE matched anything, so a valid `bore.diameter` entry vouched for
-        the invalid `location` beside it.
-        """
+    def test_an_off_axis_pattern_location_compiles_and_draws(self, axis, roles):
+        """Every accepted X/Y pattern position produces both bbox offsets (#1357)."""
         from draftwright.model.ir import Frame, HoleFeature, PatternFeature, RequestedDimension
 
         member = HoleFeature(Frame((10, 5, 2), axis), 4.0, depth=None, through=True)
@@ -578,12 +660,18 @@ class TestAPositionIsADimension:
             pitch=15,
             direction=(0, 1, 0),
         )
-        with pytest.raises(ValueError, match="draws no position"):
-            build_drawing(
-                Box(100, 60, 20),
-                model=[pattern],
-                authored=tuple(RequestedDimension(pattern, r) for r in roles),
-            )
+        drawing = build_drawing(
+            Box(100, 60, 20),
+            model=[pattern],
+            authored=tuple(RequestedDimension(pattern, r) for r in roles),
+        )
+        locations = [
+            name for name in drawing.annotations_of(pattern) if name.startswith("dim_loc_")
+        ]
+        assert len(locations) == 2
+        assert {
+            key["parameter_id"] for name in locations for key in drawing.measurement_keys(name)
+        } == {"location_pattern.location"}
 
     def test_a_Z_normal_pattern_location_still_works(self):
         """The false-positive half: narrowing eligibility must not cost the case that works."""
@@ -1029,9 +1117,11 @@ class TestTheBoundaryIsLoadBearing:
                         break
 
         assert sorted(by_contract["plan"]) == [
+            "render_blends",
             "render_boss_diameters",
             "render_boss_heights",
             "render_chamfers",
+            "render_circular_blind_steps",
             "render_diameters",
             "render_envelope",
             "render_fillets",
@@ -1039,16 +1129,21 @@ class TestTheBoundaryIsLoadBearing:
             "render_grooves",
             "render_height_ladder",
             "render_locations",
+            "render_pad_heights",
+            "render_paired_ramp_steps",
             "render_plates",
             "render_pocket_patterns",
             "render_pockets",
             "render_polygonal_bosses",
             "render_polygonal_stock",
+            "render_rectangular_blind_slots",
             "render_rotational",
+            "render_round_bottom_blind_slots",
             "render_slot_patterns",
             "render_slots",
             "render_step_lengths",
             "render_step_positions",
+            "render_through_steps",
         ], "the migrated set changed — update this and the ADR's inventory together"
 
         assert by_contract["groups"] == [], (
@@ -1076,7 +1171,7 @@ class TestTheBoundaryIsLoadBearing:
             pathlib.Path(__file__).resolve().parents[1]
             / "docs"
             / "adr"
-            / "0016-declared-dimensioning-intent.md"
+            / "0004-declared-intent.md"
         ).read_text(encoding="utf-8")
         assert "Hole callouts (`hc_`) remain on the legacy surface" in adr, (
             "the ADR stopped naming the one renderer still on the advisory surface — it "
@@ -1103,7 +1198,7 @@ def test_every_approved_collection_is_addressable():
     `sheet_emit._mirrored_requests` is a serialisation of that walk. Before #946 the emitter
     assembled its answer from three sources, so a category the compiler grew rendered
     correctly and stayed invisible to scripts until someone remembered to extend it — the
-    failure mode stated in the issue, one level up from where ADR 0016 Amendment 1 fixed it
+    failure mode stated in the issue, one level up from where ADR 4 (was 0016 Amendment 1) fixed it
     for renderers.
 
     This makes the roster fail closed: add a collection of approved content and it must be

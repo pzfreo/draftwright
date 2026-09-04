@@ -8,7 +8,7 @@ The single most important rule:
 
 > **Never hand-place a feature callout, dimension, or GD&T frame at raw coordinates.**
 > You declare *what* to annotate; the engine's placement solve decides *where* (crossing-free,
-> packed — ADR 0004/0014). There is deliberately **no** arbitrary-coordinate placement in the
+> packed — ADR 2 (was 0004/0014)). There is deliberately **no** arbitrary-coordinate placement in the
 > sanctioned surface — you cannot choose positions, and you should not want to. Hand-placed
 > annotations bypass the solve and lay out badly (overlaps, off in a corner). To make one
 > annotation win a contested spot, raise its `priority=` or `pin=` it — that **ranks/anchors**
@@ -23,7 +23,7 @@ from draftwright import Sheet, build_drawing
 dwg = build_drawing("part.step")            # or build_drawing(a_build123d_solid)
 dwg.export("out", formats=("pdf", "png"))
 
-# 2. Declared — the Sheet façade (ADR 0011). Statement-style: declare features + aspects on `s`.
+# 2. Declared — the Sheet façade (ADR 4 (was 0011)). Statement-style: declare features + aspects on `s`.
 s = Sheet(solid)                            # declare against the build123d part
 h = s.hole(hole_solid)                      # returns a handle you can keep
 h.fit("H7")                                 # aspects: .fit/.tolerance/.note/.thread/.finish/…
@@ -104,6 +104,20 @@ for issue in dwg.lint():
 paths = dwg.export("out", formats=("svg", "dxf", "pdf", "png"))   # -> {format: path}
 ```
 
+`reproducible=True` writes files that do not carry the run that produced them, so two
+exports of the same drawing are byte-identical and a written drawing can be diffed or
+checksummed to see whether its content actually changed. Set it per call, or once for
+the drawing via `build_drawing(..., reproducible=True)`:
+
+```python
+dwg = build_drawing(part, reproducible=True)     # every export from this drawing
+paths = dwg.export("out", formats=("dxf",))
+paths = dwg.export("out", formats=("dxf",), reproducible=False)   # override per call
+```
+
+Off by default because it is not free: ordering the DXF entities costs roughly a third
+of DXF export time again. Off costs exactly what it did before the option existed.
+
 ## What NOT to do
 
 - ❌ Raw page coordinates for feature annotations; `Drawing.place_dim(...)` (deprecated raw
@@ -111,10 +125,13 @@ paths = dwg.export("out", formats=("svg", "dxf", "pdf", "png"))   # -> {format: 
 - ❌ `dwg.add(Dimension/Leader/FeatureControlFrame(...))` / raw `Note` objects — `add` is the
   engine's low-level placement primitive (being made private, #817). Use the verbs: `note()` for
   free text, `add_table()`/`add_hole_table()` for tables, the feature verbs for callouts/dims.
-- ❌ Bypassing recognition / assuming byte-identical output (it is not a goal — ADR 0004/0012).
+- ❌ Bypassing recognition / treating byte-identical output as a *stability* guarantee across
+  versions or layout changes — it is not one, and pinning a byte digest to catch regressions is
+  the wrong instrument (ADR 2 (was 0004) / ADR 4 (was 0012)). `reproducible=True` is a narrower promise: two exports
+  of one drawing, on one version, agree. It does not promise the next version draws it the same.
 
 ## Source of truth
 
-`docs/adr/` — especially 0004 (compose-then-pack layout), 0014 (collect-then-solve placement),
-0011 (declare features), 0012 (edits as pinned candidates), 0015 (the compiler pipeline).
-`CLAUDE.md` has the compact module map; `docs/architecture.md` the detailed one.
+`docs/adr/` — five live records: ADR 1 (the compiler pipeline), ADR 2 (sheet layout and view
+planning), ADR 3 (the recognition boundary), ADR 4 (declared intent), ADR 5 (trust and honest
+failure). `CLAUDE.md` has the compact module map; `docs/architecture.md` the detailed one.

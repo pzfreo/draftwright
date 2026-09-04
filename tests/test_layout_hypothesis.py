@@ -25,7 +25,7 @@ runs and never replayed on the next — untrustworthy as a PR gate. Now the sear
 deterministic, so within a build environment a failure recurs on every run; the input
 is also reproducible from the ``@reproduce_failure`` blob ``print_blob=True`` emits
 (the geometry it replays into is a pure function of that input — guarded by
-``test_layout_cleanliness`` — with fonts path-pinned per ADR 0006). Derandomising
+``test_layout_cleanliness`` — with fonts path-pinned per ADR 5 (was 0006)). Derandomising
 fixes input *generation*, not the OCC build result, so a genuine layout defect may
 still surface on one matrix leg (build123d/OCP versions differ across the Python legs)
 before another — the pre-existing cross-config property the seeded tier shares, not

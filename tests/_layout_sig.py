@@ -1,6 +1,6 @@
 """Shared layout-signature helpers + the small part corpus.
 
-Extracted from the retired ``test_layout_snapshot.py`` (a temporary ADR 0009
+Extracted from the retired ``test_layout_snapshot.py`` (a temporary ADR 2 (was 0009)
 characterization gate, deleted once the migration landed — #319/#641 gap 3). ``_signature``
 (a determinism fingerprint) and ``CORPUS`` (the exercised parts) outlive it: ``_signature`` is
 used by ``test_layout_property`` (determinism gate) and ``test_layout_cleanliness``; ``CORPUS``

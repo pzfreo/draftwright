@@ -1,4 +1,4 @@
-"""fits — ISO 286 fit-class → limit-deviation lookup (ADR 0011 P2a.2, #29).
+"""fits — ISO 286 fit-class → limit-deviation lookup (ADR 4 (was 0011) P2a.2, #29).
 
 A fit code like ``H7`` / ``h6`` / ``g6`` names a *tolerance class*, not a number: the
 actual ± deviation depends on the nominal diameter's ISO 286 size band. This module is

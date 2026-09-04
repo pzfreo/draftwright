@@ -1,6 +1,6 @@
 """The compiled dimension plan — the only thing a dimensional renderer may draw from.
 
-ADR 0016's boundary rule: **renderers may emit dimensional content only from the compiled
+ADR 4 (was 0016)'s boundary rule: **renderers may emit dimensional content only from the compiled
 plan.** A renderer receives approved entries and decides *where* and *how* to draw them; it
 does not decide *what*, and it is not given the feature inventory or the bounding box it
 would need to decide differently.
@@ -19,7 +19,7 @@ they never receive**:
 
 - :class:`ApprovedDimension` has no ``suppressed`` field. There is nothing to forget.
 - What was *not* approved leaves through :attr:`RenderableDimensionPlan.diagnostics`.
-  Omission stays inspectable — ADR 0016's "marked, not filtered" is preserved — but it is
+  Omission stays inspectable — ADR 4 (was 0016)'s "marked, not filtered" is preserved — but it is
   not on the path a renderer walks.
 
   The first consumer is `add_feature_diameter`, which asks WHY a callout has nothing to
@@ -58,9 +58,11 @@ from draftwright.model.ir import (
     Feature,
     HoleFeature,
     Note,
+    PadFeature,
     PartModel,
     PatternFeature,
     PocketFeature,
+    PocketPatternFeature,
     Point,
     RotationalFeature,
     SlotFeature,
@@ -92,7 +94,7 @@ class FeatureRef:
     convention this work exists to replace.
 
     So the handle exposes identity and category — enough for provenance tagging
-    (ADR 0010), escalation grouping, and equality — and no measurement at all. The two
+    (ADR 5 (was 0010)), escalation grouping, and equality — and no measurement at all. The two
     consumers that legitimately need the object (the corridor provenance seam and the
     escalation resolver) call :func:`resolve_feature` where the object is the point.
 
@@ -135,11 +137,64 @@ class FeatureRef:
         return f"FeatureRef({self.kind})"
 
 
+class FeatureInstanceIndex:
+    """Values keyed by the exact IR instance behind an opaque :class:`FeatureRef`.
+
+    This is the narrow bridge for same-run physical authority that structural ``FeatureRef``
+    equality cannot carry. Values are accumulated linearly and exposed only as frozen tuples;
+    neither the underlying feature nor its process address leaves the index.
+    """
+
+    __slots__ = ("__values",)
+
+    def __init__(self) -> None:
+        self.__values: dict[int, tuple[Feature, list[object]]] = {}
+
+    def extend(self, feature: Feature, values) -> None:
+        """Associate *values* with the exact live *feature* instance."""
+
+        key = id(feature)
+        entry = self.__values.get(key)
+        if entry is None:
+            self.__values[key] = (feature, list(values))
+        elif entry[0] is feature:
+            entry[1].extend(values)
+        else:  # pragma: no cover - the existing strong reference prevents live id reuse
+            raise RuntimeError("live feature identity collision")
+
+    def values_for(self, ref: FeatureRef) -> tuple[object, ...]:
+        """Return values for the exact instance behind *ref*, never an equal-valued peer."""
+
+        if not isinstance(ref, FeatureRef):
+            raise TypeError("FeatureInstanceIndex requires an exact FeatureRef")
+        feature = ref._feature
+        entry = self.__values.get(id(feature))
+        return tuple(entry[1]) if entry is not None and entry[0] is feature else ()
+
+    def __len__(self) -> int:
+        return len(self.__values)
+
+    def __copy__(self):
+        raise TypeError("FeatureInstanceIndex is run-local and cannot be copied or serialized")
+
+    def __deepcopy__(self, _memo):
+        raise TypeError("FeatureInstanceIndex is run-local and cannot be copied or serialized")
+
+    def __reduce_ex__(self, _protocol):
+        raise TypeError("FeatureInstanceIndex is run-local and cannot be copied or serialized")
+
+    def __reduce__(self):
+        raise TypeError("FeatureInstanceIndex is run-local and cannot be copied or serialized")
+
+    def __getstate__(self):
+        raise TypeError("FeatureInstanceIndex is run-local and cannot expose serialized state")
+
+
 def resolve_feature(ref):
     """The `Feature` behind a :class:`FeatureRef` — for provenance and escalation ONLY.
 
     Called at the seams where the feature object itself is the point: the corridor's
-    ADR 0010 provenance map, and the escalation resolver's grouping. A dimensional
+    ADR 5 (was 0010) provenance map, and the escalation resolver's grouping. A dimensional
     renderer calling this is a boundary violation, and the guard says so."""
     if ref is None or not isinstance(ref, FeatureRef):
         return ref
@@ -154,8 +209,9 @@ class ApprovedDimension:
     are drawn. A renderer holding one has nothing to decide about whether to draw it.
 
     ``span`` is in PART space; the renderer projects it. That is the split — the compiler
-    says "this measurement, this value, between these two points"; the renderer says which
-    view, which strip, which side, and what happens when it does not fit.
+    says "this measurement, this value, between these two points" and may carry an authored
+    semantic view/side on its group; the renderer creates candidates and the solve decides
+    coordinates and what happens when one does not fit.
     """
 
     id: DimensionId | None
@@ -187,6 +243,11 @@ class ApprovedDimension:
     #: Step details use presence of this fact to crop around correspondent stations rather
     #: than treating a fallback envelope-edge span as physical evidence (#915).
     support_bounds: tuple[float, float, float, float] | None = None
+    #: Optional semantic placement policy for this mark.  Most compound renderers use the
+    #: group policy; independent marks such as envelope extents consume these per-dimension
+    #: fields because one feature's dimensions legitimately scatter across views.
+    view: str | None = None
+    side: str | None = None
 
     @property
     def parameter_id(self) -> str:
@@ -241,6 +302,22 @@ _FACTS: dict[str, tuple[str, ...]] = {
     "channel": ("frame", "width_axis", "long_axis", "depth_axis", "open_sign"),
     "pattern": ("frame", "pattern", "count", "members", "direction", "rows", "cols"),
     "pocket": ("frame", "width_axis", "long_axis", "depth_axis", "edge_anchored"),
+    "rectangular_blind_slot": (
+        "frame",
+        "axis",
+        "open_sign",
+        "width_axis",
+        "depth_axis",
+        "depth_sign",
+    ),
+    "round_bottom_blind_slot": (
+        "frame",
+        "axis",
+        "open_sign",
+        "width_axis",
+        "depth_axis",
+        "depth_sign",
+    ),
     "pocket_pattern": (
         "frame",
         "pattern",
@@ -260,11 +337,13 @@ _FACTS: dict[str, tuple[str, ...]] = {
         "rows",
         "cols",
     ),
-    "pad": ("frame", "width_axis", "long_axis"),
+    "pad": ("frame", "width_axis", "long_axis", "direction"),
     "boss": ("frame", "thread", "knurl"),
     "polygonal_boss": ("frame", "side_count", "flat_directions", "flat_centres"),
     "polygonal_stock": ("frame", "side_count", "flat_directions", "flat_centres"),
-    "step": ("frame", "thread", "knurl"),
+    # ``profile`` is immutable body ownership (axis origin + body bounds), not a printable
+    # diameter/length. Renderers need it to keep parallel/disconnected chains separate (#1357).
+    "step": ("frame", "thread", "knurl", "profile", "profile_group"),
     "step_level": ("frame",),
     "envelope": ("frame",),
     "rotational": ("frame",),
@@ -276,6 +355,19 @@ _FACTS: dict[str, tuple[str, ...]] = {
     # changes output, and a migration that claims byte-identity is the wrong place for it.
     "chamfer": ("frame", "axis", "leg2", "angle", "turned"),
     "fillet": ("frame", "axis", "turned"),
+    # Full free-axis direction is structural identity and survives to the renderer/replay.
+    # Radius remains an approved dimension and cannot leak through these facts.
+    "blend": ("frame", "axis", "side", "axis_direction", "path_kind", "path_radius"),
+    # The frame origin is the physical curved-wall arrow anchor. Radius and depth remain
+    # approved dimensions, so neither can be reconstructed when authored intent omits it.
+    "circular_blind_step": ("frame", "axis"),
+    # Structural placement facts only.  The printed angle and run remain addressable
+    # parameters, so authored omission/tolerance policy cannot be bypassed (#1382).
+    "paired_ramp_step": ("frame", "axis"),
+    # Topology-only direction signs select each outside placement corridor. Absolute section
+    # points would let one approved leg reconstruct the suppressed other leg (ADR 4 (was 0016)), so
+    # both leg values and witnesses travel only as approved spans.
+    "through_step": ("axis", "outside_directions"),
     # These are STRUCTURE, not measurements: together they say which piece of stock a flat
     # belongs to, so the renderer can tell one double-D's two faces from independent aligned
     # or slanted regions (#1013/#1036). The drawing prints none of them.
@@ -291,7 +383,7 @@ _FACTS: dict[str, tuple[str, ...]] = {
     "plate": ("frame", "axis"),
     # Raw AP242 PMI is the documented non-generated exception: its source-authored label
     # is rendered verbatim rather than planned or suppressible. It is intentionally the
-    # sole printed value in this structural allowlist (ADR 0016, "Scope").
+    # sole printed value in this structural allowlist (ADR 4 (was 0016), "Scope").
     "pmi": ("frame", "pmi_kind", "dominant_axis", "ref_bbox", "ref_pts", "label"),
     "authored_dimension": (
         "frame",
@@ -305,7 +397,7 @@ _FACTS: dict[str, tuple[str, ...]] = {
     # receives a FeatureFacts projection. Classifying it empty keeps a future dimensional
     # renderer from acquiring normative values through the compiled-plan side door.
     "external_spur_gear": (),
-    # Existing ADR 0011 aspect kinds are deliberately classified as exposing no
+    # Existing ADR 4 (was 0011) aspect kinds are deliberately classified as exposing no
     # renderer facts yet. Listing them distinguishes "known, reviewed, empty" from a new
     # kind that has never crossed this boundary.
     "control_frame": (),
@@ -388,6 +480,9 @@ class ApprovedGroup:
     ref: FeatureRef
     facts: FeatureFacts
     dims: tuple[ApprovedDimension, ...]
+    #: Optional authored strip intent.  The renderer turns this into an ordinary corridor
+    #: candidate; coordinates remain solver-owned.
+    side: str | None = None
 
     def dim(self, *, kind: str | None = None, role: str | None = None):
         """The first approved dimension matching *kind* and/or *role*, or ``None``.
@@ -402,7 +497,7 @@ class ApprovedGroup:
 
 @dataclass(frozen=True)
 class ApprovedLadder:
-    """A correlated set approved as a whole (ADR 0016 identity tier 3).
+    """A correlated set approved as a whole (ADR 4 (was 0016) identity tier 3).
 
     A step-height ladder or shoulder chain is ONE addressable dimension holding N members,
     so it is approved or omitted whole — never half a staircase. Arriving as an explicit
@@ -455,6 +550,9 @@ class Omission:
         return self.reason == _AUTHORED_OMISSION
 
 
+POCKET_LOCATION_DATUM_COINCIDENT = "pocket location is coincident with its datum"
+
+
 @dataclass(frozen=True)
 class ApprovedContingency:
     """Compiler-approved content released only when its primary representation places none.
@@ -495,7 +593,7 @@ def _addressable_units(group) -> list[ApprovedDimension]:
 
     A correlated set — a pattern's members, a ladder's rungs — shares one `DimensionId` and is
     addressed once, so a script drops the whole set with one line rather than emitting member
-    lines that cannot individually be honoured (ADR 0016 identity tier 3).
+    lines that cannot individually be honoured (ADR 4 (was 0016) identity tier 3).
     """
     seen: set = set()
     out: list[ApprovedDimension] = []
@@ -609,7 +707,7 @@ class RenderableDimensionPlan:
 
         One dimension per addressable UNIT, never per member: a step ladder and a rotational
         body's bores are each ONE intent holding N, so a script drops the set with one line and
-        no member line misleads (ADR 0016 identity tier 3).
+        no member line misleads (ADR 4 (was 0016) identity tier 3).
         """
         out: list[AddressableIntent] = []
         # Dispatched THROUGH the roster, not merely documented by it: the first cut hard-coded
@@ -710,7 +808,7 @@ def _suppressed_dims(model: PartModel, groups=None):
     marked — the compiler's input for what NOT to approve.
 
     *groups* lets a caller that has already planned pass the result in. The engine plans
-    once per build (ADR 0008 Amdt 5); a compiler that re-planned would both cost a second
+    once per build (ADR 1 (was 0008 Amdt 5)); a compiler that re-planned would both cost a second
     pass and create two products that can drift while the migration is partial (#923
     review)."""
     out = {}
@@ -725,7 +823,7 @@ def _suppressed_dims(model: PartModel, groups=None):
 
 
 def _dim_id(feature, parameter_id: str) -> DimensionId | None:
-    """The ADR 0016 identity for an approved entry.
+    """The ADR 4 (was 0016) identity for an approved entry.
 
     Minted here rather than left ``None``: `DimensionId` is already the stable addressable
     identity the ADR defines, and a renderer-facing result that discards it would create
@@ -993,8 +1091,8 @@ def _compile_overall_height(
     # nothing to thread, so `dim_height` reached the sheet claiming nothing and the verifier was
     # blind to it. A PLAN-content gap, not closable at the renderer (#1230).
     #
-    # Be exact about which ADR: this is **ADR 0010 provenance / ADR 0016 identity**, NOT an
-    # ADR 0016 Amdt 1 breach, which an earlier version of this comment asserted three times.
+    # Be exact about which ADR: this is **ADR 5 (was 0010) provenance / ADR 4 (was 0016) identity**, NOT an
+    # ADR 4 (was 0016 Amdt 1) breach, which an earlier version of this comment asserted three times.
     # Amendment 1 is about renderers emitting content the plan does not contain. The plan DID
     # contain this: the rung existed with the right value, and `from_model` builds the label
     # from the compiler's own `rendered_label`. Nothing was renderer-derived. What was missing
@@ -1018,7 +1116,7 @@ def _compile_overall_height(
         # would have been its FIFTH instance: `sheet_emit` already paid for it once, and its
         # own comment calls the hand-rolled version "the fourth instance of #977's signature".
         # Measured, the literal made the direct and mirrored paths mint UNEQUAL ids for the
-        # same measurement on an off-centre part — breaking exactly the ADR 0011 round trip
+        # same measurement on an off-centre part — breaking exactly the ADR 4 (was 0011) round trip
         # `mirror_model` exists for (#1233 review).
         from draftwright.model.declare import _envelope_from_bbox
 
@@ -1113,7 +1211,14 @@ def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[
         feature = pd.feature
         span = pd.param.span
         directional_location = (
-            isinstance(feature, HoleFeature | PatternFeature | SlotPatternFeature)
+            isinstance(
+                feature,
+                HoleFeature
+                | PadFeature
+                | PatternFeature
+                | PocketPatternFeature
+                | SlotPatternFeature,
+            )
             and feature.frame.axis == "z"
         )
         directional_slot_pattern = (
@@ -1141,7 +1246,7 @@ def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[
             assert feature is not None
             # One authored `location` intent, two independently observable page dimensions.
             # Hole/pattern X/Y facts remain rendering members of the ONE feature-level
-            # addressable DimensionId (ADR 0016 / #883); critique carries their directional
+            # addressable DimensionId (ADR 4 (was 0016) / #883); critique carries their directional
             # physical evidence separately. Slot patterns retain their existing directional
             # identity contract.
             for measured_axis in ("x", "y"):
@@ -1169,10 +1274,10 @@ def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[
                     )
                 )
             continue
-        if isinstance(feature, PocketFeature) and axis != "z":
-            # A non-Z pocket's two in-plane coordinates are drawn as TWO dims in its end-on
-            # view (`render_slots`), so they are approved as two entries carrying their own
-            # values — the same shape `_compile_off_axis_hole_locations` uses.
+        if isinstance(feature, PocketFeature | PadFeature) and axis != "z":
+            # A non-Z pocket/pad's two in-plane coordinates are drawn as TWO dims in its
+            # end-on view (`render_slots`), so they are approved as two entries carrying
+            # their own values — the same shape `_compile_off_axis_hole_locations` uses.
             #
             # One entry with `value_text=""` made the renderer subtract the span's endpoints
             # itself to get each axis's number, which is the compiler's job done twice; the
@@ -1182,11 +1287,23 @@ def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[
             for meas in (feature.long_axis, feature.width_axis):
                 index = "xyz".index(meas)
                 value = abs(span[1][index] - span[0][index])
+                parameter_id = f"{pd.param.role}.{meas}"
+                if value <= 1e-6:
+                    omissions.append(
+                        Omission(
+                            feature,
+                            parameter_id,
+                            value,
+                            POCKET_LOCATION_DATUM_COINCIDENT,
+                            code=f"{feature.kind}_location_coincident_with_datum",
+                        )
+                    )
+                    continue
                 start = list(span[1])
                 start[index] = span[0][index]
                 approved.append(
                     ApprovedDimension(
-                        id=_dim_id(feature, f"{pd.param.role}.{meas}"),
+                        id=_dim_id(feature, parameter_id),
                         value_text=_fmt(value),
                         value=value,
                         span=((start[0], start[1], start[2]), span[1]),
@@ -1198,10 +1315,24 @@ def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[
                     )
                 )
             continue
+        if isinstance(feature, PocketFeature) and axis == "z":
+            for measured_axis in ("x", "y"):
+                index = "xyz".index(measured_axis)
+                value = abs(span[1][index] - span[0][index])
+                if value <= 1e-6:
+                    omissions.append(
+                        Omission(
+                            feature,
+                            f"{pd.param.parameter_id}.{measured_axis}",
+                            value,
+                            POCKET_LOCATION_DATUM_COINCIDENT,
+                            code="pocket_location_coincident_with_datum",
+                        )
+                    )
         approved.append(
             ApprovedDimension(
                 id=_dim_id(feature, pd.param.parameter_id),
-                #: Pocket/pad Z-normal ladders remain one location entry with no per-axis value:
+                #: Pocket Z-normal ladders remain one location entry with no per-axis value:
                 #: `render_locations` groups refs ACROSS features and dedups per axis before
                 #: it knows which dims exist, so an entry per axis would be approving a mark
                 #: whose existence the renderer decides. Splitting it needs that grouping to
@@ -1246,36 +1377,57 @@ def _compile_off_axis_hole_locations(
     for f in model.features:
         # Eligibility comes from `location_datum`, not a second orientation rule here —
         # that is the duplication this whole class of defect keeps coming from (#925).
-        if not isinstance(f, HoleFeature) or location_datum(f) != "bbox":
+        if not isinstance(f, HoleFeature | PatternFeature) or location_datum(f) != "bbox":
             continue
-        # An X-drilled hole is located across Y; a Y-drilled one across X. Both carry a
-        # height. (Pattern members are their own `PatternFeature`, so patterned holes are
-        # excluded by construction — as `_ir_off_axis_holes` documents.)
+        # An X-normal hole or pattern is located across Y; a Y-normal one across X. Both
+        # carry a height. Patterns compile one absolute address below, independently of
+        # their relative pitch/count requirements.
         measured = ("y" if f.frame.axis == "x" else "x", "z")
         omitted = authored_location_omitted(model, f)
-        for member in f.members or (f.frame.origin,):
+        references: tuple[Point, ...]
+        if isinstance(f, PatternFeature):
+            # One absolute address owns a pattern. A grid uses the member nearest the bbox
+            # datum so the two emitted offsets identify its near corner; a bolt circle uses
+            # its centre. Relative pitch/count remain separate requirements.
+            if f.pattern == "bolt_circle" or not f.members:
+                references = (f.frame.origin,)
+            else:
+                transverse = tuple(axis for axis in "xyz" if axis != f.frame.axis)
+                references = (
+                    min(
+                        f.members,
+                        key=lambda member: sum(
+                            (member["xyz".index(axis)] - float(getattr(bb.min, axis.upper()))) ** 2
+                            for axis in transverse
+                        ),
+                    ),
+                )
+            role = f.LOCATION_STEM
+        else:
+            references = f.members or (f.frame.origin,)
+            role = f.LOCATION_OFF_AXIS_STEM
+        for member in references:
             for meas in measured:
                 index = "xyz".index(meas)
                 datum = float(getattr(bb.min, meas.upper()))
                 value = abs(member[index] - datum)
+                parameter = (
+                    f"{role}.location" if isinstance(f, PatternFeature) else f"{role}.{meas}"
+                )
                 if omitted:
-                    omissions.append(
-                        Omission(
-                            f, f"{f.LOCATION_OFF_AXIS_STEM}.{meas}", value, _AUTHORED_OMISSION
-                        )
-                    )
+                    omissions.append(Omission(f, parameter, value, _AUTHORED_OMISSION))
                     continue
                 start = list(member)
                 start[index] = datum
                 approved.append(
                     ApprovedDimension(
-                        id=_dim_id(f, f"{f.LOCATION_OFF_AXIS_STEM}.{meas}"),
+                        id=_dim_id(f, parameter),
                         value_text=_fmt(value),
                         value=value,
                         span=((start[0], start[1], start[2]), member),
                         ref=FeatureRef(f),
                         kind="length",
-                        role=f.LOCATION_OFF_AXIS_STEM,  # the feature owns its name (#966)
+                        role=role,
                         discriminator=meas,
                         axis=f.frame.axis,
                     )
@@ -1393,6 +1545,8 @@ def _compile_groups(planned) -> tuple[list[ApprovedGroup], list[Omission]]:
                 discriminator=pd.param.discriminator,
                 tolerance=pd.param.tolerance,
                 display_decimals=pd.display_decimals,
+                view=pd.view,
+                side=pd.side,
             )
             for pd in g.dims
             if not pd.suppressed
@@ -1414,6 +1568,7 @@ def _compile_groups(planned) -> tuple[list[ApprovedGroup], list[Omission]]:
                 ref=FeatureRef(g.feature),
                 facts=FeatureFacts(g.feature),
                 dims=approved,
+                side=g.side,
             )
         )
     return out, omissions
@@ -1431,7 +1586,7 @@ def compile_dimensions(
     plan-once invariant holds through the migration instead of the compiler quietly
     re-planning behind it (#923 review).
 
-    *planned_views* is the ADR 0018 pre-projection constraint used only when the compiler
+    *planned_views* is the ADR 2 (was 0018) pre-projection constraint used only when the compiler
     must plan for itself.  Callers supplying *groups* have already resolved that constraint;
     the exact model/groups identity check below prevents substituting another plan.
     """

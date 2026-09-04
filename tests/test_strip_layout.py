@@ -1,4 +1,4 @@
-"""Unit tests for the ADR 0009 collect-then-solve strip-placement stage.
+"""Unit tests for the ADR 2 (was 0009) collect-then-solve strip-placement stage.
 
 Grows with the boundary-labeling migration (tracking #320). P0b (#317): the
 complete per-strip occupancy model — `strip_obstacles` — that closes the
@@ -217,7 +217,7 @@ def test_strip_obstacles_keeps_section_hatch_in_every_per_view_query():
         assert any(_same(x, hbox) for x in strip_obstacles(dwg, view=v)), f"hatch dropped from {v}"
 
 
-# --- Escalation objects (ADR 0009 Amendment 1, P5-strand-2 scaffolding, #351) -----
+# --- Escalation objects (ADR 2 (was 0009 Amendment 1), P5-strand-2 scaffolding, #351) -----
 
 
 def test_record_callout_drop_emits_a_callout_escalation():
@@ -297,6 +297,16 @@ def test_record_pmi_drop_emits_a_pmi_escalation():
     ctx2 = PlacementContext(registry=AnnotationRegistry())
     _record_pmi_drop(ctx2, object(), "Y", "12.0", SimpleNamespace(pmi_kind="linear"))
     assert ctx2.escalations[0].view == "side"
+
+    ctx_explicit = PlacementContext(registry=AnnotationRegistry())
+    _record_pmi_drop(
+        ctx_explicit,
+        object(),
+        "Y",
+        "12.0",
+        SimpleNamespace(pmi_kind="linear", view="plan", side="right"),
+    )
+    assert ctx_explicit.escalations[0].view == "plan"
 
     # A bore diameter/radius uses a DIFFERENT view table (the view where the bore
     # appears as a circle) from linear dims — conflating the two mislabelled every
@@ -481,7 +491,7 @@ def test_carve_free_segments_fully_covered_leaves_no_segment():
 
 
 def test_carve_then_plan_strip_keeps_a_label_off_a_reserved_row():
-    # ADR 0009 Amendment 9 (#381): `plan_strip` no longer knows about keep-out
+    # ADR 2 (was 0009 Amendment 9) (#381): `plan_strip` no longer knows about keep-out
     # bands itself — a caller carves the band out of the strip with the same
     # `carve_free_segments` every other obstacle already uses, then calls
     # `plan_strip` once per free segment (see `annotations/holes.py`). A label
@@ -511,7 +521,7 @@ def test_carve_around_a_band_keeps_an_anchored_candidate_on_its_natural():
     # candidate assigned to its own band-free segment is never in the same
     # solve as anything the band would have forced a trade-off against.
     # naturals [29, 34], gap 10, band (30, 33) — the DP's own reachable
-    # regression case (docs/adr/0009 Amendment 5) — with label 1 anchored.
+    # regression case (docs/adr/archive/0009 Amendment 5) — with label 1 anchored.
     import pytest
 
     from draftwright.annotations._common import carve_free_segments
@@ -541,7 +551,7 @@ def test_carve_free_segments_no_bands_is_the_whole_strip():
 
 
 def test_holes_band_clearance_exceeds_min_gap_on_the_real_draft():
-    # Guards the invariant docs/adr/0009's "Investigated, not fixed" paragraph
+    # Guards the invariant docs/adr/archive/0009's "Investigated, not fixed" paragraph
     # relies on to call the cross-segment min_gap violation unreachable: a
     # band's half-width (clr) must exceed min_gap on the actual production
     # draft (builder.py's _assemble draft_preset() call), or that paragraph's
@@ -1054,24 +1064,13 @@ def test_two_cross_hole_heights_share_their_end_view_ladder_without_crossing():
     # retain their inner-to-outer order instead of splitting across view ladders.
     xmax = [drawing.get_annotation(name).bounding_box().max.X for name in location_names]
     assert xmax[0] < xmax[1]
-    # The required hole callout remains under the established Policy-B floor,
-    # but the retained fixed-ink crossing is no longer silently lint-clean.
-    issues = drawing.lint()
-    # `annotation_ink_overlap` (#1321/#1332) joins it: this sheet also draws
-    # line-work across a label. Measured, not rendered -- it is the same family as
-    # the cases that were rendered, and stage 3 (#1334) is what prevents it.
-    assert {issue.code for issue in issues} == {
-        "feature_leader_crossing",
-        "annotation_ink_overlap",
-    }
-    # Select by code: the sheet now carries ink crossings alongside this one, and
-    # the assertions below are about the Policy-B leader crossing specifically.
-    (crossing,) = [issue for issue in issues if issue.code == "feature_leader_crossing"]
-    assert crossing.severity == "info"
-    assert "dim_loc_side_z7550:segment:3" in crossing.message
+    # The side-right strip starts at the geometry edge and consumes its composed band.
+    # That gives the shared solve a clear route for the required hole callout instead of
+    # retaining the former Policy-B crossing through the outer location rung.
+    assert drawing.lint() == []
 
 
-# --- unified above-corridor solve (ADR 0009 end state, #345/#346) -----------
+# --- unified above-corridor solve (ADR 2 (was 0009) end state, #345/#346) -----------
 
 
 def _holed_slot():
@@ -1492,3 +1491,93 @@ def test_a_rescued_dedup_winner_does_not_promote_its_loser():
     placed, promoted = _run(rescue=False)
     assert placed == set()
     assert promoted == ["loser"], "a genuinely absent winner must still hand over"
+
+
+def test_a_promoted_deferred_loser_receives_the_shared_measurement_identity(monkeypatch):
+    """#1372 review: restore provenance after the deferred retry creates its annotation."""
+    from types import SimpleNamespace
+
+    import draftwright.annotations._common as common
+    from draftwright.annotations._common import (
+        CorridorCandidate,
+        PlacementContext,
+        drain_corridors,
+        register_corridor,
+    )
+    from draftwright.registry import AnnotationRegistry
+
+    registry = AnnotationRegistry()
+    ctx = PlacementContext(registry=registry)
+    winner_owner, loser_owner = object(), object()
+    winner_measurement, loser_measurement = object(), object()
+    dwg = SimpleNamespace(annotations=registry.names)
+
+    # Force the real non-empty corridor path to reject its kept winner.  Its deferred
+    # retry then fails, so promotion happens during drain_corridors' first callback wave.
+    monkeypatch.setattr(
+        common,
+        "place_strip_candidates",
+        lambda _dwg, _strip, _view, _axis, pairs, _tier, **_kwargs: list(pairs),
+    )
+
+    def defer_winner_failure(_name):
+        ctx.post_drain.append(lambda: None)
+
+    def defer_loser_retry(name):
+        ctx.post_drain.append(
+            lambda: registry.add(
+                object(),
+                name,
+                "front",
+                feature=loser_owner,
+                measurement=loser_measurement,
+            )
+        )
+
+    shared_span = ("front", 0.0, 10.0)
+    register_corridor(
+        ctx,
+        ("front", "below"),
+        SimpleNamespace(anchor=0.0, direction=1.0, gap=1.0),
+        "front",
+        "y",
+        4.0,
+        CorridorCandidate(
+            name="winner",
+            build=lambda _pos: None,
+            order=(0, "winner"),
+            on_place=lambda _name: None,
+            on_drop=defer_winner_failure,
+            feature=winner_owner,
+            measurement=winner_measurement,
+            dedup=shared_span,
+            precedence=1,
+        ),
+    )
+    register_corridor(
+        ctx,
+        ("front", "below"),
+        SimpleNamespace(anchor=0.0, direction=1.0, gap=1.0),
+        "front",
+        "y",
+        4.0,
+        CorridorCandidate(
+            name="loser",
+            build=lambda _pos: None,
+            order=(0, "loser"),
+            on_place=lambda _name: None,
+            on_drop=defer_loser_retry,
+            feature=loser_owner,
+            measurement=loser_measurement,
+            dedup=shared_span,
+            precedence=0,
+        ),
+    )
+
+    drain_corridors(ctx, dwg)
+    assert ctx.post_drain == []
+    assert set(registry.measurement_of("loser")) == {
+        winner_measurement,
+        loser_measurement,
+    }
+    assert registry.feature_of("loser") is None  # genuinely shared by two owners

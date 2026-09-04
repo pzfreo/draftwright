@@ -1,4 +1,4 @@
-"""ADR 0018 §5: the arrangement as the fourth dimension of one constrained choice.
+"""ADR 2 (was 0018 §5): the arrangement as the fourth dimension of one constrained choice.
 
 The ADR treats `view sets x scales x sheets x arrangements` as a single choice, gated on four
 hard conditions of which the first is *preserve every supported requirement or reject the
@@ -19,7 +19,7 @@ bearing, and each has a test below:
   lets the stages disagree about the same sheet.
 * fitting is not preserving. Even at the same scale a smaller sheet has less free area, and
   `centered_rebate` and `scattered_plate` lose dimensions on one. Only a real compile can
-  tell, so the gate measures rather than predicts (ADR 0014 Amdt 3).
+  tell, so the gate measures rather than predicts (ADR 2 (was 0014 Amdt 3)).
 """
 
 import itertools
@@ -248,7 +248,7 @@ class TestPackingMayNotBidUpLegibility:
 
 
 class TestFittingIsNotPreserving:
-    """ADR 0018 §5's first hard gate, measured on the finished drawing."""
+    """ADR 2 (was 0018 §5)'s first hard gate, measured on the finished drawing."""
 
     def test_an_alternative_that_costs_nothing_is_kept_in_one_compile(self):
         drawing = build_drawing(_chamfered())
@@ -272,7 +272,7 @@ class TestFittingIsNotPreserving:
         assert not [code for code in _lint_codes(drawing) if code.endswith("_dropped")]
 
     def test_the_rejection_is_reported_rather_than_silent(self):
-        # ADR 0018 §6: infeasibility is a first-class result. A caller must not have to infer
+        # ADR 2 (was 0018 §6): infeasibility is a first-class result. A caller must not have to infer
         # from a log line that an alternative was tried, or what it cost.
         decision = build_drawing(_centered_rebate()).arrangement_decision
         assert set(decision) == {"chosen", "attempts"}

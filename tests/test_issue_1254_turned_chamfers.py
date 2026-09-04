@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 from b123d_recognisers import Chamfer
-from build123d import Axis, Box, Cylinder, import_step
+from build123d import Axis, Box, Cylinder, GeomType, import_step
 from build123d import chamfer as b3d_chamfer
 
 from draftwright import Drawing, build_drawing
@@ -77,23 +77,19 @@ def test_a_supplied_parallel_chamfer_is_not_guessed_to_be_turned():
     assert not feature.turned
 
 
-def test_standalone_rotational_detection_applies_the_aggregate_chamfer_filter(monkeypatch):
-    record = Chamfer(axis="z", leg1=0.3, leg2=0.3, angle=45.0, at=(-4.7, 0.0, 10.0), turned=True)
-    seen = {}
-
-    def filtered(_part, **kwargs):
-        seen.update(kwargs)
-        return (record,)
-
-    monkeypatch.setattr(detect_module, "recognise_chamfers", filtered)
+def test_standalone_rotational_detection_consumes_aggregate_turned_chamfers():
+    shaft = Cylinder(5, 20)
+    circular_edges = [edge for edge in shaft.edges() if edge.geom_type == GeomType.CIRCLE]
+    part = b3d_chamfer(circular_edges, 0.3)
     model = build_part_model(
-        Cylinder(5, 20),
+        part,
         fillets=(),
         rotational=(10.0, (), "z"),
     )
-    feature = next(feature for feature in model.features if feature.kind == "chamfer")
-    assert seen["include_planar"] is False
-    assert feature.turned
+    features = [feature for feature in model.features if feature.kind == "chamfer"]
+
+    assert len(features) == 2
+    assert all(feature.turned for feature in features)
 
 
 def test_grm03_renders_two_requirements_with_all_three_measurement_identities(grm03_drawing):

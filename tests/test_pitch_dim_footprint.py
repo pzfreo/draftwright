@@ -118,7 +118,7 @@ def test_corridor_dim_constructions_bounded(monkeypatch):
         builds += 1
         return real_dimension(p1, p2, side, distance, draft, **kwargs)
 
-    # Count COMPILES too. A build is no longer one compile: the ADR 0018 arrangement gate and
+    # Count COMPILES too. A build is no longer one compile: the ADR 2 (was 0018) arrangement gate and
     # the #1250 completeness fallback both prove a candidate by building it, so the bound has
     # to be per compile or it measures how many candidates were tried rather than whether the
     # corridor probes (#1130, #1250).
@@ -141,7 +141,7 @@ def test_corridor_dim_constructions_bounded(monkeypatch):
     placed = [name for name, o in dwg.iter_annotations() if isinstance(o, Dimension)]
     assert placed, "fixture no longer places dimensions — the guard lost its subject"
     # Per COMPILE, not per call. This guard is about probing inside one annotation pass, and
-    # ADR 0018's requirement gate can legitimately compile twice — it proves an alternative
+    # ADR 2 (was 0018)'s requirement gate can legitimately compile twice — it proves an alternative
     # arrangement preserves every requirement by building it and reading what failed to
     # place. This part is one that gets rejected, so it compiles twice; dividing by the
     # recorded attempts keeps the guard measuring what it was written to measure (#1130).

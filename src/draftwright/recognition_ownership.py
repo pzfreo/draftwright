@@ -1,0 +1,812 @@
+"""Run-local consumer outcomes for provider occurrences and Draftwright IR features.
+
+This is consumer-owned correspondence state below and beside the ADR 1 (was 0015) IR waist. It keeps
+the provider's opaque :class:`FeatureRef` only for the lifetime of one recognition run and never
+turns object addresses, feature order, record values, or topology indices into persistent IDs.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Literal
+
+from b123d_recognisers.evidence import FeatureRef, RecognitionEvidence
+
+from draftwright.recogniser_policy import (
+    OwnerlessDisposition,
+    ownerless_occurrence_policy,
+)
+
+# These aggregate families have an unconditional one-record -> one-feature adapter in
+# model.detect. Remaining nested and classification-only families stay unclassified until a later
+# slice can state their ownership honestly. Consumer-policy-only occurrences are classified
+# separately below because they deliberately have no IR owner.
+DIRECT_FAMILIES = frozenset(
+    {
+        "blends",
+        "chamfers",
+        "circular_blind_steps",
+        "double_d_bores",
+        "fillets",
+        "flats",
+        "grooves",
+        "pads",
+        "paired_ramp_steps",
+        "polygonal_bosses",
+        "polygonal_stock",
+        "rectangular_blind_slots",
+        "round_bottom_blind_slots",
+    }
+)
+
+# The aggregate exposes these as authoritative physical member occurrences.  Draftwright may
+# lower one member to one feature or absorb several members into one grouped/pattern feature.
+# The derived pattern records are deliberately not FeatureRefs and must not be promoted into
+# invented persistent occurrences.
+GROUPABLE_FAMILIES = frozenset({"holes", "pockets", "slots"})
+
+# These accepted occurrences are nested records carried by a supported parent occurrence. They
+# must retain their own outcome while sharing the parent's final IR owner rather than creating a
+# duplicate feature or requirement.
+NESTED_FAMILIES = frozenset({"countersinks"})
+
+# These accepted occurrences have a supported consumer path, but the final owner depends on
+# Draftwright's cross-family classification.  The conversion site must record either the direct
+# adapter or the exact aggregate feature that intentionally absorbs the occurrence.
+CONDITIONAL_FAMILIES = frozenset({"bosses", "channels", "plates", "through_steps", "turned_steps"})
+
+OwnershipDisposition = Literal["represented", "absorbed"]
+PolicyDisposition = OwnerlessDisposition
+OccurrenceStatus = Literal[
+    "represented",
+    "absorbed",
+    "unsupported",
+    "deferred",
+    "evidence_only",
+    "unexpectedly_missing",
+    "unclassified",
+]
+
+_REPRESENTED_REASON_CODES = frozenset(
+    {
+        "boss_adapter",
+        "direct_adapter",
+        "channel_adapter",
+        "hole_adapter",
+        "pmi_split_member",
+        "pocket_adapter",
+        "plate_adapter",
+        "slot_adapter",
+        "through_step_adapter",
+        "turned_step_adapter",
+    }
+)
+_MULTI_FEATURE_REASON_CODES = frozenset({"through_step_legacy_projection"})
+_ABSORBED_REASON_CODES = frozenset(
+    {
+        "boss_diameter_group_member",
+        "grouped_hole_member",
+        "hole_pattern_member",
+        "pocket_pattern_member",
+        "slot_pattern_member",
+    }
+)
+_FEATURE_ABSORPTION_REASON_CODES = frozenset(
+    {"channel_step_level_owner", "turned_step_groove_owner"}
+)
+_MULTI_FEATURE_ABSORPTION_OWNER_KINDS = {
+    "plate_slot_pattern_owner": ("envelope", "slot_pattern"),
+    "plate_step_ladder_owner": ("envelope", "step_level"),
+    "plate_step_level_owner": ("step_level",),
+}
+_MULTI_FEATURE_ABSORPTION_EXISTING_OWNER = {
+    "plate_slot_pattern_owner": ("slot_pattern", "slots", "slot_pattern_member"),
+}
+_REASON_FAMILY = {
+    "boss_adapter": "bosses",
+    "boss_diameter_group_member": "bosses",
+    "boss_groove_owner": "bosses",
+    "boss_turned_step_owner": "bosses",
+    "channel_adapter": "channels",
+    "channel_step_level_owner": "channels",
+    "countersink_hole_owner": "countersinks",
+    "grouped_hole_member": "holes",
+    "hole_adapter": "holes",
+    "hole_pattern_member": "holes",
+    "pmi_split_member": "holes",
+    "pocket_adapter": "pockets",
+    "pocket_pattern_member": "pockets",
+    "plate_adapter": "plates",
+    "plate_slot_pattern_owner": "plates",
+    "plate_step_ladder_owner": "plates",
+    "plate_step_level_owner": "plates",
+    "slot_adapter": "slots",
+    "slot_pattern_member": "slots",
+    "through_step_adapter": "through_steps",
+    "through_step_legacy_projection": "through_steps",
+    "turned_step_adapter": "turned_steps",
+    "turned_step_groove_owner": "turned_steps",
+}
+_NESTED_OWNER_FAMILY = {"countersink_hole_owner": "holes"}
+_NESTED_OWNER_FIELD = {"countersink_hole_owner": "csink"}
+_FEATURE_ABSORPTION_OWNER_KIND = {
+    "channel_step_level_owner": "step_level",
+    "turned_step_groove_owner": "groove",
+}
+_FEATURE_ABSORPTION_EXISTING_OWNER = {
+    "turned_step_groove_owner": ("grooves", "direct_adapter"),
+}
+_CHAINED_OWNER_FAMILY = {
+    "boss_groove_owner": "grooves",
+    "boss_turned_step_owner": "turned_steps",
+}
+
+
+@dataclass(frozen=True)
+class OccurrenceBinding:
+    """One exact accepted occurrence consumed by one or more exact final IR features."""
+
+    occurrence: FeatureRef
+    feature: object
+    disposition: OwnershipDisposition = "represented"
+    reason_code: str = "direct_adapter"
+    # Run-local position within a grouped IR feature.  This is explicit lineage used to follow
+    # later IR splits; it is not a topology index or a persistent report identifier.
+    member_index: int | None = None
+    # Some established projections need more than one semantic owner to define the accepted
+    # occurrence. Keep ``feature`` as the primary compatibility spelling while exposing the
+    # complete, explicitly recorded owner set through ``features``.
+    additional_features: tuple[object, ...] = ()
+    # Exact run-local intermediate occurrence selected by a chained ownership decision. This
+    # makes reverse cardinality derivable after IR remapping; it is not a persistent identifier.
+    via_occurrence: FeatureRef | None = None
+
+    @property
+    def features(self) -> tuple[object, ...]:
+        """Exact final owners in conversion-decision order."""
+
+        return (self.feature, *self.additional_features)
+
+    def __post_init__(self) -> None:
+        if type(self.additional_features) is not tuple:
+            raise TypeError("additional_features must be an exact tuple")
+        if any(owner is self.feature for owner in self.additional_features) or len(
+            {id(owner) for owner in self.additional_features}
+        ) != len(self.additional_features):
+            raise ValueError("occurrence binding repeats an IR owner")
+        if (self.reason_code in _CHAINED_OWNER_FAMILY) != (self.via_occurrence is not None):
+            raise ValueError("chained ownership bindings require exact intermediate lineage")
+
+
+@dataclass(frozen=True)
+class OccurrencePolicyOutcome:
+    """One exact accepted occurrence with an explicit ownerless consumer policy."""
+
+    occurrence: FeatureRef
+    disposition: PolicyDisposition
+    reason_code: str
+    tracking: str | None
+
+
+def _policy_outcomes(evidence: RecognitionEvidence) -> tuple[OccurrencePolicyOutcome, ...]:
+    """Project the existing consumer capability declaration onto exact occurrences."""
+
+    outcomes: list[OccurrencePolicyOutcome] = []
+    for occurrence in evidence.features:
+        policy = ownerless_occurrence_policy(evidence.family(occurrence))
+        if policy is None:
+            continue
+        outcomes.append(
+            OccurrencePolicyOutcome(
+                occurrence=occurrence,
+                disposition=policy.disposition,
+                reason_code=policy.reason_code,
+                tracking=policy.tracking,
+            )
+        )
+    return tuple(outcomes)
+
+
+@dataclass(frozen=True)
+class RecognitionOwnership:
+    """Immutable run-local ownership ledger paired with one evidence authority."""
+
+    evidence: RecognitionEvidence
+    expected_direct: tuple[FeatureRef, ...]
+    expected_groupable: tuple[FeatureRef, ...]
+    expected_nested: tuple[FeatureRef, ...]
+    expected_conditional: tuple[FeatureRef, ...]
+    bindings: tuple[OccurrenceBinding, ...]
+    policy_outcomes: tuple[OccurrencePolicyOutcome, ...]
+
+    @property
+    def owner_expected_occurrences(self) -> tuple[FeatureRef, ...]:
+        """Supported occurrences whose adapters must record an IR owner."""
+
+        return (
+            self.expected_direct
+            + self.expected_groupable
+            + self.expected_nested
+            + self.expected_conditional
+        )
+
+    @property
+    def expected_occurrences(self) -> tuple[FeatureRef, ...]:
+        """Occurrences whose implemented consumer paths must produce an explicit outcome."""
+
+        return self.owner_expected_occurrences + tuple(
+            outcome.occurrence for outcome in self.policy_outcomes
+        )
+
+    def binding_for(self, occurrence: FeatureRef) -> OccurrenceBinding | None:
+        """Return the ownership binding for an occurrence, validating its authority first."""
+
+        self.evidence.family(occurrence)
+        return next(
+            (binding for binding in self.bindings if binding.occurrence is occurrence), None
+        )
+
+    def policy_for(self, occurrence: FeatureRef) -> OccurrencePolicyOutcome | None:
+        """Return an ownerless policy outcome, validating its evidence authority first."""
+
+        self.evidence.family(occurrence)
+        return next(
+            (outcome for outcome in self.policy_outcomes if outcome.occurrence is occurrence),
+            None,
+        )
+
+    def outcome_for(
+        self, occurrence: FeatureRef
+    ) -> OccurrenceBinding | OccurrencePolicyOutcome | None:
+        """Return the implemented outcome for one exact accepted occurrence."""
+
+        binding = self.binding_for(occurrence)
+        return binding if binding is not None else self.policy_for(occurrence)
+
+    def status(self, occurrence: FeatureRef) -> OccurrenceStatus:
+        """Classify only the ownership contracts implemented so far.
+
+        ``unclassified`` is deliberately not a report disposition.  It is the migration state
+        for remaining conditional cross-family records whose ownership rules are not implemented.
+        """
+
+        outcome = self.outcome_for(occurrence)
+        if outcome is not None:
+            return outcome.disposition
+        if any(expected is occurrence for expected in self.owner_expected_occurrences):
+            return "unexpectedly_missing"
+        return "unclassified"
+
+    @property
+    def unexpectedly_missing(self) -> tuple[FeatureRef, ...]:
+        """Supported occurrences for which conversion failed to record an IR owner."""
+
+        return tuple(
+            occurrence
+            for occurrence in self.owner_expected_occurrences
+            if self.binding_for(occurrence) is None
+        )
+
+
+class RecognitionOwnershipBuilder:
+    """Mutable conversion-time collector; snapshot before attaching it to a drawing."""
+
+    def __init__(self, evidence: RecognitionEvidence) -> None:
+        if type(evidence) is not RecognitionEvidence:
+            raise TypeError("evidence must be an exact RecognitionEvidence")
+        self.evidence = evidence
+        self._expected_direct = tuple(
+            occurrence
+            for occurrence in evidence.features
+            if evidence.family(occurrence) in DIRECT_FAMILIES
+        )
+        self._expected_groupable = tuple(
+            occurrence
+            for occurrence in evidence.features
+            if evidence.family(occurrence) in GROUPABLE_FAMILIES
+        )
+        self._expected_nested = tuple(
+            occurrence
+            for occurrence in evidence.features
+            if evidence.family(occurrence) in NESTED_FAMILIES
+        )
+        self._expected_conditional = tuple(
+            occurrence
+            for occurrence in evidence.features
+            if evidence.family(occurrence) in CONDITIONAL_FAMILIES
+        )
+        self._by_record_identity: dict[int, list[tuple[FeatureRef, object]]] = {}
+        for occurrence in (
+            self._expected_direct
+            + self._expected_groupable
+            + self._expected_nested
+            + self._expected_conditional
+        ):
+            record = evidence.record(occurrence)
+            self._by_record_identity.setdefault(id(record), []).append((occurrence, record))
+        self._bindings: list[OccurrenceBinding] = []
+        self._policy_outcomes = _policy_outcomes(evidence)
+        expected_ids = {
+            id(occurrence)
+            for occurrence in (
+                self._expected_direct
+                + self._expected_groupable
+                + self._expected_nested
+                + self._expected_conditional
+            )
+        }
+        if any(id(outcome.occurrence) in expected_ids for outcome in self._policy_outcomes):
+            raise RuntimeError("recognition occurrence has conflicting owner and policy contracts")
+        self._bound_occurrence_ids: set[int] = set()
+        self._owned_feature_ids: set[int] = set()
+
+    @property
+    def result(self):
+        """The exact aggregate paired with this builder's evidence authority."""
+
+        return self.evidence.result
+
+    def _occurrence_for(self, record: object) -> FeatureRef:
+        """Resolve only exact records issued by this evidence authority."""
+
+        matches = [
+            occurrence
+            for occurrence, candidate in self._by_record_identity.get(id(record), ())
+            if candidate is record
+        ]
+        if len(matches) != 1:
+            reason = (
+                "does not belong to a supported evidence occurrence"
+                if not matches
+                else "is ambiguous"
+            )
+            raise ValueError(f"recognition record {reason}")
+        return matches[0]
+
+    def bind(
+        self,
+        record: object,
+        feature: object,
+        *,
+        reason_code: str = "direct_adapter",
+        member_index: int | None = None,
+    ) -> None:
+        """Bind at the adapter decision site using exact run-local record identity."""
+
+        occurrence = self._occurrence_for(record)
+        if type(reason_code) is not str or reason_code not in _REPRESENTED_REASON_CODES:
+            raise ValueError("unknown represented ownership reason_code")
+        expected_family = _REASON_FAMILY.get(reason_code)
+        actual_family = self.evidence.family(occurrence)
+        if reason_code == "direct_adapter" and actual_family not in DIRECT_FAMILIES:
+            raise ValueError("direct ownership reason_code requires a direct occurrence family")
+        if expected_family is not None and actual_family != expected_family:
+            raise ValueError("represented ownership reason_code does not match occurrence family")
+        if id(occurrence) in self._bound_occurrence_ids:
+            raise ValueError("recognition occurrence already has an IR owner")
+        if id(feature) in self._owned_feature_ids:
+            raise ValueError("IR feature already owns a recognition occurrence")
+        if member_index is not None and member_index < 0:
+            raise ValueError("member_index must be non-negative")
+        self._bound_occurrence_ids.add(id(occurrence))
+        self._owned_feature_ids.add(id(feature))
+        self._bindings.append(
+            OccurrenceBinding(
+                occurrence,
+                feature,
+                reason_code=reason_code,
+                member_index=member_index,
+            )
+        )
+
+    def bind_many(
+        self,
+        record: object,
+        features: tuple[object, ...],
+        *,
+        reason_code: str,
+    ) -> None:
+        """Bind one occurrence to an explicitly selected set of final IR owners."""
+
+        occurrence = self._occurrence_for(record)
+        if type(reason_code) is not str or reason_code not in _MULTI_FEATURE_REASON_CODES:
+            raise ValueError("unknown multi-feature ownership reason_code")
+        if self.evidence.family(occurrence) != _REASON_FAMILY[reason_code]:
+            raise ValueError(
+                "multi-feature ownership reason_code does not match occurrence family"
+            )
+        if id(occurrence) in self._bound_occurrence_ids:
+            raise ValueError("recognition occurrence already has an IR owner")
+        if type(features) is not tuple:
+            raise TypeError("multi-feature owners must be an exact tuple")
+        if not features:
+            raise ValueError("multi-feature ownership requires at least one IR owner")
+        if len({id(feature) for feature in features}) != len(features):
+            raise ValueError("multi-feature ownership repeats an IR owner")
+        if any(
+            getattr(feature, "kind", None) not in {"envelope", "plate", "step_level"}
+            for feature in features
+        ):
+            raise ValueError(
+                "through-step legacy ownership requires envelope, plate, or step-level IR"
+            )
+
+        self._bound_occurrence_ids.add(id(occurrence))
+        self._owned_feature_ids.update(id(feature) for feature in features)
+        self._bindings.append(
+            OccurrenceBinding(
+                occurrence,
+                features[0],
+                reason_code=reason_code,
+                additional_features=features[1:],
+            )
+        )
+
+    def absorb(self, records: tuple[object, ...], feature: object, *, reason_code: str) -> None:
+        """Record an explicit N:1 aggregate decision for exact member records."""
+
+        if not records:
+            raise ValueError("an absorbed aggregate needs at least one member record")
+        if type(reason_code) is not str or reason_code not in _ABSORBED_REASON_CODES:
+            raise ValueError("unknown absorbed ownership reason_code")
+        reason = reason_code
+        occurrences = tuple(self._occurrence_for(record) for record in records)
+        expected_family = _REASON_FAMILY[reason]
+        if any(self.evidence.family(occurrence) != expected_family for occurrence in occurrences):
+            raise ValueError("absorbed ownership reason_code does not match occurrence family")
+        if len({id(occurrence) for occurrence in occurrences}) != len(occurrences):
+            raise ValueError("an absorbed aggregate repeats a recognition occurrence")
+        if any(id(occurrence) in self._bound_occurrence_ids for occurrence in occurrences):
+            raise ValueError("recognition occurrence already has an IR owner")
+        if id(feature) in self._owned_feature_ids:
+            raise ValueError("IR feature already owns a recognition occurrence")
+        self._owned_feature_ids.add(id(feature))
+        for member_index, occurrence in enumerate(occurrences):
+            self._bound_occurrence_ids.add(id(occurrence))
+            self._bindings.append(
+                OccurrenceBinding(
+                    occurrence,
+                    feature,
+                    disposition="absorbed",
+                    reason_code=reason,
+                    member_index=member_index,
+                )
+            )
+
+    def absorb_nested(
+        self,
+        record: object,
+        owner_record: object,
+        *,
+        reason_code: str,
+    ) -> None:
+        """Bind one exact nested occurrence to its exact parent's existing IR owner."""
+
+        if type(reason_code) is not str or reason_code not in _NESTED_OWNER_FAMILY:
+            raise ValueError("unknown nested ownership reason_code")
+        occurrence = self._occurrence_for(record)
+        owner_occurrence = self._occurrence_for(owner_record)
+        if self.evidence.family(occurrence) != _REASON_FAMILY[reason_code]:
+            raise ValueError("nested ownership reason_code does not match occurrence family")
+        if self.evidence.family(owner_occurrence) != _NESTED_OWNER_FAMILY[reason_code]:
+            raise ValueError("nested ownership reason_code does not match owner family")
+        if getattr(owner_record, _NESTED_OWNER_FIELD[reason_code]) is not record:
+            raise ValueError("nested recognition occurrence does not belong to its exact parent")
+        if id(occurrence) in self._bound_occurrence_ids:
+            raise ValueError("recognition occurrence already has an IR owner")
+        owner_binding = next(
+            (binding for binding in self._bindings if binding.occurrence is owner_occurrence),
+            None,
+        )
+        if owner_binding is None:
+            raise ValueError("nested recognition occurrence requires an existing parent owner")
+        self._bound_occurrence_ids.add(id(occurrence))
+        self._bindings.append(
+            OccurrenceBinding(
+                occurrence,
+                owner_binding.feature,
+                disposition="absorbed",
+                reason_code=reason_code,
+                member_index=owner_binding.member_index,
+            )
+        )
+
+    def absorb_via(self, record: object, owner_record: object, *, reason_code: str) -> None:
+        """Bind one occurrence to another occurrence's already-selected final IR owner."""
+
+        if type(reason_code) is not str or reason_code not in _CHAINED_OWNER_FAMILY:
+            raise ValueError("unknown chained ownership reason_code")
+        occurrence = self._occurrence_for(record)
+        owner_occurrence = self._occurrence_for(owner_record)
+        if self.evidence.family(occurrence) != _REASON_FAMILY[reason_code]:
+            raise ValueError("chained ownership reason_code does not match occurrence family")
+        if self.evidence.family(owner_occurrence) != _CHAINED_OWNER_FAMILY[reason_code]:
+            raise ValueError("chained ownership reason_code does not match owner family")
+        if id(occurrence) in self._bound_occurrence_ids:
+            raise ValueError("recognition occurrence already has an IR owner")
+        owner_binding = next(
+            (binding for binding in self._bindings if binding.occurrence is owner_occurrence),
+            None,
+        )
+        if owner_binding is None:
+            raise ValueError("chained recognition ownership requires an existing exact owner")
+        if any(binding.via_occurrence is owner_occurrence for binding in self._bindings):
+            raise ValueError("chained recognition owner occurrence already has a dependent")
+        if any(
+            binding.via_occurrence is not None and binding.feature is owner_binding.feature
+            for binding in self._bindings
+        ):
+            raise ValueError("chained final IR owner already has a dependent")
+        self._bound_occurrence_ids.add(id(occurrence))
+        self._owned_feature_ids.add(id(owner_binding.feature))
+        self._bindings.append(
+            OccurrenceBinding(
+                occurrence,
+                owner_binding.feature,
+                disposition="absorbed",
+                reason_code=reason_code,
+                via_occurrence=owner_occurrence,
+            )
+        )
+
+    def has_owner(self, record: object) -> bool:
+        """Return whether an exact same-run record already has a final IR owner."""
+
+        occurrence = self._occurrence_for(record)
+        return any(binding.occurrence is occurrence for binding in self._bindings)
+
+    def has_chained_dependent(self, record: object) -> bool:
+        """Return whether this occurrence or its final owner already carries a chain."""
+
+        owner_occurrence = self._occurrence_for(record)
+        owner_binding = next(
+            (binding for binding in self._bindings if binding.occurrence is owner_occurrence),
+            None,
+        )
+        if owner_binding is None:
+            return False
+        return any(
+            binding.via_occurrence is owner_occurrence
+            or (binding.via_occurrence is not None and binding.feature is owner_binding.feature)
+            for binding in self._bindings
+        )
+
+    def absorb_into(self, record: object, feature: object, *, reason_code: str) -> None:
+        """Bind an exact occurrence to a consumer-selected aggregate IR owner."""
+
+        if type(reason_code) is not str or reason_code not in _FEATURE_ABSORPTION_REASON_CODES:
+            raise ValueError("unknown feature-absorption ownership reason_code")
+        occurrence = self._occurrence_for(record)
+        if self.evidence.family(occurrence) != _REASON_FAMILY[reason_code]:
+            raise ValueError("feature-absorption reason_code does not match occurrence family")
+        if getattr(feature, "kind", None) != _FEATURE_ABSORPTION_OWNER_KIND[reason_code]:
+            raise ValueError("feature-absorption reason_code does not match IR owner kind")
+        if id(occurrence) in self._bound_occurrence_ids:
+            raise ValueError("recognition occurrence already has an IR owner")
+        existing_bindings = tuple(
+            binding
+            for binding in self._bindings
+            if any(owner is feature for owner in binding.features)
+        )
+        existing_owner = _FEATURE_ABSORPTION_EXISTING_OWNER.get(reason_code)
+        if existing_owner is not None and not any(
+            binding.disposition == "represented"
+            and self.evidence.family(binding.occurrence) == existing_owner[0]
+            and binding.reason_code == existing_owner[1]
+            for binding in existing_bindings
+        ):
+            raise ValueError("feature absorption requires an existing exact recognition owner")
+        if reason_code == "turned_step_groove_owner" and any(
+            binding.disposition == "absorbed" and binding.reason_code == "turned_step_groove_owner"
+            for binding in existing_bindings
+        ):
+            raise ValueError("groove feature already absorbs a turned-step occurrence")
+        if any(
+            not (
+                (binding.disposition == "absorbed" and binding.reason_code == reason_code)
+                or (
+                    existing_owner is not None
+                    and binding.disposition == "represented"
+                    and self.evidence.family(binding.occurrence) == existing_owner[0]
+                    and binding.reason_code == existing_owner[1]
+                )
+            )
+            for binding in existing_bindings
+        ):
+            raise ValueError("IR feature already has an incompatible recognition owner")
+        self._bound_occurrence_ids.add(id(occurrence))
+        self._owned_feature_ids.add(id(feature))
+        self._bindings.append(
+            OccurrenceBinding(
+                occurrence,
+                feature,
+                disposition="absorbed",
+                reason_code=reason_code,
+            )
+        )
+
+    def absorb_into_many(
+        self,
+        record: object,
+        features: tuple[object, ...],
+        *,
+        reason_code: str,
+    ) -> None:
+        """Bind one exact Plate occurrence to its explicitly selected aggregate IR owners."""
+
+        expected_kinds = _MULTI_FEATURE_ABSORPTION_OWNER_KINDS.get(reason_code)
+        if expected_kinds is None:
+            raise ValueError("unknown multi-feature absorption reason_code")
+        occurrence = self._occurrence_for(record)
+        if self.evidence.family(occurrence) != _REASON_FAMILY[reason_code]:
+            raise ValueError(
+                "multi-feature absorption reason_code does not match occurrence family"
+            )
+        if type(features) is not tuple:
+            raise TypeError("multi-feature absorption owners must be an exact tuple")
+        if tuple(getattr(feature, "kind", None) for feature in features) != expected_kinds:
+            raise ValueError("multi-feature absorption reason_code does not match IR owners")
+        if id(occurrence) in self._bound_occurrence_ids:
+            raise ValueError("recognition occurrence already has an IR owner")
+        existing_owner = _MULTI_FEATURE_ABSORPTION_EXISTING_OWNER.get(reason_code)
+        if existing_owner is not None:
+            owner_kind, owner_family, owner_reason = existing_owner
+            owner = next(
+                feature for feature in features if getattr(feature, "kind", None) == owner_kind
+            )
+            if not any(
+                binding.disposition in {"represented", "absorbed"}
+                and binding.reason_code == owner_reason
+                and self.evidence.family(binding.occurrence) == owner_family
+                and any(candidate is owner for candidate in binding.features)
+                for binding in self._bindings
+            ):
+                raise ValueError(
+                    "multi-feature absorption requires an existing exact recognition owner"
+                )
+        self._bound_occurrence_ids.add(id(occurrence))
+        self._owned_feature_ids.update(id(feature) for feature in features)
+        self._bindings.append(
+            OccurrenceBinding(
+                occurrence,
+                features[0],
+                disposition="absorbed",
+                reason_code=reason_code,
+                additional_features=features[1:],
+            )
+        )
+
+    def remap_feature(
+        self,
+        source: object,
+        replacements: tuple[object, ...],
+        source_member_groups: tuple[tuple[int, ...], ...] | None = None,
+    ) -> None:
+        """Follow one explicit IR-lowering lineage without reconstructing correspondence."""
+
+        matches = [
+            index
+            for index, binding in enumerate(self._bindings)
+            if any(feature is source for feature in binding.features)
+        ]
+        if not matches:
+            return
+        if source_member_groups is not None and len(source_member_groups) != len(replacements):
+            raise ValueError("IR replacement groups must align with replacements")
+        if source_member_groups is not None and len({id(item) for item in replacements}) != len(
+            replacements
+        ):
+            raise ValueError("IR replacement groups must use distinct replacement objects")
+        externally_owned_ids = {
+            id(feature)
+            for binding in self._bindings
+            if not any(owner is source for owner in binding.features)
+            for feature in binding.features
+        }
+        if any(id(replacement) in externally_owned_ids for replacement in replacements):
+            raise ValueError("lowered IR feature already owns a recognition occurrence")
+
+        if source_member_groups is None:
+            if len(replacements) == 1:
+                replacement = replacements[0]
+                rewritten_bindings: list[OccurrenceBinding] = []
+                for binding in self._bindings:
+                    owners = tuple(
+                        replacement if owner is source else owner for owner in binding.features
+                    )
+                    if len({id(owner) for owner in owners}) != len(owners):
+                        raise ValueError("IR replacement duplicates an existing owner")
+                    rewritten_bindings.append(
+                        OccurrenceBinding(
+                            binding.occurrence,
+                            owners[0],
+                            binding.disposition,
+                            binding.reason_code,
+                            binding.member_index,
+                            owners[1:],
+                            binding.via_occurrence,
+                        )
+                    )
+                self._bindings = rewritten_bindings
+            else:
+                # A multi-feature owner set is conjunctive: every selected feature jointly
+                # carries the occurrence. If any required owner disappears without an explicit
+                # replacement, partial credit would contradict the recorded conversion decision.
+                self._bindings = [
+                    binding
+                    for binding in self._bindings
+                    if not any(owner is source for owner in binding.features)
+                ]
+        else:
+            if any(
+                self._bindings[index].feature is not source
+                or self._bindings[index].additional_features
+                for index in matches
+            ):
+                raise ValueError("grouped IR lineage requires a sole source owner")
+            member_lineage: dict[int, tuple[object, int, int]] = {}
+            for replacement, group in zip(replacements, source_member_groups, strict=True):
+                for replacement_index, source_index in enumerate(group):
+                    if source_index in member_lineage:
+                        raise ValueError("IR replacement groups repeat a source member")
+                    member_lineage[source_index] = (
+                        replacement,
+                        replacement_index,
+                        len(group),
+                    )
+            rewritten: list[OccurrenceBinding] = []
+            source_bindings = [self._bindings[index] for index in matches]
+            singleton_source_index = (
+                next(iter(member_lineage))
+                if len(source_bindings) == 1 and len(member_lineage) == 1
+                else None
+            )
+            for binding in self._bindings:
+                if binding.feature is not source:
+                    rewritten.append(binding)
+                    continue
+                binding_source_index = binding.member_index
+                if binding_source_index is None:
+                    binding_source_index = singleton_source_index
+                lineage = (
+                    member_lineage.get(binding_source_index)
+                    if binding_source_index is not None
+                    else None
+                )
+                if lineage is None:
+                    continue
+                replacement, replacement_index, replacement_group_size = lineage
+                disposition = binding.disposition
+                reason_code = binding.reason_code
+                if binding.reason_code == "grouped_hole_member" and replacement_group_size == 1:
+                    disposition = "represented"
+                    reason_code = "pmi_split_member"
+                rewritten.append(
+                    OccurrenceBinding(
+                        binding.occurrence,
+                        replacement,
+                        disposition,
+                        reason_code,
+                        replacement_index,
+                        via_occurrence=binding.via_occurrence,
+                    )
+                )
+            self._bindings = rewritten
+
+        self._bound_occurrence_ids = {id(binding.occurrence) for binding in self._bindings}
+        self._owned_feature_ids = {
+            id(feature) for binding in self._bindings for feature in binding.features
+        }
+
+    def snapshot(self) -> RecognitionOwnership:
+        """Copy the current ledger without manufacturing owners for missing occurrences."""
+
+        return RecognitionOwnership(
+            evidence=self.evidence,
+            expected_direct=self._expected_direct,
+            expected_groupable=self._expected_groupable,
+            expected_nested=self._expected_nested,
+            expected_conditional=self._expected_conditional,
+            bindings=tuple(self._bindings),
+            policy_outcomes=self._policy_outcomes,
+        )

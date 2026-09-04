@@ -3,7 +3,7 @@
 *A research note on the "strip allocation" layout engine — June 2026*
 
 > **Status.** This note is the research backing for
-> [ADR 0009](../adr/0009-boundary-labeling-strip-placement.md), which decides in
+> [ADR 2 (was 0009)](../adr/archive/0009-boundary-labeling-strip-placement.md), which decides in
 > favour of **Approach A** (boundary labeling — unify the strips). The migration
 > plan lives in
 > [`plans/strip-layout-boundary-labeling-roadmap.md`](../plans/strip-layout-boundary-labeling-roadmap.md).
@@ -34,13 +34,13 @@ Two different allocation authorities run inside those strips:
   edge, used by envelope dims, step-height ladders, and off-axis location dims.
 - A **1D Cassowary solve** (`_solve_strip_1d`, kiwisolver; `layout.py:56–91`),
   wrapped by `LayoutSolver.solve_strip` and the `Placeable` protocol
-  (ADR 0003), used by bore-callout and turned-diameter leaders. It pulls each
+  (ADR 2 (was 0003)), used by bore-callout and turned-diameter leaders. It pulls each
   label toward its natural position subject to bounds + min-gap, with a greedy
   fallback.
 
 2-D placement of rigid blocks (tables, GD&T frames) is a separate exact
 free-rectangle enumeration (`fit_box`, O(n³); `layout.py:275–317`). Cross-view
-layout is the **compose-then-pack** outer loop (ADR 0004).
+layout is the **compose-then-pack** outer loop (ADR 2 (was 0004)).
 
 **The root defect.** The cursor and the solver are *different allocation
 models that do not observe each other*, and several placers write into the
@@ -51,7 +51,7 @@ models that do not observe each other*, and several placers write into the
 > placers and are invisible to the cursor (#133). So a clean allocation is
 > necessary but not sufficient…"
 
-And ADR 0003 admits the same at the architecture level:
+And ADR 2 (was 0003) admits the same at the architecture level:
 
 > "Today that work is spread across four mechanisms that do not compose…
 > leaders are second-class (nothing deconflicts them)… 'it fit' is decided
@@ -67,7 +67,7 @@ local first-fit produces overlaps. Crucially, "which annotation gets dropped"
 when a strip is full is decided by **arrival order in the code**, not priority.
 
 **What is genuinely good** and worth preserving: determinism (stable variable
-ordering → reproducible solves, per ADR 0001); the crisp 1D solver interface;
+ordering → reproducible solves, per ADR 4 (was 0001)); the crisp 1D solver interface;
 the compose-then-pack outer layer that sidesteps a global 2-D solve; explicit
 drops surfaced as lint rather than silent omission; and pins/overrides (#89).
 
@@ -133,21 +133,21 @@ check + retry" because **there is one model and everything is in it**.
 This is the disciplined version of the work already on the roadmap as **#150**
 ("consolidate 1-D placement around `LayoutSolver`"), generalised from
 bore-callouts to *all* strip occupants, and it composes cleanly under the
-existing **compose-then-pack** (ADR 0004) outer layer for cross-view conflicts.
-It also slots onto ADR 0008's planner→intent seam: the layout stage consumes the
+existing **compose-then-pack** (ADR 2 (was 0004)) outer layer for cross-view conflicts.
+It also slots onto ADR 1 (was 0008)'s planner→intent seam: the layout stage consumes the
 **full** per-strip intent set instead of each render pass committing on its own.
 
 **Pros**
 - **Attacks the root cause directly:** one occupancy model per strip → the
   invisible-occupant collision class (the source of #133/#225/#305) disappears
   by construction, not by patch.
-- **Deterministic and explainable** — preserves ADR 0001; "label i sits here
+- **Deterministic and explainable** — preserves ADR 4 (was 0001); "label i sits here
   because order + min-gap + shortest-leader," not "the annealer landed there."
 - **Provably optimal & fast** within a view (crossing-free, min leader length;
   O(n log n)–O(n³)).
 - **Incremental & low-risk:** the strips, `Placeable`, the 1-D solver and the
   drop/escalate plumbing already exist; this is consolidation, not a rewrite.
-  Matches the stated architecture (ADR 0003 §"assignment then placement").
+  Matches the stated architecture (ADR 2 (was 0003) §"assignment then placement").
 - **Principled escalation:** "doesn't fit" becomes a first-class, priority-ranked
   signal feeding the detail-view ladder (#306/#54), instead of an arrival-order
   drop.
@@ -172,7 +172,7 @@ It also slots onto ADR 0008's planner→intent seam: the layout stage consumes t
 
 ## 4. Approach B — One global placement optimisation (dissolve the strips)
 
-**Idea.** Realise ADR 0003's original ambition in full: every annotation on the
+**Idea.** Realise ADR 2 (was 0003)'s original ambition in full: every annotation on the
 sheet is a `Placeable` with a small set of **candidate positions** (or
 continuous DOF), and a single optimiser minimises a global objective —
 overlaps, total leader length, and **soft drafting penalties** (leader < 30°,
@@ -199,10 +199,10 @@ annotations and *all* views at once. Two realisations:
   to a separate layer.
 
 **Cons**
-- **Tension with determinism (ADR 0001).** SA is stochastic; reproducibility
+- **Tension with determinism (ADR 4 (was 0001)).** SA is stochastic; reproducibility
   needs a fixed seed and even then is brittle to input perturbation. MIP is
   deterministic but solver-version-sensitive. Golden tests were retired
-  (ADR 0007), so silent output drift is *less* guarded now — a real risk.
+  (ADR 3 (was 0007)), so silent output drift is *less* guarded now — a real risk.
 - **Cost & complexity.** MIP non-overlap is exponential in the worst case
   (NP-hard); SA needs careful cooling/penalty tuning. Both are far heavier than
   an O(n log n) sweep for what is usually a sparse strip.
@@ -219,10 +219,10 @@ annotations and *all* views at once. Two realisations:
 | | **A — Boundary labeling (unify the strips)** | **B — Global optimisation (dissolve them)** |
 |---|---|---|
 | Fixes invisible-occupant collisions | Per view, by construction | Whole sheet, by construction |
-| Determinism (ADR 0001) | ✅ preserved | ⚠️ SA stochastic / MIP solver-sensitive |
+| Determinism (ADR 4 (was 0001)) | ✅ preserved | ⚠️ SA stochastic / MIP solver-sensitive |
 | Optimality | Provable, *within* a view | Global (B1 exact, B2 near-optimal) |
 | Speed | O(n log n)–O(n³), trivial | NP-hard (B1) / tunable seconds (B2) |
-| Cross-view & zone choice | Needs assignment + ADR 0004 | Built-in |
+| Cross-view & zone choice | Needs assignment + ADR 2 (was 0004) | Built-in |
 | Implementation risk | Low — consolidation of existing parts (#150) | High — replaces working placers |
 | Explainability / lint / repair | High | Low |
 | New annotation type | Add to the boundary model | Add a penalty term |
@@ -242,7 +242,7 @@ a fixed seed and a re-introduced output-stability test, since exact MIP buys
 little for sheets this sparse while costing determinism and speed. In short:
 **make the strips honest before deciding whether to abolish them.**
 
-This recommendation is adopted as [ADR 0009](../adr/0009-boundary-labeling-strip-placement.md).
+This recommendation is adopted as [ADR 2 (was 0009)](../adr/archive/0009-boundary-labeling-strip-placement.md).
 
 ---
 

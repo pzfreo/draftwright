@@ -2,14 +2,17 @@
 
 from pathlib import Path
 
-from build123d import Cylinder, Pos, Rot
+from build123d import Align, Cylinder, Pos, Rot
 
 from draftwright import build_drawing
 from draftwright.builder import _automatic_turned_principals
 
 
 def _x_shaft():
-    return Rot(0, 90, 0) * (Cylinder(10, 40) + Pos(0, 0, 40) * Cylinder(6, 30))
+    aligned = (Align.CENTER, Align.CENTER, Align.MIN)
+    return Rot(0, 90, 0) * (
+        Cylinder(10, 40, align=aligned) + Pos(0, 0, 40) * Cylinder(6, 30, align=aligned)
+    )
 
 
 def test_the_candidate_follows_the_turning_axis():

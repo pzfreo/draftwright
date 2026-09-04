@@ -10,7 +10,14 @@ is still a literal map.
 
 from __future__ import annotations
 
-from b123d_recognisers import RecognitionResult
+from b123d_recognisers import (
+    Blend,
+    BossRecord,
+    RecognitionResult,
+    RectangularBlindSlot,
+    RoundBottomBlindSlot,
+    StraightBlendPath,
+)
 
 from draftwright.linting.issues import LintIssue
 from draftwright.linting.quality import (
@@ -19,6 +26,7 @@ from draftwright.linting.quality import (
     _UNDECIDED_INVENTORIES,
     quality_components,
 )
+from draftwright.registry import AnnotationRegistry
 
 
 def _legibility(*issues):
@@ -209,3 +217,116 @@ def test_an_undecided_inventory_names_a_real_open_issue():
             f"{inventory} is unscored pending {issue}, which is not one of the issues the "
             f"capability declaration tracks ({sorted(tracked)}) — the registers disagree"
         )
+
+
+def test_a_real_0412_blend_is_audited_and_fails_closed_without_ir() -> None:
+    inventories = {
+        name: False if name == "rotational" else ()
+        for name in RecognitionResult.__dataclass_fields__
+    }
+    inventories["blends"] = (
+        Blend(radius=2.0, side="convex", path=StraightBlendPath((1.0, 2.0, 3.0), (0, 0, 1))),
+    )
+    recognition = RecognitionResult(**inventories)
+
+    completeness = quality_components(
+        recognition=recognition,
+        features=(),
+        registry=AnnotationRegistry(),
+        omissions=(),
+        issues=(),
+        error_penalty=0.15,
+        warning_penalty=0.05,
+        has_asserted_content=True,
+    )["completeness"]
+
+    assert completeness["requirements"] == completeness["unverifiable"] == 1
+    assert completeness["audited_score"] == 0.0
+    assert completeness["by_family"]["blends"] == 1
+    assert completeness["unscored_recognized_families"] == []
+    assert completeness["reason"] == (
+        "audited_score covers recognized requirements in audited families only; "
+        "it is not evidence that the drawing is complete"
+    )
+
+
+def test_deferred_and_established_unaudited_families_are_named_truthfully() -> None:
+    inventories = {
+        name: False if name == "rotational" else ()
+        for name in RecognitionResult.__dataclass_fields__
+    }
+    inventories["blends"] = (
+        Blend(radius=2.0, side="convex", path=StraightBlendPath((1.0, 2.0, 3.0), (0, 0, 1))),
+    )
+    inventories["bosses"] = (
+        BossRecord(axis=(0, 0, 1), location=(0, 0, 0), diameter=8.0, height=3.0),
+    )
+    recognition = RecognitionResult(**inventories)
+
+    completeness = quality_components(
+        recognition=recognition,
+        features=(),
+        registry=AnnotationRegistry(),
+        omissions=(),
+        issues=(),
+        error_penalty=0.15,
+        warning_penalty=0.05,
+        has_asserted_content=True,
+    )["completeness"]
+
+    assert completeness["requirements"] == completeness["unverifiable"] == 1
+    assert completeness["unscored_recognized_families"] == ["bosses"]
+    assert completeness["reason"] == (
+        "audited_score covers recognized requirements in audited families only; "
+        "it is not evidence that the drawing is complete"
+    )
+
+
+def test_0410_blind_slot_families_keep_independent_completeness_dispositions():
+    inventories = {
+        name: False if name == "rotational" else ()
+        for name in RecognitionResult.__dataclass_fields__
+    }
+    inventories["rectangular_blind_slots"] = (
+        RectangularBlindSlot(
+            axis="x",
+            open_sign=1,
+            length=12.0,
+            width_axis="y",
+            depth_axis="z",
+            depth_sign=-1,
+            width=6.0,
+            depth=3.0,
+            at=(0.0, 0.0, 5.0),
+        ),
+    )
+    inventories["round_bottom_blind_slots"] = (
+        RoundBottomBlindSlot(
+            axis="x",
+            open_sign=1,
+            length=12.0,
+            width_axis="y",
+            depth_axis="z",
+            depth_sign=-1,
+            radius=3.0,
+            flat_width=6.0,
+            at=(0.0, 0.0, 5.0),
+        ),
+    )
+    recognition = RecognitionResult(**inventories)
+
+    completeness = quality_components(
+        recognition=recognition,
+        features=(),
+        registry=AnnotationRegistry(),
+        omissions=(),
+        issues=(),
+        error_penalty=0.15,
+        warning_penalty=0.05,
+        has_asserted_content=True,
+    )["completeness"]
+
+    assert completeness["unscored_recognized_families"] == []
+    assert completeness["by_family"]["rectangular_blind_slots"] == 3
+    assert completeness["by_family"]["round_bottom_blind_slots"] == 3
+    assert completeness["requirements"] == completeness["unverifiable"] == 6

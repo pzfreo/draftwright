@@ -1,4 +1,4 @@
-"""Geometry/feature analysis — build the Analysis namespace from a part (#138 / ADR 0005, P4).
+"""Geometry/feature analysis — build the Analysis namespace from a part (#138 / ADR 1 (was 0005), P4).
 
 `_analyse` imports the part (STEP or Shape), runs feature detection (holes,
 patterns, cylinders, face levels), classifies it (rotational vs prismatic),
@@ -18,13 +18,15 @@ from dataclasses import dataclass, replace
 from typing import cast
 
 from b123d_recognisers import (
+    PartFrame,
     RecognitionResult,
     TurnedProfile,
+    TurnedProfileKey,
     TurnedStep,
     analyse_cylinders,
-    build_recognition_result,
     full_cylinders,
 )
+from b123d_recognisers.evidence import RecognitionEvidence, build_recognition_evidence
 from build123d import Compound, Shape
 from build123d_drafting.helpers import draft_preset
 from OCP.IFSelect import IFSelect_ReturnStatus
@@ -42,7 +44,13 @@ from draftwright._core import (
     _legible_steps,
     _Projector,
 )
-from draftwright._geometry import _solids_body
+from draftwright._geometry import _classify_rotational_cylinders, _solids_body
+from draftwright._geometry import (
+    _is_rotational as _is_rotational,
+)
+from draftwright._geometry import (
+    dedup_diams as dedup_diams,
+)
 from draftwright.compose import (
     StripDepths,
     _build_zones,
@@ -52,20 +60,49 @@ from draftwright.compose import (
     _measure_strips,
     choose_scale,
 )
-from draftwright.model import build_part_model
-from draftwright.model.ir import Datum, PartModel, StepFeature, StepLevelFeature
+from draftwright.model.detect import _build_part_model_from_recognition
+from draftwright.model.ir import Datum, GrooveFeature, PartModel, StepFeature, StepLevelFeature
 from draftwright.model.planner import plan_dimensions
+from draftwright.recognition_cache import _result_from_evidence
+from draftwright.recognition_frame import (
+    FramedDetection,
+    FramedDetectionRefusal,
+    prepare_framed_detection,
+    require_unambiguous_groove_owner,
+)
+from draftwright.recognition_ownership import RecognitionOwnershipBuilder
 from draftwright.view_plan import ViewConstraints, arrangement_of
 
 _log = logging.getLogger(__name__)
 
-# Turned-part classification (#81): a rotational part's bounding box is square
-# in XY to within _SQUARENESS_TOL, and its OD (largest full external Z cylinder)
-# fills >= _OD_FILL_MIN of that envelope, axis within _OD_AXIS_TOL of centre.
-_SQUARENESS_TOL = 0.05
-_OD_FILL_MIN = 0.8
-_OD_AXIS_TOL = 0.05
 _ScalePick = tuple[float, float, float, float]
+
+
+def _raw_recognition(
+    part,
+    *,
+    cylinders,
+    rotational: bool,
+) -> tuple[RecognitionResult, RecognitionEvidence | None]:
+    evidence = build_recognition_evidence(
+        part,
+        cylinders=cylinders,
+        rotational=rotational,
+    )
+    result = _result_from_evidence(evidence)
+    return result, evidence if result is evidence.result else None
+
+
+@dataclass(frozen=True)
+class _DeclaredTurnedProfile(TurnedProfile):
+    """A synthetic provider-shaped profile retaining Draftwright's opaque membership.
+
+    ``TurnedProfile.profile`` remains a geometrically valid provider key for projection and
+    body-local matching.  The additional token is the declared-program identity needed to
+    distinguish overlapping coaxial occurrences without leaking it into the provider API.
+    """
+
+    profile_group: str | None = None
 
 
 def _apply_principal_view_pins(
@@ -131,6 +168,7 @@ def _apply_principal_view_pins(
     geometry.PV_Y += dy
     geometry.SV_X += dx
     geometry.SV_Y += dy
+    geometry.sv_geometry_right += dx
     geometry.sv_right += dx
     geometry.sv_right_wall += dx
     # Geometry bounds are the minimum pre-projection feasibility gate. Annotation bands use
@@ -204,7 +242,7 @@ def _will_section(model, *, is_rotational=False, cx=0.0, cy=0.0) -> bool:
 
     if model is None:
         return False
-    # An explicit Sheet.section() request (ADR 0011, #841) reserves the row even when no
+    # An explicit Sheet.section() request (ADR 4 (was 0011), #841) reserves the row even when no
     # hole gate qualifies — a blind pocket's floor/depth section has no driving Z hole.
     if getattr(model, "decorations", {}).get("section") is not None:
         return True
@@ -244,12 +282,21 @@ def _coerce_layout_model(model, part, decorations=None) -> PartModel | None:
     if model is None:
         return None
     if isinstance(model, PartModel):
+        turned_axes = {f.frame.axis for f in model.features if isinstance(f, StepFeature)}
+        orientation = next(iter(turned_axes)) if len(turned_axes) == 1 else None
+        out = model
         if decorations:
-            return replace(model, decorations={**model.decorations, **decorations})
-        return model
+            out = replace(out, decorations={**model.decorations, **decorations})
+        # ``orientation`` is derived compiler metadata, not caller authority. Normalise a
+        # hand-built PartModel as well as a feature sequence so mixed-axis meaning cannot
+        # depend on which StepFeature happened to be declared first.
+        if turned_axes and out.orientation != orientation:
+            out = replace(out, orientation=orientation)
+        return out
     features = list(model)
     bbox = part.bounding_box()
-    orientation = next((f.frame.axis for f in features if isinstance(f, StepFeature)), None)
+    turned_axes = {f.frame.axis for f in features if isinstance(f, StepFeature)}
+    orientation = next(iter(turned_axes)) if len(turned_axes) == 1 else None
     datum = Datum(id="datum_xy", kind="point", at=(bbox.min.X, bbox.min.Y, bbox.min.Z))
     return PartModel(
         bbox=bbox,
@@ -260,46 +307,173 @@ def _coerce_layout_model(model, part, decorations=None) -> PartModel | None:
     )
 
 
-def _declared_turned_profile(model: PartModel) -> TurnedProfile | None:
-    """The turned profile a DECLARED model states, or ``None`` if it declares no steps.
+def _declared_turned_profiles(model: PartModel) -> tuple[TurnedProfile, ...]:
+    """Return declared step profiles grouped by their body-local axis line.
 
-    The detected path aggregates ``recognise_turned_steps``; a declared model already carries
-    the same information as :class:`StepFeature`\\ s, so this reads it rather than scanning the
-    solid for it (#1022).  ``span`` is the pair of axial end-points the declaration fixed, so
-    ``lo``/``hi`` need no geometry — a declared step's extent is what the author said it is.
-
-    Mixed-axis steps are a malformed declaration, not a recoverable one:
-    :meth:`TurnedProfile.from_steps` raises, and it is allowed to reach the caller here for
-    the same reason it does on the detected path.
+    The axis letter plus the two perpendicular frame coordinates identify one line. A
+    synthetic provider key retains that ownership in caller coordinates, so parallel declared
+    shafts cannot be silently merged into one global profile (#1357).
     """
-    steps = [f for f in model.features if isinstance(f, StepFeature)]
-    if not steps:
-        return None
-    axis_i = "xyz".index(steps[0].frame.axis)
-    return TurnedProfile.from_steps(
-        [
-            TurnedStep(
-                axis=f.frame.axis,
-                lo=min(f.span[0][axis_i], f.span[1][axis_i]),
-                hi=max(f.span[0][axis_i], f.span[1][axis_i]),
-                diameter=f.diameter,
+    # Generated Sheet scripts round coordinates to 0.001 mm. Adjacent authored steps can
+    # therefore acquire a 0.0005 mm numerical seam even though they describe one body.
+    adjacency_tol = 1e-3 + 1e-9
+    steps = [feature for feature in model.features if isinstance(feature, StepFeature)]
+    grooves = [feature for feature in model.features if isinstance(feature, GrooveFeature)]
+    groups: dict[tuple[str, tuple[float, float], object | None], list[StepFeature]] = {}
+    for feature in steps:
+        axis = feature.frame.axis
+        axis_i = "xyz".index(axis)
+        line_values = [float(value) for i, value in enumerate(feature.frame.origin) if i != axis_i]
+        line = (line_values[0], line_values[1])
+        groups.setdefault((axis, line, feature.profile or feature.profile_group), []).append(
+            feature
+        )
+
+    body_groups: list[tuple[str, list[StepFeature], object | None]] = []
+    for (axis, _line, membership), line_members in sorted(
+        groups.items(), key=lambda item: (item[0][0], item[0][1], repr(item[0][2]))
+    ):
+        if membership is not None:
+            body_groups.append((axis, line_members, membership))
+            continue
+        axis_i = "xyz".index(axis)
+        line_members.sort(
+            key=lambda feature: min(float(feature.span[0][axis_i]), float(feature.span[1][axis_i]))
+        )
+        runs: list[list[StepFeature]] = []
+        run_hi = float("-inf")
+        for feature in line_members:
+            lo, hi = sorted((float(feature.span[0][axis_i]), float(feature.span[1][axis_i])))
+            gap_is_groove = any(
+                groove.frame.axis == axis
+                and all(
+                    abs(float(groove.frame.origin[index]) - float(feature.frame.origin[index]))
+                    <= adjacency_tol
+                    for index in range(3)
+                    if index != axis_i
+                )
+                and float(groove.frame.origin[axis_i]) - float(groove.width) / 2.0
+                <= run_hi + adjacency_tol
+                and float(groove.frame.origin[axis_i]) + float(groove.width) / 2.0
+                >= lo - adjacency_tol
+                for groove in grooves
             )
-            for f in steps
-        ]
-    )
+            if not runs or (lo > run_hi + adjacency_tol and not gap_is_groove):
+                runs.append([feature])
+                run_hi = hi
+            else:
+                runs[-1].append(feature)
+                run_hi = max(run_hi, hi)
+        body_groups.extend((axis, members, None) for members in runs)
+
+    profiles = []
+    for axis, members, membership in body_groups:
+        axis_i = "xyz".index(axis)
+        origin = [float(value) for value in members[0].frame.origin]
+        origin[axis_i] = 0.0
+        radius = max(float(feature.diameter) for feature in members) / 2.0
+        lo = min(float(point[axis_i]) for feature in members for point in feature.span)
+        hi = max(float(point[axis_i]) for feature in members for point in feature.span)
+        bounds: list[float] = []
+        for index, value in enumerate(origin):
+            bounds.extend((lo, hi) if index == axis_i else (value - radius, value + radius))
+        key = (
+            membership
+            if isinstance(membership, TurnedProfileKey)
+            else TurnedProfileKey(
+                axis,
+                (origin[0], origin[1], origin[2]),
+                (bounds[0], bounds[1], bounds[2], bounds[3], bounds[4], bounds[5]),
+            )
+        )
+        provider_profile = TurnedProfile.from_steps(
+            TurnedStep(
+                axis=axis,
+                lo=min(float(feature.span[0][axis_i]), float(feature.span[1][axis_i])),
+                hi=max(float(feature.span[0][axis_i]), float(feature.span[1][axis_i])),
+                diameter=float(feature.diameter),
+                profile=key,
+            )
+            for feature in members
+        )
+        assert provider_profile is not None
+        profiles.append(
+            _DeclaredTurnedProfile(
+                axis=provider_profile.axis,
+                steps=provider_profile.steps,
+                profile=provider_profile.profile,
+                profile_group=membership if isinstance(membership, str) else None,
+            )
+        )
+    declared_profiles = tuple(profiles)
+    grooves_by_profile: dict[int, list[GrooveFeature]] = {
+        id(profile): [] for profile in declared_profiles
+    }
+    for groove in grooves:
+        owners = require_unambiguous_groove_owner(groove, declared_profiles)
+        if owners:
+            grooves_by_profile[id(owners[0])].append(groove)
+
+    # Detection's TurnedProfile denominator includes the narrow groove band even though the
+    # IR deliberately gives that band to GrooveFeature rather than StepFeature. Reconstruct
+    # the same physical denominator for declared/emitted programs; otherwise one remaining
+    # step plus the groove could falsely certify a two-step synthetic profile (#1357).
+    augmented_profiles = []
+    for profile in declared_profiles:
+        profile_steps = list(profile.steps)
+        axis_index = "xyz".index(profile.axis)
+        for groove in grooves_by_profile[id(profile)]:
+            lo = float(groove.frame.origin[axis_index]) - float(groove.width) / 2.0
+            hi = float(groove.frame.origin[axis_index]) + float(groove.width) / 2.0
+            if any(
+                abs(float(step.lo) - lo) <= adjacency_tol
+                and abs(float(step.hi) - hi) <= adjacency_tol
+                for step in profile_steps
+            ):
+                continue
+            profile_steps.append(
+                TurnedStep(
+                    axis=profile.axis,
+                    lo=lo,
+                    hi=hi,
+                    diameter=float(groove.diameter),
+                    profile=profile.profile,
+                )
+            )
+        if len(profile_steps) == len(profile.steps):
+            augmented_profiles.append(profile)
+            continue
+        provider_profile = TurnedProfile.from_steps(profile_steps)
+        assert provider_profile is not None
+        augmented_profiles.append(
+            _DeclaredTurnedProfile(
+                axis=provider_profile.axis,
+                steps=provider_profile.steps,
+                profile=provider_profile.profile,
+                profile_group=profile.profile_group,
+            )
+        )
+    return tuple(augmented_profiles)
 
 
-def _declared_step_zs(model: PartModel, prof: TurnedProfile | None, bb) -> list[float]:
+def _declared_step_zs(model: PartModel, profiles: tuple[TurnedProfile, ...], bb) -> list[float]:
     """The step Z-levels page/scale selection converges on, sourced from the declaration.
 
-    Mirrors the detected path's two branches exactly — a Z-axis turned profile contributes its
-    interior shoulders, anything else the prismatic height ladder — with the ladder read off a
-    declared :class:`StepLevelFeature` instead of re-scanning face levels (#1022).  The 0.6 mm
-    end-exclusion is the detected path's, kept identical so a declared build selects the same
-    page as the equivalent detected one.
+    Mirrors the detected path's two branches exactly — Z-axis turned profiles contribute the
+    union of their interior shoulders, anything else the prismatic height ladder — with the
+    ladder read off a declared :class:`StepLevelFeature` instead of re-scanning face levels
+    (#1022). The 0.6 mm end-exclusion is the detected path's, kept identical so a declared build
+    selects the same page as the equivalent detected one.
     """
-    if prof is not None and prof.axis == "z":
-        return [z for z in prof.shoulders if bb.min.Z + 0.6 < z < bb.max.Z - 0.6]
+    if profiles and {profile.axis for profile in profiles} == {"z"}:
+        return sorted(
+            {
+                z
+                for profile in profiles
+                for z in profile.shoulders
+                if bb.min.Z + 0.6 < z < bb.max.Z - 0.6
+            }
+        )
     return sorted(
         {
             z
@@ -331,34 +505,6 @@ def _import_step(path) -> Compound:
 # ---------------------------------------------------------------------------
 # Geometry analysis
 # ---------------------------------------------------------------------------
-
-
-def dedup_diams(cyls, tol: float = 0.15) -> list:
-    """Return sorted-descending deduplicated diameter list from cylinder records."""
-    raw = sorted({c["diameter"] for c in cyls}, reverse=True)
-    merged: list[float] = []
-    for d in raw:
-        if not merged or abs(d - merged[-1]) > tol:
-            merged.append(round(d, 2))
-    return merged
-
-
-def _is_rotational(x_size, y_size, od_diam, od_axis_offset) -> bool:
-    """True for turned parts: an outward-facing Z cylinder, concentric with
-    the bounding box, filling a square envelope.
-
-    ``od_diam`` is the largest full *external* Z-cylinder diameter (``None``
-    when there is none — bores never qualify as an OD) and
-    ``od_axis_offset`` that cylinder's axis distance from the bbox centre.
-    """
-    if od_diam is None:
-        return False
-    envelope = max(x_size, y_size)
-    return bool(
-        abs(x_size - y_size) <= _SQUARENESS_TOL * envelope
-        and od_diam >= _OD_FILL_MIN * envelope
-        and od_axis_offset <= _OD_AXIS_TOL * envelope
-    )
 
 
 def _converge_step_sizing(
@@ -496,52 +642,21 @@ def _classify_geometry(part, x_size, y_size, z_size, cx, cy, cz) -> _GeomClass:
     :func:`_analyse`). Partial (fillet) faces are excluded — they would pollute the OD, the bore
     leaders, and the rotational test alike (#81)."""
     z_cyls, cross_cyls = analyse_cylinders(part)
-    full_z = full_cylinders(z_cyls)
-    z_diams = dedup_diams(full_z)
-    cross_diams = dedup_diams(full_cylinders(cross_cyls))
+    classification = _classify_rotational_cylinders(
+        (z_cyls, cross_cyls),
+        sizes=(x_size, y_size, z_size),
+        centre=(cx, cy, cz),
+    )
+    z_diams = list(classification.z_diams)
+    cross_diams = list(classification.cross_diams)
 
     _log.info("Z-axis diameters: %s", z_diams)
     if cross_diams:
         _log.info("Cross-hole diams: %s", cross_diams)
 
-    od_cyl = max((c for c in full_z if c["external"]), key=lambda c: c["diameter"], default=None)
-    od_diam = None
-    if od_cyl:
-        # Snap to the dedup_diams representative so comparisons against z_diams entries
-        # (bore-leader exclusion, labels) are exact even if the cylinder records ever carry
-        # unrounded OCCT diameters (#86)
-        raw_od = od_cyl["diameter"]
-        od_diam = min(z_diams, key=lambda d: abs(d - raw_od))
-    od_axis_offset = (
-        math.hypot(od_cyl["axis_xyz"][0] - cx, od_cyl["axis_xyz"][1] - cy) if od_cyl else 0.0
-    )
-    is_rotational = _is_rotational(x_size, y_size, od_diam, od_axis_offset)
-    od_axis = "z"
-    if not is_rotational:
-        # Fallback: a *horizontal* (X/Y) round body — its OD is a cross-axis cylinder
-        # filling the square envelope perpendicular to that axis (#222). The Z check
-        # above is untouched, so vertical parts classify exactly as before; this only
-        # fires when Z-rotational fails and a cross-axis round body is present.
-        sizes = {"x": x_size, "y": y_size, "z": z_size}
-        ctr = {"x": cx, "y": cy, "z": cz}
-        cross_full = full_cylinders(cross_cyls)
-        for ax in ("x", "y"):
-            ext = [c for c in cross_full if c.get("axis") == ax and c["external"]]
-            # #222 targets a *single-OD* round body. A stepped shaft (multiple distinct
-            # cross diameters) stays on the turned-diameter path, not the OD furniture.
-            if len({round(c["diameter"], 1) for c in ext}) != 1:
-                continue
-            oc = max(ext, key=lambda c: c["diameter"], default=None)
-            if oc is None:
-                continue
-            p0, p1 = (a for a in "xyz" if a != ax)
-            off = math.hypot(
-                oc["axis_xyz"]["xyz".index(p0)] - ctr[p0],
-                oc["axis_xyz"]["xyz".index(p1)] - ctr[p1],
-            )
-            if _is_rotational(sizes[p0], sizes[p1], oc["diameter"], off):
-                od_diam, od_axis_offset, od_axis, is_rotational = oc["diameter"], off, ax, True
-                break
+    od_diam = classification.od_diam
+    od_axis = classification.od_axis
+    is_rotational = classification.is_rotational
     if z_diams and not is_rotational:
         _log.info("Part classified prismatic; skipping OD/centreline/bore annotations")
     return _GeomClass(z_cyls, cross_cyls, z_diams, cross_diams, od_diam, od_axis, is_rotational)
@@ -632,6 +747,7 @@ def _analyse(
     pmi=None,
     model=None,
     decorations=None,
+    authored=None,
     material="",
     date="",
     revision="A",
@@ -645,6 +761,7 @@ def _analyse(
     _views: tuple[str, ...] | None = None,
     _include_iso: bool = True,
     _view_constraints=None,
+    _framed_recognition: bool = False,
 ) -> Analysis:
     """Load STEP or use a build123d Shape, analyse geometry, compute layout.
 
@@ -656,16 +773,26 @@ def _analyse(
     # placement both reserve room for the border. Computed up front so the choose_scale inside
     # step-count convergence sees it too.
     margin = _content_margin(frame)
+    recognition: RecognitionResult | None
+    recognition_evidence: RecognitionEvidence | None = None
+    recognition_frame: PartFrame | None = None
+    recognition_frame_decision: dict[str, object]
     if _reuse is not None:
         # Explicit-scale fallback changes only page-space layout. Reuse the immutable geometry,
         # STEP/PMI census, classification, and recognition waist from the requested trial rather
         # than importing and recognising the same part up to fifteen more times (#1146).
         part = _reuse.part
+        source_part = _reuse.source_part if _reuse.source_part is not None else part
+        recognition_frame = cast(PartFrame | None, _reuse.recognition_frame)
+        recognition_frame_decision = dict(
+            _reuse.recognition_frame_decision
+            or {"status": "not_evaluated", "gauge": None, "refusal_reason": None}
+        )
         src = str(_reuse.step_file)
         pmi_defaulted = _reuse.pmi_defaulted
         pmi_mode = _reuse.pmi_mode
         pmi_report = _reuse.pmi_report
-        pmi_records = list(getattr(pmi_report, "records", ())) if pmi_mode != "off" else []
+        pmi_records = _reuse.pmi if pmi_mode != "off" else []
         bb = _reuse.bb
         x_size, y_size, z_size = _reuse.x_size, _reuse.y_size, _reuse.z_size
         cx, cy, cz = _reuse.cx, _reuse.cy, _reuse.cz
@@ -675,6 +802,9 @@ def _analyse(
         od_diam = _reuse.od_diam
         od_axis = _reuse.od_axis
         is_rotational = _reuse.is_rotational
+        layout_model = _coerce_layout_model(model, part, decorations)
+        recognition = _reuse.recognition if layout_model is None else None
+        recognition_evidence = _reuse.recognition_evidence if layout_model is None else None
     else:
         if isinstance(step_file, Shape):
             part = step_file
@@ -683,20 +813,90 @@ def _analyse(
             part = _import_step(step_file)
             src = str(step_file)
         part = _solids_body(part, src)
+        source_part = part
 
         pmi_defaulted = pmi is None
         pmi_mode = "off" if pmi_defaulted else pmi
 
-        # Semantic PMI census (AP242 only; separate read-only pass). Even off mode inventories a
-        # STEP source so it can say authored PMI was ignored; it deliberately does not feed those
-        # records into the IR. In-memory Shapes have no AP242 document to inspect.
         pmi_report = None
         pmi_records = []
+
+        # Declarations retain caller-coordinate authority and run no aggregate (ADR 4 (was 0011)).
+        # Automatic builds make the framed/raw selection here, above every bbox, IR, planner,
+        # projection and physical-lint consumer (ADR 3 (was 0020) activation).
+        layout_model = _coerce_layout_model(model, part, decorations)
+        recognition = None
+        if layout_model is None and _framed_recognition:
+            framed = prepare_framed_detection(part)
+            if isinstance(framed, FramedDetection):
+                part = framed.part
+                recognition = framed.result
+                classification = framed.classification
+                _gc = _GeomClass(
+                    list(classification.z_cyls),
+                    list(classification.cross_cyls),
+                    list(classification.z_diams),
+                    list(classification.cross_diams),
+                    classification.od_diam,
+                    classification.od_axis,
+                    classification.is_rotational,
+                )
+                recognition_frame = framed.frame
+                recognition_frame_decision = {
+                    "status": "framed",
+                    "gauge": framed.frame.gauge.value,
+                    "refusal_reason": None,
+                }
+            else:
+                assert isinstance(framed, FramedDetectionRefusal)
+                # The accepted leaf boundary never hides recovery. Analysis is the explicit
+                # product-policy owner: one typed provider refusal selects one raw aggregate.
+                raw_bb = part.bounding_box()
+                raw_centre = raw_bb.center()
+                _gc = _classify_geometry(
+                    part,
+                    raw_bb.size.X,
+                    raw_bb.size.Y,
+                    raw_bb.size.Z,
+                    raw_centre.X,
+                    raw_centre.Y,
+                    raw_centre.Z,
+                )
+                recognition, recognition_evidence = _raw_recognition(
+                    part,
+                    cylinders=(_gc.z_cyls, _gc.cross_cyls),
+                    rotational=_gc.is_rotational,
+                )
+                recognition_frame_decision = {
+                    "status": "raw_fallback",
+                    "gauge": None,
+                    "refusal_reason": framed.reason.value,
+                }
+        else:
+            bb0 = part.bounding_box()
+            c0 = bb0.center()
+            _gc = _classify_geometry(part, bb0.size.X, bb0.size.Y, bb0.size.Z, c0.X, c0.Y, c0.Z)
+            recognition_frame_decision = {
+                "status": "declared" if layout_model is not None else "raw",
+                "gauge": None,
+                "refusal_reason": None,
+            }
+            if layout_model is None:
+                recognition, recognition_evidence = _raw_recognition(
+                    part,
+                    cylinders=(_gc.z_cyls, _gc.cross_cyls),
+                    rotational=_gc.is_rotational,
+                )
+
+        # Semantic PMI census (AP242 only; separate read-only pass). Framed extraction receives
+        # the provider frame before it classifies correlation topology, preserving tight local
+        # boxes and arbitrary directions (#1401 / ADR 3 (was 0020)). Even off mode inventories a STEP
+        # source so it can report ignored authored PMI; in-memory Shapes have no AP242 document.
         if not isinstance(step_file, Shape):
             from draftwright.pmi import PmiExtractionReport, extract_pmi_report
 
             try:
-                pmi_report = extract_pmi_report(step_file)
+                pmi_report = extract_pmi_report(step_file, frame=recognition_frame)
                 if pmi_mode != "off":
                     pmi_records = list(pmi_report.records)
             except Exception as exc:
@@ -714,48 +914,57 @@ def _analyse(
 
         _log.info("Loaded %s  bbox: %.2f × %.2f × %.2f mm", src, x_size, y_size, z_size)
 
-        _gc = _classify_geometry(part, x_size, y_size, z_size, cx, cy, cz)
         z_cyls, cross_cyls = _gc.z_cyls, _gc.cross_cyls
         z_diams, cross_diams = _gc.z_diams, _gc.cross_diams
         od_diam, od_axis, is_rotational = _gc.od_diam, _gc.od_axis, _gc.is_rotational
 
     # Step Z-levels feed both the step-height ladder and the page-sizing step
     # count. For a vertical (Z-axis) turned part, take them from the unified
-    # turned-step model (ADR 0008 step 1): it filters shoulders by the OD
+    # turned-step model (ADR 1 (was 0008) step 1): it filters shoulders by the OD
     # silhouette, so an internal feature face — a blind bore's flat floor — is
     # never read as a phantom OD shoulder (the area-only filter in
     # recognise_face_levels admitted it). Prismatic and other parts keep the
     # general face-level scan, which recognise_turned_steps cannot replace (no
     # cylinders → no profile).
-    # ADR 0011 / ADR 0017 §6: a declared model skips detection (#1022).  The gate has to sit
+    # ADR 4 (was 0011) / ADR 3 (was 0017 §6): a declared model skips detection (#1022).  The gate has to sit
     # here, ABOVE the aggregate, which is why `_coerce_layout_model` moved up from its old
     # place below — it is pure (IR in, IR out) and reads nothing this block computes.
-    layout_model = _coerce_layout_model(model, part, decorations)
-    recognition: RecognitionResult | None
     _turned: TurnedProfile | None
+    _profiles: tuple[TurnedProfile, ...]
     step_zs: list[float]
     if _reuse is not None:
-        recognition = _reuse.recognition if layout_model is None else None
         _turned = _reuse.prof
+        _profiles = _reuse.profiles
         step_zs = list(_reuse.step_zs)
     elif layout_model is not None:
-        # Sizing must source `prof` and `step_zs` from the DECLARATION here. Taking them from
+        # Sizing must source profiles and `step_zs` from the DECLARATION here. Taking them from
         # a recognition that has been gated away would silently change page/scale selection,
-        # and leaving `prof=None` would silently disable axial critique for a declared turned
-        # part — both are failures the gate must not introduce (#1022).
+        # and leaving the plural inventory empty would silently disable axial critique for a
+        # declared turned part — both are failures the gate must not introduce (#1022).
         recognition = None
-        _turned = _declared_turned_profile(layout_model)
-        step_zs = _declared_step_zs(layout_model, _turned, bb)
+        _profiles = _declared_turned_profiles(layout_model)
+        _turned = _profiles[0] if len(_profiles) == 1 else None
+        step_zs = _declared_step_zs(layout_model, _profiles, bb)
     else:
-        recognition = build_recognition_result(
-            part, cylinders=(z_cyls, cross_cyls), rotational=is_rotational
+        assert recognition is not None
+        _profiles = recognition.turned_profiles
+        _turned = _profiles[0] if len(_profiles) == 1 else None
+        # Plural turned profiles own their body-local shoulders; the aggregate's compatible
+        # ladder projection intentionally returns prismatic FaceLevels unless exactly one
+        # Z-profile exists. Project the plural inventory explicitly so equal occurrences do
+        # not become a phantom global prismatic ladder during page sizing (#1357).
+        step_zs = (
+            sorted(
+                {
+                    station
+                    for profile in _profiles
+                    for station in profile.shoulders
+                    if bb.min.Z + 0.6 < station < bb.max.Z - 0.6
+                }
+            )
+            if len(_profiles) > 1 and {profile.axis for profile in _profiles} == {"z"}
+            else recognition.step_ladder_for_z_span(bb.min.Z, bb.max.Z)
         )
-        _turned = TurnedProfile.from_steps(list(recognition.turned_steps))
-        # The aggregate's own rule (#578 review; hoisted there by #1022, shared with critique
-        # by #1025). Both callers deriving this separately let lint project over a different
-        # ladder than the model was sized from — which is exactly the divergence one waist is
-        # supposed to prevent.
-        step_zs = recognition.step_ladder_for_z_span(bb.min.Z, bb.max.Z)
     # The aggregate owns the shared substrate from here on.  Rebind the local projection so
     # model construction, Analysis and the finished BuildState all consume the same inventory
     # object rather than parallel list/tuple wrappers that merely happen to contain equal data.
@@ -791,8 +1000,8 @@ def _analyse(
     pads = list(recognition.pads) if recognition else []
     # Build the IR once, up front, so page/scale selection sizes from the SAME feature
     # model the renderers use — detected and declared parts share one sizing path and no
-    # recogniser record reaches the sheet estimators (ADR 0008; #584 WP1 A). A declared
-    # model sizes from its own declaration (ADR 0011); otherwise the detected records are
+    # recogniser record reaches the sheet estimators (ADR 1 (was 0008); #584 WP1 A). A declared
+    # model sizes from its own declaration (ADR 4 (was 0011)); otherwise the detected records are
     # adapted into the IR (cheap — no re-recognition). Sizing is byte-identical to the old
     # record-based estimators EXCEPT where a pattern shares a machining spec with loose
     # holes: the IR keeps them as separate features, so the corridor sizes for the pattern's
@@ -803,13 +1012,21 @@ def _analyse(
         if is_rotational and od_axis == "z"
         else ()
     )
+    ownership_builder = (
+        RecognitionOwnershipBuilder(recognition_evidence)
+        if layout_model is None and _reuse is None and recognition_evidence is not None
+        else None
+    )
     sizing_model = (
         layout_model
         if layout_model is not None
         else cast(PartModel, _reuse.model)
         if _reuse is not None and _reuse.model is not None
-        else build_part_model(
+        else _build_part_model_from_recognition(
             part,
+            cast(RecognitionResult, recognition),
+            evidence=recognition_evidence,
+            ownership=ownership_builder,
             holes=holes,
             double_d_bores=double_d_bores,
             patterns=patterns,
@@ -819,19 +1036,29 @@ def _analyse(
             channels=list(recognition.channels) if recognition else None,
             slots=slots,
             # Injected from the aggregate since #1026 — `build_part_model` detected these
-            # three itself, which is the duplicate scan ADR 0017 exists to remove. On this
+            # three itself, which is the duplicate scan ADR 3 (was 0017) exists to remove. On this
             # branch `recognition` is non-None by construction (it is the not-declared arm).
             slot_patterns=list(recognition.slot_patterns) if recognition else None,
             grooves=list(recognition.grooves) if recognition else None,
             risers=list(recognition.risers) if recognition else None,
             chamfers=list(recognition.chamfers) if recognition else None,
             fillets=list(recognition.fillets) if recognition else None,
+            blends=list(recognition.blends) if recognition else None,
+            circular_blind_steps=(list(recognition.circular_blind_steps) if recognition else None),
+            paired_ramp_steps=list(recognition.paired_ramp_steps) if recognition else None,
+            through_steps=list(recognition.through_steps) if recognition else None,
             plates=list(recognition.plates) if recognition else None,
             flats=list(recognition.flats) if recognition else None,
             pockets=pockets,
             pocket_patterns=pocket_patterns,
+            rectangular_blind_slots=(
+                list(recognition.rectangular_blind_slots) if recognition else None
+            ),
+            round_bottom_blind_slots=(
+                list(recognition.round_bottom_blind_slots) if recognition else None
+            ),
             pads=pads,
-            prof=_turned,
+            profiles=_profiles,
             step_zs=step_zs,
             face_levels=list(recognition.step_levels) if recognition else None,
             rotational=(od_diam, _bores, od_axis) if is_rotational else None,
@@ -840,7 +1067,27 @@ def _analyse(
             cyls=shared_cyls,
         )
     )
-    # ADR 0018 Phase 5.5: prove the chosen principal set can carry every approved
+    recognition_ownership = (
+        None
+        if layout_model is not None
+        else _reuse.recognition_ownership
+        if _reuse is not None
+        else ownership_builder.snapshot()
+        if ownership_builder is not None
+        else None
+    )
+    # Authored omission affects annotation FOOTPRINT sizing, but the analysis model retains
+    # its historical automatic requirement inventory for view-feasibility preflight.  The
+    # builder applies the same authored tuple to the render model later.  Keeping this as a
+    # strip-only copy avoids letting a sparse authored dimension set erase semantic view
+    # requirements (for example the parent view needed by an authored detail), while ensuring
+    # suppressed pad bands cannot reduce the selected scale (#1392).
+    strip_sizing_model = (
+        replace(sizing_model, authored_dimensions=tuple(authored))
+        if authored is not None
+        else sizing_model
+    )
+    # ADR 2 (was 0018) Phase 5.5: prove the chosen principal set can carry every approved
     # dimension before scale selection or projection.  A reduced view set is therefore a
     # re-plan, not the fixed three-view plan rendered into fewer views.
     sizing_groups = plan_dimensions(sizing_model, planned_views=_views)
@@ -871,7 +1118,7 @@ def _analyse(
     # converges in a couple of rounds.
     def _measure_for_step_count(n_steps_i: int) -> StripDepths:
         return _measure_strips(
-            sizing_model,
+            strip_sizing_model,
             n_steps_i,
             bb,
             arrow_length=_arrow_length,
@@ -905,7 +1152,7 @@ def _analyse(
         lambda scale_i: len(_legible_steps(step_zs, bb.min.Z, scale_i)[0]),
     )
     SCALE, PAGE_W, PAGE_H, TB_W = scale_pick
-    # The fourth dimension of the ADR 0018 §5 choice, carried from `choose_scale` rather than
+    # The fourth dimension of the ADR 2 (was 0018 §5) choice, carried from `choose_scale` rather than
     # re-derived here: this call sees MEASURED strip depths where selection saw estimates, so
     # re-deriving would compose the sheet under a different arrangement than the one whose
     # feasibility was actually established (#1130).
@@ -933,7 +1180,7 @@ def _analyse(
     # Refine: apply the same legibility gate _auto_annotate uses for dim_step.
     n_steps = len(_legible_steps(step_zs, bb.min.Z, SCALE)[0])
     strips = _measure_strips(
-        sizing_model,
+        strip_sizing_model,
         n_steps,
         bb,
         arrow_length=_arrow_length,
@@ -1023,7 +1270,15 @@ def _analyse(
         planned_iso_scale=planned_iso_scale,
         view_constraints=_view_constraints,
         part=part,
+        source_part=source_part,
+        recognition_frame=recognition_frame,
+        recognition_frame_decision=recognition_frame_decision,
+        pmi_working_records=(
+            tuple(pmi_records) if recognition_frame is not None and pmi_mode != "off" else None
+        ),
         recognition=recognition,
+        recognition_evidence=recognition_evidence,
+        recognition_ownership=recognition_ownership,
         bb=bb,
         x_size=x_size,
         y_size=y_size,
@@ -1043,6 +1298,7 @@ def _analyse(
         cross_diams=cross_diams,
         cyls=shared_cyls,
         prof=_turned,
+        profiles=_profiles,
         od_diam=od_diam,
         is_rotational=is_rotational,
         od_axis=od_axis,
@@ -1089,7 +1345,7 @@ def _analyse(
         fv_hh=fv_hh,
         pv_hh=pv_hh,
         sv_hw=sv_hw,
-        # Strip / zone layout model — the per-view strips ADR 0009 placement reads
+        # Strip / zone layout model — the per-view strips ADR 2 (was 0009) placement reads
         fv_zones=fv_zones,
         pv_zones=pv_zones,
         sv_zones=sv_zones,
@@ -1111,7 +1367,7 @@ def _analyse(
         pmi_defaulted=pmi_defaulted,
         # The sizing model IS the render model when detection ran (identical inputs by
         # construction — #584 WP1 A); store it so the pipeline never detects twice
-        # (ADR 0008 Amdt 5, #602). A declared model (layout_model) is NOT stored: the
+        # (ADR 1 (was 0008 Amdt 5), #602). A declared model (layout_model) is NOT stored: the
         # builder coerces + decorates the caller's model itself.
         model=sizing_model if layout_model is None else None,
     )

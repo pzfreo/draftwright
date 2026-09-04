@@ -1,0 +1,164 @@
+{
+  "format": "draftwright-step-analysis-corpus",
+  "format_version": 1,
+  "corpus_version": "1.0.0",
+  "metric_version": 1,
+  "scope": ["grooves"],
+  "cases": [
+    {
+      "id": "groove-monotonic-step-negative",
+      "tags": ["negative", "overlapping-family"],
+      "fixture": "groove-monotonic-negative.step",
+      "sha256": "a608bba32b310b305cc460a08030636a3aab07d59978aa7599e30b335b118e73",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored from two coaxial 30 mm shaft segments with a single monotonic diameter reduction; the physical owner is the turned-step profile, not Groove.",
+      "expected_outcome": "supported",
+      "facts": []
+    },
+    {
+      "id": "groove-lone-z",
+      "tags": ["positive"],
+      "fixture": "groove-lone-z.step",
+      "sha256": "dec203e04ab0f26132c57efef7abbda3e6baf7a3c13983feea11e16fd62784a9",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored from a centred 60 mm long, diameter 20 Z shaft with one 4 mm annular removal to a diameter 16 floor at axial station 0.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "grooves",
+          "identity": {"axis": {"value": "z"}, "location": {"value": [0.0, 0.0, 0.0], "absolute_tolerance": 1e-6}},
+          "parameters": {"width": {"value": 4.0, "absolute_tolerance": 1e-6}, "diameter": {"value": 16.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "groove-lone-x",
+      "tags": ["positive", "rotated"],
+      "fixture": "groove-lone-x.step",
+      "sha256": "1dbe0ecfe4d24e204b30471b35916c291e2e8d25fc07117af087b2dad92ad29d",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "The lone-Z construction is rigidly rotated 90 degrees about world Y, producing the same physical groove on principal axis X.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "grooves",
+          "identity": {"axis": {"value": "x"}, "location": {"value": [0.0, 0.0, 0.0], "absolute_tolerance": 1e-6}},
+          "parameters": {"width": {"value": 4.0, "absolute_tolerance": 1e-6}, "diameter": {"value": 16.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "groove-lone-y",
+      "tags": ["positive", "rotated"],
+      "fixture": "groove-lone-y.step",
+      "sha256": "af51e310cc19e28b860dc36b377f91717a5250db1dfddc89b91b9fed5e513363",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "The lone-Z construction is rigidly rotated 90 degrees about world X, producing the same physical groove on principal axis Y.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "grooves",
+          "identity": {"axis": {"value": "y"}, "location": {"value": [0.0, 0.0, 0.0], "absolute_tolerance": 1e-6}},
+          "parameters": {"width": {"value": 4.0, "absolute_tolerance": 1e-6}, "diameter": {"value": 16.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "groove-narrow-circlip",
+      "tags": ["ambiguous", "overlapping-family", "positive"],
+      "fixture": "groove-narrow.step",
+      "sha256": "ceea32c87de2a892664dc3f24e17bee312de5d1ac556b0117a3e35134b4e2570",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored from a diameter 20 shaft with one 1 mm circlip band reduced to diameter 18; the floor also appears in raw boss/turned inventories but Groove owns its width and floor diameter.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "grooves",
+          "identity": {"axis": {"value": "z"}, "location": {"value": [0.0, 0.0, 0.0], "absolute_tolerance": 1e-6}},
+          "parameters": {"width": {"value": 1.0, "absolute_tolerance": 1e-6}, "diameter": {"value": 18.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "groove-compound-equal",
+      "tags": ["compound", "multiple-equal", "positive"],
+      "fixture": "groove-compound.step",
+      "sha256": "74f64e175c5f3acb1336abaacef3900911356cc206550047f6d96d92de6d8dd4",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored from two disjoint parallel diameter 20 shafts centred at X=-30 and X=30; each carries one equal 4 mm wide, diameter 16 groove at a different axial station.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "grooves",
+          "identity": {"axis": {"value": "z"}, "location": {"value": [-30.0, 0.0, -8.0], "absolute_tolerance": 1e-6}},
+          "parameters": {"width": {"value": 4.0, "absolute_tolerance": 1e-6}, "diameter": {"value": 16.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        },
+        {
+          "family": "grooves",
+          "identity": {"axis": {"value": "z"}, "location": {"value": [30.0, 0.0, 9.0], "absolute_tolerance": 1e-6}},
+          "parameters": {"width": {"value": 4.0, "absolute_tolerance": 1e-6}, "diameter": {"value": 16.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "groove-topology-a",
+      "tags": ["multiple", "positive", "topology-order-variant"],
+      "fixture": "groove-topology-a.step",
+      "sha256": "1aa87c6fe44ce62030727939a1d75d8dbea598bf2988e0928ae2222803374f48",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored from a diameter 20 shaft by subtracting the 3 mm wide diameter 16 groove before the 5 mm wide diameter 14 groove.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "grooves",
+          "identity": {"axis": {"value": "z"}, "location": {"value": [0.0, 0.0, -15.0], "absolute_tolerance": 1e-6}},
+          "parameters": {"width": {"value": 3.0, "absolute_tolerance": 1e-6}, "diameter": {"value": 16.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        },
+        {
+          "family": "grooves",
+          "identity": {"axis": {"value": "z"}, "location": {"value": [0.0, 0.0, 16.0], "absolute_tolerance": 1e-6}},
+          "parameters": {"width": {"value": 5.0, "absolute_tolerance": 1e-6}, "diameter": {"value": 14.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "groove-topology-b",
+      "tags": ["multiple", "positive", "topology-order-variant"],
+      "fixture": "groove-topology-b.step",
+      "sha256": "a277e09b492763dd9db6a1e042d0efa74effeb3a01dc7d64893c2db720db0034",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Geometrically identical to groove-topology-a but authored with the two annular Boolean cuts applied in reverse order.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "grooves",
+          "identity": {"axis": {"value": "z"}, "location": {"value": [0.0, 0.0, -15.0], "absolute_tolerance": 1e-6}},
+          "parameters": {"width": {"value": 3.0, "absolute_tolerance": 1e-6}, "diameter": {"value": 16.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        },
+        {
+          "family": "grooves",
+          "identity": {"axis": {"value": "z"}, "location": {"value": [0.0, 0.0, 16.0], "absolute_tolerance": 1e-6}},
+          "parameters": {"width": {"value": 5.0, "absolute_tolerance": 1e-6}, "diameter": {"value": 14.0, "absolute_tolerance": 1e-6}},
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    }
+  ]
+}

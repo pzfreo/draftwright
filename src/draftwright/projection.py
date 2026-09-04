@@ -1,4 +1,4 @@
-"""View projection — silhouette recovery and the isometric view (#138 / ADR 0005, P2).
+"""View projection — silhouette recovery and the isometric view (#138 / ADR 1 (was 0005), P2).
 
 Two concerns, both *below* `make_drawing` in the DAG (it imports these, never the
 reverse): silhouette recovery (`_exactify_silhouettes`/`_raw_view_projector` —
@@ -35,6 +35,7 @@ from draftwright._core import (
 from draftwright._geometry import (
     MaterialField,
     _boxes_overlap,
+    _scale_world,
     material_field,
 )
 
@@ -100,7 +101,7 @@ def part_material_mesh(part, scale: float, *, max_triangles: int = _MATERIAL_MAX
     a strictly finer one — so ``face.tessellate(deflection)`` alone returns whatever mesh
     some earlier operation (HLR, a bounding box, an export) happened to leave behind. That
     makes the field a function of build HISTORY, which is precisely the silent
-    cross-platform layout variable ADR 0006 exists to eliminate; measured on GRM-03, the
+    cross-platform layout variable ADR 5 (was 0006) exists to eliminate; measured on GRM-03, the
     incidental mesh also carried 4,154 triangles where a controlled one needs 776. The copy
     is what keeps the reset off the shared part: cleaning in place would discard a
     triangulation the render path may still want.
@@ -288,7 +289,11 @@ def project_view_geometry(scale, name, shape, camera, up, position, *, look_at, 
     *scale* is the world→page scale the coordinates encode; *shape* is in world (unscaled) space
     unless *scaled* is True. *camera*/*up*/*look_at* are in scaled space (the standard-view
     convention). Raises ``ValueError`` when the projection is empty (bad camera/look_at)."""
-    shape_s = shape if scaled else shape.scale(scale)
+    # ViewCoordinates maps world points by an origin-based scale. build123d 0.11 defaults to
+    # ``shape.location.position``; extracted solids often carry a non-zero Location, which would
+    # translate the silhouette away from that mapper. Keep both sides of the projection contract
+    # in the same world-origin transform (the helper also preserves 0.9/0.10 compatibility).
+    shape_s = shape if scaled else _scale_world(shape, scale)
     vis, hid = shape_s.project_to_viewport(camera, up, look_at)
     vl, hl = list(vis), list(hid)
     if not vl and not hl:
@@ -338,7 +343,7 @@ def _project_iso(dwg, a: Analysis, scale, shape_s=None):
     camera = (la[0] + off, la[1] - off, la[2] + off)
     dwg._add_view(
         "iso",
-        shape_s if shape_s is not None else a.part.scale(scale),
+        shape_s if shape_s is not None else _scale_world(a.part, scale),
         camera,
         (0, 0, 1),
         (a.ISO_X, a.ISO_Y),
@@ -373,7 +378,7 @@ def _largest_clear_factor(dwg, a, hi, obstacles, base_box) -> float:
     """A factor in ``[1, hi]`` whose RE-PROJECTED iso clears every obstacle, as large as this
     search finds.
 
-    **Measured, not predicted** — ADR 0014 Amendment 3. Its first version computed the answer
+    **Measured, not predicted** — ADR 2 (was 0014 Amendment 3). Its first version computed the answer
     from a linear model: re-projection at factor *f* maps each bbox edge *e* to ``c + f*(e-c)``
     about the page centre. That is false. The projected bbox is affine in *f* but carries a
     translation term as well as the scale, so the model drifts linearly with the factor:

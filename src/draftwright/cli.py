@@ -14,6 +14,7 @@ import os
 from enum import Enum
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
+from pathlib import Path
 
 import typer
 
@@ -69,10 +70,22 @@ def _parse_formats(value: str) -> list[str]:
 
 
 def _emit(dwg, formats: list[str]) -> list[str]:
-    """Write the requested formats and return their paths in *formats* order. ``export`` handles
-    the SVG→PDF→PNG intermediate chain and removes any it wasn't asked to keep."""
+    """Write requested visual artefacts and return their paths in *formats* order.
+
+    ``export`` handles the SVG→PDF→PNG intermediate chain and removes any it was not asked to
+    keep.
+    """
     paths = dwg.export(formats=formats)
     return [paths[f] for f in formats]
+
+
+def _write_report_sidecar(dwg, visual_paths: list[str]) -> str:
+    """Write the CLI report beside export's authoritative normalized output stem."""
+    # Drawing.export accepts an output such as ``part.pdf`` and strips the recognized suffix
+    # before writing; deriving the stem from its returned path keeps every suffix (including
+    # PDF/PNG, which builder does not pre-strip) on one naming contract.
+    report_stem = str(Path(visual_paths[0]).with_suffix(""))
+    return str(dwg.write_report(f"{report_stem}.draftwright.json"))
 
 
 def _looks_like_object_spec(s: str) -> bool:
@@ -157,6 +170,11 @@ def main(
         "--format",
         "-f",
         help="Comma-list of output formats: pdf, svg, dxf, png (or 'all'). E.g. --format pdf,png",
+    ),
+    no_report: bool = typer.Option(
+        False,
+        "--no-report",
+        help="Skip the default JSON report beside rendered output",
     ),
     verbose: bool = typer.Option(
         False,
@@ -262,8 +280,11 @@ def main(
         projection=projection or None,
         zones=zones,
     )
-    for path in _emit(dwg, formats):
+    visual_paths = _emit(dwg, formats)
+    for path in visual_paths:
         print(path)
+    if not no_report:
+        print(_write_report_sidecar(dwg, visual_paths))
 
 
 def _cli() -> None:

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import replace
 from decimal import Decimal
 from typing import Literal, cast
@@ -32,6 +33,7 @@ from draftwright.model.ir import (
 )
 
 ToleranceValue = float | tuple[float, float]
+FeatureRemap = Callable[[Feature, tuple[Feature, ...], tuple[tuple[int, ...], ...] | None], None]
 
 
 def _members(feature: HoleFeature | PatternFeature):
@@ -76,7 +78,9 @@ def _source_ids(dim: AuthoredDimension) -> tuple[str, ...]:
     return (dim.source_id,) if dim.source_id else ()
 
 
-def lower_ap242_hole_tolerances(model: PartModel) -> PartModel:
+def lower_ap242_hole_tolerances(
+    model: PartModel, *, feature_remap: FeatureRemap | None = None
+) -> PartModel:
     """Consume confidently correlated AP242 hole-tolerance dimensions exactly once.
 
     A count-group is split only where member requirements differ.  A real pattern stays a
@@ -168,7 +172,7 @@ def lower_ap242_hole_tolerances(model: PartModel) -> PartModel:
         proposals[dim_index] = (owner_index, member_indices, value)
 
     # Existing authored ownership wins.  Silently replacing it with imported PMI would make
-    # the same parameter have two sources and violate ADR 0011's single-owner decoration map.
+    # the same parameter have two sources and violate ADR 4 (was 0011)'s single-owner decoration map.
     for dim_index, (owner_index, _member_indices, _value) in tuple(proposals.items()):
         owner = target_by_index[owner_index]
         if (owner, "diameter", "bore") in model.decorations or (
@@ -256,6 +260,8 @@ def lower_ap242_hole_tolerances(model: PartModel) -> PartModel:
             value = proposals[dim_indices[0]][2] if dim_indices else None
             groups.setdefault(value, []).append(member_index)
             group_sources.setdefault(value, []).extend(dim_indices)
+        replacements: list[Feature] = []
+        replacement_member_groups: list[tuple[int, ...]] = []
         for value, group_member_indices in groups.items():
             members = tuple(points[index] for index in group_member_indices)
             split = replace(
@@ -265,6 +271,8 @@ def lower_ap242_hole_tolerances(model: PartModel) -> PartModel:
                 members=members,
             )
             rebuilt.append(split)
+            replacements.append(split)
+            replacement_member_groups.append(tuple(group_member_indices))
             for tail, inherited_value in inherited:
                 decorations[(split, *tail)] = inherited_value
             if value is not None:
@@ -278,6 +286,12 @@ def lower_ap242_hole_tolerances(model: PartModel) -> PartModel:
                 decorations[(split, "diameter")] = ToleranceDecoration(
                     value=value, source="ap242_pmi", source_ids=ids
                 )
+        if feature_remap is not None:
+            feature_remap(
+                feature,
+                tuple(replacements),
+                tuple(replacement_member_groups),
+            )
 
     return replace(model, features=rebuilt, decorations=decorations)
 
@@ -713,7 +727,9 @@ def _remap_model_features(model: PartModel, replacements: dict[int, Feature]) ->
     )
 
 
-def lower_ap242_manufacturing_requirements(model: PartModel) -> PartModel:
+def lower_ap242_manufacturing_requirements(
+    model: PartModel, *, feature_remap: FeatureRemap | None = None
+) -> PartModel:
     """Lower supported semantic requirements through exact source topology."""
     raw = {
         index: feature
@@ -731,6 +747,7 @@ def lower_ap242_manufacturing_requirements(model: PartModel) -> PartModel:
         if isinstance(feature, (StepFeature, BossFeature, HoleFeature, PatternFeature))
     ]
     replacements: dict[int, Feature] = {}
+    replacement_pairs: list[tuple[Feature, Feature]] = []
     consumed: set[int] = set()
     blocked: dict[int, str] = {}
     claimed: set[int] = set()
@@ -819,10 +836,14 @@ def lower_ap242_manufacturing_requirements(model: PartModel) -> PartModel:
                 continue
             updated = replace(current, thread=requirement)
         replacements[id(owner)] = updated
+        replacement_pairs.append((owner, updated))
         claimed.add(id(owner))
         consumed.add(index)
 
     lowered = _remap_model_features(model, replacements)
+    if feature_remap is not None:
+        for source, replacement in replacement_pairs:
+            feature_remap(source, (replacement,), None)
     rebuilt: list[Feature] = []
     for index, lowered_feature in enumerate(lowered.features):
         if index in consumed:
@@ -833,7 +854,11 @@ def lower_ap242_manufacturing_requirements(model: PartModel) -> PartModel:
     return replace(lowered, features=rebuilt)
 
 
-def lower_ap242_dimensions(model: PartModel) -> PartModel:
+def lower_ap242_dimensions(
+    model: PartModel, *, feature_remap: FeatureRemap | None = None
+) -> PartModel:
     """Run every geometry-correlated AP242 lowering at the IR waist."""
-    dimensions = lower_ap242_nominal_diameters(lower_ap242_hole_tolerances(model))
-    return lower_ap242_manufacturing_requirements(dimensions)
+    dimensions = lower_ap242_nominal_diameters(
+        lower_ap242_hole_tolerances(model, feature_remap=feature_remap)
+    )
+    return lower_ap242_manufacturing_requirements(dimensions, feature_remap=feature_remap)

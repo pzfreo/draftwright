@@ -1,4 +1,4 @@
-"""The deterministic lint→repair safety net (#138 / ADR 0005; #30 / ADR 0002).
+"""The deterministic lint→repair safety net (#138 / ADR 1 (was 0005); #30 / ADR 5 (was 0002)).
 
 The solver path now owns annotation placement. Repair is deliberately narrow:
 it only handles the mechanically-clear wrong-side dimension case and never performs
@@ -48,6 +48,8 @@ def _replace_dim(dwg, old, new):
     # "the same seam `_dw_scale` uses"; that was only true once it was carried here too.
     if getattr(old, "_dw_label_value", None) is not None:
         new._dw_label_value = old._dw_label_value
+    if getattr(old, "_dw_measurement_span", None) is not None:
+        new._dw_measurement_span = old._dw_measurement_span
     dwg.items[dwg.items.index(old)] = new
     dwg.registry.replace_object(old, new)
 
@@ -73,7 +75,7 @@ def repair_drawing(dwg, max_iter: int = 3):
     Lints ``physical=False`` — the placement critique only. This loop acts on
     ``_REPAIRABLE_CODES`` (``dim_inside_part``) and nothing else, so the feature-coverage
     half was computed and discarded on every iteration; on a declared build it also forced
-    the recognition ADR 0011 says that path skips (#1022). It makes the net-worsened
+    the recognition ADR 4 (was 0011) says that path skips (#1022). It makes the net-worsened
     comparison below stricter too: coverage issues cannot change from re-placing a
     dimension, so counting them only diluted the ratio.
     """

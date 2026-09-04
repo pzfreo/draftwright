@@ -16,7 +16,7 @@ from b123d_recognisers import (
     recognise_pockets,
     recognise_slots,
 )
-from build123d import Align, Axis, Box, Compound, Cylinder, Edge, Pos, Rotation, export_step
+from build123d import Align, Axis, Box, Compound, Cylinder, Edge, Pos, Rot, Rotation, export_step
 from build123d_drafting import HoleCallout, Leader, ViewCoordinates, view_axes
 
 from draftwright import Drawing, build_drawing, make_drawing
@@ -878,7 +878,7 @@ class TestGrooveCallout:
         # The groove floor band's two walls read as shoulders, so recognise_turned_steps
         # also delimits it as a middle step. detect.py must exclude that band from the step
         # chain so the floor ø is dimensioned ONCE (the groove callout), never also as a
-        # separate step ø — ISO 129 / ADR 0008 one-band-one-owner (#148c review).
+        # separate step ø — ISO 129 / ADR 1 (was 0008) one-band-one-owner (#148c review).
         dwg = build_drawing(self._grooved(8, 4, 10), number="X")
         floor_labels = [
             n
@@ -1159,14 +1159,14 @@ class TestChooseScale:
         # 800×450×150 mm (NIST CTC-01) — iso sits above the title block so tb_w
         # is dropped from the width constraint. A2 fits; A1 is no longer chosen (#103).
         # Pinned to the `columns` arrangement: #103 is an invariant about the layout this
-        # part is composed under, and letting the ADR 0018 alternatives answer would make it
+        # part is composed under, and letting the ADR 2 (was 0018) alternatives answer would make it
         # a different claim (see the assertion below for what they answer instead).
         scale, pw, ph, tbw = choose_scale(800, 450, 150, arrangements=("columns",))
         assert scale == pytest.approx(0.2)
         assert int(pw) == 594  # A2 (594 mm), not A1 (841 mm)
 
     def test_ctc01_compacts_further_when_the_iso_shares_the_title_block_column(self):
-        # ADR 0018 §5's fourth dimension on the part #103 was written about: reclaiming the
+        # ADR 2 (was 0018 §5)'s fourth dimension on the part #103 was written about: reclaiming the
         # iso's column takes the same 1:5 drawing down another sheet size. Whether a build
         # KEEPS that is the requirement gate's call, not this one's — `choose_scale` only
         # reports what fits.
@@ -1934,7 +1934,7 @@ class TestDepthEstimators:
     def test_right_depth_fits_in_exact_corridor(self):
         # _est_right_strip_depth(n) must reserve enough corridor for dim_height + n
         # dim_steps stacked from the view edge (gap, then `spacing` between dims) — the
-        # cursor-free capacity condition the carve places into (ADR 0009 / #150).
+        # cursor-free capacity condition the carve places into (ADR 2 (was 0009) / #150).
         from draftwright._core import (
             _SLOT_DIM_HEIGHT,
             _SLOT_DIM_STEP,
@@ -2015,7 +2015,7 @@ class TestDerivedLayoutConstants:
 
 def _sizing_model(part):
     """The sizing IR + planner callout width for *part*, mirroring `_analyse` — the
-    detected-path input the sheet estimators now consume (ADR 0008; #584 WP1 A)."""
+    detected-path input the sheet estimators now consume (ADR 1 (was 0008); #584 WP1 A)."""
     from build123d_drafting.helpers import draft_preset
 
     from draftwright._core import _FONT_SIZE
@@ -2406,7 +2406,7 @@ class TestDynamicCorridors:
         from draftwright.compose import choose_scale
 
         # Pinned to `columns`: the corridor claim is about the layout whose width the
-        # corridor competes for. Under the ADR 0018 alternative the reclaimed iso column
+        # corridor competes for. Under the ADR 2 (was 0018) alternative the reclaimed iso column
         # absorbs the corridor and both land on the same sheet, which is a fact about that
         # arrangement rather than a refutation of this one.
         _, page_w_flat, _, _ = choose_scale(5.0, 90.0, 100.0, n_steps=0, arrangements=("columns",))
@@ -2554,7 +2554,7 @@ class TestTwoPassLayout:
 
 
 class TestComposeThenPackRepack:
-    """Ownership-based compose-then-pack + measure-and-repack (#121, ADR 0004):
+    """Ownership-based compose-then-pack + measure-and-repack (#121, ADR 2 (was 0004)):
     the cross-view collision detector, the disjoint block packing, the candidate
     floor, and the annotation-ownership map lifecycle.  Pure/fast — no OCP."""
 
@@ -3163,6 +3163,28 @@ class TestHolePatternCallouts:
             )
 
     @pytest.mark.timeout(120)
+    def test_x_axis_rect_grid_keeps_both_pitches_in_the_side_view(self):
+        """0.4.6 coordinate rounding must not select an interior side-view witness row."""
+
+        ang = math.radians(25)
+        ca, sa = math.cos(ang), math.sin(ang)
+        centre = (Align.CENTER, Align.CENTER, Align.CENTER)
+        part = Box(12, 220, 120, align=centre)
+        cutter = Rot(0, 90, 0) * Cylinder(4, 20, align=centre)
+        for r in range(2):
+            for c in range(5):
+                y, z = (c - 2) * 45, (r - 0.5) * 10
+                part -= Pos(0, y * ca - z * sa, y * sa + z * ca) * cutter
+
+        dwg = build_drawing(part)
+        pitch = [name for name in dwg.annotations() if name.startswith("dim_pitch_")]
+
+        assert len(pitch) == 2, f"expected two side-grid pitch dims, got {pitch}"
+        assert {dwg.view_of(name) for name in pitch} == {"side"}
+        assert {dwg.get_annotation(name).label for name in pitch} == {"1× 10", "4× 45"}
+        assert "hole_pattern_dim_dropped" not in {issue.code for issue in dwg.lint()}
+
+    @pytest.mark.timeout(120)
     def test_rect_grid_coverage_lint_quiet(self):
         codes = {i.code for i in build_drawing(self._grid_part()).lint()}
         assert "feature_not_dimensioned" not in codes
@@ -3331,8 +3353,13 @@ def test_cli_inherits_automatic_detail_default(monkeypatch):
     forwarded = []
 
     class _Drawing:
+        out = "out"
+
         def export(self, *, formats):
             return {name: f"out.{name}" for name in formats}
+
+        def write_report(self, path):
+            return path
 
     def _build(*args, **kwargs):
         forwarded.append(kwargs)
@@ -4147,12 +4174,12 @@ class TestPrismaticClassification:
         dwg = build_drawing(part)
         xlocs = {n for n in dwg.annotations() if n.startswith("dim_loc_front_x")}
         assert len(xlocs) == 2, f"both side-drilled holes must be located, got {xlocs}"
-        # The X offsets are the #225 subject and both land. Their two Z-height companions do
-        # not: `off_axis_location_dropped` records that loss at info severity, so #1250 must
-        # keep the automatic drawing from reporting success over it.
+        # The X offsets are the #225 subject and both land. The corrected side-right strip
+        # also admits one Z-height companion; the other still records an info-level
+        # `off_axis_location_dropped`, so #1250 must not report success over that loss.
         issues = dwg.lint()
         assert [i.code for i in issues if i.severity == "error"] == ["plan_incomplete"]
-        assert [i.code for i in issues].count("off_axis_location_dropped") == 2
+        assert [i.code for i in issues].count("off_axis_location_dropped") == 1
 
     @pytest.mark.timeout(60)
     def test_corner_fillets_do_not_make_a_plate_rotational(self):
@@ -4595,13 +4622,13 @@ class TestAutoHoleAnnotations:
         )
         dwg = build_drawing(part)
         assert len([n for n in dwg.annotations() if n.startswith("hc_front")]) == 2
-        # Both callouts and both X offsets land, but the two Z-height companions do not.
-        # Their info-level placement drops are required outcomes, so the #1250 summary keeps
-        # this automatic sheet from claiming a clean verdict while preserving this test's
-        # subject: both front-view callouts fit.
+        # Both callouts and both X offsets land. The corrected side-right strip admits one
+        # Z-height companion; the remaining info-level placement drop is still a required
+        # outcome, so #1250 keeps this sheet from claiming a clean verdict while preserving
+        # this test's subject: both front-view callouts fit.
         issues = dwg.lint()
         assert [i.code for i in issues if i.severity == "error"] == ["plan_incomplete"]
-        assert [i.code for i in issues].count("off_axis_location_dropped") == 2
+        assert [i.code for i in issues].count("off_axis_location_dropped") == 1
 
     @pytest.mark.timeout(60)
     def test_all_distinct_bores_get_callouts(self):
@@ -5135,9 +5162,8 @@ class TestIsRotational:
         # feature records may carry raw OCCT diameters after the #87 lift.
         # With an unrounded OD (59.9999999 vs the dedup'd 60.0), a float !=
         # leaks the OD into the bore leaders as a duplicate ø60 callout.
-        import importlib
+        import draftwright.analysis as md
 
-        md = importlib.import_module("draftwright.analysis")
         real = md.analyse_cylinders
 
         def unrounded(part):
@@ -5157,11 +5183,9 @@ class TestIsRotational:
     def test_lint_reuses_build_drawing_cylinder_analysis(self, monkeypatch):
         # build_drawing seeds the cache, so lint()/export() must not re-scan
         # the solid with analyse_cylinders.
-        import importlib
-
         # (the package re-exports the make_drawing *function*, shadowing the
-        # submodule attribute, so plain `import ... as md` grabs the function)
-        md = importlib.import_module("draftwright.analysis")
+        # submodule attribute; analysis has no such name collision.)
+        import draftwright.analysis as md
 
         dwg = build_drawing(Box(30, 20, 10))
         calls = {"n": 0}
@@ -6061,7 +6085,7 @@ class TestDetailView:
             bb=SimpleNamespace(min=SimpleNamespace(Z=0.0), max=SimpleNamespace(Z=2.0)),
             SCALE=1.0,
         )
-        # The rungs now arrive from the compiled plan (ADR 0016 Amdt 1 / #923): the detail
+        # The rungs now arrive from the compiled plan (ADR 4 (was 0016 Amdt 1) / #923): the detail
         # redraw used to re-derive them from `dwg.model()` and `a.step_zs`, which let it
         # draw a rung the compiler had withheld. `a.step_zs` is no longer consulted at all —
         # what this test still pins is the GATE: the escalation, not raw legibility.
@@ -6353,7 +6377,7 @@ class TestDetailView:
         assert _overall_height_name(dwg, a) == "dim_height"  # canonical, unpinned, correct
 
         dwg.pin("dim_height")
-        assert _overall_height_name(dwg, a) is None  # a pin is never demoted (ADR 0012)
+        assert _overall_height_name(dwg, a) is None  # a pin is never demoted (ADR 2 (was 0012))
         dwg.unpin("dim_height")
         assert _overall_height_name(dwg, a) == "dim_height"  # unpin restores it
 
@@ -6515,7 +6539,7 @@ def _model_signature(m):
 
 
 class TestModel:
-    """#397: dwg.model() exposes the detected ADR-0008 PartModel as the read surface."""
+    """#397: dwg.model() exposes the detected ADR 1 (was 0008) PartModel as the read surface."""
 
     def test_model_exposes_detected_features(self, holed_plate_dwg):
         m = holed_plate_dwg.model()
@@ -6598,7 +6622,7 @@ class TestFeatureEdits:
             assert n not in dwg.annotations()  # gone from the registry + render list
 
     def test_drop_removes_all_slot_dims(self):
-        # #398c: slot dims flow through the ADR-0009 corridor; provenance now threads it,
+        # #398c: slot dims flow through the ADR 2 (was 0009) corridor; provenance now threads it,
         # so drop(slot) removes the whole set (length + width + position).
         from build123d import Box, Mode, Pos
 
@@ -6957,7 +6981,7 @@ class TestFeatureEdits:
     def _reconstruct(dwg):
         # The per-feature verb dispatch the imperative emitter used to write. That emitter is
         # gone (#940), so this is no longer a mirror of anything generated — it exercises the
-        # `Drawing` edit verbs in-process, which remain a hand-use API (ADR 0016).
+        # `Drawing` edit verbs in-process, which remain a hand-use API (ADR 4 (was 0016)).
         for f in dwg.model().features:
             if f.kind in ("hole", "pattern"):
                 dwg.callout(f)
@@ -7218,7 +7242,7 @@ class TestFeatureEdits:
     def test_finalize_routes_locations_through_the_corridor_dedup(self):
         # #426 Phase 2a: two DISTINCT holes sharing an X. The live path places a duplicate
         # m_locx (each locate() is independent); finalize routes them through the real
-        # ADR-0009 corridor solve, which dedups the coincident X span to ONE dim — matching
+        # ADR 2 (was 0009) corridor solve, which dedups the coincident X span to ONE dim — matching
         # the auto-pass. The crossing-free / dedup win.
         part = (
             Box(100, 80, 20) - Pos(20, 25, 0) * Cylinder(4, 30) - Pos(20, -25, 0) * Cylinder(6, 30)
@@ -7296,6 +7320,38 @@ class TestFeatureEdits:
         assert dwg.get_annotation("user_width")._dw_spec.distance == 12
         assert dwg._intents == []
 
+    def test_finalize_resolves_an_implicit_side_before_corridor_routing(self, tmp_path):
+        # #1382 review: `dimension()` now leaves the natural side unresolved as None. The
+        # routing predicate must accept that state so pin/priority reach the shared solve;
+        # `_queue_dimension_intent` resolves the side from the exact parameter span.
+        dwg = build_drawing(
+            Box(80, 50, 20),
+            auto_dims=False,
+            out=str(tmp_path / "implicit-side"),
+            trace=True,
+        )
+        env = next(f for f in dwg.model().features if f.kind == "envelope")
+        with dwg.deferred():
+            dwg.dimension(
+                env,
+                "length",
+                role="width",
+                name="implicit_side_width",
+                pin=True,
+                priority=25,
+            )
+
+        assert dwg.registry.is_pinned("implicit_side_width")
+        assert dwg.get_annotation("implicit_side_width")._dw_spec.side == "above"
+        candidate = next(
+            candidate
+            for solve in dwg.solve_trace.solves
+            for candidate in solve["candidates"]
+            if candidate["name"] == "implicit_side_width"
+        )
+        assert candidate["priority"] == 100
+        assert candidate["anchored"] is True
+
     def test_finalize_mixed_corridor_batch_places_each_exactly_once(self):
         # #699 slice b (Codex review): the drain stages now run in the auto-pass's
         # canonical _PASS_SEQUENCE order, which moved the register-only height-ladder /
@@ -7316,7 +7372,7 @@ class TestFeatureEdits:
             dwg.locate(hole)  # the locations corridor (plan/side above)
             dwg.dimension(step, "length", role="step_height")  # the front-right ladder
             dwg.dimension(step, "length", role="step_position")  # the shoulder corridor
-            dwg.dimension(  # a pinned user dim joins the same drain (ADR 0012)
+            dwg.dimension(  # a pinned user dim joins the same drain (ADR 2 (was 0012))
                 env, "length", role="width", side="below", name="user_width", pin=True
             )
         assert dwg._intents == []  # every routed intent drained
@@ -7341,7 +7397,7 @@ class TestFeatureEdits:
         assert names <= dwg.registry.pinned_names()
 
     def test_live_dimension_pin_pins_raw_escape_hatch_result(self):
-        # #511/ADR 0012: live dimension() still uses the single-position page-coordinate
+        # #511/ADR 4 (was 0012): live dimension() still uses the single-position page-coordinate
         # escape hatch, but pin=True must persist on the resulting annotation name.
         dwg = build_drawing(Box(80, 50, 20), auto_dims=False)
         env = next(f for f in dwg.model().features if f.kind == "envelope")
@@ -7922,7 +7978,7 @@ class TestFeatureEdits:
         assert set(dwg.annotations_of(hole)) == before
 
     def test_model_structurally_equivalent_across_step_and_b123d_input(self, tmp_path):
-        # D5 / the convergence property (ADR 0001 Amendment 1): a STEP import re-tessellates
+        # D5 / the convergence property (ADR 4 (was 0001 Amendment 1)): a STEP import re-tessellates
         # the solid, so coordinates differ — but the DETECTED feature structure must be the
         # same whether the input was a build123d object or a STEP file of that object.
         part = _holed_plate()
@@ -9273,8 +9329,10 @@ class TestPrismaticBossDiameter:
         # cover only the boss, not the plate below, so the overall height would be dropped.
         from draftwright import Sheet
 
-        lower = Pos(0, 0, 25) * Cylinder(35, 10)
-        upper = Pos(0, 0, 35) * Cylinder(25, 10)
+        # Exact face contact makes this one physical solid: the old 25/35 placements left a
+        # 10 mm air gap above the plate and accidentally tested a valid multi-solid compound.
+        lower = Pos(0, 0, 15) * Cylinder(35, 10)
+        upper = Pos(0, 0, 25) * Cylinder(25, 10)
         part = Box(100, 100, 20) + lower + upper
         sheet = Sheet(part, title="C").auto_dimensions()
         sheet.envelope()
@@ -9442,7 +9500,11 @@ class TestTurnedDiameters:
         # centreline locates it; generic minimum-edge offsets would redundantly
         # show half the 46 mm envelope in both X and Z (#881).
         assert dwg.view_of("centerline_side") == "side"
-        assert dwg.view_of("centerline_plan") == "plan"
+        # RaisedPad v2 no longer misclassifies two rotated flange lugs as pads. With that
+        # false requirement gone, ADR 2 (was 0018) omits the redundant plan view and its furniture;
+        # the front profile plus side end view still define the Y-axis stack completely.
+        assert dwg.view_of("centerline_plan") is None
+        assert "plan" not in dwg.views
         assert not any(n.startswith("dim_loc_front_") for n in dwg.annotations())
         assert not any(n.startswith("dim_loc_side_") for n in dwg.annotations())
 
@@ -9456,7 +9518,7 @@ class TestTurnedDiameters:
         # `covers_diameters` annotation wholesale, and this is a hole callout. Measured
         # against the filled material field the cut is real, and pinning WHICH leader
         # is a stronger guard than the absence it replaces. Front-view hole callouts
-        # keep their specialised placer under ADR 0014, so routing this one clear is
+        # keep their specialised placer under ADR 2 (was 0014), so routing this one clear is
         # #798's own remaining work.
         silhouette = [i for i in dwg.lint() if i.code == "leader_crosses_silhouette"]
         assert len(silhouette) == 1, [i.message for i in silhouette]
@@ -9623,7 +9685,7 @@ class TestTurnedDiameters:
         appeared in the deferred result. `test_finalize_replay_equals_live_placement` caught it.
 
         So it is an INTENT: absent unless recorded, which also makes it commentable, which is
-        the property the whole intent-level script rests on (ADR 0016, "the script records
+        the property the whole intent-level script rests on (ADR 4 (was 0016), "the script records
         intent").
         """
         # The verb's actual domain: a part with NO `EnvelopeFeature`, so the height comes
@@ -9707,7 +9769,8 @@ class TestTurnedDiameters:
 
         # ── from #881: the Y-step furniture lands in the right views on the replay ──
         assert replayed.view_of("centerline_side") == "side"
-        assert replayed.view_of("centerline_plan") == "plan"
+        assert replayed.view_of("centerline_plan") is None
+        assert "plan" not in replayed.views
         assert not any(n.startswith(("dim_loc_front_", "dim_loc_side_")) for n in replay)
         assert {replayed.view_of(n) for n in replay if n.startswith("m_steplen")} == {"side"}
 
@@ -9831,7 +9894,7 @@ class TestTurnedDiameters:
         assert codes.get("feature_not_dimensioned", 0) == 0
 
     def test_callouts_are_leaders_on_the_constraint_solver(self, x_shaft_dwg):
-        # Placed via _solve_strip_ys (ADR 0003 layer-2), so two distinct
+        # Placed via _solve_strip_ys (ADR 2 (was 0003) layer-2), so two distinct
         # diameters never share an x and never collide: label xs are min_gap
         # apart and inside the front view's page bounds.
         dwg = x_shaft_dwg
@@ -10161,7 +10224,7 @@ class TestLeaderCrossesSilhouette:
         return dwg, crossing
 
     def test_reroute_skips_a_pinned_leader(self):
-        # A pin is the user's "this stays put" (ADR 0012) — the re-router must never
+        # A pin is the user's "this stays put" (ADR 2 (was 0012)) — the re-router must never
         # move a pinned ø leader, even one that crosses.
         from draftwright.annotations.from_model import _reroute_crossing_diameters
 
@@ -10459,13 +10522,11 @@ class TestTurnedLengths:
         assert not any("×" in v for v in main)  # no false uniform-staircase collapse
         assert dwg.lint_summary()["by_code"].get("axial_length_missing", 0) == 0
 
-    def test_non_contiguous_turned_profile_lints_without_crashing(self):
-        # #797: a non-contiguous turned profile — two coaxial discs (ø30, then ø20)
-        # with an axial GAP between them — carries a step whose interior end face
-        # (10) `TurnedProfile.shoulders` used to drop, so the axial-coverage lookup
-        # KeyError'd and crashed the whole lint pass. shoulders now includes every
-        # endpoint, so both discs are locatable: no crash AND — since both lengths
-        # are dimensioned — no false `axial_length_missing` from a dropped face.
+    def test_disjoint_coaxial_bodies_do_not_form_a_non_contiguous_turned_profile(self):
+        # Recognisers 0.4.9 makes turned-profile membership body-local. Two coaxial discs with
+        # an axial air gap are therefore two single-diameter bosses, not one invented stepped
+        # shaft. The old cross-body profile exercised #797's shoulder lookup; the truthful
+        # body-local projection has no axial step chain and must still lint without crashing.
         from build123d import Align
 
         b = Align.MIN
@@ -10475,17 +10536,13 @@ class TestTurnedLengths:
         )
         dwg = build_drawing(part, number="X")
         codes = dwg.lint_summary()["by_code"]  # must not raise KeyError
-        assert sorted(
-            str(o.label) for n, o in dwg.iter_annotations() if n.startswith("m_steplen")
-        ) == [
-            "10",
-            "10",
-        ]
+        assert not [n for n in dwg.annotations() if n.startswith("m_steplen")]
+        assert {feature.kind for feature in dwg.model().features} == {"boss"}
         assert codes.get("axial_length_missing", 0) == 0
 
 
 class TestStepLadderRecognition:
-    """ADR 0008 step 1: the Z step-height ladder draws its step levels from the
+    """ADR 1 (was 0008) step 1: the Z step-height ladder draws its step levels from the
     unified turned-step model, which filters by the OD silhouette."""
 
     def test_blind_bore_floor_is_not_a_phantom_shoulder(self):
@@ -11071,7 +11128,7 @@ def dense_plate_dwg():
 
 class TestSheetFrame:
     """#767: an opt-in drawn sheet border (Option B) — the border is the content boundary,
-    so turning it on RESERVES clearance that flows through scale/page selection (ADR 0004),
+    so turning it on RESERVES clearance that flows through scale/page selection (ADR 2 (was 0004)),
     not a rectangle drawn over content. Default off ⇒ byte-identical (guarded elsewhere)."""
 
     def test_frame_off_by_default(self):
@@ -11246,7 +11303,7 @@ class TestEscalation:
     """#93: a too-dense plan view auto-escalates to a hole chart + balloons."""
 
     def test_dense_part_groups_and_types(self, dense_plate_dwg):
-        # Sized honestly for its real annotation footprint (#121, ADR 0004), the
+        # Sized honestly for its real annotation footprint (#121, ADR 2 (was 0004)), the
         # sheet grows so the X-location dims + grouped spec-callouts fit — so this
         # moderately-dense plate no longer escalates to a per-hole table + balloon
         # ring (the worse representation for a dense varying-diameter field). It
@@ -11304,7 +11361,7 @@ class TestEscalation:
 
 
 class TestPatternGroupBalloon:
-    """#351 PR-3 (ADR 0009 Amdt 1 decision 1, the #348 fix): a dropped ISO
+    """#351 PR-3 (ADR 2 (was 0009 Amdt 1) decision 1, the #348 fix): a dropped ISO
     pattern callout gets ONE balloon tagging the whole pattern, not one per
     member. Exercised directly against the resolver with a synthetic dropped
     Escalation — forcing a real drop needs a part crowded enough that even the
@@ -11388,7 +11445,7 @@ class TestPatternGroupBalloon:
         assert len(new_balloons) == 1
         assert new_balloons[0].split("_")[2] == "6×A"
         assert dwg.registry.feature_of(new_balloons[0]) == feat
-        # ADR 0009 retains one grouped visual marker, but ``6×A`` has no
+        # ADR 2 (was 0009) retains one grouped visual marker, but ``6×A`` has no
         # defining table/legend and therefore cannot certify the dropped
         # diameter/depth/pattern requirements.
         assert issue in dwg.registry.issues
@@ -11572,7 +11629,7 @@ class TestDraftwrightAttribution:
 
         dwg = build_drawing(Box(60, 40, 20), auto_dims=False)
         dwg.note("INSPECT SURFACE ±0.1", (65, 55), name="inspection_note")
-        dwg.note("ROTATED PATH ONLY", (100, 55), rotation=45, name="rotated_note")
+        dwg.note("ROTATED NOTE", (100, 55), rotation=45, name="rotated_note")
         dwg.add_table(
             [("NOTES", "SIZE"), ("DEBURR", "⌀5 ±0.1")],
             name="notes_table",
@@ -11585,11 +11642,12 @@ class TestDraftwrightAttribution:
             text_page = page.get_textpage()
             extracted = text_page.get_text_range()
             first_char_box = text_page.get_charbox(extracted.index("INSPECT SURFACE"))
+            rotated_char_box = text_page.get_charbox(extracted.index("ROTATED NOTE"))
         finally:
             pdf.close()
 
         assert "INSPECT SURFACE ±0.1" in extracted
-        assert "ROTATED PATH ONLY" not in extracted
+        assert "ROTATED NOTE" in extracted
         assert "NOTES" in extracted and "DEBURR" in extracted
         # The visible drafting font's longstanding CAD compatibility glyph is
         # ø for source ⌀; copied text must match what the engineer sees.
@@ -11601,6 +11659,10 @@ class TestDraftwrightAttribution:
         left, bottom, right, top = first_char_box
         assert left < note_box.max.X * k and right > note_box.min.X * k
         assert bottom < note_box.max.Y * k and top > note_box.min.Y * k
+        rotated_box = dwg.get_annotation("rotated_note").bounding_box()
+        left, bottom, right, top = rotated_char_box
+        assert left < rotated_box.max.X * k and right > rotated_box.min.X * k
+        assert bottom < rotated_box.max.Y * k and top > rotated_box.min.Y * k
 
     def test_export_pdf_does_not_silently_discard_semantic_text(self, tmp_path, monkeypatch):
         from reportlab.pdfgen.canvas import Canvas

@@ -1,9 +1,10 @@
-"""Tests for draftwright.layout — the ADR 0003 1D strip primitives + fit_box.
+"""Tests for draftwright.layout — the ADR 2 (was 0003) 1D strip primitives + fit_box.
 
 These exercise the placement primitives in isolation, with no drawing build,
 which is the point of putting them in their own module.
 """
 
+import sys
 import tracemalloc
 
 import pytest
@@ -267,7 +268,7 @@ class TestSolveStrip1d:
         # kiwisolver is retired (#507): the primitive delegates to the pure-Python PAVA
         # solve and must never import it — force kiwisolver unavailable and assert the
         # solve still produces the correct spaced placement (would ImportError if it tried).
-        monkeypatch.setitem(__import__("sys").modules, "kiwisolver", None)
+        monkeypatch.setitem(sys.modules, "kiwisolver", None)
         assert _solve_strip_1d([0, 0, 0], min_gap=5, lo=0, hi=100) == [0, 5, 10]
 
 
@@ -282,7 +283,7 @@ class TestGreedyStrip1d:
 
 
 class TestSolveStrip1dPava:
-    """P4b (#318, ADR 0009 Amendment 4): minimum-total-leader-length placement via
+    """P4b (#318, ADR 2 (was 0009 Amendment 4)): minimum-total-leader-length placement via
     weighted-median PAVA — the exact L1 optimum the earlier ``scipy.optimize.linprog``
     prototype computed, but deterministic **by construction** (no solver-vertex
     ambiguity on the common non-unique optimum), and with anchoring support."""
@@ -511,7 +512,7 @@ class TestFitBox:
 
 def test_layout_engine_is_wired_into_the_drawing_path():
     # The hole-callout Y-stack flows through the shared layout engine. Phase 2 (#80)
-    # wired it via the LayoutSolver; ADR 0009 P1a (#321) re-routed it through the
+    # wired it via the LayoutSolver; ADR 2 (was 0009) P1a (#321) re-routed it through the
     # collect-then-solve seam — plan_strip over StripCandidates — so this guard now
     # tracks that seam (the first production placer on it).
     src = (L.__file__).replace("layout.py", "annotations/holes.py")

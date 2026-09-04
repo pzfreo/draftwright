@@ -1,89 +1,99 @@
-"""When labels overlap AND line-work crosses one, say so (#1332, review round 6).
+"""The authoritative fail-closed test for the `also_crosses` branch (#1332, #1418).
 
-`structural.py` emits at most one code per pair: if the two label boxes overlap by
-more than 0.5 mm in both axes it reports `annotation_overlap` and skips the ink
-check. That suppression is deliberate — one pair, one finding — but it means the
-surviving message is the only advice the reader gets, and
-`annotation_overlap`'s default remedy is "use label_offset_x or increase dim
-offset to separate them", which is exactly what #1321 exists to contradict when
-line-work is also drawn through the text.
+The former slow CTC-02 regression fixture stopped containing an overlapping pair
+that also crosses a label as layout improved, so it no longer reached this branch.
+Keeping that stale real-part build would make main red without protecting the remedy.
+This fast test instead states the exact geometry, proves the precondition, and runs
+in every pull request; deleting either half of the production predicate makes it fail.
 
-Round 6 of the review found both the reworded remedy and the suppression itself
-entirely untested: deleting either changed real output on `nist_ctc_02_asme1_ap242`
-and the suite stayed green.
+`lint_drawing` is duck-typed (ADR 1 (was 0005)), so the branch can be exercised directly
+with stub annotations: no OCC, no fixture build, and the geometry is stated rather
+than hunted for.
 """
-
-from pathlib import Path
 
 import pytest
 
-from draftwright import build_drawing
-
-_FIXTURE = Path(__file__).parent / "fixtures" / "nist_ctc_02_asme1_ap242.stp"
-_MOVE_THE_TEXT = "use label_offset_x or increase dim offset to separate them"
-_MOVE_WHAT_IS_DRAWN = "so separating the text is not enough"
+from draftwright.linting.structural import lint_drawing
+from draftwright.linting.suggest import _suggest_fix
 
 
-@pytest.fixture(scope="module")
-def issues():
-    return build_drawing(_FIXTURE).lint()
+class _Bounds:
+    def __init__(self, box):
+        self.min = type("P", (), {"X": box[0], "Y": box[1], "Z": 0.0})()
+        self.max = type("P", (), {"X": box[2], "Y": box[3], "Z": 0.0})()
 
 
-@pytest.mark.slow
-def test_the_fixture_carries_an_overlap_that_also_crosses(issues):
-    """The precondition. Without a pair in this state the assertions below would
-    pass against a build that had lost the branch entirely."""
-    reworded = [
-        issue
-        for issue in issues
-        if issue.code == "annotation_overlap" and _MOVE_WHAT_IS_DRAWN in issue.message
-    ]
-    assert reworded, (
-        "no overlapping pair on this sheet also crosses a label — the remedy branch "
-        "is unreachable here and this module is asserting nothing"
+class _Annotation:
+    """Exactly the surface `lint_drawing` reads."""
+
+    def __init__(self, label, label_bbox, segments, full=None):
+        self.label = label
+        self.label_bbox = label_bbox
+        self.segments = segments
+        self._full = full or label_bbox
+        self.elbow = None
+
+    def bounding_box(self):
+        return _Bounds(self._full)
+
+
+def _overlapping_and_crossing():
+    """Labels overlap by >0.5 mm on both axes, AND A's line-work crosses B's label."""
+    a = _Annotation(
+        "A", (10.0, 10.0, 20.0, 12.2), [((0.0, 11.0), (40.0, 11.0))], (0.0, 8.0, 40.0, 14.0)
     )
-
-
-@pytest.mark.slow
-def test_a_pair_that_also_crosses_is_not_told_to_move_the_text(issues):
-    for issue in issues:
-        if issue.code == "annotation_overlap" and _MOVE_WHAT_IS_DRAWN in issue.message:
-            assert _MOVE_THE_TEXT not in issue.message, (
-                "the pair draws line-work through a label, so moving the text is "
-                f"not the remedy: {issue.message}"
-            )
-
-
-@pytest.mark.slow
-def test_an_ordinary_overlap_still_says_to_move_the_text(issues):
-    """The other half: a pair whose labels merely overlap keeps the original advice."""
-    plain = [
-        issue
-        for issue in issues
-        if issue.code == "annotation_overlap" and _MOVE_WHAT_IS_DRAWN not in issue.message
-    ]
-    for issue in plain:
-        assert _MOVE_THE_TEXT in issue.message, issue.message
-
-
-@pytest.mark.slow
-def test_one_pair_reports_one_code(issues):
-    """The suppression: a pair that reports `annotation_overlap` must not ALSO
-    report `annotation_ink_overlap`, or the reader gets two findings for one
-    neighbourhood and the #1147 ledger counts it twice."""
-    overlapping = {
-        frozenset(_labels(issue)) for issue in issues if issue.code == "annotation_overlap"
-    }
-    crossing = {
-        frozenset(_labels(issue)) for issue in issues if issue.code == "annotation_ink_overlap"
-    }
-    assert not (overlapping & crossing), (
-        f"pairs reported under both codes: {sorted(map(sorted, overlapping & crossing))}"
+    b = _Annotation(
+        "B", (12.0, 10.5, 22.0, 12.7), [((30.0, 30.0), (31.0, 30.0))], (12.0, 10.0, 31.0, 31.0)
     )
+    return a, b
 
 
-def _labels(issue):
-    """The quoted labels in a lint message, in the order they appear."""
-    import re
+def _overlapping_only():
+    """Labels overlap, and neither draws line-work through the other's label."""
+    a = _Annotation(
+        "A", (10.0, 10.0, 20.0, 12.2), [((0.0, 40.0), (40.0, 40.0))], (0.0, 10.0, 40.0, 41.0)
+    )
+    b = _Annotation(
+        "B", (12.0, 10.5, 22.0, 12.7), [((30.0, 30.0), (31.0, 30.0))], (12.0, 10.0, 31.0, 31.0)
+    )
+    return a, b
 
-    return re.findall(r"'([^']*)'", issue.message)
+
+def test_the_fixture_carries_an_overlap_that_also_crosses():
+    """The precondition: without both predicates the tests below prove nothing."""
+    issues = lint_drawing(list(_overlapping_and_crossing()))
+    assert [issue.code for issue in issues] == ["annotation_overlap"], [
+        issue.code for issue in issues
+    ]
+
+
+def test_a_pair_that_also_crosses_is_not_told_to_move_the_text():
+    (issue,) = lint_drawing(list(_overlapping_and_crossing()))
+    assert "move what is drawn" in issue.message
+    assert "use label_offset_x" not in issue.message
+
+
+def test_an_ordinary_overlap_keeps_the_original_remedy():
+    (issue,) = lint_drawing(list(_overlapping_only()))
+    assert "use label_offset_x or increase dim offset to separate them" in issue.message
+    assert "move what is drawn" not in issue.message
+
+
+def test_one_pair_reports_one_code():
+    """One neighbourhood must not cost both overlap findings."""
+    codes = [issue.code for issue in lint_drawing(list(_overlapping_and_crossing()))]
+    assert codes.count("annotation_ink_overlap") == 0
+    assert codes.count("annotation_overlap") == 1
+
+
+@pytest.mark.parametrize("factory", [_overlapping_and_crossing, _overlapping_only])
+def test_the_suggestion_never_contradicts_the_message(factory):
+    """The domain suggestion must agree with the remedy stated to the caller."""
+    (issue,) = lint_drawing(list(factory()))
+    # `dwg` is used only by richer suggestions for other codes. This branch depends
+    # on the message, and the test deliberately avoids constructing a whole Drawing.
+    suggestion = _suggest_fix(issue, None)
+    if "move what is drawn" in issue.message:
+        assert suggestion is None, suggestion
+    else:
+        assert suggestion and "dwg.remove" in suggestion

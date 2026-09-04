@@ -1,6 +1,6 @@
-# ADR 0008 migration roadmap — rewrite detectors + drawing components onto the IR
+# ADR 1 (was 0008) migration roadmap — rewrite detectors + drawing components onto the IR
 
-> **SUPERSEDED (2026-06-28) by ADR 0008 Amendment 2.** This roadmap described a
+> **SUPERSEDED (2026-06-28) by ADR 1 (was 0008 Amendment 2).** This roadmap described a
 > *reproduce-each-engine-pass-and-swap-under-an-equivalence-gate* migration. That
 > strategy was abandoned: the byte-equivalence gate forced the clean framework to
 > clone the old engine's quirks (parity-first, value-last), which is the opposite
@@ -11,7 +11,7 @@
 > **Live plan: [`0008-convergence-roadmap.md`](0008-convergence-roadmap.md)** (one
 > path, strangler migration, each step deletes the engine pass) + epic #195.
 
-Execution plan for ADR 0008 (the part-drawing compiler). Moves **every** detector
+Execution plan for ADR 1 (was 0008) (the part-drawing compiler). Moves **every** detector
 and **every** drawing component onto the `Feature`/`DimParameter` IR + planner,
 behind a **scoped, disposable golden gate**, with **X/Z parity** as a standing
 acceptance criterion at every step.
@@ -23,7 +23,7 @@ few) releasable PRs; old code is retired only as its replacement lands.
 
 1. **Golden gate green** — the migration gate (Phase 0) shows no *unreviewed*
    change to the semantic dimension set for the whole corpus. Intentional changes
-   regenerate the snapshot with a rationale in the PR (the ADR-0004 discipline).
+   regenerate the snapshot with a rationale in the PR (the ADR 2 (was 0004) discipline).
 2. **X/Z parity** — every feature, detector, and planner rule is exercised on both
    an X-oriented and a Z-oriented instance, and they produce the *same* dimension
    set (same values + conventions, orientation-appropriate placement). No code path
@@ -49,12 +49,12 @@ A purpose-built characterisation gate, **deleted in Phase 6**.
   for each part, the sorted set of `(feature_kind, param_kind, value, convention,
   target_view)` plus placed-annotation labels. Robust to layout jitter, sensitive
   to real coverage/convention changes. (No font-metric or absolute-position data —
-  the ADR-0005 §3 portability lesson.)
+  the ADR 1 (was 0005 §3) portability lesson.)
 - **Diff tool**: `UPDATE_MIGRATION_GATE=1` regenerates; otherwise a mismatch fails
   with a readable per-part diff. The snapshot is taken **now**, off the current
   engine, as the equivalence baseline.
 - **Lifecycle**: lives only for the migration. Phase 6 deletes
-  `tests/_migration_gate/` entirely — no standing general gate remains (ADR 0005
+  `tests/_migration_gate/` entirely — no standing general gate remains (ADR 1 (was 0005)
   §3 / the golden-gate principle).
 
 ## Inventory to migrate
@@ -108,7 +108,7 @@ normalised into the IR):
   triggers, PMI, furniture onto the planner. Retire each inline pass as it lands.
 - **Phase 6 — retire scaffolding.** Delete the orchestrator's inline passes, the
   now-unused recogniser entry points superseded by detectors, and **the migration
-  golden gate**. Update ADR 0008 status to "migration complete"; the engine is now
+  golden gate**. Update ADR 1 (was 0008) status to "migration complete"; the engine is now
   detectors → IR → planner → layout, with no standing gate.
 
 ## Risks & mitigations

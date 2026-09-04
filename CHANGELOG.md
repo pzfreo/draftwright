@@ -4,6 +4,129 @@
 
 ### Added
 
+- Report schema v1 now projects one recognition-owned physical requirement ledger shared with
+  completeness. Each bounded requirement identifies its accepted source occurrence(s), final IR
+  owner(s), semantic parameter where applicable, placement/satisfaction state, annotation names,
+  and representation rationale. The roster is evaluated once per report and fails closed when
+  exact same-run evidence or provenance is absent; it does not create a second recognition scan,
+  persistent topology identity, inferred manufacturing intent, or visual change (#1438, ADR 0017
+  Amendment 26).
+
+- Direct CLI rendering now writes `<output>.draftwright.json` by default, after successful visual
+  export, and prints its path with the requested artefacts. `--no-report` is the explicit opt-out;
+  library `Drawing.export()` remains free of report-writing side effects (#1438, ADR 0017
+  Amendment 25).
+
+- Generated Sheet Python now embeds a deterministic, versioned, JSON-compatible snapshot of
+  actionable accepted-occurrence gaps from the exact recognition run that produced its model.
+  The compact snapshot carries only unsupported, deferred, evidence-only, and unexpectedly
+  missing public records; STEP inputs are read once and recognition uses a private copy of the
+  exact bytes named by the embedded basename and SHA-256, with a best-effort final replay-target
+  check before writing. The hash is a later reconciliation boundary, not a lock on the mutable
+  source path. It is explicitly generation-time evidence, never current completeness authority
+  (#1438, ADR 0017 Amendment 24).
+
+- Accepted Plate occurrences now retain exact conditional ownership. Genuine multi-axis plates
+  keep their direct `PlateFeature`; other slabs are absorbed only when released same-run AAG
+  evidence joins them to the exact retained face-level, riser-shoulder, or slot-pattern owner.
+  Multi-owner claims are conjunctive, while whole-envelope, polygonal-boss, disconnected,
+  ambiguous, or malformed cases remain visibly `unexpectedly_missing` rather than borrowing an
+  owner from matching values or traversal order (#1438, ADR 0017 Amendment 23).
+
+- `Drawing.write_report(path)` now atomically writes the versioned report as deterministic,
+  strict UTF-8 JSON without coupling library export to sidecar generation. Report and filesystem
+  failures leave any existing destination untouched, with best-effort temporary cleanup that does
+  not mask the primary error (#1438, ADR 0017 Amendment 22).
+
+- Raw automatic drawings now expose `Drawing.report()`, a strict version-1 JSON-compatible
+  projection of every accepted recognition occurrence, its explicit consumer disposition and
+  report-local final IR owner(s), plus the existing lint summary. The published schema never
+  serializes provider references, topology IDs, object addresses, or transient member positions;
+  it makes requirement coverage an explicit field (subsequently populated by Amendment 26) and
+  calls a clean result `bounded-clear`, not manufacturing-ready. Paths without exact occurrence
+  ownership and raw paths with an unclassified accepted occurrence fail explicitly rather than
+  emit an empty or inferred report. Rendering remains unchanged (#1438, ADR 0017 Amendment 21).
+
+- Accepted `FaceLevel` and `RiserEvidence` occurrences now receive explicit `evidence_only`
+  outcomes. The released records remain shared substrate for the supported correlated height
+  ladder and shoulder projection, not independent inferred features or drawing requirements; no
+  IR, Sheet DSL, renderer, or recogniser API change is introduced (#1438, ADR 0017 Amendment 20).
+
+- Accepted round-boss occurrences now retain the exact existing consumer outcome: a singleton
+  `BossFeature`, one diameter-consolidated representative with transient member lineage, the exact
+  turned-step owner, or the exact groove owner reached through that step or the profile-gate
+  fallback. Ambiguous or missing correspondence fails closed without another scan, persistent ID,
+  generated artefact, or visual change (#1438, ADR 0017 Amendment 19).
+
+- Accepted through-step occurrences now retain either their exact `ThroughStepFeature` or every
+  exact final `StepLevelFeature`, `PlateFeature`, and `EnvelopeFeature` that jointly carries the
+  established compatibility projection. Plate claims are body-local, replacement is atomic, and a
+  missing or ambiguous selected owner fails closed rather than granting partial credit. One
+  occurrence can name multiple run-local IR owners without a second scan, persistent ID, generated
+  artefact, or change to rendering machinery (#1438, ADR 0017 Amendment 18).
+
+- Accepted turned-step occurrences now retain the conversion decision that already gives an
+  ordinary profile band its exact `StepFeature` or absorbs a groove-floor band into the exact
+  same-run `GrooveFeature`. The takeover must be one-to-one in both directions, so an ambiguous
+  groove, an adjacent band inside its positional tolerance, or any missing final owner fails closed
+  as `unexpectedly_missing`, with no second scan, persistent ID, generated artefact, or visual
+  change (#1438, ADR 0017 Amendment 17).
+
+- Accepted channel occurrences now receive an exact conditional consumer outcome. A genuine
+  multi-axis plate channel is `represented` by its `ChannelFeature`; a monolithic Z-depth rebate is
+  `absorbed` only when one retained body-local support carries its floor and both shoulders into the
+  final step ladder. Cross-axis, disconnected, or filtered channels fail closed as
+  `unexpectedly_missing` instead of inheriting an unrelated ladder, without a second scan,
+  persistent ID, generated artefact, or visual change (#1438, ADR 0017 Amendment 16).
+
+- Accepted countersink occurrences now receive an exact run-local outcome. A seat carried by a
+  `HoleRecord` is `absorbed` by that hole's final feature and transient member lineage; an unattached,
+  unowned, or duplicate nested occurrence fails closed without dimension matching, topology IDs, a
+  second scan, duplicate IR requirements, or visual changes (#1438, ADR 0017 Amendment 15).
+
+- Accepted angled-step, passage, prismatic-pocket, oriented-slot, and repeating-radial-profile
+  occurrences now receive exact run-local ownerless outcomes from Draftwright's existing consumer
+  capability declaration: `unsupported`, `deferred`, or report-facing `evidence_only`, with closed
+  reason codes and existing tracking issues. Equal-valued occurrences stay distinct; policy does
+  not invent IR owners, requirements, topology IDs, recognition scans, generated artefacts, or
+  visual output (#1438, ADR 0017 Amendment 14).
+
+- Accepted physical hole, slot, and pocket occurrences now retain explicit run-local ownership
+  when conversion represents a singleton or absorbs members into one same-spec hole group or
+  derived pattern feature. Family-specific reason codes and transient member lineage follow
+  member-specific AP242 splits to the exact final IR objects; missing lineage fails closed rather
+  than retaining a stale owner. Provider-derived patterns do not become invented occurrences, and
+  no report ID, extra recognition scan, generated artefact, or visual output is introduced (#1438,
+  ADR 0017 Amendment 13).
+
+- Raw automatic builds now capture run-local, conversion-time ownership from accepted provider
+  occurrences to their exact Draftwright IR features for unconditional one-to-one adapters. Equal
+  record values, order, coordinates and topology indices cannot create a binding; an omitted direct
+  binding fails closed as unexpectedly missing, while ownership rules not yet implemented remain
+  explicitly unclassified. The experimental read-only `Drawing.recognition_ownership()` exposes
+  the non-serializable ledger; it stays outside the IR/compiler and changes no generated or visual
+  artefact (#1438, ADR 0017 Amendment 12).
+
+- Raw automatic recognition now retains the provider's run-scoped `RecognitionEvidence` beside
+  its exact `RecognitionResult`, exposed through the experimental read-only
+  `Drawing.recognition_evidence()`. Declared drawings acquire the pair lazily on first physical
+  critique; bare and framed results remain evidence-less, and Draftwright never rescans merely to
+  backfill evidence. This is a non-visual reporting foundation and changes no rendered artefact
+  (#1438, ADRs 0015, 0017, 0020).
+
+- Automatic drawings can opt into the provider-owned local recognition frame with
+  `framed_recognition=True`. The returned drawing exposes caller provenance, the exact downstream
+  working solid, frame, and a copied framed/raw/refusal decision. PMI correlation, off-axis pattern
+  placement, compilation, projection and physical lint remain in one coordinate system; typed frame
+  refusal performs one visible top-level raw fallback. Raw remains the rollout default (#1357,
+  ADR 0020).
+
+- Referential and measured Sheet dimensions accept optional `view=` / `side=` placement
+  intent. Supported pairs survive IR/compiler and generated-script round trips, constrain
+  ordinary corridor candidates without exposing page coordinates, and fail clearly when a
+  renderer cannot honour the requested view/strip. Compound hole callouts can therefore be
+  authored to opposite sides of one end view while retaining normal solve and lint behavior
+  (#563).
 - Feature-linked Sheet notes can explicitly satisfy one or more canonical requirement ids with
   `.note(..., satisfies=(...))`. Placed structured notes retain each requirement's identity in
   coverage reports and generated scripts without masquerading as dimensions or parsing prose;
@@ -31,6 +154,287 @@
 
 ### Changed
 
+- Accepted schema-v3 straight or circular `Blend` chains, including concave occurrences, now cross
+  a dedicated end-to-end consumer path:
+  `BlendFeature`, explicit `Sheet.blend(...)`, executable generated declarations, one
+  compiler-approved `blend.radius` requirement, and a solver-owned grouped `n× R` leader. The
+  discriminated path kind, full canonical direction/normal, circular-path major radius,
+  rolling-ball radius, and material side remain in IR instead of being coerced to legacy Fillet
+  semantics; the provider aggregate remains the sole exact Fillet/Blend precedence authority.
+  Exact public-record/IR validation and completeness follow every accepted occurrence to placed,
+  structured-note, authored-suppressed, dropped, missing, or unverifiable outcomes. Raw and
+  provider-framed arbitrary rigid motions retain straight-path radius meaning; framed recognition
+  also retains circular paths, while raw arbitrarily rotated circular recognition remains an
+  upstream limitation (b123d-recognisers#491) (#1433; ADRs 0011, 0013–0017, 0020).
+
+- Draftwright now exactly pins the immutable `b123d-recognisers` 0.4.14 release and advances its
+  fail-closed capability and inspection joins. `Blend` schema v3 replaces the old flat cylindrical
+  fields with exact `StraightBlendPath` and `CircularBlendPath` records and admits proved concave
+  and toroidal occurrences; Draftwright preserves those semantics through IR, `Sheet.blend(...)`,
+  generated replay, reporting, drawing, and completeness. Passage nested records advance to schema
+  v2 without changing Draftwright's unsupported passage policy. The provider's previously
+  recognised shallow nonzero `PairedRampStep` keeps its existing
+  two-requirement IR, public `Sheet.paired_ramp_step(...)` declaration, generated-code, compiler
+  callout, solver placement, and completeness meaning (#1430; ADRs 0011, 0013–0017, 0020).
+
+- Rectangular blind slots recognised by `b123d-recognisers` 0.4.10 now cross a dedicated
+  Draftwright semantic path: `RectangularBlindSlotFeature`, the explicit
+  `Sheet.rectangular_blind_slot(...)` word, generated-code and role-specific tolerance round
+  trips, compiler-approved width/capped-run/depth measurements, and one solver-owned
+  `OPEN SLOT … DEEP` leader. Authored subsets retain every approved value with explicit
+  `WIDE`/`LONG`/`DEEP` roles, and leaders target proved cap/side material rather than the open
+  mouth. Native raw and rigidly moved framed builds retain the same three
+  measurement outcomes. A seven-case independently authored corpus now pins all six run/open-side
+  orientations plus an independently sized specimen: each occurrence contributes separate width,
+  capped-run and depth requirements followed by exact structural correspondence and measurement
+  provenance to placed, structured-note, suppressed, dropped, missing or unverifiable outcomes.
+  Removing recognition cannot shrink that 21-requirement benchmark (#1421; ADRs 0011,
+  0013–0017, 0020).
+
+- Round-bottom blind slots recognised by `b123d-recognisers` 0.4.10 now have their own complete
+  Draftwright path rather than borrowing through-slot, pocket or rectangular-blind-slot grammar.
+  `RoundBottomBlindSlotFeature` retains the released run/opening topology and exposes the three
+  independent manufacturing requirements: capped run length, straight bottom-flat width and equal
+  side radius. `Sheet.round_bottom_blind_slot(...)`, generated code, role-specific tolerances and
+  one solver-owned `ROUND-BOTTOM OPEN SLOT …` leader all preserve those exact identities; derived
+  total width and depth are not double-counted. A seven-case independently authored corpus covers
+  all six signed principal orientations plus a separately sized specimen (21 physical requirements),
+  proves raw/framed drawing parity, and follows exact source-to-IR correspondence to placed,
+  structured-note, suppressed, dropped, missing or unverifiable outcomes without labels, views or
+  page coordinates. The released 0.4.10 API is sufficient; no recogniser change is required (#1421;
+  ADRs 0011, 0013–0017, 0020).
+
+- Turned-step completeness is now backed by an independently authored, hash-pinned 11-case STEP
+  corpus with 26 physical outside-diameter bands, 52 parameter checks and 104 downstream checks.
+  Axis line and station preserve body-local occurrence identity across automatic IR, the existing
+  public `Sheet.step(...)` DSL word, executed-and-built generated code, and exact compiler-confirmed
+  length and OD drawing evidence. Grouped equal-length chains retain every adjacent member identity
+  and their exact compiler-approved multiplier and value; native and global OD labels are checked
+  in full. Generated declarations preserve the half-thousandth midpoint of odd-thousandth spans,
+  complete body-local profile ownership is compared at its full published precision, and malformed
+  or surplus records fail closed—including coercible or non-finite groove evidence that controls
+  band ownership. The root turned-step and groove inventories must remain immutable tuples; a
+  mutable or one-shot substitute is snapshotted once only to preserve its observable requirement
+  denominator, then remains unverifiable; a non-iterable substitute retains one explicit aggregate
+  contract outcome rather than masquerading as an empty family. A profile OD may
+  satisfy one uniquely identifiable equivalent largest-band diameter
+  without multiplying across disjoint bodies; and uniquely groove-owned narrow
+  bands are excluded once by a shared fail-closed Groove schema and ownership rule used by lowering,
+  lint and the evidence ledger. That join accounts for the provider's 0.001 mm Groove coordinate
+  quantum against its eight-decimal profile axis without widening either published identity
+  (#1374; ADRs 0010, 0011, 0013, 0015, 0017, 0020).
+
+- Framed recognition now carries all three 0.4.6 step families through their complete existing
+  consumer paths. `CircularBlindStep`, `PairedRampStep` and `ThroughStep` retain the same
+  manufacturing requirements from raw recognition through their public `Sheet` words, generated
+  code, compiler-owned drawing ink and lint; the provider-owned local records and Draftwright IR
+  remain invariant under a combined non-principal rotation and translation. Circular-step
+  validation now derives its bound from each independently published endpoint, centre, radius and
+  depth value's six-significant-figure decimal cell, while outside-cell geometric inconsistencies
+  still fail closed (#1382; ADRs 0011, 0013, 0015, 0017, 0018, 0020).
+
+- Countersink completeness is now backed by an independently authored, hash-pinned seven-case STEP
+  corpus covering functional seats, solid external-cone and deburr negatives, grouped equal seats,
+  and reverse-serialized topology. Detection identity and all four provider measurements are scored
+  separately from the two actual drawing requirements. Exact aggregate object ownership follows
+  each seat once, validates the provider-selected hole semantically, and fails closed on swapped,
+  duplicated, or canonically colliding owners. It then crosses automatic IR, public `Sheet.hole`,
+  generated code, and role-specific confirmed placed diameter/angle ink without recounting the parent bore. The known second seat of a two-sided bore
+  remains explicitly unverifiable rather than hidden or heuristically attached (#1370; ADRs 0010,
+  0013, 0015, 0017).
+
+- Double-D completeness is now backed by an independently authored, hash-pinned 11-case STEP
+  corpus with ten physical profile facts, 50 provider-parameter checks and 40 downstream checks.
+  Full-frame identity preserves disconnected coaxial bodies; exact multiplicity crosses automatic
+  IR, public `Sheet.double_d_bore`, generated code and role-specific compiler-confirmed
+  `⌀major THRU DOUBLE-D across A/F` ink. Round, blind, opposed-blind, malformed, duplicated and
+  foreign-owner mutations fail closed, while the provider's exclusive aggregate ownership keeps
+  each profile from being recounted as an ordinary hole (#1370; ADRs 0010, 0011, 0013, 0015,
+  0017).
+- Updated the immutable `b123d-recognisers` pin and fail-closed inspection/capability joins to
+  0.4.10. All 28 previously consumed family schemas remain unchanged. The two new blind-slot
+  families were adopted fail-closed under #1421 and remain visible as unscored recognised
+  inventories until each gains independent completeness evidence; Draftwright does not coerce
+  their depth, terminal/open-end, or round-floor evidence into its ordinary through-slot grammar.
+  The provider's additive evidence API is not consumed by
+  this bounded adoption slice. Recognition output does change under the unchanged schemas: the
+  release closes slot-depth, subdivided paired-ramp/AngledStep, and noisy stubby-pocket gaps; fixes
+  Double-D/Hole ownership, external-cone countersink false positives, Plate tie covariance, and
+  turned-step translation covariance; and can move an edge-open rectangular recess from `Pocket`
+  to the dedicated blind-slot inventory. Draftwright regression tests pin the consumer-visible
+  ownership changes while the provider release suite owns its private predicates
+  ([provider release](https://github.com/pzfreo/b123d-recognisers/releases/tag/v0.4.10); ADRs 0013,
+  0015, 0017, 0020).
+
+- Principal-profile lint now correlates its independent extremal-face evidence with the cached
+  public `DoubleDBore` aggregate instead of importing provider-private profile helpers. Exact
+  axis/span, end-plane, centre, radius, A/F, chord, arc, and flat-direction checks fail closed;
+  occurrence mouths are consumed with matching multiplicity, and malformed records cannot earn
+  coverage. The exported low-level check now requires the aggregate projection explicitly so an
+  omitted inventory fails loudly; lint still owns its physical denominator and never reruns
+  recognition (#1411, ADRs 0013, 0015, 0017).
+
+- Whole polygonal-stock completeness is now backed by an independently authored, hash-pinned
+  13-case STEP corpus covering all principal axes, in-plane rotation, translation, topology
+  order and circular/rectangular/irregular/octagonal/attached/recessed/compound negatives. The
+  provider's exact six-side stock boundary, A/F, axial length and coupled physical flat supports
+  are scored separately from four downstream boundaries. A fail-closed two-requirement ledger
+  follows A/F and stock length through automatic IR, public `Sheet.polygonal_stock`, generated
+  code and solver-placed semantic ink; malformed or duplicate correspondence cannot borrow
+  credit from another support ring (#1371).
+
+- Multi-plate slab completeness is now backed by an independently authored, hash-pinned 11-case
+  STEP corpus covering all principal orientations, additive/cut channels, equal compound
+  occurrences, topology order and envelope/detached/thick/rotational negatives. A fail-closed
+  one-requirement ledger follows each body-local `thickness.length` through automatic IR, public
+  `Sheet.plate`, generated code and solver-placed Dimension provenance; the compiler-derived
+  opposite U-channel wall is represented explicitly without inventing duplicate ink. The corpus
+  owns 20 physical occurrences and cannot shrink when provider output is weakened or removed.
+  Exact step-level, slot-pattern, polygonal-boss and envelope ownership prevents derived material
+  spans from becoming duplicate Plate requirements while failing closed when that ownership cannot
+  be established (#1373).
+
+- Polygonal-boss completeness is now backed by an independently authored, hash-pinned STEP
+  corpus covering all three principal axes, in-plane rotation, equal compound occurrences,
+  topology order, and recess/detached/stock/other-protrusion negatives. Detection, the provider's
+  six-side schema invariant, across-flats, height, physical flat supports, and four downstream
+  boundaries are observed; a
+  two-requirement fail-closed ledger follows across-flats and boss height through the existing
+  IR/compiler/shared-solve path. The corpus owns the independent evaluation denominator; runtime
+  drawing lint remains explicitly denominated by the recognition inventory (#1372).
+
+- Updated the immutable `b123d-recognisers` pin and fail-closed manifest joins to 0.4.9. The
+  provider's body-local FaceLevel, RiserEvidence, and TurnedProfile schemas now cross an owned
+  prepared-frame boundary that normalizes, reuses one cylinder substrate, classifies locally,
+  and preserves the exact working solid/result pair. Every frame gauge and typed refusal has an
+  explicit conservative policy; refusal never hides a raw retry. Multiple physical turned
+  profiles fail explicitly where a singular adapter is required, while the unchanged raw
+  production route preserves its historical no-global-profile compound behavior with a visible
+  #1357 deferral. Production drawing remains on the explicit raw boundary until rigid-motion,
+  PMI, platform, and canary activation evidence is complete (ADR 0020, #1357).
+
+- Updated the immutable `b123d-recognisers` pin and lock to 0.4.8. Draftwright now names
+  its existing caller/world-coordinate aggregate boundary explicitly with
+  `build_raw_recognition_result`; framed recognition remains disabled until #1357's
+  frame-to-IR adapter is reviewed end to end. Installed-wheel tests exercise the public
+  framed fixes for rectangular pads, polygonal bosses, and nested multi-body plates without
+  making that API the production path (#1392).
+
+- Rectangular pads now consume `RaisedPad` schema v2 without assuming +Z. The IR, public
+  `Sheet.pad`, generated code, compiler, semantic-view planner, shared placement solve, and
+  lint correspondence preserve the exact footprint, terminal-to-attachment height, two
+  in-plane locations, axis, direction, and world bounds for all six signed principal
+  orientations. Every height uses one solver-placed `… HIGH` leader with stable measurement
+  identity; side-normal pad footprints no longer leak into the unrelated Z-level grammar
+  (#1392).
+
+- Rectangular-pad completeness is now independently evidenced by a hash-pinned 12-case STEP
+  corpus covering all six signed principal orientations, equal compound occurrences, topology
+  order, and ledge/staircase/detached-body negatives. Detection, width/length/height fidelity,
+  and four downstream boundaries are scored separately; a five-requirement fail-closed ledger
+  follows both footprint sizes, height and directional location evidence through the shared
+  compiler and placement solve (#1372).
+
+- Circular blind steps recognised by `b123d-recognisers` now have a complete consumer path.
+  The oriented terminal-to-open centreline and transverse quarter-arc lower without rescanning
+  to an explicit-only IR/Sheet feature; generated code preserves the full correspondence.
+  Radius and stopped depth remain independently addressable and tolerance-aware while sharing
+  one solver-placed end-view `R… × … DEEP` leader, and a fail-closed two-requirement ledger
+  follows each outcome without parsing labels or guessing by order (#1382).
+
+- Paired-ramp steps recognised by `b123d-recognisers` now have one complete consumer path:
+  exact IR conversion, explicit `Sheet.paired_ramp_step(...)` declaration, generated-code
+  round trip, end-view solver-placed `2× angle × run RUN` leader, independent angle/run
+  tolerances and authored suppression, and a two-requirement fail-closed completeness ledger
+  (#1382).
+
+- Rectangular through steps recognised by `b123d-recognisers` now lower without rescanning to
+  an explicit-only IR/Sheet feature. Automatic and explicit lowering support every principal
+  axis; an X/Y occurrence stays with the established face-level and shoulder/plate grammar only
+  when that grammar proves both exact leg intervals, avoiding both silent loss and duplicate
+  dimensions. The two
+  orthogonal open-section legs are independently addressable, tolerance-aware, solver-placed in
+  the end view, preserved by generated code and scored by a fail-closed two-requirement
+  completeness ledger. The through extent stays owned by the envelope (#1382).
+
+- Hole completeness is now supported by a versioned, independently authored STEP corpus rather
+  than a Draftwright-derived census. Detection, parameter fidelity and downstream usefulness stay
+  separate, while the IR adapter, public Sheet declaration, executed generated code and placed
+  drawing are each observed through their real seam. Mutations prove that a missing provider hole
+  or a broken downstream boundary lowers the relevant evidence even when internal state remains
+  self-consistent (#1369).
+- Hole-pattern completeness is now supported by a separate independently authored STEP
+  arrangement corpus covering grids, bolt circles, linear arrays, false-positive controls,
+  compound cases and topology-order variants. It scores one grouping fact per pattern while the
+  hole corpus remains the sole owner of member diameter/depth/location requirements, and follows
+  each group through the IR, public Sheet declaration, generated code and placed pattern
+  dimensions (#1370).
+- Flat completeness is now supported by an independently authored STEP corpus covering lone,
+  opposed, slanted, parallel and coaxial stock plus negative and topology-order controls. It
+  counts one physical across-flats requirement per stock line and span, then observes automatic
+  IR, public `Sheet.flat`, executed generated code and placed measurement provenance independently
+  (#1371).
+- Lone-pocket completeness is now supported by an independently authored STEP corpus covering
+  off-centre, edge-anchored, equal, opposed-opening, side-opening, compound, ownership-negative
+  and topology-order cases. Provider `open_sign` now survives the IR, declaration and generated
+  code boundaries; pocket sizes and both physical location ordinates are followed through exact
+  semantic placement evidence without counting pocket-pattern members twice (#1372).
+- Pocket-pattern completeness is now supported by a separate independently authored STEP corpus
+  covering axis-aligned and 30° linear/grid arrangements, threshold and unequal-spacing
+  negatives, a compound underside pattern and reverse-serialized topology variants. One grouped
+  count/size/lattice/location requirement reaches automatic IR, public `Sheet.pocket_pattern`,
+  generated code and exact placed ink—including approved pitch tolerances—without recounting its
+  member pockets. Diagonal pocket-pattern dimensions use exact label-ink clearance instead of a
+  false-blocking hull; generated code preserves the member opening side and grouped callouts
+  retain structured count provenance (#1372).
+- Groove completeness is now supported by an independently authored STEP corpus covering a
+  monotonic-step negative, all principal axes, a narrow circlip ownership contest, equal grooves
+  on separate bodies and reversed Boolean order. Each physical groove's width and floor diameter
+  pass independently through automatic IR, public `Sheet.groove`, executed generated code and
+  one exact compiler-backed `WIDE × ø` callout; mutations prove that recognition, identity,
+  parameters, provenance and printed syntax cannot disappear without lowering evidence (#1372).
+- Chamfer completeness is now supported by an independently authored STEP corpus covering all
+  principal axes, equal and asymmetric planar bevels, conical turned treatments, equal features
+  on separate bodies, topology-order variants, a plain negative and the AngledStep ownership
+  boundary. Each physical bevel is followed through exact IR, public `Sheet.chamfer`, executed
+  generated code, compiler measurement provenance, callout syntax and its physical leader target;
+  equal requirements may share ink without collapsing occurrence identity (#1374).
+- Fillet completeness is now supported by an independently authored STEP corpus covering all
+  principal axes, repeated equal rounds, turned toroidal treatments, separate bodies,
+  topology-order variants, a plain negative and the CircularBlindStep ownership boundary. Each
+  physical round is followed through exact IR, public `Sheet.fillet`, executed generated code,
+  compiler measurement provenance, `R`/`n× R` syntax and its physical leader target; grouped ink
+  retains every rounded edge's measurement identity (#1374).
+
+- Recognised angled blind steps now fail visibly instead of remaining an undecided inventory.
+  Each aggregate-reconciled `AngledStep` produces an actionable warning and one `unsupported`
+  completeness outcome. A frozen STEP corpus fixture pins the AngledStep/Chamfer ownership
+  boundary, while Draftwright deliberately invents no angle/run, IR, Sheet, generated-code,
+  section/detail, or annotation semantics (#1247).
+
+- Aggregate-reconciled `PrismaticPocket` occurrences now fail visibly instead of
+  remaining an unscored inventory. Each produces an actionable warning and one `unsupported`
+  completeness outcome, without repeating the provider's cross-family reconciliation or
+  inventing width/length, across-flats, IR, Sheet, generated-code, or annotation semantics (#1246).
+
+- Recognised prismatic passages now fail visibly instead of disappearing into an unscored
+  inventory. Each authoritative `SectionPassage` produces an actionable warning and an
+  `unsupported` completeness outcome; the legacy `Passage` compatibility projection is never
+  double-counted. Draftwright retains the family-level unsupported disposition rather than
+  claiming a regular-polygon callout represents the provider's complete line/arc schema (#1245).
+
+- Declared Double-D bore, countersink, chamfer, fillet, and groove geometry reads now use the
+  stable `b123d_recognisers.inspection` namespace from the exact 0.4.6 wheel. A separate
+  Draftwright-owned format-1 contract fails closed on changes to the consumed signatures, result
+  schemas, units, bevel rejection reasons, or cylindrical surface layout (#1362).
+
+- Updated the exact `b123d-recognisers` production lock to 0.4.6. At adoption time, circular
+  blind, paired ramp, and through-step inventories were carried from the one aggregate and
+  surfaced as unscored completeness evidence pending the #1382 semantic slices now recorded
+  above. Rectangular-grid pitch placement also uses a
+  deterministic outer witness line across plan, front, and side views despite the release's
+  coordinate-rounding differences.
+
 - `annotation_overlap` now reports the whole defect when the same pair also draws
   line-work through one of the two labels: the message names the crosser, the label
   crossed and the millimetres, and replaces the "use `label_offset_x`" remedy, which
@@ -54,6 +458,9 @@
 
 ### Fixed
 
+- Non-1:1 orthographic and isometric projection now scales extracted solids about the world
+  origin, matching the view-coordinate mapper and solver zones. Solids carrying a non-zero
+  build123d `Location` no longer shift their silhouette away from dimensions and callouts.
 - Notes and generic table cells now render U+2300 `⌀` with the established supported drafting
   glyph instead of IBM Plex Mono's missing-glyph square. The substitution happens at the one
   shared measurement/render seam, so source rows remain unchanged and table sizing stays exact

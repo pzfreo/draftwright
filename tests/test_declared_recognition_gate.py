@@ -1,7 +1,7 @@
 """A declared build recognises nothing; critique on that path recognises once (#1022).
 
-ADR 0011 says a caller-supplied ``PartModel`` skips detection, and ADR 0017 §6 restates it for
-the aggregate. Neither held: ``_analyse`` ran ``build_recognition_result`` before it knew
+ADR 4 (was 0011) says a caller-supplied ``PartModel`` skips detection, and ADR 3 (was 0017 §6) restates it for
+the aggregate. Neither held: ``_analyse`` ran ``build_raw_recognition_result`` before it knew
 whether a model had been declared, so a declared build recognised the full inventory and threw
 most of it away.
 
@@ -16,30 +16,22 @@ see that helper for why a binding-level spy cannot be trusted for this claim.
 """
 
 import inspect
-from contextlib import contextmanager
 from types import SimpleNamespace
 
 import pytest
 from b123d_recognisers import (
     RecognitionResult,
-    build_recognition_result,
+    build_raw_recognition_result,
     project_step_shoulders,
     recognise_risers,
     step_level_zs,
 )
-from b123d_recognisers.result import DEFERRED, MIGRATED
 from build123d import Align, Box, Cylinder, Pos, Rot
-from conftest import counting_calls, recognition_family_calls
+from conftest import counting_calls, recognition_consumer_calls
 
 from draftwright import Sheet, build_drawing
 from draftwright.compose import _est_right_strip_depth, _n_right_strip_boss_heights
 from draftwright.linting.coverage import lint_prismatic_coverage
-
-
-@contextmanager
-def _counting_every_family():
-    with recognition_family_calls(MIGRATED | DEFERRED.keys()) as counts:
-        yield counts
 
 
 def _issue_keys(issues) -> tuple:
@@ -78,11 +70,11 @@ def test_a_declared_build_recognises_nothing():
     every one reached through ``repair() -> lint()`` rather than through detection.
     """
     _, sheet = _declared_plate_sheet()
-    with _counting_every_family() as counts:
+    with recognition_consumer_calls() as counts:
         sheet.build()
 
     assert dict(counts) == {}, (
-        f"a declared build recognised {dict(counts)}. ADR 0011 says a caller-supplied model "
+        f"a declared build recognised {dict(counts)}. ADR 4 (was 0011) says a caller-supplied model "
         "skips detection — every one of these scanned a solid whose features the caller had "
         "already stated."
     )
@@ -100,31 +92,29 @@ def test_exporting_a_declared_drawing_pays_for_one_aggregate_and_no_more(tmp_pat
     _, sheet = _declared_plate_sheet()
     drawing = sheet.build()
 
-    with _counting_every_family() as counts:
+    with recognition_consumer_calls() as counts:
         drawing.export(str(tmp_path / "first"), formats=("svg",))
         first = dict(counts)
         counts.clear()
         drawing.export(str(tmp_path / "second"), formats=("svg",))
         second = dict(counts)
 
-    assert first.get("recognise_holes") == 1, (
-        "the first export's lint-and-log found no inventory to judge against"
+    assert first == {"build_recognition_evidence": 1}, (
+        f"the first export must request one aggregate and no bypass, got {first}"
     )
     assert dict(second) == {}, f"a second export re-recognised {dict(second)}"
 
 
-def test_a_detected_build_still_recognises_each_family_once():
+def test_a_detected_build_still_requests_one_aggregate():
     """The gate must not fire on the automatic path — the counterexample that stops
     :func:`test_a_declared_build_and_export_recognises_nothing` from being satisfied by
     breaking recognition outright."""
-    with _counting_every_family() as counts:
+    with recognition_consumer_calls() as counts:
         build_drawing(_prismatic_plate())
 
-    assert counts, "a detected build recognised nothing — the gate fired on the wrong path"
-    for family in MIGRATED:
-        assert counts.get(family) == 1, (
-            f"{family} ran {counts.get(family, 0)}× on the detected path, not once"
-        )
+    assert counts == {"build_recognition_evidence": 1}, (
+        f"the detected build must request one aggregate and no bypass, got {counts}"
+    )
 
 
 def test_critique_on_a_declared_drawing_recognises_once_and_then_never_again():
@@ -138,7 +128,7 @@ def test_critique_on_a_declared_drawing_recognises_once_and_then_never_again():
     _, sheet = _declared_plate_sheet()
     drawing = sheet.build()
 
-    with _counting_every_family() as counts:
+    with recognition_consumer_calls() as counts:
         first_issues = _issue_keys(drawing.lint())
         first = dict(counts)
         counts.clear()
@@ -146,9 +136,9 @@ def test_critique_on_a_declared_drawing_recognises_once_and_then_never_again():
         third_issues = _issue_keys(drawing.lint())
         later = dict(counts)
 
-    assert first.get("recognise_holes") == 1, (
-        "the first physical lint of a declared drawing must obtain one aggregate — without it "
-        "coverage judges against an empty inventory and reports every real feature as missing"
+    assert first == {"build_recognition_evidence": 1}, (
+        f"the first physical lint must request one aggregate and no bypass, got {first} — "
+        "without it coverage judges against an empty inventory"
     )
     assert dict(later) == {}, (
         f"two further lints re-ran {dict(later)} — the aggregate is supposed to be built once "
@@ -162,6 +152,8 @@ def test_critique_on_a_declared_drawing_recognises_once_and_then_never_again():
         f"nothing new: {sorted(set(first_issues) ^ set(second_issues))}"
     )
     assert third_issues == first_issues, "the third lint disagreed with the first"
+    assert drawing.recognition_evidence() is not None
+    assert drawing.recognition_evidence().result is drawing.recognition()
 
 
 #: Every way ``export`` can reject a call outright, with the message it rejects it by.
@@ -189,7 +181,7 @@ def test_a_rejected_export_does_not_recognise_first(kwargs, message):
     _, sheet = _declared_plate_sheet()
     drawing = sheet.build()
 
-    with _counting_every_family() as counts:
+    with recognition_consumer_calls() as counts:
         with pytest.raises(ValueError, match=message):
             drawing.export("out", **kwargs)
 
@@ -200,7 +192,7 @@ def test_a_rejected_export_does_not_recognise_first(kwargs, message):
 
 
 def test_the_lazy_aggregate_is_owned_by_the_build_state():
-    """ADR 0017 §6: one owner. ``Drawing._cyl_cache`` is the existing violation (#1023) and
+    """ADR 3 (was 0017 §6): one owner. ``Drawing._cyl_cache`` is the existing violation (#1023) and
     this must not add a second — the aggregate lands in ``BuildState``, which is where a
     finished drawing already keeps its build context.
     """
@@ -220,7 +212,7 @@ def test_the_lazy_aggregate_is_owned_by_the_build_state():
 
 
 def test_repair_asks_for_the_placement_critique_only():
-    """Repair acts on ``dim_inside_part`` and nothing else (ADR 0002), so it has no use for
+    """Repair acts on ``dim_inside_part`` and nothing else (ADR 5 (was 0002)), so it has no use for
     the feature-coverage half — and asking for it is what forced recognition back onto the
     declared path after ``_analyse`` was gated.
     """
@@ -258,7 +250,7 @@ def test_a_declared_turned_part_keeps_axial_critique():
     sheet.step(a)
     sheet.step(b)
     sheet.step(c)
-    with _counting_every_family() as counts:
+    with recognition_consumer_calls() as counts:
         drawing = sheet.build()
     assert dict(counts) == {}, f"the declared turned path recognised {dict(counts)}"
 
@@ -364,14 +356,14 @@ def test_lint_projects_the_shared_riser_evidence_and_rescans_nothing():
     """#1025's headline: the last per-lint rescan is gone.
 
     ``recognise_step_shoulders`` did a full face scan on every critique pass, because its
-    answer depended on the caller's level set and ADR 0015 forbids lint taking that from the
+    answer depended on the caller's level set and ADR 1 (was 0015) forbids lint taking that from the
     model. Splitting the scan (``recognise_risers``) from the filter
     (``project_step_shoulders``) gives the aggregate something single-valued to own, and each
     consumer projects. This is phase 0's third guard for epic #1018.
     """
     drawing = build_drawing(_rebated_block())
 
-    with _counting_every_family() as counts:
+    with recognition_consumer_calls() as counts:
         drawing.lint()
         drawing.lint()
 
@@ -400,10 +392,10 @@ def test_the_critique_rejects_an_assembled_shoulder_inventory():
 
     **What this does NOT establish**, deliberately named rather than implied: the type check
     proves neither provenance nor correspondence with *part*. A caller can still pass
-    ``build_recognition_result(some_other_solid)``, or construct a valid frozen result with
+    ``build_raw_recognition_result(some_other_solid)``, or construct a valid frozen result with
     empty inventories, and this function will use it (Codex #1031 r2). That is true of every
     injected inventory in the engine — `holes=`, `pockets=`, `pads=` — and is the accepted
-    cost of ADR 0008 Amdt 5 dependency injection, not something specific to this parameter.
+    cost of ADR 1 (was 0008 Amdt 5) dependency injection, not something specific to this parameter.
     Closing it needs an unforgeable association between an aggregate and its solid, which is
     tracked separately (#1032); singling out this one parameter would be inconsistent and
     would still not make the check fail-closed.
@@ -427,7 +419,9 @@ def test_the_critique_rejects_an_assembled_shoulder_inventory():
 
     # And the real thing still works — the guard rejects impostors, not the parameter.
     assert isinstance(
-        lint_prismatic_coverage(part, [], features=(), recognition=build_recognition_result(part)),
+        lint_prismatic_coverage(
+            part, [], features=(), recognition=build_raw_recognition_result(part)
+        ),
         list,
     )
 
@@ -501,7 +495,7 @@ def test_one_ladder_rule_serves_sizing_and_critique():
     part they coincide and this would assert nothing.
     """
     part = _turned_shaft_with_blind_bore()
-    rec = build_recognition_result(part)
+    rec = build_raw_recognition_result(part)
     bb = part.bounding_box()
 
     ladder = rec.step_ladder_for_z_span(bb.min.Z, bb.max.Z)

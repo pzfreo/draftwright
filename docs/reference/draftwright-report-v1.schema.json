@@ -1,0 +1,205 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://draftwright.dev/schema/draftwright-report-v1.schema.json",
+  "title": "Draftwright report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "status",
+    "producer",
+    "source",
+    "outputs",
+    "recognition",
+    "lint"
+  ],
+  "properties": {
+    "schema": { "const": "draftwright-report" },
+    "schema_version": { "const": 1 },
+    "status": { "enum": ["bounded-clear", "needs-attention"] },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["draftwright", "b123d-recognisers"],
+      "properties": {
+        "draftwright": { "type": "string", "minLength": 1 },
+        "b123d-recognisers": { "type": "string", "minLength": 1 }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "name"],
+      "properties": {
+        "kind": { "enum": ["build123d", "step"] },
+        "name": { "type": ["string", "null"] }
+      }
+    },
+    "outputs": {
+      "type": "object",
+      "description": "Reserved for the later sidecar/export integration."
+    },
+    "recognition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["coverage", "identity_scope", "occurrences", "requirements", "summary"],
+      "properties": {
+        "coverage": { "const": "accepted-occurrences" },
+        "identity_scope": { "const": "report-local" },
+        "occurrences": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/occurrence" }
+        },
+        "requirements": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/requirement_outcome" }
+        },
+        "summary": { "$ref": "#/$defs/summary" }
+      }
+    },
+    "lint": {
+      "type": "object",
+      "description": "The existing Drawing.lint_summary() JSON contract."
+    }
+  },
+  "$defs": {
+    "owner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": { "type": "string", "minLength": 1 }
+      }
+    },
+    "requirement_refs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["coverage", "ids"],
+      "properties": {
+        "coverage": {
+          "enum": ["ledger", "not-projected", "not-applicable", "deferred", "unavailable"]
+        },
+        "ids": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        }
+      }
+    },
+    "requirement_outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "family",
+        "occurrence_ids",
+        "owner_ids",
+        "parameter_id",
+        "state",
+        "reason_code",
+        "annotations",
+        "representation",
+        "representation_reason"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "family": { "type": "string", "minLength": 1 },
+        "occurrence_ids": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "owner_ids": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "parameter_id": { "type": ["string", "null"], "minLength": 1 },
+        "state": {
+          "enum": [
+            "placed",
+            "satisfied_by_structured_note",
+            "suppressed",
+            "dropped",
+            "missing",
+            "unverifiable",
+            "unsupported"
+          ]
+        },
+        "reason_code": { "type": "string", "minLength": 1 },
+        "annotations": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "representation": { "type": ["string", "null"] },
+        "representation_reason": { "type": ["string", "null"] }
+      }
+    },
+    "occurrence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "family",
+        "record_type",
+        "record_schema_version",
+        "record",
+        "disposition",
+        "reason_code",
+        "tracking",
+        "owners",
+        "requirements"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "family": { "type": "string", "minLength": 1 },
+        "record_type": { "type": "string", "minLength": 1 },
+        "record_schema_version": { "type": "integer", "minimum": 1 },
+        "record": { "type": "object" },
+        "disposition": {
+          "enum": [
+            "represented",
+            "absorbed",
+            "unsupported",
+            "deferred",
+            "evidence_only",
+            "unexpectedly_missing"
+          ]
+        },
+        "reason_code": { "type": "string", "minLength": 1 },
+        "tracking": { "type": ["string", "null"] },
+        "owners": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/owner" }
+        },
+        "requirements": { "$ref": "#/$defs/requirement_refs" }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "total",
+        "represented",
+        "absorbed",
+        "unsupported",
+        "deferred",
+        "evidence_only",
+        "unexpectedly_missing"
+      ],
+      "properties": {
+        "total": { "type": "integer", "minimum": 0 },
+        "represented": { "type": "integer", "minimum": 0 },
+        "absorbed": { "type": "integer", "minimum": 0 },
+        "unsupported": { "type": "integer", "minimum": 0 },
+        "deferred": { "type": "integer", "minimum": 0 },
+        "evidence_only": { "type": "integer", "minimum": 0 },
+        "unexpectedly_missing": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

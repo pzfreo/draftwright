@@ -90,7 +90,7 @@ def test_auto_drawing_defines_pad_footprints_and_pocket_locations():
     assert tuple(detected.features) == tuple(drawing.model().features)
     assert [f.kind for f in drawing.model().features].count("pad") == 4
     names = set(drawing.annotations())
-    assert len({name for name in names if name.startswith("m_pad")}) == 8
+    assert len({name for name in names if name.startswith("m_pad")}) == 12
     assert {"m_locy1", "m_locy3"} <= names  # pocket centres at Y=30 and Y=90
     summary = drawing.lint_summary()
     assert "pad_footprint_not_defined" not in summary["by_code"]
@@ -113,7 +113,7 @@ def test_side_opening_pocket_gets_two_in_plane_location_dimensions():
     assert "pocket_not_located" not in drawing.lint_summary()["by_code"]
 
 
-def test_datum_starting_side_pocket_does_not_print_half_its_length_as_a_position():
+def test_datum_starting_blind_slot_does_not_retain_the_superseded_pocket_callout():
     minimum = (Align.MIN, Align.CENTER, Align.MIN)
     part = Box(13.55, 11, 80, align=minimum)
     part -= Pos(12.61, -1, 0) * Box(
@@ -129,7 +129,11 @@ def test_datum_starting_side_pocket_does_not_print_half_its_length_as_a_position
         if name.startswith("m_pocket")
     }
     assert "31.1" not in labels
-    assert "2 × 62.1 × 0.9 DEEP" in labels
+    assert "2 × 62.1 × 0.9 DEEP" not in labels
+    assert len(drawing.recognition().rectangular_blind_slots) == 1
+    completeness = drawing.lint_summary()["quality"]["completeness"]
+    assert "rectangular_blind_slots" not in completeness["unscored_recognized_families"]
+    assert completeness["by_family"]["rectangular_blind_slots"] == 3
     assert "pocket_not_located" not in drawing.lint_summary()["by_code"]
 
 

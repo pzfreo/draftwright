@@ -9,7 +9,7 @@ Presentation is never evidence.
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 from b123d_recognisers import RecognitionResult
@@ -42,6 +42,8 @@ class SlotRequirementOutcome:
     # recognition-derived requirement vocabulary. Preserve that cardinality so deleting a
     # declaration cannot shrink a completeness denominator (#1127).
     requirement_count: int = 1
+    features: tuple = ()
+    source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
 
 
 def _rounded(value) -> float:
@@ -237,8 +239,10 @@ def slot_requirement_outcomes(
         )
 
     pattern_members = {member for pattern in recognition.slot_patterns for member in pattern.slots}
-    sources: list[tuple[SlotSourceKind, object, tuple, tuple[float, float, float], int]] = [
-        ("slot", slot, _slot_key(slot), _slot_source_at(slot), 1)
+    sources: list[
+        tuple[SlotSourceKind, object, tuple, tuple[float, float, float], int, tuple[object, ...]]
+    ] = [
+        ("slot", slot, _slot_key(slot), _slot_source_at(slot), 1, (slot,))
         for slot in recognition.slots
         if slot not in pattern_members
     ]
@@ -249,6 +253,7 @@ def slot_requirement_outcomes(
             _pattern_key(pattern),
             _pattern_source_at(pattern),
             len(pattern.slots),
+            tuple(pattern.slots),
         )
         for pattern in recognition.slot_patterns
     )
@@ -256,7 +261,7 @@ def slot_requirement_outcomes(
         return []
 
     source_counts: dict[tuple[str, tuple], int] = defaultdict(int)
-    for kind, _source, key, _at, _count in sources:
+    for kind, _source, key, _at, _count, _records in sources:
         source_counts[(kind, key)] += 1
     ir_by_key: dict[tuple[str, tuple], list] = defaultdict(list)
     for feature in features:
@@ -282,7 +287,7 @@ def slot_requirement_outcomes(
     }
 
     outcomes: list[SlotRequirementOutcome] = []
-    for kind, _source, key, at, member_count in sources:
+    for kind, _source, key, at, member_count, source_records in sources:
         matches = ir_by_key.get((kind, key), ())
         feature = matches[0] if len(matches) == source_counts[(kind, key)] == 1 else None
         parameter_ids = (
@@ -299,6 +304,7 @@ def slot_requirement_outcomes(
                     "?",
                     "unverifiable",
                     requirement_count=_physical_requirement_count(kind, _source),
+                    source_records=source_records,
                 )
             )
             continue
@@ -317,6 +323,8 @@ def slot_requirement_outcomes(
                     dropped=dropped,
                     registry=registry,
                 ),
+                features=(feature,),
+                source_records=source_records,
             )
             for parameter in parameter_ids
         )

@@ -1,0 +1,227 @@
+{
+  "format": "draftwright-step-analysis-corpus",
+  "format_version": 1,
+  "corpus_version": "1.0.0",
+  "metric_version": 1,
+  "scope": ["flats"],
+  "cases": [
+    {
+      "id": "flat-nonround-control",
+      "tags": ["ambiguous", "negative"],
+      "fixture": "flat-nonround.step",
+      "sha256": "f0905f7d4a243791c49ec14f2463128709c9abcddd6af9ac5edff1b12707d10e",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored from the 40 by 30 by 20 mm rectangular-prism recipe in README.md; planar faces without owning round stock are not machined-flat requirements.",
+      "expected_outcome": "supported",
+      "facts": []
+    },
+    {
+      "id": "flat-lone-d",
+      "tags": ["positive"],
+      "fixture": "flat-lone-d.step",
+      "sha256": "202e2a11ed43328a01963d9de25ae2a1fb906bbc3f1921d2752fc41c06a4cd92",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored from the radius-15 by 40 mm Z-stock recipe in README.md with one 7.5 mm chord plane, giving one 22.5 mm D-height requirement.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "flats",
+          "identity": {
+            "axis": {"value": "z"},
+            "axis_direction": {"value": [0.0, 0.0, 1.0], "absolute_tolerance": 1e-6},
+            "axis_line": {"value": [0.0, 0.0], "absolute_tolerance": 1e-6},
+            "stock_span": {"value": [-20.0, 20.0], "absolute_tolerance": 1e-6}
+          },
+          "parameters": {
+            "across": {"value": 22.5, "absolute_tolerance": 1e-6},
+            "face_count": {"value": 1},
+            "anchors": {"value": [7.5, 0.0, 0.0], "absolute_tolerance": 1e-3}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "flat-double-d",
+      "tags": ["grouped", "positive"],
+      "fixture": "flat-double-d.step",
+      "sha256": "edfdd364b400bfda1b57bbd1f46966c929c3f1ab7c2e2e5d19f0c62b75633dde",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored from the radius-15 by 40 mm Z-stock recipe in README.md with opposed planes at X=-7.5 and X=7.5; two faces define one 15 mm A/F requirement.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "flats",
+          "identity": {
+            "axis": {"value": "z"},
+            "axis_direction": {"value": [0.0, 0.0, 1.0], "absolute_tolerance": 1e-6},
+            "axis_line": {"value": [0.0, 0.0], "absolute_tolerance": 1e-6},
+            "stock_span": {"value": [-20.0, 20.0], "absolute_tolerance": 1e-6}
+          },
+          "parameters": {
+            "across": {"value": 15.0, "absolute_tolerance": 1e-6},
+            "face_count": {"value": 2},
+            "anchors": {"value": [-7.5, 0.0, 0.0, 7.5, 0.0, 0.0], "absolute_tolerance": 1e-3}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "flat-slanted-double-d",
+      "tags": ["positive", "rotated", "slanted"],
+      "fixture": "flat-slanted-double-d.step",
+      "sha256": "07c00953321891589c188e4add2f4cd52f963f5e21cdb438672f471ea28d058d",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "The nominal 15 mm A/F Double-D recipe is rigidly rotated 30 degrees about world Y; its physical stock direction is (sin(30 degrees), 0, cos(30 degrees)).",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "flats",
+          "identity": {
+            "axis": {"value": "z"},
+            "axis_direction": {"value": [0.5, 0.0, 0.866025], "absolute_tolerance": 1e-6},
+            "axis_line": {"value": [0.0, 0.0], "absolute_tolerance": 1e-6},
+            "stock_span": {"value": [-20.0, 20.0], "absolute_tolerance": 1e-6}
+          },
+          "parameters": {
+            "across": {"value": 15.0, "absolute_tolerance": 1e-6},
+            "face_count": {"value": 2},
+            "anchors": {"value": [-6.495, 0.0, 3.75, 6.495, 0.0, -3.75], "absolute_tolerance": 1e-3}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "flat-disjoint-coaxial-stock",
+      "tags": ["compound", "multiple-equal", "positive"],
+      "fixture": "flat-coaxial.step",
+      "sha256": "e85a3330e389cf4aecc7c794386eda608e4f0490bbcbe01560e4e0d317955b40",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored from two identical lone-D stock bodies on one Z axis with centres 80 mm apart; their disjoint axial spans define two equal requirements.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "flats",
+          "identity": {
+            "axis": {"value": "z"},
+            "axis_direction": {"value": [0.0, 0.0, 1.0], "absolute_tolerance": 1e-6},
+            "axis_line": {"value": [0.0, 0.0], "absolute_tolerance": 1e-6},
+            "stock_span": {"value": [-20.0, 20.0], "absolute_tolerance": 1e-6}
+          },
+          "parameters": {
+            "across": {"value": 22.5, "absolute_tolerance": 1e-6},
+            "face_count": {"value": 1},
+            "anchors": {"value": [7.5, 0.0, 0.0], "absolute_tolerance": 1e-3}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        },
+        {
+          "family": "flats",
+          "identity": {
+            "axis": {"value": "z"},
+            "axis_direction": {"value": [0.0, 0.0, 1.0], "absolute_tolerance": 1e-6},
+            "axis_line": {"value": [0.0, 0.0], "absolute_tolerance": 1e-6},
+            "stock_span": {"value": [60.0, 100.0], "absolute_tolerance": 1e-6}
+          },
+          "parameters": {
+            "across": {"value": 22.5, "absolute_tolerance": 1e-6},
+            "face_count": {"value": 1},
+            "anchors": {"value": [7.5, 0.0, 80.0], "absolute_tolerance": 1e-3}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "flat-parallel-stock-topology-a",
+      "tags": ["compound", "multiple-equal", "positive", "topology-order-variant"],
+      "fixture": "flat-topology-a.step",
+      "sha256": "71cf1baf5d40201c9057359c18887b67d23806d98e89a0720d67726952fb006f",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored from two identical lone-D stock bodies on parallel Z axes at X=-50 and X=50; canonical Part 21 entity order.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "flats",
+          "identity": {
+            "axis": {"value": "z"},
+            "axis_direction": {"value": [0.0, 0.0, 1.0], "absolute_tolerance": 1e-6},
+            "axis_line": {"value": [-50.0, 0.0], "absolute_tolerance": 1e-6},
+            "stock_span": {"value": [-20.0, 20.0], "absolute_tolerance": 1e-6}
+          },
+          "parameters": {
+            "across": {"value": 22.5, "absolute_tolerance": 1e-6},
+            "face_count": {"value": 1},
+            "anchors": {"value": [-42.5, 0.0, 0.0], "absolute_tolerance": 1e-3}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        },
+        {
+          "family": "flats",
+          "identity": {
+            "axis": {"value": "z"},
+            "axis_direction": {"value": [0.0, 0.0, 1.0], "absolute_tolerance": 1e-6},
+            "axis_line": {"value": [50.0, 0.0], "absolute_tolerance": 1e-6},
+            "stock_span": {"value": [-20.0, 20.0], "absolute_tolerance": 1e-6}
+          },
+          "parameters": {
+            "across": {"value": 22.5, "absolute_tolerance": 1e-6},
+            "face_count": {"value": 1},
+            "anchors": {"value": [57.5, 0.0, 0.0], "absolute_tolerance": 1e-3}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "flat-parallel-stock-topology-b",
+      "tags": ["compound", "multiple-equal", "positive", "topology-order-variant"],
+      "fixture": "flat-topology-b.step",
+      "sha256": "67f730f8bb403064825fcf7b15293072314e99257e8847f59d2074056361b23b",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "The topology-a STEP entities were bijectively renumbered and serialized in reverse order without changing geometry or expected physical A/F requirements.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "flats",
+          "identity": {
+            "axis": {"value": "z"},
+            "axis_direction": {"value": [0.0, 0.0, 1.0], "absolute_tolerance": 1e-6},
+            "axis_line": {"value": [-50.0, 0.0], "absolute_tolerance": 1e-6},
+            "stock_span": {"value": [-20.0, 20.0], "absolute_tolerance": 1e-6}
+          },
+          "parameters": {
+            "across": {"value": 22.5, "absolute_tolerance": 1e-6},
+            "face_count": {"value": 1},
+            "anchors": {"value": [-42.5, 0.0, 0.0], "absolute_tolerance": 1e-3}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        },
+        {
+          "family": "flats",
+          "identity": {
+            "axis": {"value": "z"},
+            "axis_direction": {"value": [0.0, 0.0, 1.0], "absolute_tolerance": 1e-6},
+            "axis_line": {"value": [50.0, 0.0], "absolute_tolerance": 1e-6},
+            "stock_span": {"value": [-20.0, 20.0], "absolute_tolerance": 1e-6}
+          },
+          "parameters": {
+            "across": {"value": 22.5, "absolute_tolerance": 1e-6},
+            "face_count": {"value": 1},
+            "anchors": {"value": [57.5, 0.0, 0.0], "absolute_tolerance": 1e-3}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    }
+  ]
+}

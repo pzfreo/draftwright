@@ -1,4 +1,4 @@
-"""ADR 0018 Phase 2: typed authored view requests and Sheet verbs (#1260)."""
+"""ADR 2 (was 0018) Phase 2: typed authored view requests and Sheet verbs (#1260)."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import warnings
 from types import SimpleNamespace
 
 import pytest
-from build123d import Box, Cylinder
+from build123d import Align, Box, Compound, Cylinder, Pos
 
 import draftwright.builder as builder_mod
 import draftwright.projection as projection_mod
@@ -298,6 +298,21 @@ class TestBuildEffects:
         assert detail.scale_factor == 2
         assert not [issue for issue in drawing.lint() if issue.severity != "info"]
 
+    def test_translated_crop_and_detail_coordinates_share_world_origin_scale(self):
+        target = Pos(100, 0, 0) * (Box(8, 8, 2) - Cylinder(3, 4))
+        remote = Pos(-100, 0, 0) * Box(8, 8, 2)
+        sheet = Sheet(Compound(children=[target, remote]), page="A2").authored_dimensions()
+        hole = sheet.hole(diameter=6, at=(100, 0, 0), axis="z")
+        sheet.dimension(hole, "bore.diameter")
+        sheet.detail_view("B", around=hole).scale(2)
+
+        drawing = sheet.build()
+        x0, y0, x1, y1 = drawing.view_bounds("detail_b")
+        px, py, _ = drawing.at("detail_b", 100, 0, 0)
+        assert px == pytest.approx((x0 + x1) / 2)
+        assert py == pytest.approx((y0 + y1) / 2)
+        assert not [issue for issue in drawing.lint() if issue.severity != "info"]
+
     def test_an_authored_iso_scale_is_rendered_exactly_and_never_auto_fitted(self, monkeypatch):
         projected_scales = []
 
@@ -343,6 +358,35 @@ class TestBuildEffects:
         impossible.view("front").pin((-1000, origin[1]))
         with pytest.raises(ValueError, match="pin.*infeasible.*not relaxed"):
             impossible.build()
+
+    def test_a_pin_translates_the_side_right_strip_with_the_principal_views(self):
+        part = Box(50, 30, 10) - Cylinder(
+            3,
+            60,
+            rotation=(0, 90, 0),
+            align=(Align.CENTER, Align.CENTER, Align.CENTER),
+        )
+
+        def declared(*, pin=None):
+            sheet = Sheet(part, page="A3").authored_dimensions()
+            bore = sheet.hole(diameter=6, at=(0, 0, 0), axis="x").through()
+            sheet.dimension(bore, "bore.diameter")
+            sheet.dimension(bore, "location")
+            front = sheet.view("front")
+            sheet.view("plan")
+            sheet.view("side")
+            if pin is not None:
+                front.pin(pin)
+            return sheet
+
+        baseline = declared().build()
+        origin = baseline.at("front", 0, 0, 0)[:2]
+        target = (origin[0] + 10, origin[1])
+
+        moved = declared(pin=target).build()
+
+        assert moved.at("front", 0, 0, 0)[:2] == pytest.approx(target)
+        assert not [issue for issue in moved.lint() if issue.severity != "info"]
 
     def test_contradictory_and_nonprincipal_pins_are_refused(self):
         baseline_sheet = _sheet()

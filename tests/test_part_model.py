@@ -1,4 +1,4 @@
-"""Tests for the part-drawing compiler IR (ADR 0008).
+"""Tests for the part-drawing compiler IR (ADR 1 (was 0008)).
 
 Proves the architecture's claims on real geometry:
 1. Diverse features (holes + turned steps + bosses), from different detectors,
@@ -61,14 +61,14 @@ class TestBuildPartModel:
         assert any(isinstance(f, BossFeature) for f in model.features)
         assert not any(isinstance(f, StepFeature) for f in model.features)
 
-    def test_no_phantom_zero_diameter_step(self):
-        # A gapped (disconnected) shaft has an axial segment with no OD over it;
-        # recognise_turned_steps must drop it, not emit a ø0 step (#279).
+    def test_disconnected_cylinders_do_not_form_one_phantom_turned_profile(self):
+        # Two disjoint cylinders are two single-diameter bodies, not one stepped shaft with
+        # an axial air gap.  The pre-0.4.9 grouping crossed that gap; body-local profile
+        # membership must now keep both out of Draftwright's step grammar (#1357).
         gapped = Cylinder(20, 40) + Pos(0, 0, 40) * Cylinder(13, 30)
         model = build_part_model(gapped)
         step_dias = [f.diameter for f in model.features if isinstance(f, StepFeature)]
-        assert step_dias, "expected step features for the stepped shaft"
-        assert all(d > 0 for d in step_dias), f"phantom zero-diameter step: {step_dias}"
+        assert step_dias == []
 
     def test_prismatic_with_incidental_cylinders_is_not_turned(self):
         # A prismatic part with small incidental cross-axis cylinders (e.g. a case
@@ -295,10 +295,11 @@ class TestOpenClosed:
 
 
 def test_feature_detection_runs_once_per_build(monkeypatch):
-    """ADR 0008 Amendment 5 / #244 — one aggregate inventory per build.
+    """ADR 1 (was 0008 Amendment 5) / #244 — one aggregate inventory per build.
 
     The recogniser package owns its internal family orchestration; Draftwright's contract is
-    the single public ``build_recognition_result`` call whose result every consumer reuses.
+    the single public ``build_recognition_evidence`` acquisition whose result every consumer
+    reuses.
     """
     from build123d import Cylinder, Pos, Rotation
 
@@ -306,14 +307,14 @@ def test_feature_detection_runs_once_per_build(monkeypatch):
     from draftwright import build_drawing
 
     calls = 0
-    original = amod.build_recognition_result
+    original = amod.build_recognition_evidence
 
     def wrap(*args, **kwargs):
         nonlocal calls
         calls += 1
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(amod, "build_recognition_result", wrap)
+    monkeypatch.setattr(amod, "build_recognition_evidence", wrap)
 
     # A turned X shaft exercises the detected path, including a repack when required.
     build_drawing(Rotation(0, 90, 0) * (Cylinder(15, 30) + Pos(0, 0, 30) * Cylinder(8, 30)))

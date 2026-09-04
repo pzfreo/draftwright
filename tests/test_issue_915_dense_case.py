@@ -10,34 +10,42 @@ from draftwright.model.compiled import compile_dimensions
 _ISSUE_915 = Path(__file__).parent / "fixtures" / "issue_915_case_study_2.step"
 
 
-#: The two crossings this fixture is known to carry, so that `lint() == []` can stay
+#: The three ink crossings this fixture is known to carry, so that `lint() == []` can stay
 #: a real assertion instead of being relaxed to "some issues are fine".
 #:
-#: Both are `'170'`'s dimension line running through another annotation's text, and
-#: both appear on the A1 and the A2 build alike. The larger, 18.2 mm through
-#: `'50 × 120 × 5 DEEP'`, is most of the width of that callout. Rendered at 500 dpi
-#: and confirmed: this drawing genuinely carries them, and the `lint() == []` that
-#: used to stand here was asserting something false.
+#: Two are `'170'`'s dimension line running through another annotation's text; the third
+#: is the long-pocket leader skimming the 2× through-hole label. All three appear on A1
+#: and A2 after the released Blend-v3 inventory adds three truthful grouped radius leaders.
+#: Rendered and confirmed: this drawing genuinely carries them, and the `lint() == []`
+#: that used to stand here was asserting something false.
 #:
 #: Stored as (crosser, crossed) and matched in that order — a reversed pair is a
 #: different defect and must not be filtered as a known one. Naming the pairs rather
 #: than the code also keeps the assertion sharp: a *third* crossing on either sheet,
 #: or any other lint code, still fails these tests.
 _KNOWN_CROSSINGS = (
-    ("170", "50 × 120 × 5 DEEP"),
+    ("50 × 120 × 5 DEEP", "2× ⌀8 THRU"),
     ("170", "75"),
+    ("170", "44 × 93.4 × 10 DEEP"),
+)
+_KNOWN_FEATURE_CROSSING = (
+    "pocket callout 50 × 120 × 5 DEEP retained under Policy B across: hc_front0:label"
 )
 
 
 def _is_known(issue):
-    return issue.code == "annotation_ink_overlap" and any(
-        f"'{crosser}' draws" in issue.message and f"through the label '{crossed}'" in issue.message
-        for crosser, crossed in _KNOWN_CROSSINGS
-    )
+    return (
+        issue.code == "annotation_ink_overlap"
+        and any(
+            f"'{crosser}' draws" in issue.message
+            and f"through the label '{crossed}'" in issue.message
+            for crosser, crossed in _KNOWN_CROSSINGS
+        )
+    ) or (issue.code == "feature_leader_crossing" and issue.message == _KNOWN_FEATURE_CROSSING)
 
 
 def _lint_apart_from_the_known_crossings(dwg):
-    """Every issue except the two crossings this fixture is known to carry."""
+    """Every issue except the four explicitly rendered crossings this fixture carries."""
     return [issue for issue in dwg.lint() if not _is_known(issue)]
 
 
@@ -54,6 +62,7 @@ def test_issue_915_hole_callouts_share_one_spacing_solve():
     assert Counter(feature.kind for feature in dwg.model().features) == Counter(
         {
             "fillet": 4,
+            "blend": 16,
             "hole": 3,
             "pattern": 2,
             "pocket": 2,
@@ -106,8 +115,8 @@ def test_issue_915_actually_carries_the_known_crossings(detail_dwg):
     """
     page, dwg = detail_dwg
     matched = [issue for issue in dwg.lint() if _is_known(issue)]
-    assert len(matched) == len(_KNOWN_CROSSINGS), (
-        f"the {page} sheet no longer carries both known crossings — the filter in "
+    assert len(matched) == len(_KNOWN_CROSSINGS) + 1, (
+        f"the {page} sheet no longer carries every known crossing — the filter in "
         f"this module is now over-broad; matched {[i.message for i in matched]}"
     )
 

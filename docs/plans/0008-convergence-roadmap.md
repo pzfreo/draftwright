@@ -1,6 +1,6 @@
-# ADR 0008 convergence roadmap — one path, strangler migration
+# ADR 1 (was 0008) convergence roadmap — one path, strangler migration
 
-The plan of record for ADR 0008 (see Amendment 3). Supersedes the
+The plan of record for ADR 1 (was 0008) (see Amendment 3). Supersedes the
 reproduce-and-swap roadmap (`0008-compiler-migration-roadmap.md`, retired).
 
 **Goal:** one feature→dimensioning path —
@@ -61,13 +61,13 @@ Every migration PR must:
 - **Bosses detected once** — threaded through the one inventory; `find_bosses` runs
   once per build, closing the #244 residual (#264, PR #272).
 
-**The ADR-0008 convergence is COMPLETE (2026-06-30).** Every feature pass — holes,
+**The ADR 1 (was 0008) convergence is COMPLETE (2026-06-30).** Every feature pass — holes,
 sections, turned dims/lengths, slots, centre marks, envelope, the prismatic step-ladder
 + height + rotational OD/bore furniture (#237), and PMI/GD&T (#208) — is on the IR, and
 the foundation track is done. The orchestrator is `build model → plan → render` + the
 shared section/table passes; no per-feature engine pass remains.
 
-## Foundation hardening — ✅ complete (ADR 0008 Amendment 5, umbrella #241)
+## Foundation hardening — ✅ complete (ADR 1 (was 0008 Amendment 5), umbrella #241)
 
 A mid-migration review (#241) found the foundation must catch up before the last
 epics, because the IR is now load-bearing for the production passes. Each item is a
@@ -129,7 +129,7 @@ and the interface across the boundary was made IR-typed (Amendment 6):
 - ✅ **Retire `render_into`'s test-only parallel** (#251, PR #270) — removed; the
   seam + e2e-slice tests are repointed at the production renderers. No divergent path.
 
-## The IR / infrastructure boundary (ADR 0008 Amendment 4)
+## The IR / infrastructure boundary (ADR 1 (was 0008 Amendment 4))
 
 Migrate the **feature→dimension-intent** logic only. The **shared infrastructure**
 stays — the IR *feeds* it, never reabsorbs it:
@@ -159,4 +159,4 @@ not "rebuild the infra."
 - **Shared infrastructure intact** (fed by the IR, per Amendment 4) — not rewritten.
 - ✅ No `render_into` test-only parallel; no engine/IR duplication in the migrated passes.
 - Full standards + geometry suites green; X/Z parity tests per feature.
-- ✅ ADR 0008 status → **"migration complete; one path"** (2026-06-30, after #208).
+- ✅ ADR 1 (was 0008) status → **"migration complete; one path"** (2026-06-30, after #208).

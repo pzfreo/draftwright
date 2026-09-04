@@ -11,6 +11,7 @@ pockets on one centreline) is the end-to-end regression: it must render ONE grou
 from pathlib import Path
 
 from b123d_recognisers import (
+    Pocket,
     PocketArray,
     PocketGrid,
     recognise_pocket_patterns,
@@ -79,8 +80,6 @@ def test_non_coplanar_aligned_pockets_do_not_merge():
     # three identical pockets whose in-plane (XY) centres form a constant-pitch row but which
     # sit on DIFFERENT depth planes (staggered d_lo/d_hi) must NOT merge into one planar array
     # that does not exist — pattern detection projects the depth coord away (Codex #849).
-    from b123d_recognisers.slots import Pocket
-
     def pk(cy, d_lo):
         return Pocket(
             width_axis="x",
@@ -104,8 +103,6 @@ def test_non_coplanar_aligned_pockets_do_not_merge():
 def test_opposite_facing_pockets_do_not_merge():
     # identical pockets sharing the SAME absolute depth range but opening OPPOSITE faces sit on
     # different faces — d_lo/d_hi alone can't tell them apart, so open_sign keys them (Codex #849).
-    from b123d_recognisers.slots import Pocket
-
     def pk(cy, sign):
         return Pocket(
             width_axis="x",
@@ -129,8 +126,6 @@ def test_opposite_facing_pockets_do_not_merge():
 
 def test_edge_anchored_and_interior_pockets_do_not_form_one_pattern():
     from dataclasses import replace
-
-    from b123d_recognisers.slots import Pocket
 
     base = Pocket(
         width_axis="x",
@@ -170,6 +165,15 @@ def test_injected_value_equal_pattern_still_excludes_members():
     kinds = [f.kind for f in pm.features]
     assert kinds.count("pocket_pattern") == 1
     assert kinds.count("pocket") == 0  # value-equal copies still excluded
+
+
+def test_injected_pockets_derive_an_omitted_pattern_from_that_inventory():
+    pockets = recognise_pockets(_pocket_row(n=4, pitch=30.0))
+    pm = build_part_model(Box(200, 200, 20), pockets=pockets)
+    kinds = [feature.kind for feature in pm.features]
+
+    assert kinds.count("pocket_pattern") == 1
+    assert kinds.count("pocket") == 0
 
 
 def test_build_part_model_groups_and_excludes_members():

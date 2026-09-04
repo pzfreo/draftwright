@@ -232,7 +232,7 @@ def test_a_reversed_axis_keeps_the_same_frame(axis):
 
 def _oblique_and_principal_lattices():
     """The same 2×3 lattice laid in an oblique plane and in the Z plane."""
-    from b123d_recognisers._features import HoleRecord
+    from b123d_recognisers import HoleRecord
 
     axis = (0.6, -0.48, 0.64)
     n = math.hypot(*axis)
@@ -259,12 +259,12 @@ def test_an_oblique_lattice_does_not_become_a_pattern_feature():
     redeclared to a Z spread of 0.00, flat in the letter's canonical plane.
 
     Checked through `build_part_model`, not against the recogniser. `recognise_hole_patterns`
-    still FINDS this lattice — ADR 0013 says a recogniser reports the geometry it finds, and the
+    still FINDS this lattice — ADR 3 (was 0013) says a recogniser reports the geometry it finds, and the
     limitation is draftwright's IR, so the refusal lives at the adapter. Asserting the
     recogniser returned nothing would codify the layering violation the first cut had
     (#983 review).
     """
-    from b123d_recognisers._features import recognise_hole_patterns
+    from b123d_recognisers import recognise_hole_patterns
     from build123d import Box
 
     from draftwright.model.detect import build_part_model

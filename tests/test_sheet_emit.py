@@ -1,4 +1,4 @@
-"""The declarative Sheet-DSL emitter (ADR 0011 Amendment 1, #461).
+"""The declarative Sheet-DSL emitter (ADR 4 (was 0011 Amendment 1), #461).
 
 Generates a `Sheet(...)` script from a detected part — one commentable line per feature.
 Detected input only writes numbers (the part-seam form); we never fabricate geometry.
@@ -11,7 +11,25 @@ import sys
 from pathlib import Path
 
 import pytest
-from build123d import Box, Cylinder, Pos, RegularPolygon, Shape, export_step, extrude
+from build123d import (
+    Align,
+    Box,
+    BuildLine,
+    BuildSketch,
+    Cylinder,
+    Line,
+    Plane,
+    Polygon,
+    Pos,
+    RadiusArc,
+    RegularPolygon,
+    Rot,
+    Shape,
+    Vector,
+    export_step,
+    extrude,
+    make_face,
+)
 from build123d import chamfer as bd_chamfer
 from build123d import fillet as bd_fillet
 
@@ -118,6 +136,41 @@ def _polygonal_boss_plate():
 
 def _polygonal_stock():
     return extrude(RegularPolygon(20, 6), 30)
+
+
+def _paired_ramp_step():
+    profile = Polygon((0, -8), (0, 8), (-10, 0))
+    return Box(40, 40, 30) - Pos(20, 20, 0) * extrude(Plane.XZ * profile, 25)
+
+
+def _circular_blind_step():
+    return Box(40, 30, 20) - Pos(7.5, 15, 10) * Rot(0, 90, 0) * Cylinder(4, 25)
+
+
+def _through_step():
+    return Box(40, 30, 20) - Pos(15, 10, 0) * Box(20, 20, 30)
+
+
+def _rectangular_blind_slot():
+    stock = Box(30, 20, 40, align=(Align.CENTER, Align.CENTER, Align.MIN))
+    tool = Pos(0, 5, 0) * Box(10, 5, 20, align=(Align.CENTER, Align.MIN, Align.MIN))
+    return stock - tool
+
+
+def _round_bottom_blind_slot():
+    width, radius, length = 10.0, 3.0, 20.0
+    half_width = width / 2
+    half_flat = (width - 2 * radius) / 2
+    with BuildLine() as boundary:
+        Line((-half_width, 0), (half_width, 0))
+        RadiusArc((half_width, 0), (half_flat, -radius), radius)
+        Line((half_flat, -radius), (-half_flat, -radius))
+        RadiusArc((-half_flat, -radius), (-half_width, 0), radius)
+    with BuildSketch() as sketch:
+        make_face(boundary.line)
+    stock = Pos(0, -5, 0) * Box(30, 10, 40)
+    tool = extrude(sketch.sketch, amount=length, dir=Vector(0, 0, 1))
+    return stock - tool
 
 
 def _script_for(part, part_expr="part = PART", stem="drawing", **kw):
@@ -1157,10 +1210,12 @@ class TestObjectSpec:
             Drawing, "export", lambda self, *a, **k: captured.setdefault("drawing", self)
         )
         exec(compile(source, str(tmp_path / "referenced.py"), "exec"), {})  # noqa: S102
+        import featuremod  # type: ignore[import-not-found]
+
         rebuilt = next(f for f in captured["drawing"].model().features if f.kind == "hole")
         original = next(
             f
-            for f in detect_part_model(__import__("featuremod").make_features().body).features
+            for f in detect_part_model(featuremod.make_features().body).features
             if f.kind == "hole"
         )
         # Same exemption as the repository-wide #964 oracle: a singleton detector records its
@@ -1220,8 +1275,8 @@ class TestObjectSpec:
         )
         assert result.exit_code == 0, result.output
         source = (tmp_path / "shaft.py").read_text(encoding="utf-8")
-        assert "sheet.step(features.large_step)" in source
-        assert "sheet.step(features.small_step)" in source
+        assert "sheet.step(features.large_step, profile_group='detected-profile-1')" in source
+        assert "sheet.step(features.small_step, profile_group='detected-profile-1')" in source
         assert "sheet.step(diameter=" not in source
 
     def test_axially_offset_construction_tool_fails_closed_to_numeric(self, tmp_path, monkeypatch):
@@ -1577,8 +1632,13 @@ class TestCli:
         seen = []
 
         class DrawingStub:
+            out = str(tmp_path / "out")
+
             def export(self, *, formats):
                 return {name: str(tmp_path / f"out.{name}") for name in formats}
+
+            def write_report(self, path):
+                return path
 
         def build_stub(**kwargs):
             seen.append(kwargs["pmi"])
@@ -1719,7 +1779,7 @@ class TestCli:
 
     def test_the_retired_imperative_style_is_just_a_bad_value(self, tmp_path):
         """#720: `imperative` had its own explanatory message for one release after #940
-        retired it. That stub was dated to 0.4.0 alongside the `generate_script` one (ADR 0016),
+        retired it. That stub was dated to 0.4.0 alongside the `generate_script` one (ADR 4 (was 0016)),
         so it is now simply an unrecognised value. `--style` itself survives with its sole
         value, because a script passing `--style sheet` must keep working."""
         from typer.testing import CliRunner
@@ -2107,7 +2167,7 @@ class TestEmittedFeaturesAreNamed:
     """Every emitted feature line binds a name, and the names are usable (#922).
 
     Not primarily a dimension feature: it removes POSITIONAL addressing from the artefact.
-    The documented workflow is to comment a feature line out and re-run (ADR 0011 Amdt 1),
+    The documented workflow is to comment a feature line out and re-run (ADR 4 (was 0011 Amdt 1)),
     which shifts every later index — so `sheet.of(2)` silently retargets onto a neighbour,
     while `sheet.of(hole1)` raises `NameError` at the line you edited.
 
@@ -2347,7 +2407,7 @@ class TestAuthoredSetRoundTrips:
     def test_an_EMPTY_authored_set_round_trips(self):
         """`authored_dimensions=()` is a valid model: "the author chose no dimensions".
 
-        ADR 0016 distinguishes it from `None` ("the planner chooses"), and `build_drawing`
+        ADR 4 (was 0016) distinguishes it from `None` ("the planner chooses"), and `build_drawing`
         honours both — but the emitted script could not express it. The authored source was
         entered IMPLICITLY, by calling `dimension(...)` at least once, so a set with no lines
         stated its source in a comment and then failed the mandatory-source check at build:
@@ -2456,7 +2516,11 @@ class TestTheDimensionMirror:
             for x in (-18, 18):
                 for y in (-18, 18):
                     part -= Pos(x, y, 0) * Cylinder(2, 10)
-            return part.rotate(Axis.X, 90)
+            part = part.rotate(Axis.X, 90)
+            # A genuine Z boss keeps the plan view semantically required, so this corpus
+            # continues to observe Y-axis ``centerline_plan`` furniture after RaisedPad v2
+            # stopped misclassifying two rotated lugs as pads.
+            return part + Pos(0, 0, 21) * Cylinder(4, 5)
 
         return {
             "plate+hole": Box(80, 50, 8) - Pos(-20, 0, 0) * Cylinder(4, 20),
@@ -2500,6 +2564,12 @@ class TestTheDimensionMirror:
             # roster stops saying "untested".
             "chamfer": _chamfered_corner(bd_chamfer, 4),
             "fillet": _chamfered_corner(bd_fillet, 3),
+            "blend": _chamfered_corner(bd_fillet, 0.2),
+            "circular blind step": _circular_blind_step(),
+            "paired ramp": _paired_ramp_step(),
+            "through step": _through_step(),
+            "rectangular blind slot": _rectangular_blind_slot(),
+            "round-bottom blind slot": _round_bottom_blind_slot(),
             "flat": Cylinder(10, 30) - Pos(10, 0, 0) * Box(10, 40, 40),  # D-shaft
             "groove": Cylinder(10, 40) - (Cylinder(10, 4) - Cylinder(8, 4)),  # circlip groove
             "plate": Box(80, 50, 8) + Pos(-36, 0, 29) * Box(8, 50, 50),  # base + upright
@@ -2520,7 +2590,10 @@ class TestTheDimensionMirror:
     #: only an envelope) and "slot" (detected a pocket) until #947's review counted them.
     _EXPECTED_KINDS = {
         "plate+hole": {"hole"},
-        "flange (no envelope feature)": {"hole", "pattern", "pad", "step"},
+        # RaisedPad v2 no longer treats two of the flange's end lugs as +Z pads after the
+        # whole part is rotated. They are the four genuine Y-opening edge pockets below;
+        # the dedicated "pad" fixture remains this corpus's pad mirror evidence.
+        "flange (no envelope feature)": {"boss", "hole", "pattern", "pocket", "step"},
         "stepped": {"step_level"},
         "slot": {"slot"},
         "pocket": {"pocket"},
@@ -2537,6 +2610,12 @@ class TestTheDimensionMirror:
         "slot pattern": {"slot_pattern"},
         "chamfer": {"chamfer"},
         "fillet": {"fillet"},
+        "blend": {"blend"},
+        "circular blind step": {"circular_blind_step"},
+        "paired ramp": {"paired_ramp_step"},
+        "through step": {"through_step"},
+        "rectangular blind slot": {"rectangular_blind_slot"},
+        "round-bottom blind slot": {"round_bottom_blind_slot"},
         "flat": {"flat"},
         "groove": {"groove"},
         "plate": {"plate"},
@@ -2621,7 +2700,7 @@ class TestTheDimensionMirror:
 
     def test_a_correlated_set_emits_ONE_line(self):
         """A `step_height` ladder is one `AddressableDimension` holding N rungs, so there is
-        one line and no member line to mislead (ADR 0016 identity tier 3)."""
+        one line and no member line to mislead (ADR 4 (was 0016) identity tier 3)."""
         from build123d import Box, Pos
 
         part = Box(40, 12, 40) - Pos(10, 0, 20) * Box(20, 12, 20)
@@ -2726,7 +2805,7 @@ class TestTheDimensionMirror:
 
 #: Annotations a generated script legitimately does NOT declare, keyed by EXACT name prefix
 #: where the family is closed, and each carrying the argument that it can never be a
-#: dimension line (ADR 0016's permanent-exception category, #937).
+#: dimension line (ADR 4 (was 0016)'s permanent-exception category, #937).
 #:
 #: Deliberately NOT subsystem-wide prefixes: `"section_"` would admit every annotation that
 #: subsystem ever grows, including a future `section_depth` measurement — the exact blind
@@ -2828,6 +2907,8 @@ _KIND_MIRROR_COVERAGE = {
     "step_level": "corpus",
     "slot": "corpus",
     "pocket": "corpus",
+    "rectangular_blind_slot": "corpus",
+    "round_bottom_blind_slot": "corpus",
     "pad": "corpus",
     "envelope": "corpus",
     "rotational": "corpus",
@@ -2838,9 +2919,13 @@ _KIND_MIRROR_COVERAGE = {
     # classified this exact behaviour as declared since #962. Calling it unnameable here
     # contradicted that, and rewording the reason would have kept the false claim
     # (Codex review of #973, round 3).
-    "pmi": "declared — raw AP242, emitted as sheet.add(PmiFeature(...)) (ADR 0016)",
+    "pmi": "declared — raw AP242, emitted as sheet.add(PmiFeature(...)) (ADR 4 (was 0016))",
     "chamfer": "corpus",
     "fillet": "corpus",
+    "blend": "corpus",
+    "circular_blind_step": "corpus",
+    "paired_ramp_step": "corpus",
+    "through_step": "corpus",
     "flat": "corpus",
     "groove": "corpus",
     "plate": "corpus",
@@ -3234,7 +3319,7 @@ class TestTheScriptAccountsForEveryAnnotation:
         )
 
     def test_the_furniture_list_is_argued_not_just_listed(self):
-        """A permanent exception carries its argument (ADR 0016, #937). Without one a reader
+        """A permanent exception carries its argument (ADR 4 (was 0016), #937). Without one a reader
         cannot tell it from unfinished work, and the list decays into a suppression."""
         for prefix, why in _SCRIPT_FURNITURE.items():
             assert len(why) > 20, f"{prefix} needs a reason it can never be a dimension line"
@@ -3334,6 +3419,12 @@ _FIDELITY_ROUTE = {
     "channel": ("detected", "channel"),
     "chamfer": ("detected", "chamfer"),
     "fillet": ("detected", "fillet"),
+    "blend": ("detected", "convex Blend chain"),
+    "circular_blind_step": ("detected", "circular blind step"),
+    "paired_ramp_step": ("detected", "paired ramp"),
+    "through_step": ("detected", "through step"),
+    "rectangular_blind_slot": ("detected", "rectangular blind slot"),
+    "round_bottom_blind_slot": ("detected", "round-bottom blind slot"),
     "flat": ("detected", "flat"),
     "groove": ("detected", "groove"),
     "rotational": ("detected", "turned shaft"),
@@ -3484,6 +3575,10 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
         ("hole", "members"): "a single hole's member list is exactly its own frame origin",
         ("plate", "frame"): "detection fills a plate's frame with the PART centroid, so it "
         "carries no per-plate information and nothing reads it",
+        ("step", "profile"): "provider profile identity is recognition provenance; emitted "
+        "declarations reconstruct physical grouping from step axis lines, spans and grooves",
+        ("step", "profile_group"): "generated declarations replace the provider key with a "
+        "Draftwright-owned opaque group token",
     }
 
     def _exemption_holds(self, original, rebuilt, field):
@@ -3504,6 +3599,10 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
                 and tuple(rebuilt.members) == ()
                 and tuple(map(tuple, original.members)) == (tuple(original.frame.origin),)
             )
+        if (original.kind, field) == ("step", "profile"):
+            return original.profile is not None and rebuilt.profile is None
+        if (original.kind, field) == ("step", "profile_group"):
+            return original.profile is not None and rebuilt.profile_group is not None
         return False
 
     @staticmethod
@@ -3578,6 +3677,12 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
             # these are the same fixtures the mirror corpus already uses.
             "chamfer": _chamfered_corner(bd_chamfer, 4),
             "fillet": _chamfered_corner(bd_fillet, 3),
+            "blend": _chamfered_corner(bd_fillet, 0.2),
+            "circular blind step": _circular_blind_step(),
+            "paired ramp": _paired_ramp_step(),
+            "through step": _through_step(),
+            "rectangular blind slot": _rectangular_blind_slot(),
+            "round-bottom blind slot": _round_bottom_blind_slot(),
             "flat": Cylinder(10, 30) - Pos(10, 0, 0) * Box(10, 40, 40),
             "groove": Cylinder(10, 40) - (Cylinder(10, 4) - Cylinder(8, 4)),
             "pad": Box(80, 60, 10) + Pos(0, 0, 7) * Box(30, 20, 4),
@@ -3636,6 +3741,12 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
         "stepped": {"step_level"},
         "chamfer": {"chamfer"},
         "fillet": {"fillet"},
+        "blend": {"blend"},
+        "circular blind step": {"circular_blind_step"},
+        "paired ramp": {"paired_ramp_step"},
+        "through step": {"through_step"},
+        "rectangular blind slot": {"rectangular_blind_slot"},
+        "round-bottom blind slot": {"round_bottom_blind_slot"},
         "flat": {"flat"},
         "groove": {"groove"},
         "pad": {"pad"},

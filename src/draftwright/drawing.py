@@ -1,4 +1,4 @@
-"""The Drawing result object + table builder (#138 / ADR 0005, P6).
+"""The Drawing result object + table builder (#138 / ADR 1 (was 0005), P6).
 
 `Drawing` is the composable build result: it owns the render list and view
 map and delegates identity to the registry, coverage to lint, and exposes
@@ -15,12 +15,18 @@ import os
 import sys
 import tempfile
 import warnings
+from collections.abc import Mapping
+from contextvars import ContextVar
 from dataclasses import dataclass
 from dataclasses import field as dataclasses_field
+from itertools import permutations
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 if TYPE_CHECKING:
     from b123d_recognisers import RecognitionResult
+    from b123d_recognisers.evidence import RecognitionEvidence
+
+    from draftwright.recognition_ownership import RecognitionOwnership
 
 # PEP 702 @deprecated. A `sys.version_info` guard (not try/except) so the type checker,
 # which targets the 3.10 floor, resolves the backport branch instead of `warnings.deprecated`
@@ -32,11 +38,15 @@ else:
 
 from b123d_recognisers import analyse_cylinders
 from build123d import (
+    Align,
     Color,
     ExportSVG,
     LineType,
     Location,
+    Mode,
+    Text,
 )
+from build123d_drafting.helpers import DEFAULT_FONT_PATH
 
 from draftwright._core import (
     _MARGIN,
@@ -48,9 +58,12 @@ from draftwright._core import (
     _log,
     _table_metrics,
     _tag_sequence,
+    _text_line_spacing_em,
+    _text_size,
     _tol_suffix,
     place_annotation,
 )
+from draftwright._geometry import _END_ON
 from draftwright.annotations._common import (
     PlacementContext,
     _register_hole_table_coverage,
@@ -68,11 +81,13 @@ from draftwright.export import (
     _render_png,
     add_svg_hyperlink,
     add_svg_metadata,
+    canonicalize_svg,
     fix_svg_page_size,
     sanitize_svg_arcs,
     set_dxf_metadata,
     write_dxf,
 )
+from draftwright.fonts import PLEX_MONO
 from draftwright.intents import Intent
 from draftwright.layout import FitBoxTrace, fit_box
 from draftwright.linting import (
@@ -81,26 +96,43 @@ from draftwright.linting import (
     LintIssue,
     _suggest_fix,
     is_dimension_like,
+    lint_angled_step_coverage,
     lint_axial_coverage,
+    lint_blend_coverage,
     lint_boss_height_coverage,
+    lint_chamfer_coverage,
     lint_channel_coverage,
+    lint_circular_blind_step_coverage,
     lint_claimed_representations,
     lint_declaration_reconciliation,
     lint_declared_gear_coverage,
     lint_drawing,
     lint_feature_coverage,
+    lint_fillet_coverage,
     lint_flat_coverage,
+    lint_groove_coverage,
     lint_hole_coverage,
     lint_location_coverage,
+    lint_pad_coverage,
+    lint_paired_ramp_step_coverage,
+    lint_passage_coverage,
+    lint_plate_coverage,
     lint_pmi_extraction,
     lint_pmi_ignored,
     lint_pmi_lowering,
     lint_pmi_rendering,
+    lint_pocket_coverage,
+    lint_pocket_pattern_coverage,
+    lint_polygonal_boss_coverage,
     lint_polygonal_stock_coverage,
     lint_principal_profile_coverage,
     lint_prismatic_coverage,
+    lint_prismatic_pocket_coverage,
     lint_profiled_bore_coverage,
+    lint_rectangular_blind_slot_coverage,
+    lint_round_bottom_blind_slot_coverage,
     lint_slot_coverage,
+    lint_through_step_coverage,
     pmi_stage_summary,
 )
 from draftwright.linting.issues import _collect_issue_aggregation, _current_issue_aggregation
@@ -114,16 +146,58 @@ from draftwright.recognition_cache import RecognitionCache
 from draftwright.registry import AnnotationRegistry
 from draftwright.repair import repair_drawing
 
+
+def _exact_vertex_rotation(source_vertices, target_vertices) -> float | None:
+    """Rotation when two ordered outlines differ only by translation/scale/rotation."""
+    if len(source_vertices) != len(target_vertices) or len(source_vertices) < 2:
+        return None
+    source = [complex(point.X, point.Y) for point in source_vertices]
+    target = [complex(point.X, point.Y) for point in target_vertices]
+    source_mean, target_mean = sum(source) / len(source), sum(target) / len(target)
+    source = [point - source_mean for point in source]
+    target = [point - target_mean for point in target]
+    source_norm = sum(abs(point) ** 2 for point in source)
+    target_norm = sum(abs(point) ** 2 for point in target)
+    if min(source_norm, target_norm) < 1e-12:
+        return None
+    transform = sum(t * s.conjugate() for s, t in zip(source, target, strict=True)) / source_norm
+    error = sum(abs(transform * s - t) ** 2 for s, t in zip(source, target, strict=True))
+    if error / target_norm >= 1e-12:
+        return None
+    return math.degrees(math.atan2(transform.imag, transform.real))
+
+
+def _exact_face_rotation(source_faces, target_faces) -> float | None:
+    """Exact outline rotation independent of disconnected-face enumeration order."""
+    if len(source_faces) != len(target_faces) or not source_faces or len(source_faces) > 6:
+        return None
+    source_vertices = [vertex for face in source_faces for vertex in face.vertices()]
+    source_counts = [len(face.vertices()) for face in source_faces]
+    for ordered_targets in permutations(target_faces):
+        if source_counts != [len(face.vertices()) for face in ordered_targets]:
+            continue
+        target_vertices = [vertex for face in ordered_targets for vertex in face.vertices()]
+        rotation = _exact_vertex_rotation(source_vertices, target_vertices)
+        if rotation is not None:
+            return rotation
+    return None
+
+
+_PDF_VECTOR_ONLY_TEXT = str.maketrans("⌴⌵↧", "   ")
+
 # Codes that check standards/geometry correctness rather than pure page
 # layout. Grouped so a caller (and the #30 repair loop) can tell a wrong
 # drawing from a merely tight one.
 _GEOMETRY_AWARE_CODES = frozenset(
     {
+        "angled_step_requirement_unsupported",
         "feature_not_dimensioned",
         "feature_count_mismatch",
         "feature_not_located",
         "feature_no_centermark",
         "pad_footprint_not_defined",
+        "passage_requirement_unsupported",
+        "prismatic_pocket_requirement_unsupported",
         "pocket_not_located",
         "unrecognised_defining_geometry",
         "pmi_not_lowered",
@@ -140,9 +214,24 @@ _GEOMETRY_AWARE_CODES = frozenset(
         "flat_requirement_suppressed",
         "flat_requirement_missing",
         "flat_requirement_unverifiable",
+        "groove_requirement_suppressed",
+        "groove_requirement_missing",
+        "groove_requirement_unverifiable",
         "hole_requirement_suppressed",
         "hole_requirement_missing",
         "hole_requirement_unverifiable",
+        "pad_requirement_suppressed",
+        "pad_requirement_missing",
+        "pad_requirement_unverifiable",
+        "plate_requirement_suppressed",
+        "plate_requirement_missing",
+        "plate_requirement_unverifiable",
+        "polygonal_boss_requirement_suppressed",
+        "polygonal_boss_requirement_missing",
+        "polygonal_boss_requirement_unverifiable",
+        "pocket_requirement_suppressed",
+        "pocket_requirement_missing",
+        "pocket_requirement_unverifiable",
         "missing_principal_dimension",
         "label_vs_measured",
         "dim_inside_part",
@@ -150,6 +239,7 @@ _GEOMETRY_AWARE_CODES = frozenset(
         "location_ref_dropped",
         "off_axis_location_dropped",
         "hole_pattern_dim_dropped",
+        "pocket_pattern_dim_dropped",
         "step_dim_dropped",
         "plate_thickness_dropped",
         "step_position_dropped",
@@ -183,6 +273,24 @@ _GEOMETRY_AWARE_CODES = frozenset(
 _SCORE_ERROR_PENALTY = 0.2
 _SCORE_WARNING_PENALTY = 0.05
 
+# ``Drawing.report()`` and the completeness component must project one identical physical
+# requirement roster.  Keep that report-scoped evidence task-local so the public
+# ``lint_summary()`` signature and subclass dispatch remain unchanged.
+_REPORT_REQUIREMENTS: ContextVar[tuple[object, Mapping[str, tuple[Any, ...]], object] | None] = (
+    ContextVar("draftwright_report_requirements", default=None)
+)
+
+
+@contextlib.contextmanager
+def _reuse_report_requirements(
+    owner: object, outcomes: Mapping[str, tuple[Any, ...]], dimension_plan: object
+):
+    token = _REPORT_REQUIREMENTS.set((owner, outcomes, dimension_plan))
+    try:
+        yield
+    finally:
+        _REPORT_REQUIREMENTS.reset(token)
+
 
 @dataclass
 class FeatureInfo:
@@ -203,7 +311,7 @@ class FeatureInfo:
 class _HoleInstance(NamedTuple):
     """One hole occurrence for the table / balloon renderers — the IR fields those
     passes read (``location`` + ``diameter`` for a balloon, ``through``/``depth`` for a
-    table row), so no ``HoleRecord`` is needed (ADR 0008; #584 WP1). Duck-compatible
+    table row), so no ``HoleRecord`` is needed (ADR 1 (was 0008); #584 WP1). Duck-compatible
     with the recogniser record the orchestrator's balloon path still passes."""
 
     location: tuple
@@ -217,11 +325,11 @@ def _ir_hole_groups(model, target_axis: str) -> list[tuple]:
 
     One group per IR hole/pattern feature — the spec-grouping + pattern recognition
     detection already did, so no ``HoleRecord``/``HoleSpec`` re-grouping is needed
-    (ADR 0008 Am6; #584 WP1). ``spec`` is the representative ``HoleFeature`` (carries
+    (ADR 1 (was 0008 Am6); #584 WP1). ``spec`` is the representative ``HoleFeature`` (carries
     diameter / through / depth); ``positions`` are its member centres (drive balloon
     placement); ``count`` is the feature's own count (the table QTY / FeatureInfo.count).
     They coincide on the detected path (``members`` is fully populated); ``count`` stays
-    faithful for a declared feature whose ``members`` are unspecified (ADR 0011)."""
+    faithful for a declared feature whose ``members`` are unspecified (ADR 4 (was 0011))."""
     groups: list[tuple] = []
     for f in model.features:
         if f.kind == "hole" and f.frame.axis == target_axis:
@@ -231,15 +339,28 @@ def _ir_hole_groups(model, target_axis: str) -> list[tuple]:
     return groups
 
 
-# Machined-feature LEADER callouts (#148): a chamfer/fillet/flat/pocket/groove exposes no
-# linear-dim param (its params carry no span — it is a Leader callout, not a Dimension), so
-# the reconstruction can't route it through dimension(). callout(f) records a per-feature
+# Machined-feature LEADER callouts (#148): these features use semantic leader callouts. Most
+# expose no spanned linear parameter; paired-ramp's run is explicitly part of its compound
+# leader convention. The reconstruction therefore can't route them through dimension().
+# callout(f) records a per-feature
 # intent that the matching per-kind finalize stage renders through the kind's auto-pass
 # renderer, restricted to that feature (only=), at the canonical _PASS_SEQUENCE slot. Each
 # name is BOTH the feature.kind and the stage/sequence key. Plate is deliberately EXCLUDED —
 # it IS a spanned dimension (corridor-registered + drained, not a direct leader), so it
 # reconstructs through dimension(f, "length", role="thickness"), not callout() (#811 review).
-_MACHINED_CALLOUT_KINDS = ("chamfer", "fillet", "flat", "pocket", "groove")
+_MACHINED_CALLOUT_KINDS = (
+    "chamfer",
+    "circular_blind_step",
+    "fillet",
+    "blend",
+    "paired_ramp_step",
+    "flat",
+    "pocket",
+    "rectangular_blind_slot",
+    "round_bottom_blind_slot",
+    "pad",
+    "groove",
+)
 
 
 @dataclass(frozen=True)
@@ -309,9 +430,14 @@ def feature_key(f) -> str | None:
     axis = getattr(frame, "axis", "")
     if origin is None:
         return f"{kind}/{axis}" if axis else kind
-    x, y, z = (float(v) for v in (origin[0], origin[1], origin[2]))
+
+    def clean(value) -> float:
+        rounded = round(float(value), 3)
+        return 0.0 if rounded == 0 else rounded
+
+    x, y, z = (clean(v) for v in (origin[0], origin[1], origin[2]))
     sizes = [
-        f"{name}={float(v):.3f}"
+        f"{name}={clean(v):.3f}"
         for name in _KEY_SCALARS
         if isinstance(v := getattr(f, name, None), (int, float))
     ]
@@ -326,14 +452,17 @@ _MATERIAL_MESH_UNSET = object()
 
 @dataclass
 class BuildState:
-    """The build context a finished :class:`Drawing` carries (ADR 0005 §2 / #639).
+    """The build context a finished :class:`Drawing` carries (ADR 1 (was 0005 §2) / #639).
 
     One typed home for what used to be four loose private attributes:
 
     - ``analysis`` — the pipeline's :class:`Analysis` namespace.
-    - ``part_model`` — the detected/declared ADR-0008 PartModel (read surface for
+    - ``part_model`` — the detected/declared ADR 1 (was 0008) PartModel (read surface for
       semantic edits, #397).
-    - ``recognition`` — the ADR 0017 aggregate reused by model detection and critique.
+    - ``recognition`` — the ADR 3 (was 0017) aggregate reused by model detection and critique.
+    - ``recognition_ownership`` — same-run represented, grouped/pattern, nested, conditional
+      aggregate, and ownerless occurrence outcomes captured while conversion makes the decision;
+      provider references never enter the IR waist.
     - ``view_edge_cache`` — lint's per-view edge bboxes, keyed on id(view shape)
       (helpers #143/#164).
     - ``ann_box_cache`` — lint's annotation bounding boxes (#602): identity- AND
@@ -355,6 +484,7 @@ class BuildState:
 
     analysis: Analysis | None = None
     recognition_cache: RecognitionCache = dataclasses_field(default_factory=RecognitionCache)
+    recognition_ownership: RecognitionOwnership | None = None
     part_model: object | None = None
     view_edge_cache: dict = dataclasses_field(default_factory=dict)
     ann_box_cache: dict = dataclasses_field(default_factory=dict)
@@ -371,7 +501,7 @@ class BuildState:
     principal_profile_cache: tuple[object, bool, tuple[LintIssue, ...]] | None = None
     trace: Any = None
     detail_view: bool = False
-    #: The ADR 0018 :class:`~draftwright.view_plan.ResolvedViewPlan` — which views this drawing
+    #: The ADR 2 (was 0018) :class:`~draftwright.view_plan.ResolvedViewPlan` — which views this drawing
     #: has and where their blocks sit. ONE typed attachment, filled once by the builder at the
     #: same site it creates the views, because the alternative the ADR names explicitly is what
     #: the topology was before: the answer spread across `Analysis` fields, three hardcoded
@@ -393,7 +523,40 @@ class BuildState:
 
     @recognition.setter
     def recognition(self, value: RecognitionResult | None) -> None:
-        self.recognition_cache.result = value
+        self.recognition_cache.seed(value)
+        self.recognition_ownership = None
+
+    def attach_recognition(
+        self,
+        result: RecognitionResult | None,
+        *,
+        evidence: RecognitionEvidence | None = None,
+        cache: RecognitionCache | None = None,
+        ownership: RecognitionOwnership | None = None,
+    ) -> None:
+        """Attach one coherent acquisition at the builder's single fill site.
+
+        A rebuilt drawing either receives the prior run's complete cache or a result/evidence
+        pair from its current analysis. Mixing both sources would make run ownership ambiguous
+        and therefore fails closed.
+        """
+
+        if cache is not None:
+            if result is not None or evidence is not None or ownership is not None:
+                raise ValueError("cannot attach both a recognition cache and a new acquisition")
+            self.recognition_cache = cache
+            self.recognition_ownership = None
+            return
+        if ownership is not None and ownership.evidence is not evidence:
+            raise ValueError("recognition ownership and evidence must come from the same run")
+        self.recognition_cache.seed(result, evidence=evidence)
+        self.recognition_ownership = ownership
+
+    @property
+    def recognition_evidence(self) -> RecognitionEvidence | None:
+        """Run-scoped provider evidence paired with :attr:`recognition`, when available."""
+
+        return self.recognition_cache.evidence
 
     def clear_geometry_caches(self) -> None:
         """The one invalidation seam (finalize rollback): view edges + annotation
@@ -406,10 +569,10 @@ class BuildState:
     def ensure_recognition(self, part) -> RecognitionResult:
         """The run's recognition aggregate, recognising *part* once if nothing has yet.
 
-        A declared build performs no recognition (ADR 0011 / #1022), so critique on that path
+        A declared build performs no recognition (ADR 4 (was 0011) / #1022), so critique on that path
         has no inventory to judge against and must produce one.  It is built **here**, in the
         typed build state, and at most once per drawing: a lint-side or ``Drawing``-side memo
-        would make critique a second recognition owner, which is exactly what ADR 0017 exists
+        would make critique a second recognition owner, which is exactly what ADR 3 (was 0017) exists
         to remove (and what review of #1021 rejected).
 
         On a detected build ``recognition`` is already filled by the builder, so this returns
@@ -424,7 +587,7 @@ class ViewNotPlanned(KeyError):
     Subclasses :class:`KeyError` so existing handlers keep working — the point is not a new
     control-flow contract but a named, inspectable one: `view` is what was asked for and
     `planned` is what the sheet actually carries, so a caller can report the miss instead of
-    re-deriving it from a message (ADR 0018 §6).
+    re-deriving it from a message (ADR 2 (was 0018 §6)).
     """
 
     def __init__(self, view: str, planned: tuple[str, ...] = ()):
@@ -472,6 +635,10 @@ class Drawing:
         assembly: feature-coverage severity control — ``None`` auto-detects a
             multi-solid part as an assembly (per-part bores at ``info``),
             ``True``/``False`` forces it (#69).
+        reproducible: default for :meth:`export`'s ``reproducible=`` — when true, two
+            exports of this drawing are byte-identical. ``False`` by default because
+            it costs roughly a third of DXF export time again (see
+            :func:`draftwright.export._elements`).
 
     The constructor also accepts ``cyls``, a precomputed
     ``analyse_cylinders(part)`` result (cached privately; computed lazily on
@@ -491,8 +658,10 @@ class Drawing:
         centroid,
         out,
         part=None,
+        working_part=None,
         cyls=None,
         assembly=None,
+        reproducible=False,
     ):
         self.scale = scale
         # Public, JSON-friendly record of how the requested drawing scale was resolved
@@ -515,12 +684,12 @@ class Drawing:
             "chosen": (),
             "attempts": (),
         }
-        # Public, JSON-friendly record of how the sheet ARRANGEMENT was resolved — ADR 0018
+        # Public, JSON-friendly record of how the sheet ARRANGEMENT was resolved — ADR 2 (was 0018)
         # §5's fourth dimension and §6's "infeasibility is a first-class result" (#1130).
         # Always present for the same reason as `section_decision`: a caller must not have to
         # infer from a log line whether an alternative was tried and rejected. `attempts` is
         # also the honest compile count, since proving an alternative preserves every
-        # requirement costs a real build (ADR 0014 Amdt 3 — measure, do not predict).
+        # requirement costs a real build (ADR 2 (was 0014 Amdt 3) — measure, do not predict).
         self.arrangement_decision = {
             "chosen": "columns",
             "attempts": ({"arrangement": "columns", "status": "chosen", "blockers": ()},),
@@ -541,10 +710,17 @@ class Drawing:
             "detail": "the section pass has not run",
         }
         self.part = part
+        self._working_part = part if working_part is None else working_part
         self._cyl_cache = cyls
         # None → the coverage lint auto-detects a multi-solid part as an
         # assembly; True/False forces assembly/strict severity (#69).
         self.assembly = assembly
+        # Default for `export(reproducible=…)`: settle element order and the
+        # metadata the exporters take from the clock, so two runs write the same
+        # bytes. Off by default because the ordering costs about a third of DXF
+        # export time again; a caller who wants to diff or checksum its output
+        # turns it on, here or per export call.
+        self.reproducible = reproducible
         self.page_w = page_w
         self.page_h = page_h
         self.tb_w = tb_w
@@ -557,15 +733,15 @@ class Drawing:
         self.items: list = []
         self._coords: dict = {}
         # Annotation identity, ownership, pins, and build issues live in the
-        # registry (#138 / ADR 0005, Step 2), reached through its own surface
+        # registry (#138 / ADR 1 (was 0005), Step 2), reached through its own surface
         # (`in reg` / `names()` / `issues`) — the `dwg._named` &c. compat aliases
-        # that shadowed them were deleted at the ADR 0005 §4 exit date (#720).
+        # that shadowed them were deleted at the ADR 1 (was 0005 §4) exit date (#720).
         self._registry = AnnotationRegistry()
         # Lint-side coverage signal (pattern callouts, patterned holes, dropped
-        # callout diameters) lives in its own owner (#138 / ADR 0005, Step 3);
+        # callout diameters) lives in its own owner (#138 / ADR 1 (was 0005), Step 3);
         # its `dwg._pattern_callouts` &c. aliases went the same way (#720).
         self._coverage = CoverageState()
-        # ADR 0005 §2 (#639): the drawing's build context in ONE typed object —
+        # ADR 1 (was 0005 §2) (#639): the drawing's build context in ONE typed object —
         # analysis, part model, and the two geometry caches lint persists.
         # Constructed empty here; builder._assemble fills it at a single site.
         # The render passes never read it off the drawing (the empty
@@ -574,7 +750,7 @@ class Drawing:
         self._build = BuildState()
         self.svg_path: str | None = None
         self.dxf_path: str | None = None
-        # True when the caller SUPPLIED the model (build_drawing(model=…), ADR 0011) rather
+        # True when the caller SUPPLIED the model (build_drawing(model=…), ADR 4 (was 0011)) rather
         # than it being detected — gates the model-driven hole/pattern render membership so a
         # declared hole draws even where detection missed it, no-op for the detected path (#448).
         self._model_declared: bool = False
@@ -586,13 +762,33 @@ class Drawing:
 
     @property
     def view_plan(self):
-        """The resolved view plan (ADR 0018), or ``None`` before the views are created.
+        """The resolved view plan (ADR 2 (was 0018)), or ``None`` before the views are created.
 
         READ ONLY, and there is no setter: a resolved plan that a caller can rebind is
-        indistinguishable from an authored request, which is the confusion ADR 0018 §1 exists to
+        indistinguishable from an authored request, which is the confusion ADR 2 (was 0018 §1) exists to
         prevent. Editing means converting it into constraints explicitly and resolving again.
         """
         return self._build.view_plan
+
+    @property
+    def working_part(self):
+        """The coordinate-coherent compiler/projection solid (read-only)."""
+        return self._working_part
+
+    @property
+    def recognition_frame(self):
+        """The provider caller-to-working frame, or ``None`` outside a framed build."""
+        return getattr(self._build.analysis, "recognition_frame", None)
+
+    @property
+    def recognition_frame_decision(self) -> dict[str, object]:
+        """A copy of the explicit framed/raw/refusal selection outcome."""
+        decision = getattr(self._build.analysis, "recognition_frame_decision", None)
+        return (
+            dict(decision)
+            if decision is not None
+            else {"status": "not_evaluated", "gauge": None, "refusal_reason": None}
+        )
 
     @property
     def registry(self):
@@ -679,7 +875,7 @@ class Drawing:
 
         Raises :class:`ViewNotPlanned` when *view* is not on the sheet. A bare ``KeyError``
         from inside whichever render pass happened to ask first is not a usable answer to
-        "this drawing does not have that view" — ADR 0018 §6 wants an absent view to be a
+        "this drawing does not have that view" — ADR 2 (was 0018 §6) wants an absent view to be a
         named result, because view-set selection makes asking for one the normal case rather
         than a bug (#1130).
         """
@@ -762,8 +958,8 @@ class Drawing:
         return result
 
     def model(self):
-        """The detected **PartModel** this drawing was built from (ADR 0008 IR) — the
-        read surface for semantic edits (#397, ADR 0001 Amendment 1).
+        """The detected **PartModel** this drawing was built from (ADR 1 (was 0008) IR) — the
+        read surface for semantic edits (#397, ADR 4 (was 0001 Amendment 1)).
 
         Both input scenarios converge here: a STEP file and a build123d solid both
         normalise to a solid, are detected once, and produce the *same* feature model
@@ -784,19 +980,114 @@ class Drawing:
         return self._part_model
 
     def recognition(self) -> RecognitionResult | None:
-        """The ADR 0017 recognition inventory used to build this drawing.
+        """The ADR 3 (was 0017) recognition inventory used to build this drawing.
 
         This is the geometry-only evidence below the detected/declared :meth:`model` and
         drafting policy.  It is an experimental, read-only result.
 
         ``None`` for a bare ``Drawing`` that did not pass through :func:`build_drawing`, and
         for a **declared** build that has not yet been critiqued — that path recognises
-        nothing (ADR 0011 / #1022) and only builds an aggregate when something asks for
+        nothing (ADR 4 (was 0011) / #1022) and only builds an aggregate when something asks for
         physical critique.  So ``None`` here means "nothing has needed recognition yet", never
         "this part has no features".
         """
 
         return self._build.recognition
+
+    def recognition_evidence(self) -> RecognitionEvidence | None:
+        """The run-scoped provider evidence paired with :meth:`recognition`.
+
+        This experimental, read-only view is available for raw automatic recognition and
+        after the first physical critique of a declared drawing. It is ``None`` before that
+        lazy critique, for a bare drawing, and for framed recognition while the provider lacks
+        a public framed-evidence contract. Draftwright never reruns recognition merely to fill
+        this value. The returned evidence borrows exact faces from the source part, so callers
+        must not mutate that part while using the evidence view.
+        """
+
+        return self._build.recognition_evidence
+
+    def recognition_ownership(self) -> RecognitionOwnership | None:
+        """Run-local accepted-occurrence ownership captured during detected conversion.
+
+        This experimental, read-only ledger is available only when raw automatic recognition
+        supplied :meth:`recognition_evidence`. It currently classifies unconditional one-to-one
+        adapters; singleton/grouped/pattern holes, slots, and pockets; nested countersinks; and
+        settled ownerless unsupported, deferred, and evidence-only policy. Remaining nested and
+        classification-only families stay explicitly unclassified. It carries opaque provider
+        references and therefore cannot be serialized or used as persistent feature identity.
+        """
+
+        return self._build.recognition_ownership
+
+    def report(self) -> dict[str, object]:
+        """Return the versioned machine-readable recognition and drawing report.
+
+        Schema version 1 projects accepted raw recognition occurrences, their exact run-local
+        consumer dispositions, final IR owners, recognition-owned semantic requirement outcomes,
+        and the existing structured lint summary.
+        Report IDs are deterministic within this document only; they are not topology or durable
+        feature identifiers. ``bounded-clear`` is not manufacturing readiness because recognition
+        can miss geometry and material, process, finish, fit, and tolerance intent remains authored.
+
+        A declared, framed, injected, or bare drawing whose exact occurrence ownership is
+        unavailable, or a raw drawing with an unclassified accepted occurrence, raises
+        :class:`draftwright.ReportUnavailableError` rather than inventing correspondence or
+        shrinking the denominator. Calling this method never changes rendered drawing content.
+        """
+
+        from draftwright.reporting import drawing_report, validate_report_inputs
+
+        analysis = self._analysis
+        source = getattr(analysis, "step_file", None) if analysis is not None else None
+        evidence = self.recognition_evidence()
+        ownership = self.recognition_ownership()
+        model = self.model()
+        # Preserve schema-v1's fail-before-critique boundary. In particular, a declared drawing
+        # with no conversion-time ownership must refuse without lint lazily running recognition.
+        evidence, ownership, model = validate_report_inputs(evidence, ownership, model)
+        from draftwright.linting.requirements import recognized_requirement_outcomes
+        from draftwright.model.compiled import compile_dimensions
+
+        dimension_plan = compile_dimensions(model)
+        requirement_outcomes = recognized_requirement_outcomes(
+            evidence.result,
+            tuple(model.features),
+            self.registry,
+            self._build.omissions,
+            dimension_plan=dimension_plan,
+            part=self._working_part,
+        )
+
+        with _reuse_report_requirements(self, requirement_outcomes, dimension_plan):
+            lint = self.lint_summary()
+
+        return drawing_report(
+            evidence=evidence,
+            ownership=ownership,
+            model=model,
+            lint=lint,
+            source=source,
+            registry=self.registry,
+            omissions=self._build.omissions,
+            dimension_plan=dimension_plan,
+            part=self._working_part,
+            requirement_outcomes=requirement_outcomes,
+        )
+
+    def write_report(self, path: str | os.PathLike[str]) -> str:
+        """Atomically write :meth:`report` as deterministic UTF-8 JSON.
+
+        The destination is replaced only after the complete strict-JSON document has been
+        flushed to a temporary file in the same directory. A report or filesystem failure leaves
+        an existing destination untouched; temporary-file cleanup is best-effort when the
+        filesystem itself refuses it. This method does not export or modify any visual drawing
+        artefact.
+        """
+
+        from draftwright.reporting import _write_report_document
+
+        return _write_report_document(self.report(), path)
 
     # --- build-context compat properties (#639): one BuildState, thin views.
     # _part_model and the two caches are GETTER-ONLY by design (#691 review):
@@ -829,7 +1120,7 @@ class Drawing:
         """Record what happened to section A–A (#1190).
 
         A public verb rather than an attribute the render pass assigns, so the
-        annotations layer stays off ``Drawing`` internals (ADR 0005) and every outcome
+        annotations layer stays off ``Drawing`` internals (ADR 1 (was 0005)) and every outcome
         lands in one shape. ``status`` is ``"placed"``, ``"skipped"`` or
         ``"not_warranted"``; ``reason`` is a stable code for the skipped case.
         """
@@ -840,7 +1131,7 @@ class Drawing:
     def material_fields(self) -> dict:
         """The per-view filled projected material of this drawing, keyed by ``id(shape)``.
 
-        The ADR 0014 leader routing and the ``leader_crosses_silhouette`` critique must
+        The ADR 2 (was 0014) leader routing and the ``leader_crosses_silhouette`` critique must
         agree on what counts as travelling through the part, so both read this ONE
         lowering rather than each deriving the answer from the projected outline. An empty
         dict means the part could not be meshed, which callers must read as "no material
@@ -909,7 +1200,7 @@ class Drawing:
         the number.
 
         Exposed publicly (not as ``_ann_box_cache``) because the annotations layer is
-        duck-typed against ``dwg`` and, per ADR 0005, reads no private Drawing state.
+        duck-typed against ``dwg`` and, per ADR 1 (was 0005), reads no private Drawing state.
         Sharing the dict rather than adding a second memo also means ``lint()``'s
         existing liveness prune — which drops entries for objects no longer on the
         sheet — covers placement-seeded entries for free; a separate placement cache
@@ -937,7 +1228,7 @@ class Drawing:
         The **audit read** (#996). A finished drawing shows what was drawn; this shows what
         was *not*, separated into the two cases that mean opposite things:
 
-        - ``authored`` — the script's own omission, under ADR 0016's rule that an authored
+        - ``authored`` — the script's own omission, under ADR 4 (was 0016)'s rule that an authored
           set means omission is suppression. Recoverable by adding a ``dimension(...)`` line.
         - otherwise — a **planner rule** decided it, and ``reason`` names which.
 
@@ -996,7 +1287,7 @@ class Drawing:
 
         A **list**, because one annotation can draw several independently suppressible
         measurements — a compound hole callout renders bore diameter, depth and counterbore
-        together (ADR 0016 / #886). Empty means the renderer recorded nothing, **not** that
+        together (ADR 4 (was 0016) / #886). Empty means the renderer recorded nothing, **not** that
         the annotation measures nothing. Which renderers record it is enforced by the ratchet
         in `tests/test_audit_differential.py`; treat presence as exact and absence as unknown.
 
@@ -1031,7 +1322,7 @@ class Drawing:
 
     @property
     def model_declared(self) -> bool:
-        """Whether this drawing's model was **declared** by the caller (ADR 0011) rather than
+        """Whether this drawing's model was **declared** by the caller (ADR 4 (was 0011)) rather than
         detected — the public read the annotation pass threads onto its PlacementContext (#639)."""
         return self._model_declared
 
@@ -1040,7 +1331,7 @@ class Drawing:
         "Drawing.dimension(feature, param, ..., pin=True) or "
         "Drawing.locate(feature, ..., pin=True) for feature-backed edits. "
         "place_dim() remains only as a raw page-coordinate escape hatch. "
-        # Not dated with the #817 plumbing: ADR 0012 makes this the sanctioned escape hatch
+        # Not dated with the #817 plumbing: ADR 4 (was 0012) makes this the sanctioned escape hatch
         # until the full auto-plus-user recompose lands, so it has no replacement to point at.
         # But a bare "not before 0.5.0" is a lower bound, not an exit — and §4's complaint is
         # precisely about surfaces with no exit (Codex #987 r1). So it names BOTH: the
@@ -1088,7 +1379,7 @@ class Drawing:
         location dimensions. Both support ``pin=True`` in deferred/finalize mode
         and can participate in the shared layout solve.
 
-        Uses the single-position strip carve, not the ADR-0009 collect-then-solve
+        Uses the single-position strip carve, not the ADR 2 (was 0009) collect-then-solve
         path the automatic placers use — fine for adding a dimension into free
         space, but it does not re-solve the strip or dedup against existing dims
         (#396). Prefer :meth:`dimension` for a feature-referenced edit.
@@ -1115,6 +1406,7 @@ class Drawing:
         name=None,
         slot=8.0,
         feature=None,
+        measurement=None,
         **kwargs,
     ):
         """Raw page-coordinate dimension placement **primitive** (#817).
@@ -1134,7 +1426,7 @@ class Drawing:
                 strip = getattr(zones, side, None)
         dist = slot
         if strip is not None:
-            # Cursor-free tier placement (ADR 0009, #150): find a free tier that clears
+            # Cursor-free tier placement (ADR 2 (was 0009), #150): find a free tier that clears
             # every placed annotation, replacing Strip.allocate. axis = the stacking axis
             # (X for left/right, Y for above/below); perp_span = the dim's cross-axis span
             # so a perpendicular-disjoint occupant does not false-block.
@@ -1172,11 +1464,15 @@ class Drawing:
             kwargs["label"] = _fmt(page_len / self.scale)
         kwargs["label"] = _font_safe_text(f"{kwargs['label']}{_tol_suffix(tolerance, draft)}")
         return self._add(
-            _dim(p1, p2, side, max(dist, 4.0), draft, **kwargs), name, feature=feature
+            _dim(p1, p2, side, max(dist, 4.0), draft, **kwargs),
+            name,
+            view=view,
+            feature=feature,
+            measurement=measurement,
         )
 
     # -- annotations ----------------------------------------------------------
-    def _add(self, obj, name=None, view=None, feature=None):
+    def _add(self, obj, name=None, view=None, feature=None, measurement=None):
         """Register an annotation so lint and export include it; returns ``obj``. The
         annotation-placement **primitive** (#817) — private, because the public door is the
         placement verbs (:meth:`callout`/:meth:`dimension`/:meth:`note`/:meth:`add_table`/…) and
@@ -1189,7 +1485,15 @@ class Drawing:
         block (#121); ``None`` for drawing-level marks. ``feature`` records the source IR feature
         (#398) so :meth:`drop` / :meth:`annotations_of` work by feature.
         """
-        return place_annotation(self._registry, self.items, obj, name, view, feature)
+        return place_annotation(
+            self._registry,
+            self.items,
+            obj,
+            name,
+            view,
+            feature,
+            measurement,
+        )
 
     @deprecated(
         "Drawing.add() is deprecated (#817): use the placement verbs (callout/dimension/note/"
@@ -1270,19 +1574,23 @@ class Drawing:
             raise ValueError(
                 f"view must be one of {_ortho}, not {view!r} (it foreshortens the span)"
             )
-        matches = [
-            q for q in feature.parameters() if q.kind == param and (role is None or q.role == role)
-        ]
+        parameters = feature.parameters()
+        exact = [q for q in parameters if param in (q.parameter_id, q.discriminator)]
+        matches = (
+            [q for q in exact if role is None or q.role == role]
+            if exact
+            else [q for q in parameters if q.kind == param and (role is None or q.role == role)]
+        )
         if not matches:
             r = f"/{role!r}" if role else ""
             raise ValueError(
                 f"{type(feature).__name__} has no '{param}'{r} parameter to dimension"
             )
         if len(matches) > 1:
-            roles = sorted(q.role for q in matches)
+            ids = sorted(q.parameter_id for q in matches)
             raise ValueError(
-                f"{type(feature).__name__} has {len(matches)} '{param}' params (roles {roles}) "
-                f"— pass role= to choose one"
+                f"{type(feature).__name__} has {len(matches)} '{param}' params {ids} — pass "
+                "role= or an exact parameter id/discriminator to choose one"
             )
         # A span-carrying param (a step length, a location) gives its endpoints directly;
         # a value-only linear param (a slot's dims) derives them from the feature geometry
@@ -1297,7 +1605,10 @@ class Drawing:
         (lo, hi) = span
         p1 = p2 = None
         chosen = view
-        for v in [view] if view else _ortho:
+        automatic_views: tuple[str, ...] = _ortho
+        if view is None and getattr(feature, "kind", None) == "through_step":
+            automatic_views = (_END_ON[feature.axis],)
+        for v in [view] if view else automatic_views:
             q1, q2 = self.at(v, *lo), self.at(v, *hi)
             if math.hypot(q2[0] - q1[0], q2[1] - q1[1]) > 1e-6:
                 chosen, p1, p2 = v, q1, q2
@@ -1309,14 +1620,28 @@ class Drawing:
             )
         return matches[0], chosen, p1, p2
 
+    def _resolve_dimension_side(self, feature, param, view, p1, p2, side):
+        """Choose a feature's natural corridor when the caller leaves ``side`` implicit."""
+        if side is not None:
+            return side
+        if getattr(feature, "kind", None) != "through_step":
+            return "above"
+        changed_axis = param.discriminator
+        perpendicular = next(axis for axis in "xyz" if axis not in (feature.axis, changed_axis))
+        outside = dict(feature.outside_directions)
+        probe_world = [(a + b) / 2 for a, b in zip(param.span[0], param.span[1], strict=True)]
+        probe_world["xyz".index(perpendicular)] += outside[perpendicular]
+        exterior = self.at(view, *probe_world)
+        if abs(p2[0] - p1[0]) >= abs(p2[1] - p1[1]):
+            return "above" if exterior[1] > (p1[1] + p2[1]) / 2 else "below"
+        return "right" if exterior[0] > (p1[0] + p2[0]) / 2 else "left"
+
     def _queue_dimension_intent(self, it, a, *, ctx, used_names=None) -> bool:
         """Queue a pinned/prioritized feature dimension into a shared corridor."""
         from draftwright.annotations._common import CorridorCandidate, register_corridor
 
-        side = it.kwargs.get("side", "above")
+        side = it.kwargs.get("side")
         view = it.kwargs.get("view")
-        if side not in ("above", "below", "left", "right"):
-            return False
         zones_name = {"front": "fv_zones", "plan": "pv_zones", "side": "sv_zones"}
         rec, view, p1, p2 = self._resolve_dimension_span(
             it.feature,
@@ -1324,6 +1649,13 @@ class Drawing:
             role=it.kwargs.get("role"),
             view=view,
         )
+        side = self._resolve_dimension_side(it.feature, rec, view, p1, p2, side)
+        if side not in ("above", "below", "left", "right"):
+            return False
+        from draftwright.model.compiled import DimensionId
+
+        measurement = DimensionId(it.feature, rec.parameter_id)
+        measurement_span = rec.span or self._derive_span(it.feature, rec)
         zones = getattr(a, zones_name.get(view, ""), None)
         strip = getattr(zones, side, None) if zones is not None else None
         if strip is None:
@@ -1346,7 +1678,7 @@ class Drawing:
         # twin of that function, so a tolerance reaching it must go into the label or helpers
         # discard it. Without this the identical public call rendered `80 +0.2 -0.1` live and a
         # bare `80` the moment the author added `pin=True` or `priority=` — a divergence #1215
-        # INTRODUCED, since before it neither path rendered anything. `pin=True` is ADR 0012's
+        # INTRODUCED, since before it neither path rendered anything. `pin=True` is ADR 2 (was 0012)'s
         # first-class corridor candidate, so it was the going-forward surface that lost the
         # requirement (#1234 review r4).
         tolerance = dim_kwargs.pop("tolerance", None)
@@ -1366,12 +1698,22 @@ class Drawing:
         tier = self.draft.font_size + 2 * self.draft.pad_around_text
         p_lo, p_hi = sorted((p1[1 - ax], p2[1 - ax]))
 
-        def _build(pos, _p1=p1, _p2=p2, _side=side, _ax=ax, _kwargs=dim_kwargs):
+        def _build(
+            pos,
+            _p1=p1,
+            _p2=p2,
+            _side=side,
+            _ax=ax,
+            _kwargs=dim_kwargs,
+            _measurement_span=measurement_span,
+        ):
             if _side in ("right", "above"):
                 dist = pos - max(p[_ax] for p in (_p1, _p2))
             else:
                 dist = min(p[_ax] for p in (_p1, _p2)) - pos
-            return _dim(_p1, _p2, _side, max(dist, 4.0), self.draft, **_kwargs)
+            dim = _dim(_p1, _p2, _side, max(dist, 4.0), self.draft, **_kwargs)
+            dim._dw_measurement_span = _measurement_span
+            return dim
 
         def _placed(nm, _pin=it.kwargs.get("pin", False)):
             if _pin:
@@ -1382,6 +1724,8 @@ class Drawing:
                 "warning",
                 "dimension_dropped",
                 f"{nm} not placed (no room on the {view} {side} strip)",
+                measurement=measurement,
+                measurement_span=measurement_span,
             )
 
         priority = float(it.kwargs.get("priority", 0.0) or 0.0)
@@ -1406,6 +1750,7 @@ class Drawing:
                 anchored=bool(it.kwargs.get("pin")),
                 natural=natural,
                 feature=it.feature,
+                measurement=measurement,
             ),
         )
         return True
@@ -1416,7 +1761,7 @@ class Drawing:
         param,
         *,
         role=None,
-        side="above",
+        side=None,
         view=None,
         name=None,
         pin=False,
@@ -1426,22 +1771,26 @@ class Drawing:
         """Add a dimension for *feature*'s *param*, attributed to the feature (#398e).
 
         The feature-referenced **add** verb: pair to :meth:`drop`. *feature* is an IR
-        feature from :meth:`model`; *param* is a **linear** parameter kind it exposes — a
-        turned step's ``"length"`` or a slot's ``"length"``/``"width"`` (which the feature
-        carries as value-only geometry, derived here via :meth:`_derive_span`).
+        feature from :meth:`model`; *param* is a **linear** parameter kind, exact parameter
+        id, or discriminator it exposes — a turned step's ``"length"`` or a through step's
+        ``"through_step_leg.length.x"``/``"x"`` (value-only slot geometry is derived here
+        via :meth:`_derive_span`).
         The dimension is placed into free strip space and tagged with *feature*, so
         :meth:`drop` / :meth:`annotations_of` find it. Returns the annotation name.
 
         A feature may expose several params of one kind (an envelope's width/height/depth,
-        or a slot's ``slot_width``/``slot_length``, are all ``"length"``); pass ``role=`` to
-        pick one — a bare kind matching more than one raises rather than guessing.
+        or a slot's ``slot_width``/``slot_length``, are all ``"length"``); pass ``role=`` or
+        an exact parameter id/discriminator to pick one — an ambiguous kind raises rather
+        than guessing.
 
         ``view`` is chosen automatically as the orthographic view (``"front"``/``"plan"``/
         ``"side"``) where the span projects non-degenerate — a length along the turning
-        axis vanishes in its end-on view, so the view follows the geometry. Pass ``view=``
+        axis vanishes in its end-on view, so the view follows the geometry. Through-step legs
+        share their semantic axis end view and natural outside-corner sides. Pass ``view=``
         to force one of those three (a non-orthographic view foreshortens the span and is
-        rejected). ``side`` defaults to ``"above"``; ``kwargs`` forward to the dimension —
-        except ``tolerance=``, which is folded into the label (see :meth:`place_dim`),
+        rejected). An implicit ``side`` is ``"above"`` except for through-step legs, whose
+        missing corner selects the natural outside corridor. ``kwargs`` forward to the dimension
+        — except ``tolerance=``, which is folded into the label (see :meth:`place_dim`),
         because helpers discard a forwarded tolerance whenever a label is present.
         In deferred mode, ``pin=True`` anchors the dimension at its natural slot coordinate
         inside the shared corridor solve, and ``priority=`` controls over-capacity survival.
@@ -1471,12 +1820,16 @@ class Drawing:
                 )
             )
             return ""
-        _rec, view, p1, p2 = self._resolve_dimension_span(feature, param, role=role, view=view)
+        rec, view, p1, p2 = self._resolve_dimension_span(feature, param, role=role, view=view)
+        side = self._resolve_dimension_side(feature, rec, view, p1, p2, side)
+        from draftwright.model.compiled import DimensionId
+
+        measurement = DimensionId(feature, rec.parameter_id)
         if name is None:
             i = 0
             while (name := f"dim_{param}{i}") in self._registry:
                 i += 1
-        self._place_dim(
+        annotation = self._place_dim(
             p1,
             p2,
             side,
@@ -1484,8 +1837,13 @@ class Drawing:
             self.draft,
             name=name,
             feature=feature,
+            measurement=measurement,
             **kwargs,
         )
+        # A correlated ladder intentionally shares one public ``DimensionId`` across its
+        # members. Preserve the compiler-owned world span at the public edit boundary so
+        # completeness can tell which exact occurrence this visible replacement asserts.
+        annotation._dw_measurement_span = rec.span or self._derive_span(feature, rec)
         if pin:
             self.pin(name)
         return name
@@ -1502,7 +1860,8 @@ class Drawing:
         so :meth:`drop` / :meth:`annotations_of` find it. Returns the annotation name.
 
         Raises ``ValueError`` if *feature* exposes no callout (use :meth:`dimension` for a
-        linear param). A machined-feature callout (pocket/fillet/flat/chamfer/groove) is
+        linear param). A machined-feature callout
+        (pocket/pad-height/circular-blind-step/fillet/blend/paired-ramp/flat/chamfer/groove) is
         auto-named and placed in its characteristic view by the kind's renderer, so
         ``view=``/``name=`` are unsupported for those kinds and raise ``ValueError`` rather
         than being silently ignored (Codex #811). Placed reasonably, not via the auto-pass's
@@ -1552,18 +1911,30 @@ class Drawing:
                     "add it to a drawing built by build_drawing(), not a bare Drawing"
                 )
             from draftwright.annotations.from_model import (
+                render_blends,
                 render_chamfers,
+                render_circular_blind_steps,
                 render_fillets,
                 render_flats,
                 render_grooves,
+                render_pad_heights,
+                render_paired_ramp_steps,
                 render_pockets,
+                render_rectangular_blind_slots,
+                render_round_bottom_blind_slots,
             )
 
             renderers = {
+                "blend": render_blends,
                 "chamfer": render_chamfers,
+                "circular_blind_step": render_circular_blind_steps,
                 "fillet": render_fillets,
+                "paired_ramp_step": render_paired_ramp_steps,
                 "flat": render_flats,
                 "pocket": render_pockets,
+                "rectangular_blind_slot": render_rectangular_blind_slots,
+                "round_bottom_blind_slot": render_round_bottom_blind_slots,
+                "pad": render_pad_heights,
                 "groove": render_grooves,
             }
             # Return the placed annotation's name (Codex #811) so pin()/drop() can address it.
@@ -1847,7 +2218,7 @@ class Drawing:
             assert a is not None and isinstance(model, PartModel)
             _section = plan_sections(model, feature_hole_keys(model, a))
         # Route through the auto-pass solvers when possible (else everything live-replays):
-        #  - BOTH-axes locate → the ADR-0009 location corridor. An axes-restricted locate
+        #  - BOTH-axes locate → the ADR 2 (was 0009) location corridor. An axes-restricted locate
         #    can't go through the per-feature filter, so it live-replays (#429).
         #  - hole/pattern CALLOUT → _annotate_holes' priority-drop/anchoring solve (the
         #    section row, if any, is reserved first below).
@@ -1892,14 +2263,14 @@ class Drawing:
             and getattr(getattr(it.feature, "frame", None), "axis", None) in ("x", "y", "z")
         }
         # step LENGTH dimension intents (role="step") → render_step_lengths' chain (Phase 4b),
-        # but only on a TURNED part (a.prof is not None, mirroring the auto-pass guard) — else
+        # but only on a TURNED part (a.profiles is non-empty, mirroring the auto-pass guard) — else
         # they live-replay. Excludes the step's ø (a callout routed in dia_ids above).
         len_ids = {
             id(it)
             for it in self._intents
             if routable
             and a is not None
-            and a.prof is not None
+            and a.profiles
             and it.kind == "dimension"
             and getattr(it.feature, "kind", None) == "step"
             and getattr(getattr(it.feature, "frame", None), "axis", None) in ("x", "y", "z")
@@ -1974,7 +2345,8 @@ class Drawing:
         # Rotational furniture intent (#424/#426): the whole-model render_rotational —
         # no per-feature subset, so just the id set; it drains at the "rotational" slot.
         rotational_ids = {id(it) for it in self._intents if routable and it.kind == "rotational"}
-        # Machined-feature leader callout intents (#148): pocket/fillet/flat/chamfer/groove
+        # Machined-feature leader callout intents (#148): pocket/pad-height/fillet/
+        # paired-ramp/flat/chamfer/groove
         # callout()s (plate is a spanned dimension, routed via dimension(), not here). Bucketed
         # per kind so each drains at its own _PASS_SEQUENCE stage, restricted to the recorded
         # features via only= (per-feature, #811). The id union also joins `routed` so
@@ -2049,7 +2421,10 @@ class Drawing:
             or it.kind != "dimension"
             or id(it) in already_routed
             or not (it.kwargs.get("pin") or it.kwargs.get("priority"))
-            or it.kwargs.get("side", "above") not in ("above", "below", "left", "right")
+            or (
+                it.kwargs.get("side") is not None
+                and it.kwargs.get("side") not in ("above", "below", "left", "right")
+            )
         ):
             return False
         try:
@@ -2082,7 +2457,7 @@ class Drawing:
         * **locations / height_ladder / step_positions / slots / user_dims** — the
           register-only stages queue into the SHARED corridor (a slot position coincident
           with a hole location collapses to one dim, #345; pin/priority user dims join as
-          first-class candidates, ADR 0012);
+          first-class candidates, ADR 4 (was 0012));
         * **detail_request** — when detail recovery is enabled (the automatic default,
           persisted on ``BuildState``) and the ladder stage recorded a "step"/"illegible"
           escalation, the prismatic step-height detail is queued, exactly as the auto
@@ -2128,7 +2503,7 @@ class Drawing:
         from draftwright.annotations._common import PlacementContext
 
         # Fresh per-run placement scratch, threaded to the passes rather than hung on the drawing
-        # (ADR 0005 §2, #639): render_locations/_annotate_holes/drain_corridors register/read here.
+        # (ADR 1 (was 0005 §2), #639): render_locations/_annotate_holes/drain_corridors register/read here.
         # A local — finalize is transactional (#647), so a raised drain rolls the drawing back and
         # the retry re-runs from a clean slate with a new ctx; no cross-call persistence needed.
         ctx = PlacementContext(
@@ -2218,7 +2593,9 @@ class Drawing:
         :meth:`_classify_intents`; finalize wraps this call in the snapshot/rollback/finally,
         so a raise here still rolls the drawing back as before."""
         from draftwright.annotations.from_model import (
+            render_blends,
             render_chamfers,
+            render_circular_blind_steps,
             render_diameters,
             render_fillets,
             render_flats,
@@ -2226,8 +2603,12 @@ class Drawing:
             render_height_ladder,
             render_local_turned_centerlines,
             render_locations,
+            render_pad_heights,
+            render_paired_ramp_steps,
             render_pockets,
+            render_rectangular_blind_slots,
             render_rotational,
+            render_round_bottom_blind_slots,
             render_slots,
             render_step_lengths,
             render_step_positions,
@@ -2312,7 +2693,7 @@ class Drawing:
 
         def _s_reserve_section():
             # Reserve the section's cutting-plane row BEFORE the callout carve so the
-            # carve sees it as an obstacle (Coupling A, ADR 0009 P5 strand 3); rendered
+            # carve sees it as an obstacle (Coupling A, ADR 2 (was 0009) P5 strand 3); rendered
             # last (the "section" stage).
             if r.section is not None:
                 assert a is not None
@@ -2554,14 +2935,32 @@ class Drawing:
         def _s_chamfers():
             _s_machined("chamfer", render_chamfers)
 
+        def _s_circular_blind_steps():
+            _s_machined("circular_blind_step", render_circular_blind_steps)
+
         def _s_fillets():
             _s_machined("fillet", render_fillets)
+
+        def _s_blends():
+            _s_machined("blend", render_blends)
+
+        def _s_paired_ramp_steps():
+            _s_machined("paired_ramp_step", render_paired_ramp_steps)
 
         def _s_flats():
             _s_machined("flat", render_flats)
 
         def _s_pockets():
             _s_machined("pocket", render_pockets)
+
+        def _s_rectangular_blind_slots():
+            _s_machined("rectangular_blind_slot", render_rectangular_blind_slots)
+
+        def _s_round_bottom_blind_slots():
+            _s_machined("round_bottom_blind_slot", render_round_bottom_blind_slots)
+
+        def _s_pad_heights():
+            _s_machined("pad", render_pad_heights)
 
         def _s_grooves():
             _s_machined("groove", render_grooves)
@@ -2620,7 +3019,7 @@ class Drawing:
 
         def _s_user_dims():
             # User-authored pin/priority dimensions queue into the shared corridor as
-            # first-class candidates (ADR 0012).
+            # first-class candidates (ADR 4 (was 0012)).
             used_dim_names: set[str] = set()
             for it in self._intents:
                 if id(it) in r.user_dim_ids:
@@ -2734,9 +3133,15 @@ class Drawing:
                 "user_dims": _s_user_dims,
                 "drain": _s_drain,
                 "chamfers": _s_chamfers,
+                "circular_blind_steps": _s_circular_blind_steps,
                 "fillets": _s_fillets,
+                "blends": _s_blends,
+                "paired_ramp_steps": _s_paired_ramp_steps,
                 "flats": _s_flats,
                 "pockets": _s_pockets,
+                "rectangular_blind_slots": _s_rectangular_blind_slots,
+                "round_bottom_blind_slots": _s_round_bottom_blind_slots,
+                "pad_heights": _s_pad_heights,
                 "grooves": _s_grooves,
                 "feature_leaders": _s_feature_leaders,
                 "section": _s_section,
@@ -2749,7 +3154,7 @@ class Drawing:
         # declared route runs its own copy of the stage list, so leaving the retraction on the
         # auto path alone made the two fail in OPPOSITE directions: auto retracted, declared
         # never did, and `_crowded_staircase` finalised with every rung on the sheet and the
-        # build still claiming one was withheld. That is an ADR 0011 round-trip parity break
+        # build still claiming one was withheld. That is an ADR 4 (was 0011) round-trip parity break
         # (#1216 review r10, F3).
         if model is not None:
             retract_resolved_withholdings(self, ctx, compile_dimensions(model))
@@ -2827,6 +3232,11 @@ class Drawing:
         # overlay (notably its established ⌀ -> ø compatibility substitution).
         n.pdf_text = _font_safe_text(text)
         n.pdf_text_rotation = float(rotation)
+        n.pdf_text_line_spacing = _text_line_spacing_em(
+            self.draft.font_size,
+            getattr(self.draft, "font_path", DEFAULT_FONT_PATH),
+            getattr(self.draft, "font", "Arial"),
+        )
         if name is None:
             i = 0
             while (name := f"note{i}") in self._registry:
@@ -2921,7 +3331,7 @@ class Drawing:
         TAG column and the balloon glyphs line up.
 
         Sourced from the IR (``model.features``), so each group is one hole/pattern
-        feature — a pattern and same-spec loose holes are distinct groups (ADR 0008;
+        feature — a pattern and same-spec loose holes are distinct groups (ADR 1 (was 0008);
         #584 WP1). Each ``holes`` element is a :class:`_HoleInstance` (one per member
         position, driving a balloon); ``count`` is the feature's declared/detected count
         for the table QTY — equal to ``len(holes)`` on the detected path."""
@@ -2988,7 +3398,7 @@ class Drawing:
         # its own numbers off the recognised geometry, so an authored tolerance was approved,
         # claimed by the table's provenance, and never printed (#1216 review r9). Read from
         # `_part_model` rather than `model()`: an attribute, so a declared build is not made
-        # to recognise anything by adding a table (ADR 0017).
+        # to recognise anything by adding a table (ADR 3 (was 0017)).
         approved: dict = {}
         omitted: set = set()
         if self._part_model is not None:
@@ -3003,7 +3413,7 @@ class Drawing:
             }
             # What the compiler REFUSED, separately from what it merely has no entry for.
             # `Omission.authored` is the author's own `dimension(...)` set leaving a
-            # measurement out — ADR 0016's suppression-by-omission — and printing it anyway
+            # measurement out — ADR 4 (was 0016)'s suppression-by-omission — and printing it anyway
             # is the compiled-plan boundary broken from the other side: not "a renderer
             # rebuilt a suppressed value" but "a renderer printed one the author deleted"
             # (#1216 review r10, F6).
@@ -3097,7 +3507,7 @@ class Drawing:
 
         A deliberate placement — by you or an AI — must win over automatic
         layout. :meth:`repair` will not re-place a pinned annotation, and the
-        constraint solver (ADR 0003) treats it as fixed. Pinning fixes the
+        constraint solver (ADR 2 (was 0003)) treats it as fixed. Pinning fixes the
         *position*, not existence: :meth:`remove` and :meth:`clear_annotations`
         still apply. Raises ``KeyError`` if *name* is not a known annotation.
         Returns ``self`` for chaining.
@@ -3138,11 +3548,22 @@ class Drawing:
         self.items = [o for o in self.items if id(o) in kept_ids]
         return removed
 
-    def _record_build_issue(self, severity, code, message):
+    def _record_build_issue(
+        self, severity, code, message, *, measurement=None, measurement_span=None
+    ):
         """Record a lint issue discovered during construction (e.g. an
         annotation the layout had to drop). Surfaced by :meth:`lint` so a
         dropped feature is never silent."""
-        self._registry.record_issue(LintIssue(severity=severity, code=code, message=message))
+        self._registry.record_issue(
+            LintIssue(
+                severity=severity,
+                code=code,
+                message=message,
+                measurement_ids=(measurement,) if measurement is not None else (),
+                outcome_stage="placement" if measurement is not None else None,
+                measurement_spans=(measurement_span,) if measurement_span is not None else (),
+            )
+        )
 
     # -- repair ---------------------------------------------------------------
     def repair(self, max_iter: int = 3):
@@ -3180,7 +3601,7 @@ class Drawing:
         ``physical=False`` asks for the **placement** critique only — geometry/standards
         checks over what is on the sheet — and skips the feature-coverage half that needs a
         recognition inventory of the solid. That is what the repair loop wants (it acts on
-        ``dim_inside_part`` and nothing else, ADR 0002), and on a declared build it is the
+        ``dim_inside_part`` and nothing else, ADR 5 (was 0002)), and on a declared build it is the
         difference between exporting a drawing and recognising the part to no purpose
         (#1022). The default stays the full critique: a caller asking "is this drawing
         right?" means both halves.
@@ -3191,7 +3612,7 @@ class Drawing:
         """Internal lint path with an optional summary-scoped pair ledger (#1147)."""
         # Drawable area (page minus the standard margin), passed explicitly to
         # lint_drawing for bounds checks — draftwright owns linting now and no
-        # longer relies on the helpers set_page module-global (ADR 0007).
+        # longer relies on the helpers set_page module-global (ADR 3 (was 0007)).
         page_bbox = (_MARGIN, _MARGIN, self.page_w - _MARGIN, self.page_h - _MARGIN)
         # Names and shapes come out of ONE traversal. Two comprehensions over an
         # unmutated dict would in fact agree — Python guarantees the iteration order —
@@ -3234,7 +3655,8 @@ class Drawing:
             view_material_fields=self.material_fields(),
             _aggregation=aggregation,
         )
-        if self.part is not None and physical:
+        working_part = self._working_part
+        if working_part is not None and physical:
             # Reuse the single feature inventory from the build (#244) when present,
             # so lint does not re-detect holes/patterns/turned-steps; fall back to
             # detecting when there is no analysis (a manually-built Drawing, or lint
@@ -3255,13 +3677,13 @@ class Drawing:
                 # evidence over recognition's OWN levels, so no caller can narrow the
                 # shoulder inventory (#1025).
                 recognition = a.recognition
-                prof_kw = {"prof": a.prof}
+                prof_kw = {"profiles": a.profiles}
             elif a is not None:
                 # A DECLARED build recognised nothing (#1022), so `a.holes` and friends are
                 # empty because nothing looked — not because the part has none. Feeding that
                 # emptiness to coverage would report every real hole as uncovered, so critique
                 # recognises here instead: once per drawing, owned by BuildState.
-                rec = self._build.ensure_recognition(self.part)
+                rec = self._build.ensure_recognition(working_part)
                 cyls = rec.cylinders
                 holes = list(rec.holes)
                 patterns = list(rec.hole_patterns)
@@ -3270,26 +3692,26 @@ class Drawing:
                 pockets = list(rec.pockets)
                 # The aggregate, NOT anything off `Analysis`: its levels and risers are
                 # geometry-sourced, where the declared `Analysis` carries what the author
-                # declared. Critique taking its inventory from the model is what ADR 0015
+                # declared. Critique taking its inventory from the model is what ADR 1 (was 0015)
                 # forbids — it would make lint blind to exactly the geometry a sparse
                 # declaration omitted, the case `unrecognised_defining_geometry` reports.
                 recognition = rec
-                # `a.prof` IS declaration-sourced, and here that is right rather than a
-                # shortcut: axial critique judges the declared profile's dimensioning, so a
-                # declared turned part keeps it without the aggregate.
-                prof_kw = {"prof": a.prof}
+                # These profiles ARE declaration-sourced, and here that is right rather than a
+                # shortcut: axial critique judges each declared profile's dimensioning, so a
+                # declared turned part keeps them without importing detected coordinates.
+                prof_kw = {"profiles": a.profiles}
             else:
                 if self._cyl_cache is None:
-                    self._cyl_cache = analyse_cylinders(self.part)
+                    self._cyl_cache = analyse_cylinders(working_part)
                 cyls = self._cyl_cache
                 holes = patterns = bosses = None
                 pads = pockets = recognition = None
                 prof_kw = {}
             if recognition is None:
-                recognition = self._build.ensure_recognition(self.part)
+                recognition = self._build.ensure_recognition(working_part)
             profiled_bores = list(recognition.double_d_bores)
             issues += lint_feature_coverage(
-                self.part,
+                working_part,
                 self.items,
                 cyls=cyls,
                 exclude=self._coverage.dropped_diams,
@@ -3299,7 +3721,7 @@ class Drawing:
                 registry=self._registry,
             )
             issues += lint_axial_coverage(
-                self.part,
+                working_part,
                 self,
                 assembly=self.assembly,
                 recognition=recognition,
@@ -3312,22 +3734,25 @@ class Drawing:
                 # checks them. Cheap — pure Python over the IR and the registry, no
                 # geometry — and it needs the compiled plan because the value an annotation
                 # SHOULD show is the compiler's, never a renderer's own formatting
-                # (ADR 0016 Amendment 1).
+                # (ADR 4 (was 0016 Amendment 1)).
                 from draftwright.model.compiled import compile_dimensions
 
-                issues += lint_claimed_representations(self._registry, compile_dimensions(model))
+                dimension_plan = compile_dimensions(model)
+                issues += lint_claimed_representations(self._registry, dimension_plan)
+            else:
+                dimension_plan = None
             # Turned bosses/bands remain in the OD + axial-step policy; this check is
             # specifically for a prismatic boss's independent projection height.
-            if model is not None and (a is None or (not a.is_rotational and a.prof is None)):
+            if model is not None and (a is None or (not a.is_rotational and not a.profiles)):
                 issues += lint_boss_height_coverage(
-                    self.part,
+                    working_part,
                     self,
                     getattr(model, "features", ()),
                     assembly=self.assembly,
                     omissions=self._build.omissions,
                 )
             issues += lint_location_coverage(
-                self.part,
+                working_part,
                 self,
                 cyls=cyls,
                 assembly=self.assembly,
@@ -3336,7 +3761,7 @@ class Drawing:
                 profiled_bores=profiled_bores,
             )
             issues += lint_prismatic_coverage(
-                self.part,
+                working_part,
                 self,
                 assembly=self.assembly,
                 pads=pads,
@@ -3345,26 +3770,56 @@ class Drawing:
                 features=getattr(model, "features", ()) if model is not None else (),
                 recognition=recognition,
             )
+            issues += lint_pad_coverage(
+                working_part,
+                recognition=recognition,
+                features=getattr(model, "features", ()) if model is not None else (),
+                registry=self._registry,
+                omissions=self._build.omissions,
+                assembly=self.assembly,
+            )
+            issues += lint_plate_coverage(
+                working_part,
+                recognition=recognition,
+                features=getattr(model, "features", ()) if model is not None else (),
+                registry=self._registry,
+                omissions=self._build.omissions,
+                assembly=self.assembly,
+            )
+            issues += lint_polygonal_boss_coverage(
+                working_part,
+                recognition=recognition,
+                features=getattr(model, "features", ()) if model is not None else (),
+                registry=self._registry,
+                omissions=self._build.omissions,
+                assembly=self.assembly,
+            )
+            issues += lint_passage_coverage(recognition)
+            issues += lint_prismatic_pocket_coverage(recognition)
+            issues += lint_angled_step_coverage(recognition)
             resolved_assembly = self.assembly
             if resolved_assembly is None:
-                resolved_assembly = len(self.part.solids()) > 1
+                resolved_assembly = len(working_part.solids()) > 1
             profile_cache = self._build.principal_profile_cache
             if (
                 profile_cache is None
-                or profile_cache[0] is not self.part
+                or profile_cache[0] is not working_part
                 or profile_cache[1] != resolved_assembly
             ):
                 profile_issues = tuple(
                     lint_principal_profile_coverage(
-                        self.part,
+                        working_part,
                         assembly=resolved_assembly,
+                        double_d_bores=recognition.double_d_bores,
+                        prismatic_pockets=recognition.prismatic_pockets,
+                        section_passages=recognition.section_passages,
                     )
                 )
-                profile_cache = (self.part, resolved_assembly, profile_issues)
+                profile_cache = (working_part, resolved_assembly, profile_issues)
                 self._build.principal_profile_cache = profile_cache
             issues += list(profile_cache[2])
             issues += lint_profiled_bore_coverage(
-                self.part,
+                working_part,
                 self.items,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
@@ -3374,15 +3829,88 @@ class Drawing:
                 assembly=self.assembly,
             )
             issues += lint_flat_coverage(
-                self.part,
+                working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
                 registry=self._registry,
                 omissions=self._build.omissions,
                 assembly=self.assembly,
             )
+            issues += lint_groove_coverage(
+                working_part,
+                recognition=recognition,
+                features=getattr(model, "features", ()) if model is not None else (),
+                registry=self._registry,
+                omissions=self._build.omissions,
+                assembly=self.assembly,
+            )
+            issues += lint_chamfer_coverage(
+                working_part,
+                recognition=recognition,
+                features=getattr(model, "features", ()) if model is not None else (),
+                registry=self._registry,
+                omissions=self._build.omissions,
+                assembly=self.assembly,
+            )
+            issues += lint_fillet_coverage(
+                working_part,
+                recognition=recognition,
+                features=getattr(model, "features", ()) if model is not None else (),
+                registry=self._registry,
+                omissions=self._build.omissions,
+                assembly=self.assembly,
+            )
+            issues += lint_blend_coverage(
+                working_part,
+                recognition=recognition,
+                features=getattr(model, "features", ()) if model is not None else (),
+                registry=self._registry,
+                omissions=self._build.omissions,
+                assembly=self.assembly,
+            )
+            issues += lint_paired_ramp_step_coverage(
+                working_part,
+                recognition=recognition,
+                features=getattr(model, "features", ()) if model is not None else (),
+                registry=self._registry,
+                omissions=self._build.omissions,
+                assembly=self.assembly,
+            )
+            issues += lint_circular_blind_step_coverage(
+                working_part,
+                recognition=recognition,
+                features=getattr(model, "features", ()) if model is not None else (),
+                registry=self._registry,
+                omissions=self._build.omissions,
+                assembly=self.assembly,
+            )
+            issues += lint_rectangular_blind_slot_coverage(
+                working_part,
+                recognition=recognition,
+                features=getattr(model, "features", ()) if model is not None else (),
+                registry=self._registry,
+                omissions=self._build.omissions,
+                assembly=self.assembly,
+            )
+            issues += lint_round_bottom_blind_slot_coverage(
+                working_part,
+                recognition=recognition,
+                features=getattr(model, "features", ()) if model is not None else (),
+                registry=self._registry,
+                omissions=self._build.omissions,
+                assembly=self.assembly,
+            )
+            issues += lint_through_step_coverage(
+                working_part,
+                recognition=recognition,
+                features=getattr(model, "features", ()) if model is not None else (),
+                registry=self._registry,
+                omissions=self._build.omissions,
+                assembly=self.assembly,
+                plan=dimension_plan,
+            )
             issues += lint_slot_coverage(
-                self.part,
+                working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
                 registry=self._registry,
@@ -3390,7 +3918,7 @@ class Drawing:
                 assembly=self.assembly,
             )
             issues += lint_hole_coverage(
-                self.part,
+                working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
                 registry=self._registry,
@@ -3398,7 +3926,7 @@ class Drawing:
                 assembly=self.assembly,
             )
             issues += lint_channel_coverage(
-                self.part,
+                working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
                 registry=self._registry,
@@ -3406,7 +3934,23 @@ class Drawing:
                 assembly=self.assembly,
             )
             issues += lint_polygonal_stock_coverage(
-                self.part,
+                working_part,
+                recognition=recognition,
+                features=getattr(model, "features", ()) if model is not None else (),
+                registry=self._registry,
+                omissions=self._build.omissions,
+                assembly=self.assembly,
+            )
+            issues += lint_pocket_coverage(
+                working_part,
+                recognition=recognition,
+                features=getattr(model, "features", ()) if model is not None else (),
+                registry=self._registry,
+                omissions=self._build.omissions,
+                assembly=self.assembly,
+            )
+            issues += lint_pocket_pattern_coverage(
+                working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
                 registry=self._registry,
@@ -3502,12 +4046,17 @@ class Drawing:
             if self._analysis is not None
             else None
         )
+        from draftwright.model.compiled import compile_dimensions
+
+        candidate = _REPORT_REQUIREMENTS.get()
+        report_requirements = candidate if candidate is not None and candidate[0] is self else None
         quality = quality_components(
             recognition=self._build.recognition,
             features=getattr(self._part_model, "features", ()),
             registry=self._registry,
             omissions=self._build.omissions,
             issues=issues,
+            part=self._working_part,
             # Fidelity asks whether what the drawing SAYS is true, so a drawing that says
             # nothing measurable has no answer rather than a perfect one.
             #
@@ -3536,6 +4085,16 @@ class Drawing:
             ),
             error_penalty=_SCORE_ERROR_PENALTY,
             warning_penalty=_SCORE_WARNING_PENALTY,
+            dimension_plan=(
+                report_requirements[2]
+                if report_requirements is not None
+                else (
+                    compile_dimensions(self._part_model) if self._part_model is not None else None
+                )
+            ),
+            requirement_outcomes=(
+                report_requirements[1] if report_requirements is not None else None
+            ),
             _aggregation=aggregation,
         )
         return {
@@ -3585,9 +4144,12 @@ class Drawing:
         else:
             _log.info("Lint: OK")
 
-    def _write_svg(self, out: str) -> str:
+    def _write_svg(self, out: str, *, reproducible: bool = False) -> str:
         """Write the SVG (part/hidden/dims layers, page-size fix, arc sanitise, hyperlink +
-        metadata) and return its path. The PDF and PNG renders both read this SVG."""
+        metadata) and return its path. The PDF and PNG renders both read this SVG.
+
+        *reproducible* settles the element order so two runs write the same bytes;
+        see :func:`export.canonicalize_svg`. Off, this is what it always was."""
         blk = Color(0, 0, 0)
         grey = Color(0.5, 0.5, 0.5)
         blue = Color(0, 0.2, 0.7)
@@ -3598,6 +4160,10 @@ class Drawing:
         self._add_shapes(svg_exp)
         svg_path = out + ".svg"
         svg_exp.write(svg_path)
+        if reproducible:
+            # Before the passes below read it back: they rewrite what is there,
+            # this settles what order it is in. See canonicalize_svg().
+            canonicalize_svg(svg_path)
         fix_svg_page_size(svg_path, self.page_w, self.page_h)
         n_arcs = sanitize_svg_arcs(svg_path)
         if n_arcs:
@@ -3609,32 +4175,419 @@ class Drawing:
         _log.info("SVG → %s", svg_path)
         return svg_path
 
-    def _write_dxf(self, out: str) -> str:
-        """Write the DXF (part/hidden/dims layers + metadata) and return its path."""
+    def _write_dxf(self, out: str, *, reproducible: bool = False) -> str:
+        """Write the DXF (part/hidden/dims layers + metadata) and return its path.
+
+        *reproducible* orders the entities and pins the metadata ezdxf stamps from
+        the clock, so two runs write the same bytes. It costs about a third of the
+        export time again — see :func:`export._elements`."""
         dxf_exp = _DraftwrightDXF()
         dxf_exp.add_layer("part", line_weight=0.5)
         dxf_exp.add_layer("hidden", line_weight=0.25)
         dxf_exp.add_layer("dims", line_weight=0.05)
-        self._add_shapes(dxf_exp)
+        self._add_shapes(dxf_exp, ordered=reproducible)
         set_dxf_metadata(dxf_exp)
         dxf_path = out + ".dxf"
         # #602: skip ExportDXF.write's O(entities) zoom.extents pass — the page window is known.
-        write_dxf(dxf_exp, dxf_path, self.page_w, self.page_h)
+        write_dxf(dxf_exp, dxf_path, self.page_w, self.page_h, reproducible=reproducible)
         _log.info("DXF → %s", dxf_path)
         return dxf_path
 
     def _pdf_text_runs(self):
         """Return semantic text overlaid on path-rendered PDF glyphs.
 
-        Scope is deliberately limited to text whose authoritative source and
-        final page geometry are both retained: unrotated free notes and generic tables.
-        Other annotations remain path-only until their renderers expose the
-        same information without reverse-engineering exported geometry.
+        The visible glyphs remain paths.  Dimensions, leaders and notes expose
+        their authoritative label plus final label geometry; tables retain their
+        source rows; the title block retains public-cell-centred value specs.
+        Unsupported feature symbols stay path-only while adjacent text remains
+        selectable, rather than forcing the complete callout back to outlines.
         """
         groups = []
         fs = self.draft.font_size
         pad = self.draft.pad_around_text
-        for _name, annotation in self._registry.iter_named():
+        drawing_font_path = getattr(self.draft, "font_path", DEFAULT_FONT_PATH)
+        drawing_font_name = getattr(self.draft, "font", "Arial")
+        drawing_font_style = getattr(getattr(self.draft, "font_style", None), "name", "REGULAR")
+        raw_basic_matches: dict[int, tuple[str, float]] = {}
+        raw_basic_exact_matches: set[int] = set()
+        raw_basic_unresolved: set[int] = set()
+
+        def semantic_text(value) -> str:
+            # The bundled faces do not carry the geometric counterbore,
+            # countersink or depth glyphs.  They remain visibly rendered by the
+            # existing vector callout; spaces keep the neighbouring supported
+            # terms separate in copied/searchable text.
+            return _font_safe_text(value).translate(_PDF_VECTOR_ONLY_TEXT)
+
+        def raw_dimension_candidates(annotation, value, draft):
+            """Possible visible labels when an external helper discarded constructor args."""
+            bare_zero = draft._number_with_units(0.0, display_units=False)
+            unit_zero = draft._number_with_units(0.0, display_units=True)
+            unit_suffix = unit_zero.removeprefix(bare_zero) if draft.display_units else ""
+            candidates = [value, draft._number_with_units(annotation.measured_length)]
+            if unit_suffix and not value.endswith(unit_suffix):
+                candidates.append(value + unit_suffix)
+            bare_value = draft._number_with_units(annotation.measured_length, display_units=False)
+            prefix, separator, limits = value.partition(" +")
+            upper, minus, lower = limits.partition(" -")
+            if separator and minus and prefix == bare_value:
+                # Helper compatibility metadata reverses asymmetric tuple limits relative
+                # to the visible auto-generated string. Keep the authored candidate too;
+                # exact live ink bounds distinguish an explicit lookalike label.
+                candidates.insert(0, f"{prefix} +{lower} -{upper}{unit_suffix}")
+            return list(dict.fromkeys(candidates))
+
+        def raw_dimension_label_is_freeform(annotation, value, draft):
+            """Whether retained helper metadata can only have come from ``label=``."""
+            numeric_prefix = value.split(" ±", 1)[0].split(" +", 1)[0]
+            try:
+                measured_value = float(annotation.measured_length)
+                if not math.isclose(
+                    float(numeric_prefix),
+                    measured_value,
+                    abs_tol=1e-9,
+                ):
+                    return True
+                # A numerically equivalent label can still be authored text (for
+                # example ``label="1"`` when the active draft would render ``1.0``).
+                # Raw helpers discard that constructor provenance, so preserve the
+                # spelling whenever it differs from this drawing's automatic form.
+                return value == numeric_prefix and value != draft._number_with_units(
+                    measured_value,
+                    display_units=False,
+                )
+            except ValueError:
+                return True
+
+        def text_rotation(annotation) -> float:
+            def upright(angle: float) -> float:
+                angle = (angle + 90.0) % 180.0 - 90.0
+                if math.isclose(angle, -90.0, abs_tol=1e-6):
+                    return 90.0
+                return angle
+
+            live_rotation = float(getattr(annotation.location.orientation, "Z", 0.0))
+            explicit = getattr(annotation, "pdf_text_rotation", None)
+            if explicit is not None:
+                return float(explicit) + live_rotation
+            spec = getattr(annotation, "_dw_spec", None)
+            if spec is not None and hasattr(annotation, "measured_length"):
+                dx, dy = spec.p2[0] - spec.p1[0], spec.p2[1] - spec.p1[1]
+                if math.hypot(dx, dy) > 1e-9:
+                    # Dimension first makes its path label upright, then BaseSketchObject
+                    # applies constructor/live transforms to the whole annotation. Do not
+                    # upright-normalise again after those transforms: 120° must remain 120°.
+                    return (
+                        upright(math.degrees(math.atan2(dy, dx)))
+                        + float(spec.kwargs.get("rotation", 0.0))
+                        + live_rotation
+                    )
+            if getattr(annotation, "is_basic", False):
+                if match := raw_basic_matches.get(id(annotation)):
+                    return match[1]
+                # Raw helper geometry has already absorbed its constructor rotation; live
+                # location transforms are reflected by ``segments`` too. Match the helper's
+                # operation order: upright the pre-transform axis, then reapply both.
+                transform_rotation = float(getattr(annotation, "_init_rot", 0.0)) + live_rotation
+
+                def raw_basic_text_angle(final_axis: float) -> float:
+                    return upright(final_axis - transform_rotation) + transform_rotation
+
+                # A basic dimension's keep-clear polygon is its axis-aligned frame,
+                # not its rotated text. For short labels, distinguish collinear shaft spans,
+                # parallel witness
+                # lines, and the mixed one-shaft/one-witness case. Helper span order puts
+                # a surviving shaft before witnesses.
+                segments = list(getattr(annotation, "segments", ()))
+                ink = segments[:-4] if len(segments) >= 4 else segments
+                if len(ink) == 2:
+                    (a0, a1), (b0, b1) = ink
+                    dx, dy = a1[0] - a0[0], a1[1] - a0[1]
+                    angle = math.degrees(math.atan2(dy, dx))
+                    bx, by = b1[0] - b0[0], b1[1] - b0[1]
+                    if abs(dx * by - dy * bx) > 1e-7:
+                        return raw_basic_text_angle(angle)
+                    separation = dx * (b0[1] - a0[1]) - dy * (b0[0] - a0[0])
+                    axis = angle if abs(separation) < 1e-7 else angle + 90.0
+                    return raw_basic_text_angle(axis)
+                for start, end in ink:
+                    dx, dy = end[0] - start[0], end[1] - start[1]
+                    if math.hypot(dx, dy) > 1e-9:
+                        return raw_basic_text_angle(math.degrees(math.atan2(dy, dx)))
+                # An extremely wide label can consume every shaft and witness span. Recover
+                # angle magnitude from the rotated text AABB (the frame adds a known pad),
+                # using glyph-face covariance only for the sign.
+                if label_box := getattr(annotation, "label_bbox", None):
+                    x0, y0, x1, y1 = label_box
+                    inset = 0.05 * fs
+                    centres = []
+                    glyph_faces = []
+                    for face in annotation.faces():
+                        face_box = face.bounding_box()
+                        if (
+                            face_box.min.X >= x0 + inset
+                            and face_box.max.X <= x1 - inset
+                            and face_box.min.Y >= y0 + inset
+                            and face_box.max.Y <= y1 - inset
+                        ):
+                            centre = face.center()
+                            centres.append((centre.X, centre.Y))
+                            glyph_faces.append(face)
+                    if glyph_faces:
+                        min_area = max(face.area for face in glyph_faces) * 0.01
+                        glyph_faces = [face for face in glyph_faces if face.area >= min_area]
+                        centres = [(face.center().X, face.center().Y) for face in glyph_faces]
+                    shape_matches: list[tuple[float, str, float]] = []
+                    raw_label = str(getattr(annotation, "label", ""))
+                    for candidate in raw_dimension_candidates(annotation, raw_label, self.draft):
+                        source_face_options = []
+                        for font_path in dict.fromkeys((drawing_font_path, DEFAULT_FONT_PATH)):
+                            faces = Text(
+                                txt=candidate,
+                                font_size=fs,
+                                font=drawing_font_name,
+                                font_style=self.draft.font_style,
+                                font_path=font_path,
+                                align=(Align.CENTER, Align.CENTER),
+                                mode=Mode.PRIVATE,
+                            ).faces()
+                            if len(faces) != len(glyph_faces) or not faces:
+                                continue
+
+                            def face_ratio(face):
+                                box = face.oriented_bounding_box()
+                                sizes = sorted((box.size.X, box.size.Y, box.size.Z), reverse=True)
+                                return sizes[0] / max(sizes[1], 1e-12)
+
+                            source_area = sum(face.area for face in faces)
+                            target_area = sum(face.area for face in glyph_faces)
+                            font_error = sum(
+                                abs(source.area / source_area - target.area / target_area)
+                                + abs(math.log(face_ratio(source) / face_ratio(target)))
+                                for source, target in zip(faces, glyph_faces, strict=True)
+                            )
+                            source_face_options.append((font_error, faces))
+                        if not source_face_options:
+                            continue
+                        if len(candidate) == 1:
+                            for _font_error, exact_faces in source_face_options:
+                                exact_rotation = _exact_face_rotation(exact_faces, glyph_faces)
+                                if exact_rotation is not None:
+                                    raw_basic_exact_matches.add(id(annotation))
+                                    shape_matches.append((0.0, candidate, exact_rotation))
+                                    break
+                            else:
+                                exact_rotation = None
+                            if exact_rotation is not None:
+                                continue
+                        _font_error, source_faces = min(
+                            source_face_options, key=lambda item: item[0]
+                        )
+                        if len(source_faces) == 1:
+
+                            def line_directions(face):
+                                directions = []
+                                for edge in face.edges():
+                                    if getattr(edge.geom_type, "name", "") != "LINE":
+                                        continue
+                                    tangent = edge.tangent_at(0.5)
+                                    directions.append(
+                                        (
+                                            math.degrees(math.atan2(tangent.Y, tangent.X)) % 180.0,
+                                            edge.length,
+                                        )
+                                    )
+                                return directions
+
+                            def direction_stats(directions, angle):
+                                matching = [
+                                    weight
+                                    for direction, weight in directions
+                                    if abs((direction - angle + 90.0) % 180.0 - 90.0) < 1e-5
+                                ]
+                                return sum(matching), len(matching)
+
+                            source_directions = line_directions(source_faces[0])
+                            target_directions = line_directions(glyph_faces[0])
+                            source_horizontal, source_horizontal_count = direction_stats(
+                                source_directions, 0.0
+                            )
+                            source_vertical, source_vertical_count = direction_stats(
+                                source_directions, 90.0
+                            )
+                            source_axis_total = source_horizontal + source_vertical
+                            if source_axis_total > 1e-9 and target_directions:
+                                axis_matches = []
+                                source_share = source_horizontal / source_axis_total
+                                for direction, _weight in target_directions:
+                                    for angle in (direction, direction - 90.0):
+                                        target_horizontal, target_horizontal_count = (
+                                            direction_stats(target_directions, angle)
+                                        )
+                                        target_vertical, target_vertical_count = direction_stats(
+                                            target_directions, angle + 90.0
+                                        )
+                                        target_axis_total = target_horizontal + target_vertical
+                                        if target_axis_total > 1e-9:
+                                            axis_matches.append(
+                                                (
+                                                    abs(
+                                                        source_share
+                                                        - target_horizontal / target_axis_total
+                                                    )
+                                                    + (
+                                                        abs(
+                                                            source_horizontal_count
+                                                            - target_horizontal_count
+                                                        )
+                                                        + abs(
+                                                            source_vertical_count
+                                                            - target_vertical_count
+                                                        )
+                                                    )
+                                                    / max(
+                                                        1,
+                                                        source_horizontal_count
+                                                        + source_vertical_count,
+                                                    ),
+                                                    angle,
+                                                )
+                                            )
+                                if axis_matches:
+                                    error, angle = min(axis_matches)
+                                    shape_matches.append((error, candidate, angle))
+                                    continue
+                            source_obb = source_faces[0].oriented_bounding_box()
+                            target_obb = glyph_faces[0].oriented_bounding_box()
+                            source_axes = sorted(
+                                (
+                                    (source_obb.size.X, source_obb.plane.x_dir),
+                                    (source_obb.size.Y, source_obb.plane.y_dir),
+                                    (source_obb.size.Z, source_obb.plane.z_dir),
+                                ),
+                                key=lambda item: item[0],
+                                reverse=True,
+                            )
+                            target_axes = sorted(
+                                (
+                                    (target_obb.size.X, target_obb.plane.x_dir),
+                                    (target_obb.size.Y, target_obb.plane.y_dir),
+                                    (target_obb.size.Z, target_obb.plane.z_dir),
+                                ),
+                                key=lambda item: item[0],
+                                reverse=True,
+                            )
+                            if min(source_axes[1][0], target_axes[1][0]) < 1e-9:
+                                continue
+                            source_ratio = source_axes[0][0] / source_axes[1][0]
+                            target_ratio = target_axes[0][0] / target_axes[1][0]
+                            aspect_error = abs(math.log(source_ratio / target_ratio))
+                            source_dir = source_axes[0][1]
+                            target_dir = target_axes[0][1]
+                            dot = source_dir.X * target_dir.X + source_dir.Y * target_dir.Y
+                            cross = source_dir.X * target_dir.Y - source_dir.Y * target_dir.X
+                            shape_matches.append(
+                                (
+                                    aspect_error,
+                                    candidate,
+                                    math.degrees(math.atan2(cross, dot)),
+                                )
+                            )
+                            continue
+                        else:
+                            source_points = [
+                                (face.center().X, face.center().Y) for face in source_faces
+                            ]
+                            target_points = centres
+                        source_mean = (
+                            sum(point[0] for point in source_points) / len(source_points),
+                            sum(point[1] for point in source_points) / len(source_points),
+                        )
+                        target_mean = (
+                            sum(point[0] for point in target_points) / len(target_points),
+                            sum(point[1] for point in target_points) / len(target_points),
+                        )
+                        dot = cross = 0.0
+                        for source, target in zip(source_points, target_points, strict=True):
+                            sx, sy = source[0] - source_mean[0], source[1] - source_mean[1]
+                            tx, ty = target[0] - target_mean[0], target[1] - target_mean[1]
+                            dot += sx * tx + sy * ty
+                            cross += sx * ty - sy * tx
+                        if math.hypot(dot, cross) < 1e-9:
+                            continue
+                        angle = math.atan2(cross, dot)
+                        cos_angle, sin_angle = math.cos(angle), math.sin(angle)
+                        error = 0.0
+                        for source, target in zip(source_points, target_points, strict=True):
+                            sx, sy = source[0] - source_mean[0], source[1] - source_mean[1]
+                            predicted = (
+                                target_mean[0] + cos_angle * sx - sin_angle * sy,
+                                target_mean[1] + sin_angle * sx + cos_angle * sy,
+                            )
+                            error += math.dist(predicted, target) ** 2
+                        for source_face, target_face in zip(
+                            source_faces, glyph_faces, strict=True
+                        ):
+                            error += (source_face.area - target_face.area) ** 2
+                        shape_matches.append((error, candidate, math.degrees(angle)))
+                    if len(raw_label) == 1 and id(annotation) not in raw_basic_exact_matches:
+                        # External helpers discard their construction Draft.  A guessed
+                        # face can put selectable text far from custom-font ink, so retain
+                        # the helper's visible vector glyph unless its outline proves the
+                        # semantic face and rotation exactly.
+                        raw_basic_unresolved.add(id(annotation))
+                    if shape_matches:
+                        _error, matched_text, matched_angle = min(shape_matches)
+                        matched_angle = raw_basic_text_angle(matched_angle)
+                        raw_basic_matches[id(annotation)] = (matched_text, matched_angle)
+                        return matched_angle
+            polygon = getattr(annotation, "label_polygon", None)
+            if polygon and len(polygon) >= 2:
+                (x0, y0), (x1, y1) = polygon[:2]
+                return math.degrees(math.atan2(y1 - y0, x1 - x0))
+            return live_rotation
+
+        def centred_runs(
+            value,
+            label_box,
+            font_size,
+            rotation,
+            font_path,
+            font_name="Arial",
+            font_style="REGULAR",
+            line_spacing=None,
+        ):
+            lines = semantic_text(value).splitlines()
+            if not lines:
+                return []
+            x0, y0, x1, y1 = label_box
+            cx, cy = (x0 + x1) / 2.0, (y0 + y1) / 2.0
+            angle = math.radians(rotation)
+            sin_angle, cos_angle = math.sin(angle), math.cos(angle)
+            if line_spacing is None:
+                line_spacing = _text_line_spacing_em(font_size, font_path, font_name)
+            runs = []
+            for index, line in enumerate(lines):
+                if not line:
+                    continue
+                local_y = ((len(lines) - 1) / 2.0 - index) * font_size * line_spacing
+                runs.append(
+                    _PDFTextRun(
+                        line,
+                        cx - sin_angle * local_y,
+                        cy + cos_angle * local_y,
+                        font_size,
+                        rotation=rotation,
+                        font_path=font_path,
+                        font_name=font_name,
+                        font_style=font_style,
+                        h_align="center",
+                        v_align="middle",
+                    )
+                )
+            return runs
+
+        for ordinal, (_name, annotation) in enumerate(self._registry.iter_named()):
             box = annotation.bounding_box()
             rows = getattr(annotation, "table_rows", None)
             runs = []
@@ -3648,36 +4601,191 @@ class Drawing:
                         if cell:
                             runs.append(
                                 _PDFTextRun(
-                                    _font_safe_text(cell),
+                                    semantic_text(cell),
                                     box.min.X + lefts[ci] + pad,
                                     baseline,
                                     fs,
+                                    font_path=PLEX_MONO,
                                 )
                             )
+            elif specs := getattr(annotation, "pdf_text_specs", None):
+                for value, x, y, font_size, font_path in specs:
+                    runs.extend(centred_runs(value, (x, y, x, y), font_size, 0.0, font_path))
+            elif specs := getattr(annotation, "pdf_text_relative_specs", None):
+                label_box = getattr(annotation, "label_bbox", None)
+                if label_box:
+                    cx = (label_box[0] + label_box[2]) / 2.0
+                    cy = (label_box[1] + label_box[3]) / 2.0
+                    rotation = text_rotation(annotation)
+                    angle = math.radians(rotation)
+                    cos_angle, sin_angle = math.cos(angle), math.sin(angle)
+                    for spec in specs:
+                        value, rx, ry, size, path, name, style, *align = spec
+                        h_align, v_align = align or ("center", "middle")
+                        runs.append(
+                            _PDFTextRun(
+                                semantic_text(value),
+                                cx + cos_angle * rx - sin_angle * ry,
+                                cy + sin_angle * rx + cos_angle * ry,
+                                size,
+                                rotation=rotation,
+                                font_path=path,
+                                font_name=name,
+                                font_style=style,
+                                h_align=h_align,
+                                v_align=v_align,
+                            )
+                        )
             else:
                 value = getattr(annotation, "pdf_text", None)
-                rotation = getattr(annotation, "pdf_text_rotation", 0.0)
-                # An axis-aligned bounding box cannot recover a rotated note's
-                # original text origin. Leave those path-only until the note
-                # renderer retains its anchor/alignment transform explicitly.
-                if value and not rotation:
-                    lines = str(value).splitlines() or [str(value)]
-                    for index, line in enumerate(lines):
-                        if line:
-                            runs.append(
-                                _PDFTextRun(
-                                    line,
-                                    box.min.X,
-                                    box.max.Y - (index + 1) * fs,
-                                    fs,
-                                )
+                if value is None:
+                    value = getattr(annotation, "label", None)
+                label_box = getattr(annotation, "label_bbox", None)
+                if value and label_box:
+                    raw_freeform = False
+                    run_font_size = fs
+                    run_font_path = drawing_font_path
+                    run_font_name = drawing_font_name
+                    run_font_style = drawing_font_style
+                    run_font_style_enum = self.draft.font_style
+                    if hasattr(annotation, "measured_length"):
+                        spec = getattr(annotation, "_dw_spec", None)
+                        dimension_draft = spec.draft if spec is not None else self.draft
+                        run_font_size = dimension_draft.font_size
+                        run_font_path = getattr(dimension_draft, "font_path", DEFAULT_FONT_PATH)
+                        run_font_name = getattr(dimension_draft, "font", "Arial")
+                        run_font_style_enum = dimension_draft.font_style
+                        run_font_style = getattr(dimension_draft.font_style, "name", "REGULAR")
+                        if spec is not None and spec.kwargs.get("label") is None:
+                            # The engine owns this construction spec, including tolerance;
+                            # reproduce the exact helper-rendered label rather than its
+                            # intentionally unitless compatibility metadata.
+                            value = spec.draft._number_with_units(
+                                annotation.measured_length,
+                                spec.kwargs.get("tolerance"),
                             )
+                        elif spec is None:
+                            # External raw helpers retain no label/tolerance constructor args.
+                            # Compare the few possible unit renderings to the live label geometry;
+                            # this also preserves explicit custom labels (their own width wins).
+                            raw_freeform = raw_dimension_label_is_freeform(
+                                annotation,
+                                value,
+                                dimension_draft,
+                            )
+                            candidates = (
+                                [value]
+                                if raw_freeform
+                                else raw_dimension_candidates(annotation, value, dimension_draft)
+                            )
+                            rotation = text_rotation(annotation)
+                            if id(annotation) in raw_basic_unresolved:
+                                continue
+                            if getattr(annotation, "is_basic", False):
+                                x0, y0, x1, y1 = label_box
+                                actual = (x1 - x0, y1 - y0)
+                                transform = math.radians(
+                                    float(getattr(annotation, "_init_rot", 0.0))
+                                    + float(getattr(annotation.location.orientation, "Z", 0.0))
+                                )
+                                base_angle = math.radians(rotation) - transform
+
+                                def geometry_error(candidate):
+                                    width, height = _text_size(
+                                        candidate,
+                                        run_font_size,
+                                        run_font_path,
+                                        run_font_name,
+                                        run_font_style_enum,
+                                    )
+                                    frame_width = (
+                                        abs(width * math.cos(base_angle))
+                                        + abs(height * math.sin(base_angle))
+                                        + 0.8 * run_font_size
+                                    )
+                                    frame_height = (
+                                        abs(width * math.sin(base_angle))
+                                        + abs(height * math.cos(base_angle))
+                                        + 0.8 * run_font_size
+                                    )
+                                    predicted = (
+                                        abs(frame_width * math.cos(transform))
+                                        + abs(frame_height * math.sin(transform)),
+                                        abs(frame_width * math.sin(transform))
+                                        + abs(frame_height * math.cos(transform)),
+                                    )
+                                    return math.dist(actual, predicted)
+
+                            else:
+                                polygon = getattr(annotation, "label_polygon", None)
+                                visible_width = (
+                                    math.dist(polygon[0], polygon[1])
+                                    if polygon
+                                    else label_box[2] - label_box[0]
+                                )
+
+                                def geometry_error(candidate):
+                                    width = _text_size(
+                                        candidate,
+                                        run_font_size,
+                                        run_font_path,
+                                        run_font_name,
+                                        run_font_style_enum,
+                                    )[0]
+                                    return abs(width - visible_width)
+
+                            match = raw_basic_matches.get(id(annotation))
+                            value = (
+                                match[0]
+                                if match is not None and match[0] in candidates
+                                else min(candidates, key=geometry_error)
+                            )
+                            if raw_freeform:
+                                polygon = getattr(annotation, "label_polygon", None)
+                                if polygon:
+                                    visible_width = math.dist(polygon[0], polygon[1])
+                                    unit_width, unit_height = _text_size(
+                                        value,
+                                        1.0,
+                                        run_font_path,
+                                        run_font_name,
+                                        run_font_style_enum,
+                                    )
+                                    if getattr(annotation, "is_basic", False):
+                                        unit_width = (
+                                            abs(unit_width * math.cos(base_angle))
+                                            + abs(unit_height * math.sin(base_angle))
+                                            + 0.8
+                                        )
+                                    if unit_width > 1e-9:
+                                        run_font_size = visible_width / unit_width
+                    if not hasattr(annotation, "measured_length"):
+                        run_font_style = getattr(annotation, "pdf_text_font_style", "REGULAR")
+                    runs.extend(
+                        centred_runs(
+                            value,
+                            label_box,
+                            run_font_size,
+                            text_rotation(annotation),
+                            run_font_path,
+                            run_font_name,
+                            run_font_style,
+                            getattr(annotation, "pdf_text_line_spacing", None),
+                        )
+                    )
             if runs:
-                groups.append((-box.max.Y, box.min.X, runs))
-        return tuple(run for _top, _left, runs in sorted(groups) for run in runs)
+                groups.append((-box.max.Y, box.min.X, ordinal, runs))
+        return tuple(run for _top, _left, _ordinal, runs in sorted(groups) for run in runs)
 
     def export(
-        self, out=None, *, formats=None, svg=None, dxf=None, dpi: int = 150
+        self,
+        out=None,
+        *,
+        formats=None,
+        svg=None,
+        dxf=None,
+        dpi: int = 150,
+        reproducible: bool | None = None,
     ) -> dict[str, str] | tuple[str | None, str | None]:
         """Lint, then write the requested output *formats*; return ``{format: path}``.
 
@@ -3699,8 +4807,20 @@ class Drawing:
         the planned 0.5.0 removal a silent break — and invisible to
         ``tests/test_deprecation_dates.py``, which can only scan things that warn. A
         deprecation nobody is warned about is documentation, not a deprecation.
+
+        *reproducible* makes two exports of one drawing byte-identical — the element
+        order is settled and the metadata the exporters take from the clock is pinned,
+        so a written drawing can be diffed or checksummed to see whether its content
+        actually changed. ``None`` (the default) uses :attr:`reproducible`, which
+        :func:`~draftwright.build_drawing` sets and which is ``False`` unless asked
+        for: ordering costs roughly a third of DXF export time again (see
+        :func:`draftwright.export._elements`), so it is opted into rather than paid
+        by every caller. Passing the keyword here overrides the drawing's default for
+        this call only.
         """
         self.finalize()  # #426: drain any recorded intents before export (no-op if none)
+        # An explicit keyword wins; otherwise the drawing's own default (build_drawing's).
+        reproducible = self.reproducible if reproducible is None else reproducible
         out = out if out is not None else self.out
         for _ext in self._EXPORT_FORMATS:
             if out.endswith("." + _ext):
@@ -3779,8 +4899,12 @@ class Drawing:
                     DeprecationWarning,
                     stacklevel=2,
                 )
-            svg_path = self._write_svg(out) if (svg is None or svg) else None
-            dxf_path = self._write_dxf(out) if (dxf is None or dxf) else None
+            svg_path = (
+                self._write_svg(out, reproducible=reproducible) if (svg is None or svg) else None
+            )
+            dxf_path = (
+                self._write_dxf(out, reproducible=reproducible) if (dxf is None or dxf) else None
+            )
             self.svg_path, self.dxf_path = svg_path, dxf_path
             return svg_path, dxf_path
 
@@ -3805,14 +4929,17 @@ class Drawing:
 
             svg_path = None
             if want_set & {"svg", "pdf", "png"}:
-                svg_path = self._write_svg(out if "svg" in want_set else _intermediate_stem())
+                svg_path = self._write_svg(
+                    out if "svg" in want_set else _intermediate_stem(),
+                    reproducible=reproducible,
+                )
             self.svg_path = svg_path if "svg" in want_set else None
             if "svg" in want_set:
                 paths["svg"] = svg_path  # type: ignore[assignment]
 
             self.dxf_path = None
             if "dxf" in want_set:
-                self.dxf_path = paths["dxf"] = self._write_dxf(out)
+                self.dxf_path = paths["dxf"] = self._write_dxf(out, reproducible=reproducible)
 
             pdf_path = None
             if want_set & {"pdf", "png"}:
@@ -3823,6 +4950,7 @@ class Drawing:
                     pdf_path,
                     getattr(self.get_annotation("title_block"), "draftwright_link_rect", None),
                     self._pdf_text_runs(),
+                    reproducible=reproducible,
                 )
                 _log.info("PDF → %s", pdf_path)
                 if "pdf" in want_set:
@@ -3848,13 +4976,18 @@ class Drawing:
         assert isinstance(paths, dict)  # formats=... always returns the {format: path} dict
         return paths["pdf"]
 
-    def _add_shapes(self, exporter):
-        """Add every view layer and annotation to *exporter* with error context."""
+    def _add_shapes(self, exporter, *, ordered: bool = False):
+        """Add every view layer and annotation to *exporter* with error context.
+
+        *ordered* hands each shape's parts over in a geometric order rather than
+        the kernel's, which is what makes a DXF's entities (and their handles)
+        come out the same on the next run. It is the costly half of
+        ``reproducible=``; see :func:`export._elements`."""
         for name, (vis, hid) in self.views.items():
-            _export_shape(exporter, vis, "part", f"view {name!r}")
+            _export_shape(exporter, vis, "part", f"view {name!r}", ordered=ordered)
             if hid:
-                _export_shape(exporter, hid, "hidden", f"view {name!r}")
+                _export_shape(exporter, hid, "hidden", f"view {name!r}", ordered=ordered)
         names = {id(annotation): name for name, annotation in self.iter_annotations()}
         for ann in self.items:
             identity = names.get(id(ann)) or getattr(ann, "label", "") or type(ann).__name__
-            _export_shape(exporter, ann, "dims", f"annotation {identity!r}")
+            _export_shape(exporter, ann, "dims", f"annotation {identity!r}", ordered=ordered)

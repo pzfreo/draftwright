@@ -233,7 +233,7 @@ class TestCrossingLength:
         assert measure(item, None) == 0.0
 
     def test_an_item_without_a_segment_list_contributes_nothing(self):
-        # Duck-typed items (ADR 0005) must not kill lint.
+        # Duck-typed items (ADR 1 (was 0005)) must not kill lint.
         assert measure(object(), BOX) == 0.0
 
     def test_an_item_whose_segments_raise_contributes_nothing_and_says_so(self):

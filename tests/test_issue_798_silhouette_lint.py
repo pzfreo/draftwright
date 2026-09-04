@@ -1,6 +1,6 @@
 """#798 — the ``leader_crosses_silhouette`` critique reads the shared material field.
 
-The router (ADR 0014) and this notice must reach the same verdict on the same shaft,
+The router (ADR 2 (was 0014)) and this notice must reach the same verdict on the same shaft,
 so both solve against one lowering. These tests pin that seam: what the check needs,
 what it reports, and what it deliberately no longer exempts.
 """
@@ -187,7 +187,7 @@ class TestFieldLifecycle:
 class TestGreedyFloorPrefersClearRoutes:
     """#798 — the resource-cap floor is what actually runs on dense parts.
 
-    Measured across every fixture, the joint ADR 0014 Amendment 2 assignment runs only
+    Measured across every fixture, the joint ADR 2 (was 0014 Amendment 2) assignment runs only
     on modest inventories; a 20-job part expands past the candidate cap and falls back
     here. So this is where a cutting route has to be rejected, and these tests pin the
     two properties that make that safe.
@@ -233,10 +233,11 @@ class TestCardinalityIsNotTradedForCleanliness:
     risk is second-order — placement is sequential, so a re-chosen winner is a
     different obstacle for later jobs, and one of those could fail to place.
 
-    Measured across every fixture that reaches the floor, the placed count is unchanged by
-    the route preference. These fixtures pin that per part, so a future change that does start
-    trading callouts for tidiness fails here and names the part, rather than being noticed on a
-    drawing. The integer is deliberately annotation cardinality, not physical-feature
+    Measured across every fixture that reaches the floor, the placed count did not fall when
+    the route preference landed. These fixtures retain that historical count as a one-way
+    floor, so a future change that does start trading callouts for tidiness fails here and names
+    the part, while a later layout improvement may place more. The integer is deliberately
+    annotation cardinality, not physical-feature
     cardinality: #1254 collapses CTC-04's eight equal chamfers into one truthful ``8× C5``
     annotation carrying all eight measurement identities, so that inventory has seven fewer
     jobs without losing seven requirements. The grouped-provenance invariant is asserted
@@ -252,9 +253,9 @@ class TestCardinalityIsNotTradedForCleanliness:
     # Parametrized per fixture (#656): each dense build is ~60 s, and one test running
     # them serially set the wall-clock floor for the whole suite under --dist loadscope.
     @pytest.mark.slow  # >=30 s inherent dense build; post-merge tier (#656)
-    @pytest.mark.parametrize(("stem", "expected"), CASES)
+    @pytest.mark.parametrize(("stem", "floor"), CASES)
     def test_the_dense_fixtures_place_the_same_callouts_as_before(
-        self, tmp_path, monkeypatch, stem, expected
+        self, tmp_path, monkeypatch, stem, floor
     ):
         import json
         from pathlib import Path
@@ -264,9 +265,10 @@ class TestCardinalityIsNotTradedForCleanliness:
         build_drawing(step_file=str(Path("tests/fixtures") / f"{stem}.stp"))
         events = json.loads(trace.read_text())["pass_events"]
         event = next(e for e in events if e.get("label") == "feature_leader_inventory")
-        assert event["objective"]["placed"] == expected, (
+        assert event["objective"]["placed"] >= floor, (
             f"{stem}: the leader floor placed {event['objective']['placed']} callouts, "
-            f"not {expected} — a route preference must never cost a dimension"
+            f"below the historical floor of {floor} — a route preference must never "
+            "cost a dimension"
         )
 
     def test_material_is_never_an_acceptance_test(self):

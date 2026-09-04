@@ -97,7 +97,7 @@ class TestTheDrawingBearsOutItsOwnClaims:
         assert states == ["value_absent"], "a digit-substring match was accepted as proof"
 
     def test_a_claim_on_an_uncompiled_measurement_is_reported(self, two_hole_dwg):
-        # A renderer emitting content the compiler never approved is an ADR 0016 Amdt 1
+        # A renderer emitting content the compiler never approved is an ADR 4 (was 0016 Amdt 1)
         # violation. The verifier sees it because it resolves claims against the plan.
         drawing = two_hole_dwg
         plan = compile_dimensions(drawing.model())
@@ -417,7 +417,7 @@ class TestTheAcceptanceSetIsNarrowedWhereItCanBe:
 class TestTheOutputIsDeterministic:
     def test_issue_order_does_not_depend_on_set_iteration(self):
         # `registry.names()` is a set. Without `sorted` the emitted order varied run to run on
-        # one drawing — five orderings in five processes — which is against ADR 0006 and makes
+        # one drawing — five orderings in five processes — which is against ADR 5 (was 0006) and makes
         # two lint runs undiffable, the defect #1196 fixed for lint TEXT.
         drawing = build_drawing(_two_hole_plate(), title="T", number="N-1")
         for name in [n for n in drawing.registry.names() if n.startswith(("hc_", "m_loc"))]:

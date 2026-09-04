@@ -1,0 +1,166 @@
+{
+  "format": "draftwright-step-analysis-corpus",
+  "format_version": 1,
+  "corpus_version": "1.0.0",
+  "metric_version": 1,
+  "scope": ["turned-steps"],
+  "cases": [
+    {
+      "id": "turned-step-plain-negative",
+      "tags": ["negative"],
+      "fixture": "plain-block.step",
+      "sha256": "1a5db509de8c0ce04d46cf39296dcdd04873e74cb0e7501bcd97630ffd8d113c",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored as a plain rectangular block with no body-local rotational profile or outside-diameter band.",
+      "expected_outcome": "supported",
+      "facts": []
+    },
+    {
+      "id": "turned-step-axis-x",
+      "tags": ["positive", "axis-x", "multiple"],
+      "fixture": "turned-step-axis-x.step",
+      "sha256": "82248eab7b2ab68ffb6a7a160c086bba851b0283bafd17512531767e705d1842",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Independently authored coaxial X sections: length 20 at diameter 30, length 30 at diameter 20, then length 15 at diameter 12 mm.",
+      "expected_outcome": "supported",
+      "facts": [
+        {"family": "turned-steps", "identity": {"axis": {"value": "x"}, "axis_line": {"value": [0.0, 0.0], "absolute_tolerance": 1e-6}, "station": {"value": 10.0, "absolute_tolerance": 1e-6}}, "parameters": {"length": {"value": 20.0, "absolute_tolerance": 1e-6}, "diameter": {"value": 30.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]},
+        {"family": "turned-steps", "identity": {"axis": {"value": "x"}, "axis_line": {"value": [0.0, 0.0], "absolute_tolerance": 1e-6}, "station": {"value": 35.0, "absolute_tolerance": 1e-6}}, "parameters": {"length": {"value": 30.0, "absolute_tolerance": 1e-6}, "diameter": {"value": 20.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]},
+        {"family": "turned-steps", "identity": {"axis": {"value": "x"}, "axis_line": {"value": [0.0, 0.0], "absolute_tolerance": 1e-6}, "station": {"value": 57.5, "absolute_tolerance": 1e-6}}, "parameters": {"length": {"value": 15.0, "absolute_tolerance": 1e-6}, "diameter": {"value": 12.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]}
+      ]
+    },
+    {
+      "id": "turned-step-axis-y",
+      "tags": ["positive", "axis-y", "rotated"],
+      "fixture": "turned-step-axis-y.step",
+      "sha256": "d776a6515885dd81b795b198d8ad3149daab23ef3f5ebaaa6b07424d433e9aa2",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Independently authored coaxial Y sections: length 12 at diameter 24 followed by length 18 at diameter 14 mm.",
+      "expected_outcome": "supported",
+      "facts": [
+        {"family": "turned-steps", "identity": {"axis": {"value": "y"}, "axis_line": {"value": [0.0, 0.0], "absolute_tolerance": 1e-6}, "station": {"value": 6.0, "absolute_tolerance": 1e-6}}, "parameters": {"length": {"value": 12.0, "absolute_tolerance": 1e-6}, "diameter": {"value": 24.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]},
+        {"family": "turned-steps", "identity": {"axis": {"value": "y"}, "axis_line": {"value": [0.0, 0.0], "absolute_tolerance": 1e-6}, "station": {"value": 21.0, "absolute_tolerance": 1e-6}}, "parameters": {"length": {"value": 18.0, "absolute_tolerance": 1e-6}, "diameter": {"value": 14.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]}
+      ]
+    },
+    {
+      "id": "turned-step-axis-z",
+      "tags": ["positive", "axis-z"],
+      "fixture": "turned-step-axis-z.step",
+      "sha256": "39299c8192396ddd2a6c1843a82670b5805e691c7cadfc59d369a9784fe35d3a",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Independently authored coaxial Z sections: length 18 at diameter 28 followed by length 22 at diameter 18 mm.",
+      "expected_outcome": "supported",
+      "facts": [
+        {"family": "turned-steps", "identity": {"axis": {"value": "z"}, "axis_line": {"value": [0.0, 0.0], "absolute_tolerance": 1e-6}, "station": {"value": 9.0, "absolute_tolerance": 1e-6}}, "parameters": {"length": {"value": 18.0, "absolute_tolerance": 1e-6}, "diameter": {"value": 28.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]},
+        {"family": "turned-steps", "identity": {"axis": {"value": "z"}, "axis_line": {"value": [0.0, 0.0], "absolute_tolerance": 1e-6}, "station": {"value": 29.0, "absolute_tolerance": 1e-6}}, "parameters": {"length": {"value": 22.0, "absolute_tolerance": 1e-6}, "diameter": {"value": 18.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]}
+      ]
+    },
+    {
+      "id": "turned-step-translated-blind-bore",
+      "tags": ["positive", "translated", "blind-bore"],
+      "fixture": "turned-step-translated-blind-bore.step",
+      "sha256": "1d03637f0499aefab9b8fe83270cb936ef8c9655cc6bfb0a78bc2c85d6991e63",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "A Z shaft translated to axis line X=91, Y=-37 with two 30 mm outside bands (diameters 30 and 16) and an independently authored blind axial bore.",
+      "expected_outcome": "supported",
+      "facts": [
+        {"family": "turned-steps", "identity": {"axis": {"value": "z"}, "axis_line": {"value": [91.0, -37.0], "absolute_tolerance": 1e-6}, "station": {"value": 63.0, "absolute_tolerance": 1e-6}}, "parameters": {"length": {"value": 30.0, "absolute_tolerance": 1e-6}, "diameter": {"value": 30.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]},
+        {"family": "turned-steps", "identity": {"axis": {"value": "z"}, "axis_line": {"value": [91.0, -37.0], "absolute_tolerance": 1e-6}, "station": {"value": 93.0, "absolute_tolerance": 1e-6}}, "parameters": {"length": {"value": 30.0, "absolute_tolerance": 1e-6}, "diameter": {"value": 16.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]}
+      ]
+    },
+    {
+      "id": "turned-step-repeated-lengths",
+      "tags": ["positive", "multiple-equal", "grouped-ink"],
+      "fixture": "turned-step-repeated-lengths.step",
+      "sha256": "c7c3b3c267f46ccdfb6d103e7cb95d13acb9923b777ef291e793b4b341b15118",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Three adjacent X bands each have independently authored length 10 mm, at diameters 20, 14 and 8 mm; grouped length ink must retain all three identities.",
+      "expected_outcome": "supported",
+      "facts": [
+        {"family": "turned-steps", "identity": {"axis": {"value": "x"}, "axis_line": {"value": [0.0, 0.0], "absolute_tolerance": 1e-6}, "station": {"value": 5.0, "absolute_tolerance": 1e-6}}, "parameters": {"length": {"value": 10.0, "absolute_tolerance": 1e-6}, "diameter": {"value": 20.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]},
+        {"family": "turned-steps", "identity": {"axis": {"value": "x"}, "axis_line": {"value": [0.0, 0.0], "absolute_tolerance": 1e-6}, "station": {"value": 15.0, "absolute_tolerance": 1e-6}}, "parameters": {"length": {"value": 10.0, "absolute_tolerance": 1e-6}, "diameter": {"value": 14.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]},
+        {"family": "turned-steps", "identity": {"axis": {"value": "x"}, "axis_line": {"value": [0.0, 0.0], "absolute_tolerance": 1e-6}, "station": {"value": 25.0, "absolute_tolerance": 1e-6}}, "parameters": {"length": {"value": 10.0, "absolute_tolerance": 1e-6}, "diameter": {"value": 8.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]}
+      ]
+    },
+    {
+      "id": "turned-step-compound",
+      "tags": ["positive", "compound", "multiple-axis-lines"],
+      "fixture": "turned-step-compound.step",
+      "sha256": "523a9621070b29f10cb689f857d11cbfadcaa459e768bdae6c35c188869f6a4e",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Two disjoint Z shafts on axis lines X=-40 and X=40 carry two independently authored outside bands each.",
+      "expected_outcome": "supported",
+      "facts": [
+        {"family": "turned-steps", "identity": {"axis": {"value": "z"}, "axis_line": {"value": [-40.0, 0.0], "absolute_tolerance": 1e-6}, "station": {"value": 10.0, "absolute_tolerance": 1e-6}}, "parameters": {"length": {"value": 20.0, "absolute_tolerance": 1e-6}, "diameter": {"value": 30.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]},
+        {"family": "turned-steps", "identity": {"axis": {"value": "z"}, "axis_line": {"value": [-40.0, 0.0], "absolute_tolerance": 1e-6}, "station": {"value": 32.5, "absolute_tolerance": 1e-6}}, "parameters": {"length": {"value": 25.0, "absolute_tolerance": 1e-6}, "diameter": {"value": 20.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]},
+        {"family": "turned-steps", "identity": {"axis": {"value": "z"}, "axis_line": {"value": [40.0, 0.0], "absolute_tolerance": 1e-6}, "station": {"value": 14.5, "absolute_tolerance": 1e-6}}, "parameters": {"length": {"value": 15.0, "absolute_tolerance": 1e-6}, "diameter": {"value": 26.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]},
+        {"family": "turned-steps", "identity": {"axis": {"value": "z"}, "axis_line": {"value": [40.0, 0.0], "absolute_tolerance": 1e-6}, "station": {"value": 37.0, "absolute_tolerance": 1e-6}}, "parameters": {"length": {"value": 30.0, "absolute_tolerance": 1e-6}, "diameter": {"value": 16.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]}
+      ]
+    },
+    {
+      "id": "turned-step-through-bore",
+      "tags": ["positive", "through-bore", "overlapping-family"],
+      "fixture": "turned-step-through-bore.step",
+      "sha256": "cc6b07b6f5f9e2f56600e395fc59aa07628e8acb22c8a1cb7531029fccc392f6",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Two Z outside bands (length 24 at diameter 30 and length 26 at diameter 18) share stock with a coaxial through bore; outside and bore families remain distinct.",
+      "expected_outcome": "supported",
+      "facts": [
+        {"family": "turned-steps", "identity": {"axis": {"value": "z"}, "axis_line": {"value": [0.0, 0.0], "absolute_tolerance": 1e-6}, "station": {"value": 12.0, "absolute_tolerance": 1e-6}}, "parameters": {"length": {"value": 24.0, "absolute_tolerance": 1e-6}, "diameter": {"value": 30.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]},
+        {"family": "turned-steps", "identity": {"axis": {"value": "z"}, "axis_line": {"value": [0.0, 0.0], "absolute_tolerance": 1e-6}, "station": {"value": 37.0, "absolute_tolerance": 1e-6}}, "parameters": {"length": {"value": 26.0, "absolute_tolerance": 1e-6}, "diameter": {"value": 18.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]}
+      ]
+    },
+    {
+      "id": "turned-step-groove-ownership",
+      "tags": ["positive", "groove-owned-band", "overlapping-family"],
+      "fixture": "groove-lone-y.step",
+      "sha256": "af51e310cc19e28b860dc36b377f91717a5250db1dfddc89b91b9fed5e513363",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "A Y shaft has diameter 20 outer bands from -30 to -2 and 2 to 30 mm plus a width 4, diameter 16 annular groove; the narrow middle band belongs only to the groove denominator.",
+      "expected_outcome": "supported",
+      "facts": [
+        {"family": "turned-steps", "identity": {"axis": {"value": "y"}, "axis_line": {"value": [0.0, 0.0], "absolute_tolerance": 1e-6}, "station": {"value": -16.0, "absolute_tolerance": 1e-6}}, "parameters": {"length": {"value": 28.0, "absolute_tolerance": 1e-6}, "diameter": {"value": 20.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]},
+        {"family": "turned-steps", "identity": {"axis": {"value": "y"}, "axis_line": {"value": [0.0, 0.0], "absolute_tolerance": 1e-6}, "station": {"value": 16.0, "absolute_tolerance": 1e-6}}, "parameters": {"length": {"value": 28.0, "absolute_tolerance": 1e-6}, "diameter": {"value": 20.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]}
+      ]
+    },
+    {
+      "id": "turned-step-topology-a",
+      "tags": ["positive", "multiple", "topology-order-variant"],
+      "fixture": "turned-step-topology-a.step",
+      "sha256": "1c16f61acf3eeb459be90616d97d959d61714ed5246ff4ef15bc5d355485d89c",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Three Z bands were fused in increasing station order: lengths 17, 23 and 19 mm at diameters 32, 22 and 12 mm.",
+      "expected_outcome": "supported",
+      "facts": [
+        {"family": "turned-steps", "identity": {"axis": {"value": "z"}, "axis_line": {"value": [0.0, 0.0], "absolute_tolerance": 1e-6}, "station": {"value": 8.5, "absolute_tolerance": 1e-6}}, "parameters": {"length": {"value": 17.0, "absolute_tolerance": 1e-6}, "diameter": {"value": 32.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]},
+        {"family": "turned-steps", "identity": {"axis": {"value": "z"}, "axis_line": {"value": [0.0, 0.0], "absolute_tolerance": 1e-6}, "station": {"value": 28.5, "absolute_tolerance": 1e-6}}, "parameters": {"length": {"value": 23.0, "absolute_tolerance": 1e-6}, "diameter": {"value": 22.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]},
+        {"family": "turned-steps", "identity": {"axis": {"value": "z"}, "axis_line": {"value": [0.0, 0.0], "absolute_tolerance": 1e-6}, "station": {"value": 49.5, "absolute_tolerance": 1e-6}}, "parameters": {"length": {"value": 19.0, "absolute_tolerance": 1e-6}, "diameter": {"value": 12.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]}
+      ]
+    },
+    {
+      "id": "turned-step-topology-b",
+      "tags": ["positive", "multiple", "topology-order-variant"],
+      "fixture": "turned-step-topology-b.step",
+      "sha256": "af0e3a6abab875e1592aa889d138389e900758d3805ad61a0d20d0b7214f1bdd",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Geometrically identical to topology-a but with altered STEP topology ordering from a 37 degree axial roll before export.",
+      "expected_outcome": "supported",
+      "facts": [
+        {"family": "turned-steps", "identity": {"axis": {"value": "z"}, "axis_line": {"value": [0.0, 0.0], "absolute_tolerance": 1e-6}, "station": {"value": 8.5, "absolute_tolerance": 1e-6}}, "parameters": {"length": {"value": 17.0, "absolute_tolerance": 1e-6}, "diameter": {"value": 32.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]},
+        {"family": "turned-steps", "identity": {"axis": {"value": "z"}, "axis_line": {"value": [0.0, 0.0], "absolute_tolerance": 1e-6}, "station": {"value": 28.5, "absolute_tolerance": 1e-6}}, "parameters": {"length": {"value": 23.0, "absolute_tolerance": 1e-6}, "diameter": {"value": 22.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]},
+        {"family": "turned-steps", "identity": {"axis": {"value": "z"}, "axis_line": {"value": [0.0, 0.0], "absolute_tolerance": 1e-6}, "station": {"value": 49.5, "absolute_tolerance": 1e-6}}, "parameters": {"length": {"value": 19.0, "absolute_tolerance": 1e-6}, "diameter": {"value": 12.0, "absolute_tolerance": 1e-6}}, "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]}
+      ]
+    }
+  ]
+}

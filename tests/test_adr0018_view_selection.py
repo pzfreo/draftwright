@@ -1,4 +1,4 @@
-"""ADR 0018: building a CHOSEN set of principal views, and what it costs.
+"""ADR 2 (was 0018): building a CHOSEN set of principal views, and what it costs.
 
 The ADR's headline. Its delivery gate names two evidence items this module answers:
 
@@ -356,7 +356,7 @@ class TestAnExtentMovesOrIsReported:
 
     def test_an_extent_no_planned_view_can_show_is_rejected_before_projection(self):
         # Depth reads horizontally ONLY in side. Without it the extent cannot be drawn, and
-        # ADR 0016 Amdt 6 says it must be reported against its measurement rather than
+        # ADR 4 (was 0016 Amdt 6) says it must be reported against its measurement rather than
         # disappear. Phase 5.5 moves that feasibility decision above projection, so a
         # plausible-looking incomplete drawing is no longer returned.
         with pytest.raises(ViewPlanIncomplete) as caught:
@@ -408,7 +408,15 @@ class TestAnExtentMovesOrIsReported:
         """Mutation guard for the conservative ownership table, including uncommon IR arms."""
         from types import SimpleNamespace
 
-        from draftwright.model import ChannelFeature, Frame, PadFeature, PocketFeature, SlotFeature
+        from draftwright.model import (
+            ChannelFeature,
+            Frame,
+            PadFeature,
+            PocketFeature,
+            RectangularBlindSlotFeature,
+            RoundBottomBlindSlotFeature,
+            SlotFeature,
+        )
         from draftwright.model.ir import DimParameter
         from draftwright.model.planner import PlannedDimension, _parameter_view_preferences
 
@@ -449,6 +457,36 @@ class TestAnExtentMovesOrIsReported:
                 ),
                 "pocket_depth",
                 ("side",),
+            ),
+            (
+                RectangularBlindSlotFeature(
+                    Frame((0.0, 0.0, 0.0), "z"),
+                    axis="z",
+                    open_sign=-1,
+                    width_axis="x",
+                    depth_axis="y",
+                    depth_sign=1,
+                    width=8.0,
+                    length=30.0,
+                    depth=5.0,
+                ),
+                "rectangular_blind_slot_depth",
+                ("front",),
+            ),
+            (
+                RoundBottomBlindSlotFeature(
+                    Frame((0.0, 0.0, 0.0), "z"),
+                    axis="z",
+                    open_sign=-1,
+                    width_axis="x",
+                    depth_axis="y",
+                    depth_sign=1,
+                    length=30.0,
+                    radius=4.0,
+                    flat_width=8.0,
+                ),
+                "round_bottom_blind_slot_radius",
+                ("front",),
             ),
             (
                 SimpleNamespace(kind="pocket_pattern", frame=Frame((0.0, 0.0, 0.0), "z")),
@@ -516,7 +554,7 @@ class TestTheDecisionSurvivesEveryRebuild:
 
 
 class TestTheCaseStudy:
-    """ADR 0018's motivating part, measured rather than asserted from the ADR's prose."""
+    """ADR 2 (was 0018)'s motivating part, measured rather than asserted from the ADR's prose."""
 
     @staticmethod
     def _plate():

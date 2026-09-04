@@ -1,0 +1,151 @@
+{
+  "format": "draftwright-step-analysis-corpus",
+  "format_version": 1,
+  "corpus_version": "1.0.0",
+  "metric_version": 1,
+  "scope": ["hole-patterns"],
+  "cases": [
+    {
+      "id": "pattern-plain-block",
+      "tags": ["negative"],
+      "fixture": "plain-block.step",
+      "sha256": "1a5db509de8c0ce04d46cf39296dcdd04873e74cb0e7501bcd97630ffd8d113c",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored from the construction recipe in README.md; no subtractions and therefore no hole arrangement.",
+      "expected_outcome": "supported",
+      "facts": []
+    },
+    {
+      "id": "pattern-rectangular-grid",
+      "tags": ["positive"],
+      "fixture": "pattern-grid.step",
+      "sha256": "59700e2a2cadf6f0728d37fe09bcae95a2236ce71a09588f165168e2b96a193e",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored from the nominal 2 by 3 rectangular-grid construction recipe in README.md.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "hole-patterns",
+          "identity": {
+            "kind": {"value": "grid"},
+            "members": {
+              "value": [-15.0, -10.0, 0.0, -15.0, 10.0, 0.0, 0.0, -10.0, 0.0, 0.0, 10.0, 0.0, 15.0, -10.0, 0.0, 15.0, 10.0, 0.0],
+              "absolute_tolerance": 1e-6
+            }
+          },
+          "parameters": {
+            "count": {"value": 6},
+            "rows": {"value": 2},
+            "cols": {"value": 3},
+            "row_pitch": {"value": 20.0, "absolute_tolerance": 1e-6},
+            "col_pitch": {"value": 15.0, "absolute_tolerance": 1e-6},
+            "angle": {"value": 0.0, "absolute_tolerance": 1e-6},
+            "center": {"value": [0.0, 0.0, 6.0], "absolute_tolerance": 1e-6}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "pattern-unequal-collinear-spacing",
+      "tags": ["ambiguous", "negative"],
+      "fixture": "pattern-ambiguous.step",
+      "sha256": "484f3e9283cf0d3b466d6e2d6d72eef8ac51f8eefcd26618851dff113b735615",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored from the construction recipe in README.md; three collinear equal holes have unequal 20 mm and 21 mm gaps and do not define a constant-pitch array.",
+      "expected_outcome": "supported",
+      "facts": []
+    },
+    {
+      "id": "pattern-compound-topology-a",
+      "tags": ["compound", "positive", "topology-order-variant"],
+      "fixture": "pattern-topology-a.step",
+      "sha256": "b62c39774e5a2a0d90f269298ff5466f81d6fa6c603eaa1cfac47974df9c04b7",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "Authored from the nominal four-hole bolt circle and independent three-hole linear-array recipe in README.md; canonical Part 21 entity order.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "hole-patterns",
+          "identity": {
+            "kind": {"value": "bolt_circle"},
+            "members": {
+              "value": [-51.0, 0.0, 0.0, -35.0, -16.0, 0.0, -35.0, 16.0, 0.0, -19.0, 0.0, 0.0],
+              "absolute_tolerance": 1e-6
+            }
+          },
+          "parameters": {
+            "count": {"value": 4},
+            "center": {"value": [-35.0, 0.0, 6.0], "absolute_tolerance": 1e-6},
+            "diameter": {"value": 32.0, "absolute_tolerance": 1e-6}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        },
+        {
+          "family": "hole-patterns",
+          "identity": {
+            "kind": {"value": "linear"},
+            "members": {
+              "value": [35.0, -18.0, 0.0, 35.0, 0.0, 0.0, 35.0, 18.0, 0.0],
+              "absolute_tolerance": 1e-6
+            }
+          },
+          "parameters": {
+            "count": {"value": 3},
+            "pitch": {"value": 18.0, "absolute_tolerance": 1e-6},
+            "direction": {"value": [0.0, 1.0, 0.0], "absolute_tolerance": 1e-9}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    },
+    {
+      "id": "pattern-compound-topology-b",
+      "tags": ["compound", "positive", "topology-order-variant"],
+      "fixture": "pattern-topology-b.step",
+      "sha256": "9aefced23df6ff7197eb58bb63ac59aeacd31be26dfacf1449b7ef14936a5b5c",
+      "author": "Draftwright project contributors",
+      "license": "CC0-1.0",
+      "source": "The topology-a STEP entities were bijectively renumbered and serialized in reverse order without changing geometry or expected arrangement facts.",
+      "expected_outcome": "supported",
+      "facts": [
+        {
+          "family": "hole-patterns",
+          "identity": {
+            "kind": {"value": "bolt_circle"},
+            "members": {
+              "value": [-51.0, 0.0, 0.0, -35.0, -16.0, 0.0, -35.0, 16.0, 0.0, -19.0, 0.0, 0.0],
+              "absolute_tolerance": 1e-6
+            }
+          },
+          "parameters": {
+            "count": {"value": 4},
+            "center": {"value": [-35.0, 0.0, 6.0], "absolute_tolerance": 1e-6},
+            "diameter": {"value": 32.0, "absolute_tolerance": 1e-6}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        },
+        {
+          "family": "hole-patterns",
+          "identity": {
+            "kind": {"value": "linear"},
+            "members": {
+              "value": [35.0, -18.0, 0.0, 35.0, 0.0, 0.0, 35.0, 18.0, 0.0],
+              "absolute_tolerance": 1e-6
+            }
+          },
+          "parameters": {
+            "count": {"value": 3},
+            "pitch": {"value": 18.0, "absolute_tolerance": 1e-6},
+            "direction": {"value": [0.0, 1.0, 0.0], "absolute_tolerance": 1e-9}
+          },
+          "required_downstream": ["ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"]
+        }
+      ]
+    }
+  ]
+}

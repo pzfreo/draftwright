@@ -1,8 +1,8 @@
 """Shared test helpers.
 
 ``counting_calls`` is here rather than in one suite because more than one needs it:
-``test_detect_once`` counts the shared cylinder substrate, and the ADR 0017 manifest
-guard (#1019) counts recogniser families the same way.
+``test_detect_once`` counts the shared cylinder substrate, and the ADR 3 (was 0017) guards observe
+the public aggregate and any consumer-side recogniser bypasses the same way.
 """
 
 import inspect
@@ -88,28 +88,68 @@ def counting_calls(functions: Mapping[str, Callable[..., object]]):
 
 
 @contextmanager
-def recognition_family_calls(names: set[str] | frozenset[str] | None = None):
-    """Count aggregate family executions at the recogniser registry seam.
+def recognition_consumer_calls():
+    """Count aggregate acquisitions and public physical recogniser calls made outside them.
 
-    Since b123d-recognisers 0.4 the aggregate executes evidence-producing registry adapters,
-    not the public value-only compatibility wrappers. Simple adapters close over a per-family
-    callable; count that callable so families made through the shared adapter factory remain
-    distinguishable by code object.
+    Draftwright owns whether and when a build requests recognition, and must not bypass the
+    aggregate by invoking a public, ``part``-taking recogniser itself. Part-less pattern
+    functions are pure projections over accepted records and remain valid consumer operations.
+    The provider owns which registered families execute *inside* the aggregate and tests that
+    invariant in its released suite. Tracking public code objects while the aggregate is not
+    on the call stack keeps both consumer claims fail-closed without inspecting the provider's
+    private registry.
     """
-    from b123d_recognisers._registry import DERIVED_DEFINITIONS, PHYSICAL_DEFINITIONS
+    import b123d_recognisers as recognition
+    import b123d_recognisers.evidence as recognition_evidence
+    from _recogniser_public_contract import public_recogniser_member, public_recogniser_names
 
-    functions: dict[str, Callable[..., object]] = {}
-    for physical in PHYSICAL_DEFINITIONS:
-        discover = physical.discover
-        call = inspect.getclosurevars(discover).nonlocals.get("call", discover)
-        functions[physical.public_entrypoint] = call
-    for derived in DERIVED_DEFINITIONS:
-        if derived.public_entrypoint is not None:
-            functions[derived.public_entrypoint] = derived.derive
-    if names is not None:
-        functions = {name: functions[name] for name in names}
-    with counting_calls(functions) as counts:
+    aggregates = {
+        recognition.build_raw_recognition_result.__code__: "build_raw_recognition_result",
+        recognition_evidence.build_recognition_evidence.__code__: "build_recognition_evidence",
+    }
+    functions = {}
+    for name in public_recogniser_names():
+        if name != "step_level_records" and not name.startswith("recognise_"):
+            continue
+        fn = public_recogniser_member(name)
+        if "part" in inspect.signature(fn).parameters:
+            functions[name] = fn
+    by_code: dict = {}
+    for name, fn in functions.items():
+        code = fn.__code__
+        if code in by_code:
+            raise ValueError(
+                f"public recognisers {name!r} and {by_code[code]!r} share one code object"
+            )
+        by_code[code] = name
+
+    counts: dict[str, int] = {}
+    aggregate_depth = 0
+    previous = sys.getprofile()
+    if previous is not None and not callable(previous):
+        raise RuntimeError(
+            f"a non-callable profiler is installed ({type(previous).__name__}) — "
+            "recognition_consumer_calls cannot chain to it"
+        )
+
+    def hook(frame, event, arg):
+        nonlocal aggregate_depth
+        if event == "call":
+            if (aggregate_name := aggregates.get(frame.f_code)) is not None:
+                counts[aggregate_name] = counts.get(aggregate_name, 0) + 1
+                aggregate_depth += 1
+            elif aggregate_depth == 0 and (name := by_code.get(frame.f_code)) is not None:
+                counts[name] = counts.get(name, 0) + 1
+        elif event == "return" and frame.f_code in aggregates:
+            aggregate_depth -= 1
+        if previous is not None:
+            previous(frame, event, arg)
+
+    sys.setprofile(hook)
+    try:
         yield counts
+    finally:
+        sys.setprofile(previous)
 
 
 # ── The `unit` tier (#656): pure-logic tests, zero OCC geometry ──────────────────────
@@ -136,7 +176,7 @@ _UNIT_MODULES = frozenset(
         "test_import_boundaries.py",
         "test_label_provenance.py",
         "test_layout.py",
-        "test_issue_1332_overlap_remedy_fast.py",
+        "test_issue_1332_overlap_remedy.py",
         "test_lint_ink_overlap.py",
         "test_linting.py",
         "test_pmi_part21.py",

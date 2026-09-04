@@ -6,11 +6,11 @@ import math
 from dataclasses import replace
 
 import pytest
-from b123d_recognisers.polygonal_bosses import (
+from b123d_recognisers import (
     PolygonalStock,
+    build_raw_recognition_result,
     recognise_polygonal_stock,
 )
-from b123d_recognisers.result import build_recognition_result
 from build123d import Box, Compound, Cylinder, Polygon, Pos, RegularPolygon, Rot, extrude
 
 from draftwright import build_drawing
@@ -151,7 +151,10 @@ def test_stock_geometry_without_one_ir_owner_fails_closed_as_unverifiable():
 
     assert [issue.code for issue in drawing.lint()].count(
         "polygonal_stock_requirement_unverifiable"
-    ) == 2
+    ) == 1
+    completeness = drawing.lint_summary()["quality"]["completeness"]
+    assert completeness["by_family"]["polygonal_stock"] == 2
+    assert completeness["unverifiable"] == 2
 
 
 def test_duplicate_stock_ir_correspondence_is_ambiguous_not_first_match_wins():
@@ -162,12 +165,13 @@ def test_duplicate_stock_ir_correspondence_is_ambiguous_not_first_match_wins():
     )
 
     outcomes = polygonal_stock_outcomes(
-        build_recognition_result(part),
+        build_raw_recognition_result(part),
         (stock, stock),
         drawing.registry,
     )
 
-    assert [outcome.state for outcome in outcomes] == ["unverifiable", "unverifiable"]
+    assert len(outcomes) == 1
+    assert (outcomes[0].state, outcomes[0].requirement_count) == ("unverifiable", 2)
 
 
 def test_authored_suppression_is_distinct_from_missing_stock_placement():

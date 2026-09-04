@@ -1,4 +1,4 @@
-"""compose — the outer compose-then-pack scale/page selection (#138 / ADR 0005, P3; ADR 0004).
+"""compose — the outer compose-then-pack scale/page selection (#138 / ADR 1 (was 0005), P3; ADR 2 (was 0004)).
 
 (Renamed from ``sheet.py`` 2026-07-15, #640: this is the layout *engine*, not the
 user-facing ``Sheet`` facade — that lives in ``draftwright.sheet``.)
@@ -53,8 +53,10 @@ from draftwright._core import (
     _tol_suffix,
     _wrap_rows,
 )
+from draftwright._geometry import _END_ON
 from draftwright.layout import fit_box
-from draftwright.model.callout import hole_callout_spec
+from draftwright.model.callout import hole_callout_spec, hole_callout_suffix
+from draftwright.model.ir import authored_dimension_target_view
 from draftwright.view_plan import (
     ARRANGEMENTS,
     LayoutCandidate,
@@ -122,7 +124,7 @@ def _est_pv_above_depth(
     (and a balloon row beyond) *before* placing views, instead of letting the
     tiers spill into headroom (#121).
 
-    WIP estimate standing in for ADR 0004's "lay out, don't predict": a
+    WIP estimate standing in for ADR 2 (was 0004)'s "lay out, don't predict": a
     conservative upper bound (one spare tier for the pitch dim / rounding), which
     the packer absorbs by scale rather than under-reserving and overlapping.
     Scale-independent (tier height is fixed page-mm).
@@ -191,7 +193,7 @@ def _est_table_size(
     rows, font_size: float = _FONT_SIZE, pad_around_text: float = 2.0, block_cols=None
 ):
     """Table footprint estimate — ``_core._build_table``'s sizing, from the
-    shared :func:`draftwright._core._table_metrics` so the ADR 0004
+    shared :func:`draftwright._core._table_metrics` so the ADR 2 (was 0004)
     ``table_fits`` fitness check can never desynchronise from what renders
     (#700; pinned by ``test_sheet_tables``)."""
 
@@ -218,7 +220,7 @@ def _est_hole_table_sizes(
     """
 
     # Scattered (loose, non-patterned) z-axis holes — one per member; a loose
-    # HoleFeature is by construction not a pattern member (ADR 0008; #584 WP1 A).
+    # HoleFeature is by construction not a pattern member (ADR 1 (was 0008); #584 WP1 A).
     z_holes = [
         (f.diameter, pos)
         for f in model.features
@@ -271,7 +273,7 @@ def _est_planned_bore_callout_width(
         bore = spec["diameter"]
         depth = spec["depth"]
         cbore_dia, cbore_depth = spec["cbore_dia"], spec["cbore_depth"]
-        suffix = spec["suffix"]
+        suffix = hole_callout_suffix(spec, lambda tolerance: _tol_suffix(tolerance, draft))
 
         token_w: list[float] = []
         if spec["count"]:
@@ -341,6 +343,13 @@ class StripDepths:
     left: float  # horizontal corridor left of FV/PV
     top: float = 0.0  # band above PV for tiered X-location dims (#121)
     pv_halo: float = 0.0  # balloon standoff band reserved around the plan view (#111)
+    fv_top: float = 0.0  # authored X-linear dimensions above the front view (#563)
+    fv_bottom: float = 0.0
+    pv_authored_top: float = 0.0
+    pv_bottom: float = 0.0
+    sv_top: float = 0.0
+    sv_bottom: float = 0.0
+    sv_right: float = 0.0  # band outside the rightmost side view
 
 
 def _measure_strips(
@@ -372,10 +381,11 @@ def _measure_strips(
 
 @dataclass(frozen=True)
 class AnnoBox:
-    """A composed annotation band as a page-mm box (#112, ADR 0004 Step 4).
+    """A composed annotation band as a page-mm box (#112, ADR 2 (was 0004) Step 4).
 
     ``side`` is the view side the band sits on (``"right"``/``"left"`` of the
-    front/plan views, or ``"plan_halo"`` for the balloon standoff ring);
+    front/plan views, ``"side_right"`` outside the side view, or ``"plan_halo"``
+    for the balloon standoff ring);
     ``depth`` is the band's perpendicular extent from the view edge.  A view's
     footprint is the deepest band per side — see ``_footprint_from_boxes``.
 
@@ -418,25 +428,118 @@ def _compose_anno_boxes(
         bore_depth += pad_around_text + arrow_length
         boxes.append(AnnoBox("right", bore_depth))  # FV/PV right bore callouts
         boxes.append(AnnoBox("left", bore_depth))  # FV/PV left bore callouts
-    # Authored Z-axis linear dimensions (Sheet.measured_dimension / AP242 PMI) render as height
-    # dims to the front LEFT/RIGHT strips (#562). The right strip already holds the
-    # envelope height + step ladder, but the left has only its _DIM_PAD floor, so an
-    # authored Z dim was queued and then dropped as "no room". Reserve a slot per authored
-    # Z dim on BOTH sides (they split by x position only at layout, so reserve
-    # conservatively) — enough depth for the corridor solve to place them.
-    z_authored = sum(
-        1
-        for f in model.features
-        if f.kind == "authored_dimension"
-        and f.dominant_axis == "Z"
-        and getattr(f, "dimension_kind", None) not in ("diameter", "radius", "angular")
+    # Measured placement hints are semantic corridor requirements and therefore part of
+    # compose-before-pack, not merely renderer filters. Resolve every valid explicit route;
+    # a view-only hint conservatively reserves both supported sides, while the legacy
+    # no-hint Z-linear path keeps its established both-side reservation (#562).
+    authored_corridors: dict[tuple[str, str], int] = {}
+
+    def _reserve(view: str, side: str) -> None:
+        key = (view, side)
+        authored_corridors[key] = authored_corridors.get(key, 0) + 1
+
+    for feature in model.features:
+        if getattr(feature, "kind", None) != "authored_dimension":
+            continue
+        kind = getattr(feature, "dimension_kind", "")
+        axis = getattr(feature, "dominant_axis", "")
+        view_hint = getattr(feature, "view", None)
+        side_hint = getattr(feature, "side", None)
+        if view_hint is None and side_hint is None:
+            if kind not in ("diameter", "radius", "angular") and axis == "Z":
+                _reserve("front", "left")
+                _reserve("front", "right")
+            continue
+        target_view = authored_dimension_target_view(kind, axis, view_hint, side_hint)
+        if target_view is None:
+            continue
+        sides: tuple[str, ...]
+        if side_hint is not None:
+            sides = (side_hint,)
+        elif kind in ("diameter", "radius") or axis == "X":
+            sides = ("above", "below")
+        elif axis == "Z":
+            sides = ("left", "right")
+        elif axis == "Y" and target_view == "side":
+            sides = ("above", "below")
+        else:
+            sides = ("left", "right")
+        for target_side in sides:
+            _reserve(target_view, target_side)
+
+    # A side-normal pad contributes up to two footprint and two in-plane-location candidates
+    # in its end-on view.  They consume the ordinary strips and therefore must participate in
+    # the compose-before-pack footprint.  In an authored set, however, omission is suppression
+    # (ADR 4 (was 0016)): reserve only the independently addressed sizes/location, never phantom bands
+    # for measurements the author omitted.  Automatic mode retains the complete four-band
+    # grammar. Z pads retain the established footprint/location layout: their location ladder
+    # already has dedicated plan/side sizing, while their HIGH callout uses the same
+    # solver-owned leader clearance as the other machined-feature leaders.
+    for feature in model.features:
+        if getattr(feature, "kind", None) != "pad" or feature.frame.axis == "z":
+            continue
+        view = _END_ON[feature.frame.axis]
+        horizontal_axis = {"x": "y", "y": "x"}[feature.frame.axis]
+
+        def _pad_parameter_is_authored(parameter_id: str) -> bool:
+            if model.authored_dimensions is None:
+                return True
+            role = parameter_id.split(".", 1)[0]
+            return any(
+                request.feature is feature and request.role in (role, parameter_id)
+                for request in model.authored_dimensions
+            )
+
+        # Canonical end-on projections put the horizontal measurement above and the vertical
+        # one right. Both bands change the feasible scale: notably an X-normal pad's end-on
+        # side view is the rightmost principal block, so its right band expands the sheet
+        # footprint rather than disappearing outside it (#1392).
+        for parameter_id, axis in (
+            ("pad_width.length", feature.width_axis),
+            ("pad_length.length", feature.long_axis),
+        ):
+            if _pad_parameter_is_authored(parameter_id):
+                _reserve(view, "above" if axis == horizontal_axis else "right")
+        if model.authored_dimensions is None or any(
+            request.feature is feature and request.role == "location"
+            for request in model.authored_dimensions
+        ):
+            # One authored location intent compiles to the two independently observable
+            # in-plane ordinates, one in each strip.
+            _reserve(view, "above")
+            _reserve(view, "right")
+
+    slot = _SLOT_DIM_STEP + _STRIP_SPACING
+    # Front and plan occupy disjoint vertical ranges, so their left/right tiers are
+    # reusable. Reserve the deepest one-view stack, not the sum of independent corridors.
+    left_count = max(
+        (count for (view, side), count in authored_corridors.items() if side == "left"),
+        default=0,
     )
-    if z_authored:
-        slot = _SLOT_DIM_STEP + _STRIP_SPACING
+    if left_count:
+        boxes.append(AnnoBox("left", _STRIP_GAP + left_count * slot))
+    # Front-right measured dimensions share the automatic front height/step ladder and extend
+    # its stack. Plan-right dimensions are vertically disjoint from that whole front stack, so
+    # their independent box reuses its horizontal depth. The reducer takes the deeper box.
+    if front_right := authored_corridors.get(("front", "right"), 0):
         boxes.append(
-            AnnoBox("right", _est_right_strip_depth(n_steps, n_boss_h) + z_authored * slot)
+            AnnoBox("right", _est_right_strip_depth(n_steps, n_boss_h) + front_right * slot)
         )
-        boxes.append(AnnoBox("left", _STRIP_GAP + z_authored * slot))
+    if plan_right := authored_corridors.get(("plan", "right"), 0):
+        boxes.append(AnnoBox("right", _STRIP_GAP + plan_right * slot))
+    if side_right := authored_corridors.get(("side", "right"), 0):
+        boxes.append(AnnoBox("side_right", _STRIP_GAP + side_right * slot))
+    vertical_box_side = {
+        ("front", "above"): "front_above",
+        ("front", "below"): "front_below",
+        ("plan", "above"): "plan_authored_above",
+        ("plan", "below"): "plan_below",
+        ("side", "above"): "side_above",
+        ("side", "below"): "side_below",
+    }
+    for corridor, box_side in vertical_box_side.items():
+        if count := authored_corridors.get(corridor, 0):
+            boxes.append(AnnoBox(box_side, _STRIP_GAP + count * slot))
     above = _est_pv_above_depth(model, font_size, pad_around_text)
     if above > 0:
         boxes.append(AnnoBox("above", above))  # tiered X-location dims above PV (#121)
@@ -460,6 +563,13 @@ def _footprint_from_boxes(boxes: list[AnnoBox]) -> StripDepths:
         left=max(_DIM_PAD, deepest("left")),
         top=deepest("above"),
         pv_halo=deepest("plan_halo"),
+        fv_top=deepest("front_above"),
+        fv_bottom=deepest("front_below"),
+        pv_authored_top=deepest("plan_authored_above"),
+        pv_bottom=deepest("plan_below"),
+        sv_top=deepest("side_above"),
+        sv_bottom=deepest("side_below"),
+        sv_right=deepest("side_right"),
     )
 
 
@@ -638,7 +748,7 @@ def choose_scale(
         candidates = _LADDER
         pack_iso_2d = False
 
-    # ADR 0018 §5: this loop is the planner's candidate evaluation, and it is now expressed as
+    # ADR 2 (was 0018 §5): this loop is the planner's candidate evaluation, and it is now expressed as
     # one. Each tuple becomes a `LayoutCandidate` carrying all four dimensions — view set,
     # scale, sheet, arrangement — and is judged by `candidate_is_feasible`, which names the
     # gates rather than returning a bare `False`.
@@ -694,13 +804,13 @@ def choose_scale(
 
     # Pass 1 — the scale. Only the preferred arrangement may decide it.
     #
-    # ADR 0018 §5 asks for the largest preferred scale admitted by a feasible candidate, and
+    # ADR 2 (was 0018 §5) asks for the largest preferred scale admitted by a feasible candidate, and
     # the ladder is ordered so the first fit is that scale. Letting the alternatives compete
     # here lets a PACKING choice bid up a LEGIBILITY one, and #1130 measured what that buys:
     # the dense plate reaches 2:1 under `stacked-iso` where `columns` reaches only 1:1, and
     # the drawing at twice the size then drops `location_ref_dropped` + `feature_not_located`
     # because the enlarged views leave its location dims nowhere to go. The candidate was
-    # geometrically feasible and lost requirements anyway — ADR 0018's first hard gate, which
+    # geometrically feasible and lost requirements anyway — ADR 2 (was 0018)'s first hard gate, which
     # `candidate_is_feasible` still cannot evaluate (#1250).
     #
     # So the alternatives are confined below to what they can support without that gate:
@@ -717,7 +827,7 @@ def choose_scale(
         # Pass 2 — the sheet, at that scale. Candidates are ordered smallest sheet first, so
         # every candidate BEFORE the winner at the same scale is a smaller sheet that the
         # preferred arrangement could not fit. An alternative that fits one of them yields
-        # the same drawing at the same scale on less paper, which is ADR 0018 §5's "at that
+        # the same drawing at the same scale on less paper, which is ADR 2 (was 0018 §5)'s "at that
         # scale, the smallest standard sheet" — and cannot cost a requirement the preferred
         # arrangement would have kept, because the views are identically sized.
         for cand in candidates:
@@ -780,7 +890,7 @@ def choose_scale(
 def _view_geom(a) -> dict:
     """The orthographic geometry boxes as ``{view: (cx, cy, hw, hh)}``.
 
-    Read off the resolved view plan (ADR 0018) rather than assembled here from `FV_X`/`PV_X`/
+    Read off the resolved view plan (ADR 2 (was 0018)) rather than assembled here from `FV_X`/`PV_X`/
     `SV_X` and the half-extent fields. Same numbers — `resolve_from_analysis` reads the same
     `Analysis` — but the set of views and their page geometry now has one owner, so a later
     slice that drops a redundant principal view changes the plan and this follows, instead of
@@ -893,15 +1003,21 @@ def _compose_view_blocks(
     # the tiered X-location dims, so reserve their real depth (strip_top) plus a
     # balloon row. When not ballooned, keep the historic DIM_PAD.
     pv_top = (max(DIM_PAD, strip_top) + halo) if halo > 0 else DIM_PAD
-    sv_right_band = max(DIM_PAD, strips.right if (section and strips) else DIM_PAD)
+    if strips is not None:
+        pv_top = max(pv_top, strips.pv_authored_top)
+    sv_right_band = max(
+        DIM_PAD,
+        strips.sv_right if strips else 0.0,
+        strips.right if (section and strips) else 0.0,
+    )
 
     return {
         "front": ViewBlock(
             fv_hw,
             fv_hh,
-            top=DIM_PAD - pv_below,
+            top=max(DIM_PAD - pv_below, strips.fv_top if strips else 0.0),
             right=gap_fv_sv,
-            bottom=DIM_PAD,
+            bottom=max(DIM_PAD, strips.fv_bottom if strips else 0.0),
             left=gap_left,
         ),
         "plan": ViewBlock(
@@ -909,10 +1025,16 @@ def _compose_view_blocks(
             pv_hh,
             top=pv_top,
             right=gap_fv_sv,
-            bottom=max(pv_below, halo),
+            bottom=max(pv_below, halo, strips.pv_bottom if strips else 0.0),
             left=gap_left,
         ),
-        "side": ViewBlock(sv_hw, fv_hh, right=sv_right_band),
+        "side": ViewBlock(
+            sv_hw,
+            fv_hh,
+            top=strips.sv_top if strips else 0.0,
+            right=sv_right_band,
+            bottom=strips.sv_bottom if strips else 0.0,
+        ),
     }
 
 
@@ -965,7 +1087,7 @@ def _layout_geometry(
     section_hw = max(fv_hw, 12.0)
     section_hh = fv_hh
     if blocks is not None:
-        # Measure-and-repack pass (#121, ADR 0004): pack the *measured* per-view
+        # Measure-and-repack pass (#121, ADR 2 (was 0004)): pack the *measured* per-view
         # footprints disjoint.  Floor each measured band at the estimate — the
         # repack may only GROW a corridor to fit annotations the estimate
         # under-sized (the documented FV-top vs PV-balloon overlap), never shrink
@@ -995,7 +1117,7 @@ def _layout_geometry(
     # the column, so its gap is that column band PLUS its own facing band (sum) —
     # disjoint by construction (#121). Byte-identical for the estimator path,
     # where fv/pv bands are equal and sv.left == 0.
-    # ADR 0018: which principal views this sheet actually carries. `views=None` is the
+    # ADR 2 (was 0018): which principal views this sheet actually carries. `views=None` is the
     # third-angle three, so every existing caller is byte-identical. The column is the
     # stacked front/plan pair — it exists while EITHER is planned, and is x-wide either way,
     # since both project the x extent across the page (`view_plan.VIEW_AXES`).
@@ -1037,7 +1159,7 @@ def _layout_geometry(
     )
     # The orthographic band: everything in the row that is NOT the isometric. Split out
     # because the ARRANGEMENT is exactly the question of where the iso goes relative to
-    # it (ADR 0018 §5's fourth dimension), and both arrangements share this part.
+    # it (ADR 2 (was 0018 §5)'s fourth dimension), and both arrangements share this part.
     ortho_row_w = (
         col_left
         + col_right
@@ -1061,7 +1183,7 @@ def _layout_geometry(
         #
         # NOT the production default, and the reason is measured (`test_adr0018_arrangement_
         # gate.py`) rather than cautionary. The arrangement itself is sound — the `chamfered`
-        # part moves A3 -> A4 with no lint change at all, which is exactly ADR 0018 §5's
+        # part moves A3 -> A4 with no lint change at all, which is exactly ADR 2 (was 0018 §5)'s
         # "smallest standard sheet at that scale". What is not sound is resolving it HERE.
         #
         # This function is the single layout authority, but its three callers do not pass it
@@ -1077,7 +1199,7 @@ def _layout_geometry(
         # So the arrangement is a decision that must be made ONCE, carried alongside
         # (scale, page, tb_w), and applied by every stage — not re-derived per call site from
         # whatever each stage happens to know. That is the threading `choose_scale`'s 4-tuple
-        # return has no room for, and it is the work the next ADR 0018 slice owes: widen the
+        # return has no room for, and it is the work the next ADR 2 (was 0018) slice owes: widen the
         # decision that `LayoutCandidate` already models to the value the pipeline carries.
         columns_row_w = ortho_row_w + iso_row_budget + 2 * margin + _tb_col_w
         arrangement = "columns" if columns_row_w <= page_w + 0.5 else "stacked-iso"
@@ -1116,7 +1238,12 @@ def _layout_geometry(
     # estimator path (fv.right == pv.right == col_right, sv.left == 0).
     SV_X = FV_X + fv.hw + col_right + sv.left + sv.hw
     SV_Y = FV_Y
-    sv_right = SV_X + sv.hw + sv.right
+    # Keep the side geometry edge separate from the packed outer footprint.  The
+    # right strip starts at the former and consumes the reserved ``sv.right`` band;
+    # anchoring it at the latter would move the strip out again on every measured
+    # repack and make the reservation impossible to use.
+    sv_geometry_right = SV_X + sv.hw
+    sv_right = sv_geometry_right + sv.right
     SECTION_X = SV_X + sv.hw + sv.right + 10.0 + section_hw
     SECTION_Y = FV_Y
     sv_right_wall = (
@@ -1130,7 +1257,7 @@ def _layout_geometry(
     # pin the renderer uses in _add_title_block.  Its clearance is the block's
     # own bands: DIM_PAD on the three free sides, and only down to the page
     # margin below (it abuts the bottom sheet edge).  Everything else is laid
-    # out to work around its footprint.  (#112, ADR 0004.)
+    # out to work around its footprint.  (#112, ADR 2 (was 0004).)
     title_block = ViewBlock(
         tb_w / 2,
         _TB_H / 2,
@@ -1201,7 +1328,7 @@ def _layout_geometry(
     )
 
     # Does the packed disjoint layout actually fit the sheet? — the fitness the
-    # (scale, page) search optimises (#121, ADR 0004).  The union of the three
+    # (scale, page) search optimises (#121, ADR 2 (was 0004)).  The union of the three
     # view *footprints* (geometry + bands) must sit inside the drawable area; the
     # orthographic views must clear the title block (stay left of its column
     # unless their bottom is above it); and the iso must have a real gap.  This is
@@ -1276,6 +1403,7 @@ def _layout_geometry(
         SV_Y=SV_Y,
         SECTION_X=SECTION_X,
         SECTION_Y=SECTION_Y,
+        sv_geometry_right=sv_geometry_right,
         sv_right=sv_right,
         sv_right_wall=sv_right_wall,
         iso_left=iso_left,
@@ -1348,9 +1476,9 @@ def _build_zones(g, margin, page_h):
     )
     sv_bottom_edge = SV_Y - fv_hh  # same as fv_bottom_edge; side and front share Z height
     sv_zones = ViewZones(
-        # sv_right already includes DIM_PAD; anchor here so the strip never
-        # places annotations inside that gap
-        right=Strip(g.sv_right, g.sv_right_wall, direction=1),
+        # The strip consumes the band compose reserved outside the side geometry.
+        # ``g.sv_right`` is the packed outer footprint, not its inner anchor.
+        right=Strip(g.sv_geometry_right, g.sv_right_wall, direction=1),
         left=None,  # immediately abuts the front view's right edge
         above=Strip(sv_top_edge, page_h - margin, direction=1),
         below=Strip(sv_bottom_edge, margin, direction=-1),

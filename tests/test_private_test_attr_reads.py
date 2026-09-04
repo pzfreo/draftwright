@@ -62,6 +62,7 @@ _DRAWING_PRIVATES: frozenset[str] = frozenset(
         "_intents",
         "_model_declared",
         "_registry",
+        "_working_part",
         # class-level privates (properties / methods)
         "_add",
         "_add_balloon",
@@ -86,6 +87,7 @@ _DRAWING_PRIVATES: frozenset[str] = frozenset(
         "_queue_dimension_intent",
         "_record_build_issue",
         "_replay_intent",
+        "_resolve_dimension_side",
         "_resolve_dimension_span",
         "_set_view_coordinates",
         "_user_dim_uses_corridor",
@@ -128,7 +130,7 @@ _ALLOW: dict[str, int] = {
     # Deferred-mode flag: mode-restoration + no-op-after-drain assertions (some INSIDE
     # `with deferred()`), not mid-drain tests. No public deferred-state read.
     "_defer_intents": 3,
-    # Analysis (build context, ADR 0005): the whole `Analysis` passed to an internal render/layout
+    # Analysis (build context, ADR 1 (was 0005)): the whole `Analysis` passed to an internal render/layout
     # helper under test, plus non-geometric internal STATE with no public accessor — classification
     # flags (`is_rotational`; `Drawing.rotational` is a furniture method, not a classifier), the
     # turned-profile/section objects (`prof`/`layout_section`/`od_axis`/`pmi`/`projection`), mutable

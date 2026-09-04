@@ -2,7 +2,7 @@
 
 This module sits below the stage modules (``analysis``/``projection``/
 ``compose``/``annotations/``/``export``/``repair`` — its real consumers since
-the ADR 0005 split): it holds the data structures and small helpers they all
+the ADR 1 (was 0005) split): it holds the data structures and small helpers they all
 depend on (the :class:`Analysis` namespace and its field types, the
 dimension/format helpers, and the layout constants).  It imports only from the
 leaf tier (:mod:`draftwright.layout`, :mod:`draftwright._geometry`,
@@ -26,10 +26,23 @@ from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from b123d_recognisers import RecognitionResult, TurnedProfile
+    from b123d_recognisers.evidence import RecognitionEvidence
 
     from draftwright.compose import StripDepths
+    from draftwright.recognition_ownership import RecognitionOwnership
 
-from build123d import Align, BoundBox, Compound, Edge, Location, Mode, Shape, Text, Vector
+from build123d import (
+    Align,
+    BoundBox,
+    Compound,
+    Edge,
+    FontStyle,
+    Location,
+    Mode,
+    Shape,
+    Text,
+    Vector,
+)
 from build123d_drafting.helpers import (
     Dimension,
     TitleBlock,
@@ -40,7 +53,7 @@ from build123d_drafting.helpers import (
 
 # The model-neutral geometry primitives (`_END_ON`, `_xyz`, `HoleRef`, `_axis_letter`)
 # now live in the leaf `draftwright._geometry` so the IR waist (`model/`) can use them
-# without importing this stage-level grab-bag (ADR 0008; #584 WP2). Re-exported here for
+# without importing this stage-level grab-bag (ADR 1 (was 0008); #584 WP2). Re-exported here for
 # the above-`_core` consumers (annotations/sheet/drawing/linting) that already import them.
 from draftwright._geometry import (  # noqa: F401
     _EDGE_ON,
@@ -126,7 +139,7 @@ _FRAME_BAND = 6.0
 def _content_margin(frame: bool) -> float:
     """The effective content margin: ``_MARGIN``, plus the frame clearance band when a sheet
     frame is drawn (#767). Threaded into the layout authority so the reservation flows through
-    scale/page selection (ADR 0004), not just the render."""
+    scale/page selection (ADR 2 (was 0004)), not just the render."""
     return _MARGIN + (_FRAME_BAND if frame else 0.0)
 
 
@@ -228,8 +241,8 @@ def _table_metrics(rows, font_size, pad_around_text, block_cols=None):
 
     The ONE place table geometry is computed (#700): :func:`_build_table` (below,
     since #699) draws from it and ``compose._est_table_size`` estimates from it, so the
-    ADR 0004 ``table_fits`` fitness check can never desynchronise from what
-    renders (the drift ADR 0004 names as the failure mode to guard against).
+    ADR 2 (was 0004) ``table_fits`` fitness check can never desynchronise from what
+    renders (the drift ADR 2 (was 0004) names as the failure mode to guard against).
     """
     fs = font_size
     pad = pad_around_text
@@ -353,7 +366,7 @@ def _annotation_diameter_sources(annotation) -> tuple[tuple[float, ...], tuple[f
     Engine-produced annotations with ``covers_diameters`` describe their physical-feature
     correspondence structurally.  Their formatted labels may contain other diameters (for
     example ``ø60 BC``), so text parsing is a legacy/unstructured fallback and is never
-    combined with structured coverage (ADR 0017 / #1142).
+    combined with structured coverage (ADR 3 (was 0017) / #1142).
     """
     structured = tuple(float(value) for value in getattr(annotation, "covers_diameters", ()))
     if structured:
@@ -373,6 +386,7 @@ def _text_size(
     font_size: float,
     font_path: str | None = PLEX_MONO,
     font: str = "Arial",
+    font_style: FontStyle = FontStyle.REGULAR,
 ) -> tuple[float, float]:
     """Measured rendered (width, height) (page-mm) of *text* at *font_size*.
 
@@ -394,10 +408,41 @@ def _text_size(
         font_size=font_size,
         font=font,
         font_path=font_path,
+        font_style=font_style,
         align=(Align.CENTER, Align.CENTER),
         mode=Mode.PRIVATE,
     ).bounding_box()
     return (bb.size.X, bb.size.Y)
+
+
+@functools.lru_cache(maxsize=32)
+def _text_line_spacing_em(
+    font_size: float,
+    font_path: str | None = PLEX_MONO,
+    font: str = "Arial",
+) -> float:
+    """Return OCCT's actual newline advance for a regular face, in em units.
+
+    The advance is face-dependent (Plex Mono is 1.3 em; named Arial on macOS is
+    about 1.15 em).  Measure the same repeated glyph twice through build123d so
+    the invisible PDF layer follows the renderer instead of baking either value.
+    """
+    probe = Text(
+        txt="A\nA",
+        font_size=font_size,
+        font=font,
+        font_path=font_path,
+        font_style=FontStyle.REGULAR,
+        align=(Align.CENTER, Align.CENTER),
+        mode=Mode.PRIVATE,
+    )
+    centres = sorted(
+        ((face.bounding_box().min.Y + face.bounding_box().max.Y) / 2.0 for face in probe.faces()),
+        reverse=True,
+    )
+    if len(centres) < 2:  # pragma: no cover - defensive for a pathological font
+        return 1.3
+    return abs(centres[0] - centres[-1]) / font_size
 
 
 def _text_width(text: str, font_size: float, font_path: str = PLEX_MONO) -> float:
@@ -456,7 +501,7 @@ def _dim(p1, p2, side, distance, draft, **kwargs):
 
 
 # Dimension-line spacing (page-mm, scale-independent), the single source of truth for
-# BOTH the ADR 0009 strip carve (via the `Strip` dataclass defaults below) and the
+# BOTH the ADR 2 (was 0009) strip carve (via the `Strip` dataclass defaults below) and the
 # compose.py halo/depth estimates that must reserve the same space. Per ISO 129-1 / ASME
 # Y14.5, the FIRST dimension line sits furthest from the outline (clears the outline +
 # extension-line origins) and subsequent parallel lines stack tighter and uniform (#347).
@@ -486,7 +531,7 @@ _WITNESS_LIFT_MM = 2.0
 class Strip:
     """A one-dimensional annotation band adjacent to an orthographic view.
 
-    A plain geometry record: the collect-then-solve placers (ADR 0009) read its
+    A plain geometry record: the collect-then-solve placers (ADR 2 (was 0009)) read its
     bounds (:func:`~draftwright.annotations._common.strip_free_span`) and carve
     around the placed annotations. The mutable ``allocate``/``peek`` cursor was
     retired once every placer moved to the carve (#150).
@@ -882,6 +927,8 @@ class DetailRequest:
                       narrow profile strip when enlarging the full radial extent
                       would not fit on the sheet.
         kind:         short label for logging.
+        measurement_ids/measurement_spans: exact compiler-owned requirements the detail
+                      is recovering. Empty for purely geometric/authored details.
     """
 
     axis: str
@@ -908,6 +955,8 @@ class DetailRequest:
     #: dimension. Automatic recovery details retain the historical "no dimension, no view" gate.
     keep_without_annotations: bool = False
     source: object | None = None
+    measurement_ids: tuple = ()
+    measurement_spans: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -967,7 +1016,7 @@ class _Projector:
 class LayoutFrame:
     """The page geometry a **dimensional** renderer may use — and nothing more.
 
-    ADR 0016's boundary rule splits a renderer's job in two: the compiled plan says WHAT is
+    ADR 4 (was 0016)'s boundary rule splits a renderer's job in two: the compiled plan says WHAT is
     drawn, this says where there is room to draw it. So a dimensional renderer takes a
     `LayoutFrame` instead of the full :class:`Analysis`, which carries the feature
     inventory, the part, and the raw bounding box — everything needed to reconstruct a
@@ -1068,8 +1117,8 @@ class Analysis:
     """
 
     part: Shape
-    #: The ADR 0017 aggregate, or ``None`` on a DECLARED build — which recognises nothing
-    #: (ADR 0011 / #1022).  ``None`` means "not detected", never "detected and empty": a
+    #: The ADR 3 (was 0017) aggregate, or ``None`` on a DECLARED build — which recognises nothing
+    #: (ADR 4 (was 0011) / #1022).  ``None`` means "not detected", never "detected and empty": a
     #: consumer needing an inventory on that path must go through the lazy
     #: ``Drawing._recognition()``, which builds one on demand rather than reading an absence
     #: as an answer.
@@ -1092,7 +1141,11 @@ class Analysis:
     z_diams: list[float]
     cross_diams: list[float]
     cyls: tuple[tuple, tuple]
-    prof: TurnedProfile | None  # turned step profile (recognise_turned_steps), detected once
+    prof: TurnedProfile | None  # compatible zero/one view for genuinely coaxial behavior
+    #: Every body-local turned profile. ``prof`` remains the compatible zero/one view used
+    #: only by behavior that genuinely requires one coaxial stack; compilation and
+    #: completeness consume this plural inventory (#1357).
+    profiles: tuple[TurnedProfile, ...]
     od_diam: float | None
     is_rotational: bool
     od_axis: str  # rotation/turning axis of a rotational part ("z" default; "x"/"y" #222)
@@ -1161,14 +1214,23 @@ class Analysis:
     # Draw the ISO 5457 zone-grid border ruler (#768). Implies a frame (the ticks sit on it).
     zones: bool = False
     # The PartModel built by _analyse's pre-scale sizing pass (#584 WP1 A) — stored so
-    # the render path reuses it instead of re-running the detectors (ADR 0008 Amdt 5:
+    # the render path reuses it instead of re-running the detectors (ADR 1 (was 0008 Amdt 5):
     # one inventory, detected once; #602). Typed `object` to keep _core free of a
     # runtime model/ import (model/ sits BELOW _core in _LAYERS, so a typed
     # `PartModel | None` is legal — a possible tightening). None when the caller
-    # declared a model (ADR 0011) or on a manually-built Analysis — consumers fall
+    # declared a model (ADR 4 (was 0011)) or on a manually-built Analysis — consumers fall
     # back to build_model(a).
     model: object | None = None
-    #: The relational arrangement the sheet was composed under — ADR 0018 §5's fourth
+    #: Run-scoped accepted-occurrence/face authority for a raw recognition acquisition.
+    #: ``None`` for declared builds before physical critique, for framed recognition until the
+    #: provider exposes framed evidence, and for a deliberately injected bare aggregate.  It is
+    #: never reconstructed from ``recognition`` because that would create a second run universe.
+    recognition_evidence: RecognitionEvidence | None = None
+    #: Conversion-time, run-local accepted-occurrence -> IR ownership.  This stays beside the
+    #: model rather than entering the ADR 1 (was 0015) compiler waist.  Only direct 1:1 adapters are
+    #: classified initially; grouped/absorbed families remain explicitly unclassified.
+    recognition_ownership: RecognitionOwnership | None = None
+    #: The relational arrangement the sheet was composed under — ADR 2 (was 0018 §5)'s fourth
     #: dimension, decided once by `compose.choose_scale` and carried here so that placement
     #: and the repack loop compose under the arrangement whose feasibility was actually
     #: established. They call `_layout_geometry` with MEASURED strip depths where selection
@@ -1176,7 +1238,7 @@ class Analysis:
     #: different answer for the same sheet and lose dimensions to the mismatch (#1130).
     #: Defaulted for hand-built `Analysis` objects, which mean the long-standing arrangement.
     arrangement: str = "columns"
-    #: The principal views this sheet carries, or None for the third-angle three (ADR 0018).
+    #: The principal views this sheet carries, or None for the third-angle three (ADR 2 (was 0018)).
     #: Decided once alongside scale/page/arrangement and carried, for the same reason: the
     #: layout must reserve space for exactly the views the builder creates, or dropping one
     #: costs its annotations without reclaiming its paper.
@@ -1187,13 +1249,24 @@ class Analysis:
     planned_iso: bool = True
     #: ``None`` lets the orientation iso auto-fit; a number is an authored exact factor.
     planned_iso_scale: float | None = None
-    #: Immutable ADR 0018 authored input, retained for the resolver/diagnostics without making
+    #: Immutable ADR 2 (was 0018) authored input, retained for the resolver/diagnostics without making
     #: this low-level module depend on the view-planning leaf at runtime.
     view_constraints: object | None = None
+    #: Caller-coordinate source retained when ``part`` is a provider-normalized working solid.
+    source_part: Shape | None = None
+    #: Provider caller→working frame for a successful framed automatic build.
+    recognition_frame: object | None = None
+    #: JSON-friendly framed/raw/refusal selection outcome.
+    recognition_frame_decision: dict[str, object] | None = None
+    #: Coordinate-coherent PMI projection used by the compiler. ``None`` means the source
+    #: report's records are already in working coordinates (raw and declared builds).
+    pmi_working_records: tuple[object, ...] | None = None
 
     @property
     def pmi(self) -> list:
-        """Successful PMI records, derived from the canonical extraction report."""
+        """Successful PMI records in this analysis's working coordinates."""
+        if self.pmi_working_records is not None:
+            return list(self.pmi_working_records)
         return list(getattr(self.pmi_report, "records", ()))
 
 
@@ -1218,16 +1291,25 @@ def _make_title_block(dwg, a: Analysis):
     drawn-by cell bbox (for the hyperlink rect). Shared by :func:`_add_title_block` (which adds
     it, last) and :func:`_title_block_box` (which measures its footprint for GD&T avoidance, #481)
     so the two never drift."""
+    title = _font_safe_text(a.title)
+    number = _font_safe_text(a.number)
+    tolerance = _font_safe_text(a.tolerance)
+    designed_by = _font_safe_text(_attribution_author(a.drawn_by))
+    material = _font_safe_text(a.material)
+    date = _font_safe_text(a.date)
+    revision = _font_safe_text(a.revision)
+    legal_owner = _font_safe_text(a.company)
+    scale = format_drawing_scale(a.SCALE)
     tb = TitleBlock(
-        _font_safe_text(a.title),
-        _font_safe_text(a.number),
-        scale=format_drawing_scale(a.SCALE),
-        general_tolerance=_font_safe_text(a.tolerance),
-        designed_by=_font_safe_text(_attribution_author(a.drawn_by)),
-        material=_font_safe_text(a.material),
-        date=_font_safe_text(a.date),
-        revision=_font_safe_text(a.revision),
-        legal_owner=_font_safe_text(a.company),
+        title,
+        number,
+        scale=scale,
+        general_tolerance=tolerance,
+        designed_by=designed_by,
+        material=material,
+        date=date,
+        revision=revision,
+        legal_owner=legal_owner,
         width=a.TB_W,
         # Title block renders in condensed sans (the tight ISO 7200 cells), a
         # different face from the monospace dimensions — so it carries its own
@@ -1242,7 +1324,37 @@ def _make_title_block(dwg, a: Analysis):
     # than hardcoded column fractions, so the hyperlink rect tracks any upstream
     # TitleBlock layout change. Build-frame bbox; translated to page space below.
     cell = tb.drawn_by_cell_bbox()
-    tb = tb.locate(Location((a.PAGE_W - a.TB_W - _TB_CLEAR, _TB_CLEAR, 0)))
+    bx, by = a.PAGE_W - a.TB_W - _TB_CLEAR, _TB_CLEAR
+    tb = tb.locate(Location((bx, by, 0)))
+
+    # Retain authoritative title-block values at their public cell centres for the PDF semantic
+    # text layer.  The visible block stays path-rendered; these specs merely let export embed the
+    # same bundled condensed face as invisible selectable text without parsing SVG geometry.
+    fields = (
+        ("title", title),
+        ("drawing_number", number),
+        ("scale", scale),
+        ("material", material),
+        ("revision", revision or date),
+        ("general_tolerance", tolerance),
+        ("designed_by", designed_by),
+        ("legal_owner", legal_owner),
+    )
+    specs = []
+    for field, value in fields:
+        if not value:
+            continue
+        box = tb.cell_bbox(field)
+        specs.append(
+            (
+                value,
+                bx + (box["min_x"] + box["max_x"]) / 2.0,
+                by + (box["min_y"] + box["max_y"]) / 2.0,
+                dwg.draft.font_size,
+                PLEX_SANS_CONDENSED,
+            )
+        )
+    tb.pdf_text_specs = tuple(specs)
     return tb, cell
 
 

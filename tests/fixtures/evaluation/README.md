@@ -15,6 +15,229 @@ construction recipes and nominal dimensions, not from recogniser output:
   rewritten with the same bijection. This changes file/topology traversal order without changing
   geometry or the oracle.
 
-The `FILE_NAME` timestamp is normalized. `corpus-v1.json` pins every fixture SHA-256 and records
+`corpus-hole-patterns-v1.json` is a separate arrangement corpus. It deliberately scores one
+grouping fact per pattern and does not repeat the member holes' diameters, depths, bottoms or
+individual location requirements, which remain owned by `corpus-v1.json`:
+
+- `pattern-grid.step` starts with a 120 × 100 × 12 mm centred block and subtracts six Ø6 through
+  cylinders at X = (-15, 0, 15) and Y = (-10, 10). The authored arrangement is a 2 × 3 grid with
+  20 mm row pitch and 15 mm column pitch.
+- `pattern-ambiguous.step` starts with an 80 × 50 × 12 mm centred block and subtracts three Ø6
+  through cylinders at X = (-20, 0, 21), Y = 0. Its adjacent gaps are 20 and 21 mm, so it is not a
+  constant-pitch linear array; collinearity also prevents treating the three points as a bolt
+  circle.
+- `pattern-topology-a.step` starts with a 140 × 90 × 12 mm centred block. Four Ø6 through holes
+  form a 32 mm bolt circle centred at (-35, 0), and three Ø4 through holes form an independent
+  vertical linear array at X = 35 with 18 mm pitch.
+- `pattern-topology-b.step` is geometrically identical to `pattern-topology-a.step`; every Part 21
+  entity identifier was bijectively renumbered and the entity records serialized in reverse order,
+  with references rewritten by the same bijection.
+
+`corpus-countersinks-v1.json` is a separate physical conical-seat corpus. The provider record's
+four measured values are scored independently, while the bore and finished callout requirements
+remain owned once by the existing hole ledger:
+
+- `countersink-external-cone.step` joins Ø6 and Ø14 external shaft bands through a 4 mm conical
+  transition. The cone contains material rather than opening into a void and is not a countersink.
+- `countersink-deburr.step` applies a 0.5 mm edge-break to a Ø6 through-bore mouth. Its shallow
+  flare is a deburr chamfer, not a functional countersink seat.
+- `countersink-single.step` cuts one Ø6 through bore at `(8, -5)` in 70 × 50 × 12 mm stock and
+  adds a top-opening Ø14 × 90° conical seat with 4 mm geometric depth.
+- `countersink-mixed-pair.step` cuts independent top-opening seats at `(-18, -7)` and `(18, 7)`
+  in 70 × 50 × 12 mm stock: Ø6 opens to Ø14 and Ø8 opens to Ø16, both at 90° and 4 mm depth.
+  The unequal records make a nested-object ownership swap observable rather than self-consistent.
+- `countersink-topology-a.step` cuts equal seats at `(-18, -7)` and `(18, 7)` in 90 × 50 × 12 mm
+  stock. Both physical occurrences share one grouped callout without becoming one observation.
+- `countersink-topology-b.step` is geometrically identical to topology-a; every Part 21 entity
+  identifier was bijectively renumbered and the entity records reverse serialized, with references
+  rewritten by the same bijection.
+
+`corpus-double-d-bores-v1.json` owns complete profiled through-bore occurrences without recounting
+ordinary circular holes. Major diameter, A/F, depth, through state and flat direction are scored
+parameters; axis plus full location identifies each physical frame:
+
+- `double-d-round-bore.step` is a circular Ø10 through-bore with no chord flats.
+- `double-d-blind.step` is a Ø10 / 7.2 A/F recess with an internal floor.
+- `double-d-opposed-blind.step` has aligned recesses from opposite faces separated by a solid web.
+- `double-d-single-z.step` subtracts a centred Ø10 / 7.2 A/F prism through 10 mm stock along Z.
+- `double-d-roll-30.step` rotates the complete Z-axis body 30° in its profile plane.
+- `double-d-axis-x.step` and `double-d-axis-y.step` rotate the complete body onto the other two
+  principal axes, retaining the corresponding flat line.
+- `double-d-coaxial-compound.step` contains equal profiled bores in two disconnected bodies at
+  axial centres 5 and 35 mm; neither may borrow the other's owner or drawing evidence.
+- `double-d-topology-a.step` contains heterogeneous Ø10 / 7.2 A/F and Ø12 / 8 A/F bodies.
+- `double-d-topology-b.step` is geometrically identical to topology-a; every Part 21 entity
+  identifier was bijectively renumbered and the entity records reverse serialized, with references
+  rewritten by the same bijection.
+
+`corpus-flats-v1.json` is a separate physical across-flats corpus. Opposed faces on one stock line
+are one requirement, while separate lines or disjoint axial spans remain independent:
+
+- `flat-nonround.step` is a 40 × 30 × 20 mm rectangular block and deliberately has no machined
+  flat requirement.
+- `flat-lone-d.step` clips Ø30 × 40 mm stock at X = 7.5 mm to leave one X-normal D-flat.
+- `flat-double-d.step` clips Ø30 × 40 mm stock at X = ±7.5 mm, producing one
+  15 mm A/F requirement from two opposed faces.
+- `flat-slanted-double-d.step` rotates equivalent Double-D stock 30° about Y, preserving its one
+  physical requirement without relying on a principal-axis orientation.
+- `flat-coaxial.step` fuses two disjoint axial lone-D spans on the same axis; each span owns its
+  own A/F requirement.
+- `flat-topology-a.step` fuses two parallel lone-D lobes, so equal nominal sizes on separate axis
+  lines remain independent requirements.
+- `flat-topology-b.step` is geometrically identical to `flat-topology-a.step`; every Part 21 entity
+  identifier was bijectively renumbered and the entity records serialized in reverse order, with
+  references rewritten by the same bijection.
+
+`corpus-pockets-v1.json` is a separate physical lone-pocket corpus. Pocket-pattern members are
+excluded because their grouped arrangement and callout belong to the pocket-pattern family:
+
+- `pocket-through-negative.step` is a rectangular removal through the complete stock and is owned
+  by Slot, not Pocket.
+- `pocket-lone.step` has one off-centre 30 × 12 × 6 mm +Z-opening blind recess.
+- `pocket-edge-anchored.step` crosses the +X/+Y stock corner, leaving one 15 × 15 × 6 mm recess
+  whose position is implicit in the two envelope edges.
+- `pocket-two-equal.step` has two equal 26 × 10 × 6 mm recesses at non-pattern positions.
+- `pocket-opposed.step` has equal recesses on opposite Z faces, retaining distinct `open_sign`
+  identities.
+- `pocket-side.step` rotates the lone construction 90° about Y to exercise a principal X opening.
+- `pocket-prismatic-negative.step` has a regular-hexagonal blind recess owned by PrismaticPocket,
+  not the rectangular Pocket family.
+- `pocket-compound.step` has one equal recess on each of two disjoint solids.
+- `pocket-topology-a.step` has two distinct blind recesses in canonical Part 21 entity order.
+- `pocket-topology-b.step` is geometrically identical to `pocket-topology-a.step`; every Part 21
+  entity identifier was bijectively renumbered and the entity records serialized in reverse order,
+  with references rewritten by the same bijection.
+
+`corpus-pocket-patterns-v1.json` owns grouped rectangular-pocket arrangements without recounting
+their member pockets. Its construction facts are independent of recognition output:
+
+- `pocket-pattern-linear.step` starts with a 180 × 140 × 20 mm centred block and subtracts four
+  12 × 8 × 6 mm top-opening pockets on a 30° line through the origin at signed distances
+  (-45, -15, 15, 45) mm. The authored arrangement has 30 mm pitch and direction
+  `(cos 30°, sin 30°, 0)`; it is not derived from the recogniser's reported direction.
+- `pocket-pattern-grid.step` starts with a 200 × 170 × 20 mm centred block and subtracts six
+  12 × 8 × 6 mm top-opening pockets on a 30°-rotated 2 × 3 lattice centred at the origin. The
+  authored row offsets are ±18 mm and column offsets are (-28, 0, 28) mm, giving 36 mm row
+  pitch, 28 mm column pitch and a 30° arrangement angle.
+- `pocket-pattern-pair.step` contains two equal pockets. Two occurrences remain independent and
+  deliberately do not meet the provider's pattern threshold.
+- `pocket-pattern-ambiguous.step` contains three equal collinear pockets with adjacent 21 mm and
+  20 mm gaps. The unequal gaps deliberately do not define a constant-pitch array.
+- `pocket-pattern-topology-a.step` starts with a 180 × 130 × 24 mm centred block, subtracts an
+  underside-opening 2 × 3 grid of 8 × 12 × 4 mm pockets at X = (18, 40, 62), Y = (-17, 17),
+  and adds one differently-sized lone top pocket. The grid has 34 mm row pitch and 22 mm column
+  pitch; the lone pocket proves that its seven physical pockets retain disjoint ownership.
+- `pocket-pattern-topology-b.step` is geometrically identical to its topology-a counterpart;
+  every Part 21 entity identifier was bijectively renumbered and the entity records serialized in
+  reverse order, with references rewritten by the same bijection.
+
+`corpus-grooves-v1.json` is a separate physical turned-groove corpus. Each annular recess owns
+one axial-width requirement and one floor-diameter requirement:
+
+- `groove-monotonic-negative.step` joins diameter 20 and diameter 16 shaft segments with one
+  monotonic shoulder, so TurnedStep—not Groove—owns the geometry.
+- `groove-lone-z.step` cuts one 4 mm wide band to a diameter 16 floor in a diameter 20 shaft.
+- `groove-lone-x.step` and `groove-lone-y.step` rigidly rotate that construction onto the other
+  two principal axes without changing its physical measurements.
+- `groove-narrow.step` cuts a 1 mm wide circlip band to diameter 18. The reduced band is present
+  in raw boss and turned-step inventories, but the aggregate Draftwright model gives its width
+  and floor diameter to the Groove callout once.
+- `groove-compound.step` contains two disjoint parallel shafts with equal grooves at distinct
+  axis lines and stations, so equal sizes cannot collapse into one occurrence.
+- `groove-topology-a.step` cuts distinct grooves centred at Z=-15 and Z=16 in that order;
+  `groove-topology-b.step` applies the same two Boolean cuts in reverse order. Their STEP hashes
+  differ while their geometry and independently authored groove facts are identical.
+
+`corpus-rectangular-pads-v1.json` is a separate physical raised-pad corpus. Every retained pad
+owns two footprint-size requirements, one terminal-to-attachment height, and two in-plane
+locations:
+
+- `pad-x-positive.step` through `pad-z-negative.step` directly author all six signed principal
+  orientations from asymmetric stock and protrusion boxes; no expected axis, sign, attachment,
+  size, or height is read from recognition output.
+- `pad-compound-equal.step` contains two disjoint padded bodies with equal pad sizes at distinct
+  physical sites, so value equality cannot collapse body-local occurrences.
+- `pad-topology-a.step` adds two unequal pads in one Boolean order; `pad-topology-b.step` applies
+  the same additions in reverse. Their STEP hashes differ while their independently authored
+  physical facts are identical.
+- `pad-full-span-ledge-negative.step` is step-owned because its upper ledge spans the stock's
+  full Y extent; `pad-nested-staircase-negative.step` contains successively narrower connected
+  tiers rather than independent pads; `pad-detached-body-negative.step` proves that projected
+  overlap across two solids cannot manufacture attachment.
+
+`corpus-polygonal-stock-v1.json` owns complete single-solid regular-hexagonal stock. Each positive
+case has one A/F requirement and one axial stock-length requirement:
+
+- `polygonal-stock-x.step`, `polygonal-stock-y.step` and `polygonal-stock-roll17.step` preserve a
+  circumradius-20, 30 mm long hexagonal prism across the three principal axes and an independent
+  17° in-plane rotation. Their nominal A/F is `40 cos(30°) = 34.641 mm`.
+- `polygonal-stock-translated.step` independently uses circumradius 23 and length 37 mm before a
+  `(13, -7, 11)` translation. Its A/F is `46 cos(30°) = 39.837 mm`, physical centre is
+  `(13, -7, 29.5)`, and neither its values nor axial bounds can borrow from the canonical prism.
+- `polygonal-stock-topology-a.step` and `polygonal-stock-topology-b.step` are geometrically equal.
+  The second uses a cyclically shifted reverse-wound boundary and opposite signed extrusion, so
+  topology order cannot change its independently authored facts.
+- The circular, rectangular, irregular-six-side and regular-octagonal fixtures delimit the exact
+  automatic family. An attached boss, a blind-recessed otherwise-exact hexagonal body and two
+  detached equal eight-face stock prisms prove that projection, six-face appearance, extra
+  topology or per-solid iteration cannot manufacture whole-stock ownership.
+
+`corpus-chamfers-v1.json` is a separate physical bevel corpus. One planar or conical treatment is
+one callout requirement even when equal specifications share ink:
+
+- `chamfer-plain.step` is an unmodified 60 × 40 × 30 mm block and has no bevel requirement.
+- `chamfer-planar-z.step` applies a 6 mm equal-leg bevel to its +X/+Y edge;
+  `chamfer-planar-x.step` and `chamfer-planar-y.step` rigidly rotate that construction onto the
+  other principal edge axes without changing its physical size.
+- `chamfer-asymmetric.step` applies a 4 × 8 mm bevel whose construction angle is atan(4/8).
+- `chamfer-turned.step` applies a 3 mm conical treatment to the +Z end of diameter 30 × 60 mm
+  shaft stock.
+- `chamfer-overlap.step` contains a partial-width ramp with triangular blind ends and a separate
+  3 mm full-length bevel. The ramp slant is AngledStep-owned; only the independent X edge enters
+  this corpus's chamfer denominator.
+- `chamfer-compound.step` contains two translated copies of the equal planar bevel, proving that
+  grouped `2× C6` ink retains two physical occurrences.
+- `chamfer-topology-a.step` applies 4 mm and 7 mm bevels to opposite edges in that order;
+  `chamfer-topology-b.step` applies the same operations in reverse order. Their geometry and
+  authored requirements are identical while their STEP hashes differ.
+
+`corpus-fillets-v1.json` is a separate physical rounded-edge corpus. One cylindrical or toroidal
+round is one radius-callout requirement even when equal radii share ink:
+
+- `fillet-plain.step` is an unmodified 60 × 40 × 30 mm block and has no round requirement.
+- `fillet-planar-z.step` applies a 4 mm round to its +X/+Y edge; `fillet-planar-x.step` and
+  `fillet-planar-y.step` rigidly rotate that construction onto the other principal edge axes.
+- `fillet-repeated.step` rounds all four Z-running edges to 5 mm, proving grouped `4× R5` ink
+  retains four physical occurrences on one body.
+- `fillet-turned.step` applies a 3 mm toroidal round to the +Z end of diameter 30 × 60 mm shaft
+  stock.
+- `fillet-overlap.step` is a quarter-cylindrical blind corner cut. Direct fillet discovery sees
+  its curved wall, while the aggregate assigns that physical surface only to CircularBlindStep.
+- `fillet-compound.step` contains two translated copies of the equal planar round, proving that
+  grouped `2× R4` ink retains two physical occurrences on separate bodies.
+- `fillet-topology-a.step` applies 4 mm and 7 mm rounds to opposite edges in that order;
+  `fillet-topology-b.step` applies the same operations in reverse order. Their geometry and
+  authored requirements are identical while their STEP hashes differ.
+
+`corpus-turned-steps-v1.json` is a separate physical outside-diameter-band corpus. Every
+body-local band owns an axial-length and diameter requirement; its axis line and station identify
+the occurrence independently of recognition output:
+
+- `turned-step-axis-x.step`, `turned-step-axis-y.step` and `turned-step-axis-z.step` independently
+  author unequal adjacent bands on all three principal turning axes.
+- `turned-step-translated-blind-bore.step` moves the axis line to `(91, -37)` and adds a blind
+  axial bore, proving that world-origin assumptions and the bore family cannot supply the answer.
+- `turned-step-repeated-lengths.step` has three adjacent 10 mm bands at different diameters,
+  proving grouped `3× 10` length ink retains every physical identity.
+- `turned-step-compound.step` has two disjoint profile lines and four bands, so equal-axis bodies
+  cannot collapse into one profile.
+- `turned-step-through-bore.step` retains both outside bands around a coaxial through bore.
+- `groove-lone-y.step` contributes only its two outer shaft bands. The narrow middle band is
+  uniquely owned by the groove and is deliberately not counted twice.
+- `turned-step-topology-a.step` and `turned-step-topology-b.step` carry the same three authored
+  bands through different STEP topology ordering and distinct pinned hashes.
+- `plain-block.step` is the negative case and has no rotational profile or OD-band requirement.
+
+The `FILE_NAME` timestamp is normalized. Each corpus manifest pins every fixture SHA-256 and records
 case-level provenance. A changed fixture therefore requires an explicit corpus-version decision;
 regenerating recognition output can never rewrite the expected facts silently.

@@ -1,4 +1,4 @@
-"""Renderer-seam tests (ADR 0008) — the first real consumer of the planner output.
+"""Renderer-seam tests (ADR 1 (was 0008)) — the first real consumer of the planner output.
 
 Validates that the IR/planner contract carries what a renderer needs to build a
 hole callout: the bore/counterbore values, blind-vs-through, and the pattern count
@@ -56,7 +56,7 @@ class TestCalloutSpec:
 
         `HoleFeature.parameters()` emits a bore depth only for a blind hole, so a
         renderer deriving ``through = depth is None`` reads a *manufacturing fact* off
-        the presence of a *dimension*. ADR 0016 suppression drops planned dimensions,
+        the presence of a *dimension*. ADR 4 (was 0016) suppression drops planned dimensions,
         so that derivation would silently print a blind hole as ``THRU``. Fails at the
         pre-fix commit.
         """
@@ -66,7 +66,7 @@ class TestCalloutSpec:
 
         hole = HoleFeature(Frame((0, 0, 0), "z"), 8.0, depth=10.0, through=False)
         g = plan_dimensions(PartModel(bbox=None, orientation=None, features=[hole]))[0]
-        # Suppress the addressable dimension by identity — the ADR 0016 operation
+        # Suppress the addressable dimension by identity — the ADR 4 (was 0016) operation
         # itself, now that `units` exists, rather than a hand-rolled param filter.
         dropped = replace(g, units=tuple(u for u in g.units if u.id != "bore.depth"))
         s = hole_callout_spec(dropped)
@@ -82,7 +82,7 @@ class TestCalloutSpec:
         member = HoleFeature(Frame((0, 0, 0), "z"), 6.0, depth=5.0, through=False)
         pat = PatternFeature(Frame((0, 0, 0), "z"), "bolt_circle", 6, member, bcd=50.0)
         g = plan_dimensions(PartModel(bbox=None, orientation=None, features=[pat]))[0]
-        # Suppress the addressable dimension by identity — the ADR 0016 operation
+        # Suppress the addressable dimension by identity — the ADR 4 (was 0016) operation
         # itself, now that `units` exists, rather than a hand-rolled param filter.
         dropped = replace(g, units=tuple(u for u in g.units if u.id != "bore.depth"))
         assert hole_callout_spec(dropped)["through"] is False

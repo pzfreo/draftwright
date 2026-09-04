@@ -1,4 +1,4 @@
-"""ir — the part-drawing compiler's intermediate representation (ADR 0008).
+"""ir — the part-drawing compiler's intermediate representation (ADR 1 (was 0008)).
 
 The narrow waist between recognition and dimensioning. Two protocols carry the
 weight:
@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from math import atan2, cos, hypot, isclose, isfinite, pi
+from numbers import Real
 from typing import TYPE_CHECKING, ClassVar, Literal, Protocol, runtime_checkable
 
 from draftwright._geometry import (
@@ -29,19 +30,113 @@ from draftwright._geometry import (
     _canonical_axis_direction,
     _canonical_axis_span,
     _fmt,
+    quantised_radius_agrees,
+    quantised_span_agrees,
 )
+from draftwright.blend_contract import register_blend_ir_types, validate_blend_fields
 
 if TYPE_CHECKING:
     from draftwright.fits import FitClass
 
 Point = tuple[float, float, float]
 CylinderSense = Literal["external", "internal"]
+PLACEMENT_VIEWS = frozenset({"front", "plan", "side"})
+PLACEMENT_SIDES = frozenset({"above", "below", "left", "right"})
+
+
+class TurnedProfileIdentity(Protocol):
+    """Draftwright's structural view of a provider-owned turned-profile key."""
+
+    @property
+    def axis(self) -> str: ...
+
+    @property
+    def axis_origin(self) -> Point: ...
+
+    @property
+    def body_bounds(self) -> tuple[float, float, float, float, float, float]: ...
+
+
+def validate_placement_intent(view: str | None, side: str | None, *, owner: str) -> None:
+    """Validate the shared declarative view/strip vocabulary.
+
+    Compatibility with a particular renderer is checked where the dimension kind and
+    projection are known.  Keeping the vocabulary check here also protects hand-built IR.
+    """
+    if view is not None and view not in PLACEMENT_VIEWS:
+        raise ValueError(f"{owner} view must be one of {sorted(PLACEMENT_VIEWS)} (got {view!r})")
+    if side is not None and side not in PLACEMENT_SIDES:
+        raise ValueError(f"{owner} side must be one of {sorted(PLACEMENT_SIDES)} (got {side!r})")
+
+
+def validate_authored_dimension_placement(
+    dimension_kind: str,
+    dominant_axis: str,
+    view: str | None,
+    side: str | None,
+    *,
+    owner: str,
+) -> None:
+    """Reject a view/side pair for which the authored-dimension renderer has no candidate."""
+    validate_placement_intent(view, side, owner=owner)
+    if view is None and side is None:
+        return
+    valid_pairs: tuple[tuple[str, str], ...]
+    if dimension_kind in ("diameter", "radius"):
+        end_view = {"X": "side", "Y": "front", "Z": "plan"}.get(dominant_axis)
+        valid_pairs = () if end_view is None else ((end_view, "above"), (end_view, "below"))
+    else:
+        valid_pairs = {
+            "X": (("front", "above"), ("front", "below")),
+            "Z": (("front", "right"), ("front", "left")),
+            "Y": (
+                ("side", "above"),
+                ("side", "below"),
+                ("plan", "left"),
+                ("plan", "right"),
+            ),
+        }.get(dominant_axis, ())
+    if not any(
+        (view is None or candidate_view == view) and (side is None or candidate_side == side)
+        for candidate_view, candidate_side in valid_pairs
+    ):
+        choices = ", ".join(f"{v}/{s}" for v, s in valid_pairs) or "none"
+        raise ValueError(
+            f"{owner} cannot render {dimension_kind}/{dominant_axis} at "
+            f"{view or '*'}/{side or '*'}; supported placement(s): {choices}"
+        )
+
+
+def authored_dimension_target_view(
+    dimension_kind: str,
+    dominant_axis: str,
+    view: str | None,
+    side: str | None,
+) -> str | None:
+    """Resolve the principal view selected by an explicit measured-dimension hint.
+
+    A side can uniquely select a view even when ``view`` is omitted (for example a
+    Y-linear ``right`` strip can only be the plan view). ``None`` means both placement
+    fields were omitted and the renderer remains free to derive/fall back as before.
+    Callers validate the pair with :func:`validate_authored_dimension_placement` first.
+    """
+    if view is not None:
+        return view
+    if side is None:
+        return None
+    if dimension_kind in ("diameter", "radius"):
+        return {"X": "side", "Y": "front", "Z": "plan"}.get(dominant_axis)
+    if dominant_axis in {"X", "Z"}:
+        return "front"
+    if dominant_axis == "Y":
+        return "side" if side in {"above", "below"} else "plan"
+    return None
 
 
 def _finite_point3(name: str, value) -> Point:
     try:
         result = tuple(float(component) for component in value)
-    except (TypeError, ValueError) as exc:
+    except (OverflowError, TypeError, ValueError) as exc:
         raise ValueError(f"{name} must be a finite 3-vector") from exc
     if len(result) != 3 or not all(isfinite(component) for component in result):
         raise ValueError(f"{name} must be a finite 3-vector")
@@ -179,7 +274,7 @@ AUTHORED_DIMENSION_KINDS = frozenset(
 # roles): "bore", "counterbore", "spotface", "od", "step", "boss", "thread",
 # "pattern", "slot", "envelope", "location", …
 Role = str
-# The semantic identity of one addressable measurement (ADR 0016). A readable string,
+# The semantic identity of one addressable measurement (ADR 4 (was 0016)). A readable string,
 # not an opaque token: it surfaces in diagnostics, lint messages and (later) emitted
 # `dimension(...)` lines, and must stay stable across re-detection and planner changes.
 # See :attr:`DimParameter.parameter_id` for how it is derived.
@@ -213,12 +308,15 @@ ParameterId = str
 #: A discriminated variant is spelled in full (`grid_pitch.length.row`); `axis=` still
 #: works with the bare role, for scripts that already wrote it that way.
 DimensionParameterId = Literal[
+    "blend.radius",
     "bolt_circle.diameter",
     "bore.depth",
     "bore.diameter",
     "boss.diameter",
     "boss_height.length",
     "chamfer.length",
+    "circular_step_depth.length",
+    "circular_step_radius.radius",
     "channel_width.length",
     "counterbore.depth",
     "counterbore.diameter",
@@ -233,6 +331,7 @@ DimensionParameterId = Literal[
     "groove.length",
     "height.length",
     "od.diameter",
+    "pad_height.length",
     "pad_length.length",
     "pad_width.length",
     "pitch.length",
@@ -240,6 +339,14 @@ DimensionParameterId = Literal[
     "pocket_length.length",
     "pocket_width.length",
     "polygon_across_flats.length",
+    "ramp_angle.angle",
+    "ramp_run.length",
+    "rectangular_blind_slot_depth.length",
+    "rectangular_blind_slot_length.length",
+    "rectangular_blind_slot_width.length",
+    "round_bottom_blind_slot_flat_width.length",
+    "round_bottom_blind_slot_length.length",
+    "round_bottom_blind_slot_radius.radius",
     "stock_length.length",
     "profile_across_flats.length",
     "slot_length.length",
@@ -250,7 +357,11 @@ DimensionParameterId = Literal[
     "step.length",
     "step_height.length",
     "step_position.length",
+    "thread.depth",
     "thickness.length",
+    "through_step_leg.length.x",
+    "through_step_leg.length.y",
+    "through_step_leg.length.z",
     "width.length",
     # synthesised, not a DimParameter (see above)
     "location",
@@ -285,19 +396,19 @@ class DimParameter:
     value: float
     span: tuple[Point, Point] | None = None
     refs: tuple[str, ...] = ()
-    # An authored ± tolerance (ADR 0011 §4 / P2a): a symmetric ``float`` or an
+    # An authored ± tolerance (ADR 4 (was 0011 §4) / P2a): a symmetric ``float`` or an
     # ``(lower, upper)`` limit pair; or a resolved fit class (``FitClass``, P2a.2) that
     # renders its own class-code / deviation suffix; ``None`` when untoleranced. Set by the
     # planner from the caller's ``decorations`` — geometry never supplies it.
     tolerance: float | tuple[float, float] | FitClass | None = None
     # A semantic discriminator for measurements ``(role, kind)`` cannot tell apart
-    # (ADR 0016 identity, tier 2). Today's sole instance is a grid pattern's two pitches
+    # (ADR 4 (was 0016) identity, tier 2). Today's sole instance is a grid pattern's two pitches
     # (``"row"`` / ``"col"``). ``None`` wherever role + kind already identify the thing.
     discriminator: str | None = None
 
     @property
     def parameter_id(self) -> ParameterId:
-        """This parameter's semantic identity (ADR 0016) — ``role.kind``, plus the
+        """This parameter's semantic identity (ADR 4 (was 0016)) — ``role.kind``, plus the
         discriminator where one is needed: ``bore.diameter``, ``bore.depth``,
         ``grid_pitch.length.row``.
 
@@ -448,6 +559,40 @@ class ThreadRequirement:
 
 
 @dataclass(frozen=True)
+class ThreadOperation:
+    """An authored thread/tap operation with an independently dimensioned depth.
+
+    A plain thread string remains the compact form for an unspecified/full-depth thread.
+    This value object carries an explicit tap depth through the public IR as
+    ``thread.depth`` instead of burying the manufacturing value in prose (ADR 4 (was 0011)).
+    """
+
+    designation: str
+    depth: float
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.designation, str):
+            raise ValueError("thread designation must be a non-empty string")
+        designation = self.designation.strip()
+        if not designation:
+            raise ValueError("thread designation must be a non-empty string")
+        if (
+            not isinstance(self.depth, (int, float))
+            or isinstance(self.depth, bool)
+            or not isfinite(self.depth)
+            or self.depth <= 0
+        ):
+            raise ValueError("thread depth must be finite and positive")
+        depth = float(self.depth)
+        object.__setattr__(self, "designation", designation)
+        object.__setattr__(self, "depth", depth)
+
+    @property
+    def callout_suffix(self) -> str:
+        return self.designation
+
+
+@dataclass(frozen=True)
 class KnurlRequirement:
     """A source-authored knurl aspect on a finite cylindrical region."""
 
@@ -580,9 +725,10 @@ class HoleFeature:
     # ``None`` — plain tuple, the IR stays decoupled from the recogniser's type (#558).
     csink: tuple[float, float] | None = None
     # A thread spec (tap/thread), e.g. ``"M3x0.5"`` — free text folded onto the hole's
-    # compound callout (#764). A declaration-only aspect (ADR 0011 side-layer): threads
+    # compound callout (#764), or ``ThreadOperation`` when an authored tap depth must remain
+    # independently addressable. A declaration-only aspect (ADR 4 (was 0011) side-layer): threads
     # are cosmetic, rarely modelled as geometry, so there is no recogniser — declare + emit.
-    thread: str | ThreadRequirement | None = None
+    thread: str | ThreadOperation | ThreadRequirement | None = None
     # A structural bore profile. ``None`` is the ordinary circular bore; ``double_d``
     # means the bore diameter is its parent-circle major diameter and the independently
     # planned A/F parameter below defines the two chord flats (#1061).
@@ -597,9 +743,15 @@ class HoleFeature:
         """Keep profiled-bore geometry complete at the public IR waist.
 
         Detection, declaration and direct ``PartModel`` construction are equal producers
-        (ADR 0011). Validating here prevents a direct model from planning ``DOUBLE-D`` with
+        (ADR 4 (was 0011)). Validating here prevents a direct model from planning ``DOUBLE-D`` with
         no A/F value, or carrying an orientation that the profile cannot have.
         """
+        if (
+            isinstance(self.thread, ThreadOperation)
+            and self.depth is not None
+            and self.thread.depth > self.depth
+        ):
+            raise ValueError("thread depth cannot exceed bore depth")
         if self.profile is None:
             if self.across_flats is not None or self.profile_direction is not None:
                 raise ValueError(
@@ -651,6 +803,8 @@ class HoleFeature:
             csd, csa = self.csink
             ps.append(DimParameter("diameter", "countersink", csd))
             ps.append(DimParameter("angle", "countersink", csa))
+        if isinstance(self.thread, ThreadOperation):
+            ps.append(DimParameter("depth", "thread", self.thread.depth))
         return ps
 
     def references(self) -> list[Datum]:
@@ -670,6 +824,13 @@ class StepFeature:
     # are cosmetic and rarely modelled as geometry, so there is no recogniser — declare + render.
     thread: str | ThreadRequirement | None = None
     knurl: KnurlRequirement | None = None
+    #: Body-local recognition ownership. Structural provenance, not a printable quantity;
+    #: declared/legacy features may leave it absent and retain axis-line grouping (#1357).
+    profile: TurnedProfileIdentity | None = None
+    #: Draftwright-owned, serializable physical-profile identity. Generated Sheet programs use
+    #: this opaque token instead of exposing the provider's ``TurnedProfileKey``; ordinary
+    #: declarations may omit it and retain geometric grouping.
+    profile_group: str | None = None
     kind: ClassVar[str] = "step"
 
     def parameters(self) -> list[DimParameter]:
@@ -717,7 +878,7 @@ class PatternFeature:
             ps.append(DimParameter("length", "pitch", self.pitch))
         if self.grid is not None:
             rp, cp = self.grid
-            # Same role AND kind, semantically distinct — the ADR 0016 tier-2 case that
+            # Same role AND kind, semantically distinct — the ADR 4 (was 0016) tier-2 case that
             # forces a discriminator. "row"/"col" (not "x"/"y"): `angle` may rotate the
             # lattice, so a row pitch is not an X pitch in general. Mapping a user-facing
             # `axis=` selector onto these is the facade's job, not the IR's.
@@ -809,7 +970,14 @@ class PocketFeature:
     lo: float
     hi: float
     edge_anchored: bool = False
+    # Which depth end is the opening. Recognition retains this physical distinction;
+    # dropping it here makes equal opposed-face pockets indistinguishable to correspondence.
+    open_sign: int = 1
     kind: ClassVar[str] = "pocket"
+
+    def __post_init__(self) -> None:
+        if self.open_sign not in (-1, 1):
+            raise ValueError(f"pocket open_sign must be -1 or 1 (got {self.open_sign!r})")
 
     @property
     def depth_axis(self) -> str:
@@ -876,12 +1044,229 @@ class ChannelFeature:
 
 
 @dataclass(frozen=True)
+class RectangularBlindSlotFeature:
+    """A capped, edge-open rectangular U-section slot.
+
+    This is deliberately distinct from both :class:`SlotFeature` (through, with no floor)
+    and :class:`PocketFeature` (closed in-plane). ``axis`` is the penetration/run direction;
+    ``open_sign`` selects its source-envelope mouth. ``depth_sign`` selects the material-
+    outward opening of the flat-bottomed U section along ``depth_axis``. The provider's
+    ``at`` point becomes ``frame.origin`` and is the centre of all three measured spans.
+    """
+
+    frame: Frame
+    axis: str
+    open_sign: int
+    width_axis: str
+    depth_axis: str
+    depth_sign: int
+    width: float
+    length: float
+    depth: float
+    kind: ClassVar[str] = "rectangular_blind_slot"
+
+    def __post_init__(self) -> None:
+        raw_origin = self.frame.origin
+        if (
+            not isinstance(raw_origin, tuple)
+            or len(raw_origin) != 3
+            or any(
+                isinstance(component, bool) or not isinstance(component, Real)
+                for component in raw_origin
+            )
+        ):
+            raise ValueError("rectangular blind slot frame.origin must be a finite 3-vector")
+        origin = _finite_point3("rectangular blind slot frame.origin", self.frame.origin)
+        axes = (self.axis, self.width_axis, self.depth_axis)
+        if (
+            any(not isinstance(axis, str) or axis not in {"x", "y", "z"} for axis in axes)
+            or len(set(axes)) != 3
+        ):
+            raise ValueError(
+                "rectangular blind slot axis, width_axis and depth_axis must be a permutation "
+                f"of 'xyz' (got {axes!r})"
+            )
+        if self.frame.axis != self.axis:
+            raise ValueError(
+                "rectangular blind slot frame axis must equal its run axis "
+                f"(got {self.frame.axis!r} and {self.axis!r})"
+            )
+        object.__setattr__(self, "frame", Frame(origin, self.frame.axis))
+        for name, sign in (("open_sign", self.open_sign), ("depth_sign", self.depth_sign)):
+            if not isinstance(sign, int) or isinstance(sign, bool) or sign not in (-1, 1):
+                raise ValueError(f"rectangular blind slot {name} must be -1 or 1 (got {sign!r})")
+        for name in ("width", "length", "depth"):
+            raw = getattr(self, name)
+            if isinstance(raw, bool) or not isinstance(raw, Real):
+                raise ValueError(f"rectangular blind slot {name} must be finite and positive")
+            try:
+                value = float(raw)
+            except (OverflowError, TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"rectangular blind slot {name} must be finite and positive"
+                ) from exc
+            if not isfinite(value) or value <= 0:
+                raise ValueError(f"rectangular blind slot {name} must be finite and positive")
+            object.__setattr__(self, name, value)
+
+    def _span(self, axis: str, value: float) -> tuple[Point, Point]:
+        lo = list(self.frame.origin)
+        hi = list(self.frame.origin)
+        index = "xyz".index(axis)
+        lo[index] -= value / 2
+        hi[index] += value / 2
+        return ((lo[0], lo[1], lo[2]), (hi[0], hi[1], hi[2]))
+
+    def parameters(self) -> list[DimParameter]:
+        return [
+            DimParameter(
+                "length",
+                "rectangular_blind_slot_width",
+                self.width,
+                span=self._span(self.width_axis, self.width),
+            ),
+            DimParameter(
+                "length",
+                "rectangular_blind_slot_length",
+                self.length,
+                span=self._span(self.axis, self.length),
+            ),
+            DimParameter(
+                "length",
+                "rectangular_blind_slot_depth",
+                self.depth,
+                span=self._span(self.depth_axis, self.depth),
+            ),
+        ]
+
+    def references(self) -> list[Datum]:
+        return []
+
+
+@dataclass(frozen=True)
+class RoundBottomBlindSlotFeature:
+    """A capped, edge-open slot with a flat floor joined by equal round sides.
+
+    This is a separate manufacturing family from both a through slot and a rectangular
+    blind slot. ``axis``/``open_sign`` identify the mouth-to-terminal run;
+    ``width_axis``/``depth_axis``/``depth_sign`` identify the U-section orientation.
+    ``flat_width`` is the straight floor between the two equal ``radius`` arcs.  Together
+    those two independent measurements define the derived opening width
+    ``flat_width + 2 * radius`` and profile depth ``radius``.
+    """
+
+    frame: Frame
+    axis: str
+    open_sign: int
+    width_axis: str
+    depth_axis: str
+    depth_sign: int
+    length: float
+    radius: float
+    flat_width: float
+    kind: ClassVar[str] = "round_bottom_blind_slot"
+
+    def __post_init__(self) -> None:
+        raw_origin = self.frame.origin
+        if (
+            not isinstance(raw_origin, tuple)
+            or len(raw_origin) != 3
+            or any(
+                isinstance(component, bool) or not isinstance(component, Real)
+                for component in raw_origin
+            )
+        ):
+            raise ValueError("round-bottom blind slot frame.origin must be a finite 3-vector")
+        origin = _finite_point3("round-bottom blind slot frame.origin", raw_origin)
+        axes = (self.axis, self.width_axis, self.depth_axis)
+        if (
+            any(not isinstance(axis, str) or axis not in {"x", "y", "z"} for axis in axes)
+            or len(set(axes)) != 3
+        ):
+            raise ValueError(
+                "round-bottom blind slot axis, width_axis and depth_axis must be a "
+                f"permutation of 'xyz' (got {axes!r})"
+            )
+        if self.frame.axis != self.axis:
+            raise ValueError(
+                "round-bottom blind slot frame axis must equal its run axis "
+                f"(got {self.frame.axis!r} and {self.axis!r})"
+            )
+        object.__setattr__(self, "frame", Frame(origin, self.frame.axis))
+        for name, sign in (("open_sign", self.open_sign), ("depth_sign", self.depth_sign)):
+            if not isinstance(sign, int) or isinstance(sign, bool) or sign not in (-1, 1):
+                raise ValueError(f"round-bottom blind slot {name} must be -1 or 1 (got {sign!r})")
+        for name in ("length", "radius", "flat_width"):
+            raw = getattr(self, name)
+            if isinstance(raw, bool) or not isinstance(raw, Real):
+                raise ValueError(f"round-bottom blind slot {name} must be finite and positive")
+            try:
+                value = float(raw)
+            except (OverflowError, TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"round-bottom blind slot {name} must be finite and positive"
+                ) from exc
+            if not isfinite(value) or value <= 0:
+                raise ValueError(f"round-bottom blind slot {name} must be finite and positive")
+            object.__setattr__(self, name, value)
+
+    @property
+    def width(self) -> float:
+        return self.flat_width + 2 * self.radius
+
+    @property
+    def depth(self) -> float:
+        return self.radius
+
+    def _span(self, axis: str, value: float, *, floor: bool = False) -> tuple[Point, Point]:
+        lo = list(self.frame.origin)
+        hi = list(self.frame.origin)
+        if floor:
+            depth_index = "xyz".index(self.depth_axis)
+            lo[depth_index] -= self.depth_sign * self.radius / 2
+            hi[depth_index] -= self.depth_sign * self.radius / 2
+        index = "xyz".index(axis)
+        lo[index] -= value / 2
+        hi[index] += value / 2
+        return ((lo[0], lo[1], lo[2]), (hi[0], hi[1], hi[2]))
+
+    def parameters(self) -> list[DimParameter]:
+        return [
+            DimParameter(
+                "length",
+                "round_bottom_blind_slot_length",
+                self.length,
+                span=self._span(self.axis, self.length),
+            ),
+            DimParameter(
+                "length",
+                "round_bottom_blind_slot_flat_width",
+                self.flat_width,
+                span=self._span(self.width_axis, self.flat_width, floor=True),
+            ),
+            DimParameter("radius", "round_bottom_blind_slot_radius", self.radius),
+        ]
+
+    def references(self) -> list[Datum]:
+        return []
+
+
+@dataclass(frozen=True)
 class PadFeature:
-    """A bounded rectangular raised island.
+    """A bounded, principal-axis rectangular raised island.
 
     The footprint mirrors the slot vocabulary so the shared in-plane dimension
-    renderer can place its two sizes. Height remains owned by the correlated
-    prismatic level ladder, avoiding double-dimensioning the same Z rise.
+    renderer can place its two sizes.  ``normal_lo``/``normal_hi`` are the ascending
+    attachment-axis bounds and ``direction`` says which end is terminal/material-outward.
+    Every orientation owns an explicit ``pad_height.length`` parameter.  A Z pad may also
+    create an attachment level in the general prismatic profile, but that level measures the
+    body from the drawing datum rather than the pad's terminal-to-attachment height; it is
+    not a substitute for the pad requirement.
+
+    The historical ``z0``/``z1`` dataclass fields are retained for public-IR compatibility.
+    They name the attachment-axis bounds (and therefore remain literal Z bounds for the
+    historical Z-normal case); ``normal_lo``/``normal_hi`` are semantic read-only aliases.
+    Orientation-neutral callers use :meth:`bounds` for world-coordinate bounds.
     """
 
     #: The compiled stem this feature's position is minted under — see
@@ -898,13 +1283,77 @@ class PadFeature:
     hi: float
     z0: float
     z1: float
+    direction: int = 1
     kind: ClassVar[str] = "pad"
 
+    def __post_init__(self) -> None:
+        axes = {self.frame.axis, self.width_axis, self.long_axis}
+        if axes != {"x", "y", "z"}:
+            raise ValueError("PadFeature frame/width/long axes must be distinct x/y/z axes")
+        if isinstance(self.direction, bool) or self.direction not in (-1, 1):
+            raise ValueError("PadFeature direction must be -1 or 1")
+        values = (
+            ("width", float(self.width)),
+            ("length", float(self.length)),
+            ("w_center", float(self.w_center)),
+            ("lo", float(self.lo)),
+            ("hi", float(self.hi)),
+            ("z0", float(self.z0)),
+            ("z1", float(self.z1)),
+        )
+        if not all(isfinite(value) for _name, value in values):
+            raise ValueError("PadFeature dimensions and bounds must be finite")
+        numeric = dict(values)
+        if (
+            numeric["width"] <= 0
+            or numeric["length"] <= 0
+            or not numeric["lo"] < numeric["hi"]
+            or not numeric["z0"] < numeric["z1"]
+        ):
+            raise ValueError("PadFeature dimensions and bounds must increase")
+        for name, value in values:
+            object.__setattr__(self, name, value)
+
+    @property
+    def normal_lo(self) -> float:
+        return self.z0
+
+    @property
+    def normal_hi(self) -> float:
+        return self.z1
+
+    def bounds(self, axis: str) -> tuple[float, float]:
+        """Return this occurrence's ascending bounds on one world axis."""
+        if axis == self.long_axis:
+            return self.lo, self.hi
+        if axis == self.width_axis:
+            half = self.width / 2
+            return self.w_center - half, self.w_center + half
+        if axis == self.frame.axis:
+            return self.z0, self.z1
+        raise ValueError(f"unknown pad axis {axis!r}")
+
+    @property
+    def height(self) -> float:
+        return self.z1 - self.z0
+
+    def _normal_span(self) -> tuple[Point, Point]:
+        start = list(self.frame.origin)
+        end = list(self.frame.origin)
+        axis_index = "xyz".index(self.frame.axis)
+        start[axis_index] = self.z0 if self.direction > 0 else self.z1
+        end[axis_index] = self.z1 if self.direction > 0 else self.z0
+        return (tuple(start), tuple(end))  # type: ignore[return-value]
+
     def parameters(self) -> list[DimParameter]:
-        return [
+        parameters = [
             DimParameter("length", "pad_width", self.width),
             DimParameter("length", "pad_length", self.length),
         ]
+        parameters.append(
+            DimParameter("length", "pad_height", self.height, span=self._normal_span())
+        )
+        return parameters
 
     def references(self) -> list[Datum]:
         return []
@@ -943,7 +1392,7 @@ class PocketPatternFeature:
             ps.append(DimParameter("length", "pitch", self.pitch))
         if self.grid is not None:
             rp, cp = self.grid
-            # Same role AND kind, semantically distinct — the ADR 0016 tier-2 case that
+            # Same role AND kind, semantically distinct — the ADR 4 (was 0016) tier-2 case that
             # forces a discriminator. "row"/"col" (not "x"/"y"): `angle` may rotate the
             # lattice, so a row pitch is not an X pitch in general. Mapping a user-facing
             # `axis=` selector onto these is the facade's job, not the IR's.
@@ -988,7 +1437,7 @@ class SlotPatternFeature:
             ps.append(DimParameter("length", "pitch", self.pitch))
         if self.grid is not None:
             rp, cp = self.grid
-            # Same role AND kind, semantically distinct — the ADR 0016 tier-2 case that
+            # Same role AND kind, semantically distinct — the ADR 4 (was 0016) tier-2 case that
             # forces a discriminator. "row"/"col" (not "x"/"y"): `angle` may rotate the
             # lattice, so a row pitch is not an X pitch in general. Mapping a user-facing
             # `axis=` selector onto these is the facade's job, not the IR's.
@@ -1419,6 +1868,412 @@ class FilletFeature:
 
 
 @dataclass(frozen=True)
+class BlendFeature:
+    """One complete straight or circular rolling-ball path from released schema v3.
+
+    ``frame.origin`` is the straight-path anchor or circular-path centre; ``axis_direction``
+    is the straight direction or circular normal. ``axis`` is its canonical first-maximum x/y/z
+    component so detected and declared correspondence uses one deterministic routing identity.
+    ``path_radius`` is present only for a circular path. Aggregate reconciliation has already
+    removed paths owned by dimension-worthy Fillets.
+    """
+
+    frame: Frame
+    axis: str
+    radius: float
+    side: str
+    axis_direction: tuple[float, float, float]
+    path_kind: str = "straight"
+    path_radius: float | None = None
+    kind: ClassVar[str] = "blend"
+
+    def __post_init__(self) -> None:
+        if type(self.frame) is not Frame:
+            raise TypeError("blend frame must be an exact Frame value")
+        axis, radius, at, side, direction, path_kind, path_radius = validate_blend_fields(
+            axis=self.axis,
+            radius=self.radius,
+            at=self.frame.origin,
+            side=self.side,
+            axis_direction=self.axis_direction,
+            path_kind=self.path_kind,
+            path_radius=self.path_radius,
+        )
+        if self.frame.axis != axis:
+            raise ValueError("blend frame axis must match its dominant axis")
+        object.__setattr__(self, "radius", radius)
+        object.__setattr__(self, "side", side)
+        object.__setattr__(self, "axis_direction", direction)
+        object.__setattr__(self, "path_kind", path_kind)
+        object.__setattr__(self, "path_radius", path_radius)
+
+    def parameters(self) -> list[DimParameter]:
+        return [DimParameter("radius", "blend", self.radius)]
+
+    def references(self) -> list[Datum]:
+        return []
+
+
+register_blend_ir_types(BlendFeature, Frame)
+
+
+@dataclass(frozen=True)
+class CircularBlindStepFeature:
+    """One quarter-cylindrical corner cut with a blind terminal (#1382).
+
+    ``centreline`` is ordered from the blind terminal to the open stock envelope.
+    ``section`` is the provider's canonical transverse arc endpoint, cylinder centre and
+    other arc endpoint.  Together they retain the occupied quadrant and run direction
+    without exposing provider topology.  Radius and blind depth are independently
+    addressable requirements carried by one compound callout in the axis end view.
+    """
+
+    frame: Frame
+    axis: str
+    radius: float
+    length: float
+    centreline: tuple[Point, Point]
+    section: tuple[tuple[float, float], tuple[float, float], tuple[float, float]]
+    kind: ClassVar[str] = "circular_blind_step"
+
+    def __post_init__(self) -> None:
+        if self.axis not in ("x", "y", "z") or self.frame.axis != self.axis:
+            raise ValueError(
+                "circular-blind-step axis must be x, y, or z and agree with the feature frame"
+            )
+        if type(self.radius) not in (int, float):
+            raise ValueError("circular-blind-step radius must be finite and positive")
+        try:
+            radius = float(self.radius)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("circular-blind-step radius must be finite and positive") from exc
+        if not isfinite(radius) or radius <= 0:
+            raise ValueError("circular-blind-step radius must be finite and positive")
+        if type(self.length) not in (int, float):
+            raise ValueError("circular-blind-step depth must be finite and positive")
+        try:
+            length = float(self.length)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("circular-blind-step depth must be finite and positive") from exc
+        if not isfinite(length) or length <= 0:
+            raise ValueError("circular-blind-step depth must be finite and positive")
+        try:
+            if any(
+                type(value) not in (int, float) for point in self.centreline for value in point
+            ):
+                raise ValueError
+            centreline = tuple(tuple(float(value) for value in point) for point in self.centreline)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError(
+                "circular-blind-step centreline must contain two finite 3D points"
+            ) from exc
+        if (
+            len(centreline) != 2
+            or any(len(point) != 3 for point in centreline)
+            or not all(isfinite(value) for point in centreline for value in point)
+        ):
+            raise ValueError("circular-blind-step centreline must contain two finite 3D points")
+        run_index = "xyz".index(self.axis)
+        if any(
+            not isclose(
+                centreline[0][index],
+                centreline[1][index],
+                rel_tol=0.0,
+                abs_tol=1e-9,
+            )
+            for index in range(3)
+            if index != run_index
+        ) or not quantised_span_agrees(centreline[0][run_index], centreline[1][run_index], length):
+            raise ValueError(
+                "circular-blind-step centreline must be an axis-aligned terminal-to-open span matching depth"
+            )
+        try:
+            if any(type(value) not in (int, float) for point in self.section for value in point):
+                raise ValueError
+            section = tuple(tuple(float(value) for value in point) for point in self.section)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError(
+                "circular-blind-step section must contain three finite 2D points"
+            ) from exc
+        if (
+            len(section) != 3
+            or any(len(point) != 2 for point in section)
+            or not all(isfinite(value) for point in section for value in point)
+        ):
+            raise ValueError("circular-blind-step section must contain three finite 2D points")
+        first, centre, last = section
+        first_delta = (first[0] - centre[0], first[1] - centre[1])
+        last_delta = (last[0] - centre[0], last[1] - centre[1])
+        first_changes = [
+            index
+            for index, value in enumerate(first_delta)
+            if not isclose(value, 0.0, rel_tol=0.0, abs_tol=1e-9)
+        ]
+        last_changes = [
+            index
+            for index, value in enumerate(last_delta)
+            if not isclose(value, 0.0, rel_tol=0.0, abs_tol=1e-9)
+        ]
+        canonical = (
+            len(first_changes) == len(last_changes) == 1
+            and first_changes[0] != last_changes[0]
+            and quantised_radius_agrees(first, centre, radius)
+            and quantised_radius_agrees(last, centre, radius)
+        )
+        if not canonical:
+            raise ValueError(
+                "circular-blind-step section must be a canonical quarter arc matching radius"
+            )
+        transverse = [index for index in range(3) if index != run_index]
+        if any(
+            not isclose(
+                centreline[0][axis],
+                centre[pair],
+                rel_tol=0.0,
+                abs_tol=1e-6,
+            )
+            for pair, axis in enumerate(transverse)
+        ):
+            raise ValueError("circular-blind-step section centre must agree with the centreline")
+        object.__setattr__(self, "centreline", centreline)
+        object.__setattr__(self, "section", section)
+        object.__setattr__(self, "radius", radius)
+        object.__setattr__(self, "length", length)
+        try:
+            origin = tuple(self.frame.origin)
+        except TypeError as exc:
+            raise ValueError(
+                "circular-blind-step frame origin must contain three finite numeric coordinates"
+            ) from exc
+        if len(origin) != 3 or any(type(value) not in (int, float) for value in origin):
+            raise ValueError(
+                "circular-blind-step frame origin must contain three finite numeric coordinates"
+            )
+        try:
+            numeric_origin = tuple(float(value) for value in origin)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError(
+                "circular-blind-step frame origin must contain three finite numeric coordinates"
+            ) from exc
+        if not all(isfinite(value) for value in numeric_origin):
+            raise ValueError(
+                "circular-blind-step frame origin must contain three finite numeric coordinates"
+            )
+        if any(
+            not isclose(a, b, rel_tol=0.0, abs_tol=1e-6)
+            for a, b in zip(numeric_origin, self.arc_anchor, strict=True)
+        ):
+            raise ValueError(
+                "circular-blind-step frame origin must be the curved-wall leader anchor"
+            )
+
+    @property
+    def arc_anchor(self) -> Point:
+        """A physical point halfway around and along the quarter-cylindrical wall."""
+        return self.anchor_for(self.axis, self.radius, self.centreline, self.section)
+
+    @staticmethod
+    def anchor_for(axis, radius, centreline, section) -> Point:
+        """Derive the curved-wall leader anchor from canonical public record facts."""
+        first, centre, last = section
+        radial = (
+            (first[0] - centre[0]) + (last[0] - centre[0]),
+            (first[1] - centre[1]) + (last[1] - centre[1]),
+        )
+        radial_scale = max(abs(radial[0]), abs(radial[1]))
+        if not isfinite(radial_scale) or radial_scale == 0:
+            raise ValueError("circular-blind-step section cannot define a finite wall anchor")
+        unit = (radial[0] / radial_scale, radial[1] / radial_scale)
+        unit_norm = hypot(*unit)
+        radial_distance = radius / unit_norm
+        section_point = (
+            centre[0] + unit[0] * radial_distance,
+            centre[1] + unit[1] * radial_distance,
+        )
+        run_index = "xyz".index(axis)
+        transverse = [index for index in range(3) if index != run_index]
+        point = [
+            a + (b - a) / 2 if (a >= 0) == (b >= 0) else (a + b) / 2
+            for a, b in zip(centreline[0], centreline[1], strict=True)
+        ]
+        point[transverse[0]], point[transverse[1]] = section_point
+        if not all(isfinite(value) for value in point):
+            raise ValueError("circular-blind-step section cannot define a finite wall anchor")
+        return tuple(point)
+
+    def parameters(self) -> list[DimParameter]:
+        return [
+            DimParameter("radius", "circular_step_radius", self.radius),
+            DimParameter("length", "circular_step_depth", self.length, span=self.centreline),
+        ]
+
+    def references(self) -> list[Datum]:
+        return []
+
+
+@dataclass(frozen=True)
+class PairedRampStepFeature:
+    """One mirror-symmetric two-ramp side step.
+
+    ``frame.origin`` is the midpoint of the original shared ridge and ``axis`` is the
+    ridge/run direction.  The public recogniser record proves two equal ramp angles and the
+    open-to-terminal run length; Draftwright communicates those two requirements with one
+    compound leader in the end-on view where the V profile is visible (#1382).
+    """
+
+    frame: Frame
+    axis: str
+    angle: float
+    length: float
+    kind: ClassVar[str] = "paired_ramp_step"
+
+    def __post_init__(self) -> None:
+        if self.axis not in ("x", "y", "z") or self.frame.axis != self.axis:
+            raise ValueError(
+                "paired-ramp axis must be x, y, or z and agree with the feature frame"
+            )
+        if isinstance(self.angle, bool) or not isfinite(self.angle) or not 0 < self.angle < 90:
+            raise ValueError("paired-ramp angle must be a finite acute angle")
+        if isinstance(self.length, bool) or not isfinite(self.length) or self.length <= 0:
+            raise ValueError("paired-ramp run length must be finite and positive")
+
+    @property
+    def span(self) -> tuple[Point, Point]:
+        """The original ridge's open-to-terminal run, centred on ``frame.origin``."""
+        index = "xyz".index(self.axis)
+        lo = list(self.frame.origin)
+        hi = list(self.frame.origin)
+        lo[index] -= self.length / 2
+        hi[index] += self.length / 2
+        return (tuple(lo), tuple(hi))  # type: ignore[return-value]
+
+    def parameters(self) -> list[DimParameter]:
+        return [
+            DimParameter("angle", "ramp_angle", self.angle),
+            DimParameter("length", "ramp_run", self.length, span=self.span),
+        ]
+
+    def references(self) -> list[Datum]:
+        return []
+
+
+@dataclass(frozen=True)
+class ThroughStepFeature:
+    """One rectangular open-profile step spanning the part along ``axis`` (#1382).
+
+    The provider's canonical ``section`` is ``(envelope endpoint, concave corner,
+    envelope endpoint)`` in the two non-run coordinates.  Its two orthogonal legs are
+    independently dimensioned in the end-on view.  ``length`` and ``frame.origin`` retain
+    exact physical correspondence to the removed through prism; the full-span run is already
+    stated by the part envelope and is therefore structural rather than a third requirement.
+    """
+
+    frame: Frame
+    axis: str
+    length: float
+    section: tuple[tuple[float, float], tuple[float, float], tuple[float, float]]
+    kind: ClassVar[str] = "through_step"
+
+    def __post_init__(self) -> None:
+        if self.axis not in ("x", "y", "z") or self.frame.axis != self.axis:
+            raise ValueError(
+                "through-step axis must be x, y, or z and agree with the feature frame"
+            )
+        if isinstance(self.length, bool) or not isfinite(self.length) or self.length <= 0:
+            raise ValueError("through-step run length must be finite and positive")
+        try:
+            if any(isinstance(value, bool) for point in self.section for value in point):
+                raise ValueError
+            section = tuple(tuple(float(value) for value in point) for point in self.section)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("through-step section must contain three finite 2D points") from exc
+        if (
+            len(section) != 3
+            or any(len(point) != 2 for point in section)
+            or not all(isfinite(value) for point in section for value in point)
+        ):
+            raise ValueError("through-step section must contain three finite 2D points")
+        first_changes = [i for i in (0, 1) if section[0][i] != section[1][i]]
+        second_changes = [i for i in (0, 1) if section[1][i] != section[2][i]]
+        if (
+            len(first_changes) != 1
+            or len(second_changes) != 1
+            or first_changes[0] == second_changes[0]
+        ):
+            raise ValueError("through-step section must be two non-zero orthogonal legs")
+        object.__setattr__(self, "section", section)
+
+    @property
+    def transverse_axes(self) -> tuple[str, str]:
+        return tuple(axis for axis in "xyz" if axis != self.axis)  # type: ignore[return-value]
+
+    @property
+    def section_points(self) -> tuple[Point, Point, Point]:
+        run_index = "xyz".index(self.axis)
+        transverse = [index for index in (0, 1, 2) if index != run_index]
+        points = []
+        for pair in self.section:
+            point = list(self.frame.origin)
+            point[transverse[0]], point[transverse[1]] = pair
+            points.append(tuple(point))
+        return tuple(points)  # type: ignore[return-value]
+
+    @property
+    def exterior_corner(self) -> Point:
+        first, corner, last = self.section_points
+        return tuple(a + b - c for a, b, c in zip(first, last, corner, strict=True))  # type: ignore[return-value]
+
+    @property
+    def outside_directions(self) -> tuple[tuple[str, int], tuple[str, int]]:
+        """Topology-only signs from the concave corner toward the missing rectangle.
+
+        Unlike :attr:`exterior_corner`, these signs carry no distance. They are safe compiled
+        placement facts when an authored set withholds either dimensional leg (ADR 4 (was 0016)).
+        """
+        first, corner, last = self.section
+        directions = []
+        for index, axis in enumerate(self.transverse_axes):
+            delta = next(
+                point[index] - corner[index]
+                for point in (first, last)
+                if point[index] != corner[index]
+            )
+            directions.append((axis, 1 if delta > 0 else -1))
+        return tuple(directions)  # type: ignore[return-value]
+
+    def parameters(self) -> list[DimParameter]:
+        points = self.section_points
+        axes = self.transverse_axes
+        parameters = []
+        for start, end in zip(points, points[1:]):
+            changed = next(
+                axis for axis in axes if start["xyz".index(axis)] != end["xyz".index(axis)]
+            )
+            index = "xyz".index(changed)
+            value = abs(end[index] - start[index])
+            # Spell the closed discriminator vocabulary at the construction sites. Besides
+            # making the public Literal statically auditable, this rejects an accidental
+            # non-principal discriminator instead of laundering it through a free string.
+            if changed == "x":
+                parameter = DimParameter(
+                    "length", "through_step_leg", value, span=(start, end), discriminator="x"
+                )
+            elif changed == "y":
+                parameter = DimParameter(
+                    "length", "through_step_leg", value, span=(start, end), discriminator="y"
+                )
+            else:
+                parameter = DimParameter(
+                    "length", "through_step_leg", value, span=(start, end), discriminator="z"
+                )
+            parameters.append(parameter)
+        return parameters
+
+    def references(self) -> list[Datum]:
+        return []
+
+
+@dataclass(frozen=True)
 class FlatFeature:
     """A machined flat on round stock (#148b), called out by its across-flats size.
     ``axis`` is the turning axis the stock is coaxial about; ``across`` is the across-flats
@@ -1606,7 +2461,7 @@ class RotationalFeature:
     kind: ClassVar[str] = "rotational"
 
     def __post_init__(self):
-        """Bores are Z-axis only, enforced HERE because the IR is the one waist (ADR 0015).
+        """Bores are Z-axis only, enforced HERE because the IR is the one waist (ADR 1 (was 0015)).
 
         The rule is real: detection carries bores only when `od_axis == "z"`, and
         `render_rotational` leaders them in that branch alone — on a part turned about X or Y
@@ -1614,13 +2469,13 @@ class RotationalFeature:
         `bore.diameter` parameters that planned, mirrored into a generated script, and drew
         nothing, with lint clean (#949 review r4/r5).
 
-        It started life in `declare.rotational`, which left the sanctioned ADR 0011 route —
+        It started life in `declare.rotational`, which left the sanctioned ADR 4 (was 0011) route —
         a hand-built `PartModel` through `Sheet.add` or `build_drawing(model=…)` — wide open,
         and let the emitter write a `sheet.rotational(bores=…, axis="x")` line that the
         declare layer would then reject. Guarding the constructor rather than the type is the
-        two-places-to-decide defect ADR 0016 names, so the invalid state is simply not
+        two-places-to-decide defect ADR 4 (was 0016) names, so the invalid state is simply not
         representable and every route inherits one answer. #952 tracks lifting the engine
-        restriction (or recording the hole-pass split in ADR 0015 and keeping this forever).
+        restriction (or recording the hole-pass split in ADR 1 (was 0015) and keeping this forever).
         """
         if self.bores and self.frame.axis != "z":
             raise ValueError(
@@ -1679,7 +2534,20 @@ class AuthoredDimension:
     # value is enough to render or correlate a diameter; generic linear dimensions still
     # require two reference stations.
     cylindrical_refs: tuple[CylindricalReference, ...] = ()
+    # Declarative projection/strip intent. These select ordinary corridor candidates;
+    # they are not page coordinates and do not bypass placement solving (ADR 2 (was 0012/0014)).
+    view: str | None = None
+    side: str | None = None
     kind: ClassVar[str] = "authored_dimension"
+
+    def __post_init__(self) -> None:
+        validate_authored_dimension_placement(
+            self.dimension_kind,
+            self.dominant_axis,
+            self.view,
+            self.side,
+            owner="authored dimension",
+        )
 
     @property
     def pmi_kind(self) -> str:
@@ -1737,7 +2605,7 @@ class PmiFeature:
 @dataclass(frozen=True)
 class ControlFrame:
     """A geometric-tolerance feature control frame (ISO 1101) declared on the drawing
-    (ADR 0011 §4 aspect side-layer, #61). Placed as a first-class ADR 0009 corridor
+    (ADR 4 (was 0011 §4) aspect side-layer, #61). Placed as a first-class ADR 2 (was 0009) corridor
     candidate by ``render_gdt`` — NOT through the dimension planner, so ``parameters()``
     is empty (like :class:`PmiFeature`). The target ``(view, side)`` strip and the
     model-space site (``frame.origin``) the leader hangs from are carried explicitly:
@@ -1752,7 +2620,7 @@ class ControlFrame:
     datums: tuple[str, ...] = ()
     diameter: bool = False  # ⌀ prefix on the tolerance zone
     modifier: str | None = None  # material-condition modifier: "M" | "L" | "P" | ...
-    # The IR feature this frame decorates — recorded as provenance (ADR 0010); ``None``
+    # The IR feature this frame decorates — recorded as provenance (ADR 5 (was 0010)); ``None``
     # leaves it feature-less. Untyped to avoid an import cycle with the geometric features.
     origin: object | None = None
     # An imported AP242 scope symbol belongs at the leader kink, not in the tolerance cell's
@@ -1774,7 +2642,7 @@ class ControlFrame:
 @dataclass(frozen=True)
 class DatumRef:
     """A datum feature symbol (ISO 5459) — a boxed letter tagging a surface/axis as a
-    datum (#61). Placed as an ADR 0009 corridor candidate by ``render_gdt``, not through
+    datum (#61). Placed as an ADR 2 (was 0009) corridor candidate by ``render_gdt``, not through
     the dimension planner (``parameters()`` is empty). Imported datums retain every source
     occurrence in ``source_ids`` while rendering the physical datum feature once."""
 
@@ -1798,7 +2666,7 @@ class DatumRef:
 @dataclass(frozen=True)
 class Finish:
     """A surface-finish symbol (ISO 1302) — a roughness callout on a surface (#61).
-    Placed as an ADR 0009 corridor candidate by ``render_gdt``, not through the
+    Placed as an ADR 2 (was 0009) corridor candidate by ``render_gdt``, not through the
     dimension planner (``parameters()`` is empty)."""
 
     frame: Frame
@@ -1819,7 +2687,7 @@ class Finish:
 class Note:
     """A free-text manufacturing note (#488) hung on a leader to a feature/site — the shop
     callouts detection can't infer (thread specs, ``DEBURR``, chip-relief, knurl). Placed like
-    the GD&T items — a first-class ADR 0009 corridor candidate via ``render_gdt`` (its glyph is a
+    the GD&T items — a first-class ADR 2 (was 0009) corridor candidate via ``render_gdt`` (its glyph is a
     single-line ``TextBlock``), NOT the dimension planner (``parameters()`` is empty)."""
 
     frame: Frame
@@ -1848,7 +2716,7 @@ class Note:
         available = {parameter.parameter_id for parameter in self.origin.parameters()}
         # ``location`` is the one addressable dimension with no DimParameter. IR can validate
         # its spelling here; the Sheet/compiler boundaries validate planner-owned eligibility
-        # without reversing the IR -> planner dependency (ADR 0015).
+        # without reversing the IR -> planner dependency (ADR 1 (was 0015)).
         if "location" in self.satisfies:
             available.add("location")
         invalid = sorted(set(self.satisfies) - available)
@@ -1868,9 +2736,9 @@ class Note:
 @dataclass(frozen=True)
 class RequestedDimension:
     """A caller's ``add_dimension(...)`` — *augment the planner's set with this
-    measurement* (ADR 0016).
+    measurement* (ADR 4 (was 0016)).
 
-    Referential like every ADR 0016 intent: it names a feature and a role and carries
+    Referential like every ADR 4 (was 0016) intent: it names a feature and a role and carries
     **no number**, so the value still comes from the geometry. What it changes is
     *selection*, not derivation — if the planner suppressed this parameter the request
     un-suppresses it; if the planner already emits it the request is a no-op. Overlap
@@ -1878,14 +2746,16 @@ class RequestedDimension:
     ask for a measurement without first knowing whether the rule set already volunteers
     it, or the verb would leak the planner's internals into every caller.
 
-    Emphasis (ADR 0012's ``pin`` / ``priority``) is deliberately NOT here. The engine
+    Emphasis (ADR 2 (was 0012)'s ``pin`` / ``priority``) is deliberately NOT here. The engine
     already carries two spellings of "keep this dimension put" — ``Drawing.pin(name)``
     on a placed annotation, and the post-build ``intents`` route that reaches the solve
     through ``render_locations(pinned=…)`` for location dims only. Adding a third,
     pre-build spelling would scatter one concept across three layers, the same way the
     corridor priority scale was scattered before #894 consolidated it. The convergence
-    is tracked separately; this type stays free of placement state. It carries selection plus
-    optional display policy, while the measurement itself remains referential.
+    is tracked separately. ``view``/``side`` are not emphasis or frozen placement: they
+    select a semantic corridor whose candidates still enter the normal solve. This type
+    carries selection plus optional display/corridor policy, while the measurement itself
+    remains referential and coordinates remain absent.
     """
 
     feature: Feature
@@ -1898,8 +2768,18 @@ class RequestedDimension:
     #: identity still come from ``feature``; this controls only the compiler-owned text at
     #: the rendering boundary (#1349).  ``None`` preserves the existing automatic formatting.
     display_decimals: int | None = None
+    #: Optional semantic projection/strip preference. The planner validates renderer
+    #: compatibility; the placement engine still owns coordinates.
+    view: str | None = None
+    side: str | None = None
 
     def __post_init__(self) -> None:
+        validate_placement_intent(self.view, self.side, owner="requested dimension")
+        if self.role == "location" and (self.view is not None or self.side is not None):
+            raise ValueError(
+                "placement intent is unavailable for location dimensions: one location "
+                "may compile into multiple directional values"
+            )
         decimals = self.display_decimals
         if decimals is None:
             return
@@ -1920,18 +2800,18 @@ class PartModel:
     orientation: str | None  # turning axis if rotational, else None
     features: list[Feature] = field(default_factory=list)
     datums: list[Datum] = field(default_factory=list)
-    # Authored aspects the frozen features can't carry (ADR 0011 §4). P2a uses it for
+    # Authored aspects the frozen features can't carry (ADR 4 (was 0011 §4)). P2a uses it for
     # per-dimension tolerances: ``{(feature, ParamKind) -> float | (lo, hi)}``. Imported
     # requirements wrap that value in :class:`ToleranceDecoration` so source identities
     # survive without widening renderer tolerance types (#1116). The planner consults this
     # map to set ``DimParameter.tolerance``; otherwise empty on a detected model.
     decorations: dict = field(default_factory=dict)
-    # Caller-requested augmenting measurements (ADR 0016 / #872) — the planner's
+    # Caller-requested augmenting measurements (ADR 4 (was 0016) / #872) — the planner's
     # *intent input*. Kept distinct from `decorations` on purpose: a decoration enriches
     # a dimension the planner already chose, a request changes WHICH dimensions it
     # chooses. Empty on a detected model.
     requested_dimensions: tuple[RequestedDimension, ...] = ()
-    # The COMPLETE authored dimension set (ADR 0016 / #874/#876), or ``None`` for the
+    # The COMPLETE authored dimension set (ADR 4 (was 0016) / #874/#876), or ``None`` for the
     # planner's automatic set. The two are the model's only dimension sources and are
     # mutually exclusive — omission is only meaningful inside a set declared complete,
     # which is exactly why the source has to be stated rather than inferred.

@@ -1,4 +1,4 @@
-"""P2a — toleranced dimensions (ADR 0011 Phase 2, #28).
+"""P2a — toleranced dimensions (ADR 4 (was 0011) Phase 2, #28).
 
 A caller attaches a ± / limit tolerance to a declared dimension (via the ``decorations``
 side-layer or the ``Sheet.tolerance()`` handle); it rides ``DimParameter.tolerance`` through
@@ -492,7 +492,7 @@ class TestSheetTolerance:
 
         It injects a label of its own, so it discarded the tolerance the same way. Fixing only
         the live path made the SAME public call diverge: `80 +0.2 -0.1` immediately, a bare `80`
-        the moment the author added `pin=True` — ADR 0012's first-class corridor candidate, so
+        the moment the author added `pin=True` — ADR 2 (was 0012)'s first-class corridor candidate, so
         the going-forward surface was the one losing the requirement. #1215 introduced that
         divergence; before it, neither path rendered anything (#1234 review r4).
         """
@@ -655,7 +655,7 @@ class TestChamferTolerance:
         return b3d_chamfer(e, 12)
 
     def test_authored_chamfer_tolerance_renders_on_callout(self):
-        # Declared model (ADR 0011): the caller holds the feature object, so the
+        # Declared model (ADR 4 (was 0011)): the caller holds the feature object, so the
         # decoration keys on it. (Sheet.chamfer returns the Sheet, not an aspect handle,
         # so build_drawing(model=…, decorations=…) is the authoring surface here.)
         ch = chamfer(axis="z", leg=12, at=(39, 24, 0))  # bevel midpoint of the cut corner
@@ -753,7 +753,7 @@ class TestFilletTolerance:
         return b3d_fillet(e, 8)
 
     def test_authored_fillet_tolerance_renders_on_callout(self):
-        # Declared model (ADR 0011): the caller holds the feature object, so the
+        # Declared model (ADR 4 (was 0011)): the caller holds the feature object, so the
         # decoration keys on it — (feature, "radius") for a fillet.
         fl = fillet(axis="z", radius=8, at=(41, 26, 0))  # on the rounded corner
         dwg = build_drawing(
@@ -1011,7 +1011,7 @@ class TestPocketTolerance:
 def _plan_of(*planned):
     """Wrap planned `DimensionGroup`s as the compiled plan `render_plates` now takes.
 
-    The renderer moved onto the ADR 0016 boundary (#923): it receives APPROVED entries, so
+    The renderer moved onto the ADR 4 (was 0016) boundary (#923): it receives APPROVED entries, so
     it can no longer be handed raw planned groups. These tests still start from
     `plan_dimensions` because what they exercise is the planner's decision reaching the
     page — the compile step in between is exactly the thing under test."""
@@ -1037,7 +1037,7 @@ class TestPlateTolerance:
         return plate(axis="z", lo=-4, hi=4, u=0, v=0)
 
     def test_authored_plate_tolerance_renders_on_dim(self):
-        # Declared model (ADR 0011): detection's ≥2-axis scope guard doesn't apply, so a
+        # Declared model (ADR 4 (was 0011)): detection's ≥2-axis scope guard doesn't apply, so a
         # single declared slab renders its thickness dim; the decoration keys on
         # (feature, "length").
         pl = self._plate_feature()
@@ -1145,7 +1145,7 @@ class TestSlotTolerance:
         return slot(width=8, length=20, long_axis="x", width_axis="y", lo=-10, hi=10, w_center=0)
 
     def test_authored_slot_tolerance_renders_on_dims(self):
-        # Declared model (ADR 0011); the decoration keys on (feature, "length"), which
+        # Declared model (ADR 4 (was 0011)); the decoration keys on (feature, "length"), which
         # BOTH slot params share — so one authored tolerance rides both the width dim
         # (immediate right/left placement) and the length dim (corridor-drained). The
         # model-derived datum position dim has no parameter, so it stays untoleranced.
@@ -1258,7 +1258,7 @@ class TestToleranceHandle:
 
 class TestCoerceModelPurity:
     def test_verbatim_partmodel_is_not_mutated_by_decorations(self):
-        # A PartModel is a reusable public input (ADR 0011); _coerce_model must merge
+        # A PartModel is a reusable public input (ADR 4 (was 0011)); _coerce_model must merge
         # decorations into a COPY, never mutate the caller's object — else a second build
         # (with no decorations) inherits stale tolerances from the first.
         from draftwright.builder import _coerce_model

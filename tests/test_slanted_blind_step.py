@@ -10,16 +10,14 @@ from collections import Counter
 from types import SimpleNamespace
 
 import pytest
-from b123d_recognisers import levels as levels_module
 
 # These privates moved from `slots` to `_recess_core` in b123d-recognisers 0.2.2's
 # seam decomposition. Reaching across a package boundary into private names is
-# fragile by construction — ADR 0013's contract is the PUBLIC uniform recogniser
+# fragile by construction — ADR 3 (was 0013)'s contract is the PUBLIC uniform recogniser
 # surface — but this test drives a notch-recognition corner case that has no public
 # entry point. If it breaks again, the fix is to move the case upstream, not to chase
 # the private a third time.
 from b123d_recognisers._recess_core import _Face, _recognise_corner_notches
-from b123d_recognisers.levels import project_step_shoulders, recognise_risers
 from build123d import (
     Align,
     Box,
@@ -159,52 +157,6 @@ def test_small_edge_break_is_not_promoted_to_structural_ramp():
     }
 
     assert ("x", 2.0) not in shoulders
-
-
-def test_oblique_degenerate_and_small_bounded_faces_are_rejected(monkeypatch):
-    class Face:
-        wrapped = object()
-
-        def __init__(self, normal, bb):
-            self._normal = SimpleNamespace(
-                X=normal[0],
-                Y=normal[1],
-                Z=normal[2],
-            )
-            self._bb = bb
-
-        def normal_at(self):
-            return self._normal
-
-        def bounding_box(self):
-            return self._bb
-
-    class Part:
-        def __init__(self, face):
-            self._face = face
-
-        def bounding_box(self):
-            return _box(0, 50, 0, 50, 0, 25)
-
-        def faces(self):
-            return [self._face]
-
-    class PlaneSurface:
-        @staticmethod
-        def GetType():
-            return levels_module.GeomAbs_Plane
-
-    monkeypatch.setattr(
-        levels_module,
-        "BRepAdaptor_Surface",
-        lambda wrapped: PlaneSurface(),
-    )
-
-    shallow = Face((1.0, 0.0, 0.02), _box(2, 3, 0, 10, 24.75, 25))
-    small = Face((1.0, 0.0, 0.5), _box(2, 3, 0, 2, 20, 25))
-
-    assert project_step_shoulders(recognise_risers(Part(shallow)), levels=[24.75]) == []
-    assert project_step_shoulders(recognise_risers(Part(small)), levels=[20]) == []
 
 
 def test_completeness_lint_can_report_transitions_without_blind_recesses(

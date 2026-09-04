@@ -4,7 +4,7 @@ Moved down from the ``Drawing`` result object (#699): a render pass belongs in t
 render layer, not hosted above it — the orchestrator used to call *up* into
 ``dwg.add_balloons`` by duck-typing. The band-assignment solver it drives
 (:func:`layout._assign_balloon_bands`, min-cost max-flow) lives in ``layout.py``
-with the other solvers (ADR 0003/0009). ``Drawing.add_balloons`` remains the
+with the other solvers (ADR 2 (was 0003/0009)). ``Drawing.add_balloons`` remains the
 public verb: an owner method that threads the build state into this pass.
 """
 
@@ -113,7 +113,7 @@ def render_balloons(
     positions, and callers that leave the default retain the ordinary policy.
 
     The drawing is duck-typed as *dwg* and touched only through its public
-    surface; build state rides *a* and *ctx* (ADR 0005 §2 / #639, #699).
+    surface; build state rides *a* and *ctx* (ADR 1 (was 0005 §2) / #639, #699).
     """
     pp = dwg.coords(view).pp
     fs = dwg.draft.font_size
@@ -605,7 +605,7 @@ def _guarded_assignment(
 ):
     """Run the canonical band flow, then validate its guarded inventory.
 
-    ADR 0014 owns band selection in :func:`layout._assign_balloon_bands`: that
+    ADR 2 (was 0014) owns band selection in :func:`layout._assign_balloon_bands`: that
     bounded flow maximises cardinality, preserves the required prefix, and then
     minimises leader length. The member-specific intervals here are render-layer
     geometry, so they may only validate the flow result. If optional members make
@@ -746,7 +746,7 @@ def _retained_annotation_geometry(dwg, view):
 
     Public balloons are centerline ``Compound`` objects rather than top-level
     ``Leader`` instances. Their explicit component metadata is the only honest
-    collision geometry: the compound AABB would recreate ADR 0009's forbidden
+    collision geometry: the compound AABB would recreate ADR 2 (was 0009)'s forbidden
     empty diagonal triangle. If that metadata has been removed or corrupted by
     a caller, use the conservative rendered box instead; if even that cannot be
     measured, report unsafe so the optional table transaction fails closed.
@@ -1137,7 +1137,7 @@ def _render_balloon(
         parts.append(leader)
     balloon = Compound(children=parts)
     # Structural lint treats the shaft and compact glyph as two precise pieces:
-    # the shaft avoids the compound AABB's empty diagonal triangle (ADR 0009),
+    # the shaft avoids the compound AABB's empty diagonal triangle (ADR 2 (was 0009)),
     # while the glyph remains visible to critique instead of disappearing behind
     # the centreline exemption.
     balloon.centerline_segments = shaft_segments

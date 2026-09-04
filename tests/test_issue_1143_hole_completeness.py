@@ -9,7 +9,7 @@ from b123d_recognisers import (
     BoltCircle,
     HoleRecord,
     LinearArray,
-    build_recognition_result,
+    build_raw_recognition_result,
     recognise_hole_patterns,
 )
 from build123d import Align, Box, Compound, Cone, Cylinder, Pos, Rot
@@ -265,13 +265,28 @@ def test_pattern_and_central_bore_have_a_complete_recognition_owned_ledger():
     assert completeness["audited_score"] == 1.0
     assert completeness["requirements"] == completeness["placed"] == 10
     assert completeness["by_family"] == {
+        "blends": 0,
+        "chamfers": 0,
         "channels": 0,
+        "circular_blind_steps": 0,
+        "fillets": 0,
+        "paired_ramp_steps": 0,
         "flats": 0,
+        "grooves": 0,
         "holes": 4,
         "hole_patterns": 6,
+        "pads": 0,
+        "plates": 0,
+        "polygonal_bosses": 0,
         "polygonal_stock": 0,
+        "pockets": 0,
+        "pocket_patterns": 0,
+        "rectangular_blind_slots": 0,
+        "round_bottom_blind_slots": 0,
         "slots": 0,
         "slot_patterns": 0,
+        "through_steps": 0,
+        "turned_steps": 0,
     }
     assert "holes" not in completeness["unscored_recognized_families"]
     assert "hole_patterns" not in completeness["unscored_recognized_families"]
@@ -1214,7 +1229,7 @@ def test_default_linear_direction_matches_recogniser_accepted_step_noise(locatio
         for feature in model.features
     )
     recognition = replace(
-        build_recognition_result(part),
+        build_raw_recognition_result(part),
         holes=holes,
         hole_patterns=tuple(patterns),
         countersinks=(),
@@ -1732,7 +1747,7 @@ def test_distinct_exact_and_projected_owners_remain_valid():
     assert not [item for item in outcomes if item.state == "unverifiable"]
 
 
-def test_off_axis_pattern_keeps_absolute_location_requirements_fail_closed():
+def test_off_axis_pattern_places_absolute_location_requirements():
     drawing = build_drawing(_off_axis_linear_pattern(), page="A3")
     outcomes = {item.parameter_id: item.state for item in _outcomes(drawing)}
 
@@ -1741,12 +1756,12 @@ def test_off_axis_pattern_keeps_absolute_location_requirements_fail_closed():
         "bore.through": "placed",
         "grouping.count": "placed",
         "pitch.length": "placed",
-        "location_pattern.location.y": "missing",
-        "location_pattern.location.z": "missing",
+        "location_pattern.location.y": "placed",
+        "location_pattern.location.z": "placed",
     }
     completeness = _completeness(drawing)
     assert completeness["requirements"] == 6
-    assert completeness["audited_score"] == pytest.approx(4 / 6)
+    assert completeness["audited_score"] == pytest.approx(1.0)
 
 
 def test_compound_countersink_callout_accounts_for_every_printed_measurement():
@@ -1881,7 +1896,13 @@ def test_mixed_coaxial_group_requires_location_evidence_for_the_offset_member():
         "location_off_axis.y": "missing",
         "location_off_axis.z": "missing",
     }
-    assert _completeness(drawing)["audited_score"] == pytest.approx(3 / 5)
+    completeness = _completeness(drawing)
+    assert completeness["by_family"]["holes"] == 5
+    assert completeness["by_family"]["turned_steps"] == 6
+    assert completeness["requirements"] == 11
+    assert completeness["placed"] == 9
+    assert completeness["missing"] == 2
+    assert completeness["audited_score"] == pytest.approx(9 / 11)
 
 
 def test_live_furniture_retains_physical_member_center_provenance():
@@ -1940,7 +1961,10 @@ def test_coaxial_bore_centerline_accounts_for_two_physical_location_axes():
         "location_off_axis.centerline.z",
     }
     assert all(item.state == "placed" for item in outcomes)
-    assert _completeness(drawing)["requirements"] == 4
+    completeness = _completeness(drawing)
+    assert completeness["by_family"]["holes"] == 4
+    assert completeness["by_family"]["turned_steps"] == 6
+    assert completeness["requirements"] == completeness["placed"] == 10
 
 
 def test_authored_coaxial_location_omissions_remain_suppressed_without_center_furniture():
@@ -2392,7 +2416,7 @@ def test_an_unmatched_countersink_is_still_counted_and_still_unattributable():
 def test_unattached_external_countersink_false_positive_is_not_a_hole_requirement():
     drawing = build_drawing(_external_stepped_shaft_with_conical_transition(), auto_dims=False)
     assert not drawing.recognition().holes
-    assert len(drawing.recognition().countersinks) == 1
+    assert not drawing.recognition().countersinks
 
     assert _outcomes(drawing) == []
     assert not [issue for issue in drawing.lint() if issue.code.startswith("hole_requirement_")]
@@ -2624,7 +2648,7 @@ def test_blind_bolt_circle_tool_center_projects_members_and_center_together():
     base_model = build_drawing(part, auto_dims=False).model()
     drawing = build_drawing(part, model=replace(base_model, features=[declared_pattern]))
     recognition = replace(
-        build_recognition_result(part),
+        build_raw_recognition_result(part),
         holes=holes,
         hole_patterns=(physical_pattern,),
         countersinks=(),
@@ -2653,7 +2677,7 @@ def test_oblique_recognised_hole_cannot_be_certified_by_lossy_principal_axis_ir(
     model = build_part_model(part, holes=(oblique,), patterns=())
     drawing = build_drawing(part, model=model)
     recognition = replace(
-        build_recognition_result(part),
+        build_raw_recognition_result(part),
         holes=(oblique,),
         hole_patterns=(),
         countersinks=(),
@@ -2690,7 +2714,7 @@ def test_distinct_oblique_drilling_axes_remain_distinct_physical_sources():
         ),
     )
     recognition = replace(
-        build_recognition_result(part),
+        build_raw_recognition_result(part),
         holes=holes,
         hole_patterns=(),
         countersinks=(),

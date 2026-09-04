@@ -1,4 +1,4 @@
-"""ADR 0018's motivating failure, reproduced from a synthetic part.
+"""ADR 2 (was 0018)'s motivating failure, reproduced from a synthetic part.
 
 The ADR was proposed from a user-supplied `worm_planetary_concept_Alimacznicy.step` that this
 repository does not have, and its first required-evidence item is:
@@ -16,7 +16,7 @@ is honest. Automatic selection now tries the smaller profile + end-view set, but
 loses required slot annotations under that layout, so the finished-drawing gate retains the
 full topology.
 
-A slice that changes these numbers is doing ADR 0018's work, and must update them and say so.
+A slice that changes these numbers is doing ADR 2 (was 0018)'s work, and must update them and say so.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ from build123d import Box, Cylinder, Pos, Rot
 
 from draftwright.builder import ScaleIncompatibilityError, build_drawing
 
-#: The case study's measurements, from ADR 0018 "Case study: thin X-axis worm planetary plate":
+#: The case study's measurements, from ADR 2 (was 0018) "Case study: thin X-axis worm planetary plate":
 #: "Geometry bbox: 43 x 217 x 217 mm. It is a thin, predominantly rotational X-axis component
 #: with two concentric hole patterns, several coaxial diameters, an axial stack, pockets and a
 #: central keyway."
@@ -69,7 +69,7 @@ def test_the_synthetic_plate_matches_the_case_studys_geometry():
     """The precondition for every other assertion here: this really is the ADR's part.
 
     Without it the fixture could drift into some other shape and the numbers below would still
-    look like evidence for ADR 0018 while describing something else.
+    look like evidence for ADR 2 (was 0018) while describing something else.
     """
     part = thin_rotational_plate()
     box = part.bounding_box()
@@ -111,7 +111,7 @@ class TestTheFixedTopologyForcesTheSheet:
         assert set(drawing.views) == {"front", "plan", "side", "iso"}
         assert drawing.view_decision["status"] == "retained_after_rejection"
         # The sheet is still A1 at 1:1 — the fixed four-view topology still forces it, which is
-        # what ADR 0018 exists to fix and has not fixed yet. What HAS changed is the second
+        # what ADR 2 (was 0018) exists to fix and has not fixed yet. What HAS changed is the second
         # half of the original claim: the drawing no longer says it is fine. Since #1250 the
         # automatic path runs the same requirement gate as the explicit one and records
         # `plan_incomplete` when the settled drawing loses a required outcome.
@@ -165,7 +165,7 @@ class TestTheFixedTopologyForcesTheSheet:
         still carries `slot_dim_dropped` and `hole_requirement_missing`, so it IS the
         incomplete drawing the explicit gate exists to prevent.
 
-        ADR 0018's evidence list requires: "A forced small sheet/large scale that drops a
+        ADR 2 (was 0018)'s evidence list requires: "A forced small sheet/large scale that drops a
         requirement is rejected, not accepted with a warning-only incomplete drawing." The
         automatic path now runs the same gate and reports the settled drawing's loss at error
         severity. Candidate search remains the joint planner's responsibility (#1262), because
@@ -207,4 +207,6 @@ class TestTheFixedTopologyForcesTheSheet:
         assert decision["status"] == "incomplete"
         assert {item["code"] for item in decision["blockers"]} <= dropped
         summary = next(i for i in automatic.lint() if i.code == "plan_incomplete")
-        assert summary.measurement_ids, "the summary must stay addressable (ADR 0010/0016)"
+        assert summary.measurement_ids, (
+            "the summary must stay addressable (ADR 5 (was 0010) / ADR 4 (was 0016))"
+        )

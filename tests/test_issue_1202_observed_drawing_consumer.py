@@ -17,9 +17,9 @@ detect it.
 
 `drawing_consumer` is now derived from a real build: did this hole's size reach the sheet,
 by either sanctioned route — an `hc_*` callout, or the hole TABLE the engine substitutes
-above ~16 scattered holes. The other three boundaries remain declared and are tracked
-separately; they are the same shape one layer along, and pretending otherwise here would be
-its own overclaim.
+above ~16 scattered holes. #1369 later made the other three boundaries observed through
+their own IR, public Sheet-declaration and executed generated-code seams. They remain
+independent of drawing ink, which the regression below now states directly.
 
 `unknown` means no IR feature accounts for the hole. It is an honest label, not an
 exemption: `evaluate_case` credits a unit only when the state is `supported`, so downstream
@@ -59,9 +59,9 @@ def _part():
 
 
 def _recognised(part):
-    from b123d_recognisers import build_recognition_result
+    from b123d_recognisers import build_raw_recognition_result
 
-    return build_recognition_result(part).holes
+    return build_raw_recognition_result(part).holes
 
 
 def _size_callouts(drawing):
@@ -72,7 +72,7 @@ def _size_callouts(drawing):
     in #1217.
     """
     # `sorted`, because `registry.names()` is a set: callers index [0], so which annotation
-    # a test corrupts would otherwise vary per process (ADR 0006; `evidence.py` took the
+    # a test corrupts would otherwise vary per process (ADR 5 (was 0006); `evidence.py` took the
     # same fix one PR ago).
     return [
         name
@@ -87,7 +87,7 @@ class TestTheOutcomeIsReadOffTheDrawing:
 
     The stubs these tests used (`_StubDrawing`, `_StrippedDrawing`) emptied
     `annotations_of`, which the consumer no longer reads — it goes through the registry's
-    measurement provenance (ADR 0010). A stub of a seam the code has stopped using would
+    measurement provenance (ADR 5 (was 0010)). A stub of a seam the code has stopped using would
     have kept passing while testing nothing, which is this file's own founding lesson.
     """
 
@@ -152,7 +152,7 @@ class TestTheOutcomeIsReadOffTheDrawing:
         ],
     )
     def test_a_hole_the_ledger_cannot_join_is_unknown(self, fixture, expected):
-        # ADR 0017 states plainly that recognition-record -> IR-feature correspondence is
+        # ADR 3 (was 0017) states plainly that recognition-record -> IR-feature correspondence is
         # NOT yet provided. Where it fails the ledger says `unverifiable` and this says
         # `unknown` — which still scores as a MISS, so it is an honest label, not an
         # exemption. Pinned on real geometry: CTC-04 has eight such holes.
@@ -572,12 +572,11 @@ class TestTheCorpusScoreMovesWithTheDrawing:
         )
 
 
-class TestTheRemainingBoundariesAreStillDeclared:
-    """Stated, not hidden. Three boundaries are still scored from a capability
-    declaration, and a reader must not infer from this PR that all four are observed."""
+class TestTheOtherBoundariesDoNotDependOnDrawingInk:
+    """Breaking drawing provenance must not falsify three separately observed artifacts."""
 
     @pytest.mark.parametrize("boundary", ["ir_adapter", "dsl_declaration", "generated_code"])
-    def test_a_declared_boundary_does_not_move_with_the_drawing(self, boundary, monkeypatch):
+    def test_an_independent_boundary_does_not_move_with_the_drawing(self, boundary, monkeypatch):
         from draftwright.evaluation.step_analysis import _default_observers
         from draftwright.registry import AnnotationRegistry
 

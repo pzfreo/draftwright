@@ -1,4 +1,4 @@
-"""planner — the dimensioning back-end over the IR (ADR 0008).
+"""planner — the dimensioning back-end over the IR (ADR 1 (was 0008)).
 
 One rule set over `DimParameter`s, regardless of which feature produced them. The
 contract was tightened twice under adversarial review of the counterbore work:
@@ -30,6 +30,7 @@ from dataclasses import dataclass, replace
 
 from draftwright._geometry import _EDGE_ON, _END_ON, HoleRef
 from draftwright.model.ir import (
+    BlendFeature,
     ChamferFeature,
     ChannelFeature,
     Datum,
@@ -46,6 +47,8 @@ from draftwright.model.ir import (
     PocketFeature,
     PocketPatternFeature,
     Point,
+    RectangularBlindSlotFeature,
+    RoundBottomBlindSlotFeature,
     SlotFeature,
     SlotPatternFeature,
     StepLevelFeature,
@@ -90,6 +93,14 @@ _CONVENTION = {
     ("chamfer", "length"): "leader",  # C{leg} / {leg}×{angle}° leader callout (#724)
     ("channel_width", "length"): "linear",
     ("fillet", "radius"): "leader",  # R{radius} (grouped n× R) leader callout (#725)
+    ("blend", "radius"): "leader",  # complete convex chain, one R requirement (#1433)
+    # One circular blind-step leader carries the quarter-cylinder radius and stopped depth.
+    ("circular_step_radius", "radius"): "leader",
+    ("circular_step_depth", "length"): "leader",
+    # One paired-ramp leader carries the two equal angles and their shared run (#1382).
+    ("ramp_angle", "angle"): "leader",
+    ("ramp_run", "length"): "leader",
+    ("through_step_leg", "length"): "linear",
     ("flat", "length"): "leader",  # {across} A/F across-flats leader callout (#726)
     # One groove callout carries BOTH params: {width} WIDE × ø{diameter} (#727)
     ("groove", "length"): "leader",
@@ -98,6 +109,14 @@ _CONVENTION = {
     ("pocket_width", "length"): "leader",
     ("pocket_length", "length"): "leader",
     ("pocket_depth", "length"): "leader",
+    # One open-slot callout carries the rectangular section width, capped run and depth.
+    ("rectangular_blind_slot_width", "length"): "leader",
+    ("rectangular_blind_slot_length", "length"): "leader",
+    ("rectangular_blind_slot_depth", "length"): "leader",
+    # One dedicated round-bottom leader carries the capped run, straight floor and side radius.
+    ("round_bottom_blind_slot_length", "length"): "leader",
+    ("round_bottom_blind_slot_flat_width", "length"): "leader",
+    ("round_bottom_blind_slot_radius", "radius"): "leader",
     # A plate thickness is a linear Dimension. That IS the table default, but the
     # entry is explicit anyway (#744 review): this table is the one convention
     # registry, and a planner-fed kind relying on the implicit default would erode
@@ -107,6 +126,10 @@ _CONVENTION = {
     # again the table default, entered explicitly per the #744 review rule above.
     ("slot_width", "length"): "linear",
     ("slot_length", "length"): "linear",
+    # A pad height is its terminal-to-attachment rise on every axis.  A Z profile level,
+    # when present, measures datum-to-attachment and therefore cannot replace this local
+    # feature requirement.
+    ("pad_height", "length"): "leader",
     ("pad_width", "length"): "linear",
     ("pad_length", "length"): "linear",
 }
@@ -115,8 +138,9 @@ _CONVENTION = {
 @dataclass(frozen=True)
 class PlannedDimension:
     """A parameter plus its render *intent* — the planner's decision about how/whether
-    it is drawn, leaving the layout (zones/sides/coordinates) to the renderer
-    (ADR 0008 Amendment 4). `suppressed`/`reason` carry *model-level* suppression
+    it is drawn. An authored request may select a semantic view/side corridor; the renderer
+    and placement solve still own candidate geometry, capacity, and coordinates
+    (ADR 1 (was 0008 Amendment 4) / ADR 2 (was 0014)). `suppressed`/`reason` carry *model-level* suppression
     (the planner sees the model, not the drawing-in-progress, so render-state
     suppression like "diameter already mentioned" stays in the renderer). `datum` is
     the reference a positional dim measures from, resolved from `param.refs` against
@@ -129,7 +153,7 @@ class PlannedDimension:
     reason: str | None = None
     datum: Datum | None = None
     # The source IR feature this dim locates — carried so the renderer can record
-    # provenance (ADR 0010). ``None`` for dims not tied to a single feature.
+    # provenance (ADR 5 (was 0010)). ``None`` for dims not tied to a single feature.
     feature: Feature | None = None
     # When this dim is not drawn because ANOTHER dimension already states the same physical
     # fact, the dimension that now owns it (#1154). Suppression alone says a measurement is
@@ -145,9 +169,13 @@ class PlannedDimension:
     # Per-intent display policy (#1349). The authoritative numeric value remains on ``param``;
     # legacy callout consumers use this field until they migrate to ``ApprovedDimension``.
     display_decimals: int | None = None
+    # Declarative projection/strip intent carried from the referential request.  Resolution
+    # happens once per compound group below; renderers never receive raw coordinates.
+    view: str | None = None
+    side: str | None = None
 
 
-# Correlated sets (ADR 0016 identity, tier 3): exact ``(feature kind, role)`` pairs
+# Correlated sets (ADR 4 (was 0016) identity, tier 3): exact ``(feature kind, role)`` pairs
 # whose parameters are ONE addressable dimension holding N members — a `step_height`
 # ladder, a rotational body's concentric bores. `ir.py` states the rule at the source:
 # they are "correlated SETS routed as a whole … a single `role=` intent rebuilds the
@@ -165,7 +193,7 @@ CORRELATED_SETS: frozenset[tuple[str, str]] = frozenset(
     {
         ("step_level", "step_height"),
         ("step_level", "step_position"),
-        # Provisional (ADR 0016 tier 3): whether a rotational body's concentric bores
+        # Provisional (ADR 4 (was 0016) tier 3): whether a rotational body's concentric bores
         # stay one identity or split into addressable members follows the #754
         # planner-routing migration; one identity until something says otherwise.
         ("rotational", "bore"),
@@ -175,7 +203,7 @@ CORRELATED_SETS: frozenset[tuple[str, str]] = frozenset(
 
 @dataclass(frozen=True)
 class AddressableDimension:
-    """One **addressable** measurement (ADR 0016) — the unit a `dimension(...)` line
+    """One **addressable** measurement (ADR 4 (was 0016)) — the unit a `dimension(...)` line
     names, and the thing suppression, provenance and de-duplication key on.
 
     Usually one member. A correlated set holds N, and those members are *not*
@@ -208,7 +236,7 @@ class AddressableDimension:
 @dataclass(frozen=True)
 class DimensionId:
     """The identity of one addressable dimension: **which feature**, and **which of its
-    measurements** (ADR 0016).
+    measurements** (ADR 4 (was 0016)).
 
     `(feature, role)` is how a caller *addresses* a dimension; this is the key underneath
     it — `parameter` is an `AddressableDimension`'s `ParameterId`, which already carries
@@ -223,7 +251,7 @@ class DimensionId:
     features yield `==` (and hash-colliding) ids.
 
     A *durable* `FeatureId` is only needed where an intent must survive re-**detection**
-    (where the feature values themselves may shift), and ADR 0016 deliberately leaves that
+    (where the feature values themselves may shift), and ADR 4 (was 0016) deliberately leaves that
     open — so this type reads "whatever identifies a feature" rather than minting one."""
 
     feature: Feature
@@ -258,7 +286,7 @@ class DimensionGroup:
     `count`/`pattern` for a pattern, a thread spec later — without the plan
     contract growing a field per feature type.
 
-    ``units`` is the ADR 0016 identity layer; ``dims`` flattens it back to the plain
+    ``units`` is the ADR 4 (was 0016) identity layer; ``dims`` flattens it back to the plain
     sequence of planned dimensions. Most renderers want the flat view — a compound
     hole callout reads bore ⌀, depth and counterbore without caring how they group —
     so `dims` stays the reading surface and only code that addresses a *dimension by
@@ -267,6 +295,7 @@ class DimensionGroup:
     feature: Feature
     view: str  # one view for the whole group
     units: tuple[AddressableDimension, ...]
+    side: str | None = None
 
     @property
     def dims(self) -> tuple[PlannedDimension, ...]:
@@ -276,7 +305,7 @@ class DimensionGroup:
     @property
     def dimension_ids(self) -> tuple[DimensionId, ...]:
         """This group's addressable dimensions, by identity — one per unit, so an
-        N-member correlated set yields **one** id (ADR 0016)."""
+        N-member correlated set yields **one** id (ADR 4 (was 0016))."""
         return tuple(DimensionId(self.feature, u.id) for u in self.units)
 
     def unit_for(self, dim_id: DimensionId) -> AddressableDimension | None:
@@ -338,6 +367,8 @@ def _preferred_group_view(feature: Feature) -> str:
     """
     if isinstance(feature, ChamferFeature | FilletFeature) and feature.turned:
         return _PROFILE.get(feature.frame.axis, "front")
+    if isinstance(feature, BlendFeature):
+        return _END_ON.get(feature.axis, "plan")
     if isinstance(feature, FlatFeature):
         return _END_ON.get(feature.presentation_axis, "plan")
     if isinstance(feature, StepLevelFeature):
@@ -347,6 +378,10 @@ def _preferred_group_view(feature: Feature) -> str:
     if isinstance(feature, SlotFeature | PadFeature):
         return _END_ON[_plane_normal(feature)]
     if isinstance(feature, PocketFeature):
+        return _END_ON[feature.depth_axis]
+    if isinstance(feature, RectangularBlindSlotFeature):
+        return _END_ON[feature.depth_axis]
+    if isinstance(feature, RoundBottomBlindSlotFeature):
         return _END_ON[feature.depth_axis]
     if isinstance(feature, ChannelFeature):
         return _END_ON[feature.long_axis]
@@ -476,7 +511,7 @@ def _envelope_suppression(model: PartModel, param: DimParameter):
 
 
 def _decorated(model: PartModel, feature: Feature, param: DimParameter) -> DimParameter:
-    """*param* with the caller's authored tolerance / fit folded on, if any (ADR 0011 §4).
+    """*param* with the caller's authored tolerance / fit folded on, if any (ADR 4 (was 0011 §4)).
 
     One owner, because :func:`_consolidated_owner` has to compare a candidate against the
     extent that would take its fact over, and comparing a decorated parameter with an
@@ -492,7 +527,13 @@ def _decorated(model: PartModel, feature: Feature, param: DimParameter) -> DimPa
             f"{param.parameter_id}={param.value:g}"
         )
 
-    tol = model.decorations.get((feature, param.kind, param.role))
+    tol = (
+        model.decorations.get((feature, param.kind, param.role, param.discriminator))
+        if param.discriminator is not None
+        else None
+    )
+    if tol is None:
+        tol = model.decorations.get((feature, param.kind, param.role))
     if tol is None:
         tol = model.decorations.get((feature, param.kind))
     # Imported AP242 provenance belongs to the authored aspect, not to geometry and not to
@@ -715,14 +756,10 @@ _LOCATABLE: tuple[type, ...] = (
 #: `plan_locations`, by the bbox compilers, and by the authored vocabulary. Re-deriving it
 #: is what broke twice: `location_role` said a hole is locatable while `plan_locations`
 #: said only a Z-normal one is (side-drilled positions drawn outside the plan), and then
-#: it said a PATTERN is locatable while neither compiler emits one off-axis — so
-#: `dimension(x_pattern, "location")` was ACCEPTED and silently produced nothing, the exact
-#: failure `_check_authored_targets` exists to prevent (#925 review).
-#:
-#: An off-axis pattern is ``None`` because the engine has never drawn one: the off-axis
-#: pass excluded patterns by construction. Compiling one would be new output with its own
-#: layout consequences, not a boundary fix — so the vocabulary tells the truth about
-#: today's engine and the author gets an error instead of a blank drawing.
+#: it said a PATTERN is locatable while neither compiler emitted one off-axis — so
+#: `dimension(x_pattern, "location")` was accepted and silently produced nothing. The bbox
+#: compiler and off-axis renderer now carry that same physical location requirement through
+#: for X/Y patterns (#1357), so all three readers still share this one eligibility answer.
 def location_datum(feature) -> str | None:
     """``"datum_xy"``, ``"bbox"``, or ``None`` — where *feature*'s position is measured
     from, or that it has none. See :data:`_LOCATABLE`."""
@@ -730,13 +767,17 @@ def location_datum(feature) -> str | None:
         return None
     if isinstance(feature, SlotFeature):
         return "bbox"  # near-end offset along its long axis, in its own view
-    if isinstance(feature, PocketFeature):
+    if isinstance(feature, PocketFeature | PadFeature):
         return "datum_xy"  # every orientation: its two in-plane coordinates
     if isinstance(feature, HoleFeature):
         return "datum_xy" if feature.frame.axis == "z" else "bbox"
-    # Patterns, pocket/slot-patterns and pads: the plan-X / side-Y ladder only, so Z-normal
-    # only. A fall-through, not another `isinstance` + `return None`: membership above is by
-    # exact type, so those four are all that can reach here and the extra arm was
+    # Framing can make an otherwise ordinary hole pattern X/Y-normal. It remains the same
+    # locatable requirement and uses the bbox compiler/end-on renderer (#1357).
+    if isinstance(feature, PatternFeature):
+        return "datum_xy" if feature.frame.axis == "z" else "bbox"
+    # Pocket/slot-patterns: the plan-X / side-Y ladder only, so Z-normal only.
+    # A fall-through, not another `isinstance` + `return None`: membership above is by exact
+    # type, so those three are all that can reach here and the extra arm was
     # unreachable — dead code that read as defensive and showed up as the one uncovered
     # line in the patch.
     return "datum_xy" if feature.frame.axis == "z" else None
@@ -793,7 +834,7 @@ def plan_locations(model: PartModel) -> list[PlannedDimension]:
         # `_check_authored_targets` accepts `dimension(hole, "location")` on feature
         # eligibility alone, so an author could name a position, pass validation, and get
         # neither the dimension nor a word about why. It bites a caller-supplied `PartModel`
-        # (ADR 0011), which `build_drawing` preserves verbatim — datums included, or not.
+        # (ADR 4 (was 0011)), which `build_drawing` preserves verbatim — datums included, or not.
         #
         # Deliberately NOT fixed by defaulting a datum into model coercion: that would hide
         # malformed compiler input behind a plausible drawing instead of reporting it.
@@ -815,7 +856,7 @@ def plan_locations(model: PartModel) -> list[PlannedDimension]:
     # renderer's concentric-bore exclusion applies to holes only (a bolt circle on
     # the axis is still located by its centre), matching the engine.
     # (ref_point, role, source feature): the feature is carried so the renderer can
-    # record provenance on the placed location dim (ADR 0010).
+    # record provenance on the placed location dim (ADR 5 (was 0010)).
     refs: list[tuple[Point, str, Feature]] = []
     # Features whose location a RULE declined before a reference point existed. They have no
     # ref to plan from, so they cannot go through `refs`, but they were considered — and an
@@ -899,7 +940,7 @@ def plan_locations(model: PartModel) -> list[PlannedDimension]:
         for feat, role, why in dropped
     ]
     # Do not erase coincident semantic identities here. ``render_locations`` owns the
-    # per-axis grouping and records every collapsed id on its one shared mark (ADR 0010 /
+    # per-axis grouping and records every collapsed id on its one shared mark (ADR 5 (was 0010) /
     # 0016). Compiler-time dedup used to make a central bore sharing a bolt-circle centre
     # look unlocated even though the visible X/Y dimensions constrained both features.
     return [_plan(r, role, feat) for r, role, feat in refs] + omitted
@@ -923,7 +964,7 @@ def _request_for(model, feature, param):
         # A request names either a full `ParameterId` ("bore.depth" — one measurement)
         # or a bare role ("bore" — every measurement under it). Both are useful: the
         # dotted form is the exact identity #871 built, the short form is what a caller
-        # reaches for when the role is unambiguous. ADR 0016 leaves this vocabulary open.
+        # reaches for when the role is unambiguous. ADR 4 (was 0016) leaves this vocabulary open.
         if "." in req.role:
             if req.role != param.parameter_id:
                 continue
@@ -966,14 +1007,14 @@ def _authored_for(model, feature, param):
     return None
 
 
-def _check_display_policy_conflicts(model: PartModel) -> None:
-    """A semantic dimension cannot have two competing display authorities (#1349)."""
+def _check_intent_policy_conflicts(model: PartModel) -> None:
+    """A semantic dimension cannot have competing display or placement authorities."""
     requests = (
         model.authored_dimensions
         if model.authored_dimensions is not None
         else model.requested_dimensions
     )
-    seen: dict[tuple[int, str], int | None] = {}
+    seen: dict[tuple[int, str], tuple[int | None, str | None, str | None]] = {}
     for request in requests:
         targets: tuple[str, ...]
         if request.role == LOCATION_ROLE:
@@ -986,14 +1027,104 @@ def _check_display_policy_conflicts(model: PartModel) -> None:
             )
         for parameter_id in targets:
             key = (id(request.feature), parameter_id)
-            previous = seen.get(key, request.display_decimals)
-            if key in seen and previous != request.display_decimals:
+            policy = (request.display_decimals, request.view, request.side)
+            previous = seen.get(key, policy)
+            if key in seen and previous != policy:
+                if previous[0] != policy[0]:
+                    raise ValueError(
+                        f"conflicting display precision for {parameter_id}: "
+                        f"{previous[0]!r} and {policy[0]!r}; repeat intent is idempotent "
+                        "only when its display policy agrees"
+                    )
                 raise ValueError(
-                    f"conflicting display precision for {parameter_id}: "
-                    f"{previous!r} and {request.display_decimals!r}; repeat intent is "
-                    "idempotent only when its display policy agrees"
+                    f"conflicting placement intent for {parameter_id}: "
+                    f"{previous[1:]!r} and {policy[1:]!r}; repeat intent is idempotent "
+                    "only when its placement policy agrees"
                 )
-            seen[key] = request.display_decimals
+            seen[key] = policy
+
+
+def _group_placement(feature: Feature, dims: list[PlannedDimension], planned_views=None):
+    """Resolve one view/side for a compound group, or reject an unrenderable intent."""
+    approved = [pd for pd in dims if not pd.suppressed]
+
+    # An envelope group is a feature-level compiler container, not one compound mark:
+    # width, depth, and height are independent dimensions which intentionally scatter
+    # across views (ADR 4 (was 0016)).  Validate each requested view independently and preserve it
+    # on the PlannedDimension; forcing them through the one-callout policy below would
+    # reject a perfectly valid width/front + depth/side pair.
+    if feature.kind == "envelope":
+        for pd in approved:
+            if pd.side is not None:
+                raise ValueError(
+                    f"envelope dimensions cannot render at {pd.view!r}/{pd.side!r}; "
+                    "supported sides for this renderer: none"
+                )
+            if pd.view is None:
+                continue
+            eligible_views = _parameter_view_preferences(feature, pd)
+            if pd.view not in eligible_views:
+                raise ValueError(
+                    f"envelope dimension {pd.param.parameter_id!r} cannot render in "
+                    f"{pd.view!r}; supported view(s): {list(eligible_views)}"
+                )
+        return _group_view(feature, planned_views), None
+
+    unsupported_pattern_intents = [
+        pd.param.parameter_id
+        for pd in approved
+        if isinstance(feature, PatternFeature)
+        and pd.param.role in {"pitch", "grid_pitch"}
+        and (pd.view is not None or pd.side is not None)
+    ]
+    if unsupported_pattern_intents:
+        raise ValueError(
+            "placement intent is unavailable for independently rendered pattern "
+            f"pitch dimension(s) {unsupported_pattern_intents}; omit view/side and let "
+            "the pitch renderer derive placement"
+        )
+
+    views = {pd.view for pd in approved if pd.view is not None}
+    sides = {pd.side for pd in approved if pd.side is not None}
+    if len(views) > 1 or len(sides) > 1:
+        raise ValueError(
+            f"conflicting placement intent for one {feature.kind} callout: "
+            f"views={sorted(views)}, sides={sorted(sides)}"
+        )
+    requested_view = next(iter(views), None)
+    requested_side = next(iter(sides), None)
+    selected_view = requested_view or _group_view(feature, planned_views)
+    if requested_view is not None:
+        incompatible = [
+            pd.param.parameter_id
+            for pd in approved
+            if requested_view not in _parameter_view_preferences(feature, pd)
+        ]
+        if incompatible:
+            raise ValueError(
+                f"{feature.kind} dimension(s) {incompatible} cannot render in "
+                f"{requested_view!r}; supported view(s): "
+                f"{sorted(set().union(*(_parameter_view_preferences(feature, pd) for pd in approved)))}"
+            )
+    if requested_side is not None:
+        supported = {
+            "plan": {"left", "right"},
+            "side": {"right"},
+            "front": {"below"},
+        }.get(selected_view or "", set())
+        if (
+            not isinstance(feature, HoleFeature | PatternFeature)
+            or requested_side not in supported
+        ):
+            choices = (
+                sorted(supported) if isinstance(feature, HoleFeature | PatternFeature) else []
+            )
+            raise ValueError(
+                f"{feature.kind} dimensions cannot render at "
+                f"{selected_view!r}/{requested_side!r}; supported sides for this renderer: "
+                f"{choices or 'none'}"
+            )
+    return selected_view, requested_side
 
 
 def authored_location_omitted(model, feature) -> bool:
@@ -1031,7 +1162,7 @@ def _check_authored_targets(model: PartModel) -> None:
 
     The `Sheet` façade cannot reach this: it resolves the role when the verb is called
     and materialises entries against the FINAL features at build. It is reachable through
-    the ADR 0011 public input — `build_drawing(part, model=…, authored=…)` with a
+    the ADR 4 (was 0011) public input — `build_drawing(part, model=…, authored=…)` with a
     hand-built `PartModel` — where a feature object may be an equal-but-distinct CLONE of
     the one in `model.features`. Matching stays identity-based on purpose (see
     `_request_for`: two equal-valued features are two distinct targets, so structural
@@ -1119,6 +1250,10 @@ def _parameter_view_preferences(feature: Feature, pd: PlannedDimension) -> tuple
         return (_END_ON[_plane_normal(feature)],)
     if isinstance(feature, PocketFeature):
         return (_END_ON[feature.depth_axis],)
+    if isinstance(feature, RectangularBlindSlotFeature):
+        return (_END_ON[feature.depth_axis],)
+    if isinstance(feature, RoundBottomBlindSlotFeature):
+        return (_END_ON[feature.depth_axis],)
     if kind in {"pocket_pattern", "slot_pattern"}:
         return (_END_ON[axis],)
     if isinstance(feature, ChannelFeature):
@@ -1145,7 +1280,7 @@ def _uncovered_group_requirements(
             if not approved:
                 continue
             if isinstance(group.feature, StepLevelFeature) and unit.id == "step_position.length":
-                # One correlated ADR 0016 unit, but its X and Y shoulder members route to
+                # One correlated ADR 4 (was 0016) unit, but its X and Y shoulder members route to
                 # plan and side respectively.  Their axis is structural feature evidence;
                 # DimParameter deliberately has no discriminator because the whole ladder
                 # is addressed as one unit.
@@ -1169,10 +1304,17 @@ def _uncovered_group_requirements(
                         )
                     )
                 continue
-            # A correlated unit is one ADR 0016 identity.  Every member must be renderable;
+            # A correlated unit is one ADR 4 (was 0016) identity.  Every member must be renderable;
             # report the unit once at the first unmet member rather than inflate the count.
             for pd in approved:
-                preferences = _parameter_view_preferences(group.feature, pd)
+                # An authored override is a hard requirement, not merely another eligible
+                # projection. Let ViewPlanIncomplete reject an automatic reduction that
+                # omitted it, so the builder can retain the requirement-preserving set.
+                preferences = (
+                    (pd.view,)
+                    if pd.view is not None
+                    else _parameter_view_preferences(group.feature, pd)
+                )
                 if planned.intersection(preferences):
                     continue
                 identity = DimensionId(group.feature, unit.id)
@@ -1194,7 +1336,7 @@ def _uncovered_location_requirements(
 ) -> list[UncoveredViewRequirement]:
     """Approved datum locations whose current semantic renderer has no selected view.
 
-    Location identity is feature-level today (ADR 0016 / #883), while X and Y are distinct
+    Location identity is feature-level today (ADR 4 (was 0016) / #883), while X and Y are distinct
     observable members.  The two records therefore retain the same ``DimensionId`` and use
     an ``.x``/``.y`` diagnostic suffix; correspondence never depends on that suffix.
     """
@@ -1214,7 +1356,7 @@ def _uncovered_location_requirements(
             # Both in-plane ordinates read in the feature's face-on plan view.  With the
             # fixed topology the Y member preferred side because it could use a horizontal
             # above-strip; when side is absent the renderer re-homes that member vertically
-            # beside plan.  One semantic identity therefore requires one view, as ADR 0018's
+            # beside plan.  One semantic identity therefore requires one view, as ADR 2 (was 0018)'s
             # executable diagnostic specifies.
             if any(abs(end[index] - start[index]) > _PLANE_TOL for index in (0, 1)):
                 requirements.append(("position", "plan"))
@@ -1279,7 +1421,7 @@ def plan_dimensions(model: PartModel, *, planned_views=None) -> list[DimensionGr
     """Plan each feature's parameters into one `DimensionGroup` (anchor + single
     view + planned dims, each carrying its render intent — convention, model-level
     suppression, datum). No cross- or within-feature value de-duplication."""
-    _check_display_policy_conflicts(model)
+    _check_intent_policy_conflicts(model)
     if model.authored_dimensions is not None:
         _check_authored_targets(model)
     groups: list[DimensionGroup] = []
@@ -1288,7 +1430,7 @@ def plan_dimensions(model: PartModel, *, planned_views=None) -> list[DimensionGr
         for p in feature.parameters():
             if p.kind == "location":
                 continue
-            # An authored ± tolerance (ADR 0011 §4 / P2a) rides on the decorations side-
+            # An authored ± tolerance (ADR 4 (was 0011 §4) / P2a) rides on the decorations side-
             # layer; fold it onto the param so every renderer sees one carrier. A
             # ROLE-keyed (feature, kind, role) decoration wins — it tolerances ONE param
             # of a multi-param kind (#746, e.g. a pocket's depth, or a rotational OD vs
@@ -1299,7 +1441,7 @@ def plan_dimensions(model: PartModel, *, planned_views=None) -> list[DimensionGr
             p = _decorated(model, feature, p)
             suppressed, reason, conveyed_by = _suppression(model, feature, p)
             # A caller's `add_dimension(...)` overrides the rule set's suppression for
-            # exactly the measurement it names (ADR 0016 / #872). It changes SELECTION
+            # exactly the measurement it names (ADR 4 (was 0016) / #872). It changes SELECTION
             # only — the value still comes from the geometry, so a request can never
             # introduce a number the part does not carry. Requesting something the
             # planner already emits is a deliberate no-op (idempotence gate): a script
@@ -1336,10 +1478,12 @@ def plan_dimensions(model: PartModel, *, planned_views=None) -> list[DimensionGr
                     display_decimals=(
                         display_intent.display_decimals if display_intent is not None else None
                     ),
+                    view=display_intent.view if display_intent is not None else None,
+                    side=display_intent.side if display_intent is not None else None,
                 )
             )
         if dims:
-            selected_view = _group_view(feature, planned_views)
+            selected_view, selected_side = _group_placement(feature, dims, planned_views)
             groups.append(
                 DimensionGroup(
                     feature=feature,
@@ -1348,6 +1492,7 @@ def plan_dimensions(model: PartModel, *, planned_views=None) -> list[DimensionGr
                     # crossing the planner boundary when it is not actually selected.
                     view=selected_view or _preferred_group_view(feature),
                     units=_addressable(feature, dims),
+                    side=selected_side,
                 )
             )
     if planned_views is not None:
@@ -1363,7 +1508,7 @@ class SectionPlan:
     """A planned full section A–A: the plane is normal to Y at ``cut_y``, parallel to
     the front view. The *intent* (does the part need a section, and where the plane
     sits) — the rendering machinery (cut / hatch / cutting-plane arrows) stays shared
-    infrastructure that consumes this (ADR 0008 Amendment 4 / #207)."""
+    infrastructure that consumes this (ADR 1 (was 0008 Amendment 4) / #207)."""
 
     cut_y: float
     label: str = "A"
@@ -1381,7 +1526,7 @@ def plan_sections(model: PartModel, feature_keys: set[HoleRef]) -> SectionPlan |
     the centreline leaders, don't drive a section). ``None`` when no section is
     warranted.
 
-    An **explicit** request (``decorations["section"]``, the ADR 0011 ``Sheet.section``
+    An **explicit** request (``decorations["section"]``, the ADR 4 (was 0011) ``Sheet.section``
     verb, #841) forces a cut at that Y regardless of the auto trigger — so a blind
     pocket, which no hole gate recognises, still gets its floor/depth section."""
     requested = model.decorations.get("section")

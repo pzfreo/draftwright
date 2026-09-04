@@ -6,7 +6,7 @@ two parallel lobes are the same shape of data, so `render_flats` grouped by
 `(axis, across)` and collapsed both cases into a single callout — leaving the second lobe
 undefined on the sheet with nothing reporting it.
 
-ADR 0013's rule for a record that looks too thin is that the fix is the record.
+ADR 3 (was 0013)'s rule for a record that looks too thin is that the fix is the record.
 """
 
 import pytest
@@ -245,6 +245,6 @@ def test_a_slanted_double_d_is_still_one_physical_definition():
 # perpendicular foot alone is not a line; direction must match) is recogniser-internal
 # mechanism, and its OBSERVABLE consequence is already pinned above by
 # `test_a_slanted_double_d_is_still_one_physical_definition` through the public
-# `recognise_flats` + `build_drawing` surface. ADR 0013's contract is that public surface,
+# `recognise_flats` + `build_drawing` surface. ADR 3 (was 0013)'s contract is that public surface,
 # so the mechanism test belongs in the recogniser's own suite rather than being chased
 # across package internals from here.

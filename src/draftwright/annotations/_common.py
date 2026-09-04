@@ -1,4 +1,4 @@
-"""Shared annotation-placement helpers (#138 / ADR 0005, P5).
+"""Shared annotation-placement helpers (#138 / ADR 1 (was 0005), P5).
 
 Page-box geometry the passes share: an annotation's bbox (`_anno_box`), the
 complete strip occupancy (`strip_obstacles`), and an AABB overlap test
@@ -31,9 +31,15 @@ from draftwright._geometry import (  # noqa: F401
     _segment_clip_extent,
     _segment_clips_box,
     _segment_crosses_box,
+    _segments_cross_or_overlap,
 )
 from draftwright.layout import StripCandidate, plan_strip
-from draftwright.linting.ink_overlap import MIN_CROSSING_MM, crossable_region, crossing_length
+from draftwright.linting.ink_overlap import (
+    MIN_CROSSING_MM,
+    crossable_region,
+    crossing_length,
+    segments_of,
+)
 from draftwright.linting.issues import LintIssue
 from draftwright.linting.structural import (
     _ann_box,
@@ -61,7 +67,7 @@ def _with_hole_location_coverage(annotation, coverage):
 def _hole_location_coverage_fact(location):
     """The directional physical fact rendered by one compiled hole location member.
 
-    ``location.id`` remains ADR 0016's feature-level addressable ``DimensionId``. The
+    ``location.id`` remains ADR 4 (was 0016)'s feature-level addressable ``DimensionId``. The
     requirement parameter is deliberately separate: critique can distinguish X from Y
     without resolving #883's open public naming decision or minting a general identity.
     """
@@ -70,7 +76,17 @@ def _hole_location_coverage_fact(location):
         feature = location.id.feature
     assert feature is not None and location.span is not None
     parameter = location.id.parameter if location.id is not None else location.parameter_id
-    if parameter in {"location.location", "location_pattern.location"} and location.discriminator:
+    if (
+        parameter
+        in {
+            "location.location",
+            "location_pattern.location",
+            "location_pad.location",
+            "location_pocket.location",
+            "location_pocket_pattern.location",
+        }
+        and location.discriminator
+    ):
         parameter = f"{parameter}.{location.discriminator}"
     return (feature, parameter, tuple(location.span[1]))
 
@@ -356,7 +372,7 @@ def _discard_attempt_annotations(dwg, names) -> set[str]:
 
 @dataclass(frozen=True)
 class Escalation:
-    """A first-class "could not place this here" signal (ADR 0009 Amendment 1, P5-strand-2).
+    """A first-class "could not place this here" signal (ADR 2 (was 0009 Amendment 1), P5-strand-2).
 
     Placers *collect* one of these into the run's ``PlacementContext.escalations`` at the point
     of failure —
@@ -1184,7 +1200,7 @@ def place_iso_nts_note(dwg, a, bb) -> None:
     # below (today's placement), then further below, then beside it, and only last ABOVE
     # — a caption over its view is against drawing convention, so it must not be reached
     # while a below-or-beside position is free. Left before right is arbitrary but fixed,
-    # because ADR 0001 requires the same sheet twice.
+    # because ADR 4 (was 0001) requires the same sheet twice.
     candidates = [
         natural,
         (a.ISO_X, max(bb[1] - 3 * font - height, a.margin + font)),
@@ -1255,7 +1271,7 @@ def annotation_obstacle_boxes(dwg, annotation):
 
 
 def strip_obstacles(dwg, view=None, *, crossable=(), named=False):
-    """The COMPLETE occupancy for strip placement (ADR 0009): every placed
+    """The COMPLETE occupancy for strip placement (ADR 2 (was 0009)): every placed
     annotation's full rendered footprint, optionally restricted to *view*, minus
     any annotation whose type name is in *crossable* (things this particular
     consumer may legitimately overlap — e.g. a location dim crosses a centre line
@@ -1277,13 +1293,13 @@ def strip_obstacles(dwg, view=None, *, crossable=(), named=False):
     *view* scoping keeps this view's own annotations **and** drawing-level obstacles
     that no orthographic view owns (the section hatch, title block, …) — those a
     strip placer must still avoid — and drops only the *other* ortho views' blocks
-    (which compose-then-pack keeps disjoint, ADR 0004). The section hatch
+    (which compose-then-pack keeps disjoint, ADR 2 (was 0004)). The section hatch
     (``view_of`` ``None``) is therefore present in every per-view query, the way
     ``_occupied_boxes`` special-cased it; restricting it to ``view=None`` would
     re-open the very blind spot this closes.
 
     Boxes are AABBs ``(x0, y0, x1, y1)`` (use with :func:`_box_hits`) — intentionally
-    conservative: a diagonal leader's box over-claims its empty triangle (ADR 0009
+    conservative: a diagonal leader's box over-claims its empty triangle (ADR 2 (was 0009)
     notes angled leaders weaken the bound), which only ever over-avoids, never
     under-avoids.
 
@@ -1338,7 +1354,7 @@ def strip_free_span(strip):
     *inner* is the end nearest the view edge (the first tier a dim fills). Reads the
     live ``outer_limit`` so an orchestrator reservation (#133) stays honoured. The
     cursor-free counterpart of :meth:`Strip.allocate` — a collect-then-solve pass
-    (ADR 0009) reads these bounds and carves, rather than advancing a mutable cursor."""
+    (ADR 2 (was 0009)) reads these bounds and carves, rather than advancing a mutable cursor."""
     near = strip.anchor + strip.direction * strip.gap
     if strip.direction == 1:
         return near, strip.outer_limit, near  # lo, hi, inner (=lo)
@@ -1347,7 +1363,7 @@ def strip_free_span(strip):
 
 def carve_free_segments(lo, hi, intervals, pad):
     """``[lo, hi]`` minus every obstacle interval inflated by *pad*, merged and
-    complemented — the option-(c) occupancy carve (ADR 0009 / #321). A dim is then
+    complemented — the option-(c) occupancy carve (ADR 2 (was 0009) / #321). A dim is then
     spaced only WITHIN a clear segment, so it can never overprint a placed occupant
     (a leader shaft, the section hatch, a location-dim tier): the old per-tier
     ``allocate`` + post-hoc ``_box_hits`` retry becomes structural. *intervals* are
@@ -1463,6 +1479,95 @@ def box_within_page_and_clear(bb, page_box, obstacles) -> bool:
         and bb[3] <= page_box[3]
         and not _box_hits(bb, obstacles)
     )
+
+
+def annotation_ink_clear(dwg, candidate, *, view=None) -> bool:
+    """Whether *candidate* clears exact decomposable ink and conservative fixed furniture.
+
+    A diagonal dimension cannot use the strip system's conservative AABB occupancy as its
+    acceptance predicate: each slanted line's box contains a large empty triangle, so a clean
+    rotated dimension is rejected merely because another annotation sits in that empty area.
+    Public segment metadata and exact label polygons avoid those false hulls while preserving
+    the crossing-free contract: labels remain clear in both directions and non-crossable shafts
+    may not intersect. Dimension/dimension and centre-furniture intersections keep their
+    existing explicit exemptions. An annotation with no trustworthy segments is not empty:
+    tables, title furniture and other compounds retain their conservative component boxes.
+    """
+    candidate_segments = segments_of(candidate)
+    try:
+        candidate_label = getattr(candidate, "label_bbox", None)
+    except Exception:  # noqa: BLE001 — unreadable candidate ink must fail closed
+        return False
+    candidate_region = crossable_region(
+        candidate_label,
+        item=candidate,
+        segments=candidate_segments,
+    )
+    if candidate_region is None:
+        return False
+    for name, annotation in dwg.iter_annotations():
+        owner = dwg.view_of(name)
+        if view is not None and owner is not None and owner != view:
+            continue
+        annotation_segments = segments_of(annotation)
+        try:
+            annotation_label = getattr(annotation, "label_bbox", None)
+        except Exception:  # noqa: BLE001 — unreadable fixed ink must fail closed
+            return False
+        annotation_region = crossable_region(
+            annotation_label,
+            item=annotation,
+            segments=annotation_segments,
+        )
+        crossable_strokes = isinstance(annotation, (Dimension, SafeDimension)) or (
+            type(annotation).__name__ in CROSSABLE_TYPES
+        )
+        if annotation_label is not None and annotation_region is None:
+            try:
+                conservative_label_hit = _boxes_overlap(candidate_label, annotation_label) or any(
+                    _segment_clips_box(start, end, annotation_label, pad=0.0)
+                    for start, end in candidate_segments
+                )
+            except Exception:  # noqa: BLE001 — malformed fixed labels must fail closed
+                return False
+            if conservative_label_hit:
+                return False
+        if annotation_region is not None and _boxes_overlap(candidate_label, annotation_label):
+            return False
+        if annotation_region is not None and (
+            crossing_length(candidate_segments, annotation_region) >= MIN_CROSSING_MM
+        ):
+            return False
+        if annotation_segments and (
+            crossing_length(annotation_segments, candidate_region) >= MIN_CROSSING_MM
+        ):
+            return False
+        if annotation_segments:
+            if not crossable_strokes and any(
+                _segments_cross_or_overlap(start, end, fixed_start, fixed_end)
+                for start, end in candidate_segments
+                for fixed_start, fixed_end in annotation_segments
+            ):
+                return False
+            continue
+        if crossable_strokes or is_page_spanning_rider(annotation):
+            continue
+        try:
+            fixed_boxes = annotation_obstacle_boxes(dwg, annotation)
+        except Exception:  # noqa: BLE001 — malformed fixed ink must fail closed
+            fixed_boxes = ()
+        if not fixed_boxes:
+            return False
+        if any(
+            _boxes_overlap(candidate_label, fixed_box)
+            or any(
+                _segment_clips_box(start, end, fixed_box, pad=0.0)
+                for start, end in candidate_segments
+            )
+            for fixed_box in fixed_boxes
+        ):
+            return False
+    return True
 
 
 def prevent_dimension_label_ink(
@@ -1843,7 +1948,7 @@ class PRIORITY:
     #: Authored intent — GD&T frames, imported PMI. The user asked for these by name,
     #: so they outrank anything the engine chose for itself (#357).
     AUTHORED = 1.0
-    #: Never-drop: the mandatory envelope dims, and a user-pinned intent (ADR 0012).
+    #: Never-drop: the mandatory envelope dims, and a user-pinned intent (ADR 2 (was 0012)).
     #: Two distinct meanings that deliberately share a rung — both are non-negotiable.
     MANDATORY = 100.0
 
@@ -1851,7 +1956,7 @@ class PRIORITY:
 @dataclass
 class CorridorCandidate:
     """One datum-referenced linear dim collected for a shared corridor's single solve
-    (ADR 0009 end state, #345/#346). Multiple render passes (`render_locations`,
+    (ADR 2 (was 0009) end state, #345/#346). Multiple render passes (`render_locations`,
     `render_slots`) feed the SAME above-view strip; committing per-pass interleaves the
     dims and cannot dedup coincident spans. Each pass instead registers a candidate here;
     one :func:`solve_corridor` per strip dedups, orders, and places the whole set.
@@ -1894,7 +1999,7 @@ class CorridorCandidate:
     natural: float | None = None
     force: bool = False
     # The source IR feature this dim was rendered for — recorded as provenance when the
-    # dim is placed at drain (ADR 0010). ``None`` leaves the annotation feature-less.
+    # dim is placed at drain (ADR 5 (was 0010)). ``None`` leaves the annotation feature-less.
     feature: object | None = None
     # The `DimensionId` this candidate draws, where the renderer holds an
     # `ApprovedDimension` to take it from (#1002). Peer to `feature` and recorded the same
@@ -1907,7 +2012,7 @@ class CorridorCandidate:
     # Real stacking-axis + perpendicular footprint ``(w, h)`` in page-mm, or ``None`` to
     # use the dimension default ``(tier, tier)``. Wide/tall occupants (a GD&T feature
     # control frame is ~24×6 mm) set this so the strip solve reserves their true extent
-    # instead of one label-height (ADR 0009 real-footprint plumbing, #61). A dim leaves
+    # instead of one label-height (ADR 2 (was 0009) real-footprint plumbing, #61). A dim leaves
     # it ``None`` — byte-identical to the pre-plumbing placement.
     size: tuple | None = None
     # An ``(x0, y0, x1, y1)`` page-box this candidate must NOT overlap even when force-kept —
@@ -1929,7 +2034,7 @@ class CorridorCandidate:
 
 def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, key=None, ctx=None):
     """One collect-then-solve over every :class:`CorridorCandidate` a shared strip
-    accumulated across passes (ADR 0009 end state). Dedup → order → one non-force
+    accumulated across passes (ADR 2 (was 0009) end state). Dedup → order → one non-force
     :func:`place_strip_candidates` pass → a force pass for the force-eligible leftovers →
     dispatch each candidate's ``on_place``/``on_drop``. This is what removes the duplicate
     span (#345) and the interleaved ladder (#346) by construction: a single solve sees the
@@ -1944,7 +2049,7 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
     if trace is not None:
         trace.begin_solve(key, view, axis, tier, strip, cands)
     # Dedup: keep the highest-precedence candidate per coincidence key (tie-break on name,
-    # deterministic — ADR 0001). A displaced duplicate is a *loser*: while its winner is
+    # deterministic — ADR 4 (was 0001)). A displaced duplicate is a *loser*: while its winner is
     # drawn it is silently dropped (never starved, so firing its pass's drop lint would be a
     # false report) — but if the winner itself fails to place, the top loser is promoted so
     # the measurement still gets its pass's fallthrough/drop handling (no silent vanish).
@@ -1973,17 +2078,67 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
             for loser in group:
                 trace.record_outcome(loser.name, "deduped", winner=winners[dk].name)
 
+    def _dedup_group(candidate):
+        return (candidate, *losers.get(candidate.dedup, ()))
+
+    def _group_measurements(candidate) -> tuple:
+        return tuple(
+            dict.fromkeys(
+                measurement
+                for item in _dedup_group(candidate)
+                for value in (item.measurement,)
+                for measurement in (value if isinstance(value, (list, tuple)) else (value,))
+                if measurement is not None
+            )
+        )
+
+    def _group_owners(candidate) -> tuple:
+        return tuple(
+            dict.fromkeys(
+                resolve_feature(item.feature)
+                for item in _dedup_group(candidate)
+                if item.feature is not None
+            )
+        )
+
     def _winner_placed(c) -> bool:
         """Did this candidate's measurement reach the sheet after all? `on_drop` may
         have rescued it onto the opposite strip, in which case a coincident loser must
         stay suppressed rather than draw the same span twice (#894)."""
         return c.name in dwg.annotations()
 
+    def _restore_shared_identity(candidate, *, visible_name=None) -> None:
+        """Give a fallback survivor the same provenance as the primary-strip survivor."""
+        name = candidate.name if visible_name is None else visible_name
+        if ctx is None or ctx.registry is None or name not in dwg.annotations():
+            return
+        identity = ctx.registry.identity_of(name)
+        measurements = _group_measurements(candidate)
+        if measurements:
+            identity["measurement"] = measurements
+        owners = _group_owners(candidate)
+        identity["feature"] = owners[0] if len(owners) == 1 else None
+        ctx.registry.reapply(name, identity)
+
     def _promote_losers(dropped_winner):
         # The winner did not place → hand its measurement to the best surviving loser
         # (e.g. the slot position's below-strip fallthrough), then stop.
         for loser in losers.get(dropped_winner.dedup, ()):
+            pending = ctx.post_drain if ctx is not None else None
+            n_deferred = len(pending) if pending is not None else 0
             loser.on_drop(loser.name)
+            _restore_shared_identity(dropped_winner, visible_name=loser.name)
+            # A front-view loser's opposite-strip retry is deferred.  At this moment
+            # there is no visible annotation to restore, so queue the aggregated
+            # identity immediately behind the retry that creates it.  This mirrors the
+            # deferred winner path below and keeps a promoted survivor from retaining
+            # only its own measurement (#1372 exact-head review).
+            if pending is not None and len(pending) > n_deferred:
+                pending.append(
+                    lambda _c=dropped_winner, _name=loser.name: _restore_shared_identity(
+                        _c, visible_name=_name
+                    )
+                )
             if trace is not None:
                 trace.record_outcome(loser.name, "promoted")
             break
@@ -1991,6 +2146,7 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
     if strip is None:  # no such strip on this drawing — every candidate drops
         for c in kept:
             c.on_drop(c.name)
+            _restore_shared_identity(c)
             if trace is not None:
                 trace.record_outcome(c.name, "dropped", reason="no_strip")
             # Same rule as the solved path below: `on_drop` may have rescued this
@@ -2002,12 +2158,28 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
             trace.end_solve()
         return
     pairs = [(c.name, c.build) for c in kept]
-    # The ADR 0010 provenance seam — and one of the two places a `FeatureRef` is
+    # The ADR 5 (was 0010) provenance seam — and one of the two places a `FeatureRef` is
     # legitimately resolved back to its feature, because here the object IS the point.
     # A migrated renderer passes the opaque handle through; `resolve_feature` is a
     # no-op for the unmigrated ones that still pass the feature itself.
-    feats = {c.name: resolve_feature(c.feature) for c in kept if c.feature is not None}
-    meas = {c.name: c.measurement for c in kept if c.measurement is not None}
+    feats = {
+        candidate.name: owners[0]
+        for candidate in kept
+        for owners in (_group_owners(candidate),)
+        if len(owners) == 1
+    }
+    # A dedup survivor visibly states every coincident candidate's measurement, not only
+    # the winner's. Losing those identities makes a truthful shared dimension look like
+    # silent missing content to critique (two nested pockets with the same X/Z location
+    # are the concrete case). The dedup key is the solver's declaration that the dimensions
+    # are physically identical, so this is structured provenance rather than geometric
+    # inference after placement.
+    meas = {
+        candidate.name: measurements
+        for candidate in kept
+        for measurements in (_group_measurements(candidate),)
+        if measurements
+    }
     satisfactions = {c.name: c.satisfaction for c in kept if c.satisfaction is not None}
     sizes = {c.name: c.size for c in kept if c.size is not None}  # real footprint (#61)
     forbid = {c.name: c.forbid for c in kept if c.forbid is not None}  # title-block box (#481)
@@ -2077,6 +2249,7 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
             pending = ctx.post_drain if ctx is not None else None
             n_deferred = len(pending) if pending is not None else 0
             c.on_drop(c.name)  # dropped / not force-kept — the pass's drop handler runs
+            _restore_shared_identity(c)
             deferred = pending is not None and len(pending) > n_deferred
             if trace is not None:  # did on_drop queue a post-drain fallthrough?
                 trace.record_outcome(c.name, "dropped", deferred_post_drain=deferred)
@@ -2094,6 +2267,7 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
                 # differs: immediately when the retry already ran, or queued behind it
                 # when it was deferred (appended after, and post_drain runs in order).
                 if deferred and pending is not None:
+                    pending.append(lambda _c=c: _restore_shared_identity(_c))
                     pending.append(
                         lambda _c=c: None if _winner_placed(_c) else _promote_losers(_c)
                     )
@@ -2107,9 +2281,9 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
 class PlacementContext:
     """The per-run placement scratch a build's passes share — plus references to the drawing's
     build-state stores (the ``registry`` build-issue sink + ``coverage`` bookkeeping) — threaded
-    to the passes explicitly instead of hung on the ``Drawing`` result object (ADR 0005 §2, #639):
+    to the passes explicitly instead of hung on the ``Drawing`` result object (ADR 1 (was 0005 §2), #639):
     the corridor batch
-    (:func:`register_corridor`/:func:`drain_corridors`), the escalation list (ADR 0009 Amdt 1,
+    (:func:`register_corridor`/:func:`drain_corridors`), the escalation list (ADR 2 (was 0009 Amdt 1),
     #351), and the enlarged-detail request list (#307).
 
     All three are per-run — both entry paths (:func:`_auto_annotate` and ``Drawing.finalize``)
@@ -2143,11 +2317,11 @@ class PlacementContext:
     # The drawing's render list (#817): :meth:`place` appends here, so a render pass places an
     # annotation through the ctx seam (``ctx.place(...)``) instead of reaching into the drawing.
     items: Any = None
-    # The ensured PartModel (ADR 0008 IR) the run's passes read, threaded off the drawing so
+    # The ensured PartModel (ADR 1 (was 0008) IR) the run's passes read, threaded off the drawing so
     # they no longer reach into ``dwg._part_model`` (#639). Both entry paths set it from the
     # PUBLIC ``dwg.model()`` after the model is ensured/attached.
     part_model: Any = None
-    # Whether the model was DECLARED (vs detected) — the ADR 0011 gate the orchestrator reads,
+    # Whether the model was DECLARED (vs detected) — the ADR 4 (was 0011) gate the orchestrator reads,
     # threaded off ``getattr(dwg, "_model_declared")`` (#639).
     model_declared: bool = False
     # Per-run cache for :meth:`feature_of_hole_at` — the model is fixed after build, so a
@@ -2156,7 +2330,7 @@ class PlacementContext:
 
     def place(self, obj, name=None, view=None, feature=None, measurement=None, satisfaction=None):
         """Place an annotation onto the drawing through this context (#817) — the render passes'
-        door to the placement primitive, so a pass never reaches into the ``Drawing`` (ADR 0005
+        door to the placement primitive, so a pass never reaches into the ``Drawing`` (ADR 1 (was 0005)
         §2). Registers *obj* under *name* (owning *view* + source *feature*) and appends it to the
         render list. Opaque compiler provenance is resolved here, at the placement boundary,
         so public ``annotations_of(IR feature)`` / ``drop(IR feature)`` keep their value-based
@@ -2202,6 +2376,8 @@ class PlacementContext:
         message,
         *,
         measurement=None,
+        measurement_span=None,
+        measurement_spans=(),
         hole_requirements=(),
         source=None,
         outcome_stage=None,
@@ -2215,6 +2391,11 @@ class PlacementContext:
             ids = tuple(item for item in measurement if item is not None)
         else:
             ids = (measurement,)
+        spans = (
+            tuple(measurement_spans)
+            if measurement_spans
+            else ((measurement_span,) if measurement_span is not None else ())
+        )
         if isinstance(source, (list, tuple)):
             source_ids = tuple(str(item) for item in source if item)
         else:
@@ -2228,6 +2409,7 @@ class PlacementContext:
                 hole_requirement_ids=tuple(hole_requirements),
                 source_ids=source_ids,
                 outcome_stage=outcome_stage,
+                measurement_spans=spans,
             )
         )
 
@@ -2248,7 +2430,7 @@ class PlacementContext:
 
 def register_corridor(ctx, key, strip, view, axis, tier, cand):
     """Queue a :class:`CorridorCandidate` under a shared corridor *key* so one
-    :func:`drain_corridors` places the whole cross-pass set together (ADR 0009 end state).
+    :func:`drain_corridors` places the whole cross-pass set together (ADR 2 (was 0009) end state).
     The first registration for a key fixes its ``(strip, view, axis)``; mixed producers on
     the same corridor use the largest requested tier so spacing is not registration-order
     dependent."""
@@ -2304,9 +2486,14 @@ def drain_corridors(ctx, dwg):
     ctx.corridor_batch = {}
     # Deferred fallthroughs (opposite-strip retries) run once every strip has drained,
     # so a retry can never preempt a corner a later sibling's force candidate needs.
-    pending, ctx.post_drain = ctx.post_drain, []
-    for cb in pending:
-        cb()
+    # A deferred winner retry can fail and promote a coincident loser whose own
+    # opposite-strip retry is also deferred.  Drain in waves until no callback remains:
+    # every wave still runs after all corridors, while a second-generation fallback
+    # cannot be stranded in ``ctx.post_drain`` (#1372 exact-head review).
+    while ctx.post_drain:
+        pending, ctx.post_drain = ctx.post_drain, []
+        for cb in pending:
+            cb()
 
 
 def place_strip_candidates(
@@ -2332,7 +2519,7 @@ def place_strip_candidates(
     trace=None,
     trace_label=None,
 ):
-    """Collect-then-solve placement of location/feature dims on one strip (ADR 0009).
+    """Collect-then-solve placement of location/feature dims on one strip (ADR 2 (was 0009)).
     The single shared strip placer that retires the ``Strip.allocate`` cursor (#150,
     P3): each candidate in *cands* — an ``(name, build(pos)->dim)`` pair — is spaced by
     one :func:`plan_strip` solve per free segment of the CARVED strip (`strip` carved
@@ -2341,7 +2528,7 @@ def place_strip_candidates(
 
     Occupancy is THIS view's own placed annotations plus the drawing-level obstacles no
     ortho view owns (the section hatch), recomputed per call so a dim placed earlier in
-    the pass is avoided; other ortho views are disjoint (ADR 0004) and excluded so their
+    the pass is avoided; other ortho views are disjoint (ADR 2 (was 0004)) and excluded so their
     rows never over-carve this strip. This makes the old post-hoc collision retry
     structural: a dim can never land on a bore-callout leader shaft the label-only
     occupancy missed (#133/#225/#305).
@@ -2658,7 +2845,7 @@ def place_strip_candidates(
             real = _geom_box(dim)
             solved.append((name, natural if _real_box_conflict(name, real) else dim))
     for name, dim in solved:
-        # Record feature provenance (ADR 0010): the drain-time seam for corridor-placed
+        # Record feature provenance (ADR 5 (was 0010)): the drain-time seam for corridor-placed
         # dims — `features` maps this batch's names to their source IR feature.
         feature = (features or {}).get(name)
         measurement = (measurements or {}).get(name)

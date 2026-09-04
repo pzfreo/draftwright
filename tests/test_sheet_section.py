@@ -1,4 +1,4 @@
-"""``Sheet.section()`` / ``Sheet.detail()`` — the ADR 0011 part-level view verbs (#841).
+"""``Sheet.section()`` / ``Sheet.detail()`` — the ADR 4 (was 0011) part-level view verbs (#841).
 
 A blind pocket has no counterbore/spotface/blind-Z-hole to auto-trigger a section, so its
 floor and depth stay hidden-line-only. ``Sheet.section()`` forces a cut through a chosen

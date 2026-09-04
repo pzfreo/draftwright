@@ -13,9 +13,9 @@ them into another blessed scalar:
   pair observations from one annotation and failure mechanism;
 - restraint fails closed until measurement provenance can classify every annotation.
 
-Completeness is deliberately marked partial.  Only the feature families with a semantic
-``*_outcomes`` ledger participate today; warning counts and declared IR are never substituted
-for the missing physical denominator.
+Completeness is deliberately marked partial. Only feature families with a semantic
+``*_outcomes`` ledger or an explicitly audited unsupported outcome participate today; warning
+counts and declared IR are never substituted for the missing physical denominator.
 
 Its scalar is therefore named ``audited_score``, not ``score``.  A part reaches 1.0 whenever
 every requirement recognition *did* identify was placed or explicitly satisfied by structured
@@ -24,20 +24,18 @@ what was never recognised never became a requirement, so it is absent from the l
 than counted against it.  (Where nothing auditable was recognised at all, the component
 reports ``available: False`` and a ``None`` score — not a perfect one.)  The qualifier
 belongs in the field name, where it survives being quoted, and not only in the metadata
-beside it.  **It is not a completion gate**: gate on issue codes and severities (ADR 0002),
+beside it.  **It is not a completion gate**: gate on issue codes and severities (ADR 5 (was 0002)),
 and read ``excludes`` for what the denominator cannot see.
 """
 
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Mapping
+from typing import Any
 
-from draftwright.linting.channel_coverage import channel_requirement_outcomes
-from draftwright.linting.flat_coverage import flat_requirement_outcomes
-from draftwright.linting.hole_coverage import hole_requirement_outcomes
 from draftwright.linting.issues import LintIssue, is_placement_drop
-from draftwright.linting.polygonal_stock_coverage import polygonal_stock_outcomes
-from draftwright.linting.slot_coverage import slot_requirement_outcomes
+from draftwright.linting.requirements import recognized_requirement_outcomes
 
 _OUTCOME_STATES = (
     "placed",
@@ -46,6 +44,8 @@ _OUTCOME_STATES = (
     "dropped",
     "missing",
     "unverifiable",
+    "inapplicable",
+    "unsupported",
 )
 
 # Structural diagnostics that describe whether the composed sheet remains readable. Placement
@@ -82,13 +82,15 @@ _LEGIBILITY_CODES = frozenset(
 # against legibility on the day it is introduced instead of scoring as perfectly legible
 # until somebody notices (#1127 review). Codes that cannot be read off their suffix carry an
 # explicit ``outcome_stage`` from their producers instead (see ``is_placement_drop``); there
-# were two when this was written and there are fourteen now, enumerated in
+# were two when this was written and there are fifteen now, enumerated in
 # :data:`_STAGE_ROUTED_CODES` and :data:`_UNSCORED_CODES` — and the suffix shortcut turned
 # out to be exactly as forgettable as the list it replaced, because nothing checked that the
 # suffix still meant what it says.
 
 # Recognition inventories that represent potentially dimension-bearing physical families.
 _RECOGNISED_REQUIREMENT_FAMILIES = {
+    "angled_steps": "angled_steps",
+    "blends": "blends",
     "holes": "holes",
     "double_d_bores": "profiled_bores",
     "hole_patterns": "hole_patterns",
@@ -96,17 +98,27 @@ _RECOGNISED_REQUIREMENT_FAMILIES = {
     "polygonal_bosses": "polygonal_bosses",
     "polygonal_stock": "polygonal_stock",
     "channels": "channels",
+    "circular_blind_steps": "circular_blind_steps",
     "slots": "slots",
     "slot_patterns": "slot_patterns",
     "grooves": "grooves",
     "flats": "flats",
     "pockets": "pockets",
+    "rectangular_blind_slots": "rectangular_blind_slots",
+    "round_bottom_blind_slots": "round_bottom_blind_slots",
+    "prismatic_pockets": "prismatic_pockets",
     "pocket_patterns": "pocket_patterns",
     "pads": "pads",
+    "plates": "plates",
     "repeating_radial_profiles": "repeating_radial_profiles",
     "turned_steps": "turned_steps",
     "chamfers": "chamfers",
     "fillets": "fillets",
+    "paired_ramp_steps": "paired_ramp_steps",
+    "through_steps": "through_steps",
+    # The rich aggregate is the sole physical Passage authority. The legacy
+    # ``passages`` projection is classified below as non-requirement compatibility data.
+    "section_passages": "passages",
 }
 
 # Inventories that are deliberately NOT requirement families: the substrates would list the
@@ -120,32 +132,54 @@ _RECOGNISED_REQUIREMENT_FAMILIES = {
 #: raw geometry, classification flags, evidence aggregated into another feature. Permanent by
 #: design, not pending a decision.
 _NON_REQUIREMENT_INVENTORIES = frozenset(
-    {"countersinks", "cylinders", "plates", "risers", "rotational", "step_levels"}
+    {
+        "countersinks",
+        "cylinders",
+        # Accepted-only compatibility projection of authoritative ``section_passages``.
+        "passages",
+        "risers",
+        "rotational",
+        "step_levels",
+    }
 )
 
 #: Inventories the installed package proves and this consumer has not decided about, each with
 #: the issue deciding it. Held SEPARATELY from the set above, because the two mean different
 #: things: those will never be requirement families, these have simply not been ruled on, and
-#: merging them would let an undecided family look settled (#1244).
-#:
-#: The effect on the score is deliberate and worth stating: a drawing that omits a recognised
-#: passage, prismatic pocket or angled step scores complete today. That is a blind spot — the
-#: register is what stops it being a silent one, and closing each issue closes the gap.
+#: merging them would let an undecided family look settled (#1244). Passage, PrismaticPocket and
+#: AngledStep left this register when #1245/#1246/#1247 gave every authoritative occurrence an
+#: unsupported outcome.
 _UNDECIDED_INVENTORIES: dict[str, str] = {
-    "angled_steps": "https://github.com/pzfreo/draftwright/issues/1247",
-    "passages": "https://github.com/pzfreo/draftwright/issues/1245",
-    "section_passages": "https://github.com/pzfreo/draftwright/issues/1245",
-    "prismatic_pockets": "https://github.com/pzfreo/draftwright/issues/1246",
+    "oriented_slot_patterns": "https://github.com/pzfreo/draftwright/issues/1430",
+    "oriented_slots": "https://github.com/pzfreo/draftwright/issues/1430",
 }
 
 _AUDITED_FAMILIES = (
+    "angled_steps",
+    "blends",
+    "chamfers",
     "channels",
+    "circular_blind_steps",
+    "fillets",
+    "paired_ramp_steps",
     "flats",
+    "grooves",
     "hole_patterns",
     "holes",
+    "passages",
+    "pads",
+    "plates",
+    "polygonal_bosses",
     "polygonal_stock",
+    "pockets",
+    "pocket_patterns",
+    "prismatic_pockets",
+    "rectangular_blind_slots",
+    "round_bottom_blind_slots",
     "slot_patterns",
     "slots",
+    "through_steps",
+    "turned_steps",
 )
 
 # What the audited score does not cover, emitted as data rather than left to prose. The
@@ -246,6 +280,7 @@ _FIDELITY_CODES = frozenset(
 #: this register is what makes that visible instead of implicit.
 _UNSCORED_CODES = frozenset(
     {
+        "angled_step_requirement_unsupported",
         "authored_dim_degenerate",
         # A source relationship withheld because its geometry cannot prove a truthful
         # witness. Like the adjacent degenerate/unsupported cases, this is an explicit
@@ -284,6 +319,8 @@ _UNSCORED_CODES = frozenset(
         "pmi_present_but_ignored",
         "step_dim_withheld",
         "pattern_pitch_tolerance_withheld",
+        "passage_requirement_unsupported",
+        "prismatic_pocket_requirement_unsupported",
         "pocket_not_located",
         "step_position_coincident_with_datum",
         # Neither confirmed nor refuted: the annotation renders no readable text, or the
@@ -314,10 +351,11 @@ _UNSCORED_CODES = frozenset(
 #: can check rather than assume. It found `section_dropped` scoring nowhere while a comment
 #: beside its emission asserted the opposite.
 #:
-#: Eleven of these — every entry except `gdt_dropped` and `pmi_dropped` — are codes handed
+#: Fifteen of these — every entry except `gdt_dropped` and `pmi_dropped` — are codes handed
 #: to a leader job as ``drop_code`` data: `leaders.py`'s one drop recorder stages them
 #: ``"validation"`` on a rendered-geometry failure and ``"placement"`` otherwise, so all
-#: eleven have the `section_dropped` shape. TEN of them were invisible to the first audit,
+#: fifteen have the `section_dropped` shape. Ten of the original thirteen were invisible
+#: to the first audit,
 #: which read only codes written as literals AT a producer call, and were new to these
 #: registers; `callout_dropped` is the eleventh and was neither — it is also written as a
 #: literal at three producer calls, so the audit always saw it (#1176 review r5, corrected
@@ -329,14 +367,20 @@ _STAGE_ROUTED_CODES = frozenset(
         "gdt_dropped",
         "pmi_dropped",
         "boss_dia_dropped",
+        "blend_dropped",
         "chamfer_dropped",
+        "circular_blind_step_dropped",
         "diameter_dropped",
         "fillet_dropped",
+        "paired_ramp_step_dropped",
         "flat_dropped",
         "groove_dropped",
+        "pad_height_dropped",
         "pocket_dropped",
         "polygonal_boss_dropped",
         "polygonal_stock_dropped",
+        "rectangular_blind_slot_dropped",
+        "round_bottom_blind_slot_dropped",
         "slot_dropped",
     }
 )
@@ -350,11 +394,25 @@ _STAGE_ROUTED_CODES = frozenset(
 #: individually, so the prefix register governs only the interpolating sites — it can never
 #: reclassify a code somebody spelled out.
 _UNSCORED_CODE_PREFIXES = (
+    "blend_requirement_",
+    "chamfer_requirement_",
     "channel_requirement_",
+    "circular_blind_step_requirement_",
+    "fillet_requirement_",
+    "paired_ramp_step_requirement_",
+    "through_step_requirement_",
     "flat_requirement_",
     "gear_requirement_",
+    "groove_requirement_",
     "hole_requirement_",
+    "pad_requirement_",
+    "plate_requirement_",
+    "pocket_requirement_",
+    "pocket_pattern_requirement_",
+    "polygonal_boss_requirement_",
     "polygonal_stock_requirement_",
+    "rectangular_blind_slot_requirement_",
+    "round_bottom_blind_slot_requirement_",
     "slot_requirement_",
 )
 
@@ -553,28 +611,35 @@ def _empty_completeness(reason: str, unrecognised: int) -> dict:
     }
 
 
-def _completeness_component(recognition, features, registry, omissions, issues) -> dict:
+def _completeness_component(
+    recognition,
+    features,
+    registry,
+    omissions,
+    issues,
+    *,
+    dimension_plan=None,
+    part=None,
+    requirement_outcomes: Mapping[str, tuple[Any, ...]] | None = None,
+) -> dict:
     unrecognised = sum(issue.code == _UNRECOGNISED_GEOMETRY_CODE for issue in issues)
     if recognition is None:
         return _empty_completeness("physical recognition inventory unavailable", unrecognised)
 
-    outcomes = {
-        "channels": channel_requirement_outcomes(recognition, features, registry, omissions),
-        "flats": flat_requirement_outcomes(recognition, features, registry, omissions),
-        "holes": [],
-        "hole_patterns": [],
-        "polygonal_stock": polygonal_stock_outcomes(recognition, features, registry, omissions),
-        "slots": [],
-        "slot_patterns": [],
-    }
-    for outcome in slot_requirement_outcomes(recognition, features, registry, omissions):
-        outcomes["slot_patterns" if outcome.source_kind == "slot_pattern" else "slots"].append(
-            outcome
+    # Every family has its own typed outcome record; this heterogeneous aggregation only uses
+    # their shared runtime ``state``/``requirement_count`` protocol.
+    outcomes = (
+        requirement_outcomes
+        if requirement_outcomes is not None
+        else recognized_requirement_outcomes(
+            recognition,
+            features,
+            registry,
+            omissions,
+            dimension_plan=dimension_plan,
+            part=part,
         )
-    for hole_outcome in hole_requirement_outcomes(recognition, features, registry, omissions):
-        outcomes[
-            "hole_patterns" if hole_outcome.source_kind == "hole_pattern" else "holes"
-        ].append(hole_outcome)
+    )
 
     counts: Counter = Counter()
     by_family: dict[str, int] = {}
@@ -583,15 +648,37 @@ def _completeness_component(recognition, features, registry, omissions, issues) 
         for outcome in family_outcomes:
             requirement_count = int(getattr(outcome, "requirement_count", 1))
             counts[outcome.state] += requirement_count
-            family_count += requirement_count
+            if outcome.state != "inapplicable":
+                family_count += requirement_count
         by_family[family] = family_count
-    requirements = sum(counts.values())
+    # These recognised physical occurrences have reviewed, explicit unsupported outcomes.  The
+    # Passage count uses only its authoritative rich inventory; the legacy projection is never a
+    # second requirement. PrismaticPocket and AngledStep use their aggregate-reconciled
+    # inventories after the provider assigned contested records to those physical owners.
+    for family, inventory in (
+        ("angled_steps", "angled_steps"),
+        ("passages", "section_passages"),
+        ("prismatic_pockets", "prismatic_pockets"),
+    ):
+        unsupported_count = len(getattr(recognition, inventory, ()))
+        if unsupported_count:
+            counts["unsupported"] += unsupported_count
+            by_family[family] = unsupported_count
+    requirements = sum(count for state, count in counts.items() if state != "inapplicable")
     recognised = {
         family
         for attribute, family in _RECOGNISED_REQUIREMENT_FAMILIES.items()
         if getattr(recognition, attribute, ())
     }
-    unaudited = sorted(recognised - set(_AUDITED_FAMILIES))
+    # Undecided physical inventories have no requirement grammar yet, so they cannot enter
+    # the denominator. They must nevertheless remain visible at runtime: classifying them only
+    # in a static exhaustiveness register would let a real occurrence produce a clean-looking
+    # zero-requirement drawing (#1382).
+    undecided = {
+        inventory for inventory in _UNDECIDED_INVENTORIES if getattr(recognition, inventory, ())
+    }
+    unaudited_requirements = recognised - set(_AUDITED_FAMILIES)
+    unaudited = sorted(unaudited_requirements | undecided)
     covered = counts["placed"] + counts["satisfied_by_structured_note"]
     audited_score = covered / requirements if requirements else None
     if requirements:
@@ -599,7 +686,17 @@ def _completeness_component(recognition, features, registry, omissions, issues) 
             "audited_score covers recognized requirements in audited families only; it is "
             "not evidence that the drawing is complete"
         )
-    elif unaudited:
+    elif undecided and unaudited_requirements:
+        reason = (
+            "recognized requirements and inventories with deferred requirement semantics "
+            "exist only in families without outcome ledgers"
+        )
+    elif undecided:
+        reason = (
+            "recognized inventories exist only in families whose requirement semantics and "
+            "outcome ledgers are deferred"
+        )
+    elif unaudited_requirements:
         reason = "recognized requirements exist only in families without outcome ledgers"
     else:
         reason = "no auditable recognized requirements"
@@ -633,6 +730,9 @@ def quality_components(
     error_penalty: float,
     warning_penalty: float,
     has_asserted_content: bool,
+    dimension_plan=None,
+    part=None,
+    requirement_outcomes: Mapping[str, tuple[Any, ...]] | None = None,
     _aggregation=None,
 ) -> dict:
     """Return independently usable drawing-quality observations.
@@ -661,7 +761,14 @@ def quality_components(
     fidelity_issues = [issue for issue in issues if _is_fidelity_issue(issue)]
     return {
         "completeness": _completeness_component(
-            recognition, features, registry, omissions, issues
+            recognition,
+            features,
+            registry,
+            omissions,
+            issues,
+            dimension_plan=dimension_plan,
+            part=part,
+            requirement_outcomes=requirement_outcomes,
         ),
         "restraint": {
             "available": False,

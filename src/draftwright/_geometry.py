@@ -5,7 +5,7 @@ the IR), or do pure page-plane maths (AABB overlap, segment/box intersection,
 number formatting — the #700 shared home), and carry no drawing, layout or page
 knowledge. They live here, not in :mod:`draftwright._core`, so the IR waist
 (:mod:`draftwright.model`) can use them without importing the stage-level
-drawing grab-bag (ADR 0008; #584 WP2). This module imports nothing from
+drawing grab-bag (ADR 1 (was 0008); #584 WP2). This module imports nothing from
 ``draftwright`` — it is the bottom of the DAG.
 """
 
@@ -13,10 +13,13 @@ from __future__ import annotations
 
 import logging
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass
+from decimal import Decimal
+from inspect import signature
 
 from b123d_recognisers import full_cylinders
-from build123d import Compound
+from build123d import Compound, Shape
 
 _log = logging.getLogger(__name__)
 
@@ -24,7 +27,7 @@ _log = logging.getLogger(__name__)
 # a circle in plan, an x-channel is a cross-section in side.
 #
 # The ONE owner of that routing. It was duplicated as a bare literal at eight sites across
-# six modules, which is ADR 0018's own sentence about itself — "which views should exist is
+# six modules, which is ADR 2 (was 0018)'s own sentence about itself — "which views should exist is
 # a decision nothing currently owns" — in miniature: a mapping copied eight times cannot be
 # taught that a view is absent, and the engine's answer to a missing view was a `KeyError`
 # raised inside a centermark pass. Route through this, never re-spell it (#1130).
@@ -41,6 +44,205 @@ _EDGE_ON = {"x": "front", "y": "side", "z": "front"}
 # convention once, this lets surface-bound annotations choose a radial direction that the
 # requested view can actually show (#1276).
 _VIEW_AXES = {"plan": ("x", "y"), "front": ("x", "z"), "side": ("y", "z")}
+
+# Turned-part classification is shared by the full analysis pipeline and the standalone
+# record-to-IR adapter.  Keeping it below both prevents the adapter from probing the turned-step
+# recogniser before the aggregate merely to obtain an applicability flag (ADR 3 (was 0017)).
+_SQUARENESS_TOL = 0.05
+_OD_FILL_MIN = 0.8
+_OD_AXIS_TOL = 0.05
+_COAXIAL_TOL = 1e-3
+
+# ``b123d-recognisers`` publishes independently quantised public measurements at six
+# significant figures. These model-neutral bounds reconstruct the possible geometry from the
+# published decimal cells without coupling either the IR waist or linting to provider internals.
+_PROVIDER_SIGNIFICANT_FIGURES = 6
+_PROVIDER_COORDINATE_FLOOR = 1e-6
+
+
+def _provider_cell(value: float) -> tuple[float, float]:
+    """Preimage cell of one six-significant-figure published value.
+
+    At a power of ten the adjacent value toward zero is on the previous decade's finer grid,
+    so the two half-widths are deliberately derived independently.
+    """
+    published = Decimal(str(value))
+    magnitude = abs(published)
+    if magnitude == 0:
+        return 0.0, 0.0
+    exponent = magnitude.adjusted()
+    away_quantum = Decimal(1).scaleb(exponent - (_PROVIDER_SIGNIFICANT_FIGURES - 1))
+    toward_quantum = (
+        away_quantum / 10 if magnitude == Decimal(1).scaleb(exponent) else away_quantum
+    )
+    if published > 0:
+        lower_neighbour = published - toward_quantum
+        upper_neighbour = published + away_quantum
+    else:
+        lower_neighbour = published - away_quantum
+        upper_neighbour = published + toward_quantum
+    return float((lower_neighbour + published) / 2), float((published + upper_neighbour) / 2)
+
+
+def _difference_cell(left: float, right: float) -> tuple[float, float]:
+    left_low, left_high = _provider_cell(left)
+    right_low, right_high = _provider_cell(right)
+    return left_low - right_high, left_high - right_low
+
+
+def _absolute_cell(low: float, high: float) -> tuple[float, float]:
+    minimum = 0.0 if low <= 0.0 <= high else min(abs(low), abs(high))
+    return minimum, max(abs(low), abs(high))
+
+
+def _cells_overlap(left: tuple[float, float], right: tuple[float, float]) -> bool:
+    return (
+        left[0] <= right[1] + _PROVIDER_COORDINATE_FLOOR
+        and right[0] <= left[1] + _PROVIDER_COORDINATE_FLOOR
+    )
+
+
+def quantised_span_agrees(start: float, end: float, published: float) -> bool:
+    """Whether independently published endpoints can describe *published* span."""
+    possible_span = _absolute_cell(*_difference_cell(end, start))
+    published_span = _provider_cell(published)
+    return _cells_overlap(possible_span, (max(0.0, published_span[0]), published_span[1]))
+
+
+def quantised_radius_agrees(
+    point: Sequence[float],
+    centre: Sequence[float],
+    published: float,
+) -> bool:
+    """Whether independently published points can describe *published* radius."""
+    component_ranges = tuple(
+        _absolute_cell(*_difference_cell(point[index], centre[index])) for index in range(2)
+    )
+    possible_radius = (
+        math.hypot(*(component[0] for component in component_ranges)),
+        math.hypot(*(component[1] for component in component_ranges)),
+    )
+    published_radius = _provider_cell(published)
+    return _cells_overlap(
+        possible_radius,
+        (max(0.0, published_radius[0]), published_radius[1]),
+    )
+
+
+@dataclass(frozen=True)
+class _CylinderClassification:
+    z_diams: tuple[float, ...]
+    cross_diams: tuple[float, ...]
+    od_diam: float | None
+    od_axis: str
+    is_rotational: bool
+
+
+def dedup_diams(cyls, tol: float = 0.15) -> list[float]:
+    """Return sorted-descending cylinder diameters merged within *tol*."""
+    raw = sorted({c["diameter"] for c in cyls}, reverse=True)
+    merged: list[float] = []
+    for diameter in raw:
+        if not merged or abs(diameter - merged[-1]) > tol:
+            merged.append(round(diameter, 2))
+    return merged
+
+
+def _is_rotational(x_size, y_size, od_diam, od_axis_offset) -> bool:
+    """Return whether one external cylinder fills a concentric square envelope."""
+    if od_diam is None:
+        return False
+    envelope = max(x_size, y_size)
+    return bool(
+        abs(x_size - y_size) <= _SQUARENESS_TOL * envelope
+        and od_diam >= _OD_FILL_MIN * envelope
+        and od_axis_offset <= _OD_AXIS_TOL * envelope
+    )
+
+
+def _classify_rotational_cylinders(
+    cylinders,
+    *,
+    sizes: tuple[float, float, float],
+    centre: tuple[float, float, float],
+    allow_stepped_cross_axis: bool = False,
+) -> _CylinderClassification:
+    """Classify one shared public cylinder inventory without another topology scan."""
+    z_cyls, cross_cyls = cylinders
+    full_z = full_cylinders(z_cyls)
+    z_diams = dedup_diams(full_z)
+    cross_full = full_cylinders(cross_cyls)
+    cross_diams = dedup_diams(cross_full)
+    size = dict(zip("xyz", sizes, strict=True))
+    origin = dict(zip("xyz", centre, strict=True))
+
+    od_cyl = max(
+        (cylinder for cylinder in full_z if cylinder["external"]),
+        key=lambda cylinder: cylinder["diameter"],
+        default=None,
+    )
+    od_diam = None
+    if od_cyl:
+        raw_od = od_cyl["diameter"]
+        od_diam = min(z_diams, key=lambda diameter: abs(diameter - raw_od))
+    od_axis_offset = (
+        math.hypot(
+            od_cyl["axis_xyz"][0] - origin["x"],
+            od_cyl["axis_xyz"][1] - origin["y"],
+        )
+        if od_cyl
+        else 0.0
+    )
+    is_rotational = _is_rotational(size["x"], size["y"], od_diam, od_axis_offset)
+    od_axis = "z"
+    if not is_rotational:
+        for axis in ("x", "y"):
+            external = [
+                cylinder
+                for cylinder in cross_full
+                if cylinder.get("axis") == axis and cylinder["external"]
+            ]
+            diameters = {round(cylinder["diameter"], 1) for cylinder in external}
+            if len(diameters) != 1 and not allow_stepped_cross_axis:
+                continue
+            candidate = max(external, key=lambda cylinder: cylinder["diameter"], default=None)
+            if candidate is None:
+                continue
+            if allow_stepped_cross_axis and len(external) > 1:
+                # A framed shaft is one physical body's coaxial OD bands. Merely allowing
+                # multiple bands would also classify an eccentric parallel cylinder (including
+                # equal-diameter bands) or detached bodies as one turned part after frame
+                # normalisation. The provider inventory already carries both facts, so keep
+                # this framed-path policy local and fail closed without another topology scan
+                # (#1357 review). The raw path retains its historical same-diameter rule.
+                radial = tuple(index for index, letter in enumerate("xyz") if letter != axis)
+                candidate_axis = candidate["axis_xyz"]
+                if any(
+                    cylinder["solid_idx"] != candidate["solid_idx"]
+                    or math.hypot(
+                        cylinder["axis_xyz"][radial[0]] - candidate_axis[radial[0]],
+                        cylinder["axis_xyz"][radial[1]] - candidate_axis[radial[1]],
+                    )
+                    > _COAXIAL_TOL
+                    for cylinder in external
+                ):
+                    continue
+            p0, p1 = (coordinate for coordinate in "xyz" if coordinate != axis)
+            offset = math.hypot(
+                candidate["axis_xyz"]["xyz".index(p0)] - origin[p0],
+                candidate["axis_xyz"]["xyz".index(p1)] - origin[p1],
+            )
+            if _is_rotational(size[p0], size[p1], candidate["diameter"], offset):
+                od_diam, od_axis, is_rotational = candidate["diameter"], axis, True
+                break
+
+    return _CylinderClassification(
+        tuple(z_diams),
+        tuple(cross_diams),
+        od_diam,
+        od_axis,
+        is_rotational,
+    )
 
 
 def _radial_axis_in_view(axis: str, view: str) -> str:
@@ -157,7 +359,7 @@ def _xyz(loc) -> tuple[float, float, float]:
 class HoleRef:
     """A position-keyed reference to a hole — the IR-typed value the cover / hole-table
     bookkeeping matches on, so the shared escalation never needs a recogniser ``Hole``
-    object (ADR 0008 Amendment 6). Built from any location via :meth:`of` (rounded, so
+    object (ADR 1 (was 0008 Amendment 6)). Built from any location via :meth:`of` (rounded, so
     two references at the same position compare equal)."""
 
     x: float
@@ -188,6 +390,23 @@ def _solids_body(part, src: str = "part"):
     ):
         _log.info("Dropping non-solid geometry from %s (PMI presentation data)", src)
     return body
+
+
+_SCALE_SUPPORTS_ABOUT = "about" in signature(Shape.scale).parameters
+
+
+def _scale_world(shape, factor: float):
+    """Scale a build123d shape about the world origin on every supported version.
+
+    build123d 0.9/0.10's factor-only ``Shape.scale`` uses the world origin. Version 0.11 added
+    ``about=`` and changed the default to ``shape.location.position``. Draftwright supports both
+    dependency lines, so select the signature once and state the same world-origin transform on
+    either API without converting analytic geometry through a general affine transform.
+    """
+
+    if _SCALE_SUPPORTS_ABOUT:
+        return shape.scale(factor, about=(0, 0, 0))
+    return shape.scale(factor)
 
 
 def _axis_letter(obj) -> str:
@@ -222,6 +441,19 @@ def plane_axes(axis) -> tuple[tuple[float, float, float], tuple[float, float, fl
     """
     letter = axis if isinstance(axis, str) else _axis_letter_of(axis)
     return _PLANE_AXES[letter]
+
+
+def plane_axis_names(axis) -> tuple[str, str]:
+    """Return the world-axis names of :func:`plane_axes`' canonical ``(u, v)`` basis.
+
+    Principal rectangular features carry scalar bounds rather than oriented vectors.  This
+    names the same shared basis without making each record-to-IR adapter re-spell a second
+    axis table (and eventually transpose one orientation again, as happened before #969).
+    """
+    return tuple(
+        "xyz"[next(index for index, component in enumerate(vector) if component)]
+        for vector in plane_axes(axis)
+    )  # type: ignore[return-value]
 
 
 def _axis_letter_of(axis) -> str:
@@ -366,7 +598,7 @@ def _boxes_overlap(a, b) -> bool:
 def _segment_crosses_box(p1, p2, box) -> bool:
     """True when line segment *p1*-*p2* intersects axis-aligned *box*
     ``(x0, y0, x1, y1)`` — the precise counterpart of ``_box_hits`` for a
-    genuinely diagonal shaft (ADR 0009 P4/#318, #305: "a diagonal leader's box
+    genuinely diagonal shaft (ADR 2 (was 0009) P4/#318, #305: "a diagonal leader's box
     over-claims its empty triangle"). Boxing an angled segment for a coarse
     reject is correct and cheap; boxing it for the final accept/reject decision
     over-avoids free space a real diagonal never crosses. Endpoint-in-box and
@@ -604,7 +836,7 @@ def _leader_ink_crosses_box(
 # The field is a bounded set of page-plane triangles — the caller lowers the projected
 # view faces (that half needs OCC and lives above this leaf). Everything below is exact
 # rational-arithmetic clipping: no rasterisation, no sampling, no tolerance sweep, so
-# the answer is identical on every platform (ADR 0001).
+# the answer is identical on every platform (ADR 4 (was 0001)).
 
 #: Page mm of material below which a shaft is not treated as cutting the part.
 #:

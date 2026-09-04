@@ -1,4 +1,4 @@
-"""Hole / pattern annotation pass (#138 / ADR 0005, P5d).
+"""Hole / pattern annotation pass (#138 / ADR 1 (was 0005), P5d).
 
 The largest annotation capability: per-hole callouts and balloons, location
 dimensions (incl. side-drilled #133), pitch/grid pattern dims, hole-chart
@@ -45,6 +45,8 @@ from draftwright.annotations._common import (
     _same_location_ordinate,
     _with_hole_center_coverage,
     _with_hole_location_coverage,
+    annotation_ink_clear,
+    annotation_obstacle_boxes,
     box_within_page_and_clear,
     carve_free_position,
     carve_free_segments,
@@ -101,6 +103,7 @@ def _profiled_callout_leader(*, callout, **kw):
         )
     leader = Leader(callout=callout, **kw)
     leader.label = semantic_label
+    leader.pdf_text_relative_specs = tuple(getattr(callout, "pdf_text_relative_specs", ()))
     leader.covers_profiles = getattr(callout, "covers_profiles", ())
     leader.covers_hole_requirements = getattr(callout, "covers_hole_requirements", ())
     leader.source_ids = tuple(getattr(callout, "source_ids", ()))
@@ -535,7 +538,7 @@ def add_feature_diameter(dwg, feature, model, *, ctx) -> str:
         )
     # 7-tuple (anchor, dia, value_text, feature, tolerance, thread, mids): a manual callout
     # honours the compiler-approved display text, a declared ± tolerance (P2a, #28), and an
-    # external thread aspect (#859), like the auto-pass — and carries the same ADR 0010 claim,
+    # external thread aspect (#859), like the auto-pass — and carries the same ADR 5 (was 0010) claim,
     # so a hand-placed ø callout is verifiable on exactly the terms an auto-placed one is
     # (#1227).
     items = [
@@ -645,7 +648,7 @@ def _record_callout_drop(
         source=getattr(callout, "source_ids", ()),
         outcome_stage=outcome_stage,
     )
-    # First-class escalation object alongside the lint code (ADR 0009 Amdt 1, #351 PR-2).
+    # First-class escalation object alongside the lint code (ADR 2 (was 0009 Amdt 1), #351 PR-2).
     # The resolver (`_maybe_tabulate_holes`) triggers on these; the lint code stays for
     # coverage. 1:1 with the code emit, so the object trigger is byte-identical.
     ctx.escalations.append(
@@ -671,6 +674,7 @@ class _OffHole(NamedTuple):
 
     axis: str
     location: tuple
+    feature: HoleFeature | PatternFeature
     approved: dict
 
 
@@ -702,14 +706,17 @@ def _approved_off_axis_holes(plan) -> list[_OffHole]:
         # Derived, not spelled: the role is a CONTRACT between the compiler that mints it
         # and this filter that reads it. A literal here is a second owner — renaming the
         # declaration would make every side-hole position dim vanish (#966).
-        if entry.role != HoleFeature.LOCATION_OFF_AXIS_STEM:
+        if entry.axis == "z" or entry.role not in {
+            HoleFeature.LOCATION_OFF_AXIS_STEM,
+            PatternFeature.LOCATION_STEM,
+        }:
             continue
         assert entry.span is not None  # off-axis entries always carry datum → member
         member = entry.span[1]
         key = (entry.ref, member)
         hole = holes.get(key)
         if hole is None:
-            hole = holes[key] = _OffHole(entry.axis, member, {})
+            hole = holes[key] = _OffHole(entry.axis, member, resolve_feature(entry.ref), {})
         hole.approved[entry.discriminator] = entry
     return list(holes.values())
 
@@ -816,12 +823,11 @@ def _off_axis_queue(
         )
 
 
-def _off_axis_owner(ctx, hole_locs):
+def _off_axis_owner(holes):
     # The IR hole feature owning a side-drilled location dim, or None when the dim's
     # offset is shared by >1 distinct feature (unowned, so drop can't over-strip a
     # sibling — mirrors the #398c shared-coordinate rule). Promoted (#638).
-    feats = {ctx.feature_of_hole_at(loc) for loc in hole_locs}
-    feats.discard(None)
+    feats = {hole.feature for hole in holes}
     return next(iter(feats)) if len(feats) == 1 else None
 
 
@@ -853,7 +859,7 @@ def _locate_across(dwg, ctx, a: Analysis, off):
         if yo * a.SCALE < 1.0:
             continue
         name = f"dim_loc_side_y{round(yo * 100)}"
-        loc_by_name.setdefault(name, []).append(h.location)
+        loc_by_name.setdefault(name, []).append(h)
         mids_by_name.setdefault(name, []).append(entry.id)
         coverage_by_name.setdefault(name, []).append(_hole_location_coverage_fact(entry))
         order_y[name] = yo
@@ -891,7 +897,7 @@ def _locate_across(dwg, ctx, a: Analysis, off):
                     )
                 ),
             )
-    feats = {nm: _off_axis_owner(ctx, locs) for nm, locs in loc_by_name.items()}
+    feats = {nm: _off_axis_owner(holes) for nm, holes in loc_by_name.items()}
     measurements = {name: tuple(ids) for name, ids in mids_by_name.items()}
 
     def _fallback(name):
@@ -976,7 +982,7 @@ def _locate_along_planar(dwg, ctx, a: Analysis, off):
         if xo * a.SCALE < 1.0:
             continue
         name = f"dim_loc_front_x{round(xo * 100)}"
-        x_loc_by_name.setdefault(name, []).append(h.location)
+        x_loc_by_name.setdefault(name, []).append(h)
         x_mids_by_name.setdefault(name, []).append(entry.id)
         x_coverage_by_name.setdefault(name, []).append(_hole_location_coverage_fact(entry))
         order_x[name] = xo
@@ -994,7 +1000,7 @@ def _locate_along_planar(dwg, ctx, a: Analysis, off):
                     ),
                 )
             )
-    x_feats = {nm: _off_axis_owner(ctx, locs) for nm, locs in x_loc_by_name.items()}
+    x_feats = {nm: _off_axis_owner(holes) for nm, holes in x_loc_by_name.items()}
     x_measurements = {name: tuple(ids) for name, ids in x_mids_by_name.items()}
     _off_axis_queue(
         dwg,
@@ -1032,7 +1038,7 @@ def _locate_along_z(dwg, ctx, a: Analysis, off):
     for h in off:
         entry = h.approved.get("z")
         if entry is not None and round(entry.value, 2) * a.SCALE >= 1.0:
-            z_locs.setdefault(round(entry.value, 2), []).append(h.location)
+            z_locs.setdefault(round(entry.value, 2), []).append(h)
             z_mids.setdefault(round(entry.value, 2), []).append(entry.id)
             z_coverage.setdefault(round(entry.value, 2), []).append(
                 _hole_location_coverage_fact(entry)
@@ -1047,7 +1053,7 @@ def _locate_along_z(dwg, ctx, a: Analysis, off):
             continue
         seen_z.add(zo)
         hz = h.location[2]
-        owner = _off_axis_owner(ctx, z_locs[zo])
+        owner = _off_axis_owner(z_locs[zo])
 
         def _zc(view, p_lo, p_hi, edge, _zo=zo, _lbl=entry.value_text):
             return (
@@ -1181,7 +1187,7 @@ def _locate_off_axis_holes(dwg, ctx, a: Analysis, *, which, plan):
     its Z to the right — the side view has no left strip); a Y-axis hole is a
     circle in the FRONT view (locate its X below and its Z to the right). Each
     view's strip is carved around the annotations already placed on it and the dims
-    are spaced within the free segments by one ``plan_strip`` solve (ADR 0009 / #321
+    are spaced within the free segments by one ``plan_strip`` solve (ADR 2 (was 0009) / #321
     P1b — the collect-then-solve seam replacing the old ``allocate`` + ``_box_hits``
     tier-retry). A dim that finds no room is dropped and recorded as
     ``off_axis_location_dropped`` — never force-stacked. Holes already covered by a
@@ -1208,6 +1214,8 @@ def _locate_off_axis_holes(dwg, ctx, a: Analysis, *, which, plan):
         # prevents ``a.is_rotational``. Treat either classification as a valid
         # turning axis so the centreline, not redundant half-envelope offsets,
         # locates the bore (#881).
+        if isinstance(h.feature, PatternFeature) and a.recognition_frame is not None:
+            return False
         turning_axis = a.od_axis if a.is_rotational else getattr(a.prof, "axis", None)
         if turning_axis is None or h.axis != turning_axis:
             return False
@@ -1246,11 +1254,11 @@ def _add_furniture(
 ):
     """Pattern sheet furniture, added once its callout is placed (#92). Driven by the
     IR `PatternFeature` *feat* (members / bcd / pitch / grid), not a recogniser
-    `Pattern` — ADR 0008 Amendment 6. Plain (unpatterned) plan callouts carry no
+    `Pattern` — ADR 1 (was 0008 Amendment 6). Plain (unpatterned) plan callouts carry no
     furniture; their scattered-hole-table coverage is recorded at the emit site (not
     here) so it survives finalize's ``place_furniture=False`` (#426 Ph4c).
 
-    The split between what comes off the FEATURE and what comes off *plan* is the ADR 0016
+    The split between what comes off the FEATURE and what comes off *plan* is the ADR 4 (was 0016)
     rule, not a convenience: the bolt-circle centreline is furniture *geometry* sized by the
     physical circle, so it reads `feat.bcd` exactly as a centre mark reads its hole's
     diameter (#875); the pitch and grid dims PRINT a number, so their values are approved
@@ -1384,43 +1392,8 @@ def _add_grid_pitch_dims(
     name_prefix="dim_pitch",
     drop_code=None,
 ):
-    """Both pitch dimensions of a rectangular grid — one along each lattice axis,
-    each labelled ``(n-1)× pitch`` (#92).  The two axes are recovered as the two
-    shortest near-orthogonal inter-hole page vectors (the recogniser's own
-    basis); this is used only to pick the dimension endpoints and the per-axis
-    count, not to re-recognise the grid (recognition stays upstream). *members* are
-    the grid's member locations; *nominals* is ``(row_pitch, col_pitch)``."""
+    """Both pitch dimensions of a rectangular grid from its recognised lattice frame."""
     pts = [to_page(m) for m in members]
-    diffs = []
-    for ia in range(len(pts)):
-        for ib in range(len(pts)):
-            if ia == ib:
-                continue
-            dx, dy = pts[ib][0] - pts[ia][0], pts[ib][1] - pts[ia][1]
-            length = math.hypot(dx, dy)
-            if length > 1e-6:
-                diffs.append((length, dx, dy))
-    if not diffs:
-        return
-    diffs.sort()
-    l1, ax, ay = diffs[0]
-    u1 = (ax / l1, ay / l1)
-    basis2 = next(
-        (
-            (length, dx, dy)
-            for length, dx, dy in diffs
-            if abs((dx * u1[0] + dy * u1[1]) / length) < 0.2
-        ),
-        None,
-    )
-    if basis2 is None:
-        return
-    l2, bx, by = basis2
-    u2 = (bx / l2, by / l2)
-
-    # The two pitch values are not identities: on a square-pitch grid they are equal. Map
-    # recovered page axes to the IR's row/column lattice basis instead. `angle` names the
-    # column direction in the plane_axes frame; the perpendicular direction is the row.
     actual_feature = resolve_feature(feature)
     by_discriminator = {
         entry.discriminator: entry
@@ -1430,14 +1403,35 @@ def _add_grid_pitch_dims(
     pu, pv = plane_axes(actual_feature.frame.axis)
     angle = math.radians(actual_feature.angle or 0.0)
     column_world = tuple(math.cos(angle) * pu[k] + math.sin(angle) * pv[k] for k in range(3))
+    row_world = tuple(-math.sin(angle) * pu[k] + math.cos(angle) * pv[k] for k in range(3))
     origin = actual_feature.frame.origin
     page_origin = to_page(origin)
-    page_column = to_page(tuple(origin[k] + column_world[k] for k in range(3)))
-    dx, dy = page_column[0] - page_origin[0], page_column[1] - page_origin[1]
-    norm = math.hypot(dx, dy)
-    column_page = (dx / norm, dy / norm)
 
-    def _axis_dim(u, pitch_page, sub):
+    def _page_axis(world, discriminator):
+        pitch = by_discriminator.get(discriminator)
+        if pitch is None:
+            return None
+        endpoint = to_page(tuple(origin[k] + world[k] for k in range(3)))
+        dx, dy = endpoint[0] - page_origin[0], endpoint[1] - page_origin[1]
+        unit_scale = math.hypot(dx, dy)
+        if unit_scale <= 1e-9:
+            return None
+        return ((dx / unit_scale, dy / unit_scale), abs(pitch.value) * unit_scale, pitch)
+
+    axes = [
+        axis
+        for axis in (
+            _page_axis(column_world, "col"),
+            _page_axis(row_world, "row"),
+        )
+        if axis is not None
+    ]
+    if len(axes) != 2:
+        return
+    axes.sort(key=lambda axis: (round(axis[1], 9), axis[2].discriminator or ""))
+    min_pitch_page = min(axis[1] for axis in axes)
+
+    def _axis_dim(u, pitch_page, pitch, sub):
         perp = (-u[1], u[0])
 
         def along(idx):
@@ -1446,19 +1440,45 @@ def _add_grid_pitch_dims(
         def across(idx):
             return pts[idx][0] * perp[0] + pts[idx][1] * perp[1]
 
-        lo = min(range(len(pts)), key=along)
-        # Keep the dimension on ONE lattice line: of the holes sharing lo's
-        # perpendicular coordinate, take the far one along u. Picking the global
-        # max-projection hole instead lands on the opposite diagonal corner and
-        # draws the pitch dim diagonally across the grid (#92).
+        # Keep the dimension on ONE lattice line. In plan/front, choose the OUTER line on
+        # the same page side `_place_pitch_dim` prefers. The former `min(..., key=along)`
+        # leaves the perpendicular tie to sub-ulp coordinate noise; 0.4.6 consequently chose
+        # a central short-axis row that occupied the only clear corridor for the long pitch.
+        # Side-view placement uses the same nearest-part-side policy as `_place_pitch_dim`.
+        if view == "side":
+            corner_across = [
+                a.proj.side_x(y) * perp[0] + a.proj.side_z(z) * perp[1]
+                for y in (a.bb.min.Y, a.bb.max.Y)
+                for z in (a.bb.min.Z, a.bb.max.Z)
+            ]
+            point_across = [across(idx) for idx in range(len(pts))]
+            positive_reach = max(corner_across) - max(point_across)
+            negative_reach = min(point_across) - min(corner_across)
+            extremum = max if positive_reach <= negative_reach else min
+            anchor = extremum(
+                range(len(pts)),
+                key=lambda idx: (across(idx), along(idx)),
+            )
+        else:
+            preferred = (-0.3, 1.0) if view == "plan" else (-0.3, -1.0)
+            toward_positive = perp[0] * preferred[0] + perp[1] * preferred[1] >= 0.0
+            extremum = max if toward_positive else min
+            anchor = extremum(
+                range(len(pts)),
+                key=lambda idx: (across(idx), along(idx)),
+            )
+        # Of the holes sharing the selected perpendicular coordinate, take both extremes
+        # along u. Picking the global max-projection hole instead lands on the opposite
+        # diagonal corner and draws the pitch dim diagonally across the grid (#92).
         # Tolerance must be below the PERPENDICULAR lattice-line spacing — which
         # is the *other* axis' pitch, so use the smaller of the two pitches.
         # (pitch_page * 0.25 fails on a high-aspect grid: for the long axis the
         # perpendicular lines are only the short pitch apart, and a quarter of
         # the long pitch can exceed that, merging two lines → diagonal again.)
-        lo_across = across(lo)
-        line_tol = min(l1, l2) * 0.25
-        line = [idx for idx in range(len(pts)) if abs(across(idx) - lo_across) < line_tol]
+        anchor_across = across(anchor)
+        line_tol = min_pitch_page * 0.25
+        line = [idx for idx in range(len(pts)) if abs(across(idx) - anchor_across) < line_tol]
+        lo = min(line, key=along)
         hi = max(line, key=along)
         # The holes this dim actually spans, in the order it spans them. `members[lo:hi+1]`
         # is a slice of the IR's member order, which on a grid walks the lattice in neither
@@ -1468,10 +1488,6 @@ def _add_grid_pitch_dims(
         spanned = [members[idx] for idx in sorted(line, key=along)]
         span = along(hi) - along(lo)
         n = round(span / pitch_page) + 1
-        discriminator = (
-            "col" if abs(u[0] * column_page[0] + u[1] * column_page[1]) > 0.7 else "row"
-        )
-        pitch = by_discriminator[discriminator]
         _place_pitch_dim(
             dwg,
             a,
@@ -1488,8 +1504,8 @@ def _add_grid_pitch_dims(
             ctx=ctx,
         )
 
-    _axis_dim(u1, l1, 0)
-    _axis_dim(u2, l2, 1)
+    for sub, (unit, pitch_page, pitch) in enumerate(axes):
+        _axis_dim(unit, pitch_page, pitch, sub)
 
 
 def _pitch_text(pitch, members, draft, *, ctx) -> str:
@@ -1752,22 +1768,41 @@ def _place_pitch_dim(
                 or bb[3] > page_box[3]
             ):
                 continue
-            if _box_hits(bb, obstacles):
+            exact_label_gate = drop_code == "pocket_pattern_dim_dropped"
+            if not exact_label_gate and _box_hits(bb, obstacles):
                 continue
-            # Analytically clear — build the real geometry ONCE and re-validate its true
-            # box (the #602 validation fallback): a footprint/geometry mismatch degrades
-            # to a wasted probe and the loop resumes, never a collision.
+            # Inside the analytical page hull — build the real geometry ONCE and re-validate
+            # its placement. Pocket patterns use exact segment/label legibility: a single AABB
+            # around their diagonal dimension encloses large empty triangles and made every
+            # rotated arrangement look blocked. Existing hole/slot patterns retain their
+            # conservative whole-ink gate until their later-stage consumers participate in the
+            # same solve; relaxing those here can admit a pitch that a later callout crosses.
             probe = _make(offset, side_vec)
-            real = _geom_box(probe)
-            if (
-                real is None
-                or real[0] < page_box[0]
-                or real[1] < page_box[1]
-                or real[2] > page_box[2]
-                or real[3] > page_box[3]
-                or _box_hits(real, obstacles)
-            ):
-                continue
+            if exact_label_gate:
+                real_boxes = annotation_obstacle_boxes(dwg, probe)
+                if (
+                    not real_boxes
+                    or any(
+                        box[0] < page_box[0]
+                        or box[1] < page_box[1]
+                        or box[2] > page_box[2]
+                        or box[3] > page_box[3]
+                        for box in real_boxes
+                    )
+                    or not annotation_ink_clear(dwg, probe, view=view)
+                ):
+                    continue
+            else:
+                real = _geom_box(probe)
+                if (
+                    real is None
+                    or real[0] < page_box[0]
+                    or real[1] < page_box[1]
+                    or real[2] > page_box[2]
+                    or real[3] > page_box[3]
+                    or _box_hits(real, obstacles)
+                ):
+                    continue
             ctx.place(
                 _clear_and_validate(offset, side_vec, page_box, obstacles, probe),
                 name,
@@ -1778,7 +1813,10 @@ def _place_pitch_dim(
             return
     _log.info("Pitch dimension for the %s× %s array skipped (no room)", n, pitch_text)
     if drop_code is not None:
-        noun = "hole pattern" if drop_code == "hole_pattern_dim_dropped" else "slot pattern"
+        noun = {
+            "hole_pattern_dim_dropped": "hole pattern",
+            "pocket_pattern_dim_dropped": "pocket pattern",
+        }.get(drop_code, "slot pattern")
         ctx.record_issue(
             "warning",
             drop_code,
@@ -1834,7 +1872,7 @@ def render_pocket_patterns(dwg, plan, a, *, ctx, only=None) -> int:
             dsfx=_tol_suffix(dpd.tolerance, draft),
         )
         # Anchor the one representative leader at the array CENTRE (feat.frame.origin) and
-        # attribute it to the pattern feature (ADR 0010 provenance).
+        # attribute it to the pattern feature (ADR 5 (was 0010) provenance).
         name = f"m_pocketpat_{feat.member_width_axis}{feat.member_long_axis}{i}"
         jobs.append(
             (
@@ -1862,6 +1900,10 @@ def render_pocket_patterns(dwg, plan, a, *, ctx, only=None) -> int:
         if name not in placed_names:
             continue
         feat = g.facts
+        # The visible ``N×`` is a physical grouping requirement, not decoration.  Retain
+        # its structured value on the exact feature-owned callout so completeness and other
+        # consumers can verify the ink without parsing a label (ADR 5 (was 0010) / ADR 4 (was 0016)).
+        dwg.registry.named(name).covers_count = feat.count
         members = feat.members or (feat.frame.origin,)
         pitch = g.dim(role="pitch")
         grid = tuple(d for d in g.dims if d.role == "grid_pitch")
@@ -1882,6 +1924,7 @@ def render_pocket_patterns(dwg, plan, a, *, ctx, only=None) -> int:
                 f"dim_pocketpat_pitch_{view}{i}",
                 feature=g.ref,
                 measurement=pitch.id,
+                drop_code="pocket_pattern_dim_dropped",
                 ctx=ctx,
             )
         elif feat.pattern == "grid" and len(grid) == 2:
@@ -1894,6 +1937,7 @@ def render_pocket_patterns(dwg, plan, a, *, ctx, only=None) -> int:
                 grid,
                 to_page,
                 feature=g.ref,
+                drop_code="pocket_pattern_dim_dropped",
                 ctx=ctx,
                 name_prefix="dim_pocketpat_pitch",
             )
@@ -1945,7 +1989,7 @@ def render_slot_patterns(dwg, plan, a, *, ctx, only=None) -> int:
             lsfx=_tol_suffix(lpd.tolerance, draft),
         )
         # Anchor the one representative leader at the array CENTRE (feat.frame.origin) and
-        # attribute it to the pattern feature (ADR 0010 provenance).
+        # attribute it to the pattern feature (ADR 5 (was 0010) provenance).
         name = f"m_slotpat_{feat.member_width_axis}{feat.member_long_axis}{i}"
         jobs.append(
             (
@@ -2114,7 +2158,7 @@ def _leader_anchors(s, edge, side, y, to_page, elbow_dx, draft, scale):
 
 def _build_leader_at(s, edge, side, y, to_page, elbow_dx, draft, scale):
     """The Leader a callout would draw for queue entry *s* at elbow-Y *y* — built but not
-    placed, so its footprint can be checked before committing (ADR 0009 P5 strand 3). Returns
+    placed, so its footprint can be checked before committing (ADR 2 (was 0009) P5 strand 3). Returns
     ``(leader, tip, elbow)``. Promoted (#638; pure)."""
     callout = s[2]
     tip, elbow = _leader_anchors(s, edge, side, y, to_page, elbow_dx, draft, scale)
@@ -2131,10 +2175,10 @@ def _build_leader_at(s, edge, side, y, to_page, elbow_dx, draft, scale):
 
 def _is_central(s, a, to_page, view_cx, view_cy, draft):
     """The coaxial hole whose callout belongs *on* the view-centre row, and so is anchored there
-    (ADR 0009 Amendment 4) — the exact minimum-leader spacing solve can't then slide it off
+    (ADR 2 (was 0009 Amendment 4)) — the exact minimum-leader spacing solve can't then slide it off
     centre on a tie. Prismatic parts only: on a turned/rotational round view the centre-line
     itself runs through this row, so the coaxial bore is pushed OFF it (the ``forbidden``
-    centreline band) — anchoring is gated off exactly when the centreline band is on (ADR 0009
+    centreline band) — anchoring is gated off exactly when the centreline band is on (ADR 2 (was 0009)
     Amendment 5, P4c). ``s[5]`` is the representative hole location. Promoted (#638; pure)."""
     rep = s[5]
     if rep is None or a.is_rotational or a.prof is not None:
@@ -2256,7 +2300,7 @@ def _carve_and_place(cands_in, intervals, key_prefix_local, ctx: _StripCtx, *, a
             anchored=_is_central(s, ctx.a, ctx.to_page, ctx.view_cx, ctx.view_cy, ctx.draft),
         )
 
-    # Selection (ADR 0009 P2) must be GLOBAL across every carved segment,
+    # Selection (ADR 2 (was 0009) P2) must be GLOBAL across every carved segment,
     # not per-segment — a candidate that overflows its nearest segment may
     # still fit a farther one with spare room (#381: the retired banded-DP
     # tried this but approximated feasibility by placed-count alone, which
@@ -2298,8 +2342,9 @@ def _carve_and_place(cands_in, intervals, key_prefix_local, ctx: _StripCtx, *, a
 def _assemble_view_callouts(a, view_of_axis, groups, feature_keys, only, draft):
     """The ``by_view`` callout-assembly loop, promoted out of ``_annotate_holes`` (#638).
 
-    Returns ``(by_view, feat_of_callout)`` — one ``(locs, dia, callout, pat)`` spec per
-    surviving hole/pattern group keyed by target view, plus the callout→feature ``id()`` map.
+    Returns ``(by_view, feat_of_callout, side_of_callout)`` — one
+    ``(locs, dia, callout, pat)`` spec per surviving hole/pattern group keyed by target view,
+    plus callout→feature and callout→authored-side ``id()`` maps.
 
     The IR is the single grouping + geometry authority (#238 B2/B3, Amendment 6):
     build_part_model already split the holes into one DimensionGroup per pattern +
@@ -2309,10 +2354,11 @@ def _assemble_view_callouts(a, view_of_axis, groups, feature_keys, only, draft):
     members are dimensioned; no recogniser Hole/Pattern object is used.
     """
     by_view: dict = {}
-    # Callout → source IR feature, for provenance (#408 / ADR 0010). The callout object
+    # Callout → source IR feature, for provenance (#408 / ADR 5 (was 0010)). The callout object
     # flows unchanged from here through the by_view/queue tuples to both emit sites, so an
     # id() map tags it there without threading a feature through the placement machinery.
     _feat_of_callout: dict[int, object] = {}
+    _side_of_callout: dict[int, str] = {}
     for g in groups:
         feat = g.feature
         if not isinstance(feat, HoleFeature | PatternFeature):
@@ -2342,10 +2388,15 @@ def _assemble_view_callouts(a, view_of_axis, groups, feature_keys, only, draft):
         callout = callout_from_spec(spec, draft, count)
         if callout is None:
             continue
-        view = view_of_axis[feat.frame.axis][0]
+        # The planner has validated this semantic projection against the renderer.  With no
+        # authored intent it is the same axis-derived view as before; with one it is the
+        # requested projection, still placed through the normal corridor solve.
+        view = g.view
         _feat_of_callout[id(callout)] = feat  # provenance (#408)
+        if g.side is not None:
+            _side_of_callout[id(callout)] = g.side
         by_view.setdefault(view, []).append((locs, dia, callout, pat))
-    return by_view, _feat_of_callout
+    return by_view, _feat_of_callout, _side_of_callout
 
 
 def _hc_name(only, view, i, hc_used):
@@ -2494,6 +2545,7 @@ def _place_queue(
     band_intervals,
     elbow_dx,
     feat_of_callout,
+    side_of_callout,
     hc_used,
     only,
     place_furniture,
@@ -2623,7 +2675,7 @@ def _place_queue(
     # dense winners have downstream table/furniture semantics; profiled bores
     # retain their established cross-view compatibility until robust
     # silhouette-aware routing lands (#1187 — this deferred to #798, which closed
-    # WITHOUT delivering it; ADR 0018's "Why now" records that ten leaders still cut
+    # WITHOUT delivering it; ADR 2 (was 0018)'s "Why now" records that ten leaders still cut
     # the part after #798 and #1188, and #1187 is the live successor).  The shared late inventory is therefore for
     # compatible sparse ordinary-hole callouts only.
     model_features = getattr(getattr(ctx, "part_model", None), "features", ())
@@ -2654,6 +2706,7 @@ def _place_queue(
         for s in queue:
             _locs, dia, callout, feat, natural_y, _rep = s
             owner = feat_of_callout.get(id(callout))
+            requested_side = side_of_callout.get(id(callout))
             ys: list[float] = []
             for y in (
                 source_final_y.get(id(s)),
@@ -2670,7 +2723,12 @@ def _place_queue(
                 if not any(abs(y - prior) <= 1e-6 for prior in ys):
                     ys.append(y)
 
-            def _raw_candidates(_s=s, _ys=tuple(ys), _owner=owner):
+            def _raw_candidates(
+                _s=s,
+                _ys=tuple(ys),
+                _owner=owner,
+                _requested_side=requested_side,
+            ):
                 for y in _ys:
                     tip, elbow = _leader_anchors(
                         _s,
@@ -2689,20 +2747,21 @@ def _place_queue(
                 # expose the opposite view boundary so a required callout can
                 # route clear rather than silently accepting a new Policy-B
                 # crossing.  The legacy resource floor below remains unchanged.
-                other_side = "left" if side == "right" else "right"
-                other_edge = vb[0] if other_side == "left" else vb[2]
-                for y in _ys:
-                    tip, elbow = _leader_anchors(
-                        _s,
-                        other_edge,
-                        other_side,
-                        y,
-                        to_page,
-                        elbow_dx,
-                        draft,
-                        a.SCALE,
-                    )
-                    yield (tip, elbow, _owner)
+                if _requested_side is None:
+                    other_side = "left" if side == "right" else "right"
+                    other_edge = vb[0] if other_side == "left" else vb[2]
+                    for y in _ys:
+                        tip, elbow = _leader_anchors(
+                            _s,
+                            other_edge,
+                            other_side,
+                            y,
+                            to_page,
+                            elbow_dx,
+                            draft,
+                            a.SCALE,
+                        )
+                        yield (tip, elbow, _owner)
 
             legacy_y = source_final_y.get(id(s))
 
@@ -2916,6 +2975,7 @@ def _place_planside_callouts(
     ctx,
     hc_used,
     feat_of_callout,
+    side_of_callout,
     only,
     place_furniture,
     plan,
@@ -2950,7 +3010,7 @@ def _place_planside_callouts(
     view_cx = a.PV_X if view == "plan" else a.SV_X
     view_cy = a.PV_Y if view == "plan" else a.SV_Y
 
-    # Keep-out bands (ADR 0009 Amendment 5/9, P4c, #318/#381) `(centre, half_width)` — page rows
+    # Keep-out bands (ADR 2 (was 0009 Amendment 5)/9, P4c, #318/#381) `(centre, half_width)` — page rows
     # a callout's "⌀… ↓…" text may not sit on, folded into `_place_queue`'s obstacle carve so the
     # spacing solve avoids them by construction. Two causes, keyed on the crossing line:
     #  - location-dim extension-line rows where `_locate_off_axis_holes` will draw the off-axis
@@ -3005,6 +3065,11 @@ def _place_planside_callouts(
         )
         can_right = (edge_right + elbow_dx) + gap + w <= right_limit
         can_left = edge_left is not None and (edge_left - elbow_dx) - gap - w >= a.margin
+        requested_side = side_of_callout.get(id(callout))
+        if requested_side == "right":
+            can_left = False
+        elif requested_side == "left":
+            can_right = False
 
         if not can_right and not can_left:
             _log.info("Hole callout ø%s skipped (no room)", _fmt(dia))
@@ -3037,6 +3102,7 @@ def _place_planside_callouts(
         band_intervals=band_intervals,
         elbow_dx=elbow_dx,
         feat_of_callout=feat_of_callout,
+        side_of_callout=side_of_callout,
         hc_used=hc_used,
         only=only,
         place_furniture=place_furniture,
@@ -3060,6 +3126,7 @@ def _place_planside_callouts(
             band_intervals=band_intervals,
             elbow_dx=elbow_dx,
             feat_of_callout=feat_of_callout,
+            side_of_callout=side_of_callout,
             hc_used=hc_used,
             only=only,
             place_furniture=place_furniture,
@@ -3125,7 +3192,7 @@ def _annotate_holes(
         for g in groups
     )
 
-    by_view, feat_of_callout = _assemble_view_callouts(
+    by_view, feat_of_callout, side_of_callout = _assemble_view_callouts(
         a, view_of_axis, groups, feature_keys, only, draft
     )
 
@@ -3175,6 +3242,7 @@ def _annotate_holes(
                 ctx=ctx,
                 hc_used=hc_used,
                 feat_of_callout=feat_of_callout,
+                side_of_callout=side_of_callout,
                 only=only,
                 place_furniture=place_furniture,
                 plan=plan,

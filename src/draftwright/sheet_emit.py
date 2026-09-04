@@ -1,10 +1,10 @@
-"""sheet_emit — the ``Sheet``-script emitter (ADR 0011 Amendment 1, #461).
+"""sheet_emit — the ``Sheet``-script emitter (ADR 4 (was 0011 Amendment 1), #461).
 
 Mode 3 of the three authoring modes: *generate an editable beautiful-Python script*. Walk a
 **detected** :class:`PartModel` and print a :class:`~draftwright.Sheet` script — one commentable
 line per feature — that the user edits / comments-out / extends, then re-runs.
 
-**Detected STEP input only writes numbers (the part-seam form, ADR 0011 Amdt 1 decision).** For a
+**Detected STEP input only writes numbers (the part-seam form, ADR 4 (was 0011 Amdt 1) decision).** For a
 STEP file or a recovered solid the number *is* the ground truth, so a detected value is honest. We
 never fabricate a build123d part to chase a number-free layer — a synthesised solid silently drops
 what detection didn't model (a misread band, a thread's true form, an unrecognised relief) yet reads
@@ -29,23 +29,33 @@ fixtures (#472).
 
 from __future__ import annotations
 
+import hashlib
 import math
+import pprint
 import re
 from collections.abc import Mapping, Sequence
+from contextlib import ExitStack
 from dataclasses import dataclass, fields, is_dataclass
 from numbers import Real
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Literal, cast
 
 from build123d import Shape
 
-from draftwright.builder import build_drawing, detect_part_model
+from draftwright.builder import (
+    _detect_part_model_analysis,
+    build_drawing,
+)
+from draftwright.fits import FitClass
 from draftwright.model.ir import (
     KnurlRequirement,
     NominalRequirement,
+    ThreadOperation,
     ThreadRequirement,
     ToleranceDecoration,
 )
+from draftwright.reporting import JsonValue, _generation_snapshot, _json_value
 from draftwright.view_plan import ViewConstraints
 
 
@@ -179,10 +189,11 @@ def _pt(p) -> str:
 
 
 def _authored_n(value) -> str:
-    """Lossless numeric spelling for source-authored requirements.
+    """Lossless spelling for normative values and linked correspondence facts.
 
     Detected geometry is intentionally made readable at 3 dp by :func:`_n`; an
-    authored normative value must instead survive an emit/execute round trip.
+    authored normative value or a set of mutually constrained record facts must instead
+    survive an emit/execute round trip.
     """
     value = float(value)
     return str(int(value)) if value.is_integer() else repr(value)
@@ -272,6 +283,8 @@ def _knurl_requirement_expr(requirement: KnurlRequirement) -> str:
 
 
 def _thread_arg(thread) -> str:
+    if isinstance(thread, ThreadOperation):
+        return f"ThreadOperation(designation={thread.designation!r}, depth={thread.depth!r})"
     return (
         _thread_requirement_expr(thread) if isinstance(thread, ThreadRequirement) else repr(thread)
     )
@@ -407,7 +420,10 @@ def _member_pocket_str(m) -> str:
     return (
         f"pocket(width={_n(m.width)}, length={length}, depth={_n(m.depth)}, "
         f'long_axis="{m.long_axis}", width_axis="{m.width_axis}", '
-        f"lo={lo}, hi={hi}, w_center={_n(m.w_center)}, at={_pt(m.frame.origin)})"
+        f"lo={lo}, hi={hi}, w_center={_n(m.w_center)}, at={_pt(m.frame.origin)}"
+        + (", edge_anchored=True" if m.edge_anchored else "")
+        + (", open_sign=-1" if m.open_sign == -1 else "")
+        + ")"
     )
 
 
@@ -460,6 +476,10 @@ def _measured_dimension_line(f) -> str:
         kw.append(f"rendering_blockers={f.rendering_blockers!r}")
     if getattr(f, "cylindrical_refs", ()):
         kw.append(f"cylindrical_refs={_cylindrical_refs_arg(f.cylindrical_refs)}")
+    if getattr(f, "view", None) is not None:
+        kw.append(f"view={f.view!r}")
+    if getattr(f, "side", None) is not None:
+        kw.append(f"side={f.side!r}")
     # `measured_dimension` since #873 — a generated script must not emit the transitional
     # overload, or every regenerated AP242 script would arrive pre-deprecated.
     return "sheet.measured_dimension(" + ", ".join(kw) + ")"
@@ -580,6 +600,7 @@ def _feature_line(
     origin_ref: str | None = None,
     object_ref: str | None = None,
     exact_parameter: str | None = None,
+    profile_group: str | None = None,
 ) -> str:
     """The declaration for one feature.
 
@@ -608,7 +629,7 @@ def _feature_line(
             # centred frame (#977/#976), so for the whole-part envelope it reconstructs exactly
             # this feature — verified on the CTC-01 STEP seam, where the raw import is
             # 1170 × 650 and the part is 800 × 450. Restating six numbers the object already
-            # carries is what ADR 0011 exists to avoid.
+            # carries is what ADR 4 (was 0011) exists to avoid.
             #
             # Guarded by equality rather than assumed: an envelope declared on a SUB-OBJECT is
             # not the part, and the bare verb would silently measure something else — the exact
@@ -660,7 +681,7 @@ def _feature_line(
         # The HEIGHT round-trips too (#938). Dropping it made the declared boss carry only
         # `boss.diameter` while the detected one also carries `boss_height.length`, so the
         # regenerated model could not express a dimension its source had — silently before
-        # the mirror named it, and as a raise afterwards. ADR 0011's round-trip rule is that
+        # the mirror named it, and as a raise afterwards. ADR 4 (was 0011)'s round-trip rule is that
         # recognise, emit and declare agree about a feature's parameters.
         height = (
             f", height={_n(f.height)}" if object_ref is None and getattr(f, "height", None) else ""
@@ -723,13 +744,17 @@ def _feature_line(
             f", thread={_thread_arg(f.thread)}" if getattr(f, "thread", None) else ""
         )  # external thread (#859)
         knurl = f", knurl={_knurl_arg(f.knurl)}" if getattr(f, "knurl", None) else ""
+        group = f", profile_group={profile_group!r}" if profile_group is not None else ""
         if object_ref is not None:
-            return f"sheet.step({object_ref}{thr}{knurl})"
+            return f"sheet.step({object_ref}{thr}{knurl}{group})"
         return (
             "sheet.step("
             f"diameter={_parameter_n(f.diameter, 'step.diameter', exact_parameter)}, "
             f"length={_n(f.length)}, "
-            f'at={_pt(f.frame.origin)}, axis="{f.frame.axis}"{thr}{knurl})'
+            # Public shoulder stations are at 0.001 mm, so an odd-thousandth span has a
+            # half-thousandth midpoint.  Preserve that coupled fact: independently rounding
+            # ``length`` and ``at`` would reconstruct both endpoints 0.0005 mm away.
+            f'at={_authored_pt(f.frame.origin)}, axis="{f.frame.axis}"{thr}{knurl}{group})'
         )
     if k == "slot":
         lo, hi = _n(f.lo), _n(f.hi)
@@ -740,6 +765,34 @@ def _feature_line(
             f"sheet.slot(width={_n(f.width)}, length={length}, "
             f'long_axis="{f.long_axis}", width_axis="{f.width_axis}", '
             f"lo={lo}, hi={hi}, w_center={_n(f.w_center)}, at={_pt(f.frame.origin)})"
+        )
+    if k == "blend":
+        path = (
+            ""
+            if f.path_kind == "straight"
+            else f", path_kind='circular', path_radius={_authored_n(f.path_radius)}"
+        )
+        return (
+            "sheet.blend("
+            f"axis={f.axis!r}, radius={_authored_n(f.radius)}, "
+            f"at={_authored_pt(f.frame.origin)}, side={f.side!r}, "
+            f"axis_direction={_authored_pt(f.axis_direction)}{path})"
+        )
+    if k == "rectangular_blind_slot":
+        return (
+            "sheet.rectangular_blind_slot("
+            f"axis={f.axis!r}, open_sign={f.open_sign}, length={_n(f.length)}, "
+            f"width_axis={f.width_axis!r}, depth_axis={f.depth_axis!r}, "
+            f"depth_sign={f.depth_sign}, width={_n(f.width)}, depth={_n(f.depth)}, "
+            f"at={_pt(f.frame.origin)})"
+        )
+    if k == "round_bottom_blind_slot":
+        return (
+            "sheet.round_bottom_blind_slot("
+            f"axis={f.axis!r}, open_sign={f.open_sign}, length={_n(f.length)}, "
+            f"width_axis={f.width_axis!r}, depth_axis={f.depth_axis!r}, "
+            f"depth_sign={f.depth_sign}, radius={_n(f.radius)}, "
+            f"flat_width={_n(f.flat_width)}, at={_pt(f.frame.origin)})"
         )
     if k == "pocket":
         lo, hi = _n(f.lo), _n(f.hi)
@@ -756,6 +809,7 @@ def _feature_line(
             # placed from the projected geometry (#962). Same reasoning on `slot` above.
             f"lo={lo}, hi={hi}, w_center={_n(f.w_center)}, at={_pt(f.frame.origin)}"
             + (", edge_anchored=True" if f.edge_anchored else "")
+            + (", open_sign=-1" if f.open_sign == -1 else "")
             + ")"
         )
     if k == "channel":
@@ -767,11 +821,14 @@ def _feature_line(
             f"at={_pt(f.frame.origin)})"
         )
     if k == "pad":
-        half = f.width / 2
+        x0, x1 = f.bounds("x")
+        y0, y1 = f.bounds("y")
+        z0, z1 = f.bounds("z")
         return (
-            f"sheet.pad(x0={_n(f.lo)}, x1={_n(f.hi)}, "
-            f"y0={_n(f.w_center - half)}, y1={_n(f.w_center + half)}, "
-            f"z0={_n(f.z0)}, z1={_n(f.z1)})"
+            f"sheet.pad(x0={_n(x0)}, x1={_n(x1)}, "
+            f"y0={_n(y0)}, y1={_n(y1)}, "
+            f"z0={_n(z0)}, z1={_n(z1)}, axis={f.frame.axis!r}, "
+            f"direction={f.direction}, at={_pt(f.frame.origin)})"
         )
     if k == "pattern":
         # Defining dims for the furniture (BCD centreline / pitch / grid dims) PLUS the exact
@@ -843,6 +900,24 @@ def _feature_line(
             f'sheet.fillet(axis="{f.axis}", radius={_n(f.radius)}, '
             f"at={_pt(f.frame.origin)}{turned})"
         )
+    if k == "paired_ramp_step":
+        return (
+            f'sheet.paired_ramp_step(axis="{f.axis}", angle={_n(f.angle)}, '
+            f"length={_n(f.length)}, at={_pt(f.frame.origin)})"
+        )
+    if k == "circular_blind_step":
+        centreline = "(" + ", ".join(_authored_pt(point) for point in f.centreline) + ")"
+        section = "(" + ", ".join(_authored_pt(point) for point in f.section) + ")"
+        return (
+            f'sheet.circular_blind_step(axis="{f.axis}", radius={_authored_n(f.radius)}, '
+            f"length={_authored_n(f.length)}, centreline={centreline}, section={section})"
+        )
+    if k == "through_step":
+        section = "(" + ", ".join(_pt(point) for point in f.section) + ")"
+        return (
+            f'sheet.through_step(axis="{f.axis}", length={_n(f.length)}, '
+            f"at={_pt(f.frame.origin)}, section={section})"
+        )
     if k == "flat":
         # `axis_line`/`stock_span` are the stock identity (#1013). Emitted ALWAYS, not only
         # when non-default: they are what stops two same-sized flats on separate stock
@@ -890,7 +965,7 @@ def _needs_section(model) -> bool:
 
 # The section a feature line is grouped under, and the singular noun the header manifest tallies
 # it by. Kinds sharing a section (hole+pattern, chamfer+fillet) are emitted under one header —
-# grouping is on CONSECUTIVE runs of the existing feature order (never a reorder: ADR 0014 makes
+# grouping is on CONSECUTIVE runs of the existing feature order (never a reorder: ADR 2 (was 0014) makes
 # the corridor solve order-sensitive), so a kind that recurs in two runs earns two headers.
 _SECTION = {
     "hole": "Holes",
@@ -899,6 +974,8 @@ _SECTION = {
     "polygonal_boss": "Bosses",
     "polygonal_stock": "Stock",
     "external_spur_gear": "Gear requirements",
+    "rectangular_blind_slot": "Blind slots",
+    "round_bottom_blind_slot": "Blind slots",
     "step": "Turned steps",
     "groove": "Grooves",
     "slot": "Slots",
@@ -906,6 +983,7 @@ _SECTION = {
     "channel": "Channels",
     "chamfer": "Edges",
     "fillet": "Edges",
+    "blend": "Edges",
     "flat": "Flats",
     "plate": "Plates",
     "envelope": "Envelope",
@@ -920,6 +998,8 @@ _NOUN = {
     "polygonal_boss": "polygonal boss",
     "polygonal_stock": "polygonal stock",
     "external_spur_gear": "external spur gear",
+    "rectangular_blind_slot": "rectangular blind slot",
+    "round_bottom_blind_slot": "round-bottom blind slot",
     "step": "step",
     "groove": "groove",
     "slot": "slot",
@@ -927,6 +1007,7 @@ _NOUN = {
     "channel": "channel",
     "chamfer": "chamfer",
     "fillet": "fillet",
+    "blend": "blend",
     "flat": "flat",
     "plate": "plate",
     "envelope": "envelope",
@@ -945,6 +1026,8 @@ _DESCRIBED = frozenset(
         "polygonal_boss",
         "polygonal_stock",
         "external_spur_gear",
+        "rectangular_blind_slot",
+        "round_bottom_blind_slot",
         "step",
         "slot",
         "pocket",
@@ -952,6 +1035,7 @@ _DESCRIBED = frozenset(
         "pattern",
         "chamfer",
         "fillet",
+        "blend",
         "flat",
         "plate",
         "groove",
@@ -997,6 +1081,13 @@ def _short_label(f) -> str:
     if k in ("slot", "pocket"):
         s = f"{k} {_n(f.width)} × {_n(f.length)}"
         return s + (f" × {_n(f.depth)} deep" if k == "pocket" else "")
+    if k == "rectangular_blind_slot":
+        return f"open slot {_n(f.width)} × {_n(f.length)} × {_n(f.depth)} deep"
+    if k == "round_bottom_blind_slot":
+        return (
+            f"round-bottom open slot {_n(f.flat_width)} flat × "
+            f"R{_n(f.radius)} × {_n(f.length)} long"
+        )
     if k == "channel":
         return f"channel {_n(f.width)} wide"
     if k == "pattern":
@@ -1006,6 +1097,8 @@ def _short_label(f) -> str:
         return f"C{_n(f.leg1)}" if equal else f"chamfer {_n(f.leg1)} × {_n(f.leg2)}"
     if k == "fillet":
         return f"R{_n(f.radius)}"
+    if k == "blend":
+        return f"R{_n(f.radius)} {f.side} {f.path_kind} blend"
     if k == "flat":
         return f"{_n(f.across)} A/F flat"
     if k == "groove":
@@ -1065,7 +1158,7 @@ def _binding(f, line: str, counts: dict[str, int]) -> str | None:
     dimension source, which is a formatting decision keyed on something unrelated to
     formatting. It is also less useful: a name removes POSITIONAL addressing from the
     artefact generally. `sheet.of(2)` silently retargets the moment a feature line is
-    commented out, which is the documented editing workflow (ADR 0011 Amdt 1); `sheet.of(bore1)`
+    commented out, which is the documented editing workflow (ADR 4 (was 0011 Amdt 1)); `sheet.of(bore1)`
     raises `NameError` at the line you edited. That benefit has nothing to do with dimensions.
 
     ``None`` for a kind with no declarative verb: its "line" is a comment, and
@@ -1211,7 +1304,7 @@ def _mirrored_requests(declared, declared_envelope=None):
 
     Emitted per addressable UNIT, never per member: a `step_height` ladder and a rotational
     body's bores are one `AddressableDimension` holding N, so one line drops the set and
-    there is no member line to mislead (ADR 0016 identity tier 3).
+    there is no member line to mislead (ADR 4 (was 0016) identity tier 3).
 
     From the planner's INTENT, never from placed annotations. Walking the drawing is the
     obvious way to build a mirror and it is wrong: a dimension the solver dropped would
@@ -1251,6 +1344,13 @@ def _mirrored_requests(declared, declared_envelope=None):
 
 def _requested_display_decimals(model, feature, role, discriminator) -> int | None:
     """Precision attached to an augmenting intent mirrored as an authored line (#1349)."""
+    return _requested_intent_policy(model, feature, role, discriminator)[0]
+
+
+def _requested_intent_policy(
+    model, feature, role, discriminator
+) -> tuple[int | None, str | None, str | None]:
+    """Display and placement policy attached to an augmenting referential intent."""
     for request in model.requested_dimensions:
         if request.feature is not feature:
             continue
@@ -1263,8 +1363,12 @@ def _requested_display_decimals(model, feature, role, discriminator) -> int | No
             request.discriminator == discriminator or role.endswith(f".{request.discriminator}")
         ):
             continue
-        return cast(int | None, request.display_decimals)
-    return None
+        return (
+            cast(int | None, request.display_decimals),
+            cast(str | None, request.view),
+            cast(str | None, request.side),
+        )
+    return None, None, None
 
 
 def _dimension_block(model, names: dict[int, str], synthesised_envelope=None) -> list[str]:
@@ -1275,7 +1379,7 @@ def _dimension_block(model, names: dict[int, str], synthesised_envelope=None) ->
     positional spelling (`sheet.dimension(3, "width")`) would break the moment a user
     comments a feature out, which is the documented editing workflow.
 
-    A generated script must state its source either way (ADR 0016 / #874): a dimension the
+    A generated script must state its source either way (ADR 4 (was 0016) / #874): a dimension the
     script does not name only means "omitted" inside a set that says it is complete.
     """
     if model.authored_dimensions is None and not _is_mirrorable(model):
@@ -1312,7 +1416,7 @@ def _dimension_block(model, names: dict[int, str], synthesised_envelope=None) ->
         ]
     requests = (
         [
-            (a.feature, a.role, a.discriminator, a.display_decimals)
+            (a.feature, a.role, a.discriminator, a.display_decimals, a.view, a.side)
             for a in model.authored_dimensions
         ]
         if model.authored_dimensions is not None
@@ -1325,14 +1429,14 @@ def _dimension_block(model, names: dict[int, str], synthesised_envelope=None) ->
         else [
             (
                 *request,
-                _requested_display_decimals(model, *request),
+                *_requested_intent_policy(model, *request),
             )
             for request in _mirrored_requests(model, synthesised_envelope)
         ]
     )
     out = [
         "# ── Dimensions ────────────────────────────────────────────────────────────────",
-        "# THIS IS THE COMPLETE SET (ADR 0016). A measurement with no line here is omitted",
+        "# THIS IS THE COMPLETE SET (ADR 4 (was 0016)). A measurement with no line here is omitted",
         "# deliberately — comment a line out to drop that dimension, add one to declare it.",
         # The role vocabulary was undiscoverable from the artefact: an editor had to guess a
         # string or read the source (#963). Typing narrows it now, but a generated file is
@@ -1347,7 +1451,7 @@ def _dimension_block(model, names: dict[int, str], synthesised_envelope=None) ->
         # automatic one does, rather than in prose a reader has to trust.
         "sheet.authored_dimensions()",
     ]
-    for feature, role, discriminator, display_decimals in requests:
+    for feature, role, discriminator, display_decimals, view, side in requests:
         name = names.get(id(feature))
         if name is None:
             # Reachable for a kind with no declarative verb (its line is a comment, so it
@@ -1370,7 +1474,12 @@ def _dimension_block(model, names: dict[int, str], synthesised_envelope=None) ->
             if discriminator and "." not in role[role.find(".") + 1 :]
             else ""
         )
-        line = f'sheet.dimension({name}, "{role}"{axis})'
+        placement = ""
+        if view is not None:
+            placement += f', view="{view}"'
+        if side is not None:
+            placement += f', side="{side}"'
+        line = f'sheet.dimension({name}, "{role}"{axis}{placement})'
         if display_decimals is not None:
             line += f".format(decimals={display_decimals})"
         out.append(line)
@@ -1399,6 +1508,41 @@ def _feature_block(
     if not features:
         return ["# ── Features: none detected ──"], {}
     source_features = tuple(features)
+    detected_profile_groups: dict[object, str] = {}
+    profile_group_by_feature: dict[int, str] = {}
+    reserved_profile_groups = {
+        group
+        for feature in source_features
+        if feature.kind == "step"
+        for group in (getattr(feature, "profile_group", None),)
+        if group is not None
+    }
+
+    def detected_profile_token() -> str:
+        """Mint a stable generated token without entering the caller's namespace."""
+        index = len(detected_profile_groups) + 1
+        token = f"detected-profile-{index}"
+        while token in reserved_profile_groups:
+            index += 1
+            token = f"detected-profile-{index}"
+        reserved_profile_groups.add(token)
+        return token
+
+    for feature in source_features:
+        if feature.kind != "step":
+            continue
+        declared_group = getattr(feature, "profile_group", None)
+        if declared_group is not None:
+            profile_group_by_feature[id(feature)] = declared_group
+            continue
+        provider_group = getattr(feature, "profile", None)
+        if provider_group is None:
+            continue
+        token = detected_profile_groups.get(provider_group)
+        if token is None:
+            token = detected_profile_token()
+            detected_profile_groups[provider_group] = token
+        profile_group_by_feature[id(feature)] = token
     out = [f"# ── Features ({len(source_features)}): {_manifest(source_features)} ──"]
     features = tuple(f for f in source_features if f.kind != "note") + tuple(
         f for f in source_features if f.kind == "note"
@@ -1415,6 +1559,8 @@ def _feature_block(
         summary = _run_summary(run)
         out.append(f"#   {section}" + (f" · {summary}" if summary else "") + " ─────")
         for f in run:
+            profile_group = profile_group_by_feature.get(id(f))
+            profile_kw = {} if profile_group is None else {"profile_group": profile_group}
             gdt_with_origin = f.kind in ("control_frame", "datum_ref", "note")
             origin_ref = names.get(id(f.origin)) if gdt_with_origin else None
             if (
@@ -1456,53 +1602,134 @@ def _feature_block(
             object_ref = None if exact_parameter is not None else (object_refs or {}).get(id(f))
             if gdt_with_origin:
                 if exact_parameter is None:
-                    line = _feature_line(f, part_envelope, origin_ref=origin_ref)
+                    line = _feature_line(
+                        f,
+                        part_envelope,
+                        origin_ref=origin_ref,
+                        **profile_kw,
+                    )
                 else:
                     line = _feature_line(
                         f,
                         part_envelope,
                         origin_ref=origin_ref,
                         exact_parameter=exact_parameter,
+                        **profile_kw,
                     )
             elif object_ref is not None:
                 if exact_parameter is None:
-                    line = _feature_line(f, part_envelope, object_ref=object_ref)
+                    line = _feature_line(
+                        f,
+                        part_envelope,
+                        object_ref=object_ref,
+                        **profile_kw,
+                    )
                 else:
                     line = _feature_line(
                         f,
                         part_envelope,
                         object_ref=object_ref,
                         exact_parameter=exact_parameter,
+                        **profile_kw,
                     )
             elif exact_parameter is not None:
-                line = _feature_line(f, part_envelope, exact_parameter=exact_parameter)
+                line = _feature_line(
+                    f,
+                    part_envelope,
+                    exact_parameter=exact_parameter,
+                    **profile_kw,
+                )
             else:
-                line = _feature_line(f, part_envelope)
+                line = _feature_line(f, part_envelope, **profile_kw)
             diameter_role = {
                 "hole": "bore",
                 "pattern": "bore",
                 "rotational": "od",
             }.get(f.kind)
-            tolerance = (
+            role_tolerance = (
                 (decorations or {}).get((f, "diameter", diameter_role))
                 if diameter_role is not None
                 else None
             )
-            if tolerance is None:
-                tolerance = (decorations or {}).get((f, "diameter"))
-            if isinstance(tolerance, ToleranceDecoration):
-                value = tolerance.value
-                args = (
-                    f"{_authored_n(value[0])}, {_authored_n(value[1])}"
-                    if isinstance(value, tuple)
-                    else _authored_n(value)
-                )
-                provenance = f", source={tolerance.source!r}"
-                if tolerance.source_ids:
-                    provenance += f", source_ids={tolerance.source_ids!r}"
-                on_target = "diameter" if f.kind == "step" else diameter_role
-                on = f", on={on_target!r}" if f.kind in ("step", "pattern", "rotational") else ""
-                line += f".tolerance({args}{on}{provenance})"
+            broad_tolerance = (decorations or {}).get((f, "diameter"))
+            tolerances: tuple[object, ...] = (
+                role_tolerance if role_tolerance is not None else broad_tolerance,
+            )
+            if (
+                f.kind == "hole"
+                and isinstance(role_tolerance, FitClass)
+                and broad_tolerance is not None
+            ):
+                # The broad tolerance still belongs on recess diameters; the role-specific fit
+                # then wins only on the bore. Preserve that public fluent ordering exactly.
+                tolerances = (broad_tolerance, role_tolerance)
+            for tolerance in tolerances:
+                if isinstance(tolerance, ToleranceDecoration | int | float | tuple):
+                    value = (
+                        tolerance.value
+                        if isinstance(tolerance, ToleranceDecoration)
+                        else tolerance
+                    )
+                    args = (
+                        f"{_authored_n(value[0])}, {_authored_n(value[1])}"
+                        if isinstance(value, tuple)
+                        else _authored_n(value)
+                    )
+                    provenance = ""
+                    if isinstance(tolerance, ToleranceDecoration):
+                        provenance = f", source={tolerance.source!r}"
+                        if tolerance.source_ids:
+                            provenance += f", source_ids={tolerance.source_ids!r}"
+                    on_target = "diameter" if f.kind == "step" else diameter_role
+                    on = (
+                        f", on={on_target!r}"
+                        if f.kind in ("step", "pattern", "rotational")
+                        else ""
+                    )
+                    line += f".tolerance({args}{on}{provenance})"
+                elif isinstance(tolerance, FitClass) and f.kind == "hole":
+                    show = "" if tolerance.show == "class" else f", show={tolerance.show!r}"
+                    line += f".fit({tolerance.code!r}{show})"
+
+            if f.kind in (
+                "through_step",
+                "pad",
+                "rectangular_blind_slot",
+                "round_bottom_blind_slot",
+            ):
+                # Preserve the EFFECTIVE decoration of each independently addressable
+                # through-step leg / pad extent.  Pad height is a new independent public
+                # parameter; replay must not lose its tolerance merely because all three
+                # extents share the generic ``length`` kind (#1392).
+                # Serialising each as a canonical full id is deliberately lossless even when
+                # the source used one family-wide call: replay compiles to the same effective
+                # tolerances without depending on fluent call order.
+                for parameter in f.parameters():
+                    tolerance = (decorations or {}).get(
+                        (f, parameter.kind, parameter.role, parameter.discriminator)
+                    )
+                    if tolerance is None:
+                        tolerance = (decorations or {}).get((f, parameter.kind, parameter.role))
+                    if tolerance is None:
+                        tolerance = (decorations or {}).get((f, parameter.kind))
+                    if not isinstance(tolerance, ToleranceDecoration | int | float | tuple):
+                        continue
+                    value = (
+                        tolerance.value
+                        if isinstance(tolerance, ToleranceDecoration)
+                        else tolerance
+                    )
+                    args = (
+                        f"{_authored_n(value[0])}, {_authored_n(value[1])}"
+                        if isinstance(value, tuple)
+                        else _authored_n(value)
+                    )
+                    provenance = ""
+                    if isinstance(tolerance, ToleranceDecoration):
+                        provenance = f", source={tolerance.source!r}"
+                        if tolerance.source_ids:
+                            provenance += f", source_ids={tolerance.source_ids!r}"
+                    line += f".tolerance({args}, on={parameter.parameter_id!r}{provenance})"
 
             if isinstance(nominal, NominalRequirement):
                 provenance = f"source={nominal.source!r}, source_ids={nominal.source_ids!r}"
@@ -1720,6 +1947,7 @@ def emit_sheet_script(
     formats: Sequence[str] = ("pdf",),
     settled_layout: Mapping | None = None,
     view_constraints: ViewConstraints | None = None,
+    recognition_snapshot: Mapping[str, JsonValue] | None = None,
 ) -> str:
     """The generated declarative ``Sheet`` script text for a detected *model*.
 
@@ -1752,8 +1980,18 @@ def emit_sheet_script(
     without pretending an edited authored set is still automatic. ``view_constraints`` lets a
     caller emitting an adopted :class:`~draftwright.Sheet` preserve its independent principal
     and derived source choices plus semantic view declarations; targets remain stable feature
-    bindings rather than raw page coordinates."""
+    bindings rather than raw page coordinates.
+
+    ``recognition_snapshot``, when supplied by the generation front door, must contain only
+    strict JSON values. It is normalized through that boundary before becoming a Python literal,
+    so cyclic, non-finite, or arbitrary repr-bearing objects cannot make the emitted script
+    syntactically invalid."""
     _validate_scale_policy(scale, scale_policy)
+    normalized_snapshot = (
+        cast(dict[str, JsonValue], _json_value(dict(recognition_snapshot)))
+        if recognition_snapshot is not None
+        else None
+    )
     # The script declares this model — `model` plus an envelope when the overall height would
     # otherwise be unnameable under the mirrored (authored) set. BEFORE the import scan, since
     # a synthesised envelope needs `EnvelopeFeature` imported like a detected one.
@@ -1790,8 +2028,10 @@ def emit_sheet_script(
         for feature in model.features
         for target in (getattr(feature, "member", feature),)
         for aspect in (getattr(target, "thread", None), getattr(target, "knurl", None))
-        if isinstance(aspect, (ThreadRequirement, KnurlRequirement))
+        if isinstance(aspect, (ThreadOperation, ThreadRequirement, KnurlRequirement))
     ]
+    if any(isinstance(aspect, ThreadOperation) for aspect in typed_aspects):
+        model_imports.add("ThreadOperation")
     if any(isinstance(aspect, ThreadRequirement) for aspect in typed_aspects):
         model_imports.update(["CylindricalReference", "ThreadRequirement"])
     if any(isinstance(aspect, KnurlRequirement) for aspect in typed_aspects):
@@ -1861,18 +2101,28 @@ def emit_sheet_script(
             else []
         ),
         "",
+        *(
+            [
+                "# Generation-time evidence only: the fresh runtime report remains authoritative.",
+                "DRAFTWRIGHT_RECOGNITION_SNAPSHOT = "
+                + pprint.pformat(normalized_snapshot, sort_dicts=False, width=99),
+                "",
+            ]
+            if normalized_snapshot is not None
+            else []
+        ),
         part_expr,
         "",
         f"sheet = Sheet(part, {', '.join(ctor)})",
         "",
-        # The script must SAY where its dimensions come from (ADR 0016 / #874): an omitted
+        # The script must SAY where its dimensions come from (ADR 4 (was 0016) / #874): an omitted
         # dimension only means something inside a set that says it is complete. The planner's
         # set is stated here; an AUTHORED set is stated after the features instead, because
         # each of its lines names a feature by the variable that feature's line binds.
         # Every generated script now declares its dimensions below the features (#938), so
         # the source is stated here as a pointer rather than inline: the lines name features
         # by the variables those features' lines bind, and cannot precede them.
-        "# The dimension source is DECLARED below the features (ADR 0016).",
+        "# The dimension source is DECLARED below the features (ADR 4 (was 0016)).",
         "",
         # For a live-source part (#771), the values below were read off YOUR objects — point
         # each line back at the object to keep it a single source of truth (a STEP-sourced
@@ -1888,15 +2138,15 @@ def emit_sheet_script(
             else [
                 "# Object-reference tip: you built these objects, so swap a numbered arg for the",
                 "# object itself to read the size off it — e.g.  sheet.step(journal)  /",
-                "#  sheet.hole(m3_bore).thread('M3x0.5')  — no numbers restated (ADR 0011 declare).",
+                "#  sheet.hole(m3_bore).thread('M3x0.5')  — no numbers restated (ADR 4 (was 0011) declare).",
                 "",
             ]
             if object_ref
             else []
         ),
         # One commentable line per feature, grouped under section sub-headers with a describing
-        # comment on each (ADR 0011 Amdt 1: still one declared feature per line — comment out, edit
-        # a value, re-run). Runs are consecutive in feature order; never reordered (ADR 0014).
+        # comment on each (ADR 4 (was 0011 Amdt 1): still one declared feature per line — comment out, edit
+        # a value, re-run). Runs are consecutive in feature order; never reordered (ADR 2 (was 0014)).
         *feature_lines,
         "",
         *_dimension_block(model, _names, _synth_env),
@@ -2120,35 +2370,85 @@ def generate_sheet_script(
             break
     title = title or (Path(stem).name.replace("_", " ").upper() if not is_shape else "DRAWING")
 
+    # A STEP path is mutable and may be a retargetable symlink. Resolve its replay seam once,
+    # then read one immutable byte snapshot. Recognition, PMI, and any semantic-correction build
+    # all consume a private copy of those exact hashed bytes; no endpoint re-hash can be fooled by
+    # an A→B→A replacement during recognition (ADR 3 (was 0017 Amendment 24)).
+    source_display = None if is_shape else Path(step_file)
+    source_resolved = None if source_display is None else source_display.resolve()
+    source_bytes = None if source_resolved is None else source_resolved.read_bytes()
+    source_sha256 = None if source_bytes is None else hashlib.sha256(source_bytes).hexdigest()
+
     if part_expr is not None:
         pass  # caller-supplied seam (e.g. an import of a live module, #469)
     elif is_shape:
         part_expr = "part = ...   # ← wire in your build123d object (built above)"
     else:
         # absolute so the generated script runs from any working directory
-        abspath = str(Path(step_file).resolve())
+        assert source_resolved is not None
+        abspath = str(source_resolved)
         part_expr = f"from build123d import import_step\npart = import_step({abspath!r})"
 
-    model = detect_part_model(step_file, pmi=pmi)
-    settled_layout = None
-    # The two current semantic correction passes apply to turned shoulder chains (#443)
-    # and prismatic step ladders that requested a recovery detail (#1155). Generated
-    # scripts mirror the selected dimensions as AUTHORED lines, correctly disabling those
-    # automatic-only retries on re-run. Resolve just these candidate families once during
-    # generation; if a correction actually wins, carry its result into the editable script.
-    # Ordinary parts retain the cheap detect-only generation path.
-    may_need_semantic_correction = model.orientation is not None or any(
-        feature.kind == "step_level" for feature in model.features
-    )
-    if scale is None and may_need_semantic_correction:
-        settled = build_drawing(
-            step_file,
+    with ExitStack() as source_stack:
+        detection_source: str | Shape | Path = step_file
+        if source_bytes is not None:
+            snapshot_dir = Path(
+                source_stack.enter_context(TemporaryDirectory(prefix="draftwright-source-"))
+            )
+            snapshot_name = source_resolved.name if source_resolved is not None else "source.step"
+            detection_source = snapshot_dir / snapshot_name
+            detection_source.write_bytes(source_bytes)
+
+        model, analysis = _detect_part_model_analysis(detection_source, pmi=pmi)
+        recognition_snapshot = _generation_snapshot(
+            evidence=analysis.recognition_evidence,
+            ownership=analysis.recognition_ownership,
+            model=model,
+            source=source_display,
+            source_sha256=source_sha256,
+        )
+        settled_layout = None
+        # Generated scripts mirror dimensions as an authored set. Resolve the two established
+        # semantic-correction families against the same immutable STEP snapshot as recognition.
+        may_need_semantic_correction = model.orientation is not None or any(
+            feature.kind == "step_level" for feature in model.features
+        )
+        if scale is None and may_need_semantic_correction:
+            settled = build_drawing(
+                detection_source,
+                title=title,
+                number=number,
+                tolerance=tolerance,
+                drawn_by=drawn_by,
+                page=page,
+                scale_policy=scale_policy,
+                material=material,
+                date=date,
+                revision=revision,
+                company=company,
+                frame=frame,
+                zones=zones,
+                projection=projection,
+                pmi=pmi,
+                model=model,
+            )
+            if settled.scale_decision.get("status") == "automatic_replanned":
+                settled_layout = {
+                    "scale": settled.scale,
+                    "page": (settled.page_w, settled.page_h),
+                    "views": tuple(settled.views),
+                }
+        script = emit_sheet_script(
+            model,
+            part_expr,
+            stem,
             title=title,
             number=number,
-            tolerance=tolerance,
             drawn_by=drawn_by,
-            page=page,
+            tolerance=tolerance,
+            scale=scale,
             scale_policy=scale_policy,
+            page=page,
             material=material,
             date=date,
             revision=revision,
@@ -2156,39 +2456,24 @@ def generate_sheet_script(
             frame=frame,
             zones=zones,
             projection=projection,
-            pmi=pmi,
-            model=model,
+            object_ref=is_shape,
+            object_candidates=object_candidates,
+            source_part=step_file if isinstance(step_file, Shape) else None,
+            formats=formats,
+            settled_layout=settled_layout,
+            recognition_snapshot=recognition_snapshot,
         )
-        if settled.scale_decision.get("status") == "automatic_replanned":
-            settled_layout = {
-                "scale": settled.scale,
-                "page": (settled.page_w, settled.page_h),
-                "views": tuple(settled.views),
-            }
-    script = emit_sheet_script(
-        model,
-        part_expr,
-        stem,
-        title=title,
-        number=number,
-        drawn_by=drawn_by,
-        tolerance=tolerance,
-        scale=scale,
-        scale_policy=scale_policy,
-        page=page,
-        material=material,
-        date=date,
-        revision=revision,
-        company=company,
-        frame=frame,
-        zones=zones,
-        projection=projection,
-        object_ref=is_shape,  # a live Shape / resolved object-spec has objects to reference (#771)
-        object_candidates=object_candidates,
-        source_part=step_file if isinstance(step_file, Shape) else None,
-        formats=formats,
-        settled_layout=settled_layout,
-    )
+    if source_resolved is not None:
+        try:
+            replay_sha256 = hashlib.sha256(source_resolved.read_bytes()).hexdigest()
+        except OSError as error:
+            raise RuntimeError(
+                "STEP replay source became unavailable while generating its recognition snapshot"
+            ) from error
+        if replay_sha256 != source_sha256:
+            raise RuntimeError(
+                "STEP replay source changed while generating its recognition snapshot"
+            )
     py_path = f"{stem}.py"
     Path(py_path).write_text(script, encoding="utf-8")  # the script has box-drawing / × / ← glyphs
     return py_path

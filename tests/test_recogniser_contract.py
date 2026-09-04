@@ -1,10 +1,10 @@
-"""ADR 0013 recogniser-contract tests.
+"""ADR 3 (was 0013) recogniser-contract tests.
 
 Enforces the uniform contract mechanically (epic #584 WP3):
 
 - **Immutable records** — every recogniser returns frozen dataclasses.
-- **Uniform serialization** — each record has ``.to_dict()`` (the :class:`Record`
-  mixin) that yields a *JSON-serializable* nested dict. This is the invariant with
+- **Uniform serialization** — each public record has ``.to_dict()`` that yields a
+  *JSON-serializable* nested dict. This is the invariant with
   teeth: a leaked build123d / OCP object would make ``json.dumps`` raise, so the
   test proves the "geometry-only records, no build123d type leaks out" rule.
 - **Signature shape** — a part-based recogniser takes ``part`` then keyword-only
@@ -19,36 +19,25 @@ import json
 from pathlib import Path
 
 import pytest
+from _recogniser_public_contract import (
+    public_recogniser_member,
+    public_recogniser_names,
+    public_record_universe,
+)
 from b123d_recognisers import (
-    BoltCircle,
-    BossRecord,
-    Chamfer,
-    Channel,
-    CounterSink,
-    DoubleDBore,
-    FaceLevel,
-    Fillet,
-    Flat,
-    Groove,
-    HoleRecord,
-    LinearArray,
-    Plate,
-    Pocket,
-    PocketArray,
-    PocketGrid,
-    PolygonalBoss,
-    RectGrid,
-    RepeatingRadialProfile,
-    Slot,
-    SlotArray,
-    SlotGrid,
-    StepShoulder,
-    TurnedStep,
+    Blend,
+    OrientedSlot,
+    OrientedSlotArray,
+    OrientedSlotGrid,
     analyse_cylinders,
+    build_raw_recognition_result,
     project_step_shoulders,
+    recognise_angled_steps,
+    recognise_blends,
     recognise_bosses,
     recognise_chamfers,
     recognise_channels,
+    recognise_circular_blind_steps,
     recognise_countersinks,
     recognise_double_d_bores,
     recognise_face_levels,
@@ -57,50 +46,52 @@ from b123d_recognisers import (
     recognise_grooves,
     recognise_hole_patterns,
     recognise_holes,
+    recognise_oriented_slot_patterns,
+    recognise_oriented_slots,
+    recognise_paired_ramp_steps,
+    recognise_passages,
     recognise_plates,
     recognise_pocket_patterns,
     recognise_pockets,
     recognise_polygonal_bosses,
+    recognise_polygonal_stock,
+    recognise_prismatic_pockets,
+    recognise_rectangular_blind_slots,
+    recognise_rectangular_pads,
     recognise_repeating_radial_profiles,
     recognise_risers,
+    recognise_round_bottom_blind_slots,
+    recognise_section_passages,
     recognise_slot_patterns,
     recognise_slots,
+    recognise_through_steps,
     recognise_turned_steps,
+    step_level_records,
 )
-from b123d_recognisers._record import Record
-from build123d import Align, Axis, Box, Cylinder, Pos, Rot, chamfer, fillet, import_step
+from build123d import (
+    Align,
+    Axis,
+    Box,
+    BuildLine,
+    BuildPart,
+    BuildSketch,
+    Cylinder,
+    Line,
+    Plane,
+    Polygon,
+    Pos,
+    RadiusArc,
+    RegularPolygon,
+    Rot,
+    Vector,
+    chamfer,
+    extrude,
+    fillet,
+    import_step,
+    make_face,
+)
 
-# Every record class a recogniser returns. The coverage test asserts the drive-parts
-# below actually emit one of each — so a record type that silently stops being produced
-# (or a new recogniser added without contract coverage) fails the test loudly, rather
-# than slipping through a bare count. (CounterBore/HoleSpec/TurnedProfile are sub-records
-# / aggregates, not recogniser returns, so they are exercised nested, not listed here.)
-_EXPECTED_RECORD_TYPES = {
-    HoleRecord,
-    DoubleDBore,
-    CounterSink,
-    BossRecord,
-    BoltCircle,
-    LinearArray,
-    RectGrid,
-    Chamfer,
-    Channel,
-    Fillet,
-    Flat,
-    Groove,
-    Slot,
-    SlotArray,
-    SlotGrid,
-    Pocket,
-    PocketArray,
-    PocketGrid,
-    PolygonalBoss,
-    Plate,
-    FaceLevel,
-    StepShoulder,
-    TurnedStep,
-    RepeatingRadialProfile,
-}
+from draftwright import build_drawing
 
 
 def _csk_plate():
@@ -172,6 +163,33 @@ def _slot_grid_plate():
     return part
 
 
+def _rectangular_blind_slot_part():
+    stock = Box(30, 20, 40, align=(Align.CENTER, Align.CENTER, Align.MIN))
+    tool = Pos(0, 5, 0) * Box(
+        10,
+        5,
+        20,
+        align=(Align.CENTER, Align.MIN, Align.MIN),
+    )
+    return stock - tool
+
+
+def _round_bottom_blind_slot_part():
+    width, radius, length = 10.0, 3.0, 20.0
+    half_width = width / 2
+    half_flat = (width - 2 * radius) / 2
+    with BuildLine() as boundary:
+        Line((-half_width, 0), (half_width, 0))
+        RadiusArc((half_width, 0), (half_flat, -radius), radius)
+        Line((half_flat, -radius), (-half_flat, -radius))
+        RadiusArc((-half_flat, -radius), (-half_width, 0), radius)
+    with BuildSketch() as sketch:
+        make_face(boundary.line)
+    stock = Pos(0, -5, 0) * Box(30, 10, 40)
+    tool = extrude(sketch.sketch, amount=length, dir=Vector(0, 0, 1))
+    return stock - tool
+
+
 def _bolt_circle_plate(n=6, r=30):
     from math import cos, radians, sin
 
@@ -194,6 +212,27 @@ def _filleted_box():
     return fillet(edge, 3)
 
 
+def _small_blended_box():
+    box = Box(40, 30, 20)
+    return fillet(list(box.edges().filter_by(Axis.Z)), 0.2)
+
+
+def _oriented_slot_pattern(points, *, angle=30.0):
+    part = Box(120, 90, 10)
+    for x, y in points:
+        part -= (
+            Pos(x, y, 0)
+            * Rot(0, 0, angle)
+            * Box(
+                24,
+                6,
+                20,
+                align=(Align.CENTER, Align.CENTER, Align.CENTER),
+            )
+        )
+    return part
+
+
 def _l_bracket():
     return Box(80, 40, 8) + Pos(-36, 0, 24) * Box(8, 40, 40)
 
@@ -202,6 +241,52 @@ def _polygonal_boss_plate():
     from build123d import RegularPolygon, extrude
 
     return Box(100, 80, 10) + Pos(0, 0, 5) * extrude(RegularPolygon(20, 6), 30)
+
+
+def _angled_step_part():
+    return import_step(
+        str(Path(__file__).parent / "fixtures" / "issue_1247_angled_blind_step.step")
+    )
+
+
+def _circular_blind_step_part():
+    return Box(40, 30, 20) - Pos(7.5, 15, 10) * Rot(0, 90, 0) * Cylinder(4, 25)
+
+
+def _paired_ramp_step_part():
+    profile = Polygon((0, -8), (0, 8), (-10, 0))
+    cutter = Pos(20, 20, 0) * extrude(Plane.XZ * profile, 25)
+    return Box(40, 40, 30) - cutter
+
+
+def _through_step_part():
+    return Box(40, 30, 20) - Pos(15, 10, 0) * Box(20, 20, 30)
+
+
+def _hexagonal_passage_plate():
+    plate = Box(120, 80, 20)
+    with BuildPart() as tool:
+        with BuildSketch(Plane.XY.offset(-20)):
+            RegularPolygon(12, 6)
+        extrude(amount=60)
+    return plate - Pos(-30, 0, 0) * tool.part
+
+
+def _hexagonal_pocket_plate():
+    plate = Box(120, 80, 20)
+    with BuildPart() as tool:
+        with BuildSketch(Plane.XY.offset(4)):
+            RegularPolygon(12, 6)
+        extrude(amount=20)
+    return plate - Pos(-30, 0, 0) * tool.part
+
+
+def _polygonal_stock():
+    return extrude(RegularPolygon(20, 6), 30)
+
+
+def _raised_pad_plate():
+    return Box(120, 90, 16) + Pos(0, -30, 10) * Box(30, 20, 4)
 
 
 def _records_from_recognisers():
@@ -219,6 +304,10 @@ def _records_from_recognisers():
     dshaft = Cylinder(10, 30) - Pos(10, 0, 0) * Box(10, 40, 40)  # round stock with one flat
     grooved = Cylinder(10, 40) - (Cylinder(10, 4) - Cylinder(8, 4))  # round stock with one groove
     levels = [f.z for f in recognise_face_levels(stepped)]
+    oriented_array = recognise_oriented_slots(_oriented_slot_pattern(((-30, 0), (0, 0), (30, 0))))
+    oriented_grid = recognise_oriented_slots(
+        _oriented_slot_pattern(((-30, -20), (0, -20), (30, -20), (-30, 20), (0, 20), (30, 20)))
+    )
 
     out: list[tuple[str, object]] = []
     for name, recs in [
@@ -231,9 +320,27 @@ def _records_from_recognisers():
         ("hole_patterns:linear", recognise_hole_patterns(recognise_holes(_linear_array_plate()))),
         ("hole_patterns:grid", recognise_hole_patterns(recognise_holes(_grid_plate()))),
         ("recognise_chamfers", recognise_chamfers(_chamfered_box())),
+        ("recognise_blends", recognise_blends(_small_blended_box())),
         ("recognise_channels", recognise_channels(channel)),
         ("recognise_fillets", recognise_fillets(_filleted_box())),
         ("recognise_slots", recognise_slots(slotted)),
+        ("recognise_oriented_slots", oriented_array),
+        (
+            "oriented_slot_patterns:linear",
+            recognise_oriented_slot_patterns(oriented_array),
+        ),
+        (
+            "oriented_slot_patterns:grid",
+            recognise_oriented_slot_patterns(oriented_grid),
+        ),
+        (
+            "recognise_rectangular_blind_slots",
+            recognise_rectangular_blind_slots(_rectangular_blind_slot_part()),
+        ),
+        (
+            "recognise_round_bottom_blind_slots",
+            recognise_round_bottom_blind_slots(_round_bottom_blind_slot_part()),
+        ),
         ("recognise_pockets", recognise_pockets(pocketed)),
         (
             "pocket_patterns:linear",
@@ -256,6 +363,28 @@ def _records_from_recognisers():
         ("recognise_plates", recognise_plates(_l_bracket())),
         ("recognise_face_levels", recognise_face_levels(stepped)),
         ("recognise_risers", recognise_risers(stepped)),
+        ("step_level_records", step_level_records(stepped)),
+        ("recognise_angled_steps", recognise_angled_steps(_angled_step_part())),
+        (
+            "recognise_circular_blind_steps",
+            recognise_circular_blind_steps(_circular_blind_step_part()),
+        ),
+        (
+            "recognise_paired_ramp_steps",
+            recognise_paired_ramp_steps(_paired_ramp_step_part()),
+        ),
+        ("recognise_through_steps", recognise_through_steps(_through_step_part())),
+        ("recognise_passages", recognise_passages(_hexagonal_passage_plate())),
+        (
+            "recognise_section_passages",
+            recognise_section_passages(_hexagonal_passage_plate()),
+        ),
+        (
+            "recognise_prismatic_pockets",
+            recognise_prismatic_pockets(_hexagonal_pocket_plate()),
+        ),
+        ("recognise_polygonal_stock", recognise_polygonal_stock(_polygonal_stock())),
+        ("recognise_rectangular_pads", recognise_rectangular_pads(_raised_pad_plate())),
         (
             "recognise_repeating_radial_profiles",
             recognise_repeating_radial_profiles(
@@ -279,14 +408,22 @@ def _records_from_recognisers():
 
 
 def test_records_are_frozen_and_json_serializable():
-    """Every record from every recogniser is a frozen, JSON-serializable ``Record``."""
+    """Every result is a public, frozen, JSON-serializable record."""
     records = _records_from_recognisers()
 
     for name, rec in records:
-        assert isinstance(rec, Record), f"{name}: {type(rec).__name__} is not a Record"
-        assert dataclasses.is_dataclass(rec) and rec.__dataclass_params__.frozen, (
-            f"{name}: {type(rec).__name__} must be a frozen dataclass"
+        record_type = type(rec)
+        type_name = record_type.__name__
+        assert type_name in public_recogniser_names(), (
+            f"{name}: {type_name} is not published in b123d_recognisers.__all__"
         )
+        assert public_recogniser_member(type_name) is record_type, (
+            f"{name}: root export {type_name} is not the returned record class"
+        )
+        assert dataclasses.is_dataclass(rec) and rec.__dataclass_params__.frozen, (
+            f"{name}: {type_name} must be a frozen dataclass"
+        )
+        assert callable(getattr(rec, "to_dict", None)), f"{name}: {type_name} has no to_dict()"
         d = rec.to_dict()
         assert isinstance(d, dict)
         # The teeth: a leaked build123d/OCP object makes this raise.
@@ -299,9 +436,129 @@ def test_every_record_type_is_actually_exercised():
     Guards against the count-only trap: a record type whose drive-part stops producing it
     (or a new record added without coverage) fails here instead of passing on a bare tally.
     """
+    expected = public_record_universe()
     seen = {type(rec) for _, rec in _records_from_recognisers()}
-    missing = _EXPECTED_RECORD_TYPES - seen
-    assert not missing, f"contract test never exercised these record types: {missing}"
+    assert seen == expected, (
+        "runtime contract roster disagrees with the mechanically derived public universe: "
+        f"missing={sorted(t.__name__ for t in expected - seen)}, "
+        f"unexpected={sorted(t.__name__ for t in seen - expected)}"
+    )
+
+
+def test_0410_round_bottom_slot_crosses_the_dedicated_consumer_path():
+    drawing = build_drawing(_round_bottom_blind_slot_part())
+    recognition = drawing.recognition()
+
+    assert len(recognition.round_bottom_blind_slots) == 1
+    assert not recognition.slots
+    assert not recognition.pockets
+    assert not {
+        "slot",
+        "slot_pattern",
+        "pocket",
+        "pocket_pattern",
+    } & {feature.kind for feature in drawing.model().features}
+    assert not [name for name in drawing.annotations() if name.startswith(("m_slot", "m_pocket"))]
+    assert (
+        len(
+            [
+                feature
+                for feature in drawing.model().features
+                if feature.kind == "round_bottom_blind_slot"
+            ]
+        )
+        == 1
+    )
+    assert any(name.startswith("m_round_bottom_blind_slot") for name in drawing.annotations())
+
+    completeness = drawing.lint_summary()["quality"]["completeness"]
+    assert completeness["unscored_recognized_families"] == []
+    assert completeness["requirements"] == 3
+    assert completeness["audited_score"] == 1.0
+    assert completeness["by_family"]["round_bottom_blind_slots"] == 3
+
+
+@pytest.mark.parametrize(
+    (
+        "part",
+        "inventory",
+        "record_type",
+        "count",
+        "pattern_type",
+        "unscored",
+        "requirements",
+        "audited_score",
+    ),
+    [
+        (
+            _small_blended_box(),
+            "blends",
+            Blend,
+            4,
+            None,
+            [],
+            4,
+            1.0,
+        ),
+        (
+            _oriented_slot_pattern(((-30, 0), (0, 0), (30, 0))),
+            "oriented_slots",
+            OrientedSlot,
+            3,
+            OrientedSlotArray,
+            ["oriented_slot_patterns", "oriented_slots"],
+            0,
+            None,
+        ),
+        (
+            _oriented_slot_pattern(
+                ((-30, -20), (0, -20), (30, -20), (-30, 20), (0, 20), (30, 20))
+            ),
+            "oriented_slots",
+            OrientedSlot,
+            6,
+            OrientedSlotGrid,
+            ["oriented_slot_patterns", "oriented_slots"],
+            0,
+            None,
+        ),
+    ],
+    ids=("blend", "oriented-linear", "oriented-grid"),
+)
+def test_0412_additive_families_cross_the_aggregate_without_duplicate_ownership(
+    part,
+    inventory,
+    record_type,
+    count,
+    pattern_type,
+    unscored,
+    requirements,
+    audited_score,
+):
+    """The aggregate preserves exclusive owners across supported and deferred consumers."""
+    raw = build_raw_recognition_result(part)
+    drawing = build_drawing(part)
+    recognition = drawing.recognition()
+
+    for result in (raw, recognition):
+        records = getattr(result, inventory)
+        assert len(records) == count
+        assert {type(record) for record in records} == {record_type}
+        if pattern_type is None:
+            assert not result.oriented_slot_patterns
+        else:
+            assert len(result.oriented_slot_patterns) == 1
+            assert type(result.oriented_slot_patterns[0]) is pattern_type
+
+        # 0.4.12 assigns these physical owners exclusively to the new inventories.
+        assert not result.fillets
+        assert not result.slots
+        assert not result.slot_patterns
+
+    completeness = drawing.lint_summary()["quality"]["completeness"]
+    assert completeness["unscored_recognized_families"] == unscored
+    assert completeness["requirements"] == requirements
+    assert completeness["audited_score"] == audited_score
 
 
 def test_frozen_records_reject_mutation():
@@ -312,7 +569,7 @@ def test_frozen_records_reject_mutation():
 
 
 def test_part_based_recognisers_are_keyword_only_after_part():
-    """Part-based recognisers take ``part`` then keyword-only args (ADR 0013)."""
+    """Part-based recognisers take ``part`` then keyword-only args (ADR 3 (was 0013))."""
     for fn in (
         recognise_holes,
         recognise_bosses,
@@ -347,7 +604,7 @@ def test_part_based_recognisers_are_keyword_only_after_part():
 def test_cylinder_substrate_is_injectable():
     """#703: the three turned-stock recognisers accept a precomputed
     ``analyse_cylinders`` result (``cyls=``) and return identical records to a
-    self-scan — the caller owns the one scan (ADR 0013 §2 / ADR 0008 Am5),
+    self-scan — the caller owns the one scan (ADR 3 (was 0013 §2) / ADR 1 (was 0008 Am5)),
     mirroring ``recognise_holes``/``recognise_bosses``."""
     dshaft = Cylinder(10, 30) - Pos(10, 0, 0) * Box(10, 40, 40)
     grooved = Cylinder(10, 40) - (Cylinder(10, 4) - Cylinder(8, 4))

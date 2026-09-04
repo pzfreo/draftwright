@@ -1,4 +1,4 @@
-"""The annotation orchestrator (#138 / ADR 0005, P5e).
+"""The annotation orchestrator (#138 / ADR 1 (was 0005), P5e).
 
 `_auto_annotate` is the single entry point: it builds the IR (`build_part_model`),
 plans the dimensions once, and drives the IR renderers (`from_model.render_*`) +
@@ -54,10 +54,12 @@ from draftwright.annotations._common import (
 from draftwright.annotations.balloons import render_balloons
 from draftwright.annotations.from_model import (
     ladder_plan_for,
+    render_blends,
     render_boss_diameters,
     render_boss_heights,
     render_centermarks,
     render_chamfers,
+    render_circular_blind_steps,
     render_diameters,
     render_envelope,
     render_fillets,
@@ -67,15 +69,20 @@ from draftwright.annotations.from_model import (
     render_height_ladder,
     render_local_turned_centerlines,
     render_locations,
+    render_pad_heights,
+    render_paired_ramp_steps,
     render_plates,
     render_pmi,
     render_pockets,
     render_polygonal_bosses,
     render_polygonal_stock,
+    render_rectangular_blind_slots,
     render_rotational,
+    render_round_bottom_blind_slots,
     render_slots,
     render_step_lengths,
     render_step_positions,
+    render_through_steps,
 )
 from draftwright.annotations.holes import (
     _annotate_holes,
@@ -99,17 +106,17 @@ from draftwright.model import (
     PatternFeature,
     RotationalFeature,
     SectionPlan,
-    build_part_model,
     plan_dimensions,
     plan_sections,
 )
 from draftwright.model.compiled import compile_dimensions, resolve_feature
+from draftwright.model.detect import _build_part_model_from_recognition
 from draftwright.repair import reconcile_witness_labels
 from draftwright.view_plan import ViewConstraints
 
 
 def _planned_sections(a, model, feature_keys) -> tuple[SectionPlan, ...]:
-    """Combine the automatic section candidate with ADR 0018 authored/add requests."""
+    """Combine the automatic section candidate with ADR 2 (was 0018) authored/add requests."""
 
     constraints = a.view_constraints
     if not isinstance(constraints, ViewConstraints):
@@ -253,6 +260,7 @@ _PASS_SEQUENCE: tuple[str, ...] = (
     "pocket_patterns",  # a pocket ARRAY: grouped callout + pitch dim, placed pre-drain like a
     # hole pattern (the pitch dim needs strip room the post-drain decoration slots lack)
     "slot_patterns",  # a through-slot ARRAY: same grouped callout + pitch, same pre-drain reason
+    "through_steps",  # two section legs register with the shared corridor before its drain
     "user_dims",  # finalize-only: pin/priority dims queue into the shared corridor
     "gdt",
     "pmi",
@@ -265,11 +273,17 @@ _PASS_SEQUENCE: tuple[str, ...] = (
     # and yields (drops with a warning) where a principal dim now sits.
     "chamfers",
     "fillets",
+    "blends",
+    "circular_blind_steps",
+    "paired_ramp_steps",
     "flats",
     "pockets",
+    "rectangular_blind_slots",
+    "round_bottom_blind_slots",
+    "pad_heights",
     "grooves",
     # One compatible same-view feature-leader inventory (#1166): side/plan
-    # hole leaders collected before the corridor drain and the five machined
+    # hole leaders collected before the corridor drain and the machined-feature
     # leader passes collected after it commit together here.
     "feature_leaders",
     "section",
@@ -301,7 +315,7 @@ def run_stages(stages: dict, sequence: tuple[str, ...] | None = None) -> None:
 
 
 def drain_and_reconcile(ctx, dwg) -> None:
-    """Solve every registered corridor once (ADR 0009 end state, #345/#346/#393),
+    """Solve every registered corridor once (ADR 2 (was 0009) end state, #345/#346/#393),
     then reconcile witness-crossing labels (#690) — the drain step both build
     paths share verbatim (#699 slice b). ``drain_corridors`` is resolved at call
     time (as the pre-#699 function-level imports did), so the #647 transactional-
@@ -325,7 +339,7 @@ def _concentric_bore_diams(a: Analysis) -> list:
 
 
 def build_model(a: Analysis):
-    """Build the ADR-0008 :class:`PartModel` from an analysis — the detected feature
+    """Build the ADR 1 (was 0008) :class:`PartModel` from an analysis — the detected feature
     inventory (a pure function of *a*).
 
     Extracted from :func:`_auto_annotate` so the pipeline can build the model
@@ -344,8 +358,10 @@ def build_model(a: Analysis):
         "build_model needs the recognition aggregate, which a declared build does not have — "
         "the declared path uses the caller's model (dwg.model()) instead of building one."
     )
-    return build_part_model(
+    return _build_part_model_from_recognition(
         a.part,
+        a.recognition,
+        evidence=a.recognition_evidence,
         holes=a.holes,
         double_d_bores=a.recognition.double_d_bores,
         patterns=a.patterns,
@@ -356,7 +372,7 @@ def build_model(a: Analysis):
         slots=a.slots,
         # The engine's SECOND build_part_model call site; unthreaded, these three were
         # detected again here after _analyse had already recognised them (#1019). Read off
-        # the run's one RecognitionResult (ADR 0017); `a.pockets`/`a.pads`/
+        # the run's one RecognitionResult (ADR 3 (was 0017)); `a.pockets`/`a.pads`/
         # `a.pocket_patterns` are list copies of the same records and would do as well —
         # #1024 collapses that duplication.
         slot_patterns=a.recognition.slot_patterns,
@@ -364,12 +380,18 @@ def build_model(a: Analysis):
         risers=a.recognition.risers,
         chamfers=a.recognition.chamfers,
         fillets=a.recognition.fillets,
+        blends=a.recognition.blends,
+        circular_blind_steps=a.recognition.circular_blind_steps,
+        paired_ramp_steps=a.recognition.paired_ramp_steps,
+        through_steps=a.recognition.through_steps,
         plates=a.recognition.plates,
         flats=a.recognition.flats,
         pockets=a.recognition.pockets,
         pocket_patterns=a.recognition.pocket_patterns,
+        rectangular_blind_slots=a.recognition.rectangular_blind_slots,
+        round_bottom_blind_slots=a.recognition.round_bottom_blind_slots,
         pads=a.recognition.pads,
-        prof=a.prof,
+        profiles=a.profiles,
         step_zs=a.step_zs,
         face_levels=a.recognition.step_levels,
         rotational=(a.od_diam, _bores, a.od_axis) if a.is_rotational else None,
@@ -393,7 +415,7 @@ def build_rotational_feature(a: Analysis):
 
 
 def _declared_feature_keys(groups, a: Analysis) -> set:
-    """The :class:`HoleRef` position keys of every DECLARED hole/pattern member (ADR 0011
+    """The :class:`HoleRef` position keys of every DECLARED hole/pattern member (ADR 4 (was 0011)
     #448), so a caller-declared hole/pattern renders at its declared position even where
     detection missed it. Mirrors the member source (``feat.members or g.anchor``) and the
     rotational concentric-bore exclusion of the ``_annotate_holes`` filter so the callout
@@ -417,13 +439,13 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     Returns the compiler's omission diagnostics — every measurement it considered and did not
     approve, with the rule that stopped it (#996). RETURNED rather than written onto the
     drawing: #830 removed the last engine caller that reached for `dwg._attach_*`, and
-    `builder._assemble` is BuildState's single fill site (ADR 0005 §2 / #639). Handing them
+    `builder._assemble` is BuildState's single fill site (ADR 1 (was 0005 §2) / #639). Handing them
     back keeps both true — the record outlives the build without `annotations/` touching the
     drawing's privates.
     """
     # Per-run placement scratch (detail requests / escalations / corridor batch) + references to
     # the drawing's build-state stores (registry/coverage), threaded to the passes instead of hung
-    # on the Drawing (ADR 0005 §2, #639). Fresh each auto-pass; the corridor batch is drained once
+    # on the Drawing (ADR 1 (was 0005 §2), #639). Fresh each auto-pass; the corridor batch is drained once
     # at the end (drain_corridors, #345/#346).
     ctx = PlacementContext(
         registry=dwg.registry,
@@ -488,11 +510,11 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # Per-hole annotations from the feature records (#91, #92, #95): each
     # hole is annotated in the view its axis is normal to.
     # to_page maps a model-space *location* (x, y, z) → page coords (IR-typed, not a
-    # recogniser Hole — ADR 0008 Amendment 6).
+    # recogniser Hole — ADR 1 (was 0008 Amendment 6)).
     view_of_axis = build_view_of_axis(a)
 
     # The part model — the IR-migrated passes (centre marks, turned diameters/lengths)
-    # render from it (ADR 0008 convergence / #229). Built once by the pipeline
+    # render from it (ADR 1 (was 0008) convergence / #229). Built once by the pipeline
     # (:func:`build_model`) and filled into BuildState at builder._assemble's single
     # construction site, so the read surface (dwg.model()) works on every real path; the
     # `build_model(a)` fallback covers a direct caller that reached _auto_annotate without a
@@ -545,7 +567,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # the section() add verb (#420 / #584 WP1) and the off-axis location pass, which now
     # derives its own side-drilled holes from the IR too (subsystem B3).
     feature_keys = feature_hole_keys(_model, a)
-    # ADR 0011 #448: when the caller DECLARED the model (model=), a hole/pattern renders at
+    # ADR 4 (was 0011) #448: when the caller DECLARED the model (model=), a hole/pattern renders at
     # its declared position even where detection missed it — source the callout membership
     # set from the declared IR groups too, not only a.holes. A no-op for the detection-only
     # path (gated on the declared flag; and on a fully-detected declared part the declared
@@ -574,7 +596,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
 
     def _s_reserve_section():
         # Reserve the cutting-plane arrows' row BEFORE the plan-view hole callouts
-        # place (ADR 0009 P5 strand 3) — the section itself still renders last (its
+        # place (ADR 2 (was 0009) P5 strand 3) — the section itself still renders last (its
         # own room check clears everything else placed), this only gives the (now
         # strip_obstacles-aware) callout carve a real obstacle to see and, where a
         # cheap relocation exists, avoid — instead of an invisible one it could
@@ -606,7 +628,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # through fv_zones.right preserving the leapfrog cursor (#237). Replaces the inline
         # dim_step_* + dim_height; the turned step-length chain (render_step_lengths) handles
         # turned parts, and a Z-turned overall height is suppressed there (ISO 129).
-        # The ADR 0016 boundary: compile WHAT is drawn, hand the renderer that plus the
+        # The ADR 4 (was 0016) boundary: compile WHAT is drawn, hand the renderer that plus the
         # page geometry it needs to decide WHERE. It no longer sees `_model` or `a`.
         render_height_ladder(
             dwg,
@@ -641,6 +663,22 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # Planner-fed (#725): consumes the DimensionGroups so an authored tolerance renders.
         render_fillets(dwg, _compiled, a, ctx=ctx)
 
+    def _s_blends():
+        # Accepted aggregate Blend chains carry one dedicated free-axis radius requirement.
+        render_blends(dwg, _compiled, a, ctx=ctx)
+
+    def _s_paired_ramp_steps():
+        # Two equal ramp angles + their run share one solver-owned leader (#1382).
+        render_paired_ramp_steps(dwg, _compiled, a, ctx=ctx)
+
+    def _s_circular_blind_steps():
+        # Quarter-cylinder radius + stopped depth share one solver-owned end-view leader.
+        render_circular_blind_steps(dwg, _compiled, a, ctx=ctx)
+
+    def _s_through_steps():
+        # Two transverse open-section legs, independently identified and corridor-placed.
+        render_through_steps(dwg, _compiled, a, ctx=ctx)
+
     def _s_flats():
         # Machined-flat callouts (#148b): {across} A/F via a leader off each flat on round stock.
         # Planner-fed (#726): consumes the DimensionGroups so an authored tolerance renders.
@@ -650,6 +688,20 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # Blind-recess callouts (#148a): W × L × D DEEP via a leader off each floored pocket.
         # Planner-fed (#728): consumes the DimensionGroups so authored tolerances render.
         render_pockets(dwg, _compiled, a, ctx=ctx)
+
+    def _s_rectangular_blind_slots():
+        # Dedicated OPEN SLOT width × capped-run × depth leader (#1421), solver-owned.
+        render_rectangular_blind_slots(dwg, _compiled, a, ctx=ctx)
+
+    def _s_round_bottom_blind_slots():
+        # Dedicated flat-floor × side-radius × capped-run leader (#1421), solver-owned.
+        render_round_bottom_blind_slots(dwg, _compiled, a, ctx=ctx)
+
+    def _s_pad_heights():
+        # A raised pad's local attachment-to-terminal rise is independent of any global
+        # datum-to-level ladder. Its HIGH leader is a first-class post-drain candidate,
+        # sharing the machined leader assignment rather than bypassing the solve.
+        render_pad_heights(dwg, _compiled, a, ctx=ctx)
 
     def _s_pocket_patterns():
         # Grouped blind-pocket-array callouts (#841): ONE count× W × L × D DEEP leader + the
@@ -702,7 +754,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         render_polygonal_stock(dwg, _compiled, a, ctx=ctx)
 
     def _s_diameters():
-        # Turned-part dimensions via the IR (ADR 0008 convergence). The model is built
+        # Turned-part dimensions via the IR (ADR 1 (was 0008) convergence). The model is built
         # once and fed to both renderers (#229 — no per-pass rebuild): ø leaders, row
         # below (X) / end-on radial leaders (Y) / column left (Z), one path by
         # frame axis. Replaces
@@ -715,7 +767,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # cramming; the envelope dim along the turning axis was suppressed so the chain
         # does not double-dimension the length.
         nonlocal _runtime_plan
-        if a.prof is not None:
+        if a.profiles:
             placed = render_step_lengths(dwg, _compiled, ctx=ctx)
             if placed == 0:
                 released = _runtime_plan.release_contingency("step_length")
@@ -746,7 +798,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         render_slots(dwg, _compiled, a, ctx=ctx)
 
     def _s_gdt():
-        # Declared GD&T frames / datum symbols / surface finishes (ADR 0011 §4, #61)
+        # Declared GD&T frames / datum symbols / surface finishes (ADR 4 (was 0011 §4), #61)
         # register into the same strips as first-class candidates BEFORE the drain, so
         # the one solve orders and spaces them crossing-free with locations/slots rather
         # than consuming leftovers as first-fit placements.
@@ -762,7 +814,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
 
     def _s_drain():
         # Now every corridor feeder pass has registered; solve each shared strip once
-        # (ADR 0009 end state) + the #690 label reconciliation — BEFORE the
+        # (ADR 2 (was 0009) end state) + the #690 label reconciliation — BEFORE the
         # section/detail views so they see the placed ladder as an obstacle.
         drain_and_reconcile(ctx, dwg)
 
@@ -840,10 +892,17 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
             "step_positions": _s_step_positions,
             "chamfers": _s_chamfers,
             "fillets": _s_fillets,
+            "blends": _s_blends,
+            "circular_blind_steps": _s_circular_blind_steps,
+            "paired_ramp_steps": _s_paired_ramp_steps,
             "flats": _s_flats,
             "pockets": _s_pockets,
+            "rectangular_blind_slots": _s_rectangular_blind_slots,
+            "round_bottom_blind_slots": _s_round_bottom_blind_slots,
+            "pad_heights": _s_pad_heights,
             "pocket_patterns": _s_pocket_patterns,
             "slot_patterns": _s_slot_patterns,
+            "through_steps": _s_through_steps,
             "off_axis_across": _s_off_axis_across,
             "envelope": _s_envelope,
             "detail_request": _s_detail_request,
@@ -888,7 +947,7 @@ def _approved_per_measurement(plan) -> dict:
     """How many marks the largest approved set under each `DimensionId` carries.
 
     Not one, in general. A `step_height` ladder gives EVERY rung the same
-    `_dim_id(step, "step_height.length")` — five rungs, one id (ADR 0016 Amdt 3: the parameter
+    `_dim_id(step, "step_height.length")` — five rungs, one id (ADR 4 (was 0016 Amdt 3): the parameter
     id is the canonical spelling, and a per-level identity does not exist). So "this id is
     claimed by some annotation" cannot mean "this measurement is on the sheet" for a ladder,
     and a retraction written that way withdraws the whole report as soon as ONE rung places
@@ -970,7 +1029,7 @@ def _maybe_tabulate_holes(dwg, a: Analysis, *, ctx, plan=None):
 def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
     """Escalate to a per-instance hole table + balloons when the plan view is too
     dense to dimension every hole individually (#93); a dropped ISO pattern
-    callout gets one grouped balloon of its own (#351 PR-3, ADR 0009 Amdt 1
+    callout gets one grouped balloon of its own (#351 PR-3, ADR 2 (was 0009 Amdt 1)
     decision 1 — the #348 fix).
 
     When callouts or location references had to be dropped, the individual
@@ -990,7 +1049,7 @@ def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
     Both kinds of balloon share one strip-solved band per side (one
     ``_add_balloons`` call) so they never overlap each other.
     """
-    # Trigger on the first-class Escalation objects the hole placers collect (ADR 0009
+    # Trigger on the first-class Escalation objects the hole placers collect (ADR 2 (was 0009)
     # Amdt 1, #351 PR-2), not by grepping the `*_dropped` lint strings. Byte-identical:
     # a "callout"/"location" Escalation is emitted 1:1 with each callout_dropped/
     # location_ref_dropped code. The lint codes stay as the coverage surface.
@@ -1013,7 +1072,7 @@ def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
     # (#92).  Excluding them is also what keeps a densely-but-regularly drilled
     # part (e.g. NIST CTC-02) off the 61-row escalation (#111). Sourced from the IR —
     # a loose z-axis HoleFeature is by construction not a pattern member, so no
-    # HoleRecord crosses here (ADR 0008 Am6; #584 WP1 B4).
+    # HoleRecord crosses here (ADR 1 (was 0008 Am6); #584 WP1 B4).
     _model = ctx.part_model
     holes = [
         SimpleNamespace(
@@ -1171,7 +1230,7 @@ def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
         # dense parts have dozens), which is the dominant cost on heavy sheets (#93).
         # Structured coverage state (registered at placement time, #351 PR-4c), not
         # an annotation-name-prefix grep — the last stringly-typed inference this
-        # resolver relied on (ADR 0009 Amdt 1).
+        # resolver relied on (ADR 2 (was 0009 Amdt 1)).
         table_transaction_snap = _snapshot_annotation_transaction(dwg, ctx.coverage)
         replaced = _stash_annotations(
             dwg,
@@ -1481,7 +1540,7 @@ def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
     # Clear `callout_dropped` only when the complete dropped callout is now documented
     # by a successfully keyed scattered-hole table row.  A grouped pattern marker such
     # as ``6×A`` has no defining table row and therefore remains deliberately
-    # non-certifying: it may provide the ADR-0009 visual grouping cue, but the original
+    # non-certifying: it may provide the ADR 2 (was 0009) visual grouping cue, but the original
     # callout drop and its physical-requirement outcomes must remain actionable.
     # A drop this resolver does not cover — a table that didn't fit, a balloon that
     # didn't land, or any callout dropped in a non-plan view — leaves the lint standing.

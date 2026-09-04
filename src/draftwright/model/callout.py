@@ -12,7 +12,7 @@ So the reading lives here, in the IR waist, below both consumers (`compose` rank
 `annotations` ranks 4, `model` ranks 0). The renderer turns the spec into a `HoleCallout`; the
 estimator turns the same spec into token widths. Neither re-derives it.
 
-The governing rule (ADR 0016): **no renderer may infer an engineering fact from the presence or
+The governing rule (ADR 4 (was 0016)): **no renderer may infer an engineering fact from the presence or
 absence of a dimension parameter.** Parameters carry values for display; facts live on the
 feature. `through` is read off the feature for exactly this reason.
 """
@@ -20,7 +20,7 @@ feature. `through` is read off the feature for exactly this reason.
 from __future__ import annotations
 
 from draftwright._geometry import _fmt
-from draftwright.model.ir import HoleFeature, PatternFeature, ThreadRequirement
+from draftwright.model.ir import HoleFeature, PatternFeature, ThreadOperation, ThreadRequirement
 from draftwright.model.planner import DimensionGroup, DimensionId
 
 
@@ -38,7 +38,7 @@ def _planned(group: DimensionGroup, kind: str, *roles: str):
 def _first(group: DimensionGroup, kind: str, *roles: str) -> float | None:
     """First **unsuppressed** parameter value matching *kind* and any of *roles*, in role order.
 
-    Honouring ``suppressed`` here is ADR 0016 / #875. Thirteen render sites already skipped
+    Honouring ``suppressed`` here is ADR 4 (was 0016) / #875. Thirteen render sites already skipped
     suppressed dimensions; the compound-callout path did not, so a suppressed segment still
     printed. Suppression MARKS a dimension rather than removing it (the group keeps its
     engineering data either way) — what changes is whether it reaches the page.
@@ -148,7 +148,7 @@ def _shadowed(group: DimensionGroup, name: str) -> bool:
 
 
 def _refuse_headless_callout(group: DimensionGroup) -> None:
-    """Raise if suppression would leave part of a compound callout orphaned (ADR 0016 / #875).
+    """Raise if suppression would leave part of a compound callout orphaned (ADR 4 (was 0016) / #875).
 
     Two scales of the same rule:
 
@@ -204,6 +204,9 @@ def _refuse_headless_callout(group: DimensionGroup) -> None:
     ]
     if bcd_suffix:
         dependent_labels.append(f"the pattern suffix {bcd_suffix!r}")
+    thread_depth = _planned(group, "depth", "thread")
+    if thread_depth is not None and not thread_depth.suppressed:
+        dependent_labels.append("thread.depth")
 
     # Riders are waived for an AUTHORED omission, and only for one. Whether losing a rider in
     # silence is acceptable turns on WHO decided, which is the distinction `Omission.authored`
@@ -295,7 +298,35 @@ def _callout_measurements(group: DimensionGroup) -> tuple[DimensionId, ...]:
     add("diameter", "countersink")
     add("angle", "countersink")
     add("diameter", "bolt_circle")
+    add("depth", "thread")
     return tuple(DimensionId(group.feature, pd.param.parameter_id) for pd in planned)
+
+
+def hole_callout_suffix(spec: dict, tolerance_suffix=lambda _value: "") -> str | None:
+    """Format the riders shared by callout rendering and width estimation.
+
+    The presentation tiers inject their tolerance formatter, keeping this model-tier reader
+    below ``_core`` while ensuring both consumers measure and draw identical thread-depth text.
+    """
+
+    if not any(key in spec for key in ("profile_suffix", "thread", "pattern_suffix")):
+        return spec.get("suffix")
+
+    thread = spec.get("thread")
+    thread_depth = spec.get("thread_depth")
+    if thread and thread_depth is not None:
+        thread = (
+            f"{thread} x {_fmt(thread_depth, spec.get('thread_depth_decimals'))}"
+            f"{tolerance_suffix(spec.get('thread_depth_tol'))} DEEP"
+        )
+    return (
+        " ".join(
+            part
+            for part in (spec.get("profile_suffix"), thread, spec.get("pattern_suffix"))
+            if part
+        )
+        or None
+    )
 
 
 _AUTHORED_OMISSION = "not in the authored dimension set"
@@ -309,7 +340,7 @@ _AUTHORED_OMISSION = "not in the authored dimension set"
 
 
 def authored_omission_in(group) -> bool:
-    """Does *group* have any measurement the AUTHOR left out (ADR 0016 / #876)?
+    """Does *group* have any measurement the AUTHOR left out (ADR 4 (was 0016) / #876)?
 
     Only that — deliberately NOT "would the callout draw?". Three attempts at predicting
     the second from a hand-written per-kind table were each wrong for some feature: a
@@ -344,8 +375,8 @@ def hole_callout_spec(group: DimensionGroup) -> dict | None:
     ``through`` is read off the FEATURE, never inferred from a missing bore-depth
     param (#868). `HoleFeature.parameters()` only emits the depth for a blind hole,
     so absence-as-signal would make any consumer that filters the parameter list —
-    ADR 0016 suppression above all — silently render a blind hole as ``THRU``. The
-    rule that follows (ADR 0016): a renderer may not infer an engineering *fact*
+    ADR 4 (was 0016) suppression above all — silently render a blind hole as ``THRU``. The
+    rule that follows (ADR 4 (was 0016)): a renderer may not infer an engineering *fact*
     from the presence or absence of a dimension parameter — parameters carry values
     for display, facts live on the feature."""
     feat = group.feature
@@ -377,14 +408,14 @@ def hole_callout_spec(group: DimensionGroup) -> dict | None:
     bore_tol = bore_pd.param.tolerance if bore_pd is not None else None
     depth = _first(group, "depth", "bore")
     count = feat.count
-    suffix = _pattern_suffix(group)
+    pattern_suffix = _pattern_suffix(group)
     # A thread spec (#764) folds onto the compound callout — it lives on the bore hole
     # (the pattern's member for a threaded array). Lead with it (the tap/thread is the
     # defining call), then any pattern suffix: e.g. "M3x0.5" or "M3x0.5 EQ SP ON ø50 BC".
     hole = feat.member if isinstance(feat, PatternFeature) else feat
     thread = getattr(hole, "thread", None)
     thread_source_ids = thread.source_ids if isinstance(thread, ThreadRequirement) else ()
-    if isinstance(thread, ThreadRequirement):
+    if isinstance(thread, ThreadRequirement | ThreadOperation):
         thread = thread.callout_suffix
     profile_suffix = None
     across = None
@@ -395,8 +426,13 @@ def hole_callout_spec(group: DimensionGroup) -> dict | None:
             if across is not None
             else ""
         )
-    suffix = " ".join(p for p in (profile_suffix, thread, suffix) if p) or None
-    return {
+    thread_depth_pd = _planned(group, "depth", "thread")
+    thread_depth = (
+        None
+        if thread_depth_pd is None or thread_depth_pd.suppressed
+        else float(thread_depth_pd.param.value)
+    )
+    spec = {
         "diameter": bore,
         "diameter_decimals": _display_decimals(group, "diameter", "bore"),
         "count": count if count and count > 1 else None,
@@ -415,7 +451,12 @@ def hole_callout_spec(group: DimensionGroup) -> dict | None:
         "csink_angle": _first(group, "angle", "countersink"),
         "csink_dia_decimals": getattr(csink_dia_pd, "display_decimals", None),
         "csink_angle_decimals": getattr(csink_angle_pd, "display_decimals", None),
-        "suffix": suffix,
+        "profile_suffix": profile_suffix,
+        "thread": thread,
+        "thread_depth": thread_depth,
+        "thread_depth_decimals": getattr(thread_depth_pd, "display_decimals", None),
+        "thread_depth_tol": _tol_of(thread_depth_pd),
+        "pattern_suffix": pattern_suffix,
         "tolerance": bore_tol,  # P2a: ± on the bore ⌀, baked into the callout string below
         # ...and one per remaining term, baked in the same way (#1234 review r7).
         # A BLIND hole's own depth tolerance. `callout_from_spec` and `compose.py` were both
@@ -457,3 +498,5 @@ def hole_callout_spec(group: DimensionGroup) -> dict | None:
             else None
         ),
     }
+    spec["suffix"] = hole_callout_suffix(spec)
+    return spec

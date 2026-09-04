@@ -1,4 +1,4 @@
-"""declare — build IR features directly from known build123d objects (ADR 0011).
+"""declare — build IR features directly from known build123d objects (ADR 4 (was 0011)).
 
 The normal path detects features from the finished solid's silhouettes
 (``recognition/`` → ``build_part_model``). When you *built* the part you already
@@ -35,13 +35,16 @@ from draftwright._geometry import (
     _radial_axis_in_view,
     _solids_body,
     plane_axes,
+    plane_axis_names,
 )
 from draftwright.model.ir import (
     AUTHORED_DIMENSION_KINDS,
     AuthoredDimension,
+    BlendFeature,
     BossFeature,
     ChamferFeature,
     ChannelFeature,
+    CircularBlindStepFeature,
     ControlFrame,
     CylindricalReference,
     DatumRef,
@@ -58,6 +61,7 @@ from draftwright.model.ir import (
     LevelSupport,
     Note,
     PadFeature,
+    PairedRampStepFeature,
     PatternFeature,
     PlateFeature,
     PocketFeature,
@@ -65,11 +69,15 @@ from draftwright.model.ir import (
     Point,
     PolygonalBossFeature,
     PolygonalStockFeature,
+    RectangularBlindSlotFeature,
     RotationalFeature,
+    RoundBottomBlindSlotFeature,
     SlotFeature,
     SlotPatternFeature,
     StepFeature,
     StepLevelFeature,
+    ThroughStepFeature,
+    validate_authored_dimension_placement,
 )
 
 # Fractional tolerance below which a slot object's two longest bbox spans count as "near-equal",
@@ -94,7 +102,7 @@ def _is_positive(v) -> bool:
 
 def _require_positive(**named) -> None:
     """Each supplied (non-``None``) value must be a positive number. These constructors are
-    a public compiler input (ADR 0011); a negative/zero size must fail at declaration time
+    a public compiler input (ADR 4 (was 0011)); a negative/zero size must fail at declaration time
     with a clear ``ValueError``, not later in layout or as a misleading drawing (#452). A
     ``None`` is skipped (the field is optional) — use :func:`_positive` for a required one."""
     for name, v in named.items():
@@ -181,7 +189,7 @@ def _read_cylinder(obj) -> tuple[str, float, Point]:
 
 
 def read_bore_step(part, tool, axis: str) -> tuple[float, float]:
-    """``(diameter, depth)`` of a counterbore / spotface *tool* cut into *part* (ADR 0011 #462).
+    """``(diameter, depth)`` of a counterbore / spotface *tool* cut into *part* (ADR 4 (was 0011) #462).
 
     ⌀ comes from the tool's cylindrical face (like :func:`_read_cylinder`); **depth** is measured
     along the hole *axis* from the part's **open face at the hole** to the tool's inner (floor)
@@ -248,8 +256,10 @@ def hole(
 
     ``cbore`` / ``spotface`` are ``(diameter, depth)`` pairs; ``csink`` is a
     ``(major_diameter, included_angle)`` pair (a flat-head seat, callout ``⌵ Ø.. × ..°``);
-    ``thread`` is a tap/thread spec string (e.g. ``"M3x0.5"``) folded onto the callout
-    (#764); ``count`` + ``members`` describe a machining-spec group drawn as one ``count×``.
+    ``thread`` is a tap/thread spec string (e.g. ``"M3x0.5"``), or a
+    :class:`~draftwright.model.ir.ThreadOperation` when an independently addressable tap depth
+    is required, folded onto the callout (#764/#1360); ``count`` + ``members`` describe a
+    machining-spec group drawn as one ``count×``.
 
     An object supplies *defaults*; any explicit keyword overrides that field (#451)."""
     if obj is not None:
@@ -298,7 +308,7 @@ def double_d_bore(
     with exactly that boundary; arbitrary line/arc profiles and blind profiles fail closed.
     """
     if obj is not None:
-        from b123d_recognisers.profiled_bores import read_double_d_tool
+        from b123d_recognisers.inspection import read_double_d_tool
 
         r_axis, r_major, r_af, r_at, r_depth, r_direction = read_double_d_tool(obj)
         axis = r_axis if axis is None else axis
@@ -337,9 +347,9 @@ def read_countersink(cone) -> tuple[float, float]:
     """``(major_diameter, included_angle°)`` of a countersink **cone** tool — the larger rim ⌀
     and the full cone angle, read off its conical **face** (not a removed edge, #576 lesson).
     The cone geometry is the recogniser's own
-    :func:`~b123d_recognisers.countersinks.cone_rims` (#704), so a declared
+    :func:`~b123d_recognisers.inspection.cone_rims` (#704), so a declared
     countersink reads identically to a detected one by construction."""
-    from b123d_recognisers import cone_rims
+    from b123d_recognisers.inspection import cone_rims
     from build123d import GeomType
 
     faces = cone.faces().filter_by(GeomType.CONE)
@@ -496,6 +506,7 @@ def step(
     span=None,
     thread=None,
     knurl=None,
+    profile_group=None,
 ) -> StepFeature:
     """One axial segment of a turned profile — its OD + length. Either ``step(segment)``
     (⌀ from the cylindrical face, length + centre from the bbox along its axis) or
@@ -515,6 +526,10 @@ def step(
     axis = _norm_axis(axis)
     _require_positive(diameter=diameter, length=length)
     _require_point("at", at)
+    if profile_group is not None and (
+        not isinstance(profile_group, str) or not profile_group.strip()
+    ):
+        raise ValueError("profile_group must be a non-empty string when supplied")
     if span is None:
         span = _span(at, axis, length)
     return StepFeature(
@@ -524,6 +539,7 @@ def step(
         span=span,
         thread=thread,
         knurl=knurl,
+        profile_group=profile_group,
     )
 
 
@@ -531,10 +547,10 @@ def _read_chamfer_face(face) -> tuple[str, float, float, Point]:
     """Read a chamfer off its **oblique planar bevel face**: the axis (the edge the chamfer
     runs along), the two legs (the face's in-plane extents), and a point **on the bevel** (the
     face centre — not the removed sharp corner). The classification + leg geometry is the
-    recogniser's own :func:`~b123d_recognisers.chamfers.classify_bevel` (#704), so a
+    recogniser's own :func:`~b123d_recognisers.inspection.classify_bevel` (#704), so a
     declared chamfer reads identically to a detected one by construction; only the
     user-facing error messages live here."""
-    from b123d_recognisers import BevelReject, classify_bevel
+    from b123d_recognisers.inspection import BevelReject, classify_bevel
 
     try:
         edge_i, _nv, _span, hi, lo = classify_bevel(face)
@@ -618,11 +634,11 @@ def _read_fillet_face(face) -> tuple[str, float, Point]:
     along), the radius (the cylinder radius), and a point **on the round** (mid angular/axial of
     the trimmed face — the ``R`` leader's tip). Agrees with the recogniser (recognition/fillets.py)
     in the two in-plane (placement) coordinates; the along-edge coordinate is view depth."""
-    from b123d_recognisers.experimental_geometry import AnalyticSurface, inspect_face
+    from b123d_recognisers.inspection import AnalyticSurface, SurfaceKind, inspect_face
 
     inspection = inspect_face(face)
     surface = inspection.surface
-    if not isinstance(surface, AnalyticSurface) or surface.kind.value != "cylinder":
+    if not isinstance(surface, AnalyticSurface) or surface.kind is not SurfaceKind.CYLINDER:
         raise ValueError(
             "fillet(face=...) needs a cylindrical blend face (the round); an edge or flat "
             "face is not a fillet — declare with axis=, radius=, at= instead"
@@ -673,6 +689,145 @@ def fillet(obj=None, *, axis=None, radius=None, at=None, turned=False) -> Fillet
         axis=axis,
         radius=round(radius, 3),
         turned=bool(turned),
+    )
+
+
+def blend(
+    *,
+    axis,
+    radius,
+    at,
+    side="convex",
+    axis_direction=None,
+    path_kind="straight",
+    path_radius=None,
+) -> BlendFeature:
+    """Declare one complete straight or circular rolling-ball path.
+
+    This word is explicit-only: a detached round face cannot prove complete path ownership or
+    aggregate-owned Fillet precedence. For a straight path, ``at`` is a point on its line and
+    ``axis_direction`` is its direction. For a circular path, ``at`` is its centre,
+    ``axis_direction`` is its normal, and ``path_radius`` is the centre-line radius. ``axis`` uses
+    the canonical first-maximum x/y/z tie-break of the path direction so declared and detected
+    occurrence identities remain exact.
+    """
+    axis = _norm_axis(axis)
+    if axis_direction is None:
+        axis_direction = tuple(1.0 if letter == axis else 0.0 for letter in "xyz")
+    return BlendFeature(
+        frame=Frame(origin=at, axis=axis),
+        axis=axis,
+        radius=radius,
+        side=side,
+        axis_direction=axis_direction,
+        path_kind=path_kind,
+        path_radius=path_radius,
+    )
+
+
+def circular_blind_step(*, axis, radius, length, centreline, section) -> CircularBlindStepFeature:
+    """Declare one quarter-cylindrical corner cut with a blind terminal (#1382).
+
+    Explicit-only: a detached cylindrical face cannot prove the two open corner joins, the
+    blind terminal or which transverse quadrant was removed. ``centreline`` is ordered from
+    the blind terminal to the open stock envelope; ``section`` is the canonical transverse
+    arc endpoint, centre and other endpoint.
+    """
+    axis = _norm_axis(axis)
+    if type(radius) not in (int, float) or type(length) not in (int, float):
+        raise ValueError("radius and length must be finite positive numbers")
+    try:
+        _require_positive(radius=radius, length=length)
+    except OverflowError as exc:
+        raise ValueError("radius and length must be finite positive numbers") from exc
+    try:
+        if any(type(value) not in (int, float) for point in centreline for value in point):
+            raise ValueError
+        canonical_centreline = tuple(
+            tuple(float(value) for value in point) for point in centreline
+        )
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(
+            "circular_blind_step centreline must contain two finite 3D points"
+        ) from exc
+    try:
+        if any(type(value) not in (int, float) for point in section for value in point):
+            raise ValueError
+        canonical_section = tuple(tuple(float(value) for value in point) for point in section)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(
+            "circular_blind_step section must contain three finite 2D points"
+        ) from exc
+    canonical_radius = float(radius)
+    canonical_length = float(length)
+    try:
+        anchor = CircularBlindStepFeature.anchor_for(
+            axis, canonical_radius, canonical_centreline, canonical_section
+        )
+    except (IndexError, TypeError, ValueError, ZeroDivisionError) as exc:
+        raise ValueError(
+            "circular_blind_step needs a valid centreline and canonical quarter-arc section"
+        ) from exc
+    return CircularBlindStepFeature(
+        frame=Frame(origin=anchor, axis=axis),
+        axis=axis,
+        radius=canonical_radius,
+        length=canonical_length,
+        centreline=canonical_centreline,  # type: ignore[arg-type]
+        section=canonical_section,  # type: ignore[arg-type]
+    )
+
+
+def paired_ramp_step(*, axis, angle, length, at) -> PairedRampStepFeature:
+    """Declare one mirror-symmetric paired-ramp side step (#1382).
+
+    This is deliberately explicit-only.  A detached face or cutter does not prove the
+    paired, material-removal, open-to-terminal topology owned by the recogniser, so an object
+    form would be a second recognition path.  ``at`` is the midpoint of the shared ridge,
+    ``axis`` its run direction, ``angle`` either equal ramp angle, and ``length`` the
+    open-to-terminal run.
+    """
+    axis = _norm_axis(axis)
+    _require_positive(length=length)
+    _require_point("at", at)
+    if (
+        isinstance(angle, bool)
+        or not isinstance(angle, int | float)
+        or not math.isfinite(angle)
+        or not 0 < angle < 90
+    ):
+        raise ValueError(f"paired_ramp_step angle must be a finite acute angle (got {angle!r})")
+    return PairedRampStepFeature(
+        frame=Frame(origin=at, axis=axis),
+        axis=axis,
+        angle=round(float(angle), 2),
+        length=round(float(length), 3),
+    )
+
+
+def through_step(*, axis, length, at, section) -> ThroughStepFeature:
+    """Declare one rectangular open-profile through step (#1382).
+
+    Explicit-only: a detached cutter cannot prove that the recess spans the owning body.
+    ``section`` is the provider's canonical three-point open polyline in the two non-run
+    coordinates: envelope endpoint, concave corner, envelope endpoint.
+    """
+    axis = _norm_axis(axis)
+    _require_positive(length=length)
+    _require_point("at", at)
+    try:
+        if any(isinstance(value, bool) for point in section for value in point):
+            raise ValueError
+        canonical_section = tuple(
+            tuple(round(float(value), 3) for value in point) for point in section
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError("through_step section must contain three finite 2D points") from exc
+    return ThroughStepFeature(
+        frame=Frame(origin=at, axis=axis),
+        axis=axis,
+        length=round(float(length), 3),
+        section=canonical_section,  # type: ignore[arg-type]
     )
 
 
@@ -769,7 +924,7 @@ def _read_groove_face(face) -> tuple[str, float, float, Point]:
     span = ((bb.min.X, bb.max.X), (bb.min.Y, bb.max.Y), (bb.min.Z, bb.max.Z))[axis_i]
     # The leader tip is the recogniser's own floor_face_anchor (#704), so a declared
     # groove anchors identically to a detected one by construction.
-    from b123d_recognisers import floor_face_anchor
+    from b123d_recognisers.inspection import floor_face_anchor
 
     c = floor_face_anchor(face)
     return (
@@ -830,7 +985,7 @@ def rotational(*, od, bores=(), at=None, axis=None) -> RotationalFeature:
     """A turned body's axial furniture — its outer diameter, rotation axis and concentric
     bores (#945). **Explicit values only:** ``rotational(od=30, bores=(16,), axis="z")``.
 
-    The last recognised kind with no declarative surface, which made it the last ADR 0011
+    The last recognised kind with no declarative surface, which made it the last ADR 4 (was 0011)
     round-trip gap (epic #574). Its absence was load-bearing rather than cosmetic: a
     `RotationalFeature` carries planned dimensions (`od`, each `bore`), so a generated script
     could not name them, and the dimension mirror fell back to `auto_dimensions()` for the
@@ -1229,6 +1384,7 @@ def pocket(
     hi=None,
     at=None,
     edge_anchored=False,
+    open_sign=1,
 ) -> PocketFeature:
     """A blind rectangular recess — a floored slot/pocket, dimensioned width × length ×
     depth (#148a). The blind counterpart of :func:`slot`: unlike a through-slot the depth
@@ -1299,6 +1455,8 @@ def pocket(
         raise ValueError(f"pocket() needs lo < hi (got lo={lo!r}, hi={hi!r})")
     if not math.isclose(hi - lo, length, rel_tol=1e-6, abs_tol=1e-6):
         raise ValueError(f"pocket() length={length!r} must equal hi - lo ({hi - lo!r})")
+    if open_sign not in (-1, 1):
+        raise ValueError(f"pocket() open_sign must be -1 or 1 (got {open_sign!r})")
     w_center = 0.0 if w_center is None else w_center
     if at is None:
         origin = [0.0, 0.0, 0.0]
@@ -1316,6 +1474,72 @@ def pocket(
         lo=lo,
         hi=hi,
         edge_anchored=bool(edge_anchored),
+        open_sign=int(open_sign),
+    )
+
+
+def rectangular_blind_slot(
+    *,
+    axis,
+    open_sign,
+    length,
+    width_axis,
+    depth_axis,
+    depth_sign,
+    width,
+    depth,
+    at,
+) -> RectangularBlindSlotFeature:
+    """Declare one capped, edge-open rectangular U-section slot.
+
+    The explicit-only surface is intentional. A detached cutter's bounding box cannot prove
+    which end is open to the source envelope, which end terminates in material, or which side
+    is the U-section opening. Callers state those topological facts exactly as the public
+    recogniser record does; the IR validates the complete axis/sign contract.
+    """
+    run_axis = _norm_axis(axis)
+    return RectangularBlindSlotFeature(
+        frame=Frame(origin=at, axis=run_axis),
+        axis=run_axis,
+        open_sign=open_sign,
+        width_axis=_norm_axis(width_axis),
+        depth_axis=_norm_axis(depth_axis),
+        depth_sign=depth_sign,
+        width=width,
+        length=length,
+        depth=depth,
+    )
+
+
+def round_bottom_blind_slot(
+    *,
+    axis,
+    open_sign,
+    length,
+    width_axis,
+    depth_axis,
+    depth_sign,
+    radius,
+    flat_width,
+    at,
+) -> RoundBottomBlindSlotFeature:
+    """Declare one capped, edge-open round-bottom U-section slot.
+
+    The explicit-only surface mirrors the public recogniser record. Detached cutter geometry
+    cannot prove the source-envelope mouth, blind terminal, material-opening direction, or
+    that the two round sides and intervening flat floor form this physical family.
+    """
+    run_axis = _norm_axis(axis)
+    return RoundBottomBlindSlotFeature(
+        frame=Frame(origin=at, axis=run_axis),
+        axis=run_axis,
+        open_sign=open_sign,
+        width_axis=_norm_axis(width_axis),
+        depth_axis=_norm_axis(depth_axis),
+        depth_sign=depth_sign,
+        length=length,
+        radius=radius,
+        flat_width=flat_width,
     )
 
 
@@ -1380,12 +1604,19 @@ def pad(
     z0=None,
     z1=None,
     at=None,
+    axis="z",
+    direction=1,
 ) -> PadFeature:
-    """A bounded rectangular raised pad, dimensioned by footprint and location.
+    """A bounded principal-axis raised pad, dimensioned by footprint and location.
 
     ``pad(pad_solid)`` reads its axis-aligned bounding box; the explicit flavour
-    accepts the six bounds used by generated Sheet scripts.
+    accepts the six world bounds used by generated Sheet scripts. ``axis`` is the
+    attachment-to-terminal coordinate and ``direction`` selects its positive or negative
+    material-outward end; the defaults preserve the historical +Z declaration.
     """
+    axis = _norm_axis(axis)
+    if direction not in (-1, 1):
+        raise ValueError("pad() direction must be -1 or 1")
     if obj is not None:
         bb = obj.bounding_box()
         x0 = bb.min.X if x0 is None else x0
@@ -1401,17 +1632,23 @@ def pad(
     if at is None:
         at = ((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2)
     _require_point("at", at)
+    bounds = {"x": (x0, x1), "y": (y0, y1), "z": (z0, z1)}
+    long_axis, width_axis = plane_axis_names(axis)
+    long_lo, long_hi = bounds[long_axis]
+    width_lo, width_hi = bounds[width_axis]
+    normal_lo, normal_hi = bounds[axis]
     return PadFeature(
-        frame=Frame(at, "z"),
-        width_axis="y",
-        long_axis="x",
-        width=y1 - y0,
-        length=x1 - x0,
-        w_center=(y0 + y1) / 2,
-        lo=x0,
-        hi=x1,
-        z0=z0,
-        z1=z1,
+        frame=Frame(at, axis),
+        width_axis=width_axis,
+        long_axis=long_axis,
+        width=width_hi - width_lo,
+        length=long_hi - long_lo,
+        w_center=(width_lo + width_hi) / 2,
+        lo=long_lo,
+        hi=long_hi,
+        z0=normal_lo,
+        z1=normal_hi,
+        direction=direction,
     )
 
 
@@ -1858,7 +2095,7 @@ def _envelope_from_bbox(bb) -> EnvelopeFeature:
     )
 
 
-# -- GD&T aspect targets (ADR 0011 P2c, #479) -------------------------------------
+# -- GD&T aspect targets (ADR 4 (was 0011) P2c, #479) -------------------------------------
 # The P2b IR items (ControlFrame/DatumRef/Finish) carry (view, side, site) explicitly.
 # These constructors DERIVE that target from a reference — an IR feature (site = its axis)
 # or a build123d planar face (site = its centre, axis = its normal) — the geometric work
@@ -2002,7 +2239,7 @@ def _surface_target(ref, part=None, *, view=None, side=None) -> tuple[str, str, 
 
 
 def datum(letter: str, ref, part=None, *, view=None, side=None) -> DatumRef:
-    """A datum feature symbol (ISO 5459) on *ref* — a feature or a planar face (ADR 0011 P2c)."""
+    """A datum feature symbol (ISO 5459) on *ref* — a feature or a planar face (ADR 4 (was 0011) P2c)."""
     if not (isinstance(letter, str) and letter.strip()):
         raise ValueError(f"datum needs a non-empty letter (got {letter!r})")
     v, s, site, axis = gdt_target(ref, part, view=view, side=side)
@@ -2030,8 +2267,8 @@ def note(
     satisfies: tuple[DimensionParameterId, ...] = (),
 ) -> Note:
     """A free-text manufacturing note (#488) on a leader to *ref* — a feature or a planar face
-    (ADR 0011 P2c). The shop callouts detection can't infer: thread specs (``M3x0.5 TAP``),
-    ``DEBURR``, chip-relief, knurl. Placed like the GD&T items (a first-class ADR 0009 corridor
+    (ADR 4 (was 0011) P2c). The shop callouts detection can't infer: thread specs (``M3x0.5 TAP``),
+    ``DEBURR``, chip-relief, knurl. Placed like the GD&T items (a first-class ADR 2 (was 0009) corridor
     candidate), not the dimension planner. ``satisfies`` explicitly names canonical
     measurement roles that this note carries; the claim takes effect only if the note is
     placed, and is never inferred by parsing its prose (#1351)."""
@@ -2063,7 +2300,7 @@ def control_frame(
     side=None,
 ) -> ControlFrame:
     """A geometric-tolerance feature control frame (ISO 1101) on *ref* — a feature or a planar
-    face (ADR 0011 P2c.2). *characteristic* is a lowercase ISO 1101 name (``"position"`` …);
+    face (ADR 4 (was 0011) P2c.2). *characteristic* is a lowercase ISO 1101 name (``"position"`` …);
     *datums* the referenced datum letters; *diameter* prefixes the zone with ``⌀``; *modifier*
     a material-condition symbol (``"M"``/``"L"``/``"P"``)."""
     tol = str(tolerance).strip()
@@ -2111,6 +2348,8 @@ def measured_dimension(
     lowering_blockers: tuple[str, ...] = (),
     rendering_blockers: tuple[str, ...] = (),
     cylindrical_refs=(),
+    view: str | None = None,
+    side: str | None = None,
 ) -> AuthoredDimension:
     """A pre-authored drafting dimension from explicit measured values — the IR constructor
     behind :meth:`Sheet.measured_dimension` (#704: extracted so ``build_drawing(model=…)``
@@ -2162,6 +2401,7 @@ def measured_dimension(
         unresolved_bore = dom == "?" and dim_kind in ("diameter", "radius") and bbox is not None
         if not (unresolved_import or unresolved_bore):
             raise ValueError("measured_dimension() dominant_axis must be X, Y, or Z")
+    validate_authored_dimension_placement(dim_kind, dom, view, side, owner="measured_dimension()")
     cylinder_axes = {reference.principal_axis for reference in cylinders}
     if cylinders and (len(cylinder_axes) != 1 or "?" in cylinder_axes):
         if not imported_blocked:
@@ -2217,4 +2457,6 @@ def measured_dimension(
         lowering_blockers=tuple(str(reason) for reason in lowering_blockers),
         rendering_blockers=tuple(str(reason) for reason in rendering_blockers),
         cylindrical_refs=tuple(cylinders),
+        view=view,
+        side=side,
     )

@@ -1,4 +1,4 @@
-"""LintIssue — the structured lint result (ADR 0007).
+"""LintIssue — the structured lint result (ADR 3 (was 0007)).
 
 Vendored from ``build123d_drafting.helpers`` (which keeps its own copy for its
 standalone validators). draftwright owns linting; this is its ``LintIssue``.
@@ -40,6 +40,11 @@ class LintIssue:
     # location has two independently observable X/Y requirements while #883 keeps their
     # public addressability deliberately open.
     hole_requirement_ids: tuple = ()
+    # Exact compiler-owned spans for occurrence-sensitive measurement outcomes. Addressable
+    # ``DimensionId`` intentionally identifies a whole correlated ladder, so repeated rungs
+    # share it; this parallel tuple lets completeness distinguish which member was dropped.
+    # Empty for families whose identity is already occurrence-specific.
+    measurement_spans: tuple = ()
 
 
 def is_placement_drop(issue: LintIssue) -> bool:

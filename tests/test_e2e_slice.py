@@ -1,4 +1,4 @@
-"""End-to-end slice (ADR 0008) — a complete drawing via the compiler pipeline.
+"""End-to-end slice (ADR 1 (was 0008)) — a complete drawing via the compiler pipeline.
 
 The honest whole-pipeline test the pivot called for: a real part → detect → model →
 plan → render, judged by **correctness** (lint passes, coverage complete, it exports)

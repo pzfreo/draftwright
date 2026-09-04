@@ -1,4 +1,4 @@
-"""The views a drawing requests and resolves — ADR 0018's planning value vocabulary.
+"""The views a drawing requests and resolves — ADR 2 (was 0018)'s planning value vocabulary.
 
 Until now nothing owned the question *which views should exist*. The four orthographic views
 were named at one site in `builder` with hardcoded cameras, their page positions came from
@@ -9,7 +9,7 @@ spread across three modules and stated in prose.
 
 This module makes it a value. :class:`ViewSpec` is a semantic request — what a view shows, in
 model terms, and nothing about the page. :class:`ResolvedViewPlan` is the immutable result — the
-same specs plus the page geometry chosen for them. The split is ADR 0018 decision §1 ("one value
+same specs plus the page geometry chosen for them. The split is ADR 2 (was 0018) decision §1 ("one value
 vocabulary, distinct request and result states"), and it is a split rather than one mutable
 object because a resolved plan that can be edited in place is indistinguishable from a request,
 which is how a layout comes to be silently relaxed.
@@ -37,7 +37,7 @@ class UncoveredViewRequirement:
     """One semantic requirement no selected principal view can carry.
 
     ``identity`` is deliberately opaque here.  The view-planning leaf must not import the
-    model waist, while the planner supplies an ADR 0016 ``DimensionId`` at the boundary.
+    model waist, while the planner supplies an ADR 4 (was 0016) ``DimensionId`` at the boundary.
     ``label`` is only the human-readable rendering of that identity; callers must use
     ``identity`` for correspondence and never parse the label.
     """
@@ -95,7 +95,7 @@ class ViewSpec:
     """One view a drawing should contain, in model terms.
 
     Deliberately says nothing about page position or size. A spec is what a planner decides and a
-    user may edit; where it lands is the resolver's answer, and mixing the two is what ADR 0018
+    user may edit; where it lands is the resolver's answer, and mixing the two is what ADR 2 (was 0018)
     §1 separates. Detail and pictorial specs may request an independent semantic scale factor;
     principal views instead share the drawing scale. `camera` and `up` are the projection request as
     `Drawing._add_view` already expresses it — a direction from the part and an up vector —
@@ -203,7 +203,7 @@ class ViewPin:
 
 @dataclass(frozen=True)
 class ViewConstraints:
-    """Immutable authored input to view planning (ADR 0018).
+    """Immutable authored input to view planning (ADR 2 (was 0018)).
 
     This is intentionally not a partly-resolved :class:`ResolvedViewPlan`.  It records the
     two independent source choices from Amendment 1 (principal/orientation views and derived
@@ -282,7 +282,7 @@ class ViewPlacement:
 class ResolvedViewPlan:
     """The views a drawing has, their page geometry, and the sheet they were resolved onto.
 
-    Immutable, and immutable on purpose: ADR 0018 §1 keeps the resolved result distinct from the
+    Immutable, and immutable on purpose: ADR 2 (was 0018 §1) keeps the resolved result distinct from the
     editable request so a caller cannot mutate a snapshot and have it read as an authored
     constraint. Turning one back into constraints is an explicit conversion, not an attribute
     write.
@@ -368,7 +368,7 @@ def resolve_from_analysis(analysis) -> ResolvedViewPlan:
     # The resolver now CHOOSES, which is what this function's docstring said would happen when
     # view selection became a real decision: `planned_views` is the set the layout reserved
     # space for, so the builder must create exactly those or the two disagree about the sheet.
-    # None keeps the third-angle three, so every existing path is unchanged (ADR 0018, #1130).
+    # None keeps the third-angle three, so every existing path is unchanged (ADR 2 (was 0018), #1130).
     principals = third_angle_principals()
     wanted = getattr(analysis, "planned_views", None)
     if wanted is not None:
@@ -436,18 +436,18 @@ class ViewCoverage:
         **Necessary, not sufficient**, and the name says so rather than saying "redundant". A
         view can carry no exclusive DIMENSION and still be required: it may be the only view
         showing a feature's shape, the projection convention may demand it, or a reader may need
-        it to relate two others. ADR 0018 makes exactly this the trap to avoid — "removing a
+        it to relate two others. ADR 2 (was 0018) makes exactly this the trap to avoid — "removing a
         visually similar but semantically necessary view is rejected by an asymmetric
         counterexample" — so this answers the measurable half and refuses to imply the rest.
 
         **Fails closed on indeterminate coverage**, which is the difference between right and
         wrong on a real case rather than a refinement. A `DimensionId` names a parameter, not a
-        mark (ADR 0016 Amdt 3), so every rung of a step ladder shares one id. An enlarged DETAIL
+        mark (ADR 4 (was 0016 Amdt 3)), so every rung of a step ladder shares one id. An enlarged DETAIL
         view exists precisely to redraw the rungs the main view could not fit — three of them,
         on `_crowded_staircase` — and all three claim the id the main view already claims. By id
         alone that detail carries nothing exclusively and reads as droppable, while dropping it
         loses three dimensions from the sheet: the exact trap above, reached by arithmetic
-        rather than by judgement. Per-mark identity (ADR 0019 §3) is what makes the case
+        rather than by judgement. Per-mark identity (ADR 4 (was 0019 §3)) is what makes the case
         answerable; until then it is reported as unanswered.
         """
         return not self.exclusive and not self.indeterminate
@@ -457,7 +457,7 @@ def view_coverage(drawing) -> Mapping[str, ViewCoverage]:
     """Per-view measurement coverage of a FINISHED drawing.
 
     The evidence view selection needs and does not yet have: before a view can be dropped,
-    something has to be able to say what goes with it. Read through the ADR 0010 provenance
+    something has to be able to say what goes with it. Read through the ADR 5 (was 0010) provenance
     seam — an annotation claiming a `DimensionId` is asserting it draws that measurement — and
     the view each annotation was tagged with at placement, so this is what the sheet actually
     carries rather than what the compiler hoped for.
@@ -523,7 +523,7 @@ def views_carrying_nothing_exclusively(drawing) -> tuple[str, ...]:
 
 
 # ---------------------------------------------------------------------------
-# ADR 0018 §5 — page, scale, views and arrangement as ONE constrained choice
+# ADR 2 (was 0018 §5) — page, scale, views and arrangement as ONE constrained choice
 # ---------------------------------------------------------------------------
 
 
@@ -531,7 +531,7 @@ def views_carrying_nothing_exclusively(drawing) -> tuple[str, ...]:
 class LayoutCandidate:
     """One complete answer to "what does this drawing look like", before it is judged.
 
-    ADR 0018 §5 says the planner evaluates
+    ADR 2 (was 0018 §5) says the planner evaluates
 
         candidate semantic view sets
         x preferred ISO 5455 scales
@@ -578,7 +578,7 @@ class LayoutCandidate:
 class Infeasible:
     """Why a candidate was rejected, in terms a diagnostic can print.
 
-    ADR 0018 §6: "Infeasibility is a first-class result, not a silent relaxation." Today the
+    ADR 2 (was 0018 §6): "Infeasibility is a first-class result, not a silent relaxation." Today the
     only rejection reason the engine can give is that the geometry did not fit, and when every
     candidate is rejected `choose_scale` logs a warning and returns the last one anyway. That
     fallback is not this type's doing and this slice does not change it — but the reason a
@@ -597,7 +597,7 @@ def candidate_is_feasible(candidate: LayoutCandidate, fits) -> Infeasible | None
     *fits* is the caller's geometric predicate — passed in rather than imported, because this is
     a rank-0 leaf and the fit maths lives in `compose` with the strip estimates it needs.
 
-    ADR 0018 §5 lists four hard gates; only the second ("keep all view blocks and required
+    ADR 2 (was 0018 §5) lists four hard gates; only the second ("keep all view blocks and required
     annotations in bounds and conflict-free") is evaluated here, and only in its cheap estimated
     form. The first — "preserve every supported requirement or reject the candidate" — is not
     evaluated by anything today, which is #1250: the automatic path emits sheets it would refuse
@@ -617,7 +617,7 @@ def candidate_is_feasible(candidate: LayoutCandidate, fits) -> Infeasible | None
     return None
 
 
-#: The relational arrangements the layout may be composed under — ADR 0018 §5's fourth
+#: The relational arrangements the layout may be composed under — ADR 2 (was 0018 §5)'s fourth
 #: dimension, ordered by preference. `columns` gives the isometric a column of its own;
 #: `stacked-iso` puts it in the title block's column instead, which wins back that column's
 #: width at the cost of the height the title block does not use. Preference order matters:
@@ -629,7 +629,7 @@ ARRANGEMENTS: tuple[str, ...] = ("columns", "stacked-iso")
 class ScalePick(tuple):
     """`(scale, page_w, page_h, tb_w)` — plus the arrangement it was chosen under.
 
-    ADR 0018 §5 makes scale, sheet, view set and arrangement ONE choice. Returning only the
+    ADR 2 (was 0018 §5) makes scale, sheet, view set and arrangement ONE choice. Returning only the
     first three of those leaves the fourth to be re-derived downstream, and #1130 measured
     what that costs: `_layout_geometry` is a single shared authority, but scale selection
     calls it with ESTIMATED strip depths and placement with MEASURED ones, so resolving the
@@ -717,7 +717,7 @@ def views_showing(axis: str, planned, *, horizontal: bool = False) -> str | None
     time the plan view was offered as a fallback for it (#1130).
 
     ``None`` when the sheet has no such view — a caller must report that rather than place a
-    requirement where it cannot be read (ADR 0016 Amdt 6).
+    requirement where it cannot be read (ADR 4 (was 0016 Amdt 6)).
     """
     planned = set(planned)
     return next(

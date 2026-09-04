@@ -15,7 +15,7 @@ one tracking issue; each work item within a phase is one PR (split if it grows).
   `render_grooves` (`from_model.py:912/978/1042/1146/1204`) — each 0.3.0 feature
   kind landed as a fresh copy of its predecessor.
 - Two 0.3.0 features (**plates #559, step-positions #555**) landed on the legacy
-  `carve_free_position` path rather than the ADR 0009 corridor solve — the
+  `carve_free_position` path rather than the ADR 2 (was 0009) corridor solve — the
   half-migrated state doesn't just persist, it attracts new work.
 - Magic constants are justified by bug numbers, not invariants: the `0.62`
   text-width fudge appears three times while a real `_text_width()` metric
@@ -25,7 +25,7 @@ one tracking issue; each work item within a phase is one PR (split if it grows).
   (`holes.py` "line 638" → now ~1279) — changes are made locally without the
   surrounding model being re-read.
 - 72 distinct `dwg._*` reach-ins from `annotations/` keep `Drawing` as the
-  implicit state bus ADR 0005 §2 set out to retire.
+  implicit state bus ADR 1 (was 0005 §2) set out to retire.
 
 None of this is runaway. All of it steepens the cost curve of the next feature.
 
@@ -41,10 +41,10 @@ checklist now names it).
 
 | Phase | Issue | What | Blocks / blocked by |
 |---|---|---|---|
-| 1 | **#636** | Finish ADR 0009: migrate remaining `carve_free_position` passes (plates, height ladder, step positions, PMI drop fallback, hole helpers) into the corridor solve; fail-closed guard test | coordinate with #426 (manual verbs) and #602 (footprints); not blocked |
+| 1 | **#636** | Finish ADR 2 (was 0009): migrate remaining `carve_free_position` passes (plates, height ladder, step positions, PMI drop fallback, hole helpers) into the corridor solve; fail-closed guard test | coordinate with #426 (manual verbs) and #602 (footprints); not blocked |
 | 2 | **#637** | One `_leader_callout_pass` for the five machined-feature renderers; name the magic constants; unify the dedup policy | independent |
 | 3 | **#638** | Split `_annotate_holes` (~643 ln), data-drive `render_pmi` (~470 ln axis matrix), untangle `finalize`/`_classify_intents` | don't overlap #636 in the same files simultaneously |
-| 4 | **#639** | ADR 0005 §2: explicit `PlacementContext`; retire `Drawing` as the build-state bus (72 `dwg._*` reach-ins → declared interface) | before Phase 6's re-targeting |
+| 4 | **#639** | ADR 1 (was 0005 §2): explicit `PlacementContext`; retire `Drawing` as the build-state bus (72 `dwg._*` reach-ins → declared interface) | before Phase 6's re-targeting |
 | 5 | **#640** | Enforce the DAG everywhere: extend `test_import_boundaries.py` beyond `model/`, cycle detection, resolve #523; keep CLAUDE.md/ADRs true | any time |
 | 6 | **#641** | Tests specify intended behaviour: hypothesis over the layout invariants, re-target white-box `from_model` tests onto the #639 seam, decide the 0.11-kernel snapshot gap, assert `_suggest_fix` content | after Phase 4 (partially) |
 
@@ -60,13 +60,13 @@ until both land). 3 is independent. 4 before 6. 5 any time.
   candidates measured analytically instead of via full OCCT builds. Its
   occupancy-index proposal naturally lives on the Phase 4 `PlacementContext`.
 - **#523** (builder↔cli↔sheet_emit import cycle) is folded into Phase 5.
-- **ADR 0005 §2** and the **ADR 0009 Current-decision header** now carry status
+- **ADR 1 (was 0005 §2)** and the **ADR 2 (was 0009) Current-decision header** now carry status
   notes pointing back at this epic (updated 2026-07-15).
 
 ## Done means
 
 - `carve_free_position` has no production callers in `annotations/` outside a
-  test-asserted exemption allowlist (recorded in ADR 0009).
+  test-asserted exemption allowlist (recorded in ADR 2 (was 0009)).
 - A sixth machined-feature kind is a table row in one shared pass, not a sixth
   function.
 - No function in the render layer over ~150 lines; closure nesting ≤ 2.

@@ -4,7 +4,7 @@
 exercised by holes alone is a hole verifier with general-sounding names.
 
 Measured: it costs **nothing**. Slots, pockets, bosses and bores, chamfers and turned steps all
-produce verifiable claims through `registry.measurement_of` — the one ADR 0010 seam — with zero
+produce verifiable claims through `registry.measurement_of` — the one ADR 5 (was 0010) seam — with zero
 changes to `linting/evidence.py`. The epic's PR-3 gate was "it costs a producer and zero changes
 to the facility"; the producers already existed, because provenance is threaded once and not per
 family.
@@ -235,7 +235,7 @@ _UNCONFIRMED_MESSAGE = (
 
 _ESCAPE_MESSAGE = (
     "render a measured value and claim nothing, so the verifier cannot see them. Thread "
-    "ADR 0010 provenance on the producer, or register the annotation in "
+    "ADR 5 (was 0010) provenance on the producer, or register the annotation in "
     "_NON_MEASURING_ANNOTATIONS with the reason."
 )
 
@@ -244,7 +244,7 @@ class TestNoMeasuredAnnotationEscapesUnclaimed:
     """The ratchet, and the real content of this slice.
 
     The facility can only check an annotation that claims a measurement. A new family whose
-    annotations state a value without threading ADR 0010 provenance is not *wrongly* verified —
+    annotations state a value without threading ADR 5 (was 0010) provenance is not *wrongly* verified —
     it is not verified at all, and silently. This asserts the property that makes the reach
     limit honest: every annotation that renders a number claims something.
 

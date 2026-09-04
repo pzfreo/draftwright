@@ -256,25 +256,14 @@ def test_public_narrow_part_uses_one_cross_pass_inventory(tmp_path):
         )
 
 
-def test_unavoidable_policy_b_crossing_is_persisted_without_opt_in_trace():
+def test_corrected_side_strip_avoids_the_former_policy_b_crossing_without_trace():
     part, model = _narrow_cross_pass_part()
     drawing = build_drawing(part, model=model, page="A4")
 
-    issues = [issue for issue in drawing.lint() if issue.code == "feature_leader_crossing"]
-    assert len(issues) == 1
-    assert all("Policy B" in issue.message for issue in issues)
-    assert any("dim_loc_side_z7550:segment:3" in issue.message for issue in issues)
-    assert all(issue.severity == "info" for issue in issues)
-    assert all(issue.measurement_ids for issue in issues)
-    legibility = drawing.lint_summary()["quality"]["legibility"]
-    # `annotation_ink_overlap` (#1321/#1332) scores on legibility too. Candidate
-    # prevention (#1334) removes the same-batch crossing; the retained Policy-B
-    # cross-stage leader conflict remains visible under both codes.
-    assert legibility["by_code"] == {
-        "feature_leader_crossing": 1,
-        "annotation_ink_overlap": 1,
-    }
-    assert legibility["score"] < 1.0
+    # The side-right strip now begins at the geometry edge and consumes its reserved
+    # band.  The location ladder therefore no longer forces this leader through fixed
+    # ink; the ordinary, unbudgeted solve is clean without opt-in tracing.
+    assert drawing.lint() == []
 
 
 def test_near_clear_witness_is_not_falsely_classified_by_strip_padding():
@@ -1864,8 +1853,12 @@ def test_cross_pass_candidate_budget_precedes_collect_all_geometry(monkeypatch, 
         "m_pocket_yz0",
     }
     issues = drawing.lint()
-    assert {issue.code for issue in issues} == {"feature_leader_crossing"}
-    assert all("Policy B" in issue.message for issue in issues)
+    assert {issue.code for issue in issues} == {
+        "annotation_ink_overlap",
+        "feature_leader_crossing",
+    }
+    crossings = [issue for issue in issues if issue.code == "feature_leader_crossing"]
+    assert all("Policy B" in issue.message for issue in crossings)
 
 
 def test_fixed_obstacle_probe_budget_precedes_joint_geometry(monkeypatch, tmp_path):
@@ -1913,12 +1906,19 @@ def test_fixed_obstacle_probe_budget_precedes_joint_geometry(monkeypatch, tmp_pa
         "m_pocket_yz0",
     }
     issues = drawing.lint()
-    assert {issue.code for issue in issues} == {"feature_leader_fixed_ink_unverified"}
-    assert all("probe budget exhausted" in issue.message for issue in issues)
+    assert {issue.code for issue in issues} == {
+        "annotation_ink_overlap",
+        "feature_leader_fixed_ink_unverified",
+    }
+    unverified = [issue for issue in issues if issue.code == "feature_leader_fixed_ink_unverified"]
+    assert all("probe budget exhausted" in issue.message for issue in unverified)
     legibility = drawing.lint_summary()["quality"]["legibility"]
     assert legibility["score"] < 1.0
-    assert legibility["infos"] == len(issues)
-    assert legibility["by_code"] == {"feature_leader_fixed_ink_unverified": len(issues)}
+    assert legibility["infos"] == len(unverified)
+    assert legibility["by_code"] == {
+        "annotation_ink_overlap": 1,
+        "feature_leader_fixed_ink_unverified": len(unverified),
+    }
 
 
 def test_fixed_probe_product_budget_replays_the_exact_producer_floor(monkeypatch, tmp_path):
@@ -1952,12 +1952,16 @@ def test_fixed_probe_product_budget_replays_the_exact_producer_floor(monkeypatch
     }
     assert all(item["producer_fallback"]["selected"] is not None for item in event["items"])
     selected = [item["producer_fallback"]["selected"] for item in event["items"]]
-    assert selected[0]["fixed_blockers"] == []
+    assert selected[0]["fixed_blockers"] == ["dim_loc_side_z6600:segment:1"]
     assert all(entry["fixed_blockers"] == ["fixed_probe_budget"] for entry in selected[1:])
     issues = drawing.lint()
-    assert len(issues) == 3
-    assert {issue.code for issue in issues} == {"feature_leader_fixed_ink_unverified"}
-    assert all("probe budget exhausted" in issue.message for issue in issues)
+    assert len(issues) == 5
+    assert {issue.code for issue in issues} == {
+        "annotation_ink_overlap",
+        "feature_leader_crossing",
+        "feature_leader_fixed_ink_unverified",
+    }
+    assert sum(issue.code == "feature_leader_fixed_ink_unverified" for issue in issues) == 3
 
 
 @pytest.mark.parametrize("hard_boundary", ("page", "silhouette", "title"))

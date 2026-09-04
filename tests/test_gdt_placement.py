@@ -1,7 +1,7 @@
-"""GD&T aspect side-layer placement (ADR 0011 §4 / ADR 0009, #61).
+"""GD&T aspect side-layer placement (ADR 4 (was 0011 §4) / ADR 2 (was 0009), #61).
 
 Declared feature control frames / datum feature symbols / surface finishes are placed
-as first-class ADR 0009 corridor candidates — through the SAME collect-then-solve strip
+as first-class ADR 2 (was 0009) corridor candidates — through the SAME collect-then-solve strip
 machinery as the auto-dimensions, NOT a leftover first-fit. These tests lock down: the
 glyphs render into their target strip, they carry their real footprint so stacked frames
 never overlap, a full strip drops honestly (a warning, not a silent vanish), and the
@@ -246,7 +246,7 @@ def test_bad_target_drops_without_crashing():
 
 
 def test_invalid_glyph_spec_drops_not_crashes():
-    # The IR is public input (ADR 0011): a mistyped characteristic must drop the one item
+    # The IR is public input (ADR 4 (was 0011)): a mistyped characteristic must drop the one item
     # with a gdt_dropped warning, NOT raise ValueError and take down the whole drawing.
     frame = ControlFrame(
         frame=Frame((0.0, 0.0, 0.0), "z"),
@@ -346,7 +346,7 @@ def test_placement_is_lint_clean():
 
 def test_provenance_back_link():
     # A frame decorating a detected hole records that hole as its annotation's feature
-    # (ADR 0010 provenance) so the read/edit surface can find it.
+    # (ADR 5 (was 0010) provenance) so the read/edit surface can find it.
     m = detect_part_model(_part())
     hole = next(f for f in m.features if f.kind == "hole")
     m.features.append(

@@ -1,4 +1,4 @@
-"""Tests for the declarative drawing surface (ADR 0011): the ``model=`` seam, the
+"""Tests for the declarative drawing surface (ADR 4 (was 0011)): the ``model=`` seam, the
 object→feature constructors (:mod:`draftwright.model.declare`), and the fluent
 :class:`draftwright.Sheet` façade.
 
@@ -216,6 +216,21 @@ class TestConstructors:
         assert f.width == 20 and f.length == 30 and f.depth == 8
         assert f.long_axis == "x" and f.width_axis == "y" and f.depth_axis == "z"
 
+    def test_pocket_retains_and_validates_opening_side(self):
+        kwargs = dict(
+            width=20,
+            length=30,
+            depth=8,
+            long_axis="x",
+            width_axis="y",
+            lo=-15,
+            hi=15,
+        )
+
+        assert pocket(**kwargs, open_sign=-1).open_sign == -1
+        with pytest.raises(ValueError, match="open_sign"):
+            pocket(**kwargs, open_sign=0)
+
     def test_pocket_reads_axes_and_depth_off_object(self):
         # Shallow recess cavity: longest span = length, middle = width, shortest = depth.
         f = pocket(Box(30, 20, 8))  # X long, Y width, Z shortest -> depth
@@ -300,7 +315,7 @@ class TestConstructors:
 
 
 class TestChamfer:
-    """#576: declare a chamfer (bevelled edge) — the third ADR-0011 surface for #560."""
+    """#576: declare a chamfer (bevelled edge) — the third ADR 4 (was 0011) surface for #560."""
 
     def test_explicit_equal_leg(self):
         f = chamfer(axis="z", leg=6, at=(25, 20, 10))
@@ -399,7 +414,7 @@ class TestChamfer:
 
 
 class TestFillet:
-    """#561: fillet (rounded edge) across all three ADR-0011 surfaces — recognise + emit
+    """#561: fillet (rounded edge) across all three ADR 4 (was 0011) surfaces — recognise + emit
     + declare. The arc analog of the chamfer."""
 
     @staticmethod
@@ -839,7 +854,7 @@ class TestPocket:
 
 
 class TestCountersink:
-    """#575: declare a countersink (flat-head seat) — the third ADR-0011 surface for #558."""
+    """#575: declare a countersink (flat-head seat) — the third ADR 4 (was 0011) surface for #558."""
 
     def test_reads_major_and_angle_off_the_cone(self):
         from build123d import Cone
@@ -887,7 +902,7 @@ class TestCountersink:
 
 
 class TestThread:
-    """#764: a first-class thread/tap callout on a hole — an ADR-0011 declaration-only
+    """#764: a first-class thread/tap callout on a hole — an ADR 4 (was 0011) declaration-only
     aspect (threads are cosmetic, not modelled geometry, so declare + emit, no recogniser).
     It rides the EXISTING hole compound leader (like csink) rather than a new placement path."""
 
@@ -946,7 +961,7 @@ class TestThread:
 
 class TestExternalThread:
     """#859: a first-class EXTERNAL thread callout on a turned step/boss — the turned analog of
-    #764's internal hole thread. An ADR-0011 declaration-only aspect (threads are cosmetic, not
+    #764's internal hole thread. An ADR 4 (was 0011) declaration-only aspect (threads are cosmetic, not
     modelled geometry, so declare + render, no recogniser) that appends the spec to the OD (⌀)
     leader. Ra-on-thread comes for free — .thread() (a field) and .finish() (the GD&T layer) are
     independent aspects on the same feature."""
@@ -1056,7 +1071,7 @@ class TestExternalThread:
 
 
 class TestPlate:
-    """#577: declare a thin slab's thickness — the third ADR-0011 surface for #559."""
+    """#577: declare a thin slab's thickness — the third ADR 4 (was 0011) surface for #559."""
 
     def test_reads_thin_axis_and_extent_off_the_slab(self):
         from draftwright.model.declare import _read_plate
@@ -1074,7 +1089,7 @@ class TestPlate:
 
     def test_declared_plates_render_thickness_dims(self):
         # An L-bracket declared as two plates renders both thickness dims — assert the
-        # dims actually LAND (named + labelled + lint-clean), not just that the model
+        # dims actually LAND (named + labelled), not just that the model
         # echoes back what we handed it (detection is skipped for a declared model).
         lbr = Box(80, 50, 8) + Pos(-36, 0, 29) * Box(8, 50, 50)
         model = [plate(Box(80, 50, 8)), plate(axis="x", lo=-40, hi=-32, u=0, v=27)]
@@ -1084,7 +1099,18 @@ class TestPlate:
         }
         assert sorted(plate_dims) == ["dim_plate_x0", "dim_plate_z0"]  # both slabs dimensioned
         assert sorted(plate_dims.values()) == ["8", "8"]  # each 8 thick
-        assert [i for i in dwg.lint() if i.severity != "info"] == []
+        # These convenient bounding-box declarations place the requested ink, but their
+        # in-plane witnesses are not the recogniser's body-local material centroids after the
+        # slabs are fused. Completeness must therefore refuse to pair them by axis/order. They
+        # also omit the 80 mm overall width required to prove the recognised through-step's X
+        # complement.
+        issues = [i for i in dwg.lint() if i.severity != "info"]
+        assert [issue.code for issue in issues] == [
+            "plate_requirement_unverifiable",
+            "plate_requirement_unverifiable",
+            "through_step_requirement_missing",
+        ]
+        assert "through_step_leg.length.x" in issues[-1].message
 
     def test_same_axis_plate_names_follow_thickness_axis_not_in_plane_position(self):
         """Stable annotation identity follows the old axis/lo/hi order.
@@ -1186,7 +1212,11 @@ class TestStepLevel:
         assert dwg.get_annotation("dim_shoulder_x0").label == expected
         assert dwg.view_of("dim_shoulder_x0") == "plan"
         assert "dim_height" in dwg.annotations()
-        assert [i for i in dwg.lint() if i.severity != "info"] == []
+        # Height + step-height prove the vertical complement, but this declared model does
+        # not request overall width, so its recognised horizontal complement remains missing.
+        issues = [i for i in dwg.lint() if i.severity != "info"]
+        assert [issue.code for issue in issues] == ["through_step_requirement_missing"]
+        assert "through_step_leg.length.x" in issues[0].message
 
     def test_needs_base_and_levels(self):
         with pytest.raises(ValueError, match="base= and levels="):
@@ -1376,7 +1406,7 @@ class TestModelSeam:
         assert warns == [], [i.code for i in warns]
 
     def test_partial_declaration_is_flagged_by_coverage_lint(self):
-        # ADR 0011 caveat: the coverage lint re-detects, so a partial declaration is
+        # ADR 4 (was 0011) caveat: the coverage lint re-detects, so a partial declaration is
         # correctly flagged for the geometry it left undimensioned.
         plate = Box(80, 50, 8)
         h1 = Pos(20, 10, 0) * Cylinder(3, 8)
@@ -1424,7 +1454,7 @@ class TestModelSeam:
     def test_declared_pattern_renders_at_its_declared_position(self):
         # #448: a declared hole/pattern renders at its DECLARED position even where it does
         # not coincide with a detected hole — the callout membership is now sourced from the
-        # declared IR, not only detection (was the ADR 0011 caveat: gated on a.holes, so a
+        # declared IR, not only detection (was the ADR 4 (was 0011) caveat: gated on a.holes, so a
         # detection-missed declaration was silently undrawn). Here the holes physically sit at
         # 45° but the pattern is declared at 0°; the declared pattern must still render (its
         # bc_ furniture appears at the declared position), and the coverage lint still flags
@@ -1892,7 +1922,7 @@ class TestRotationalDeclaration:
         cross-axis part the hole pass dimensions the bore instead.
 
         Asserted through all three routes because the first fix guarded only the constructor,
-        which left the sanctioned ADR 0011 raw-IR route open AND let the emitter write a line
+        which left the sanctioned ADR 4 (was 0011) raw-IR route open AND let the emitter write a line
         `declare` would reject (#949 r5). The rule lives on the IR type, so there is one
         answer rather than one per entrance."""
         from build123d import Box
@@ -1911,7 +1941,7 @@ class TestRotationalDeclaration:
         rotational(od=30, bores=(), axis="x")  # a bore-less cross-axis rotational is fine
 
     def test_the_rule_is_stated_once(self):
-        """ADR 0016's deletion discipline: two places that DECIDE one fact is the defect. The
+        """ADR 4 (was 0016)'s deletion discipline: two places that DECIDE one fact is the defect. The
         declare verb must not restate the Z-only rule the IR type owns — a second copy is how
         the two drift apart under a case neither author tried."""
         import ast
