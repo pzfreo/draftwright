@@ -695,6 +695,27 @@ def test_a_non_raw_recognition_frame_is_refused_until_the_provider_contract_land
         inspect_step(_PLATE_FIXTURE)
 
 
+def test_a_projector_caller_cannot_record_a_pmi_mode_that_does_not_exist() -> None:
+    """`pmi_mode` is the reader's only signal that ownership came from geometry alone, so an
+    unrecognised value must fail rather than be written into the document verbatim."""
+
+    from draftwright.builder import _detect_part_model_analysis
+
+    model, analysis = _detect_part_model_analysis(_PLATE_FIXTURE, pmi="off")
+    common = {
+        "model": model,
+        "analysis": analysis,
+        "source_name": "part.step",
+        "source_bytes": b"",
+        "source_sha256": "0" * 64,
+    }
+
+    assert inspection_module.inspection_document(pmi_mode="off", **common)
+
+    with pytest.raises(InspectionUnavailableError, match="unknown recognition PMI mode"):
+        inspection_module.inspection_document(pmi_mode="geometry_only", **common)
+
+
 def test_no_absolute_source_path_reaches_the_document(tmp_path) -> None:
     copied = tmp_path / "part.step"
     copied.write_bytes(_PLATE_FIXTURE.read_bytes())
