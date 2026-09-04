@@ -90,7 +90,6 @@ def test_the_sidecar_exposes_each_deferred_oriented_slot(tmp_path: Path) -> None
         assert outcome["acted_on"] is False
         assert outcome["disposition"] == "deferred"
         assert outcome["reason"] == "consumer_semantics_deferred"
-        assert outcome["tracking"] == "https://github.com/pzfreo/draftwright/issues/1430"
     assert [entry["feature"]["center"] for entry in slots] == [
         [-30.0, 0.0, 0.0],
         [0.0, 0.0, 0.0],

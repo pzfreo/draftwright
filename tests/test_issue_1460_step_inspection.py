@@ -267,9 +267,9 @@ def test_each_finding_states_plainly_whether_draftwright_acted_on_it() -> None:
     assert all(outcome["reason"] for outcome in outcomes)
 
 
-def test_a_finding_draftwright_will_not_use_carries_its_reason_and_tracking(tmp_path) -> None:
+def test_a_finding_draftwright_will_not_use_carries_its_reason(tmp_path) -> None:
     """The conversion failing this document exists to surface: recognition found it, the drawing
-    does not use it, and a reader needs to know why and where it is tracked."""
+    does not use it, and a reader needs to know why."""
 
     step = tmp_path / "oriented.step"
     export_step(_oriented_slot_part(), str(step))
@@ -282,7 +282,7 @@ def test_a_finding_draftwright_will_not_use_carries_its_reason_and_tracking(tmp_
         assert entry["draftwright"]["acted_on"] is False
         assert entry["draftwright"]["disposition"] == "deferred"
         assert entry["draftwright"]["owners"] == []
-        assert entry["draftwright"]["tracking"].startswith("https://github.com/")
+        assert entry["draftwright"]["reason"] == "consumer_semantics_deferred"
 
 
 def test_owners_name_ir_features_not_provider_or_topology_identities() -> None:

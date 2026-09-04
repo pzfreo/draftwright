@@ -124,7 +124,6 @@ def _found(evidence, ownership, model) -> list[dict[str, Any]]:
                 "acted_on": occurrence["disposition"] in _ACTED_ON,
                 "disposition": occurrence["disposition"],
                 "reason": occurrence["reason_code"],
-                "tracking": occurrence["tracking"],
                 "owners": [owner["id"] for owner in occurrence["owners"]],
             },
         }

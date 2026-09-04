@@ -15,7 +15,7 @@ document = inspect_step("part.step")
 
 for entry in document["found"]:
     if not entry["draftwright"]["acted_on"]:
-        print(entry["family"], entry["draftwright"]["reason"], entry["draftwright"]["tracking"])
+        print(entry["family"], entry["draftwright"]["reason"])
 ```
 
 The closed schema is published as
@@ -35,11 +35,10 @@ be confused:
 - `draftwright` is what this engine did with it. `acted_on` is the plain answer — `true` when
   the finding became an IR feature of its own or was absorbed into one. `disposition` is the
   precise one (`represented`, `absorbed`, `unsupported`, `deferred`, `evidence_only`,
-  `unexpectedly_missing`), with a `reason` code, a `tracking` issue where one exists, and the
-  `owners` it maps to.
+  `unexpectedly_missing`), with a stable `reason` code and the `owners` it maps to.
 
 `acted_on: false` is the conversion failing this document exists to surface: recognition found
-something real and the drawing does not use it. `tracking` says where that is being decided.
+something real and the drawing does not use it, and `reason` says why.
 
 IDs are deterministic **within one document**, allocated from the recogniser's order and
 Draftwright's IR order. They are not persistent identities and must not be stored across runs.

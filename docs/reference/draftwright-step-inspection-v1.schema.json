@@ -99,7 +99,7 @@
         "draftwright": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["acted_on", "disposition", "reason", "tracking", "owners"],
+          "required": ["acted_on", "disposition", "reason", "owners"],
           "properties": {
             "acted_on": { "type": "boolean" },
             "disposition": {
@@ -113,7 +113,6 @@
               ]
             },
             "reason": { "type": "string", "minLength": 1 },
-            "tracking": { "type": ["string", "null"] },
             "owners": {
               "type": "array",
               "items": { "type": "string", "minLength": 1 }
