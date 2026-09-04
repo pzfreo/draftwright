@@ -23,6 +23,7 @@
     "qualifiers": {
       "type": "array",
       "uniqueItems": true,
+      "minItems": 4,
       "items": {
         "enum": [
           "bounded_recognition_evidence_only",

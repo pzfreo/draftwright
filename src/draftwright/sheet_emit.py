@@ -2433,12 +2433,12 @@ def generate_sheet_script(
         # (#1460). A build123d object source has no STEP bytes and so no v1 document.
         inspection = None
         if inspect and source_bytes is not None:
-            assert source_resolved is not None and source_sha256 is not None
+            assert source_display is not None and source_sha256 is not None
             try:
                 inspection = inspection_document(
                     model=model,
                     analysis=analysis,
-                    source_name=source_resolved.name,
+                    source_name=source_display.name,
                     source_bytes=source_bytes,
                     source_sha256=source_sha256,
                     pmi_mode=pmi,
@@ -2447,7 +2447,7 @@ def generate_sheet_script(
                 # Never fail script generation over its sidecar, but never drop it in silence
                 # either: a caller who asked for the evidence must learn it was not written.
                 _log.warning(
-                    "No inspection sidecar written for %s: %s", source_resolved.name, error
+                    "No inspection sidecar written for %s: %s", source_display.name, error
                 )
         settled_layout = None
         # Generated scripts mirror dimensions as an authored set. Resolve the two established

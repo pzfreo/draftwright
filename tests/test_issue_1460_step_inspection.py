@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import random
 import subprocess
 import sys
 from dataclasses import replace
@@ -31,6 +32,8 @@ _FIXTURES = Path(__file__).parent / "fixtures"
 _PMI_FIXTURE = _FIXTURES / "grm03_thumbwheel_drive_screw_ap242_pmi.step"
 _PLAIN_FIXTURE = _FIXTURES / "evaluation" / "plain-block.step"
 _PLATE_FIXTURE = _FIXTURES / "grm04_drive_plate.step"
+# The only fixtures carrying genuinely unlowered AP242 entities are NIST CTC AP242 files.
+_UNLOWERED_PMI_FIXTURE = _FIXTURES / "nist_ctc_04_asme1_ap242.stp"
 _SCHEMA_PATH = (
     Path(__file__).parents[1] / "docs/reference/draftwright-step-inspection-v1.schema.json"
 )
@@ -38,6 +41,37 @@ _SCHEMA_PATH = (
 # The stages an inspection must never reach. `compose` is deliberately absent: the shared
 # one-run detect seam picks a page and scale while sizing, and none of that reaches the
 # document. Everything below would mean a real drawing was built, placed, drawn, or scored.
+# The exact engine modules a warm inspection executes. `compose`, `model.planner`,
+# `model.callout` and `view_plan` are here because the shared one-run detect seam sizes a page
+# and plans dimensions while detecting — work the document never consumes. Pinning the whole
+# set means a future change cannot quietly pull another module onto this read-only path.
+_EXPECTED_ENGINE_MODULES = frozenset(
+    {
+        # `draftwright` itself is absent: the package root's lazy resolver runs at most once,
+        # on first attribute access, and is not part of an inspection.
+        "draftwright._core",
+        "draftwright._geometry",
+        "draftwright._pmi_part21",
+        "draftwright.analysis",
+        "draftwright.blend_contract",
+        "draftwright.builder",
+        "draftwright.compose",
+        "draftwright.inspection",
+        "draftwright.model.callout",
+        "draftwright.model.declare",
+        "draftwright.model.detect",
+        "draftwright.model.ir",
+        "draftwright.model.planner",
+        "draftwright.pmi",
+        "draftwright.recogniser_policy",
+        "draftwright.recogniser_schema",
+        "draftwright.recognition_cache",
+        "draftwright.recognition_ownership",
+        "draftwright.reporting",
+        "draftwright.view_plan",
+    }
+)
+
 _FORBIDDEN_STAGES = (
     "draftwright.projection",
     "draftwright.export",
@@ -158,6 +192,21 @@ def test_a_real_step_fixture_returns_the_documented_strict_v1_document() -> None
     assert {record["kind"] for record in pmi["records"]} >= {"diameter"}
 
 
+def test_the_topology_census_counts_a_multi_solid_body(tmp_path) -> None:
+    """Every repo fixture is a single solid, so a census that hardcoded 1 would look correct.
+    A STEP file may carry several disjoint solids, and the document must count them."""
+
+    from build123d import Box, Compound, Pos, export_step
+
+    step = tmp_path / "two_solids.step"
+    export_step(Compound(children=[Box(10, 10, 10), Pos(40, 0, 0) * Box(6, 6, 6)]), str(step))
+    document = inspect_step(step)
+
+    assert document["geometry"]["topology"]["solids"] == 2
+    assert document["geometry"]["topology"]["faces"] == 12
+    assert document["geometry"]["volume"] == pytest.approx(10**3 + 6**3)
+
+
 def test_the_document_is_deterministic_across_runs_of_the_same_bytes() -> None:
     """Face evidence arrives as an unordered `frozenset` of address-hashed references.
 
@@ -170,6 +219,27 @@ def test_the_document_is_deterministic_across_runs_of_the_same_bytes() -> None:
 
     assert first == second
     assert json.dumps(first, sort_keys=True) == json.dumps(second, sort_keys=True)
+
+
+def test_face_descriptions_sort_any_input_order_into_the_same_sequence() -> None:
+    """Deterministic by construction: the two document-level ordering guards both depend on
+    where `frozenset` happens to place address-hashed references, and each can pass on
+    unsorted code by luck. This one shuffles the input itself."""
+
+    from draftwright.builder import _detect_part_model_analysis
+
+    _model, analysis = _detect_part_model_analysis(_PLATE_FIXTURE, pmi="off")
+    evidence = analysis.recognition_evidence
+    references = list(evidence.association.unassociated_faces)
+    for reference in evidence.features:
+        references += list(evidence.constituent_faces(reference))
+    assert len(references) > 1, "precondition: ordering needs at least two faces"
+
+    expected = inspection_module._face_descriptions(evidence, references)
+    for seed in range(5):
+        shuffled = list(references)
+        random.Random(seed).shuffle(shuffled)
+        assert inspection_module._face_descriptions(evidence, shuffled) == expected
 
 
 def test_face_evidence_is_ordered_only_by_its_own_serialized_values() -> None:
@@ -222,20 +292,34 @@ def test_exactly_one_aggregate_run_and_no_recogniser_called_outside_it() -> None
     assert counts == {"build_recognition_evidence": 1}
 
 
-def test_no_drawing_projection_placement_render_export_or_lint_path_runs() -> None:
-    executed: set[str] = set()
+def _executing_modules(fixture: Path) -> dict[str, int]:
+    """Return the draftwright modules whose code runs during one warm inspection.
+
+    Warm matters: a cold call also executes class bodies and decorators of every module it
+    imports, which are not stage invocations and would make this guard depend on whatever a
+    previous test happened to import.
+    """
+
+    inspect_step(fixture)  # warm every import so only execution is measured
+    seen: dict[str, int] = {}
 
     def hook(frame, event, arg):
-        # Module bodies execute on import; only real function calls prove a stage ran.
-        if event == "call" and frame.f_code.co_name != "<module>":
-            executed.add(frame.f_globals.get("__name__", ""))
+        if event == "call":
+            name = frame.f_globals.get("__name__", "")
+            if name.startswith("draftwright"):
+                seen[name] = seen.get(name, 0) + 1
 
     previous = sys.getprofile()
     sys.setprofile(hook)
     try:
-        inspect_step(_PLATE_FIXTURE)
+        inspect_step(fixture)
     finally:
         sys.setprofile(previous)
+    return seen
+
+
+def test_no_drawing_projection_placement_render_export_or_lint_path_runs() -> None:
+    executed = _executing_modules(_PLATE_FIXTURE)
 
     assert executed, "the profiler recorded nothing — the guard would pass vacuously"
     offenders = sorted(
@@ -246,24 +330,57 @@ def test_no_drawing_projection_placement_render_export_or_lint_path_runs() -> No
     assert not offenders, f"inspection reached drawing-only stages: {offenders}"
 
 
-def test_equal_valued_occurrences_stay_separate_in_provider_order(tmp_path) -> None:
-    """Three congruent slots are three occurrences, not one deduplicated by value."""
+def test_the_set_of_engine_modules_an_inspection_executes_is_pinned() -> None:
+    """A negative list only catches the stages someone thought to name.
+
+    This pins the whole set, so a future change that pulls another engine module onto the
+    read-only path has to say so here. `compose`, `model.planner`, `model.callout` and
+    `view_plan` are on it because the shared one-run detect seam sizes a page and plans
+    dimensions while detecting; none of that reaches the document.
+    """
+
+    executed = set(_executing_modules(_PLATE_FIXTURE))
+
+    assert executed == _EXPECTED_ENGINE_MODULES, (
+        f"unexpected: {sorted(executed - _EXPECTED_ENGINE_MODULES)}; "
+        f"no longer executed: {sorted(_EXPECTED_ENGINE_MODULES - executed)}"
+    )
+
+
+def test_every_accepted_occurrence_becomes_exactly_one_row_in_provider_order(tmp_path) -> None:
+    """The projector must not collapse occurrences — not by value, not by family.
+
+    No repo fixture produces two byte-identical records (a record carries its own position),
+    so value-equality cannot be staged from geometry. The provable invariant is the one that
+    matters: one row per accepted occurrence, in the provider's order, with distinct IDs.
+    """
+
+    from draftwright.builder import _detect_part_model_analysis
 
     step = tmp_path / "oriented.step"
     export_step(_oriented_slot_part(), str(step))
     document = inspect_step(step)
+    _model, analysis = _detect_part_model_analysis(step, pmi="off")
+    evidence = analysis.recognition_evidence
 
-    deferred = [
-        occurrence
-        for occurrence in document["recognition"]["occurrences"]
-        if occurrence["family"] == "oriented_slots"
+    occurrences = document["recognition"]["occurrences"]
+    assert len(occurrences) == len(evidence.features)
+    assert [item["family"] for item in occurrences] == [
+        evidence.family(reference) for reference in evidence.features
     ]
-    assert [occurrence["id"] for occurrence in deferred] == [
+    assert len({item["id"] for item in occurrences}) == len(occurrences)
+
+    deferred = [item for item in occurrences if item["family"] == "oriented_slots"]
+    assert [item["id"] for item in deferred] == [
         "oriented_slots:1",
         "oriented_slots:2",
         "oriented_slots:3",
     ]
-    assert all(occurrence["disposition"] == "deferred" for occurrence in deferred)
+    assert all(item["disposition"] == "deferred" for item in deferred)
+    assert len({json.dumps(item["record"], sort_keys=True) for item in deferred}) == 3, (
+        "precondition: these three slots differ by position, so the guard above is about "
+        "cardinality and order, not value de-duplication"
+    )
 
 
 def test_serialized_evidence_carries_no_provider_or_topology_identity(tmp_path) -> None:
@@ -353,14 +470,12 @@ def test_a_step_source_without_pmi_reports_an_explicit_absent_census() -> None:
 
 
 def test_a_pmi_extraction_failure_stays_explicit_and_requires_attention(monkeypatch) -> None:
-    from draftwright import analysis as analysis_module
     from draftwright import pmi as pmi_module
 
     def failing(*args, **kwargs):
         raise RuntimeError("simulated XCAF failure")
 
     monkeypatch.setattr(pmi_module, "extract_pmi_report", failing)
-    monkeypatch.setattr(analysis_module, "_import_step", analysis_module._import_step)
     document = inspect_step(_PMI_FIXTURE)
 
     assert document["pmi"]["status"] == "extraction_error"
@@ -369,14 +484,156 @@ def test_a_pmi_extraction_failure_stays_explicit_and_requires_attention(monkeypa
     assert document["status"] == "needs-attention"
 
 
+@pytest.mark.slow
 def test_a_source_entity_draftwright_cannot_lower_never_disappears() -> None:
-    document = inspect_step(_PMI_FIXTURE)
-    sources = document["pmi"]["sources"]
+    """`presentation_only` is not a gap — the module says so — so a fixture carrying only
+    those would not hold this test's premise. CTC-04 carries genuine `not_extracted` and
+    `partially_extracted` entities."""
 
-    unlowered = [source for source in sources if source["outcome"] != "extracted"]
-    assert unlowered, "fixture precondition: the census must contain a non-extracted entity"
-    assert len(sources) > len(document["pmi"]["records"])
+    document = inspect_step(_UNLOWERED_PMI_FIXTURE)
+    summary = document["pmi"]["summary"]
+
+    assert summary["not_extracted"] > 0 and summary["partially_extracted"] > 0, (
+        "fixture precondition: the census must contain genuinely unlowered entities"
+    )
+    assert summary["sources"] > summary["records"]
+    assert len(document["pmi"]["sources"]) == summary["sources"]
+    unlowered = [
+        source
+        for source in document["pmi"]["sources"]
+        if source["outcome"] in {"not_extracted", "partially_extracted"}
+    ]
     assert all(source["source_id"] for source in unlowered)
+    assert document["status"] == "needs-attention"
+
+
+def test_an_unlowered_pmi_entity_alone_raises_attention() -> None:
+    """Isolates `_PMI_ATTENTION_OUTCOMES` from geometry: with no occurrence dispositions and no
+    extraction error, only an unlowered source entity can move the status."""
+
+    clear = {disposition: 0 for disposition in inspection_module._ATTENTION_DISPOSITIONS}
+    quiet_pmi = {"status": "present", "sources": [{"outcome": "extracted"}]}
+
+    assert not inspection_module._needs_attention(clear, quiet_pmi)
+    for outcome in ("not_extracted", "partially_extracted"):
+        assert inspection_module._needs_attention(
+            clear, {"status": "present", "sources": [{"outcome": outcome}]}
+        ), f"{outcome} must make a bounded inspection require attention"
+    assert not inspection_module._needs_attention(
+        clear, {"status": "present", "sources": [{"outcome": "presentation_only"}]}
+    ), "presentation_only is a faithful statement, not a gap"
+
+
+def test_an_outcome_the_provider_adds_later_cannot_vanish_from_the_census() -> None:
+    """A hand-copied outcome tuple would count a fifth outcome as zero of everything, leaving
+    a census whose totals silently disagree with its own rows."""
+
+    from types import SimpleNamespace
+
+    from draftwright.pmi import PmiExtractionReport, PmiSourceEntity
+
+    known = inspection_module._pmi_outcomes()
+    assert set(known) == {
+        "extracted",
+        "partially_extracted",
+        "presentation_only",
+        "not_extracted",
+    }
+
+    rogue = SimpleNamespace(
+        source_id="dimension:9",
+        category="dimension",
+        type_code=15,
+        outcome="teleported",
+        reason="",
+    )
+    report = PmiExtractionReport(sources=(rogue,), records=(), error=None)
+    with pytest.raises(InspectionUnavailableError, match="unknown extraction outcome"):
+        inspection_module._pmi_document(report)
+
+    accepted = PmiSourceEntity(
+        source_id="dimension:9",
+        category="dimension",
+        type_code=15,
+        outcome="not_extracted",
+        reason="unsupported",
+    )
+    census = inspection_module._pmi_document(
+        PmiExtractionReport(sources=(accepted,), records=(), error=None)
+    )
+    assert census["summary"]["not_extracted"] == 1
+
+
+def test_the_document_is_isolated_strict_json_not_live_objects() -> None:
+    """Records arrive from `asdict` carrying tuples, and a live object would serialise by repr.
+    One strict-JSON gate normalises the whole document and rejects NaN/Infinity."""
+
+    document = inspect_step(_PMI_FIXTURE)
+    tupled = [
+        record
+        for record in document["pmi"]["records"]
+        if record["datum_refs"] or record["gtol_modifiers"] or record["cylindrical_refs"]
+    ]
+    assert tupled, "fixture precondition: some record must carry a tuple-valued field"
+    for record in tupled:
+        for key in ("datum_refs", "gtol_modifiers", "cylindrical_refs", "ref_pts"):
+            assert isinstance(record[key], list), f"{key} must be a JSON array, not a tuple"
+
+    for occurrence in document["recognition"]["occurrences"]:
+        assert isinstance(occurrence["record"], dict)
+    assert json.loads(json.dumps(document, allow_nan=False)) == document
+
+
+def test_a_non_finite_measurement_fails_instead_of_escaping_as_a_json_error() -> None:
+    with pytest.raises(InspectionUnavailableError, match="JSON cannot state"):
+        inspection_module._json_value_or_refuse({"area": float("inf")})
+
+
+def test_a_face_whose_surface_cannot_be_named_is_refused(monkeypatch) -> None:
+    """`geom_type` raises on a degenerate face rather than returning None, so a default
+    cannot stand in for it."""
+
+    class _Degenerate:
+        @property
+        def geom_type(self):
+            raise ValueError("Cannot determine geometry type of an empty shape")
+
+    with pytest.raises(InspectionUnavailableError, match="determinable surface type"):
+        inspection_module._face_description(_Degenerate())
+
+
+def test_face_evidence_states_the_real_surface_kind_centroid_and_defining_split() -> None:
+    """Face values were previously unpinned: the surface kind, the centroid, and the
+    defining/constituent split could each be wrong with a green suite."""
+
+    document = inspect_step(_PMI_FIXTURE)
+    holes = [
+        occurrence
+        for occurrence in document["recognition"]["occurrences"]
+        if occurrence["family"] == "holes"
+    ]
+    assert holes, "fixture precondition: the screw must have a recognised hole"
+    hole = holes[0]
+
+    defining = hole["faces"]["defining"]
+    constituent = hole["faces"]["constituent"]
+    assert [face["surface"] for face in defining] == ["cylinder"], (
+        "a hole is defined by its bore wall, not by its drill point"
+    )
+    assert {face["surface"] for face in constituent} == {"cylinder", "cone"}, (
+        "the drill point belongs to the hole without defining it"
+    )
+    assert len(constituent) > len(defining), (
+        "defining and constituent are different sets, not two names for one"
+    )
+    assert all(face in constituent for face in defining)
+
+    bore = defining[0]
+    assert bore["centroid"] == pytest.approx([0.8, 0.0, 0.8], abs=1e-6)
+    assert bore["centroid"] != bore["bbox"]["min"], (
+        "the centroid must be the face's own centre, not a corner of its box"
+    )
+    assert bore["area"] == pytest.approx(40.2123859659467, rel=1e-9)
 
 
 def test_a_missing_path_fails_before_any_document(tmp_path) -> None:
@@ -400,7 +657,12 @@ def test_a_step_source_without_a_solid_body_fails_before_any_document(tmp_path) 
         inspect_step(curve)
 
 
-def test_an_unclassified_ownership_ledger_is_refused_rather_than_shrunk(monkeypatch) -> None:
+def test_a_refused_occurrence_ledger_surfaces_as_an_inspection_failure(monkeypatch) -> None:
+    """The refusal itself lives in the shared report projector and is tested against real
+    unclassified ledgers in `test_issue_1438_report_projection`. What is Draftwright-specific
+    here is that inspection propagates it as its own typed failure instead of degrading to a
+    document with a silently smaller denominator."""
+
     def refuse(*args, **kwargs):
         raise ReportUnavailableError(
             "accepted occurrence family 'x' has no reportable disposition"

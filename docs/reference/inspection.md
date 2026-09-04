@@ -130,6 +130,20 @@ geometry, and material, process, finish, thread, fit, and tolerance intent all r
 authored facts the document never invents. The `qualifiers` array repeats those limits as stable
 codes a caller can branch on.
 
+## What it does not avoid
+
+Inspection builds no drawing: no view projection, annotation placement, render, export, or
+physical lint score runs, and a guard test pins the exact set of engine modules an inspection
+executes so that cannot change unnoticed.
+
+It is not free, though. Draftwright deliberately has **one** detect seam, shared with the drawing
+path, and that seam sizes the part while detecting: it picks a page and scale, runs the dimension
+planner, builds hole-callout specs, and arranges views. None of that reaches the document, and
+all of it is discarded. A leaner inspect-only path would be a second seam whose divergence from
+the drawing path could not be checked, so the cost is accepted rather than overlooked — see ADR 0021
+in the repository. In practice a plain block inspects in about
+1.5 s and a dense AP242 part such as NIST CTC-02 in about 14 s.
+
 ## Version 1 boundaries
 
 Version 1 is raw/caller-coordinate only. It refuses a run that recognised in a provider working
