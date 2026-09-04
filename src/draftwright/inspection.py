@@ -27,7 +27,7 @@ from dataclasses import asdict
 from os import PathLike
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from draftwright.reporting import (
     _ATTENTION_DISPOSITIONS,
@@ -37,6 +37,10 @@ from draftwright.reporting import (
     _occurrences,
     _producer,
 )
+
+if TYPE_CHECKING:  # typing only — naming these must not cost the CAD kernel at import
+    from draftwright._core import Analysis
+    from draftwright.model import PartModel
 
 INSPECTION_SCHEMA = "draftwright-step-inspection"
 INSPECTION_SCHEMA_VERSION = 1
@@ -64,6 +68,7 @@ _PMI_ATTENTION_OUTCOMES = frozenset({"not_extracted", "partially_extracted"})
 _PMI_OUTCOMES = ("extracted", "partially_extracted", "presentation_only", "not_extracted")
 
 _UNITS = {"length": "mm", "area": "mm²", "volume": "mm³", "angle": "degree"}
+_PMI_MODES = frozenset({"off", "report", "annotate"})
 
 
 class InspectionUnavailableError(RuntimeError):
@@ -218,6 +223,98 @@ def _needs_attention(summary: dict[str, int], pmi: dict[str, Any]) -> bool:
     return any(source["outcome"] in _PMI_ATTENTION_OUTCOMES for source in pmi["sources"])
 
 
+def inspection_document(
+    *,
+    model: PartModel,
+    analysis: Analysis,
+    source_name: str,
+    source_bytes: bytes,
+    source_sha256: str,
+    pmi_mode: str,
+) -> dict[str, JsonValue]:
+    """Project one already-completed detect run into the strict version-1 document.
+
+    The caller owns the byte snapshot and the single aggregate run; this projector never
+    recognises, imports geometry, or reads the filesystem. It exists so a consumer that has
+    already paid for a detect run — script generation, say — emits the same document without a
+    second run (ADR 0017).
+
+    *pmi_mode* is the mode that run used, recorded rather than assumed: with PMI in play the
+    ownership rewrite can turn a grouped hole member into a singleton owner
+    (``pmi_split_member``), so a reader must be able to tell whether the ownership below came
+    from geometry alone.
+    """
+
+    part = analysis.part
+    solids = part.solids()
+    if not solids:
+        raise InspectionUnavailableError(
+            f"STEP source {source_name!r} carries no solid body to inspect"
+        )
+
+    frame_status = (analysis.recognition_frame_decision or {}).get("status")
+    if frame_status != _SUPPORTED_FRAME_STATUS:
+        raise InspectionUnavailableError(
+            "inspection version 1 reports raw caller coordinates only; this run recognised "
+            f"with frame status {frame_status!r}"
+        )
+    if pmi_mode not in _PMI_MODES:
+        raise InspectionUnavailableError(f"unknown recognition PMI mode {pmi_mode!r}")
+
+    occurrences, summary = _occurrence_documents(
+        analysis.recognition_evidence, analysis.recognition_ownership, model
+    )
+    association = _association(analysis.recognition_evidence)
+    pmi = _pmi_document(analysis.pmi_report)
+
+    document = {
+        "schema": INSPECTION_SCHEMA,
+        "schema_version": INSPECTION_SCHEMA_VERSION,
+        "status": "needs-attention"
+        if _needs_attention(summary, pmi)
+        else "bounded-recognition-evidence",
+        "qualifiers": list(_QUALIFIERS),
+        "producer": _producer(),
+        "source": {
+            "kind": "step",
+            # The basename only: an absolute path is caller-machine detail, not evidence.
+            "name": source_name,
+            "sha256": source_sha256,
+            "byte_count": len(source_bytes),
+            "artifact_id": f"step-sha256:{source_sha256}",
+        },
+        "units": dict(_UNITS),
+        "geometry": {
+            "provenance": "step-source",
+            "coverage": "solid-body",
+            "coordinates": "caller",
+            "bbox": _bbox(analysis.bb),
+            "volume": float(part.volume),
+            "topology": {
+                "solids": len(solids),
+                "shells": len(part.shells()),
+                "faces": len(part.faces()),
+                "wires": len(part.wires()),
+                "edges": len(part.edges()),
+                "vertices": len(part.vertices()),
+            },
+        },
+        "recognition": {
+            "provenance": "recogniser-inference",
+            "coverage": "accepted-occurrences",
+            "identity_scope": "document-local",
+            "coordinates": "caller",
+            "frame": {"status": frame_status},
+            "pmi_mode": pmi_mode,
+            "occurrences": occurrences,
+            "summary": summary,
+            "association": association,
+        },
+        "pmi": pmi,
+    }
+    return cast("dict[str, JsonValue]", _json_value(document))
+
+
 def inspect_step(path: str | PathLike[str]) -> dict[str, JsonValue]:
     """Return the strict, versioned version-1 inspection document for the STEP file at *path*.
 
@@ -258,72 +355,14 @@ def inspect_step(path: str | PathLike[str]) -> dict[str, JsonValue]:
                 f"could not read solid STEP geometry from {resolved.name!r}"
             ) from error
 
-        part = analysis.part
-        solids = part.solids()
-        if not solids:
-            raise InspectionUnavailableError(
-                f"STEP source {resolved.name!r} carries no solid body to inspect"
-            )
-
-        frame_status = (analysis.recognition_frame_decision or {}).get("status")
-        if frame_status != _SUPPORTED_FRAME_STATUS:
-            raise InspectionUnavailableError(
-                "inspection version 1 reports raw caller coordinates only; this run recognised "
-                f"with frame status {frame_status!r}"
-            )
-
-        occurrences, summary = _occurrence_documents(
-            analysis.recognition_evidence, analysis.recognition_ownership, model
+        return inspection_document(
+            model=model,
+            analysis=analysis,
+            source_name=resolved.name,
+            source_bytes=source_bytes,
+            source_sha256=source_sha256,
+            pmi_mode="off",
         )
-        association = _association(analysis.recognition_evidence)
-        pmi = _pmi_document(analysis.pmi_report)
-
-        document = {
-            "schema": INSPECTION_SCHEMA,
-            "schema_version": INSPECTION_SCHEMA_VERSION,
-            "status": "needs-attention"
-            if _needs_attention(summary, pmi)
-            else "bounded-recognition-evidence",
-            "qualifiers": list(_QUALIFIERS),
-            "producer": _producer(),
-            "source": {
-                "kind": "step",
-                # The basename only: an absolute path is caller-machine detail, not evidence.
-                "name": resolved.name,
-                "sha256": source_sha256,
-                "byte_count": len(source_bytes),
-                "artifact_id": f"step-sha256:{source_sha256}",
-            },
-            "units": dict(_UNITS),
-            "geometry": {
-                "provenance": "step-source",
-                "coverage": "solid-body",
-                "coordinates": "caller",
-                "bbox": _bbox(analysis.bb),
-                "volume": float(part.volume),
-                "topology": {
-                    "solids": len(solids),
-                    "shells": len(part.shells()),
-                    "faces": len(part.faces()),
-                    "wires": len(part.wires()),
-                    "edges": len(part.edges()),
-                    "vertices": len(part.vertices()),
-                },
-            },
-            "recognition": {
-                "provenance": "recogniser-inference",
-                "coverage": "accepted-occurrences",
-                "identity_scope": "document-local",
-                "coordinates": "caller",
-                "frame": {"status": frame_status},
-                "occurrences": occurrences,
-                "summary": summary,
-                "association": association,
-            },
-            "pmi": pmi,
-        }
-
-    return cast("dict[str, JsonValue]", _json_value(document))
 
 
 __all__ = [
@@ -331,4 +370,5 @@ __all__ = [
     "INSPECTION_SCHEMA_VERSION",
     "InspectionUnavailableError",
     "inspect_step",
+    "inspection_document",
 ]

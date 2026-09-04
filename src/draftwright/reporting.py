@@ -578,7 +578,7 @@ def _generation_snapshot(
     )
 
 
-def _write_report_document(report: dict[str, object], path: str | PathLike[str]) -> str:
+def _write_report_document(report: Mapping[str, object], path: str | PathLike[str]) -> str:
     """Atomically write one strict, deterministic UTF-8 report document."""
 
     destination = Path(path)

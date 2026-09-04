@@ -831,6 +831,21 @@ extraction error state are all explicit, and no source entity disappears because
 cannot lower it. Inspection reads PMI with lowering off, so an authored annotation cannot change
 which occurrence owns a feature: recognition remains geometry-only (ADR 0013, §4 below).
 
+*Two front doors, one run each.* `inspect_step` owns its own snapshot and detect run. Script
+generation already snapshots, hashes, and detects, so it projects the same document from that
+existing run and writes it beside the generated `.py`; a guard proves the generate path still
+performs exactly one aggregate. The projector itself never recognises, imports geometry, or
+reads the filesystem, which is what makes a second consumer free of a second run. The embedded
+`DRAFTWRIGHT_RECOGNITION_SNAPSHOT` of Amendment 24 remains the compact gap block; the sidecar is
+the complete document, and neither is derived from the other.
+
+Because the generating run may carry the caller's `--pmi` mode, the document records
+`recognition.pmi_mode` rather than assuming geometry-only ownership: with PMI in play the
+ownership rewrite can promote a grouped hole member to a singleton owner (`pmi_split_member`).
+`inspect_step` always records `off`. A sidecar that cannot be stated truthfully is logged and
+skipped rather than failing script generation or being dropped in silence, and a live build123d
+object — having no STEP bytes — has no version-1 document at all.
+
 Version 1 is raw/caller-coordinate only and refuses a non-raw recognition frame rather than
 reporting working-frame values as caller coordinates. Framed inspection waits on the one-run
 refusal contract in b123d-recognisers#485/#493 and must state its coordinate provenance

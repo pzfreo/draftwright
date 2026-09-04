@@ -78,6 +78,11 @@ record schema version, disposition, deterministic reason, and tracking issue. Re
 absorbed occurrences remain expressed by the existing semantic Sheet declarations and are not
 duplicated into this compact block.
 
+Beside the script it also writes `<stem>.draftwright-inspection.json` — the full version-1
+[STEP inspection document](inspection.md) projected from the same detect run, with no second
+aggregate. The embedded snapshot is the gaps; the sidecar is everything. `--no-report` suppresses
+it, as it does the report sidecar beside rendered output.
+
 The snapshot is generation-time evidence, not current authority. For a STEP source it records the
 original input basename and SHA-256 of one immutable byte snapshot. Recognition, PMI, and any
 semantic-correction build use a private copy of those exact bytes, preventing path or symlink

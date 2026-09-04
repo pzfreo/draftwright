@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import subprocess
 import sys
 from dataclasses import replace
@@ -115,6 +116,9 @@ def test_a_real_step_fixture_returns_the_documented_strict_v1_document() -> None
     recognition = document["recognition"]
     assert recognition["frame"] == {"status": "raw"}
     assert recognition["identity_scope"] == "document-local"
+    assert recognition["pmi_mode"] == "off", (
+        "inspect_step must recognise geometry-only, so PMI can never change an owner"
+    )
     summary = recognition["summary"]
     assert summary["total"] == len(recognition["occurrences"]) == 16
     assert summary["represented"] == 9
@@ -457,3 +461,165 @@ def test_documented_schema_has_the_same_closed_top_level() -> None:
     assert schema["$id"].endswith("draftwright-step-inspection-v1.schema.json")
     assert schema["additionalProperties"] is False
     assert set(schema["required"]) == set(inspect_step(_PLAIN_FIXTURE))
+
+
+# --------------------------------------------------------------------------------------
+# Script generation writes the same document as a sidecar (#1460 widened)
+# --------------------------------------------------------------------------------------
+
+
+def _generate(tmp_path, monkeypatch, fixture: Path, **kwargs) -> tuple[str, Path]:
+    """Generate a script from *fixture* inside *tmp_path* and return (py_path, sidecar)."""
+
+    from draftwright.sheet_emit import generate_sheet_script, inspection_sidecar_path
+
+    source = tmp_path / "part.step"
+    source.write_bytes(fixture.read_bytes())
+    monkeypatch.chdir(tmp_path)
+    py_path = generate_sheet_script("part.step", out="drawing", **kwargs)
+    return py_path, Path(inspection_sidecar_path(py_path))
+
+
+def test_generating_a_script_writes_the_inspection_document_as_a_sidecar(
+    tmp_path, monkeypatch
+) -> None:
+    py_path, sidecar = _generate(tmp_path, monkeypatch, _PMI_FIXTURE)
+
+    assert Path(py_path).exists()
+    assert sidecar.name == "drawing.draftwright-inspection.json"
+    document = json.loads(sidecar.read_text(encoding="utf-8"))
+    _validate(document)
+    assert document == inspect_step(tmp_path / "part.step"), (
+        "the sidecar must be the same document inspect_step produces for the same bytes"
+    )
+
+
+def test_the_sidecar_is_written_atomically_as_indented_utf8_with_a_trailing_newline(
+    tmp_path, monkeypatch
+) -> None:
+    _py_path, sidecar = _generate(tmp_path, monkeypatch, _PLATE_FIXTURE)
+    text = sidecar.read_text(encoding="utf-8")
+
+    assert text.endswith("}\n")
+    assert "\n  " in text
+    assert not list(tmp_path.glob(".draftwright-report-*.tmp")), "temporary file left behind"
+
+
+def test_the_sidecar_costs_no_second_aggregate_recognition_run(tmp_path, monkeypatch) -> None:
+    from draftwright.sheet_emit import generate_sheet_script
+
+    source = tmp_path / "part.step"
+    source.write_bytes(_PLATE_FIXTURE.read_bytes())
+    monkeypatch.chdir(tmp_path)
+
+    with recognition_consumer_calls() as counts:
+        generate_sheet_script("part.step", out="drawing")
+
+    assert counts == {"build_recognition_evidence": 1}
+
+
+def test_inspect_false_generates_the_script_without_a_sidecar(tmp_path, monkeypatch) -> None:
+    py_path, sidecar = _generate(tmp_path, monkeypatch, _PLATE_FIXTURE, inspect=False)
+
+    assert Path(py_path).exists()
+    assert not sidecar.exists()
+
+
+def test_the_sidecar_records_the_pmi_mode_the_generating_run_used(tmp_path, monkeypatch) -> None:
+    """PMI lowering can rewrite a grouped hole member into a singleton owner, so the document
+    must state which mode produced the ownership rather than let a reader assume geometry-only."""
+
+    _py_path, sidecar = _generate(tmp_path, monkeypatch, _PMI_FIXTURE, pmi="annotate")
+    document = json.loads(sidecar.read_text(encoding="utf-8"))
+
+    _validate(document)
+    assert document["recognition"]["pmi_mode"] == "annotate"
+    assert inspect_step(tmp_path / "part.step")["recognition"]["pmi_mode"] == "off"
+
+
+def test_a_build123d_object_source_generates_a_script_but_no_step_sidecar(
+    tmp_path, monkeypatch
+) -> None:
+    from build123d import Box
+
+    from draftwright.sheet_emit import generate_sheet_script, inspection_sidecar_path
+
+    monkeypatch.chdir(tmp_path)
+    py_path = generate_sheet_script(Box(30, 20, 10), out="drawing")
+
+    assert Path(py_path).exists()
+    assert not Path(inspection_sidecar_path(py_path)).exists(), (
+        "a live object has no STEP bytes, so it cannot have a version-1 STEP inspection document"
+    )
+
+
+def test_a_source_without_a_solid_body_warns_and_still_generates_the_script(
+    tmp_path, monkeypatch, caplog
+) -> None:
+    from build123d import Line, export_step
+
+    from draftwright.sheet_emit import generate_sheet_script, inspection_sidecar_path
+
+    monkeypatch.chdir(tmp_path)
+    export_step(Line((0, 0, 0), (10, 0, 0)), "curve.step")
+
+    with caplog.at_level(logging.WARNING, logger="draftwright.sheet_emit"):
+        py_path = generate_sheet_script("curve.step", out="curve")
+
+    assert Path(py_path).exists(), "a missing sidecar must never fail script generation"
+    assert not Path(inspection_sidecar_path(py_path)).exists()
+    assert "No inspection sidecar written" in caplog.text
+    assert "no solid body" in caplog.text
+
+
+def test_the_cli_script_path_prints_the_sidecar_and_no_report_suppresses_it(
+    tmp_path, monkeypatch
+) -> None:
+    from typer.testing import CliRunner
+
+    from draftwright.cli import app
+
+    source = tmp_path / "part.step"
+    source.write_bytes(_PLATE_FIXTURE.read_bytes())
+    monkeypatch.chdir(tmp_path)
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["part.step", "--script", "--out", "with"])
+    assert result.exit_code == 0, result.output
+    printed = result.output.split()
+    assert "with.py" in printed
+    assert "with.draftwright-inspection.json" in printed
+    assert (tmp_path / "with.draftwright-inspection.json").exists()
+
+    result = runner.invoke(app, ["part.step", "--script", "--out", "without", "--no-report"])
+    assert result.exit_code == 0, result.output
+    assert "without.draftwright-inspection.json" not in result.output
+    assert not (tmp_path / "without.draftwright-inspection.json").exists()
+
+
+def test_an_absent_pmi_census_is_refused_rather_than_reported_as_empty() -> None:
+    """`_pmi_document` is reached by both front doors; neither may turn a missing census into
+    an `absent` one, which would read as 'this STEP file authored no PMI'."""
+
+    with pytest.raises(InspectionUnavailableError, match="no PMI extraction census"):
+        inspection_module._pmi_document(None)
+
+
+def test_a_pmi_failure_alone_raises_attention_when_no_occurrence_does(monkeypatch) -> None:
+    """Isolates the PMI branch: the plain block has zero attention dispositions, so only the
+    extraction error can move the status."""
+
+    from draftwright import pmi as pmi_module
+
+    clear = inspect_step(_PLAIN_FIXTURE)
+    assert clear["status"] == "bounded-recognition-evidence"
+
+    def failing(*args, **kwargs):
+        raise RuntimeError("simulated XCAF failure")
+
+    monkeypatch.setattr(pmi_module, "extract_pmi_report", failing)
+    document = inspect_step(_PLAIN_FIXTURE)
+
+    assert all(document["recognition"]["summary"][key] == 0 for key in ("total",))
+    assert document["pmi"]["status"] == "extraction_error"
+    assert document["status"] == "needs-attention"

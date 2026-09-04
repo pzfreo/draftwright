@@ -98,6 +98,7 @@
         "identity_scope",
         "coordinates",
         "frame",
+        "pmi_mode",
         "occurrences",
         "summary",
         "association"
@@ -113,6 +114,7 @@
           "required": ["status"],
           "properties": { "status": { "const": "raw" } }
         },
+        "pmi_mode": { "enum": ["off", "report", "annotate"] },
         "occurrences": {
           "type": "array",
           "items": { "$ref": "#/$defs/occurrence" }

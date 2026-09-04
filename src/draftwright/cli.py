@@ -174,7 +174,8 @@ def main(
     no_report: bool = typer.Option(
         False,
         "--no-report",
-        help="Skip the default JSON report beside rendered output",
+        help="Skip the default JSON sidecar: the report beside rendered output, or the "
+        "inspection document beside a generated --script",
     ),
     verbose: bool = typer.Option(
         False,
@@ -209,7 +210,11 @@ def main(
     from draftwright.builder import build_drawing
 
     if script:
-        from draftwright.sheet_emit import _resolve_object_source, generate_sheet_script
+        from draftwright.sheet_emit import (
+            _resolve_object_source,
+            generate_sheet_script,
+            inspection_sidecar_path,
+        )
 
         # The Sheet script now carries the title-block / layout aspects (#474), so forward all
         # four flags — the generated script reproduces them on re-run (no more inert warning).
@@ -236,6 +241,7 @@ def main(
                 part_expr=source.seam,
                 object_candidates=source.candidates,
                 formats=tuple(formats),
+                inspect=not no_report,
             )
         else:
             py_path = generate_sheet_script(
@@ -257,8 +263,14 @@ def main(
                 projection=projection or None,
                 pmi=pmi.value if pmi is not None else "off",
                 formats=tuple(formats),
+                inspect=not no_report,
             )
         print(py_path)
+        # Only when it exists: an object-spec source, or a source that cannot state its
+        # evidence truthfully, produces the script but no v1 inspection document.
+        sidecar = inspection_sidecar_path(py_path)
+        if Path(sidecar).exists():
+            print(sidecar)
         return
 
     dwg = build_drawing(

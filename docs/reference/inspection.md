@@ -50,6 +50,32 @@ an inspection is in flight therefore cannot split the three sections across two 
 `source.name` is the basename only. An absolute path is caller-machine detail, not evidence, and
 never reaches the document.
 
+## Where the document comes from
+
+There are two front doors, and they produce the same document for the same bytes.
+
+`inspect_step(path)` does its own byte snapshot and its own single detect run, always with PMI
+lowering off.
+
+Script generation writes it as a sidecar. `generate_sheet_script(...)` — the CLI's `--script` —
+already snapshots and hashes its STEP source and already performs one detect run, so it projects
+the document from *that* run and writes `<stem>.draftwright-inspection.json` beside `<stem>.py`.
+There is no second aggregate. Pass `inspect=False` (the CLI's `--no-report`) to skip it.
+
+The generated `.py` also embeds `DRAFTWRIGHT_RECOGNITION_SNAPSHOT`, which is **not** the same
+thing: that block carries only the actionable gaps — `unsupported`, `deferred`, `evidence_only`,
+`unexpectedly_missing` — while the sidecar carries the whole document.
+
+Two sources produce a script but no sidecar. A live build123d object has no STEP bytes, so it
+cannot have a version-1 *STEP* inspection document at all. A source that cannot state its
+evidence truthfully — no solid body, an unclassified ownership ledger — logs a warning at
+`draftwright.sheet_emit` and is skipped; a missing sidecar never fails script generation.
+
+`recognition.pmi_mode` records the mode the aggregate ran under. `inspect_step` is always `off`;
+script generation passes the caller's `--pmi` through. It matters because with PMI in play the
+ownership rewrite can turn a grouped hole member into a singleton owner (`pmi_split_member`), so
+a reader must be able to tell whether the ownership below came from geometry alone.
+
 ## Recognition evidence
 
 Exactly one aggregate recognition run happens, and its evidence, model, and conversion-time

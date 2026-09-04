@@ -30,6 +30,7 @@ fixtures (#472).
 from __future__ import annotations
 
 import hashlib
+import logging
 import math
 import pprint
 import re
@@ -48,6 +49,7 @@ from draftwright.builder import (
     build_drawing,
 )
 from draftwright.fits import FitClass
+from draftwright.inspection import InspectionUnavailableError, inspection_document
 from draftwright.model.ir import (
     KnurlRequirement,
     NominalRequirement,
@@ -55,8 +57,25 @@ from draftwright.model.ir import (
     ThreadRequirement,
     ToleranceDecoration,
 )
-from draftwright.reporting import JsonValue, _generation_snapshot, _json_value
+from draftwright.reporting import (
+    JsonValue,
+    _generation_snapshot,
+    _json_value,
+    _write_report_document,
+)
 from draftwright.view_plan import ViewConstraints
+
+_log = logging.getLogger(__name__)
+
+# The inspection sidecar's suffix. Derived from the returned script path so the
+# writer and every caller name the same file from one place.
+_INSPECTION_SUFFIX = ".draftwright-inspection.json"
+
+
+def inspection_sidecar_path(py_path: str) -> str:
+    """Return the inspection sidecar that accompanies the generated script *py_path*."""
+
+    return f"{py_path.removesuffix('.py')}{_INSPECTION_SUFFIX}"
 
 
 @dataclass(frozen=True)
@@ -2348,6 +2367,7 @@ def generate_sheet_script(
     part_expr: str | None = None,
     object_candidates: Mapping[str, Shape] | None = None,
     formats: Sequence[str] = ("pdf",),
+    inspect: bool = True,
 ) -> str:
     """Write a declarative ``Sheet``-DSL script for *step_file* (a STEP path or a build123d
     object). Returns the path to the generated ``.py``. **The** script emitter, since #940
@@ -2407,6 +2427,28 @@ def generate_sheet_script(
             source=source_display,
             source_sha256=source_sha256,
         )
+        # The embedded snapshot above carries only the actionable gaps. The sidecar carries the
+        # whole version-1 inspection document, projected from THIS run — the same evidence,
+        # ownership, and PMI census the script was generated from, with no second aggregate
+        # (#1460). A build123d object source has no STEP bytes and so no v1 document.
+        inspection = None
+        if inspect and source_bytes is not None:
+            assert source_resolved is not None and source_sha256 is not None
+            try:
+                inspection = inspection_document(
+                    model=model,
+                    analysis=analysis,
+                    source_name=source_resolved.name,
+                    source_bytes=source_bytes,
+                    source_sha256=source_sha256,
+                    pmi_mode=pmi,
+                )
+            except InspectionUnavailableError as error:
+                # Never fail script generation over its sidecar, but never drop it in silence
+                # either: a caller who asked for the evidence must learn it was not written.
+                _log.warning(
+                    "No inspection sidecar written for %s: %s", source_resolved.name, error
+                )
         settled_layout = None
         # Generated scripts mirror dimensions as an authored set. Resolve the two established
         # semantic-correction families against the same immutable STEP snapshot as recognition.
@@ -2476,4 +2518,6 @@ def generate_sheet_script(
             )
     py_path = f"{stem}.py"
     Path(py_path).write_text(script, encoding="utf-8")  # the script has box-drawing / × / ← glyphs
+    if inspection is not None:
+        _write_report_document(inspection, inspection_sidecar_path(py_path))
     return py_path
