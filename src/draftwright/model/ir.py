@@ -21,7 +21,7 @@ stay one callout.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from math import atan2, cos, hypot, isclose, isfinite, pi
+from math import atan2, cos, hypot, isclose, isfinite, pi, sin
 from numbers import Real
 from typing import TYPE_CHECKING, ClassVar, Literal, Protocol, runtime_checkable
 
@@ -1007,6 +1007,41 @@ class OpenCircularPocketSegment:
     radius: float | None = None
     sweep: float | None = None
 
+    def __post_init__(self) -> None:
+        points = (*self.start, *self.end)
+        if len(self.start) != 2 or len(self.end) != 2 or not all(isfinite(v) for v in points):
+            raise ValueError("open circular segment endpoints must be finite 2D points")
+        if hypot(self.end[0] - self.start[0], self.end[1] - self.start[1]) <= 1e-9:
+            raise ValueError("open circular segment endpoints must be distinct")
+        if self.kind == "line":
+            if self.center is not None or self.radius is not None or self.sweep is not None:
+                raise ValueError("a line segment cannot carry arc values")
+            return
+        if self.kind != "arc":
+            raise ValueError("open circular segment kind must be line or arc")
+        if (
+            self.center is None
+            or len(self.center) != 2
+            or not all(isfinite(v) for v in self.center)
+            or self.radius is None
+            or not isfinite(self.radius)
+            or self.radius <= 0
+            or self.sweep is None
+            or not isfinite(self.sweep)
+            or not 0 < abs(self.sweep) <= pi + 1e-6
+        ):
+            raise ValueError("an arc segment needs finite center, radius, and signed sweep")
+        start = (self.start[0] - self.center[0], self.start[1] - self.center[1])
+        end = (self.end[0] - self.center[0], self.end[1] - self.center[1])
+        if abs(hypot(*start) - self.radius) > 0.002 or abs(hypot(*end) - self.radius) > 0.002:
+            raise ValueError("arc endpoints must lie on its circle")
+        swept = (
+            start[0] * cos(self.sweep) - start[1] * sin(self.sweep),
+            start[0] * sin(self.sweep) + start[1] * cos(self.sweep),
+        )
+        if hypot(swept[0] - end[0], swept[1] - end[1]) > 0.002:
+            raise ValueError("arc sweep must connect its endpoints")
+
 
 @dataclass(frozen=True)
 class EdgeOpenCircularPocketFeature:
@@ -1023,6 +1058,32 @@ class EdgeOpenCircularPocketFeature:
     segments: tuple[OpenCircularPocketSegment, ...]
     opening: tuple[tuple[float, float], tuple[float, float]]
     kind: ClassVar[str] = "edge_open_circular_pocket"
+
+    def __post_init__(self) -> None:
+        if self.axis not in "xyz" or self.frame.axis != self.axis:
+            raise ValueError("edge-open circular pocket frame must use its principal axis")
+        if self.open_sign not in (-1, 1):
+            raise ValueError("edge-open circular pocket open_sign must be -1 or 1")
+        if (
+            len(self.run_interval) != 2
+            or not all(isfinite(value) for value in self.run_interval)
+            or self.run_interval[1] <= self.run_interval[0]
+        ):
+            raise ValueError("edge-open circular pocket run interval must increase")
+        if len(self.segments) != 4 or tuple(segment.kind for segment in self.segments) not in (
+            ("arc", "line", "arc", "line"),
+            ("line", "arc", "line", "arc"),
+        ):
+            raise ValueError("edge-open circular pocket needs four alternating segments")
+        if any(left.end != right.start for left, right in zip(self.segments, self.segments[1:])):
+            raise ValueError("edge-open circular pocket segments must form one open chain")
+        if self.opening != (self.segments[-1].end, self.segments[0].start):
+            raise ValueError("edge-open circular pocket opening must join the loose endpoints")
+        arcs = tuple(segment for segment in self.segments if segment.kind == "arc")
+        if arcs[0].radius != arcs[1].radius:
+            raise ValueError("edge-open circular pocket arcs must have one equal radius")
+        if sum(abs(abs(segment.sweep or 0.0) - pi) <= 1e-4 for segment in arcs) != 1:
+            raise ValueError("edge-open circular pocket needs exactly one intact semicircle")
 
     @property
     def depth(self) -> float:

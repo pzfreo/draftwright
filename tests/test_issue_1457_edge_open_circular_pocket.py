@@ -7,6 +7,7 @@ from b123d_recognisers import (
 from build123d import Box, BuildPart, BuildSketch, Plane, Polygon, Pos, SlotOverall, extrude
 
 from draftwright import build_drawing
+from draftwright.model.compiled import compile_dimensions
 from draftwright.model.detect import ConvContext, convert
 from draftwright.model.ir import EdgeOpenCircularPocketFeature, PartModel
 from draftwright.model.planner import plan_dimensions
@@ -79,6 +80,33 @@ def test_planner_keeps_radius_and_depth_together_in_the_axis_end_view() -> None:
     }
 
 
+def test_compiler_exposes_no_profile_measurements_as_renderer_facts() -> None:
+    bbox = Box(20, 20, 20).bounding_box()
+    feature = convert(_record(), ConvContext(bbox, None))
+
+    (group,) = compile_dimensions(PartModel(bbox, None, [feature])).groups
+
+    assert group.facts.frame is feature.frame
+    assert group.facts.axis == "z"
+    for forbidden in ("segments", "opening", "radius", "run_interval"):
+        with pytest.raises(AttributeError):
+            getattr(group.facts, forbidden)
+
+
+def test_consumer_ir_refuses_a_profile_whose_gap_is_not_its_loose_endpoints() -> None:
+    feature = convert(_record(), ConvContext(Box(20, 20, 20).bounding_box(), None))
+
+    with pytest.raises(ValueError, match="opening must join the loose endpoints"):
+        EdgeOpenCircularPocketFeature(
+            feature.frame,
+            feature.axis,
+            feature.open_sign,
+            feature.run_interval,
+            feature.segments,
+            ((0.0, 0.0), (1.0, 1.0)),
+        )
+
+
 def test_solver_places_one_open_radius_and_depth_callout() -> None:
     part = _part()
     feature = convert(_record(), ConvContext(part.bounding_box(), None))
@@ -90,4 +118,21 @@ def test_solver_places_one_open_radius_and_depth_callout() -> None:
     ] == ["m_edge_open_circular_pocket_z0"]
     assert not [
         issue for issue in drawing.lint() if issue.code == "edge_open_circular_pocket_dropped"
+    ]
+
+
+def test_authored_omission_withholds_the_entire_callout() -> None:
+    part = _part()
+    feature = convert(_record(), ConvContext(part.bounding_box(), None))
+    model = PartModel(
+        part.bounding_box(),
+        None,
+        [feature],
+        authored_dimensions=(),
+    )
+
+    drawing = build_drawing(part, model=model)
+
+    assert not [
+        name for name in drawing.annotations() if name.startswith("m_edge_open_circular_pocket")
     ]
