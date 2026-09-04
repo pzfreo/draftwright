@@ -80,7 +80,11 @@ only as a documented, deprecated escape hatch.
     `test_soft_deprecation.py`.
 
 **Unguarded.** Lint's redundancy check (a pattern's per-hole locations *and* its pitch) does not
-exist. Hole callouts (`hc_`) honour suppression per term but remain on the legacy surface.
+exist. Hole callouts (`hc_`) remain on the legacy surface, honouring suppression per term; PMI
+renders author-supplied text and is the one permanent exception. Both are the whole of
+`_PENDING_VALUE_CARRYING`, and `test_compiled_plan_boundary.py` checks that list against this
+sentence. Pattern pitch and Slot positions are *inside* the boundary — compiled, not exempt —
+and locations are addressable per feature, so #883 is not a blocker to omission.
 
 ## Boundaries
 

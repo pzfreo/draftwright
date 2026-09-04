@@ -521,7 +521,7 @@ def test_carve_around_a_band_keeps_an_anchored_candidate_on_its_natural():
     # candidate assigned to its own band-free segment is never in the same
     # solve as anything the band would have forced a trade-off against.
     # naturals [29, 34], gap 10, band (30, 33) — the DP's own reachable
-    # regression case (docs/adr/0009 Amendment 5) — with label 1 anchored.
+    # regression case (docs/adr/archive/0009 Amendment 5) — with label 1 anchored.
     import pytest
 
     from draftwright.annotations._common import carve_free_segments
@@ -551,7 +551,7 @@ def test_carve_free_segments_no_bands_is_the_whole_strip():
 
 
 def test_holes_band_clearance_exceeds_min_gap_on_the_real_draft():
-    # Guards the invariant docs/adr/0009's "Investigated, not fixed" paragraph
+    # Guards the invariant docs/adr/archive/0009's "Investigated, not fixed" paragraph
     # relies on to call the cross-segment min_gap violation unreachable: a
     # band's half-width (clr) must exceed min_gap on the actual production
     # draft (builder.py's _assemble draft_preset() call), or that paragraph's

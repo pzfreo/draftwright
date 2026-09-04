@@ -1171,7 +1171,7 @@ class TestTheBoundaryIsLoadBearing:
             pathlib.Path(__file__).resolve().parents[1]
             / "docs"
             / "adr"
-            / "0016-declared-dimensioning-intent.md"
+            / "0004-declared-intent.md"
         ).read_text(encoding="utf-8")
         assert "Hole callouts (`hc_`) remain on the legacy surface" in adr, (
             "the ADR stopped naming the one renderer still on the advisory surface — it "
