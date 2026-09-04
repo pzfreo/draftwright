@@ -461,7 +461,7 @@ def test_a_step_source_without_a_solid_body_fails_before_any_document(tmp_path) 
 
 
 def test_a_non_raw_recognition_frame_is_refused_until_the_provider_contract_lands(monkeypatch):
-    """Unreachable through the public API today — raw is the ADR 0020 default — so this is a
+    """Unreachable through the public API today — raw is the ADR 3 (was 0020) default — so this is a
     forward guard, exercised by substituting the frame decision."""
 
     real = builder_module._detect_part_model_analysis

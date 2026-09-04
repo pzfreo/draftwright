@@ -17,7 +17,7 @@ The document therefore says three things, and keeps them apart:
 ``missed`` is currently one half of the story. It reports geometry that went unclaimed, which is
 the provider's own accounting. It does **not** yet report what the recogniser considered and
 rejected — the provider can explain that, but only from a second recognition run, which would
-break the one-run rule of ADR 0017. b123d-recognisers#494 asks for an API that
+break the one-run rule of ADR 3 (was 0017). b123d-recognisers#494 asks for an API that
 explains an already-completed result.
 
 Nothing here is a completeness or readiness claim. An unclaimed face is not proof of a missed
@@ -51,7 +51,7 @@ INSPECTION_SCHEMA_VERSION = 1
 # Version 1 reports raw caller coordinates only. Framed recognition moves geometry into a
 # provider working frame, and b123d-recognisers#493 cannot yet tell a consumer whether a refused
 # framed run had already recognised — so refuse rather than report working-frame values as
-# caller coordinates (ADR 0020).
+# caller coordinates (ADR 3, was 0020).
 _SUPPORTED_FRAME_STATUS = "raw"
 
 # Draftwright acted on the feature: it is represented by an IR feature of its own, or absorbed
@@ -188,7 +188,7 @@ def inspect_step(path: str | PathLike[str]) -> dict[str, JsonValue]:
         snapshot = Path(directory) / resolved.name
         snapshot.write_bytes(source_bytes)
         try:
-            # `pmi="off"` keeps recognition geometry-only (ADR 0013): no PMI record is lowered
+            # `pmi="off"` keeps recognition geometry-only (ADR 3, was 0013): no PMI record is lowered
             # into the IR, so an authored annotation cannot change which feature owns what.
             model, analysis = _detect_part_model_analysis(snapshot, pmi="off")
         except ValueError as error:
