@@ -69,49 +69,9 @@ ownership from values, labels, rendered coordinates, topology traversal, or a se
 scan. Declared reconciliation and framed evidence remain explicit later contracts rather than
 holes disguised as an empty report.
 
-`generate_sheet_script(...)` also embeds
-`DRAFTWRIGHT_RECOGNITION_SNAPSHOT`, a version-1 JSON-compatible Python dictionary containing only
-the actionable accepted occurrences that were not represented by ordinary feature declarations
-when the script was generated: `unsupported`, `deferred`, `evidence_only`, and
-`unexpectedly_missing`. Each gap retains its report-local ID, provider family, public record,
-record schema version, disposition, deterministic reason, and tracking issue. Represented and
-absorbed occurrences remain expressed by the existing semantic Sheet declarations and are not
-duplicated into this compact block.
-
-Beside the script it also writes `<stem>.draftwright-inspection.json` — the full version-1
-[STEP inspection document](inspection.md) projected from the same detect run, with no second
-aggregate. The embedded snapshot is the gaps; the sidecar is everything. `--no-report` suppresses
-it, as it does the report sidecar beside rendered output.
-
-The snapshot is generation-time evidence, not current authority. For a STEP source it records the
-original input basename and SHA-256 of one immutable byte snapshot. Recognition, PMI, and any
-semantic-correction build use a private copy of those exact bytes, preventing path or symlink
-changes during recognition from splitting the model and its provenance. Immediately before
-writing, generation also makes a best-effort check and fails if the resolved replay target is then
-missing or has a different digest. The pathname is not locked against later or concurrent
-replacement: the embedded hash is the comparison boundary for fresh runtime reconciliation, not a
-claim that a mutable path remains current. A live build123d object has no stable source-file hash
-and says so with `None`. The
-snapshot contains no `FeatureRef`, `FaceRef`, topology index, object address, annotation coordinate,
-or Python object representation. An empty snapshot says
-`no_unrepresented_accepted_occurrences`; it does not claim physical completeness.
-
-Direct CLI rendering writes `<output>.draftwright.json` after the requested visual formats by
-default and prints the sidecar path after the visual paths. `--no-report` opts out. The CLI calls
-the same explicit atomic `Drawing.write_report(...)` surface; `Drawing.export(...)` itself still
-does not write a report. A visual-export failure does not create or update the sidecar; any
-pre-existing sidecar remains untouched and is not evidence of that failed invocation. Report-only
-generation, cross-run freshness validation, and output manifests remain later slices.
-
-The visual/report sequence is not a transaction: each successfully exported visual path is printed
-before the report write is attempted. If that write fails, the command exits nonzero without
-printing a report path; the visual files and any pre-existing sidecar remain. Until an output
-manifest binds one invocation's artefacts, consumers must not associate that old sidecar with the
-failed run.
-
-The fresh runtime report and its future reconciliation with this embedded snapshot remain a later
-slice, as do output manifests and generated-script sidecars. Exact reconciliation is tracked
-upstream because a later editable run needs a released source-bound replay receipt; Draftwright
-does not substitute record equality, ordering, topology IDs, or geometric proximity. Calling
-`report()` or `write_report()` does not alter PDF, SVG, DXF, or PNG content; library export does not
-write a report unless the caller requests one.
+`generate_sheet_script(...)` writes its recognition evidence to
+`<stem>.draftwright-inspection.json` beside the generated script — see
+[Recognition evidence](inspection.md). It used to embed a `DRAFTWRIGHT_RECOGNITION_SNAPSHOT`
+literal in the Python instead; #1460 moved it to a file that can be diffed and re-read without
+parsing Python, and widened it from the gaps alone to every accepted finding with the outcome
+Draftwright gave it.

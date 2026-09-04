@@ -1,8 +1,14 @@
-"""#1438 — generated Python carries a bounded generation-time recognition-gap snapshot."""
+"""Generation-time recognition evidence (#1438, moved to a sidecar by #1460).
+
+Script generation used to embed a `DRAFTWRIGHT_RECOGNITION_SNAPSHOT` literal in the Python it
+wrote. The generated script is a drawing declaration a person edits; evidence about the run that
+produced it now lives in the document beside it, where it can be diffed and re-read without
+parsing Python. The byte-snapshot integrity #1438 established is unchanged and still guarded
+here — the sidecar inherits it.
+"""
 
 from __future__ import annotations
 
-import ast
 import hashlib
 import json
 from dataclasses import replace
@@ -11,10 +17,8 @@ from pathlib import Path
 import pytest
 from build123d import Align, Box, Cylinder, Pos, RegularPolygon, Rot, export_step, extrude
 
-from draftwright import build_drawing
-from draftwright import reporting as reporting_module
 from draftwright import sheet_emit as sheet_emit_module
-from draftwright.sheet_emit import emit_sheet_script, generate_sheet_script
+from draftwright.sheet_emit import generate_sheet_script, inspection_sidecar_path
 
 _CENTER = (Align.CENTER, Align.CENTER, Align.CENTER)
 
@@ -42,127 +46,117 @@ def _through_step_part():
     return Box(40, 30, 20) - Pos(15, 10, 0) * Box(20, 20, 30)
 
 
-def _generation_snapshot_for(part, *, lose_bindings: bool = False) -> dict[str, object]:
-    drawing = build_drawing(part)
-    ownership = drawing.recognition_ownership()
-    if lose_bindings:
-        assert ownership is not None
-        ownership = replace(ownership, bindings=())
-    return reporting_module._generation_snapshot(
-        evidence=drawing.recognition_evidence(),
-        ownership=ownership,
-        model=drawing.model(),
-        source=None,
-        source_sha256=None,
-    )
+def _generate(part, tmp_path: Path, stem: str) -> tuple[Path, dict]:
+    """Generate a script from a STEP export of *part*; return (script path, sidecar document)."""
+
+    step = tmp_path / f"{stem}.step"
+    export_step(part, str(step))
+    script = Path(generate_sheet_script(str(step), out=str(tmp_path / stem)))
+    return script, json.loads(Path(inspection_sidecar_path(str(script))).read_text("utf-8"))
 
 
-def _snapshot(source: str) -> dict[str, object]:
-    module = ast.parse(source)
-    assignment = next(
-        statement
-        for statement in module.body
-        if isinstance(statement, ast.Assign)
-        and any(
-            isinstance(target, ast.Name) and target.id == "DRAFTWRIGHT_RECOGNITION_SNAPSHOT"
-            for target in statement.targets
-        )
-    )
-    value = ast.literal_eval(assignment.value)
-    assert isinstance(value, dict)
-    return value
+def _unused(document: dict) -> list[dict]:
+    """Findings recognition made that the drawing does not act on."""
+
+    return [entry for entry in document["found"] if not entry["draftwright"]["acted_on"]]
 
 
-def test_generated_python_exposes_each_deferred_oriented_slot_without_execution(
-    tmp_path: Path,
-) -> None:
-    script = generate_sheet_script(_oriented_slot_part(), out=str(tmp_path / "oriented"))
-    source = Path(script).read_text(encoding="utf-8")
+def test_the_generated_script_carries_no_recognition_evidence(tmp_path: Path) -> None:
+    """The evidence belongs beside the script, not inside it."""
 
-    snapshot = _snapshot(source)
+    script, document = _generate(_oriented_slot_part(), tmp_path, "oriented")
+    source = script.read_text(encoding="utf-8")
 
-    assert snapshot["schema"] == "draftwright-recognition-snapshot"
-    assert snapshot["schema_version"] == 1
-    assert snapshot["status"] == "accepted_occurrences_unrepresented"
-    assert snapshot["coverage"] == "accepted-occurrence-gaps"
-    assert snapshot["source"] == {"kind": "build123d", "name": None, "sha256": None}
-    assert snapshot["summary"] == {
-        "total": 3,
-        "unsupported": 0,
-        "deferred": 3,
-        "evidence_only": 0,
-        "unexpectedly_missing": 0,
-    }
-    gaps = snapshot["gaps"]
-    assert isinstance(gaps, list)
-    assert [gap["id"] for gap in gaps] == [
+    assert "DRAFTWRIGHT_RECOGNITION_SNAPSHOT" not in source
+    assert "disposition" not in source
+    assert "acted_on" not in source
+    assert "FeatureRef" not in source and "FaceRef" not in source
+    assert document["found"], "precondition: there is evidence to have left out"
+
+
+def test_the_sidecar_exposes_each_deferred_oriented_slot(tmp_path: Path) -> None:
+    _script, document = _generate(_oriented_slot_part(), tmp_path, "oriented")
+
+    slots = [entry for entry in document["found"] if entry["family"] == "oriented_slots"]
+    assert [entry["id"] for entry in slots] == [
         "oriented_slots:1",
         "oriented_slots:2",
         "oriented_slots:3",
     ]
-    assert {gap["family"] for gap in gaps} == {"oriented_slots"}
-    assert {gap["record_type"] for gap in gaps} == {"OrientedSlot"}
-    assert {gap["record_schema_version"] for gap in gaps} == {1}
-    assert {gap["disposition"] for gap in gaps} == {"deferred"}
-    assert {gap["reason_code"] for gap in gaps} == {"consumer_semantics_deferred"}
-    assert {gap["tracking"] for gap in gaps} == {
-        "https://github.com/pzfreo/draftwright/issues/1430"
-    }
-    assert [gap["record"]["center"] for gap in gaps] == [
+    assert {entry["feature_type"] for entry in slots} == {"OrientedSlot"}
+    assert {entry["feature_schema_version"] for entry in slots} == {1}
+    for entry in slots:
+        outcome = entry["draftwright"]
+        assert outcome["acted_on"] is False
+        assert outcome["disposition"] == "deferred"
+        assert outcome["reason"] == "consumer_semantics_deferred"
+        assert outcome["tracking"] == "https://github.com/pzfreo/draftwright/issues/1430"
+    assert [entry["feature"]["center"] for entry in slots] == [
         [-30.0, 0.0, 0.0],
         [0.0, 0.0, 0.0],
         [30.0, 0.0, 0.0],
     ]
-    assert json.loads(json.dumps(snapshot, allow_nan=False, sort_keys=True)) == snapshot
-    assert "FeatureRef" not in source
-    assert "FaceRef" not in source
+    assert json.loads(json.dumps(document, allow_nan=False, sort_keys=True)) == document
 
 
-def test_empty_snapshot_names_its_bounded_claim_truthfully(tmp_path: Path) -> None:
-    script = generate_sheet_script(Box(40, 30, 20), out=str(tmp_path / "plain"))
+def test_a_part_with_nothing_unused_claims_nothing_more(tmp_path: Path) -> None:
+    _script, document = _generate(Box(40, 30, 20), tmp_path, "plain")
 
-    snapshot = _snapshot(Path(script).read_text(encoding="utf-8"))
+    assert _unused(document) == []
+    assert "complete" not in json.dumps(document)
+    assert document["missed"]["rejected_candidates"]["available"] is False, (
+        "an empty unused list is not a completeness claim: what recognition rejected is unknown"
+    )
 
-    assert snapshot["status"] == "no_unrepresented_accepted_occurrences"
-    assert snapshot["summary"]["total"] == 0
-    assert snapshot["gaps"] == []
-    assert "complete" not in snapshot["status"]
 
+def test_absorbed_findings_are_acted_on_while_an_unsupported_one_is_not(tmp_path: Path) -> None:
+    _script, document = _generate(_mixed_absorbed_unsupported_part(), tmp_path, "mixed")
 
-def test_snapshot_filters_absorbed_occurrences_while_retaining_unsupported_gap() -> None:
-    snapshot = _generation_snapshot_for(_mixed_absorbed_unsupported_part())
-
-    assert [(gap["family"], gap["disposition"]) for gap in snapshot["gaps"]] == [
-        ("passages", "unsupported")
+    assert [
+        (entry["family"], entry["draftwright"]["disposition"]) for entry in _unused(document)
+    ] == [("passages", "unsupported")]
+    absorbed = [
+        entry for entry in document["found"] if entry["draftwright"]["disposition"] == "absorbed"
     ]
-    assert snapshot["summary"] == {
-        "total": 1,
-        "unsupported": 1,
-        "deferred": 0,
-        "evidence_only": 0,
-        "unexpectedly_missing": 0,
-    }
+    assert absorbed, "fixture precondition: the part must also produce an absorbed finding"
+    assert all(entry["draftwright"]["acted_on"] for entry in absorbed)
 
 
-def test_snapshot_filters_represented_occurrence_while_retaining_evidence_gaps() -> None:
-    snapshot = _generation_snapshot_for(_step_projection_evidence_part())
+def test_projection_evidence_is_reported_unused_while_its_step_is_acted_on(tmp_path: Path) -> None:
+    _script, document = _generate(_step_projection_evidence_part(), tmp_path, "steps")
 
-    assert {(gap["family"], gap["disposition"]) for gap in snapshot["gaps"]} == {
+    assert {
+        (entry["family"], entry["draftwright"]["disposition"]) for entry in _unused(document)
+    } == {
         ("step_levels", "evidence_only"),
         ("risers", "evidence_only"),
     }
-    assert all(gap["family"] != "through_steps" for gap in snapshot["gaps"])
+    through = [entry for entry in document["found"] if entry["family"] == "through_steps"]
+    assert through and all(entry["draftwright"]["acted_on"] for entry in through)
 
 
-def test_snapshot_projects_supported_owner_loss_as_an_unexpected_gap() -> None:
-    snapshot = _generation_snapshot_for(_through_step_part(), lose_bindings=True)
+def test_a_lost_owner_is_reported_rather_than_dropped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A finding whose recorded owner vanished must surface as unexpectedly missing, never be
+    quietly removed from the document."""
 
-    assert [(gap["family"], gap["disposition"]) for gap in snapshot["gaps"]] == [
-        ("through_steps", "unexpectedly_missing")
-    ]
+    real = sheet_emit_module._detect_part_model_analysis
+
+    def lose_bindings(source, *, pmi="off"):
+        model, analysis = real(source, pmi=pmi)
+        ownership = analysis.recognition_ownership
+        return model, replace(analysis, recognition_ownership=replace(ownership, bindings=()))
+
+    monkeypatch.setattr(sheet_emit_module, "_detect_part_model_analysis", lose_bindings)
+    _script, document = _generate(_through_step_part(), tmp_path, "lost")
+
+    assert ("through_steps", "unexpectedly_missing") in {
+        (entry["family"], entry["draftwright"]["disposition"]) for entry in _unused(document)
+    }
 
 
-def test_step_snapshot_carries_exact_source_identity_and_hash_deterministically(
+def test_the_sidecar_carries_exact_source_identity_and_hash_deterministically(
     tmp_path: Path,
 ) -> None:
     step = tmp_path / "source.step"
@@ -171,15 +165,11 @@ def test_step_snapshot_carries_exact_source_identity_and_hash_deterministically(
 
     first = generate_sheet_script(str(step), out=str(tmp_path / "first"))
     second = generate_sheet_script(str(step), out=str(tmp_path / "second"))
-    first_snapshot = _snapshot(Path(first).read_text(encoding="utf-8"))
-    second_snapshot = _snapshot(Path(second).read_text(encoding="utf-8"))
+    first_document = json.loads(Path(inspection_sidecar_path(first)).read_text("utf-8"))
+    second_document = json.loads(Path(inspection_sidecar_path(second)).read_text("utf-8"))
 
-    assert first_snapshot == second_snapshot
-    assert first_snapshot["source"] == {
-        "kind": "step",
-        "name": "source.step",
-        "sha256": expected_hash,
-    }
+    assert first_document == second_document
+    assert first_document["source"] == {"name": "source.step", "sha256": expected_hash}
 
 
 def test_recognition_uses_immutable_bytes_during_an_aba_source_replacement(
@@ -202,10 +192,10 @@ def test_recognition_uses_immutable_bytes_during_an_aba_source_replacement(
     monkeypatch.setattr(sheet_emit_module, "_detect_part_model_analysis", detect_during_aba)
 
     script = generate_sheet_script(str(step), out=str(tmp_path / "stable"))
-    snapshot = _snapshot(Path(script).read_text(encoding="utf-8"))
+    document = json.loads(Path(inspection_sidecar_path(script)).read_text("utf-8"))
 
-    assert snapshot["source"]["sha256"] == hashlib.sha256(original_bytes).hexdigest()
-    assert snapshot["gaps"] == []
+    assert document["source"]["sha256"] == hashlib.sha256(original_bytes).hexdigest()
+    assert _unused(document) == []
     assert step.read_bytes() == original_bytes
 
 
@@ -229,6 +219,7 @@ def test_persistent_source_replacement_fails_before_writing_the_script(
         generate_sheet_script(str(step), out=str(tmp_path / "replaced"))
 
     assert not (tmp_path / "replaced.py").exists()
+    assert not Path(inspection_sidecar_path(str(tmp_path / "replaced.py"))).exists()
 
 
 def test_source_deletion_fails_before_writing_the_script(
@@ -249,6 +240,7 @@ def test_source_deletion_fails_before_writing_the_script(
         generate_sheet_script(str(step), out=str(tmp_path / "deleted"))
 
     assert not (tmp_path / "deleted.py").exists()
+    assert not Path(inspection_sidecar_path(str(tmp_path / "deleted.py"))).exists()
 
 
 def test_symlink_retarget_cannot_split_replay_source_from_recognition(
@@ -274,40 +266,12 @@ def test_symlink_retarget_cannot_split_replay_source_from_recognition(
 
     script = generate_sheet_script(str(source), out=str(tmp_path / "linked"))
     script_source = Path(script).read_text(encoding="utf-8")
-    snapshot = _snapshot(script_source)
+    document = json.loads(Path(inspection_sidecar_path(script)).read_text("utf-8"))
 
     assert repr(str(first.resolve())) in script_source
     assert repr(str(second.resolve())) not in script_source
-    assert snapshot["source"] == {
-        "kind": "step",
+    assert document["source"] == {
         "name": "source.step",
         "sha256": hashlib.sha256(first.read_bytes()).hexdigest(),
     }
-    assert snapshot["gaps"] == []
-
-
-@pytest.mark.parametrize("bad_snapshot", ({"value": object()},))
-def test_emitter_rejects_non_json_snapshot_values_before_writing_python(bad_snapshot) -> None:
-    model, _analysis = sheet_emit_module._detect_part_model_analysis(Box(10, 10, 10))
-
-    with pytest.raises(TypeError, match="not JSON serializable"):
-        emit_sheet_script(
-            model,
-            "part = None",
-            "bad",
-            title="BAD",
-            number="BAD",
-            recognition_snapshot=bad_snapshot,
-        )
-
-    cyclic: dict[str, object] = {}
-    cyclic["self"] = cyclic
-    with pytest.raises(ValueError, match="Circular reference"):
-        emit_sheet_script(
-            model,
-            "part = None",
-            "bad",
-            title="BAD",
-            number="BAD",
-            recognition_snapshot=cyclic,  # type: ignore[arg-type]
-        )
+    assert _unused(document) == []

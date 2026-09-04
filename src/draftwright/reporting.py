@@ -33,8 +33,6 @@ _DISPOSITIONS = (
 _ATTENTION_DISPOSITIONS = frozenset(
     {"unsupported", "deferred", "evidence_only", "unexpectedly_missing"}
 )
-_SNAPSHOT_SCHEMA = "draftwright-recognition-snapshot"
-_SNAPSHOT_SCHEMA_VERSION = 1
 
 JsonValue: TypeAlias = None | bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"]
 
@@ -513,69 +511,6 @@ def drawing_report(
         },
         "lint": lint,
     }
-
-
-def _generation_snapshot(
-    *,
-    evidence: RecognitionEvidence | None,
-    ownership: RecognitionOwnership | None,
-    model: PartModel | None,
-    source: str | PathLike[str] | None,
-    source_sha256: str | None,
-) -> dict[str, JsonValue]:
-    """Project generation-time accepted-occurrence gaps without compiling or rendering."""
-
-    occurrences, _requirements, _summary = _occurrences(evidence, ownership, model)
-    gaps = [
-        {
-            key: occurrence[key]
-            for key in (
-                "id",
-                "family",
-                "record_type",
-                "record_schema_version",
-                "record",
-                "disposition",
-                "reason_code",
-                "tracking",
-            )
-        }
-        for occurrence in occurrences
-        if occurrence["disposition"] in _ATTENTION_DISPOSITIONS
-    ]
-    summary = {
-        "total": len(gaps),
-        **{
-            disposition: sum(gap["disposition"] == disposition for gap in gaps)
-            for disposition in (
-                "unsupported",
-                "deferred",
-                "evidence_only",
-                "unexpectedly_missing",
-            )
-        },
-    }
-    snapshot_source: dict[str, str | None] = {
-        **_source(source),
-        "sha256": source_sha256,
-    }
-    return cast(
-        dict[str, JsonValue],
-        {
-            "schema": _SNAPSHOT_SCHEMA,
-            "schema_version": _SNAPSHOT_SCHEMA_VERSION,
-            "status": (
-                "accepted_occurrences_unrepresented"
-                if gaps
-                else "no_unrepresented_accepted_occurrences"
-            ),
-            "coverage": "accepted-occurrence-gaps",
-            "producer": _producer(),
-            "source": snapshot_source,
-            "summary": summary,
-            "gaps": gaps,
-        },
-    )
 
 
 def _write_report_document(report: Mapping[str, object], path: str | PathLike[str]) -> str:

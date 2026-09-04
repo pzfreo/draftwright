@@ -29,10 +29,6 @@
   of the completed raw occurrence-disposition ledger. Amendments 22–25 add atomic persistence,
   Plate ownership, generated-Python gap evidence, and direct CLI sidecars. Amendment 26 projects
   the existing typed physical-requirement outcomes without rebuilding a denominator from IR.
-  Amendment 27 (2026-09-04) adopts the released 0.4.14 `Blend` path semantics without flattening
-  a circular path or conflating rolling-ball and path radii.
-  Amendment 28 (2026-09-04) exposes the same one-run evidence as a public read-only STEP
-  inspection document obtained without building a drawing.
 - **Date:** 2026-08-03
 - **Deciders:** Paul Fremantle (pzfreo)
 
@@ -794,73 +790,6 @@ truthful Draftwright requirement grammar; schema acceptance alone creates no IR,
 annotation, or completeness credit. These changes use only released public records, preserve one
 aggregate, introduce no page coordinates or persistent identity, and leave declared builds
 recognition-free.
-
-## Amendment 28 — The one-run evidence has a public read-only inspection projection
-
-`draftwright.inspect_step(path)` returns a versioned, strict JSON-compatible document describing
-what Draftwright sees in a STEP file, without constructing, laying out, rendering, or exporting a
-drawing. It is the first public `inspect` surface (#1460); a later MCP tool is a thin adapter over
-this ordinary Python contract and re-derives none of its evidence.
-
-The projection adds no recognition lifecycle. It resolves the source once, reads one immutable
-byte snapshot, hashes those bytes, and makes geometry, recognition, and PMI extraction all consume
-a private copy of that same snapshot — the ADR 0017 Amendment 24 rule, applied to a second
-consumer. Exactly one aggregate run happens through the existing shared
-`_detect_part_model_analysis` seam, and its `RecognitionEvidence`, final IR model, and
-conversion-time ownership are reused as-is. Occurrences and consumer dispositions are projected
-through the same rank-2 report projector as Amendments 21 and 26, so a single ledger keeps the
-report and the inspection honest about the same denominator: an unclassified ownership ledger is
-refused, never shrunk.
-
-Three facts are new to this document and none of them is a new inference.
-
-*Bounded face evidence.* Each occurrence carries the provider's exact defining and constituent
-original faces, described by surface kind, area, centroid, and bounding box. Descriptions are
-ordered by their own serialized values because the provider hands them back as an unordered set
-of address-hashed references. `FeatureRef`, `FaceRef`, topology indexes, object addresses, and
-page coordinates are never serialized, so nothing here becomes a persistent identity — the
-identity rule of §"Store build123d/OCP face objects as identity" is unchanged.
-
-*Association accounting.* The provider's own face/area association is reported verbatim.
-`unassociated` means only that no accepted occurrence claimed the face; intentional stock and
-background faces are in the denominator. The document states that qualification itself, so a
-caller cannot read association coverage as recall, accuracy, or a missed feature.
-
-*The AP242 PMI census.* The complete source census, the records Draftwright could lower, and the
-extraction error state are all explicit, and no source entity disappears because Draftwright
-cannot lower it. Inspection reads PMI with lowering off, so an authored annotation cannot change
-which occurrence owns a feature: recognition remains geometry-only (ADR 0013, §4 below).
-
-*Two front doors, one run each.* `inspect_step` owns its own snapshot and detect run. Script
-generation already snapshots, hashes, and detects, so it projects the same document from that
-existing run and writes it beside the generated `.py`; a guard proves the generate path still
-performs exactly one aggregate. The projector itself never recognises, imports geometry, or
-reads the filesystem, which is what makes a second consumer free of a second run. The embedded
-`DRAFTWRIGHT_RECOGNITION_SNAPSHOT` of Amendment 24 remains the compact gap block; the sidecar is
-the complete document, and neither is derived from the other.
-
-Because the generating run may carry the caller's `--pmi` mode, the document records
-`recognition.pmi_mode` rather than assuming geometry-only ownership: with PMI in play the
-ownership rewrite can promote a grouped hole member to a singleton owner (`pmi_split_member`).
-`inspect_step` always records `off`. A sidecar that cannot be stated truthfully is logged and
-skipped rather than failing script generation or being dropped in silence, and a live build123d
-object — having no STEP bytes — has no version-1 document at all.
-
-Version 1 is raw/caller-coordinate only and refuses a non-raw recognition frame rather than
-reporting working-frame values as caller coordinates. Framed inspection waits on the one-run
-refusal contract in b123d-recognisers#485/#493 and must state its coordinate provenance
-explicitly when it lands (ADR 0020).
-
-The document builds nothing. No `Drawing`, compiled dimension plan, annotation placement, render,
-export, or physical lint score is required to obtain it, and a guard test proves no code in
-`projection`, `export`, `repair`, `annotations`, `drawing`, or `linting` executes during a run.
-The shared detect seam still picks a page and scale while sizing the part; none of that reaches
-the document, and inspection introduces no second detect path to avoid it. A clear result is named
-`bounded-recognition-evidence`, not readiness: it says nothing about unrecognised geometry, and
-material, process, finish, thread, fit, and tolerance intent remain separately authored facts the
-document never invents. ADRs 0010, 0011, 0014, 0015, and 0016 therefore keep their existing
-boundaries — this amendment only publishes already-audited evidence through a read-only front
-door.
 
 ## Accepted Contract
 

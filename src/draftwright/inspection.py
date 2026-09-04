@@ -1,36 +1,38 @@
-"""Versioned read-only STEP inspection evidence.
+"""Read-only recognition evidence for a STEP file.
 
-:func:`inspect_step` answers one question — *what does Draftwright actually see in this STEP
-file?* — without constructing, laying out, rendering, or exporting a drawing.  It is the first
-public ``inspect`` surface (#1460): an ordinary Python contract that a later MCP tool can adapt
-without re-deriving any of the evidence below.
+`inspect_step` exists so a person or an agent can find and correct two different kinds of
+failing without building a drawing first:
 
-The document deliberately separates four different kinds of fact so an automated caller can
-never confuse them:
+* failings in **recognition** — the recogniser found the wrong thing, or missed something; and
+* failings in **conversion** — recognition found it, and Draftwright did nothing useful with it.
 
-* ``geometry`` — measured STEP geometry, in caller coordinates;
-* ``recognition`` — the recogniser's *inference*, plus Draftwright's own consumer disposition
-  for each accepted occurrence;
-* ``pmi`` — semantic AP242 annotation authored in the source document; and
-* the ``qualifiers`` list, which states in stable codes what the document is explicitly *not*.
+The document therefore says three things, and keeps them apart:
 
-A clear-looking inspection is bounded recognition evidence.  It is not physical completeness and
-not manufacturing readiness, and nothing here infers material, process, finish, thread, fit, or
-tolerance intent.
+* ``found`` — every feature the recogniser accepted, exactly as it stated it, and beside each
+  one what Draftwright did with it;
+* ``missed`` — geometry no accepted feature claimed; and
+* ``source`` / ``producer`` — which bytes were read and which versions read them, so a finding
+  can be reproduced or filed upstream.
+
+``missed`` is currently one half of the story. It reports geometry that went unclaimed, which is
+the provider's own accounting. It does **not** yet report what the recogniser considered and
+rejected — the provider can explain that, but only from a second recognition run, which would
+break the one-run rule of ADR 0017. An upstream change is needed first.
+
+Nothing here is a completeness or readiness claim. An unclaimed face is not proof of a missed
+feature: stock and plain faces are unclaimed too.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict
 from os import PathLike
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any, cast
 
 from draftwright.reporting import (
-    _ATTENTION_DISPOSITIONS,
     JsonValue,
     ReportUnavailableError,
     _json_value,
@@ -45,374 +47,187 @@ if TYPE_CHECKING:  # typing only — naming these must not cost the CAD kernel a
 INSPECTION_SCHEMA = "draftwright-step-inspection"
 INSPECTION_SCHEMA_VERSION = 1
 
-# Version 1 is raw/caller-coordinate only.  Framed recognition would move recognised geometry
-# into a provider working frame, and b123d-recognisers#493 cannot yet tell a consumer whether a
-# refused framed run had already recognised.  The document therefore refuses rather than silently
-# reporting working-frame values as caller coordinates (ADR 0020).
+# Version 1 reports raw caller coordinates only. Framed recognition moves geometry into a
+# provider working frame, and b123d-recognisers#493 cannot yet tell a consumer whether a refused
+# framed run had already recognised — so refuse rather than report working-frame values as
+# caller coordinates (ADR 0020).
 _SUPPORTED_FRAME_STATUS = "raw"
 
-# Stable codes for what a clear document does *not* assert.  They are part of the closed schema:
-# a caller may branch on them, so adding, removing, or re-meaning one needs a new version.
-_QUALIFIERS = (
-    "bounded_recognition_evidence_only",
-    "not_physical_completeness",
-    "not_manufacturing_readiness",
-    "no_inferred_material_process_finish_thread_fit_or_tolerance_intent",
-)
-
-# A PMI source entity that could not be lowered at all, or only in part, is a real gap in the
-# evidence: it keeps the document explicit rather than letting the caller read silence as
-# absence.  ``presentation_only`` is not a gap — it is a faithful statement that the source
-# entity carries graphics and no semantics.
-_PMI_ATTENTION_OUTCOMES = frozenset({"not_extracted", "partially_extracted"})
-
-
-def _pmi_outcomes() -> tuple[str, ...]:
-    """Return the extraction outcomes, read from `pmi`'s own vocabulary rather than copied.
-
-    Imported lazily: `draftwright.pmi` pulls the CAD kernel, and naming the public inspection
-    exception must stay sub-second (#313). A hand-copied tuple would let a fifth provider
-    outcome go silently uncounted, which is the exact "silence read as absence" this census
-    exists to prevent — so the source of truth is the annotation itself.
-    """
-
-    from typing import get_args
-
-    from draftwright.pmi import PmiExtractionOutcome
-
-    return get_args(PmiExtractionOutcome)
-
-
-_UNITS = {"length": "mm", "area": "mm²", "volume": "mm³", "angle": "degree"}
-_PMI_MODES = frozenset({"off", "report", "annotate"})
+# Draftwright acted on the feature: it is represented by an IR feature of its own, or absorbed
+# into one. Every other disposition means the recogniser found something the drawing does not
+# use, which is the conversion failing this document exists to surface.
+_ACTED_ON = frozenset({"represented", "absorbed"})
 
 
 class InspectionUnavailableError(RuntimeError):
-    """The STEP source cannot yield a truthful version-1 inspection document."""
-
-
-def _json_value_or_refuse(document: dict[str, Any]) -> dict[str, JsonValue]:
-    """Apply the one strict-JSON gate, converting its refusal into the documented failure.
-
-    The gate isolates the document from live objects, normalises tuples to arrays, and rejects
-    NaN/Infinity. A non-finite measurement means the geometry cannot be stated truthfully, so
-    it must fail as an inspection failure rather than as a bare `ValueError` from `json`.
-    """
-
-    try:
-        return cast("dict[str, JsonValue]", _json_value(document))
-    except ValueError as error:
-        raise InspectionUnavailableError(
-            f"the inspection document contains a value JSON cannot state: {error}"
-        ) from error
+    """The STEP source cannot yield a truthful inspection document."""
 
 
 def _vector(value) -> list[float]:
     return [float(value.X), float(value.Y), float(value.Z)]
 
 
-def _bbox(box) -> dict[str, list[float]]:
-    return {"min": _vector(box.min), "max": _vector(box.max), "size": _vector(box.size)}
-
-
-def _face_description(face) -> dict[str, Any]:
-    """Describe one original face by bounded geometry, never by a reference or topology index."""
+def _face(face) -> dict[str, Any]:
+    """Describe one unclaimed face by bounded geometry, never by a reference or topology index."""
 
     try:
         # Not `getattr(face, "geom_type", None)`: the property raises on a degenerate face
-        # rather than returning None, and a default cannot suppress that. A face whose surface
-        # we cannot name is a face we cannot describe, so refuse instead of inventing a kind.
-        geom_type = face.geom_type
+        # rather than returning None, so a default cannot stand in for it.
+        surface = face.geom_type.name.lower()
         centre = face.center()
+        box = face.bounding_box()
     except ValueError as error:
-        raise InspectionUnavailableError(
-            "a source face has no determinable surface type or centroid"
-        ) from error
+        raise InspectionUnavailableError("a source face cannot be described") from error
     return {
-        "surface": geom_type.name.lower(),
+        "surface": surface,
         "area": float(face.area),
         "centroid": _vector(centre),
-        "bbox": _bbox(face.bounding_box()),
+        "bbox": {"min": _vector(box.min), "max": _vector(box.max)},
     }
 
 
-def _face_descriptions(evidence, references) -> list[dict[str, Any]]:
-    """Return face descriptions in a total order derived only from their own serialized values.
+def _faces(evidence, references) -> list[dict[str, Any]]:
+    """Order face descriptions by their own serialized values.
 
-    The provider hands faces back as an unordered ``frozenset`` of opaque references, whose
-    iteration order depends on object addresses.  Sorting by the serialized description makes the
-    output deterministic without inventing an identity: two faces that sort equal serialize
-    identically, so their relative order cannot be observed.
+    The provider hands faces back as an unordered set of address-hashed references, so without
+    this the document changes between runs. Two faces that sort equal serialize identically, so
+    their relative order cannot be observed — no identity is invented.
     """
 
-    described = [_face_description(evidence.face(reference)) for reference in references]
+    described = [_face(evidence.face(reference)) for reference in references]
     return sorted(described, key=lambda item: json.dumps(item, sort_keys=True, allow_nan=False))
 
 
-def _measure(measure) -> dict[str, Any]:
-    return {
-        "total": measure.total,
-        "associated": measure.associated,
-        "unassociated": measure.unassociated,
-        "ratio": measure.ratio,
-    }
+def _found(evidence, ownership, model) -> list[dict[str, Any]]:
+    """Every accepted feature, as the recogniser stated it, beside what Draftwright did with it.
+
+    The occurrence ledger comes from the shared report projector, which refuses an unclassified
+    ownership ledger — so a document is never produced by dropping a feature Draftwright cannot
+    account for.
+    """
+
+    try:
+        occurrences, _requirements, _summary = _occurrences(evidence, ownership, model)
+    except ReportUnavailableError as error:
+        raise InspectionUnavailableError(str(error)) from error
+
+    return [
+        {
+            "id": occurrence["id"],
+            "family": occurrence["family"],
+            # The recogniser's own record, forwarded exactly as it stated it.
+            "feature": occurrence["record"],
+            "feature_type": occurrence["record_type"],
+            "feature_schema_version": occurrence["record_schema_version"],
+            "draftwright": {
+                # The plain answer first, so a reader need not learn the vocabulary below it.
+                "acted_on": occurrence["disposition"] in _ACTED_ON,
+                "disposition": occurrence["disposition"],
+                "reason": occurrence["reason_code"],
+                "tracking": occurrence["tracking"],
+                "owners": [owner["id"] for owner in occurrence["owners"]],
+            },
+        }
+        for occurrence in occurrences
+    ]
 
 
-def _association(evidence) -> dict[str, Any]:
-    """Project the provider's own face/area association accounting.
+def _missed(evidence) -> dict[str, Any]:
+    """Geometry no accepted feature claimed, as the provider accounts for it.
 
-    ``unassociated`` means exactly one thing: no accepted occurrence claimed that face.  Stock,
-    background, and deliberately plain faces are in the denominator, so an unassociated face is
-    not evidence of a missed feature — the qualifier says so in the document itself.
+    Unclaimed does not mean missed. Stock, background and deliberately plain faces are unclaimed
+    too, and they are in the denominator. This is a place to start looking, not a defect list.
+
+    The other half — what the recogniser proposed and then rejected, and which families it did
+    not evaluate — is the provider's to state and needs a second recognition run to obtain.
+    Joining it needs a provider API that explains an already-completed result.
     """
 
     association = evidence.association
     return {
-        "provenance": "recogniser-evidence",
-        "coverage": "accepted-constituent-evidence",
-        "face_count": _measure(association.face_count),
-        "surface_area": _measure(association.surface_area),
-        "families": [
-            {
-                "family": item.family,
-                "face_count": item.face_count,
-                "surface_area": item.surface_area,
-            }
-            # Family contributions overlap and are not additive, so they are reported as the
-            # provider states them, in a stable name order rather than a ranked one.
-            for item in sorted(association.families, key=lambda item: item.family)
-        ],
-        "unassociated": {
-            "qualifier": "not_evidence_of_missed_feature",
-            "faces": _face_descriptions(evidence, association.unassociated_faces),
+        "unclaimed_faces": _faces(evidence, association.unassociated_faces),
+        "face_count": {
+            "total": association.face_count.total,
+            "claimed": association.face_count.associated,
+            "unclaimed": association.face_count.unassociated,
+        },
+        "rejected_candidates": {
+            "available": False,
+            "reason": "provider explanation is only available from a second recognition run",
         },
     }
-
-
-def _occurrence_documents(
-    evidence, ownership, model
-) -> tuple[list[dict[str, Any]], dict[str, int]]:
-    """Reuse the report projector's occurrence ledger, then attach bounded face evidence.
-
-    The projector already refuses an incomplete or unclassified ownership ledger, which is what
-    keeps the occurrence denominator honest: a document is never produced by dropping an
-    occurrence Draftwright cannot classify.
-    """
-
-    try:
-        occurrences, _requirements, summary = _occurrences(evidence, ownership, model)
-    except ReportUnavailableError as error:
-        raise InspectionUnavailableError(str(error)) from error
-
-    documents: list[dict[str, Any]] = []
-    for reference, occurrence in zip(evidence.features, occurrences, strict=True):
-        document = {key: value for key, value in occurrence.items() if key != "requirements"}
-        document["faces"] = {
-            "coverage": "defining-and-constituent",
-            "defining": _face_descriptions(evidence, evidence.defining_faces(reference)),
-            "constituent": _face_descriptions(evidence, evidence.constituent_faces(reference)),
-        }
-        documents.append(document)
-    return documents, summary
-
-
-def _pmi_document(report) -> dict[str, Any]:
-    """Project the complete AP242 source census, its extracted records, and its error state."""
-
-    if report is None:
-        raise InspectionUnavailableError("the STEP source produced no PMI extraction census")
-    outcomes = _pmi_outcomes()
-    sources = [
-        {
-            "source_id": source.source_id,
-            "category": source.category,
-            "type_code": source.type_code,
-            "outcome": source.outcome,
-            "reason": source.reason,
-        }
-        for source in report.sources
-    ]
-    unknown = sorted({source["outcome"] for source in sources} - set(outcomes))
-    if unknown:
-        raise InspectionUnavailableError(
-            f"the PMI census reports unknown extraction outcome(s) {unknown}"
-        )
-    if report.error is not None:
-        status = "extraction_error"
-    elif not sources:
-        status = "absent"
-    else:
-        status = "present"
-    return {
-        "provenance": "step-ap242-source",
-        "coverage": "source-census-and-extracted-records",
-        "status": status,
-        "error": report.error,
-        "sources": sources,
-        "records": [asdict(record) for record in report.records],
-        "summary": {
-            "sources": len(sources),
-            "records": len(report.records),
-            **{
-                outcome: sum(source["outcome"] == outcome for source in sources)
-                for outcome in outcomes
-            },
-        },
-    }
-
-
-def _needs_attention(summary: dict[str, int], pmi: dict[str, Any]) -> bool:
-    if any(summary[disposition] for disposition in _ATTENTION_DISPOSITIONS):
-        return True
-    if pmi["status"] == "extraction_error":
-        return True
-    return any(source["outcome"] in _PMI_ATTENTION_OUTCOMES for source in pmi["sources"])
-
-
-def inspection_document(
-    *,
-    model: PartModel,
-    analysis: Analysis,
-    source_name: str,
-    source_bytes: bytes,
-    source_sha256: str,
-    pmi_mode: str,
-) -> dict[str, JsonValue]:
-    """Project one already-completed detect run into the strict version-1 document.
-
-    The caller owns the byte snapshot and the single aggregate run; this projector never
-    recognises, imports geometry, or reads the filesystem. It exists so a consumer that has
-    already paid for a detect run — script generation, say — emits the same document without a
-    second run (ADR 0017).
-
-    *pmi_mode* is the mode that run used, recorded rather than assumed: with PMI in play the
-    ownership rewrite can turn a grouped hole member into a singleton owner
-    (``pmi_split_member``), so a reader must be able to tell whether the ownership below came
-    from geometry alone.
-    """
-
-    part = analysis.part
-    solids = part.solids()
-    if not solids:
-        raise InspectionUnavailableError(
-            f"STEP source {source_name!r} carries no solid body to inspect"
-        )
-
-    frame_status = (analysis.recognition_frame_decision or {}).get("status")
-    if frame_status != _SUPPORTED_FRAME_STATUS:
-        raise InspectionUnavailableError(
-            "inspection version 1 reports raw caller coordinates only; this run recognised "
-            f"with frame status {frame_status!r}"
-        )
-    if pmi_mode not in _PMI_MODES:
-        raise InspectionUnavailableError(f"unknown recognition PMI mode {pmi_mode!r}")
-
-    occurrences, summary = _occurrence_documents(
-        analysis.recognition_evidence, analysis.recognition_ownership, model
-    )
-    association = _association(analysis.recognition_evidence)
-    pmi = _pmi_document(analysis.pmi_report)
-
-    document = {
-        "schema": INSPECTION_SCHEMA,
-        "schema_version": INSPECTION_SCHEMA_VERSION,
-        "status": "needs-attention"
-        if _needs_attention(summary, pmi)
-        else "bounded-recognition-evidence",
-        "qualifiers": list(_QUALIFIERS),
-        "producer": _producer(),
-        "source": {
-            "kind": "step",
-            # The basename only: an absolute path is caller-machine detail, not evidence.
-            "name": source_name,
-            "sha256": source_sha256,
-            "byte_count": len(source_bytes),
-            "artifact_id": f"step-sha256:{source_sha256}",
-        },
-        "units": dict(_UNITS),
-        "geometry": {
-            "provenance": "step-source",
-            "coverage": "solid-body",
-            "coordinates": "caller",
-            "bbox": _bbox(analysis.bb),
-            "volume": float(part.volume),
-            "topology": {
-                "solids": len(solids),
-                "shells": len(part.shells()),
-                "faces": len(part.faces()),
-                "wires": len(part.wires()),
-                "edges": len(part.edges()),
-                "vertices": len(part.vertices()),
-            },
-        },
-        "recognition": {
-            "provenance": "recogniser-inference",
-            "coverage": "accepted-occurrences",
-            "identity_scope": "document-local",
-            "coordinates": "caller",
-            "frame": {"status": frame_status},
-            "pmi_mode": pmi_mode,
-            "occurrences": occurrences,
-            "summary": summary,
-            "association": association,
-        },
-        "pmi": pmi,
-    }
-    return _json_value_or_refuse(document)
 
 
 def inspect_step(path: str | PathLike[str]) -> dict[str, JsonValue]:
-    """Return the strict, versioned version-1 inspection document for the STEP file at *path*.
+    """Return the recognition evidence for the STEP file at *path*.
 
-    The source is resolved once and read once.  Geometry, recognition, and PMI extraction all
-    consume a private copy of those exact hashed bytes, so replacing a mutable (or symlinked)
-    source mid-inspection cannot split the three sections across two different files.
+    The source is resolved once and read once; recognition consumes a private copy of those
+    exact hashed bytes, so replacing a mutable or symlinked source mid-inspection cannot make
+    the document describe two different files.
 
-    Exactly one aggregate recognition run happens, and its evidence, model, and conversion-time
-    ownership are reused as-is: no section re-recognises, and no drawing build, view projection,
-    annotation placement, render, export, or physical lint path is required to obtain the
-    document.
+    Exactly one aggregate recognition run happens, and its evidence, model and conversion-time
+    ownership are reused as-is. No drawing build, view projection, annotation placement, render,
+    export or physical lint path runs.
 
     Raises:
         OSError: the path could not be read (missing, a directory, permissions).
         InspectionUnavailableError: the bytes are not a readable solid STEP body, or the run
-            cannot state its evidence truthfully — an unclassified occurrence ownership ledger,
-            an absent aggregate, or a non-raw recognition frame.
+            cannot state its evidence truthfully.
     """
 
     # Imported here, not at module scope: `from draftwright import inspect_step` must stay
-    # sub-second, and only an actual inspection has any use for the ~5 s CAD kernel (#313).
+    # sub-second, and only an actual inspection needs the ~5 s CAD kernel (#313).
     from draftwright.builder import _detect_part_model_analysis
 
-    # Resolve for READING (a symlink must be followed exactly once, to one byte snapshot) but
-    # name the document after the path the caller passed: that is the artifact they asked about,
-    # and it matches how the drawing report names its source.
     source_name = Path(path).name
     resolved = Path(path).resolve()
     source_bytes = resolved.read_bytes()
-    source_sha256 = hashlib.sha256(source_bytes).hexdigest()
 
     with TemporaryDirectory(prefix="draftwright-inspect-") as directory:
         snapshot = Path(directory) / resolved.name
         snapshot.write_bytes(source_bytes)
         try:
-            # ``pmi="off"`` keeps recognition geometry-only (ADR 0013): PMI records are never
-            # lowered into the IR, so they cannot change an occurrence's owner.  The census and
-            # the extracted records below are read from the same run regardless of that mode.
+            # `pmi="off"` keeps recognition geometry-only (ADR 0013): no PMI record is lowered
+            # into the IR, so an authored annotation cannot change which feature owns what.
             model, analysis = _detect_part_model_analysis(snapshot, pmi="off")
         except ValueError as error:
             raise InspectionUnavailableError(
                 f"could not read solid STEP geometry from {source_name!r}"
             ) from error
+        return _document(model, analysis, source_name, source_bytes)
 
-        return inspection_document(
-            model=model,
-            analysis=analysis,
-            source_name=source_name,
-            source_bytes=source_bytes,
-            source_sha256=source_sha256,
-            pmi_mode="off",
+
+def _document(
+    model: PartModel, analysis: Analysis, source_name: str, source_bytes: bytes
+) -> dict[str, JsonValue]:
+    if not analysis.part.solids():
+        raise InspectionUnavailableError(f"{source_name!r} carries no solid body to inspect")
+
+    frame_status = (analysis.recognition_frame_decision or {}).get("status")
+    if frame_status != _SUPPORTED_FRAME_STATUS:
+        raise InspectionUnavailableError(
+            "inspection reports raw caller coordinates only; this run recognised with frame "
+            f"status {frame_status!r}"
         )
+
+    document = {
+        "schema": INSPECTION_SCHEMA,
+        "schema_version": INSPECTION_SCHEMA_VERSION,
+        "source": {
+            # The basename only: an absolute path is caller-machine detail, not evidence.
+            "name": source_name,
+            "sha256": hashlib.sha256(source_bytes).hexdigest(),
+        },
+        "producer": _producer(),
+        "found": _found(analysis.recognition_evidence, analysis.recognition_ownership, model),
+        "missed": _missed(analysis.recognition_evidence),
+    }
+    try:
+        # The one strict-JSON gate: isolates the document from live objects, renders tuples as
+        # arrays, and rejects NaN/Infinity rather than emitting a value JSON cannot state.
+        return cast("dict[str, JsonValue]", _json_value(document))
+    except ValueError as error:
+        raise InspectionUnavailableError(f"a value cannot be stated as JSON: {error}") from error
 
 
 __all__ = [
@@ -420,5 +235,4 @@ __all__ = [
     "INSPECTION_SCHEMA_VERSION",
     "InspectionUnavailableError",
     "inspect_step",
-    "inspection_document",
 ]

@@ -175,7 +175,7 @@ def main(
         False,
         "--no-report",
         help="Skip the default JSON sidecar: the report beside rendered output, or the "
-        "inspection document beside a generated --script",
+        "recognition evidence beside a generated --script",
     ),
     verbose: bool = typer.Option(
         False,
@@ -266,8 +266,8 @@ def main(
                 inspect=not no_report,
             )
         print(py_path)
-        # Only when it exists: an object-spec source, or a source that cannot state its
-        # evidence truthfully, produces the script but no v1 inspection document.
+        # Only when it exists: an object-spec source, or one that cannot state its
+        # evidence truthfully, produces the script but no document.
         sidecar = inspection_sidecar_path(py_path)
         if Path(sidecar).exists():
             print(sidecar)
