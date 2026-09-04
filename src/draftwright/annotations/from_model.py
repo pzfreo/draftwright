@@ -1,4 +1,4 @@
-"""from_model — render planner output into placed annotations (ADR 0008).
+"""from_model — render planner output into placed annotations (ADR 1 (was 0008)).
 
 The renderer back-end of the compiler: a `DimensionGroup` (read *purely from its
 planned parameters* + the feature's metadata) becomes placed `HoleCallout` /
@@ -7,7 +7,7 @@ and rendering primitives. GD&T symbols (⌴/↧) are the helper's geometry, whic
 exactly why the IR carries semantic `role`s, not glyph strings.
 
 This lives in `annotations/` (not `model/`) so the IR package stays pure — it
-imports *down* into `model` + `_core`, and is called by the orchestrator (ADR 0008
+imports *down* into `model` + `_core`, and is called by the orchestrator (ADR 1 (was 0008)
 Amendment 3: one path, this is its render stage). Judged by **correctness** (lint),
 not equivalence to the engine. All renderers here (`render_diameters`/`render_envelope`/
 `render_locations`/`render_centermarks`/`render_step_lengths`/`render_slots`, and the
@@ -246,7 +246,7 @@ def callout_from_spec(spec, draft, count) -> HoleCallout | None:
     # helper-level label. Preserve an equivalent semantic string at this sole construction
     # seam so critique, audit and downstream tooling can identify what the geometry says.
     # Build it from the exact formatted arguments passed above: a second read from the model
-    # or raw numbers here could drift from the visible callout (ADR 0015/0016).
+    # or raw numbers here could drift from the visible callout (ADR 1 (was 0015) / ADR 4 (was 0016)).
     terms = []
     if count:
         terms.append(f"{count}×")
@@ -287,7 +287,7 @@ def _record_slot_drop(ctx, dwg, kind, idx, view, feat, measurement=None):
 
     Info severity — a dim with no clear room is dropped as "place what fits",
     not an error. Alongside the lint code, appends a first-class ``Escalation``
-    (ADR 0009 Amdt 1, #351 PR-4a) so the drop is object-visible too; slots have
+    (ADR 2 (was 0009 Amdt 1), #351 PR-4a) so the drop is object-visible too; slots have
     no natural grouping remedy like a recognised hole pattern, so no resolver
     consumes this yet — purely additive.
     """
@@ -308,7 +308,7 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
     """Dimension milled slots from the IR — width (the defining size, across
     ``width_axis``) + length (along ``long_axis``) + a position dim from the part
     datum, in the view the two axes span. Places through the engine's zone strips
-    (shared infra, ADR 0008 Amend. 4); a dim with no clear room is dropped and
+    (shared infra, ADR 1 (was 0008) Amend. 4); a dim with no clear room is dropped and
     recorded at info severity (place-what-fits). Sources slot `DimensionGroup`s
     from the plan; replaces the engine's `_annotate_slots`. Returns the count placed.
 
@@ -335,7 +335,7 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
     if not slot_groups:
         return 0
     # Pocket location geometry is rendered in this in-plane pass, but its content
-    # remains compiler-authoritative (ADR 0015/0016): datum and target come from the same
+    # remains compiler-authoritative (ADR 1 (was 0015) / ADR 4 (was 0016)): datum and target come from the same
     # approved location consumed by render_locations, including non-Z openings.
     # Keyed by (feature, MEASURED axis): a non-Z pocket is approved one entry per in-plane
     # coordinate, so keying by feature alone would keep whichever came last.
@@ -436,7 +436,7 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
                     ),
                 )
 
-            # Register into the corridor batch (ADR 0014 collect-then-solve). One solve
+            # Register into the corridor batch (ADR 2 (was 0014) collect-then-solve). One solve
             # per strip dedups a POSITION line coincident with a hole location (#345),
             # orders size + location as segregated monotonic runs (#346), and — the part
             # that matters here — arbitrates against every other occupant by `priority`
@@ -464,7 +464,7 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
             # stays that way; the front view joins it here. Only plan/side right-left
             # keeps the immediate path. RaisedPad v2 is new output and has no such compatibility
             # exemption: every pad footprint/location candidate joins the shared collect-then-
-            # solve batch on all three end-on views (ADR 0014, #1392).
+            # solve batch on all three end-on views (ADR 2 (was 0014), #1392).
             use_corridor = (
                 s.kind == "pad"
                 or vw[0] == "front"
@@ -515,7 +515,7 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
                 # The plan/side opposite-strip path keeps placing synchronously, as it has
                 # since #345/#346. The primary candidate is nevertheless a member of the
                 # shared solve above; alternate-side fallthrough in ``on_drop`` is the
-                # assignment model ADR 0014 explicitly retains.
+                # assignment model ADR 2 (was 0014) explicitly retains.
                 def _retry(_fs=_fs, _fsd=_fsd, _fh=_fh, _ax=_ax, _feat=_feat, _dw=_dw) -> None:
                     if _fs is not None and not place_strip_candidates(
                         dwg,
@@ -570,7 +570,7 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
                     ),
                     precedence=1 if is_pos else 0,
                     force=False,
-                    feature=s,  # provenance (ADR 0010): this dim belongs to the slot
+                    feature=s,  # provenance (ADR 5 (was 0010)): this dim belongs to the slot
                 ),
             )
             return True  # deferred — the callback owns the drop; caller's else must not fire
@@ -682,7 +682,7 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
     return count
 
 
-# Corridor-ladder ordering (ADR 0009 end state, #346): feature-SIZE dims sit nearer the
+# Corridor-ladder ordering (ADR 2 (was 0009) end state, #346): feature-SIZE dims sit nearer the
 # view (inner run), datum-referenced LOCATION dims stack outward (a single ascending chain
 # by datum distance). Segregating the two runs keeps a slot length from landing mid-ladder.
 _SIZE_SUBCHAIN = 0
@@ -753,7 +753,7 @@ def _location_candidate(
         precedence=3 if pinned else 2,
         priority=PRIORITY.MANDATORY if pinned else PRIORITY.AUTO,
         force=True,
-        feature=feature,  # provenance (ADR 0010): the located hole/pattern
+        feature=feature,  # provenance (ADR 5 (was 0010)): the located hole/pattern
         measurement=measurement,  # which of its measurements this is (#1002)
         footprint=footprint,  # analytical measure — no probe build (#602)
     )
@@ -820,7 +820,7 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
         # is the LONG axis — so a Z-long slot fell through and an X- or Y-long one did not.
         # The same feature type getting a plan location dim or not, depending on which way
         # it happens to run, is the incoherence; every slot is now handled the one way (#1219).
-        # Provenance (ADR 0010): the located feature. `resolve_feature` is the sanctioned
+        # Provenance (ADR 5 (was 0010)): the located feature. `resolve_feature` is the sanctioned
         # seam for exactly this — the corridor's feature map keys drop()/annotations_of().
         # `loc.id` rides along as the measurement identity (#1002): the compiler already
         # minted it for this very entry, so the renderer records WHICH measurement it drew
@@ -857,7 +857,7 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
     def _directional_location_fact(fact, measured_axis):
         """Split a Z-pocket's feature-level location into physical X/Y evidence.
 
-        ADR 0016 keeps one public ``location`` authoring unit, while critique needs to know
+        ADR 4 (was 0016) keeps one public ``location`` authoring unit, while critique needs to know
         which of the two visible ordinates actually landed. Hole/pattern entries already
         arrive compiler-discriminated; the legacy pocket ladder is the one unsplit case.
         """
@@ -912,7 +912,7 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
         ctx.escalations.append(Escalation("location", "plan", None, "illegible"))
     _kept_x_set = set(_kept_x)
     x_refs = [r for r in x_refs if r[0] not in _x_drawable or r[0] in _kept_x_set]
-    # Register X-location dims into the shared plan-above corridor (ADR 0009 end state,
+    # Register X-location dims into the shared plan-above corridor (ADR 2 (was 0009) end state,
     # #345/#346): the slot pass feeds the SAME strip, so a single solve_corridor drain
     # dedups a coincident slot-position line and orders the whole ladder — instead of each
     # pass carving around the other and interleaving. No alternate view for a plan-X
@@ -926,17 +926,17 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
         n += 1
         # A single X-location dim shared by two *distinct* features at this X belongs to
         # neither exclusively — leave it unowned so drop() cannot over-strip a sibling's
-        # dimension and annotations_of never over-claims it (review #406, ADR 0010).
+        # dimension and annotations_of never over-claims it (review #406, ADR 5 (was 0010)).
         _shared_x = any(_same_location_ordinate(o[0], rx) and o[2] != feat for o in refs)
         _xfeat = None if _shared_x else feat
         # The measurement does NOT follow the feature (#1002 r4). Feature-unowned is an
-        # ADR 0010 *ownership* rule — it stops drop(feature) stripping a sibling's dim. It
+        # ADR 5 (was 0010) *ownership* rule — it stops drop(feature) stripping a sibling's dim. It
         # says nothing about what the dim measures, and a shared dim measures BOTH features'
         # X location. The first cut dropped the id here as though naming one feature were the
         # only option; recording all of them is both true and exactly what the tuple-valued
-        # channel exists for (ADR 0016 / #886). Discarding it made the audit blind on an
+        # channel exists for (ADR 4 (was 0016) / #886). Discarding it made the audit blind on an
         # ordinary dedup path.
-        # One ADR 0016 feature-level location identity per collapsed owner; the structured
+        # One ADR 4 (was 0016) feature-level location identity per collapsed owner; the structured
         # location facts below carry that this particular visible member is X (#883).
         _xmid = tuple(mids)
         register_corridor(
@@ -982,7 +982,7 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
     # --- Y locations: above side, or vertically beside plan when side is absent ---
     #
     # Both are the same face-on Z-feature location requirement. The fixed topology preferred
-    # side because Y runs horizontally there; ADR 0018 reduced view sets must not retain side
+    # side because Y runs horizontally there; ADR 2 (was 0018) reduced view sets must not retain side
     # solely for that presentation choice, so plan's vertical Y axis is the fallback.
     side_planned = "side" in dwg.views
     SX, SZ = a.proj.side_x, a.proj.side_z
@@ -1122,7 +1122,7 @@ def render_centermarks(dwg, furniture_groups, *, ctx) -> int:
     normal to the hole's axis (`_END_ON`), sized by its diameter — the IR migration
     of the engine's inline centre-mark loop. Returns the count placed.
 
-    The size comes off the FEATURE, not the planned bore parameter (ADR 0016 / #875 review).
+    The size comes off the FEATURE, not the planned bore parameter (ADR 4 (was 0016) / #875 review).
     A centre mark is furniture derived from the hole's physical size; it is not a displayed
     value, so suppressing the bore dimension must not shrink it. Reading the parameter here
     made a suppressed ⌀20 collapse from a 42 mm mark to the 2.5 mm floor — the governing rule
@@ -1158,7 +1158,7 @@ def _mentioned_diameters(dwg) -> set[float]:
     Structured ``covers_diameters`` is authoritative when present; only genuinely
     unstructured labels are parsed.  A geometric hole callout's semantic label may also
     contain a bolt-circle or grid suffix diameter, which locates the pattern but does not
-    cover a physical feature of that diameter (#1142 / ADR 0017).
+    cover a physical feature of that diameter (#1142 / ADR 3 (was 0017)).
     """
     diams: set[float] = set()
     for _, ann in dwg.iter_annotations():
@@ -1195,7 +1195,7 @@ def _place_what_fits(specs, axis: int, min_gap: float, lo: float, hi: float):
 def _diameter_row_below(dwg, items, start: int = 0, trace=None, *, ctx) -> int:
     """ø-callout row BELOW the front view for X-turned step/boss diameters (#77).
     *items* is ``[(anchor, dia, value_text, feature, tolerance, thread, mids), ...]``. The row is dropped clear of anything
-    already below the profile; labels spread along page-x by the ADR-0003 strip
+    already below the profile; labels spread along page-x by the ADR 2 (was 0003) strip
     solve. Skips (returns 0) if there is no room — the diameters then surface as
     ``feature_not_dimensioned``. *trace* (#736): one ``pass_events`` record with a
     placed/dropped item per callout."""
@@ -1592,7 +1592,7 @@ def render_diameters(dwg, plan, a, tol: float = 0.15, *, ctx, only=None) -> int:
     (X-turning), a column to its left (Z-turning), or as radial leaders in the
     end-on front view (Y-turning). Orientation is the feature frame's axis, not
     separate detection paths. Replaces the engine's
-    ``_annotate_turned_diameters`` (ADR 0008 convergence). Diameters another
+    ``_annotate_turned_diameters`` (ADR 1 (was 0008) convergence). Diameters another
     annotation already covers are skipped.
 
     *only*, when given, restricts placement to step/boss features in the set — the #426
@@ -1654,7 +1654,7 @@ def render_diameters(dwg, plan, a, tol: float = 0.15, *, ctx, only=None) -> int:
             entry[4] = dtol
 
     def _item(entry):
-        # The trailing element is the ADR 0010 claim: one ø callout stands for every step
+        # The trailing element is the ADR 5 (was 0010) claim: one ø callout stands for every step
         # sharing this diameter, so it draws each of their diameter dims (#1002). It is the
         # same derivation the m_dia_y branch below already made; the row/column placers
         # threaded nothing, so every X- and Z-turned ø callout reached the sheet unclaimed
@@ -1844,7 +1844,7 @@ def _reroute_crossing_diameters(dwg, *, ctx) -> int:
     box — so a re-route never trades an info crossing for an out-of-bounds or overlap
     error (the shaft itself, like the row/column placers, is gated only on the
     silhouette). If nothing is both clear and safe the leader is restored unchanged
-    (Phase-1 then flags it). A PINNED leader (ADR 0012) is never moved. Returns the
+    (Phase-1 then flags it). A PINNED leader (ADR 2 (was 0012)) is never moved. Returns the
     number re-routed."""
     field = view_material(dwg, "front")
     if field is None:
@@ -1868,7 +1868,7 @@ def _reroute_crossing_diameters(dwg, *, ctx) -> int:
         ldr = dwg.get_annotation(name)
         if ldr is None or getattr(ldr, "elbow", None) is None:
             continue
-        if dwg.registry.is_pinned(name):  # a pin is the user's "stays put" (ADR 0012)
+        if dwg.registry.is_pinned(name):  # a pin is the user's "stays put" (ADR 2 (was 0012))
             continue
         tip, elbow = ldr.tip, ldr.elbow
         crosses = _cuts(tip, elbow)
@@ -1940,7 +1940,7 @@ def _chamfer_label(leg_text, leg, ch) -> str:
     jobs: *leg_text* is the compiler's own `value_text` and is what appears on the sheet,
     while *leg* is the number the equal-leg comparison needs. The feature supplies only the
     geometric form discriminators (``leg2``/``angle``), and a ``ChamferFeature`` stays pure
-    data (ADR 0013 §7)."""
+    data (ADR 3 (was 0013 §7))."""
     if abs(leg - ch.leg2) < 0.05 and abs(ch.angle - 45.0) < 0.5:
         return f"C{leg_text}"
     # `ch.angle` is a FORM discriminator, not a planned parameter — `ChamferFeature.
@@ -2358,8 +2358,8 @@ def render_chamfers(dwg, plan, a, *, ctx, only=None) -> int:
     physical edge anchor about its actual shaft axis onto that view while the shared leader
     solve chooses its page position (#1276).
     Grouping stays renderer-side: the IR remains one semantic feature per physical chamfer
-    (ADR 0013), while the annotation registry records all N measurement identities
-    (ADR 0017 / #1002)."""
+    (ADR 3 (was 0013)), while the annotation registry records all N measurement identities
+    (ADR 3 (was 0017) / #1002)."""
     draft = dwg.draft
     reach = _leader_callout_reach(draft)
     collapse: dict = {}
@@ -2479,7 +2479,7 @@ def _collapsed_tolerance(members, *, ctx=None, noun=""):
 
 def _fillet_label(radius_text, count) -> str:
     """The fillet callout string: ``R{radius}``, prefixed ``{count}×`` when a set of equal
-    fillets shares one callout (#561). Formatting lives in the render layer (ADR 0013 §7)."""
+    fillets shares one callout (#561). Formatting lives in the render layer (ADR 3 (was 0013 §7))."""
     r = f"R{radius_text}"
     return f"{count}× {r}" if count > 1 else r
 
@@ -2505,8 +2505,8 @@ def render_fillets(dwg, plan, a, *, ctx, only=None) -> int:
     renderer rotates the physical edge anchor about its actual shaft axis onto that view while
     the shared leader solve chooses its page position (#1276). Grouping stays renderer-side:
     the IR remains one semantic feature per
-    physical fillet (ADR 0013), while the annotation registry records all N measurement
-    identities (ADR 0017 / #1002)."""
+    physical fillet (ADR 3 (was 0013)), while the annotation registry records all N measurement
+    identities (ADR 3 (was 0017) / #1002)."""
     return _render_radius_callouts(
         dwg,
         plan,
@@ -2590,7 +2590,7 @@ def _render_radius_callouts(
         # Point the leader at one coherent visible set. Members on other edge axes/views still
         # contribute to the printed count and semantic measurements, but mixing their 3-D
         # origins into this view could point at unrelated projected corners. An ineligible Blend
-        # surface is one lost alternative, not grounds to discard safe siblings before ADR 0014's
+        # surface is one lost alternative, not grounds to discard safe siblings before ADR 2 (was 0014)'s
         # shared solve. Prefer the most populous remaining axis/view pair; ties are deterministic.
         by_presentation: dict[tuple[str, str], list] = {}
         for group, dimension in members:
@@ -2960,7 +2960,7 @@ def _flat_label(across_text, sfx="") -> str:
     abbreviation for a spanner-flat / D / hex size (#148b). *across* is the PLANNED value
     (``pd.param.value``, #726); *sfx* is the pre-formatted tolerance suffix, interleaved
     after the value (``17 ±0.2 A/F`` — the tolerance rides the number, not the ``A/F``
-    qualifier). Formatting lives in the render layer, not on the IR feature (ADR 0013 §7)."""
+    qualifier). Formatting lives in the render layer, not on the IR feature (ADR 3 (was 0013 §7))."""
     return f"{across_text}{sfx} A/F"
 
 
@@ -3067,7 +3067,7 @@ def _groove_label(width_text, diameter_text, wsfx="", dsfx="") -> str:
     (``pd.param.value``, #727); *wsfx*/*dsfx* are each value's pre-formatted tolerance
     suffix, interleaved so a tolerance rides its own number (``4 ±0.1 WIDE × ø16 ±0.05``) —
     the two params carry independent tolerances (kinds "length"/"diameter"). Formatting
-    lives in the render layer, not on the IR feature (ADR 0013 §7)."""
+    lives in the render layer, not on the IR feature (ADR 3 (was 0013 §7))."""
     return f"{width_text}{wsfx} WIDE × ø{diameter_text}{dsfx}"
 
 
@@ -3097,7 +3097,7 @@ def _pocket_label(width_text, length_text, depth_text, wsfx="", lsfx="", dsfx=""
     authoring-surface change, #698.) The ISO depth glyph (↧) is drawn as geometry by the
     helper's hole callouts, not as font text — a plain :class:`Leader` label has no access
     to it, so this uses the font-safe ``DEEP`` word (the vendored Plex Mono lacks ↧).
-    Formatting lives in the render layer (ADR 0013 §7)."""
+    Formatting lives in the render layer (ADR 3 (was 0013 §7))."""
     return f"{width_text}{wsfx} × {length_text}{lsfx} × {depth_text}{dsfx} DEEP"
 
 
@@ -3108,7 +3108,7 @@ def _rectangular_blind_slot_label(
 
     The full automatic grammar stays compact. An authored subset spells each surviving role
     explicitly so one approved value never disappears or masquerades as another position in
-    the compound callout (ADR 0016).
+    the compound callout (ADR 4 (was 0016)).
     """
     if width_text is not None and length_text is not None and depth_text is not None:
         return f"OPEN SLOT {width_text}{wsfx} × {length_text}{lsfx} × {depth_text}{dsfx} DEEP"
@@ -3663,7 +3663,7 @@ def render_pad_heights(dwg, plan, a, *, ctx, only=None) -> int:
 
     The existing footprint dimensions remain linear corridor candidates.  The arrow targets
     the terminal footprint boundary and every printed value comes from the compiled plan
-    (ADR 0015/0016).  A Z profile level is datum-to-attachment evidence, not the pad's local
+    (ADR 1 (was 0015) / ADR 4 (was 0016)).  A Z profile level is datum-to-attachment evidence, not the pad's local
     terminal-to-attachment height, so Z pads reach this pass too.
     """
     draft = dwg.draft
@@ -3681,7 +3681,7 @@ def render_pad_heights(dwg, plan, a, *, ctx, only=None) -> int:
             continue
         # Structural placement facts come through the compiled boundary.  Resolving the
         # opaque provenance handle here would let this renderer recover measurements the
-        # compiler withheld under authored intent (ADR 0015/0016).
+        # compiler withheld under authored intent (ADR 1 (was 0015) / ADR 4 (was 0016)).
         pad = group.facts
         view = _END_ON[pad.frame.axis]
         bounds = dwg.view_bounds(view)
@@ -3690,7 +3690,7 @@ def render_pad_heights(dwg, plan, a, *, ctx, only=None) -> int:
         # An authored set may request the independently addressable height while omitting
         # both footprint measurements.  In that case the terminal face centre is still a
         # complete structural leader target; do not recover the suppressed sizes through
-        # provenance merely to move the arrow to the rim (ADR 0015/0016).  When both approved
+        # provenance merely to move the arrow to the rim (ADR 1 (was 0015) / ADR 4 (was 0016)).  When both approved
         # sizes are present, their values may refine that same target to the footprint edge.
         width = by_key.get(("pad_width", "length"))
         length = by_key.get(("pad_length", "length"))
@@ -4089,7 +4089,7 @@ def render_plates(dwg, plan, a, *, ctx) -> int:
     y→side-above, x→front-below)."""
     draft = dwg.draft
     tier = draft.font_size + 2 * draft.pad_around_text
-    # Migrated to the ADR 0016 boundary: approved entries only, and the plate's `lo`/`hi`
+    # Migrated to the ADR 4 (was 0016) boundary: approved entries only, and the plate's `lo`/`hi`
     # come from the thickness dim's SPAN rather than the feature — they are the two ends of
     # the measurement, so the span is where they belong. `axis` stays a fact because no span
     # says which way a slab is thin.
@@ -4261,7 +4261,7 @@ def render_plates(dwg, plan, a, *, ctx) -> int:
             # to the L-shaped-occupancy/corner follow-up).
             ctx.post_drain.append(_retry)
 
-        # ADR 0009 corridor candidate (#636): a plate thickness is a size dim bound to one
+        # ADR 2 (was 0009) corridor candidate (#636): a plate thickness is a size dim bound to one
         # view/strip (no alternate view), so it is force-kept and dropped only when the strip
         # is physically full — the same outcome the prior solver-invisible carve gave, but now
         # co-solved with the locations/steps that share this strip.
@@ -4567,7 +4567,7 @@ def render_envelope(dwg, plan, a, *, ctx) -> int:
             ),
         )
 
-    # ADR 0018: an extent is observable in EITHER view whose page plane contains its axis —
+    # ADR 2 (was 0018): an extent is observable in EITHER view whose page plane contains its axis —
     # the overall width reads in plan and equally in front. Each was previously pinned to one
     # view, which is why dropping the plan view raised `ViewNotPlanned` from here instead of
     # re-homing the width dim. `views_showing` prefers the view each has always used, so
@@ -4587,7 +4587,7 @@ def render_envelope(dwg, plan, a, *, ctx) -> int:
         view = extent.view or views_showing(axis, dwg.views, horizontal=True)
         if view is None:
             # No planned view can carry it. Reported against the measurement, never dropped
-            # in silence (ADR 0016 Amdt 6) — and this is exactly what the ADR 0018
+            # in silence (ADR 4 (was 0016 Amdt 6)) — and this is exactly what the ADR 2 (was 0018)
             # requirement gate reads to reject a view set that costs a mandatory extent.
             ctx.record_issue(
                 "error",
@@ -4918,7 +4918,7 @@ def render_step_lengths(
     _profile_bounds_hint=None,
     _profile_view_hint=None,
 ) -> int:
-    """Unified turned step-length chains (ADR 0008 #223): each `StepFeature`'s length
+    """Unified turned step-length chains (ADR 1 (was 0008) #223): each `StepFeature`'s length
     span projects into the profile view and joins the chain that tiles the turning
     axis so every shoulder is located. X-turned → horizontal chain above the front
     view; Z-turned → vertical chain to its right; Y-turned → horizontal chain above
@@ -5676,7 +5676,7 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
     *build-time chain*: candidates share a ``solved`` position map, and each dim's witness
     anchors on its nearest already-built predecessor's line (the view edge for the first).
 
-    **The first renderer migrated to the ADR 0016 boundary.** It takes the compiled
+    **The first renderer migrated to the ADR 4 (was 0016) boundary.** It takes the compiled
     :class:`RenderableDimensionPlan` and a :class:`LayoutFrame`, not the `PartModel` and the
     `Analysis`. Everything it used to decide about WHAT to draw — which rungs exist, their
     values and labels, whether a uniform staircase collapses to one ``n×`` mark, whether the
@@ -5725,7 +5725,7 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
     # for the representative rung, whose "8× 15" is one 15 mm step rather than a 120 mm run
     # (#1153). Carried from `ApprovedDimension.value` so lint compares against the
     # compiler's own number instead of re-deriving a convention from the rendered string,
-    # which is the pattern ADR 0016 Amendment 1 exists to stop.
+    # which is the pattern ADR 4 (was 0016 Amendment 1) exists to stop.
     chain: list = []
     if rung_set is not None and rung_set.representative:
         (rep,) = rungs
@@ -5800,7 +5800,7 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
                     measurement_spans=[rung.span for rung in crowded if rung.id is not None],
                     outcome_stage="placement",
                 )
-            # First-class escalation alongside the lint code (ADR 0009 Amdt 1, #351 PR-4b) —
+            # First-class escalation alongside the lint code (ADR 2 (was 0009 Amdt 1), #351 PR-4b) —
             # `_request_prismatic_detail` (sections.py) consumes this instead of recomputing
             # the legibility gate.
             ctx.escalations.append(
@@ -6063,7 +6063,7 @@ def render_step_positions(dwg, plan, frame, *, ctx) -> int:
     the side-below strip so they do not collide with the isometric furniture above.
     A shoulder whose strip is full drops with a lint code, not silently.
 
-    Migrated to the ADR 0016 boundary: the shoulder chain arrives as the compiled plan's
+    Migrated to the ADR 4 (was 0016) boundary: the shoulder chain arrives as the compiled plan's
     ``step_position`` :class:`ApprovedLadder`, and each rung's span carries the datum and
     the station it runs between, so this pass never reaches for `step.shoulders` or the
     bounding box. Returns the count placed."""
@@ -6161,7 +6161,7 @@ def render_step_positions(dwg, plan, frame, *, ctx) -> int:
                 measurement_span=measurement_span,
             )
 
-        # ADR 0009 corridor candidate (#636): a shoulder position is a datum-referenced
+        # ADR 2 (was 0009) corridor candidate (#636): a shoulder position is a datum-referenced
         # location dim — force-kept in the datum-distance ladder, co-solving with the hole
         # locations that share this above-view strip (was a solver-invisible carve).
         # No cross-dedup against hole locations (dedup=None): a hole at the shoulder's exact
@@ -6476,7 +6476,7 @@ def _record_pmi_drop(ctx, dwg, ax, label, rec):
     Previously silent (#351 PR-4a) — a PMI dim that found no strip space just
     vanished with no trace beyond a debug log line, unlike every other placer.
     Now records a warning-severity lint code plus a first-class ``Escalation``
-    (ADR 0009 Amdt 1). No resolver remedy yet — purely additive visibility.
+    (ADR 2 (was 0009 Amdt 1)). No resolver remedy yet — purely additive visibility.
 
     *ax* is ``rec.dominant_axis`` (resolved, never ``"?"`` — see the bore-diameter
     call site). The view table differs by ``rec.pmi_kind``: a bore diameter/radius
@@ -7268,7 +7268,7 @@ def render_pmi(dwg, model, a, *, ctx) -> int:
     PX = a.proj.plan_x
     PY = a.proj.plan_y
 
-    # Per-bore-axis ø/R placement as DATA (ADR 0008 orientation-as-data): each bore reads as a
+    # Per-bore-axis ø/R placement as DATA (ADR 1 (was 0008) orientation-as-data): each bore reads as a
     # circle in ONE view, dimensioned across it in-plane when the page span fits the label, else
     # led out to a shelf. This one table replaces three near-identical Z/X/Y blocks. `order` is
     # the in-place above/below fallback; `leader_order` the narrow-bore one (Y historically
@@ -7318,8 +7318,8 @@ def render_pmi(dwg, model, a, *, ctx) -> int:
     return queued
 
 
-# GD&T aspect side-layer (ADR 0011 §4, #61) — declared feature control frames / datum
-# feature symbols / surface finishes. Placed as first-class ADR 0009 corridor candidates,
+# GD&T aspect side-layer (ADR 4 (was 0011 §4), #61) — declared feature control frames / datum
+# feature symbols / surface finishes. Placed as first-class ADR 2 (was 0009) corridor candidates,
 # NOT through the dimension planner (their IR items carry no DimParameters). "note" is a
 # free-text manufacturing note (#488) — the same leader-into-a-strip mechanism, glyph = text.
 _GDT_KINDS = ("control_frame", "datum_ref", "finish", "note")
@@ -7436,13 +7436,13 @@ def _gdt_pdf_text_specs(glyph, item, draft) -> tuple:
 
 def render_gdt(dwg, model, a, *, ctx) -> int:
     """Place declared GD&T frames / datum symbols / surface finishes (#61) as first-class
-    ADR 0009 corridor candidates — registered into the SAME strip the feature's dimensions
+    ADR 2 (was 0009) corridor candidates — registered into the SAME strip the feature's dimensions
     use, BEFORE ``drain_corridors``, so one solve orders and spaces them crossing-free with
     the dims. Each item carries its target ``(view, side)`` strip + model-space site; the
     leader hangs the glyph off the site into that strip. The strip footprint is the GLYPH's
     own box — NOT the leader+glyph box, whose shaft back to the feature would inflate the
     stacking extent (the same reason dims reserve one label-height). Cross-view separation
-    is the compose-then-pack repack's job (ADR 0004): every placed frame is ``view=``-tagged,
+    is the compose-then-pack repack's job (ADR 2 (was 0004)): every placed frame is ``view=``-tagged,
     so ``_measure_blocks`` folds it into the block. Returns the count registered."""
     items = [
         f
@@ -7496,7 +7496,7 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
         px, py = hproj(o[hi]), vproj(o[vi])
         horizontal = item.side in ("above", "below")  # frame stacks along y
         axis = "y" if horizontal else "x"
-        # The IR is public input (ADR 0011), so an invalid glyph spec (a mistyped
+        # The IR is public input (ADR 4 (was 0011)), so an invalid glyph spec (a mistyped
         # characteristic, a bad tolerance) must drop THIS item with a warning — never crash
         # the whole drawing build. The helper raises on a bad spec; catch it at the measure
         # (the first build) and drop. `_build` below re-runs `_gdt_glyph` with the same args

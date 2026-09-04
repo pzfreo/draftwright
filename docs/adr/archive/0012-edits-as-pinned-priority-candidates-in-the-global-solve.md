@@ -1,5 +1,8 @@
 # ADR 0012 — User annotation edits are pinned, priority-ranked corridor candidates
 
+> **Archived 2026-09-04.** Frozen history; the current decision is [ADR 4 — Declared intent](../0004-declared-intent.md) (intent) and [ADR 2](../0002-sheet-layout-and-view-planning.md) (placement). Nothing here is a work instruction.
+
+
 - **Status:** Accepted; partially landed (2026-07-08; accuracy correction
   2026-07-19 — see Amendment 1). Supersedes #396, extends #388/#426.
 - **Date:** 2026-07-07

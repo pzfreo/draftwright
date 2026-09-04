@@ -1,6 +1,6 @@
 # 0013 — `b123d-recognisers` roadmap (uniform recognition, extraction-ready)
 
-Execution record for [ADR 0013](../adr/0013-uniform-recognition-and-shared-package.md).
+Execution record for [ADR 3 (was 0013)](../adr/archive/0013-uniform-recognition-and-shared-package.md).
 **Phase 1 and the code portion of Draftwright-leading Phase 2 are complete.** The standalone
 Apache package is live at <https://github.com/pzfreo/b123d-recognisers>; `v0.1.0` is the
 golden-backed stable migration release and Draftwright consumes it with its duplicate
@@ -10,14 +10,14 @@ implementation removed. mcp remains a slow follower until it chooses to adopt.
 
 Delivers #568's value standalone. No new repo, no external dependency, no mcp coupling.
 
-- **1a — the contract.** Adopt one recogniser shape (ADR 0013 §2):
+- **1a — the contract.** Adopt one recogniser shape (ADR 3 (was 0013 §2)):
   `recognise_<feature>(part, *, ...) -> list[<Feature>Record]`. Rename existing entry
   points onto `recognise_*` (from `find_*`/`analyse_*`); return typed frozen dataclass
   lists (retire `TurnedProfile | None` singular-optional and the bare untyped
   `-> list` in `_features.py`). **Keep dependency injection** for derived features
   (`recognise_patterns(part, *, holes)`, `recognise_step_shoulders(part, *, levels)`) —
   make it *keyword-only and typed*, not remove it; the orchestrator threads the single
-  shared inventory (ADR 0008 Am5), recognisers never re-recognise a dependency. British
+  shared inventory (ADR 1 (was 0008 Am5)), recognisers never re-recognise a dependency. British
   spelling; add **codespell** to CI with the convention pinned.
 - **1b — geometry-only records + `.to_dict()`.** Give each recogniser a plain-geometry
   record (points/axes/radii/angles, no build123d types in the output) carrying
@@ -34,7 +34,7 @@ Delivers #568's value standalone. No new repo, no external dependency, no mcp co
   dimensioning layer (planner/IR) uniformly; geometric records carry no callout.
 - **Keep `recognition/` dependency-self-contained** — build123d/OCP only, no upward
   coupling — so Phase 2's *code* move is a mechanical import swap. Licensing is a
-  separate axis (ADR 0013 §7): files stay AGPL through Phase 1 and are relicensed to
+  separate axis (ADR 3 (was 0013 §7)): files stay AGPL through Phase 1 and are relicensed to
   Apache at the Phase 2 gate (file-by-file, pzfreo owns copyright).
 
 ### Pilots (drive Phase 1 from real work, not a big-bang rewrite)
@@ -56,7 +56,7 @@ another tool appearing). Until then, do not spin the repo.
 - **2a — stand up the repo. ✅** New Apache-2.0 `b123d-recognisers`; move the seed-set
   recognisers + their geometry records + their tests (the geometric counter-examples —
   gusset/ramp/hex-prism etc. — are geometry truths and belong here). Fast CI (build123d/
-  OCP only). Licensing (the Phase 2 gate, ADR 0013 §7): relicense each migrated file to
+  OCP only). Licensing (the Phase 2 gate, ADR 3 (was 0013 §7)): relicense each migrated file to
   Apache in its header (pzfreo owns copyright). Countersink seeds from mcp's
   already-Apache code, so it needs no relicense.
 - **2b — publish + wire. ✅** `v0.1.0a1` first proved the atomic cutover. Stable `v0.1.0`
@@ -82,4 +82,4 @@ until it decides.
 ## Out of scope
 
 Reconstructable construction ops / feature-tree recovery (a possible later provenance
-layer); brep-pure recognisers (see ADR 0013 *Alternatives*).
+layer); brep-pure recognisers (see ADR 3 (was 0013) *Alternatives*).

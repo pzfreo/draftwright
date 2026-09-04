@@ -1,6 +1,6 @@
-"""sheet — the fluent feature-referencing drawing surface (ADR 0011, #445/#446).
+"""sheet — the fluent feature-referencing drawing surface (ADR 4 (was 0011), #445/#446).
 
-(Renamed from ``sheet_dsl.py`` 2026-07-15, #640: ADR 0001 decided *against* an
+(Renamed from ``sheet_dsl.py`` 2026-07-15, #640: ADR 4 (was 0001) decided *against* an
 editable DSL — this is a fluent Python facade, so the old name contradicted the
 project's founding decision; it now owns the natural name. The layout engine
 that previously held ``sheet.py`` is ``compose.py``.)
@@ -18,7 +18,7 @@ deprecated (#1043)::
     sheet.hole(h2).depth(5)          # a blind hole — adds a depth callout
     sheet.diameter(boss_cyl)
 
-    sheet.authored_dimensions()      # THIS is the complete set (ADR 0016)
+    sheet.authored_dimensions()      # THIS is the complete set (ADR 4 (was 0016))
     sheet.dimension(env, "width.length")
     sheet.dimension(bore, "bore.diameter")
 
@@ -31,7 +31,7 @@ gear requirements table, and the auto section — plus the P2a
 **``.tolerance``** (a ± / limit tolerance on a diameter, a step, or a hole bore) and
 **``.fit``** (fit-class → ISO 286 deviation, P2a.2) aspects, the P2c GD&T side-layer
 (**``.finish``** surface symbols, **``sheet.datum``** feature symbols, and
-**``sheet.control(...)``** feature control frames — all 14 ISO 1101 characteristics, ADR 0011
+**``sheet.control(...)``** feature control frames — all 14 ISO 1101 characteristics, ADR 4 (was 0011)
 #479 — which derive their target view/strip from the referenced feature or planar face), and
 **``sheet.table()``** / **``sheet.notes()``** corner-block tables (notes / revision / BOM /
 schedule, over the engine's auto-placed ``Drawing.add_table``, #488), and **``sheet.note()``** /
@@ -43,7 +43,7 @@ Ra-on-thread; a declaration-only aspect, no recogniser).
 
 **Hybrid.** :meth:`Sheet.from_part` seeds the declared set from *detection*, so you
 can start from the detected model and override specific features (declaration is for
-where you know better than detection, not everywhere — ADR 0011 §3); :meth:`Sheet.of`
+where you know better than detection, not everywhere — ADR 4 (was 0011 §3)); :meth:`Sheet.of`
 returns a fluent handle onto one of those generated features (by object, index, or the
 feature itself) so you can ``.fit(...)`` / ``.tolerance(...)`` it without re-declaring (#463).
 """
@@ -480,7 +480,7 @@ class _Hole(_Nameable):
         return self._set(thread=ThreadOperation(spec, depth))
 
     def finish(self, ra, *, view: str | None = None, side: str | None = None) -> _Hole:
-        """A surface-finish symbol (Ra) on this hole's bore (ADR 0011 P2c). ``.finish("1.6")``
+        """A surface-finish symbol (Ra) on this hole's bore (ADR 4 (was 0011) P2c). ``.finish("1.6")``
         — the roughness text; ``view``/``side`` override the derived strip."""
         self._sheet._gdt_finish(ra, self._i, view=view, side=side)
         return self
@@ -567,7 +567,7 @@ class _Dim(_Nameable):
         return self
 
     def finish(self, ra, *, view: str | None = None, side: str | None = None) -> _Dim:
-        """A surface-finish symbol (Ra) on this feature's surface (ADR 0011 P2c).
+        """A surface-finish symbol (Ra) on this feature's surface (ADR 4 (was 0011) P2c).
         ``diameter(journal).finish("0.8")``; ``view``/``side`` override the derived strip."""
         self._sheet._gdt_finish(ra, self._i, view=view, side=side)
         return self
@@ -617,13 +617,13 @@ class _Dim(_Nameable):
 
 
 class DimensionIntent:
-    """The handle :meth:`Sheet.add_dimension` returns (ADR 0016).
+    """The handle :meth:`Sheet.add_dimension` returns (ADR 4 (was 0016)).
 
     It exposes no coordinate or tier. Optional ``view=`` / ``side=`` are declared on the
     verb as semantic corridor selection; the engine still solves the candidate's position —
     *a dimension line references; the engine places*.
 
-    ADR 0012's ``.pin()`` / ``.priority()`` are deliberately absent for now. The engine
+    ADR 2 (was 0012)'s ``.pin()`` / ``.priority()`` are deliberately absent for now. The engine
     already has two spellings of "keep this put" at different layers, and adding a third
     that no renderer consumes would ship a chainable verb doing nothing. This handle is
     the extension point for them once that concept is converged.
@@ -817,7 +817,7 @@ class _Params(_Nameable):
 
 
 class _Control:
-    """A fluent GD&T feature-control-frame builder (ADR 0011 P2c.2). One method per ISO 1101
+    """A fluent GD&T feature-control-frame builder (ADR 4 (was 0011) P2c.2). One method per ISO 1101
     characteristic — each appends a control frame on the same target, so chained calls stack::
 
         sheet.control(bore).position(0.1, to="A B").perpendicularity(0.05, to="A")
@@ -933,7 +933,7 @@ class _View:
     """A fluent handle for one semantic whole-view constraint.
 
     Its layout verbs relate or pin the complete view block.  They never address a feature
-    annotation, so ADR 0014 remains the sole owner of dimension/callout/GD&T coordinates.
+    annotation, so ADR 2 (was 0014) remains the sole owner of dimension/callout/GD&T coordinates.
     """
 
     def __init__(self, sheet: Sheet, bucket: str, index: int) -> None:
@@ -1069,7 +1069,7 @@ class Sheet:
         # engine's generic auto-placed Drawing.add_table, AFTER the drawing is built so they sit
         # clear of the views + title block (like the hole table). Each: {rows, prefer, name}.
         self._tables: list = []
-        # ADR 0016 augmenting dimension intents (#872), token-keyed for the same reason as
+        # ADR 4 (was 0016) augmenting dimension intents (#872), token-keyed for the same reason as
         # `_tolerances`: a handle may be recorded before a later size verb replaces the
         # feature, and a position would then name whatever moved into the slot.
         # Materialized to `RequestedDimension` against the FINAL features at build.
@@ -1093,7 +1093,7 @@ class Sheet:
         # assignments — which is how the first cut of this broke the identity suite (#921
         # review round 7). Only ``"explicit"`` conflicts with an authored set.
         self._auto_dimensions: str | None = None
-        # ADR 0018 authored view input.  These mutable declaration records are private
+        # ADR 2 (was 0018) authored view input.  These mutable declaration records are private
         # construction state; :attr:`view_constraints` exposes a fresh immutable snapshot so
         # request state cannot be confused with or edited like a ResolvedViewPlan.
         self._principal_view_source: str | None = None
@@ -1146,7 +1146,7 @@ class Sheet:
 
     @classmethod
     def from_part(cls, part, **opts) -> Sheet:
-        """Seed the declared set from *detection* (the hybrid mode, ADR 0011 §3): start
+        """Seed the declared set from *detection* (the hybrid mode, ADR 4 (was 0011 §3)): start
         from the model the detector recovers, then override specific features (edit the
         list via :attr:`features`, or re-declare) before :meth:`build`.
 
@@ -1176,7 +1176,7 @@ class Sheet:
         Returns a handle, like every declaration verb (#922). It matters here more than it
         looks: the ENVELOPE is emitted through this escape hatch rather than through
         :meth:`envelope`, so while `add` returned the sheet, `sheet.dimension(env, "width")`
-        — ADR 0016's own worked example — could not be written against a generated script.
+        — ADR 4 (was 0016)'s own worked example — could not be written against a generated script.
         Naming would have been uniform across the verbs and silently absent for one feature
         in the middle of the file, which is worse than being absent everywhere. A raw
         ``ControlFrame`` or ``DatumRef`` may name a handle as its ``origin``; ``add`` resolves
@@ -1224,7 +1224,7 @@ class Sheet:
         side: str | None = None,
         **removed,
     ) -> DimensionIntent:
-        """`dimension(feature, role)` — the ADR 0016 referential verb. See
+        """`dimension(feature, role)` — the ADR 4 (was 0016) referential verb. See
         :meth:`_authored_dimension` for the semantics.
 
         The signature is the real one again (#720): the transitional call-shape dispatch to
@@ -1256,7 +1256,7 @@ class Sheet:
                     f"Sheet.dimension({', '.join(f'{k}=…' for k in legacy)}) was removed at "
                     "0.4.0 (#720) — use Sheet.measured_dimension(...) for a measurement that "
                     "restates a value. `dimension` is the referential verb: it names a feature "
-                    "and a parameter id and reads the value off the geometry (ADR 0016)."
+                    "and a parameter id and reads the value off the geometry (ADR 4 (was 0016))."
                 )
             raise TypeError(f"dimension() got unexpected keyword(s) {sorted(removed)}")
         if feature is _UNSET or role is _UNSET:
@@ -1274,7 +1274,7 @@ class Sheet:
     ) -> DimensionIntent:
         """`dimension(feature, role)` — declare one member of the COMPLETE authored set.
 
-        Referential, like every ADR 0016 intent: it names a feature and a role and carries no
+        Referential, like every ADR 4 (was 0016) intent: it names a feature and a role and carries no
         number, so the value still comes from the geometry. What distinguishes it from
         :meth:`add_dimension` is not how it addresses a measurement but what naming one MEANS —
         `add_dimension` augments the planner's set, so a measurement you don't name keeps
@@ -1328,7 +1328,7 @@ class Sheet:
     ) -> _Params:
         """Declare a drafting dimension from explicit **measured** values.
 
-        Named for what it carries (ADR 0016 / #873). ``dimension`` is *referential* on
+        Named for what it carries (ADR 4 (was 0016) / #873). ``dimension`` is *referential* on
         ``Drawing`` today and becomes so on :class:`Sheet` in #874 — it names a feature and a
         role, and the engine reads the value off the geometry. The verb that carries a number of
         its own needed a name saying so before that name could be reused. A measured dimension is
@@ -1696,14 +1696,14 @@ class Sheet:
         self._features.append(feature)
         return _Params(self, len(self._features) - 1)
 
-    # -- GD&T / finish aspects (ADR 0011 P2c, #479) ---------------------------
+    # -- GD&T / finish aspects (ADR 4 (was 0011) P2c, #479) ---------------------------
 
     def datum(
         self, letter: str, ref, *, view: str | None = None, side: str | None = None
     ) -> Sheet:
         """Declare a datum feature symbol (ISO 5459). *ref* is a build123d **planar face**, or
         a feature handle / :class:`Feature` / index for a feature's axis. The target view + strip
-        side are derived from the geometry; ``view``/``side`` override them (ADR 0011 P2c)."""
+        side are derived from the geometry; ``view``/``side`` override them (ADR 4 (was 0011) P2c)."""
         target, src = self._gdt_ref(ref)
         self._append_gdt(_declare_datum(letter, target, self._part, view=view, side=side), src)
         return self
@@ -1753,7 +1753,7 @@ class Sheet:
         )
         return self
 
-    # -- view declaration (ADR 0018) ---------------------------------------
+    # -- view declaration (ADR 2 (was 0018)) ---------------------------------------
 
     @staticmethod
     def _principal_view_name(name) -> tuple[str, str]:
@@ -1812,7 +1812,7 @@ class Sheet:
         if self._auto_dimensions == "explicit":
             raise ValueError(
                 f"{verb} authors the view set, but this sheet already called "
-                "auto_dimensions(). ADR 0018 makes requirements determine views, not the "
+                "auto_dimensions(). ADR 2 (was 0018) makes requirements determine views, not the "
                 "reverse: use authored_dimensions() with explicit dimension(...) lines, or "
                 "keep auto_views() and use add_view()/add_section_view()/add_detail_view()."
             )
@@ -1828,13 +1828,13 @@ class Sheet:
 
         This is the public transition from :meth:`from_part`'s detected features and implicit
         automatic dimensions to an editable Sheet request.  Principal and derived views are
-        separate sources (ADR 0018): keeping automatic principal planning while authoring the
+        separate sources (ADR 2 (was 0018)): keeping automatic principal planning while authoring the
         complete derived set replaces an inferred section instead of augmenting it; an empty
         authored derived set explicitly suppresses every inferred section/detail.
 
         The declaration is atomic and order-independent.  Matching declarations made before
         this call are accepted, while an explicit contradictory source raises without changing
-        any source.  The incoherent ADR 0018 combination -- authored views with automatic
+        any source.  The incoherent ADR 2 (was 0018) combination -- authored views with automatic
         dimensions -- is always refused.
         """
         choices = {
@@ -1851,7 +1851,7 @@ class Sheet:
         ):
             raise ValueError(
                 "take_over() cannot combine automatic dimensions with authored views. "
-                "ADR 0018 makes requirements determine views, not views determine requirements"
+                "ADR 2 (was 0018) makes requirements determine views, not views determine requirements"
             )
 
         authored_dimensions = bool(self._authored) or self._authored_source
@@ -2125,7 +2125,7 @@ class Sheet:
         """A GD&T feature-control-frame builder on *ref* — a feature handle / :class:`Feature` /
         index, or a build123d planar face. Chain one method per ISO 1101 characteristic
         (``.position(0.1, to="A B")`` …); each stacks a frame on the target. The target view +
-        strip are derived from the geometry; ``view``/``side`` override them (ADR 0011 P2c.2)."""
+        strip are derived from the geometry; ``view``/``side`` override them (ADR 4 (was 0011) P2c.2)."""
         target, src = self._gdt_ref(ref)
         v, s, _site, _axis = gdt_target(target, self._part, view=view, side=side)
         return _Control(self, target, src, v, s)
@@ -2202,7 +2202,7 @@ class Sheet:
 
     def _validate_datums(self) -> None:
         """Warn (non-fatal) if a control frame references a datum letter no ``sheet.datum`` on
-        this sheet declared — a likely typo (``to="A"`` with no datum A). ADR 0011 P2c.2."""
+        this sheet declared — a likely typo (``to="A"`` with no datum A). ADR 4 (was 0011) P2c.2."""
         declared = {f.letter for f in self._features if getattr(f, "kind", None) == "datum_ref"}
         referenced = {
             d
@@ -2413,7 +2413,7 @@ class Sheet:
         - it is what draftwright itself emits — ``--script`` writes ``authored_dimensions()``
           with a line per dimension, so the automatic path is the only form the tool never
           produces;
-        - *omission means suppression* (ADR 0016) only holds for an authored set. Under an
+        - *omission means suppression* (ADR 4 (was 0016)) only holds for an authored set. Under an
           automatic one you cannot express "not that one";
         - an authored list is editable text. That is what makes "generate a script, then
           refine it" work, for a person or a model.
@@ -2422,7 +2422,7 @@ class Sheet:
         ``draftwright yourmodule:part --script`` — and edit the result, rather than asking
         for them at runtime where they cannot be seen or changed.
 
-        Still asks for the planner's automatic set (ADR 0016). A build must say where its
+        Still asks for the planner's automatic set (ADR 4 (was 0016)). A build must say where its
         dimensions come from rather than defaulting silently (#874), and this is one of the
         two ways to say it. It is also what :meth:`add_dimension` augments.
 
@@ -2431,7 +2431,7 @@ class Sheet:
         """
         if self._principal_view_source == "authored" or self._derived_view_source == "authored":
             raise ValueError(
-                "auto_dimensions() cannot be combined with authored views. ADR 0018 makes "
+                "auto_dimensions() cannot be combined with authored views. ADR 2 (was 0018) makes "
                 "requirements determine views, not views determine requirements: use "
                 "authored_dimensions() with explicit dimension(...) lines, or keep "
                 "auto_views() and augment it with add_view()/add_section_view()/add_detail_view()."
@@ -2461,7 +2461,7 @@ class Sheet:
         Calling `dimension(...)` still selects this source on its own; the verb only makes
         the choice sayable when there is nothing else to say it. Emitted scripts write it
         unconditionally, so an authored script states its source with a verb rather than with
-        a comment a reader has to trust (ADR 0016 / #874).
+        a comment a reader has to trust (ADR 4 (was 0016) / #874).
         """
         self._authored_source = True
         return self
@@ -2475,7 +2475,7 @@ class Sheet:
         view: str | None = None,
         side: str | None = None,
     ):
-        """Augment the planner's set with one more measurement (ADR 0016 / #872).
+        """Augment the planner's set with one more measurement (ADR 4 (was 0016) / #872).
 
         *feature* is a declared-feature handle (what :meth:`hole`, :meth:`boss`, … return),
         an index into :attr:`features`, or the IR feature itself. *role* names the
@@ -2522,7 +2522,7 @@ class Sheet:
         return DimensionIntent(self, entry)
 
     def _check_dimension_source(self) -> None:
-        """A build must say where its dimensions come from (ADR 0016 / #874).
+        """A build must say where its dimensions come from (ADR 4 (was 0016) / #874).
 
         The set has exactly two sources and they are mutually exclusive:
 
@@ -2578,7 +2578,7 @@ class Sheet:
                 "source on its own; the verb is how a COMPLETE-BUT-EMPTY set says so, since "
                 "it has no line to say it with.) auto_dimensions() also works and is "
                 "supported, but is soft deprecated on this surface (#1043). Building without "
-                "either used to mean the automatic set; ADR 0016 makes the source explicit "
+                "either used to mean the automatic set; ADR 4 (was 0016) makes the source explicit "
                 "so that omitting a dimension can mean something."
             )
 
@@ -2824,7 +2824,7 @@ class Sheet:
         are placed last, clear of everything already on the sheet."""
         self._prepare()
         # `add_dimension` augments the planner's set, so the sheet must have asked for
-        # one (ADR 0016 / #872). Checked HERE rather than in the verb so intent stays
+        # one (ADR 4 (was 0016) / #872). Checked HERE rather than in the verb so intent stays
         # order-independent: declaring the augment before the source must read the same
         # as declaring it after.
         self._check_dimension_source()

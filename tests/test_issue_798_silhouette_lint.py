@@ -1,6 +1,6 @@
 """#798 — the ``leader_crosses_silhouette`` critique reads the shared material field.
 
-The router (ADR 0014) and this notice must reach the same verdict on the same shaft,
+The router (ADR 2 (was 0014)) and this notice must reach the same verdict on the same shaft,
 so both solve against one lowering. These tests pin that seam: what the check needs,
 what it reports, and what it deliberately no longer exempts.
 """
@@ -187,7 +187,7 @@ class TestFieldLifecycle:
 class TestGreedyFloorPrefersClearRoutes:
     """#798 — the resource-cap floor is what actually runs on dense parts.
 
-    Measured across every fixture, the joint ADR 0014 Amendment 2 assignment runs only
+    Measured across every fixture, the joint ADR 2 (was 0014 Amendment 2) assignment runs only
     on modest inventories; a 20-job part expands past the candidate cap and falls back
     here. So this is where a cutting route has to be rejected, and these tests pin the
     two properties that make that safe.

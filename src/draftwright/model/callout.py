@@ -12,7 +12,7 @@ So the reading lives here, in the IR waist, below both consumers (`compose` rank
 `annotations` ranks 4, `model` ranks 0). The renderer turns the spec into a `HoleCallout`; the
 estimator turns the same spec into token widths. Neither re-derives it.
 
-The governing rule (ADR 0016): **no renderer may infer an engineering fact from the presence or
+The governing rule (ADR 4 (was 0016)): **no renderer may infer an engineering fact from the presence or
 absence of a dimension parameter.** Parameters carry values for display; facts live on the
 feature. `through` is read off the feature for exactly this reason.
 """
@@ -38,7 +38,7 @@ def _planned(group: DimensionGroup, kind: str, *roles: str):
 def _first(group: DimensionGroup, kind: str, *roles: str) -> float | None:
     """First **unsuppressed** parameter value matching *kind* and any of *roles*, in role order.
 
-    Honouring ``suppressed`` here is ADR 0016 / #875. Thirteen render sites already skipped
+    Honouring ``suppressed`` here is ADR 4 (was 0016) / #875. Thirteen render sites already skipped
     suppressed dimensions; the compound-callout path did not, so a suppressed segment still
     printed. Suppression MARKS a dimension rather than removing it (the group keeps its
     engineering data either way) — what changes is whether it reaches the page.
@@ -148,7 +148,7 @@ def _shadowed(group: DimensionGroup, name: str) -> bool:
 
 
 def _refuse_headless_callout(group: DimensionGroup) -> None:
-    """Raise if suppression would leave part of a compound callout orphaned (ADR 0016 / #875).
+    """Raise if suppression would leave part of a compound callout orphaned (ADR 4 (was 0016) / #875).
 
     Two scales of the same rule:
 
@@ -340,7 +340,7 @@ _AUTHORED_OMISSION = "not in the authored dimension set"
 
 
 def authored_omission_in(group) -> bool:
-    """Does *group* have any measurement the AUTHOR left out (ADR 0016 / #876)?
+    """Does *group* have any measurement the AUTHOR left out (ADR 4 (was 0016) / #876)?
 
     Only that — deliberately NOT "would the callout draw?". Three attempts at predicting
     the second from a hand-written per-kind table were each wrong for some feature: a
@@ -375,8 +375,8 @@ def hole_callout_spec(group: DimensionGroup) -> dict | None:
     ``through`` is read off the FEATURE, never inferred from a missing bore-depth
     param (#868). `HoleFeature.parameters()` only emits the depth for a blind hole,
     so absence-as-signal would make any consumer that filters the parameter list —
-    ADR 0016 suppression above all — silently render a blind hole as ``THRU``. The
-    rule that follows (ADR 0016): a renderer may not infer an engineering *fact*
+    ADR 4 (was 0016) suppression above all — silently render a blind hole as ``THRU``. The
+    rule that follows (ADR 4 (was 0016)): a renderer may not infer an engineering *fact*
     from the presence or absence of a dimension parameter — parameters carry values
     for display, facts live on the feature."""
     feat = group.feature

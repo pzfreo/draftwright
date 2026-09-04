@@ -1,5 +1,8 @@
 # ADR 0019 — Display-complete labels and a dimension-outcome ledger: finishing the compiled-plan boundary
 
+> **Archived 2026-09-04.** Frozen history; the current decision is [ADR 4 — Declared intent](../0004-declared-intent.md). Nothing here is a work instruction.
+
+
 - **Status:** Proposed
 - **Date:** 2026-08-20
 - **Deciders:** Paul Fremantle (pzfreo)

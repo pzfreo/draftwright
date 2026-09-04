@@ -1,5 +1,8 @@
 # ADR 0016 — Declared dimensioning intent: capture what to measure, let the engine place it
 
+> **Archived 2026-09-04.** Frozen history; the current decision is [ADR 4 — Declared intent](../0004-declared-intent.md). Nothing here is a work instruction.
+
+
 - **Status:** Accepted
 - **Date:** 2026-07-26 (accepted 2026-07-27; implementation epic **#867**)
 - **Deciders:** Paul Fremantle (pzfreo)

@@ -1,4 +1,4 @@
-"""detect — build the part-model IR by running the feature detectors (ADR 0008).
+"""detect — build the part-model IR by running the feature detectors (ADR 1 (was 0008)).
 
 The front-end of the compiler. Each detector is an existing recognition heuristic
 (:func:`recognise_holes`, :func:`recognise_turned_steps`, :func:`recognise_bosses`) adapted to
@@ -486,7 +486,7 @@ def build_pmi_features(
 
 
 # ---------------------------------------------------------------------------
-# ADR 0013 Phase 1c — the typed record→Feature converter registry (#752).
+# ADR 3 (was 0013) Phase 1c — the typed record→Feature converter registry (#752).
 #
 # `build_part_model` below owns the *assembly* — which records become features
 # (pattern/hole grouping, groove/plate suppression, the classification-fed
@@ -1111,7 +1111,7 @@ _DERIVED_CONVERTERS: dict[type, Callable[..., Feature]] = {
 
 # Tier 3 — orchestrated/evidence records: no per-record converter, by design. Each is a
 # nested sub-record, aggregated into a correlated feature, or retained solely as independent
-# physical evidence; the reason is the residual scope ADR 0013 Phase 1 explicitly accepts.
+# physical evidence; the reason is the residual scope ADR 3 (was 0013) Phase 1 explicitly accepts.
 _ORCHESTRATED_RECORDS: dict[type, str] = {
     CounterSink: "a nested sub-record of HoleRecord — rides on the hole callout, never a top-level feature",
     FaceLevel: "aggregated into a single StepLevelFeature step ladder (one feature per part, not per level)",
@@ -1502,7 +1502,7 @@ def build_part_model(
 
     The detected feature sets may be **supplied** by the caller (from `_analyse`,
     which already ran them) so detection happens **once per build** — the single
-    feature inventory (ADR 0008 Amendment 5, #244). Omitted sets are detected here,
+    feature inventory (ADR 1 (was 0008 Amendment 5), #244). Omitted sets are detected here,
     so a standalone ``build_part_model(part)`` still works. ``profiles`` is the plural
     body-local turned-profile input; the compatible singular ``prof`` remains accepted,
     and both use a sentinel because ``None`` is a valid non-turned value.
@@ -1606,7 +1606,7 @@ def build_part_model(
     # Any omitted family or classification input is filled from one public RecognitionResult,
     # preserving cross-family ownership for documented partial-inventory calls.  Derive the
     # aggregate's applicability flag from the shared cylinder substrate rather than probing a
-    # public family first; the aggregate remains the only family orchestration (ADR 0017).
+    # public family first; the aggregate remains the only family orchestration (ADR 3 (was 0017)).
     if needs_aggregate:
         recognition = recognition_result
         if recognition is None:
@@ -1795,7 +1795,7 @@ def build_part_model(
         raise ValueError("plural turned profiles require body-local profile identity")
     # ``rotational`` is the classification fallback for a single-diameter turned body whose
     # step profile is absent. It is already supplied by the one analysis orchestration, so
-    # carrying its axis into conversion is not a geometry rescan (#1276 / ADR 0017).
+    # carrying its axis into conversion is not a geometry rescan (#1276 / ADR 3 (was 0017)).
     profile_axes = {profile.axis for profile in profiles}
     if len(profile_axes) == 1:
         orientation = next(iter(profile_axes))
@@ -1874,7 +1874,7 @@ def build_part_model(
     # RaisedPad v2 is an all-principal-axis occurrence. Resolve it before lowering the legacy
     # Z-level grammar so a side-normal pad's two Z footprint edges cannot masquerade as
     # prismatic HEIGHT levels. Any omitted inventory was filled from the one aggregate above;
-    # do not add a family rescan at this consumer boundary (ADR 0017).
+    # do not add a family rescan at this consumer boundary (ADR 3 (was 0017)).
     assert pads is not None
     pads = tuple(pads)
     # The detected orchestration supplies its filtered aggregate levels. A standalone
@@ -2041,14 +2041,14 @@ def build_part_model(
             # LETTER, so declaration lays the lattice out in that letter's canonical plane and
             # a 40 mm Z spread comes back as 0 — a silently wrong drawing (#971).
             #
-            # Refused HERE, at the recognition→IR adapter, not in the recogniser: ADR 0013 says
+            # Refused HERE, at the recognition→IR adapter, not in the recogniser: ADR 3 (was 0013) says
             # a recogniser reports the geometry it finds, and `recognise_hole_patterns` finds
             # this one correctly. The limitation is draftwright's IR, so it belongs on
             # draftwright's side of the boundary — which also covers an injected `patterns=`.
             #
             # The members simply stay unpatterned below, so they are still drawn, dimensioned
             # and located. Carrying a full normal on `Frame` would be faithful but widens the
-            # ADR 0015 waist; that option stays recorded on #971.
+            # ADR 1 (was 0015) waist; that option stays recorded on #971.
             continue
         patterned.update(id(h) for h in members)
         hole_pattern_feature = _pattern_feature(pat, members)
@@ -2199,7 +2199,7 @@ def build_part_model(
     # exclude any band a groove already dimensions: a groove floor is an annular band, and
     # its two walls read as shoulders, so recognise_turned_steps also delimits it as a
     # middle "step". Emitting both a StepFeature and a GrooveFeature for one band would
-    # double-dimension the floor ø (ISO 129) and break ADR 0008's one-band-one-owner waist.
+    # double-dimension the floor ø (ISO 129) and break ADR 1 (was 0008)'s one-band-one-owner waist.
     if grooves is None:
         grooves = recognise_grooves(part, cyls=cyls)
 

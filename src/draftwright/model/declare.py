@@ -1,4 +1,4 @@
-"""declare — build IR features directly from known build123d objects (ADR 0011).
+"""declare — build IR features directly from known build123d objects (ADR 4 (was 0011)).
 
 The normal path detects features from the finished solid's silhouettes
 (``recognition/`` → ``build_part_model``). When you *built* the part you already
@@ -102,7 +102,7 @@ def _is_positive(v) -> bool:
 
 def _require_positive(**named) -> None:
     """Each supplied (non-``None``) value must be a positive number. These constructors are
-    a public compiler input (ADR 0011); a negative/zero size must fail at declaration time
+    a public compiler input (ADR 4 (was 0011)); a negative/zero size must fail at declaration time
     with a clear ``ValueError``, not later in layout or as a misleading drawing (#452). A
     ``None`` is skipped (the field is optional) — use :func:`_positive` for a required one."""
     for name, v in named.items():
@@ -189,7 +189,7 @@ def _read_cylinder(obj) -> tuple[str, float, Point]:
 
 
 def read_bore_step(part, tool, axis: str) -> tuple[float, float]:
-    """``(diameter, depth)`` of a counterbore / spotface *tool* cut into *part* (ADR 0011 #462).
+    """``(diameter, depth)`` of a counterbore / spotface *tool* cut into *part* (ADR 4 (was 0011) #462).
 
     ⌀ comes from the tool's cylindrical face (like :func:`_read_cylinder`); **depth** is measured
     along the hole *axis* from the part's **open face at the hole** to the tool's inner (floor)
@@ -985,7 +985,7 @@ def rotational(*, od, bores=(), at=None, axis=None) -> RotationalFeature:
     """A turned body's axial furniture — its outer diameter, rotation axis and concentric
     bores (#945). **Explicit values only:** ``rotational(od=30, bores=(16,), axis="z")``.
 
-    The last recognised kind with no declarative surface, which made it the last ADR 0011
+    The last recognised kind with no declarative surface, which made it the last ADR 4 (was 0011)
     round-trip gap (epic #574). Its absence was load-bearing rather than cosmetic: a
     `RotationalFeature` carries planned dimensions (`od`, each `bore`), so a generated script
     could not name them, and the dimension mirror fell back to `auto_dimensions()` for the
@@ -2095,7 +2095,7 @@ def _envelope_from_bbox(bb) -> EnvelopeFeature:
     )
 
 
-# -- GD&T aspect targets (ADR 0011 P2c, #479) -------------------------------------
+# -- GD&T aspect targets (ADR 4 (was 0011) P2c, #479) -------------------------------------
 # The P2b IR items (ControlFrame/DatumRef/Finish) carry (view, side, site) explicitly.
 # These constructors DERIVE that target from a reference — an IR feature (site = its axis)
 # or a build123d planar face (site = its centre, axis = its normal) — the geometric work
@@ -2239,7 +2239,7 @@ def _surface_target(ref, part=None, *, view=None, side=None) -> tuple[str, str, 
 
 
 def datum(letter: str, ref, part=None, *, view=None, side=None) -> DatumRef:
-    """A datum feature symbol (ISO 5459) on *ref* — a feature or a planar face (ADR 0011 P2c)."""
+    """A datum feature symbol (ISO 5459) on *ref* — a feature or a planar face (ADR 4 (was 0011) P2c)."""
     if not (isinstance(letter, str) and letter.strip()):
         raise ValueError(f"datum needs a non-empty letter (got {letter!r})")
     v, s, site, axis = gdt_target(ref, part, view=view, side=side)
@@ -2267,8 +2267,8 @@ def note(
     satisfies: tuple[DimensionParameterId, ...] = (),
 ) -> Note:
     """A free-text manufacturing note (#488) on a leader to *ref* — a feature or a planar face
-    (ADR 0011 P2c). The shop callouts detection can't infer: thread specs (``M3x0.5 TAP``),
-    ``DEBURR``, chip-relief, knurl. Placed like the GD&T items (a first-class ADR 0009 corridor
+    (ADR 4 (was 0011) P2c). The shop callouts detection can't infer: thread specs (``M3x0.5 TAP``),
+    ``DEBURR``, chip-relief, knurl. Placed like the GD&T items (a first-class ADR 2 (was 0009) corridor
     candidate), not the dimension planner. ``satisfies`` explicitly names canonical
     measurement roles that this note carries; the claim takes effect only if the note is
     placed, and is never inferred by parsing its prose (#1351)."""
@@ -2300,7 +2300,7 @@ def control_frame(
     side=None,
 ) -> ControlFrame:
     """A geometric-tolerance feature control frame (ISO 1101) on *ref* — a feature or a planar
-    face (ADR 0011 P2c.2). *characteristic* is a lowercase ISO 1101 name (``"position"`` …);
+    face (ADR 4 (was 0011) P2c.2). *characteristic* is a lowercase ISO 1101 name (``"position"`` …);
     *datums* the referenced datum letters; *diameter* prefixes the zone with ``⌀``; *modifier*
     a material-condition symbol (``"M"``/``"L"``/``"P"``)."""
     tol = str(tolerance).strip()

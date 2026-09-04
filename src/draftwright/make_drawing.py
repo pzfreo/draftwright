@@ -1,4 +1,4 @@
-"""Compat facade: the engine split into stage modules (#138 / ADR 0005).
+"""Compat facade: the engine split into stage modules (#138 / ADR 1 (was 0005)).
 
 The `Drawing` result object now lives in `drawing.py`; build orchestration
 (`build_drawing`/`make_drawing`) in `builder.py`; the `_cli`

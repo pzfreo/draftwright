@@ -1,4 +1,4 @@
-"""ADR 0013 recogniser-contract tests.
+"""ADR 3 (was 0013) recogniser-contract tests.
 
 Enforces the uniform contract mechanically (epic #584 WP3):
 
@@ -569,7 +569,7 @@ def test_frozen_records_reject_mutation():
 
 
 def test_part_based_recognisers_are_keyword_only_after_part():
-    """Part-based recognisers take ``part`` then keyword-only args (ADR 0013)."""
+    """Part-based recognisers take ``part`` then keyword-only args (ADR 3 (was 0013))."""
     for fn in (
         recognise_holes,
         recognise_bosses,
@@ -604,7 +604,7 @@ def test_part_based_recognisers_are_keyword_only_after_part():
 def test_cylinder_substrate_is_injectable():
     """#703: the three turned-stock recognisers accept a precomputed
     ``analyse_cylinders`` result (``cyls=``) and return identical records to a
-    self-scan — the caller owns the one scan (ADR 0013 §2 / ADR 0008 Am5),
+    self-scan — the caller owns the one scan (ADR 3 (was 0013 §2) / ADR 1 (was 0008 Am5)),
     mirroring ``recognise_holes``/``recognise_bosses``."""
     dshaft = Cylinder(10, 30) - Pos(10, 0, 0) * Box(10, 40, 40)
     grooved = Cylinder(10, 40) - (Cylinder(10, 4) - Cylinder(8, 4))

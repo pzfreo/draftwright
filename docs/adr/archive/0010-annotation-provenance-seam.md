@@ -1,5 +1,8 @@
 # ADR 0010 — Annotation provenance: record intent → annotation once, at the render seam
 
+> **Archived 2026-09-04.** Frozen history; the current decision is [ADR 5 — Trust and honest failure](../0005-trust-and-honest-failure.md). Nothing here is a work instruction.
+
+
 - **Status:** Accepted; **landed** (Amendment 2, 2026-07-13) — annotation → feature
   provenance is complete + audit-tested; the per-feature `origin` back-link (decision
   point 1) was superseded by the render seam and never built. Re-planned #398c–e; #400.

@@ -6,7 +6,7 @@ render. So the *same* sheet linted twice produced different message text, and an
 consumer diffing lint between two renders saw a change that does not exist in the
 drawing.
 
-ADR 0006 makes the same argument about layout: a drawing must not depend on incidental
+ADR 5 (was 0006) makes the same argument about layout: a drawing must not depend on incidental
 state of the process that produced it. A diagnostic is no different — it is read by
 tooling, and the epic in #1202 diffs lint between runs as its core loop, which cannot
 work while every run disagrees with itself.
@@ -106,7 +106,7 @@ def _part():
     holed part on A3/A4 produces none of them, and an earlier draft of this test used
     one and asserted nothing.
 
-    NOTE for whoever lands ADR 0018 / #1130: this fixture works *because* the sheet is
+    NOTE for whoever lands ADR 2 (was 0018) / #1130: this fixture works *because* the sheet is
     badly composed — the plan view runs 73 mm off the drawable area and `side` overlaps
     `iso`. Requirement-driven view planning is meant to remove exactly that, at which
     point these tests lose their subject and fail loudly (their preconditions are hard

@@ -1,5 +1,8 @@
 # ADR 0011 — The IR as a public input: declare features, don't only detect them
 
+> **Archived 2026-09-04.** Frozen history; the current decision is [ADR 4 — Declared intent](../0004-declared-intent.md). Nothing here is a work instruction.
+
+
 - **Status:** Accepted; core landed, with #62/#462/#495 remaining under roadmap #446 (see Amendment 2).
 - **Phase 2 plan:** [`docs/plans/0011-phase2-aspects-roadmap.md`](../plans/0011-phase2-aspects-roadmap.md).
 - **Amendment 1** (2026-07-05): the three authoring modes + the **mode-3 generation surface**

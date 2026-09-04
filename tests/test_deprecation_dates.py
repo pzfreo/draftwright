@@ -1,4 +1,4 @@
-"""Every deprecation names when it goes (#987 / ADR 0005 §4).
+"""Every deprecation names when it goes (#987 / ADR 1 (was 0005 §4)).
 
 §4's rule is that a compat surface carries a tracking issue *and* a removal target, because
 "a facade with no exit date is a failure mode, not a success". #720 applied that to seven
@@ -107,7 +107,8 @@ def test_every_deprecation_names_its_removal() -> None:
     assert not bad, (
         'deprecation(s) with no removal target — give each a version ("Removed in 0.5.0") or '
         'a gated target ("Removal gated on #707; target 0.6.0") in the message the CALLER sees, '
-        "and add a row to docs/deprecations.md (#987 / ADR 0005 §4):\n  " + "\n  ".join(bad)
+        "and add a row to docs/deprecations.md (#987 / ADR 1 (was 0005 §4)):\n  "
+        + "\n  ".join(bad)
     )
 
 

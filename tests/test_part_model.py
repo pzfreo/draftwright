@@ -1,4 +1,4 @@
-"""Tests for the part-drawing compiler IR (ADR 0008).
+"""Tests for the part-drawing compiler IR (ADR 1 (was 0008)).
 
 Proves the architecture's claims on real geometry:
 1. Diverse features (holes + turned steps + bosses), from different detectors,
@@ -295,7 +295,7 @@ class TestOpenClosed:
 
 
 def test_feature_detection_runs_once_per_build(monkeypatch):
-    """ADR 0008 Amendment 5 / #244 — one aggregate inventory per build.
+    """ADR 1 (was 0008 Amendment 5) / #244 — one aggregate inventory per build.
 
     The recogniser package owns its internal family orchestration; Draftwright's contract is
     the single public ``build_recognition_evidence`` acquisition whose result every consumer

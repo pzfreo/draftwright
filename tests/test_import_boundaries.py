@@ -1,4 +1,4 @@
-"""Import-boundary guards — the whole-package DAG, machine-enforced (#640 / ADR 0005/0008).
+"""Import-boundary guards — the whole-package DAG, machine-enforced (#640 / ADR 1 (was 0005/0008)).
 
 CLAUDE.md's **## Architecture** section declares a layered DAG: leaf modules →
 ``_core`` → the core-consumers (``linting``/``pmi``/``export``/``repair``/``projection``/
@@ -76,7 +76,7 @@ _LAYERS: dict[str, int] = {
     "fonts": 0,
     "layout": 0,
     "registry": 0,
-    # ADR 0018's view representation: describes views, imports nothing that draws them.
+    # ADR 2 (was 0018)'s view representation: describes views, imports nothing that draws them.
     "view_plan": 0,
     "intents": 0,
     "recognition": 0,
@@ -97,7 +97,7 @@ _LAYERS: dict[str, int] = {
     # construction — it imports nothing from the engine, so the thing it measures can never
     # come to depend on it.
     "audit": 0,
-    "model": 0,  # the ADR 0008 IR waist — depends only on rank-0 leaves (guarded below too)
+    "model": 0,  # the ADR 1 (was 0008) IR waist — depends only on rank-0 leaves (guarded below too)
     # 1 — the shared drawing/layout primitives
     "_core": 1,
     # 2 — core-consumers: depend on _core, sit below the stages
@@ -390,7 +390,7 @@ def test_lazy_upward_imports_are_documented():
                 offenders.append(f"{sm} → {tsm} (lazy, upward)")
     assert not offenders, (
         "Undocumented upward lazy import(s) — a lazy cycle-breaker must be recorded in "
-        f"_LAZY_UPWARD_EXEMPT with a reason (ADR 0005; #640): {offenders}"
+        f"_LAZY_UPWARD_EXEMPT with a reason (ADR 1 (was 0005); #640): {offenders}"
     )
 
 
@@ -464,10 +464,10 @@ _MODEL_MAY_IMPORT = {
     "plate_correspondence",
     "recognition",
     "recognition_frame",
-    # ADR 0017 Amendment 12: detect records exact run-local occurrence→IR ownership at the
+    # ADR 3 (was 0017 Amendment 12): detect records exact run-local occurrence→IR ownership at the
     # conversion site. The leaf ledger depends on neither the model nor any upper stage.
     "recognition_ownership",
-    # ADR 0018: the dimension planner resolves requirement ownership against the selected
+    # ADR 2 (was 0018): the dimension planner resolves requirement ownership against the selected
     # semantic view set.  `view_plan` is a rank-0, drawing-independent leaf.
     "view_plan",
 }
@@ -510,7 +510,7 @@ def test_model_imports_only_allowed_leaves():
             relatives[path.name] = relative
     assert not offenders, (
         "model/ (the IR waist) may only import leaf modules "
-        f"{sorted(_MODEL_MAY_IMPORT)} (ADR 0008; #584 WP2). Disallowed: {offenders}"
+        f"{sorted(_MODEL_MAY_IMPORT)} (ADR 1 (was 0008); #584 WP2). Disallowed: {offenders}"
     )
     assert not relatives, (
         "model/ must use absolute imports so the boundary guard can resolve them "
@@ -526,7 +526,7 @@ def test_geometry_is_a_leaf():
 
 
 def test_linting_does_not_import_model():
-    """``linting/`` must not import ``draftwright.model`` (ADR 0015's lint/coverage
+    """``linting/`` must not import ``draftwright.model`` (ADR 1 (was 0015)'s lint/coverage
     carve-out): coverage reads recognised geometry + the placed drawing for ground
     truth, never the dimensioning IR — sourcing coverage from the plan would be
     circular (a feature the planner omitted would never be flagged). The general
@@ -536,7 +536,7 @@ def test_linting_does_not_import_model():
         submodules, _ = _draftwright_imports(path)
         assert "model" not in submodules, (
             f"{path.name} imports draftwright.model — the lint/coverage carve-out "
-            "(ADR 0015) forbids IR coupling in linting/"
+            "(ADR 1 (was 0015)) forbids IR coupling in linting/"
         )
 
 

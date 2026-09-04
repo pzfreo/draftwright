@@ -1,4 +1,4 @@
-"""Layout-cleanliness invariants for the ADR 0009 strip-layout refactor (#319/#301).
+"""Layout-cleanliness invariants for the ADR 2 (was 0009) strip-layout refactor (#319/#301).
 
 Two *property* guards over the snapshot corpus, pulled forward ahead of the
 terminal P5 phase so they protect every output-changing phase (P1b–P4) as it
@@ -14,7 +14,7 @@ lands:
    `#133/#225/#305` blind-spot class. Scoping mirrors ``strip_obstacles``: same-view
    pairs AND any pair involving a drawing-level (``view_of`` ``None``) occupant — the
    section hatch/arrows a per-view strip solve must still avoid; distinct ortho views
-   are disjoint by ADR 0004 and out of scope. This invariant is the *end state* ADR 0009
+   are disjoint by ADR 2 (was 0004) and out of scope. This invariant is the *end state* ADR 2 (was 0009)
    converges to, and it is **not yet globally true**: HEAD still has the exact
    defect overlaps P1b/P4 exist to remove. So it is expressed as a *ratchet* — the
    observed overlap set must equal :data:`_KNOWN_OVERLAPS` exactly:
@@ -57,7 +57,7 @@ _TOL_MM = 0.5
 # of the two annotation names}}. Three kinds:
 #   BENIGN            = permanent (shared-datum witness corridors of a dimension chain).
 #   SPACE-CONSTRAINED = a real crossing that placement cannot clear without dropping a
-#                       dim; kept under policy B until an outer-layout rescale (ADR 0004).
+#                       dim; kept under policy B until an outer-layout rescale (ADR 2 (was 0004)).
 #   PENDING <issue>   = a real invisible-occupant defect the named phase removes (delete
 #                       the entry in that PR).
 _KNOWN_OVERLAPS: dict[str, set[frozenset[str]]] = {
@@ -123,8 +123,8 @@ def _observed_overlaps(dwg) -> set[frozenset[str]]:
     View scoping mirrors :func:`strip_obstacles`: a drawing-level occupant
     (``view_of`` is ``None`` — section hatch/arrows, title block) is present in
     EVERY per-view query, so it is compared against every view; two *different*
-    ortho views are kept disjoint by compose-then-pack (ADR 0004) so are not
-    compared here (that cross-view class is ADR 0004's concern, not ADR 0009's).
+    ortho views are kept disjoint by compose-then-pack (ADR 2 (was 0004)) so are not
+    compared here (that cross-view class is ADR 2 (was 0004)'s concern, not ADR 2 (was 0009)'s).
     Named annotations only — like ``strip_obstacles``, which iterates
     ``iter_annotations`` (unnamed items contribute to the determinism ``item_count``
     but carry no position guard; production places none through the strip stage)."""
@@ -185,7 +185,7 @@ def _observed_overlaps(dwg) -> set[frozenset[str]]:
             if not bs2 or t2 in CROSSABLE_TYPES:
                 continue
             if not (v1 == v2 or v1 is None or v2 is None):
-                continue  # two distinct ortho views → disjoint blocks (ADR 0004)
+                continue  # two distinct ortho views → disjoint blocks (ADR 2 (was 0004))
             if any(
                 _overlaps(b1, b2, _TOL_MM) and not _benign_crossing(d1, d2)
                 for b1, d1 in bs1

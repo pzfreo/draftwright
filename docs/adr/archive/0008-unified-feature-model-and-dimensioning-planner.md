@@ -1,5 +1,8 @@
 # ADR 0008 — The part-drawing compiler: a Feature/DimParameter IR and a dimensioning planner
 
+> **Archived 2026-09-04.** Frozen history; the current decision is [ADR 1 — The compiler pipeline](../0001-compiler-pipeline.md). Nothing here is a work instruction.
+
+
 - **Status:** **Superseded by [ADR 0015](0015-part-drawing-compiler-as-built.md)**
   (2026-07-18, #697). After 8 amendments — two of which existed only as status
   bullets, and a "Current decision" section predating the last of them — 0015

@@ -5,7 +5,7 @@ the IR), or do pure page-plane maths (AABB overlap, segment/box intersection,
 number formatting — the #700 shared home), and carry no drawing, layout or page
 knowledge. They live here, not in :mod:`draftwright._core`, so the IR waist
 (:mod:`draftwright.model`) can use them without importing the stage-level
-drawing grab-bag (ADR 0008; #584 WP2). This module imports nothing from
+drawing grab-bag (ADR 1 (was 0008); #584 WP2). This module imports nothing from
 ``draftwright`` — it is the bottom of the DAG.
 """
 
@@ -27,7 +27,7 @@ _log = logging.getLogger(__name__)
 # a circle in plan, an x-channel is a cross-section in side.
 #
 # The ONE owner of that routing. It was duplicated as a bare literal at eight sites across
-# six modules, which is ADR 0018's own sentence about itself — "which views should exist is
+# six modules, which is ADR 2 (was 0018)'s own sentence about itself — "which views should exist is
 # a decision nothing currently owns" — in miniature: a mapping copied eight times cannot be
 # taught that a view is absent, and the engine's answer to a missing view was a `KeyError`
 # raised inside a centermark pass. Route through this, never re-spell it (#1130).
@@ -47,7 +47,7 @@ _VIEW_AXES = {"plan": ("x", "y"), "front": ("x", "z"), "side": ("y", "z")}
 
 # Turned-part classification is shared by the full analysis pipeline and the standalone
 # record-to-IR adapter.  Keeping it below both prevents the adapter from probing the turned-step
-# recogniser before the aggregate merely to obtain an applicability flag (ADR 0017).
+# recogniser before the aggregate merely to obtain an applicability flag (ADR 3 (was 0017)).
 _SQUARENESS_TOL = 0.05
 _OD_FILL_MIN = 0.8
 _OD_AXIS_TOL = 0.05
@@ -359,7 +359,7 @@ def _xyz(loc) -> tuple[float, float, float]:
 class HoleRef:
     """A position-keyed reference to a hole — the IR-typed value the cover / hole-table
     bookkeeping matches on, so the shared escalation never needs a recogniser ``Hole``
-    object (ADR 0008 Amendment 6). Built from any location via :meth:`of` (rounded, so
+    object (ADR 1 (was 0008 Amendment 6)). Built from any location via :meth:`of` (rounded, so
     two references at the same position compare equal)."""
 
     x: float
@@ -598,7 +598,7 @@ def _boxes_overlap(a, b) -> bool:
 def _segment_crosses_box(p1, p2, box) -> bool:
     """True when line segment *p1*-*p2* intersects axis-aligned *box*
     ``(x0, y0, x1, y1)`` — the precise counterpart of ``_box_hits`` for a
-    genuinely diagonal shaft (ADR 0009 P4/#318, #305: "a diagonal leader's box
+    genuinely diagonal shaft (ADR 2 (was 0009) P4/#318, #305: "a diagonal leader's box
     over-claims its empty triangle"). Boxing an angled segment for a coarse
     reject is correct and cheap; boxing it for the final accept/reject decision
     over-avoids free space a real diagonal never crosses. Endpoint-in-box and
@@ -836,7 +836,7 @@ def _leader_ink_crosses_box(
 # The field is a bounded set of page-plane triangles — the caller lowers the projected
 # view faces (that half needs OCC and lives above this leaf). Everything below is exact
 # rational-arithmetic clipping: no rasterisation, no sampling, no tolerance sweep, so
-# the answer is identical on every platform (ADR 0001).
+# the answer is identical on every platform (ADR 4 (was 0001)).
 
 #: Page mm of material below which a shaft is not treated as cutting the part.
 #:

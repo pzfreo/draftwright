@@ -17,7 +17,7 @@ Format 1 currently proves independent `holes`, `countersinks`, `hole-patterns`,
 `pockets`, `pocket-patterns`, `grooves`, `rectangular-pads`, `polygonal-bosses`, `plates`,
 `chamfers` and `fillets` vertical slices. Each observer reads released `b123d-recognisers`
 geometry records, builds one drawing, and reads all four downstream outcomes from that build
-through the public IR, `Sheet`, generated-code and ADR 0010 provenance seams.
+through the public IR, `Sheet`, generated-code and ADR 5 (was 0010) provenance seams.
 
 Since #1217 that outcome comes from the engine's own requirement ledger
 (`linting.hole_coverage.hole_requirement_outcomes`) rather than from a second correspondence

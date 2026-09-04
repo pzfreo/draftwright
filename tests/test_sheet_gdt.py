@@ -1,4 +1,4 @@
-"""Sheet declarative GD&T aspect verbs — P2c.1: `.finish()` + `sheet.datum()` (ADR 0011 #479).
+"""Sheet declarative GD&T aspect verbs — P2c.1: `.finish()` + `sheet.datum()` (ADR 4 (was 0011) #479).
 
 The fluent surface over the P2b render core: point at a feature or a build123d planar face,
 declare a surface finish / datum symbol, and the target view + strip side are DERIVED from the

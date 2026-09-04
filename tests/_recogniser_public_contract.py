@@ -87,7 +87,7 @@ def public_record_return_types(annotation: object, *, source: str) -> set[type]:
     """Validate and return the records in one public emitter's return annotation.
 
     Non-record returns are outside this contract and contribute nothing. Once a public record
-    occurs anywhere in the annotation, however, ADR 0013's emitter grammar is strict: the
+    occurs anywhere in the annotation, however, ADR 3 (was 0013)'s emitter grammar is strict: the
     top-level shape is ``list[...]`` and every list member is a public record class.
     """
 

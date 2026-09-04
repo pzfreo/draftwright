@@ -1,5 +1,8 @@
 # ADR 0015 — The part-drawing compiler, as built
 
+> **Archived 2026-09-04.** Frozen history; the current decision is [ADR 1 — The compiler pipeline](../0001-compiler-pipeline.md). Nothing here is a work instruction.
+
+
 - **Status:** Accepted. **Supersedes [ADR 0008](0008-unified-feature-model-and-dimensioning-planner.md).**
 - **Amendment 1** (2026-07-19): the migrations tracked by planner-convergence
   epic #698 are complete. The remaining model-routed passes are classified

@@ -1,5 +1,8 @@
 # ADR 0004 — Compose-then-pack: views as blocks carrying their annotation footprint
 
+> **Archived 2026-09-04.** Frozen history; the current decision is [ADR 2 — Sheet layout and view planning](../0002-sheet-layout-and-view-planning.md). Nothing here is a work instruction.
+
+
 - **Status:** Accepted (2026-06-19; amended 2026-06-20, 2026-07-09,
   2026-07-18, 2026-08-14, 2026-08-23 and 2026-08-25 — see Amendments). **Its fixed four-view topology
   assumption is superseded by [ADR 0018](0018-requirement-driven-view-planning-and-editable-sheet-layout.md)

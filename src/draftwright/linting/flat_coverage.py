@@ -113,7 +113,7 @@ def flat_requirement_outcomes(
     if not physical:
         return []
 
-    # Linting's ADR 0015 carve-out forbids importing the model package. The model remains
+    # Linting's ADR 1 (was 0015) carve-out forbids importing the model package. The model remains
     # downstream evidence, not the physical inventory, and is read through the same duck-typed
     # boundary as the other coverage checks.
     ir_by_requirement: dict[_FlatRequirementKey, list] = defaultdict(list)

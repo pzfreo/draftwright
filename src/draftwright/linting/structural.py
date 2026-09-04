@@ -1,6 +1,6 @@
 """structural — duck-typed structural lint of a composed annotation list.
 
-Vendored from ``build123d_drafting.helpers`` (ADR 0007: draftwright owns
+Vendored from ``build123d_drafting.helpers`` (ADR 3 (was 0007): draftwright owns
 linting; helpers is the rendering library). ``lint_drawing`` dispatches by
 attribute presence, not type, so it needs no import of the drawing-object
 classes. Page bounds are passed explicitly by the caller (``page_bbox``); the
@@ -34,7 +34,7 @@ _MATERIAL_REENTRY_FLOOR = MATERIAL_VISIBLE_FLOOR
 _log = logging.getLogger(__name__)
 
 # Inert: draftwright always passes page_bbox explicitly (the set_page global
-# coupling is severed, ADR 0007). Kept so the vendored body is a faithful copy.
+# coupling is severed, ADR 3 (was 0007)). Kept so the vendored body is a faithful copy.
 _DRAWING_PAGE = None
 
 
@@ -189,7 +189,7 @@ def _label_reading(item, label: str) -> float | None:
     So the producer says which. The one per-unit renderer sets ``_dw_label_value`` to the
     number the ``N×`` multiplies — carried from ``ApprovedDimension.value``, so lint reads
     the compiler's own number rather than re-deriving a convention from the rendered string
-    (ADR 0016 Amendment 1). Everything else means what its label says.
+    (ADR 4 (was 0016 Amendment 1)). Everything else means what its label says.
 
     An earlier cut returned BOTH readings for every untagged ``N× v`` and let a dimension
     pass if it matched either. That silently disabled the check on the four
@@ -818,7 +818,7 @@ def _lint_view_shapes(
 
     # #796/#798 — leader shaft cuts back through the part body. Measured against the
     # build's FILLED projected material (`Drawing.material_fields`), the same lowering
-    # ADR 0014 leader routing solves against, so the notice and the router cannot reach
+    # ADR 2 (was 0014) leader routing solves against, so the notice and the router cannot reach
     # opposite verdicts on one shaft.
     #
     # The predicate is re-entry, not crossing: a leader is attached to the feature it
@@ -983,7 +983,7 @@ def _label_centerline_overlap(dim_item, cl_item, box_cache=None, warned=None):
     lmin_x, lmin_y, lmax_x, lmax_y = label_bbox
 
     # A diagonal or elbowed centreline's aggregate AABB contains a large empty
-    # triangle. ADR 0009 makes its real components authoritative for BOTH the hit
+    # triangle. ADR 2 (was 0009) makes its real components authoritative for BOTH the hit
     # gate and the reported magnitude: a remote shaft must not inflate a 0.1 mm
     # ring-edge touch into a legibility warning.
     segments = getattr(

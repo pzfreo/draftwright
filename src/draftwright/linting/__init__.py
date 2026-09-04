@@ -1,4 +1,4 @@
-"""Linting for draftwright drawings (ADR 0007).
+"""Linting for draftwright drawings (ADR 3 (was 0007)).
 
 draftwright owns linting; ``build123d-drafting-helpers`` is the rendering
 library. This package is the single home for it:

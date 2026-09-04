@@ -7,7 +7,7 @@ observations, while the benchmark case supplies the denominator and tolerances.
 Every downstream boundary is OBSERVED through its real seam (#1369), never copied from the
 capability declaration: the built ``PartModel`` for ``ir_adapter``; an explicit public
 ``Sheet.hole`` declaration for ``dsl_declaration``; an executed ``emit_sheet_script`` result
-for ``generated_code``; and the placed drawing's ADR 0010 measurement provenance for
+for ``generated_code``; and the placed drawing's ADR 5 (was 0010) measurement provenance for
 ``drawing_consumer``.  The existing hole-requirement ledger supplies one conservative
 recognition-to-IR correspondence implementation for all four observations.  It is a join, not
 the benchmark denominator: the independently authored corpus remains the only source of
@@ -86,7 +86,7 @@ station. Length and diameter are independently scored parameters and drawing req
 band uniquely owned by a correlated groove remains solely in the groove denominator; ambiguous
 nested/coaxial groove ownership is refused under the provider contract rather than guessed.
 
-Known limit of the drawing observation: it reads the ADR 0010 provenance seam, which
+Known limit of the drawing observation: it reads the ADR 5 (was 0010) provenance seam, which
 ``registry.measurement_of`` carries and which is populated one render pass at a time (the set
 of tagged renderers is enumerated by ``tests/test_audit_differential.py``, not by prose here —
 that docstring warns the prose version was wrong when first written). An un-tagged render pass
@@ -799,7 +799,7 @@ def _drawing_consumer_outcomes(holes, drawing) -> list[Outcome]:
     The cause was never the name. When this was written no annotation on that sheet carried a
     measurement claim at all — not ``ldr_z0`` (``ø12``), not ``dim_od`` (``ø40``), not
     ``dim_height`` — while the compiled plan did hold ``hole.bore.diameter`` and
-    ``rotational.od.diameter``: the rotational render path threaded no ADR 0010 provenance.
+    ``rotational.od.diameter``: the rotational render path threaded no ADR 5 (was 0010) provenance.
     #1225 fixed the threading, so ``ldr_z0`` and ``dim_od`` now claim and both confirm; only
     ``dim_height`` still carries none, and that one is #1230 rather than a tagging gap.
 
@@ -833,7 +833,7 @@ def _drawing_consumer_outcomes(holes, drawing) -> list[Outcome]:
     # NOT just `value_absent`. `supported` is meant to mean the annotation carrying the size
     # renders it, so anything short of `confirmed` fails that: an `unreadable` annotation
     # draws no text at all, and an `unresolved` one claims a measurement the compiler never
-    # approved (the ADR 0016 Amdt 1 violation). Crediting either was the PR body's own
+    # approved (the ADR 4 (was 0016 Amdt 1) violation). Crediting either was the PR body's own
     # sentence — "and the annotation carrying it renders that value" — being false of the
     # code beneath it (#1223 review).
     unconfirmed = {
@@ -4402,7 +4402,7 @@ def _default_observers() -> Mapping[str, Observer]:
         from draftwright.builder import build_drawing
 
         # ONE drawing per fixture, and ONE recognition: the records scored here come from
-        # the build's own aggregate (ADR 0017's single owner per run), not a second
+        # the build's own aggregate (ADR 3 (was 0017)'s single owner per run), not a second
         # `build_raw_recognition_result` call, so the facts being scored and the features they
         # are matched against cannot come from different recognition runs.
         try:

@@ -5,7 +5,7 @@ The add verbs (`callout`/`locate`/`furniture`/`dimension`/`section`/`rotational`
 (``_defer_intents``), each verb records an :class:`Intent` instead of placing, and
 ``Drawing.finalize()`` drains the recorded list.
 
-This is the explicit low IR the layout optimizer is missing (ADR-0009 collect-then-solve
+This is the explicit low IR the layout optimizer is missing (ADR 2 (was 0009) collect-then-solve
 is per-strip; #426 lifts it to the whole drawing). Phase 1 records intents and replays
 them through the existing live helpers — byte-identical to placing live. Later phases
 drain the recorded set through the shared ``_auto_annotate`` orchestration so a

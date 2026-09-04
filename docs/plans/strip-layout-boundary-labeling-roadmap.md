@@ -1,6 +1,6 @@
 # Strip-layout boundary-labeling roadmap
 
-Execution roadmap for [ADR 0009](../adr/0009-boundary-labeling-strip-placement.md)
+Execution roadmap for [ADR 2 (was 0009)](../adr/archive/0009-boundary-labeling-strip-placement.md)
 (collect-then-solve per-strip annotation placement). Research backing:
 [`research/annotation-placement-boundary-labeling.md`](../research/annotation-placement-boundary-labeling.md).
 Tracking issue: **#320**. Each phase below is a GitHub issue; each phase is one PR
@@ -10,11 +10,11 @@ Tracking issue: **#320**. Each phase below is a GitHub issue; each phase is one 
 
 A view's annotations are placed into **strips** by several imperative passes that
 share a strip but not an occupancy model, so they overprint each other in ways no
-single placer can see (#133, #225, #305). ADR 0009 inverts the control flow:
+single placer can see (#133, #225, #305). ADR 2 (was 0009) inverts the control flow:
 every strip occupant is **collected** as a candidate, **solved** as one
 boundary-labeling instance per strip (select → assign → order = feature order ⇒
 crossing-free → space), then **emitted**. This removes the invisible-occupant
-collision class by construction while keeping determinism (ADR 0001).
+collision class by construction while keeping determinism (ADR 4 (was 0001)).
 
 ## Principles for every phase
 
@@ -177,7 +177,7 @@ Updated 2026-07-08.
     choice diverged across the CI matrix's two scipy builds (a determinism defect); PAVA
     is deterministic by construction, and `scipy` is dropped. Central/coaxial callouts
     are **anchored** (a dominating weight) so a tie can't slide them off the centre row.
-    ADR 0009 Amendments 3 (LP design, superseded) + 4 (PAVA + anchoring). Clean
+    ADR 2 (was 0009) Amendments 3 (LP design, superseded) + 4 (PAVA + anchoring). Clean
     adversarial review; the one finding was a doc contradiction, fixed.
   - **P4c — DONE (2026-07-02, #379):** folded the #305/#321 coaxial-lift (a pre-solve
     nudge that the P4b solve could re-crowd) into the solve as first-class **keep-out
@@ -187,7 +187,7 @@ Updated 2026-07-08.
     gated to prismatic parts (the centre-line band and the central anchor are opposites,
     mutually exclusive by part class). Degrades gracefully to minimal band-intrusion (not
     a drop) on a strip too shallow to clear a band — policy B. `_coaxial_lift` deleted.
-    ADR 0009 Amendment 5. (The literal "≥30° penalty" framing was reduced to its actual
+    ADR 2 (was 0009 Amendment 5). (The literal "≥30° penalty" framing was reduced to its actual
     cause — keep the text off specific crossing rows — which the band model expresses
     exactly.)
 

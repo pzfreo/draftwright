@@ -1,4 +1,4 @@
-"""Hole / pattern annotation pass (#138 / ADR 0005, P5d).
+"""Hole / pattern annotation pass (#138 / ADR 1 (was 0005), P5d).
 
 The largest annotation capability: per-hole callouts and balloons, location
 dimensions (incl. side-drilled #133), pitch/grid pattern dims, hole-chart
@@ -538,7 +538,7 @@ def add_feature_diameter(dwg, feature, model, *, ctx) -> str:
         )
     # 7-tuple (anchor, dia, value_text, feature, tolerance, thread, mids): a manual callout
     # honours the compiler-approved display text, a declared ± tolerance (P2a, #28), and an
-    # external thread aspect (#859), like the auto-pass — and carries the same ADR 0010 claim,
+    # external thread aspect (#859), like the auto-pass — and carries the same ADR 5 (was 0010) claim,
     # so a hand-placed ø callout is verifiable on exactly the terms an auto-placed one is
     # (#1227).
     items = [
@@ -648,7 +648,7 @@ def _record_callout_drop(
         source=getattr(callout, "source_ids", ()),
         outcome_stage=outcome_stage,
     )
-    # First-class escalation object alongside the lint code (ADR 0009 Amdt 1, #351 PR-2).
+    # First-class escalation object alongside the lint code (ADR 2 (was 0009 Amdt 1), #351 PR-2).
     # The resolver (`_maybe_tabulate_holes`) triggers on these; the lint code stays for
     # coverage. 1:1 with the code emit, so the object trigger is byte-identical.
     ctx.escalations.append(
@@ -1187,7 +1187,7 @@ def _locate_off_axis_holes(dwg, ctx, a: Analysis, *, which, plan):
     its Z to the right — the side view has no left strip); a Y-axis hole is a
     circle in the FRONT view (locate its X below and its Z to the right). Each
     view's strip is carved around the annotations already placed on it and the dims
-    are spaced within the free segments by one ``plan_strip`` solve (ADR 0009 / #321
+    are spaced within the free segments by one ``plan_strip`` solve (ADR 2 (was 0009) / #321
     P1b — the collect-then-solve seam replacing the old ``allocate`` + ``_box_hits``
     tier-retry). A dim that finds no room is dropped and recorded as
     ``off_axis_location_dropped`` — never force-stacked. Holes already covered by a
@@ -1254,11 +1254,11 @@ def _add_furniture(
 ):
     """Pattern sheet furniture, added once its callout is placed (#92). Driven by the
     IR `PatternFeature` *feat* (members / bcd / pitch / grid), not a recogniser
-    `Pattern` — ADR 0008 Amendment 6. Plain (unpatterned) plan callouts carry no
+    `Pattern` — ADR 1 (was 0008 Amendment 6). Plain (unpatterned) plan callouts carry no
     furniture; their scattered-hole-table coverage is recorded at the emit site (not
     here) so it survives finalize's ``place_furniture=False`` (#426 Ph4c).
 
-    The split between what comes off the FEATURE and what comes off *plan* is the ADR 0016
+    The split between what comes off the FEATURE and what comes off *plan* is the ADR 4 (was 0016)
     rule, not a convenience: the bolt-circle centreline is furniture *geometry* sized by the
     physical circle, so it reads `feat.bcd` exactly as a centre mark reads its hole's
     diameter (#875); the pitch and grid dims PRINT a number, so their values are approved
@@ -1872,7 +1872,7 @@ def render_pocket_patterns(dwg, plan, a, *, ctx, only=None) -> int:
             dsfx=_tol_suffix(dpd.tolerance, draft),
         )
         # Anchor the one representative leader at the array CENTRE (feat.frame.origin) and
-        # attribute it to the pattern feature (ADR 0010 provenance).
+        # attribute it to the pattern feature (ADR 5 (was 0010) provenance).
         name = f"m_pocketpat_{feat.member_width_axis}{feat.member_long_axis}{i}"
         jobs.append(
             (
@@ -1902,7 +1902,7 @@ def render_pocket_patterns(dwg, plan, a, *, ctx, only=None) -> int:
         feat = g.facts
         # The visible ``N×`` is a physical grouping requirement, not decoration.  Retain
         # its structured value on the exact feature-owned callout so completeness and other
-        # consumers can verify the ink without parsing a label (ADR 0010/0016).
+        # consumers can verify the ink without parsing a label (ADR 5 (was 0010) / ADR 4 (was 0016)).
         dwg.registry.named(name).covers_count = feat.count
         members = feat.members or (feat.frame.origin,)
         pitch = g.dim(role="pitch")
@@ -1989,7 +1989,7 @@ def render_slot_patterns(dwg, plan, a, *, ctx, only=None) -> int:
             lsfx=_tol_suffix(lpd.tolerance, draft),
         )
         # Anchor the one representative leader at the array CENTRE (feat.frame.origin) and
-        # attribute it to the pattern feature (ADR 0010 provenance).
+        # attribute it to the pattern feature (ADR 5 (was 0010) provenance).
         name = f"m_slotpat_{feat.member_width_axis}{feat.member_long_axis}{i}"
         jobs.append(
             (
@@ -2158,7 +2158,7 @@ def _leader_anchors(s, edge, side, y, to_page, elbow_dx, draft, scale):
 
 def _build_leader_at(s, edge, side, y, to_page, elbow_dx, draft, scale):
     """The Leader a callout would draw for queue entry *s* at elbow-Y *y* — built but not
-    placed, so its footprint can be checked before committing (ADR 0009 P5 strand 3). Returns
+    placed, so its footprint can be checked before committing (ADR 2 (was 0009) P5 strand 3). Returns
     ``(leader, tip, elbow)``. Promoted (#638; pure)."""
     callout = s[2]
     tip, elbow = _leader_anchors(s, edge, side, y, to_page, elbow_dx, draft, scale)
@@ -2175,10 +2175,10 @@ def _build_leader_at(s, edge, side, y, to_page, elbow_dx, draft, scale):
 
 def _is_central(s, a, to_page, view_cx, view_cy, draft):
     """The coaxial hole whose callout belongs *on* the view-centre row, and so is anchored there
-    (ADR 0009 Amendment 4) — the exact minimum-leader spacing solve can't then slide it off
+    (ADR 2 (was 0009 Amendment 4)) — the exact minimum-leader spacing solve can't then slide it off
     centre on a tie. Prismatic parts only: on a turned/rotational round view the centre-line
     itself runs through this row, so the coaxial bore is pushed OFF it (the ``forbidden``
-    centreline band) — anchoring is gated off exactly when the centreline band is on (ADR 0009
+    centreline band) — anchoring is gated off exactly when the centreline band is on (ADR 2 (was 0009)
     Amendment 5, P4c). ``s[5]`` is the representative hole location. Promoted (#638; pure)."""
     rep = s[5]
     if rep is None or a.is_rotational or a.prof is not None:
@@ -2300,7 +2300,7 @@ def _carve_and_place(cands_in, intervals, key_prefix_local, ctx: _StripCtx, *, a
             anchored=_is_central(s, ctx.a, ctx.to_page, ctx.view_cx, ctx.view_cy, ctx.draft),
         )
 
-    # Selection (ADR 0009 P2) must be GLOBAL across every carved segment,
+    # Selection (ADR 2 (was 0009) P2) must be GLOBAL across every carved segment,
     # not per-segment — a candidate that overflows its nearest segment may
     # still fit a farther one with spare room (#381: the retired banded-DP
     # tried this but approximated feasibility by placed-count alone, which
@@ -2354,7 +2354,7 @@ def _assemble_view_callouts(a, view_of_axis, groups, feature_keys, only, draft):
     members are dimensioned; no recogniser Hole/Pattern object is used.
     """
     by_view: dict = {}
-    # Callout → source IR feature, for provenance (#408 / ADR 0010). The callout object
+    # Callout → source IR feature, for provenance (#408 / ADR 5 (was 0010)). The callout object
     # flows unchanged from here through the by_view/queue tuples to both emit sites, so an
     # id() map tags it there without threading a feature through the placement machinery.
     _feat_of_callout: dict[int, object] = {}
@@ -2675,7 +2675,7 @@ def _place_queue(
     # dense winners have downstream table/furniture semantics; profiled bores
     # retain their established cross-view compatibility until robust
     # silhouette-aware routing lands (#1187 — this deferred to #798, which closed
-    # WITHOUT delivering it; ADR 0018's "Why now" records that ten leaders still cut
+    # WITHOUT delivering it; ADR 2 (was 0018)'s "Why now" records that ten leaders still cut
     # the part after #798 and #1188, and #1187 is the live successor).  The shared late inventory is therefore for
     # compatible sparse ordinary-hole callouts only.
     model_features = getattr(getattr(ctx, "part_model", None), "features", ())
@@ -3010,7 +3010,7 @@ def _place_planside_callouts(
     view_cx = a.PV_X if view == "plan" else a.SV_X
     view_cy = a.PV_Y if view == "plan" else a.SV_Y
 
-    # Keep-out bands (ADR 0009 Amendment 5/9, P4c, #318/#381) `(centre, half_width)` — page rows
+    # Keep-out bands (ADR 2 (was 0009 Amendment 5)/9, P4c, #318/#381) `(centre, half_width)` — page rows
     # a callout's "⌀… ↓…" text may not sit on, folded into `_place_queue`'s obstacle carve so the
     # spacing solve avoids them by construction. Two causes, keyed on the crossing line:
     #  - location-dim extension-line rows where `_locate_off_axis_holes` will draw the off-axis

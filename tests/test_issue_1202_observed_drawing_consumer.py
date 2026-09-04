@@ -72,7 +72,7 @@ def _size_callouts(drawing):
     in #1217.
     """
     # `sorted`, because `registry.names()` is a set: callers index [0], so which annotation
-    # a test corrupts would otherwise vary per process (ADR 0006; `evidence.py` took the
+    # a test corrupts would otherwise vary per process (ADR 5 (was 0006); `evidence.py` took the
     # same fix one PR ago).
     return [
         name
@@ -87,7 +87,7 @@ class TestTheOutcomeIsReadOffTheDrawing:
 
     The stubs these tests used (`_StubDrawing`, `_StrippedDrawing`) emptied
     `annotations_of`, which the consumer no longer reads — it goes through the registry's
-    measurement provenance (ADR 0010). A stub of a seam the code has stopped using would
+    measurement provenance (ADR 5 (was 0010)). A stub of a seam the code has stopped using would
     have kept passing while testing nothing, which is this file's own founding lesson.
     """
 
@@ -152,7 +152,7 @@ class TestTheOutcomeIsReadOffTheDrawing:
         ],
     )
     def test_a_hole_the_ledger_cannot_join_is_unknown(self, fixture, expected):
-        # ADR 0017 states plainly that recognition-record -> IR-feature correspondence is
+        # ADR 3 (was 0017) states plainly that recognition-record -> IR-feature correspondence is
         # NOT yet provided. Where it fails the ledger says `unverifiable` and this says
         # `unknown` — which still scores as a MISS, so it is an honest label, not an
         # exemption. Pinned on real geometry: CTC-04 has eight such holes.

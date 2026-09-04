@@ -1,4 +1,4 @@
-"""Sheet corner-block tables — `sheet.table()` / `sheet.notes()` (ADR 0011 #488).
+"""Sheet corner-block tables — `sheet.table()` / `sheet.notes()` (ADR 4 (was 0011) #488).
 
 The declarative surface over the engine's generic auto-placed `Drawing.add_table` (the same
 machinery as the hole table): notes blocks / revision blocks / BOMs / schedules, positioned
@@ -264,10 +264,10 @@ def test_a_dropped_table_frees_its_name():
 
 
 def test_estimated_table_size_matches_rendered():
-    # #700: compose's table_fits fitness check (ADR 0004) sizes tables via
+    # #700: compose's table_fits fitness check (ADR 2 (was 0004)) sizes tables via
     # _est_table_size; the annotation pass renders them via _build_table. Both now
     # draw from the one _core._table_metrics — this pins estimator == rendered, the
-    # exact drift ADR 0004 names as the failure mode to guard against.
+    # exact drift ADR 2 (was 0004) names as the failure mode to guard against.
     from draftwright._core import _FONT_SIZE, _build_table, _wrap_rows, draft_preset
     from draftwright.compose import _est_table_size
 

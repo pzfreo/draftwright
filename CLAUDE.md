@@ -13,8 +13,8 @@ SVG/DXF/PDF/PNG.
 It sits on top of three Apache 2.0 libraries:
 - `build123d-drafting-helpers` — annotation primitives (`Dimension`, `Leader`,
   `HoleCallout`, …); the rendering library. Draftwright owns linting and drafting
-  policy (ADR 0007).
-- `b123d-recognisers` — deterministic geometry-only feature recognition (ADR 0013).
+  policy (ADR 3 (was 0007)).
+- `b123d-recognisers` — deterministic geometry-only feature recognition (ADR 3 (was 0013)).
 - `build123d` — the underlying CAD kernel.
 
 `AGENTS.md` is the "drive it correctly" usage guide; this file is the working map for
@@ -35,34 +35,34 @@ Compact map, bottom to top:
 
 - **Leaf modules** — `layout.py` (the deterministic placement solvers: 1D PAVA strip
   solve, `fit_box`, balloon band flow), `registry.py` (annotation identity/pins/issues),
-  `_geometry.py` (page-plane maths + the ADR 0014 Amdt 3 material field; the DAG's
-  bottom leaf), `fonts.py` (pinned IBM Plex, ADR 0006), `fits.py` (ISO 286),
-  `intents.py` (deferred-edit low IR), `recognition_cache.py` (ADR 0017 one-result
+  `_geometry.py` (page-plane maths + the ADR 2 (was 0014 Amdt 3) material field; the DAG's
+  bottom leaf), `fonts.py` (pinned IBM Plex, ADR 5 (was 0006)), `fits.py` (ISO 286),
+  `intents.py` (deferred-edit low IR), `recognition_cache.py` (ADR 3 (was 0017) one-result
   lifecycle), `recognition_ownership.py` (run-local accepted-occurrence outcomes, including
   final-IR binding, group/pattern absorption, and settled ownerless consumer policy),
   `plate_correspondence.py` (pure shared Plate-record/final-IR correspondence predicates),
   `recogniser_policy.py` (single Draftwright-owned unsupported/deferred/evidence-only policy),
   `recogniser_schema.py` (consumer-owned public record schema versions shared by validation and
   reporting),
-  `recognition_frame.py` (ADR 0020 prepared local-frame boundary and fail-closed
+  `recognition_frame.py` (ADR 3 (was 0020) prepared local-frame boundary and fail-closed
   body-local occurrence joins), `blend_contract.py` (strict released-Blend schema and
   occurrence identity),
   `_warnings.py`, and `_pmi_part21.py`.
 - **`_core.py`** — shared primitives: the `Analysis` namespace, dim/format helpers,
   page/slot/margin constants.
 - **Stage modules** — `analysis.py` (classification + one-shot feature inventory),
-  `projection.py` (HLR + material lowering), `compose.py` (the ADR 0004 outer
+  `projection.py` (HLR + material lowering), `compose.py` (the ADR 2 (was 0004) outer
   compose-then-pack layout), `export.py` (SVG→PDF→PNG chain, DXF), `repair.py`
-  (the ADR 0002 lint→repair safety net), `pmi.py` (STEP AP242 PMI), `linting/`
-  (draftwright-owned lint and recognition requirement ledgers, ADR 0007), `reporting.py`
+  (the ADR 5 (was 0002) lint→repair safety net), `pmi.py` (STEP AP242 PMI), `linting/`
+  (draftwright-owned lint and recognition requirement ledgers, ADR 3 (was 0007)), `reporting.py`
   (versioned projection over explicitly supplied finished-build state and those ledgers),
-  `model/` (the ADR 0015 IR waist: `ir`/`detect`/`planner`/`declare`/`compiled`),
+  `model/` (the ADR 1 (was 0015) IR waist: `ir`/`detect`/`planner`/`declare`/`compiled`),
   `drawing.py` (the `Drawing` result object; single-owner `BuildState`), and
   `annotations/` (the render passes; `orchestrator.py` owns `_PASS_SEQUENCE`, the one
   canonical stage order; `_common.py` owns the corridor solve + late-furniture seam).
 - **`builder.py`** — build orchestration: `build_drawing`, `make_drawing`.
 - **Facades / top layer** — `make_drawing.py` + `annotate.py` (thin compat),
-  `sheet.py` (the fluent `Sheet` facade, ADR 0011), `sheet_emit.py` (the `--script`
+  `sheet.py` (the fluent `Sheet` facade, ADR 4 (was 0011)), `sheet_emit.py` (the `--script`
   emitter), `cli.py` (Typer; engine imported lazily inside command bodies, #313),
   `_build_profile.py` (developer-only pytest/runner profiling support),
   `evaluation/` (the versioned STEP-analysis benchmark — production code must never
@@ -75,62 +75,52 @@ Compact map, bottom to top:
 Key invariants — each is machine-enforced, and the guard test is the authority:
 
 - No module but `drawing.py` touches `dwg._*`; build state is filled at one site in
-  `builder._assemble` (`test_drawing_encapsulation`, ADR 0005).
+  `builder._assemble` (`test_drawing_encapsulation`, ADR 1 (was 0005)).
 - `annotations/` submodules import only down or sideways; the drawing is duck-typed
   as `dwg` (`test_import_boundaries`).
 - Recognition runs at most once per build, owned by `BuildState`; a declared build
-  recognises nothing until physical critique or export asks (ADR 0017,
+  recognises nothing until physical critique or export asks (ADR 3 (was 0017),
   `test_detect_once` / `test_declared_recognition_gate` fail-closed).
 - Renderers emit dimensional content only from `model/compiled.py`'s plan — suppression
-  is content they never receive (ADR 0016 Amdt 1, `test_compiled_plan_boundary`,
+  is content they never receive (ADR 4 (was 0016 Amdt 1), `test_compiled_plan_boundary`,
   `test_label_provenance`) — and the converse: nothing the plan approves may reach the
-  sheet stating less, or vanish unreported (ADR 0016 Amdt 6,
+  sheet stating less, or vanish unreported (ADR 4 (was 0016 Amdt 6),
   `test_issue_1215_no_approved_tolerance_is_dropped`).
 
-## Architecture decisions — READ `docs/adr/` FIRST
+## Architecture decisions — READ the five ADRs FIRST
 
-**Before any change to layout, scaling, page selection, annotation placement, or
-generation strategy, read `docs/adr/` and follow the accepted ADRs.** They are the
-source of truth for *why* the engine is shaped the way it is; do not re-derive or
-contradict them. If a change conflicts with an ADR, amend the ADR in the same PR
-(status, reasoning, date) rather than silently diverging — and if a decision turns
-out wrong, record that too.
+**Before any change to layout, scaling, page selection, annotation placement, recognition,
+declared intent, reporting or generation strategy, read the live records in `docs/adr/` and
+follow them.** There are five, one per core aspect, each capped at 200 lines and each listing
+the invariants you must not violate with the test that fails if you do:
 
-**Assess architectural fit — always.** An issue, a PR, and a review are incomplete
-until they weigh the change against the ADRs, not just its local correctness: does a
-feature round-trip recognise **+** emit **+** declare (ADR 0011)? Does it fit the
-compiler pipeline and one-inventory waist (ADR 0015) and the recogniser contract
-(ADR 0013)? Does it sit at its DAG rank, place geometry through the corridor solve,
-and extend a shared pass rather than adding a copy? A change that is locally correct
-but architecturally off-pattern *is* tech debt — call it out in the issue/PR/review,
-not after merge.
+- **ADR 1** the compiler pipeline — one engine, the IR waist, the module DAG, single-owner state
+- **ADR 2** sheet layout and view planning — requirement-driven views, compose-then-pack,
+  collect-then-solve placement, Policy B
+- **ADR 3** the recognition boundary — external geometry-only recognition, one run per build,
+  the fail-closed provider join, occurrence ownership, the framed boundary
+- **ADR 4** declared intent — the IR as public input, authored sets, suppression by omission,
+  the compiled-plan boundary, one declarative script
+- **ADR 5** trust and honest failure — determinism, lint as an independent judge, provenance,
+  documents that refuse rather than shrink
 
-Read an amended ADR's **Current decision** header first; the amendments are the why
-trail. Past ~3–4 amendments, prefer a new superseding ADR. Per-ADR status detail:
-[`docs/architecture.md`](docs/architecture.md).
+`docs/adr/archive/` holds the twenty records these replaced. They are history; nothing in them
+is a work instruction, and no live code or doc may cite one as its authority (write
+`ADR n (was 00NN …)` for a pointer — `tests/test_adr_corpus.py` enforces it).
 
-Index: **0001** deterministic generation (no imperative editable script — retired
-#940) · **0002** lint-critique + repair as safety net · **0003** retired ·
-**0004** compose-then-pack outer layout · **0005** pipeline module boundaries +
-single-owner build state (complete) · **0006** pinned vendored fonts for
-deterministic layout · **0007** draftwright owns lint/recognition-lifecycle/policy ·
-**0008, 0009** superseded (read 0015, 0014) · **0010** annotation-provenance seam ·
-**0011** the IR as public input: declare features (`Sheet`, `model/declare`) ·
-**0012** user edits as pinned, ranked corridor candidates · **0013** uniform
-recogniser contract (external `b123d-recognisers`) · **0014** collect-then-solve
-placement, 4 amendments (late leader stage; material-re-entry penalty; budgets must
-measure, not predict) · **0015** the part-drawing compiler as built ·
-**0016** declared dimensioning intent (authored sets suppress by omission; compiled-
-plan boundary, 5 amendments numbered 1, 3–6 — Amdt 6 is its converse: a tolerance
-reaches the sheet through the LABEL, never `tolerance=`, and an approved dimension that
-cannot be placed is reported against its measurement, not dropped in silence — that
-superseding ADR is now proposed as 0019) · **0017** recognition inventory as first-class
-result (ownership landed; correspondence work evidence-gated by #1018) ·
-**0018** requirement-driven view planning (**accepted, partly implemented** — Amdt 1 maps the
-authored surface onto ADR 0016's verb model and bans authored views + automatic dimensions;
-the evidence list is the per-slice gate) · **0019** display-complete labels + dimension-outcome
-ledger (**proposed** — finish the 0016 Amdt 1 boundary: the plan carries the whole label,
-renderers never compose a tolerance; absences reconcile at one seam).
+**A record changes only when an invariant or boundary changes, and only with the maintainer's
+sign-off before any text is written.** Adopting a provider version, adding a family, recording
+ownership for one more record type, adding a report field: PR body, not ADR. If you think a
+record needs to change, say so in two sentences in the PR and wait. A reviewer's recommendation
+is not authorisation.
+
+**Assess architectural fit — always.** An issue, a PR, and a review are incomplete until they
+weigh the change against the five records, not just its local correctness: does a feature
+round-trip recognise **+** emit **+** declare (ADR 4)? Does it fit the compiler pipeline and the
+one-inventory waist (ADR 1) and the recogniser contract (ADR 3)? Does it sit at its DAG rank,
+place geometry through the corridor solve (ADR 2), and extend a shared pass rather than adding a
+copy? A change that is locally correct but architecturally off-pattern *is* tech debt — call it
+out in the issue/PR/review, not after merge.
 
 ## Dependencies
 

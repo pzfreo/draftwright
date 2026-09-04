@@ -1,4 +1,4 @@
-"""ADR 0016 identity — `DimParameter.parameter_id`, the derived semantic key (#869).
+"""ADR 4 (was 0016) identity — `DimParameter.parameter_id`, the derived semantic key (#869).
 
 Three guards, matching the three tiers the ADR's identity section names:
 
@@ -660,7 +660,7 @@ class TestStability:
     def test_ids_are_readable_semantic_strings(self):
         """Not opaque tokens — they surface in diagnostics and emitted scripts, so a
         UUID or a list position would be unreadable in a diff or unstable across runs
-        (both rejected by ADR 0016)."""
+        (both rejected by ADR 4 (was 0016))."""
         for _, _, pid, _ in self._measurements(self._part()):
             assert pid and not pid[0].isdigit()
             assert pid.replace(".", "").replace("_", "").isalnum()

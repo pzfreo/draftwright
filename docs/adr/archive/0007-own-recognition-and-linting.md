@@ -1,5 +1,8 @@
 # ADR 0007 — draftwright owns feature recognition and linting; helpers becomes the rendering library
 
+> **Archived 2026-09-04.** Frozen history; the current decision is [ADR 3 — The recognition boundary](../0003-recognition-boundary.md). Nothing here is a work instruction.
+
+
 - **Status:** Accepted (linting remains owned in `linting/`; recognition was
   vendored here and is now deployed from `b123d-recognisers` per Amendment 2).
   **Amendment 1** (2026-07-12): the long-term home for *recognition* sharpens — it

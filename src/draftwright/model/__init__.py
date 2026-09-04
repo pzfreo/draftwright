@@ -1,11 +1,11 @@
-"""The part-drawing compiler IR (ADR 0008).
+"""The part-drawing compiler IR (ADR 1 (was 0008)).
 
 A stable intermediate representation (`PartModel` of `Feature` objects exposing
 `DimParameter`s) sitting between the feature *detectors* (front-ends adapting the
 recognition heuristics) and a *dimensioning planner* (back-end). The narrow waist
 that lets new shapes be new types, not new branches.
 
-**Status:** the ADR 0008 convergence is **complete — one path** (2026-06-30).
+**Status:** the ADR 1 (was 0008) convergence is **complete — one path** (2026-06-30).
 `build_part_model` runs once per build from `_analyse`'s single feature
 inventory (Amendment 5); every render pass consumes the IR — the
 `annotations/from_model.py` renderers (turned/diameters, centre marks,

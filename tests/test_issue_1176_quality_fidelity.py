@@ -18,7 +18,7 @@ perfectly legible.
 
 An earlier draft of this docstring said "1.0 was the only number a caller saw". Measured, it
 is not: that drawing already reported `passed: False`, `errors: 1` and `score: 0.8`, so a
-caller following ADR 0002's own advice (gate on severity and code counts, not the scalar)
+caller following ADR 5 (was 0002)'s own advice (gate on severity and code counts, not the scalar)
 caught it. The signal fidelity actually adds is the case where those gates say nothing —
 `TestAGearTableCanBeFalseWhileTheDrawingPasses` below, where a normative ISO data table
 prints twelve teeth on a thirteen-tooth part and `passed` is True.
@@ -742,7 +742,7 @@ class TestEveryLintCodeIsClassified:
 
     `_FIDELITY_CODES`' own note says a new truth-class code "will score as perfectly
     truthful until somebody adds it". Admitting a hole is not closing one — the precedent is
-    `test_quality_components.py`'s recognition-inventory audit, and ADR 0017's manifest,
+    `test_quality_components.py`'s recognition-inventory audit, and ADR 3 (was 0017)'s manifest,
     which is fail-closed for exactly this reason.
     """
 

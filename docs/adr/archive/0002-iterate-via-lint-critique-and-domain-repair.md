@@ -1,5 +1,8 @@
 # ADR 0002 — Iterate via lint critique and domain-semantic repair, not by editing generated code
 
+> **Archived 2026-09-04.** Frozen history; the current decision is [ADR 5 — Trust and honest failure](../0005-trust-and-honest-failure.md). Nothing here is a work instruction.
+
+
 - **Status:** Accepted
 - **Date:** 2026-06-16
 - **Deciders:** Paul Fremantle (pzfreo)

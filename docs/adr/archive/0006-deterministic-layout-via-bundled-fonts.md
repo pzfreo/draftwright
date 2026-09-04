@@ -1,5 +1,8 @@
 # ADR 0006 — Deterministic cross-platform layout via bundled, path-pinned fonts
 
+> **Archived 2026-09-04.** Frozen history; the current decision is [ADR 5 — Trust and honest failure](../0005-trust-and-honest-failure.md). Nothing here is a work instruction.
+
+
 - **Status:** Accepted
 - **Date:** 2026-06-27
 - **Deciders:** Paul Fremantle (pzfreo)

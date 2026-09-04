@@ -1,58 +1,48 @@
 # Architecture decision records
 
-This is the front door to draftwright's ADR corpus. Start with the **Current
-architecture** table; open retired or superseded records only for design history.
+Five live records, one per core aspect of Draftwright. Read them before changing anything they
+govern. Each states a decision, then a numbered list of invariants an agent must not violate,
+each naming the test that fails if it is — that list is the reason the document exists.
 
-## Maintenance rules
+| ADR | Owns | Guard tests (representative) |
+| --- | --- | --- |
+| [1 — The compiler pipeline](0001-compiler-pipeline.md) | One engine, the `PartModel` IR waist, the module DAG, single-owner build state, the compiled plan fed to placement | `test_import_boundaries.py`, `test_drawing_encapsulation.py`, `test_detect_once.py`, `test_compiled_plan_boundary.py` |
+| [2 — Sheet layout and view planning](0002-sheet-layout-and-view-planning.md) | Requirement-driven view planning, compose-then-pack, collect-then-solve placement, Policy B, scale-before-sheet | `test_carve_free_position_callers.py`, `test_layout_cleanliness.py`, `test_issue_1146_scale_completeness.py`, `test_issue_1260_view_constraints.py` |
+| [3 — The recognition boundary](0003-recognition-boundary.md) | External geometry-only recognition, one run per build, the fail-closed provider join, occurrence ownership, the framed boundary | `test_recogniser_capabilities.py`, `test_declared_recognition_gate.py`, `test_detect_registry.py`, `test_issue_1357_framed_boundary.py` |
+| [4 — Declared intent](0004-declared-intent.md) | The IR as public input, authored dimension sets, suppression by omission, the compiled-plan boundary, one declarative script | `test_declare.py`, `test_label_provenance.py`, `test_parameter_id.py`, `test_sheet_identity_invariant.py` |
+| [5 — Trust and honest failure](0005-trust-and-honest-failure.md) | Determinism, lint as an independent judge, provenance, reports that refuse rather than shrink, absences reported | `test_export_reproducible.py`, `test_render_seam.py`, `test_issue_1215_no_approved_tolerance_is_dropped.py`, `test_issue_1438_report_projection.py` |
 
-- Keep the status header to one load-bearing statement.
-- At roughly four amendments, write a successor ADR and freeze the old record.
-  The superseded file remains the historical why-trail; do not rewrite it.
-- Cite symbols and test names, never source line numbers.
-- If an invariant can be checked mechanically, guard it with a test. A claim
-  that something is machine-checked must name the real check.
-- Preserve reversals in the frozen record. The successor compresses each to one
-  line and points back to the history.
-- Update this index whenever an ADR is accepted, retired, or superseded, or when
-  its guarding test changes.
+`archive/` holds the twenty records these replaced, frozen, with their filenames and numbers
+unchanged. Each is stamped with the live record that now owns its decision. They are the
+why-trail; nothing in them is a work instruction.
 
-## Current architecture
+## Rules of engagement
 
-| ADR | Title | Decision | Status | Representative guards |
-| --- | --- | --- | --- | --- |
-| [0001](0001-deterministic-generation-over-editable-dsl.md) | Deterministic generation and domain-semantic editing over a bespoke editable-code DSL | Prefer deterministic generation and domain-semantic editing over a primitive editable-code DSL. | Accepted | `test_sheet_emit.py`, `test_make_drawing.py` |
-| [0002](0002-iterate-via-lint-critique-and-domain-repair.md) | Iterate via lint critique and domain-semantic repair, not by editing generated code | Refine drawings through machine-readable lint and narrowly allowlisted domain repair. | Accepted | `test_linting.py`, `test_lint_structural.py`, `test_make_drawing.py` |
-| [0004](0004-compose-then-pack-view-blocks.md) | Compose-then-pack: views as blocks carrying their annotation footprint | Compose each view with its annotation footprint, then pack fixed-topology blocks. | Accepted | `test_layout.py`, `test_layout_cleanliness.py`, `test_refactor_golden.py` |
-| [0005](0005-pipeline-architecture-and-state-ownership.md) | Compiler-pipeline module boundaries and single-owner build state | Give compiler stages explicit module homes and build-time state explicit owners. | Accepted; implemented; compatibility aliases tracked by #720 | `test_import_boundaries.py`, `test_drawing_encapsulation.py`, `test_registry.py` |
-| [0006](0006-deterministic-layout-via-bundled-fonts.md) | Deterministic cross-platform layout via bundled, path-pinned fonts | Pin bundled font files so text measurement and layout are cross-platform deterministic. | Accepted | `test_refactor_golden.py`, `test_layout_cleanliness.py` |
-| [0007](0007-own-recognition-and-linting.md) | draftwright owns feature recognition and linting; helpers becomes the rendering library | Draftwright owns linting, recognition lifecycle, IR conversion, and drafting policy; `b123d-recognisers` owns geometry recognition; helpers remains the rendering library. | Accepted; extraction deployed by Amendment 2 | `test_import_boundaries.py`, `test_external_recognition_boundary.py`, `test_linting.py` |
-| [0010](0010-annotation-provenance-seam.md) | Annotation provenance: record intent → annotation once, at the render seam | Record annotation provenance once at the render/add seam. | Accepted; landed | `test_render_seam.py`, `test_registry.py` |
-| [0011](0011-ir-as-public-input.md) | The IR as a public input: declare features, don't only detect them | Accept the feature IR as public input through declarations and the `Sheet` façade. | Accepted; core landed; #62/#462/#495 remain | `test_declare.py`, `test_object_aspects.py`, `test_sheet_gdt.py` |
-| [0012](0012-edits-as-pinned-priority-candidates-in-the-global-solve.md) | User annotation edits are pinned, priority-ranked corridor candidates | Drain recorded semantic edits through corridor placement with pin and priority. | Accepted; partially landed; full recomposition/parity remains #426/#707 (#661 detail views landed) | `test_make_drawing.py`, `test_sheet_emit.py` |
-| [0013](0013-uniform-recognition-and-shared-package.md) | A uniform recogniser/feature contract and shared `b123d-recognisers` deployment | Enforce the geometry-only contract in the shared package and consume it through Draftwright's record→IR boundary. | Accepted; Phases 1–2 deployed | `test_external_recognition_boundary.py`, `test_detect_registry.py`, package semantic goldens |
-| [0014](0014-collect-then-solve-annotation-placement.md) | Collect-then-solve annotation placement (as built) | Collect, select, assign, and deterministically solve annotations per corridor before rendering; compatible sparse ordinary side/plan hole and post-drain machined leaders share one bounded late inventory. | Accepted; supersedes 0009; #740 Amendment 1; #1166 Amendment 2 | `test_carve_free_position_callers.py`, `test_strip_layout.py`, `test_layout_property.py`, `test_issue_740_leader_assignment.py`, `test_issue_1166_cross_pass_feature_leaders.py`, `test_import_boundaries.py` |
-| [0015](0015-part-drawing-compiler-as-built.md) | The part-drawing compiler, as built | Use one detected-or-declared feature IR and planner-fed dimension groups as the compiler waist. | Accepted; supersedes 0008 | `test_part_model.py`, `test_detect_once.py`, `test_import_boundaries.py` |
-| [0016](0016-declared-dimensioning-intent.md) | Declared dimensioning intent: capture what to measure, let the engine place it | Declare which measurements matter as scale-independent intent routed through the planner and corridor solve; never hardcode dimension geometry. | Accepted; epic #867 complete; phase 6 landed (#940) | `test_compiled_plan_boundary.py`, `test_issue_1215_no_approved_tolerance_is_dropped.py`, `test_label_provenance.py`, `test_sheet_emit.py`, `test_add_dimension.py` |
-| [0017](0017-recognition-inventory-correspondence-and-measurement-provenance.md) | One recognition result per run; correspondence is evidence-gated | Produce one external immutable recognition result held by Draftwright's per-run cache; require vertical-slice evidence before generalising correspondence, identity, requirements, outcomes, or reconciliation. | Accepted; external cache ownership clarified, extensions gated by #1018 | `test_external_recognition_boundary.py`, `test_detect_once.py`, `test_declared_recognition_gate.py` |
-| [0018](0018-requirement-driven-view-planning-and-editable-sheet-layout.md) | Requirement-driven view planning and editable sheet layout | Use one `ViewSpec` vocabulary and planner with distinct authored `ViewConstraints` and immutable `ResolvedViewPlan`; jointly validate views, typography, convention, scale, paper and layout against requirement survival. Supersedes ADR 0004's fixed-topology assumption while retaining compose-then-pack. | Accepted 2026-08-16; partially implemented (`ViewSpec`, `ResolvedViewPlan`, `ViewCoverage`, arrangement choice and requirement gate); tracked by #1130/#1259-#1262 | Required guards are listed in the ADR |
-| [0019](0019-display-complete-labels-and-dimension-outcomes.md) | Display-complete labels and a dimension-outcome ledger | The compiled plan carries the full label text (tolerance and collapse wording included) so renderers render and never compose; dimension outcomes reconcile at one seam on both build routes; ladder rungs get per-mark identity. Finishes the ADR 0016 Amdt 1 boundary; supersedes Amdt 6's enforcement mechanism. | Proposed | `test_issue_1215_no_approved_tolerance_is_dropped.py` reduces to plan-equality when implemented |
-| [0020](0020-provider-owned-frame-boundary.md) | Provider-owned frame boundary for detected compilation | Prepare, classify, and recognise against one exact local working solid; retain source provenance, propagate typed refusals, and gate semantic direction claims by frame gauge. | Accepted; explicit opt-in activation, raw rollout default | `test_issue_1357_framed_boundary.py`, `test_issue_1357_framed_activation.py`, `test_recogniser_capabilities.py`, `test_import_boundaries.py` |
+These exist because the previous corpus reached 21 files, 8,787 lines and one record with 28
+amendments, and its own "at roughly four amendments, write a successor" rule was a convention
+that nothing enforced. Each rule below is enforced by `tests/test_adr_corpus.py` where a test can
+enforce it.
 
-## Historical records
+1. **A record changes only when a boundary or invariant changes.** Adopting a provider version,
+   adding a feature family, recording ownership for one more record type, adding a report field:
+   that is a PR body, not an amendment. If the change does not alter the Invariants section, it
+   does not touch the record.
+2. **No record text is written without the maintainer's sign-off.** An agent or contributor who
+   believes a record needs to change says so in the PR in two sentences and waits. A reviewer
+   recommending an ADR is a recommendation, not an authorisation.
+3. **Each live record is at most 200 lines; the five together at most 1,000.** Enforced.
+4. **No live document cites an archived record as its authority.** Code, tests and docs cite
+   ADR 1–5. A pointer into the archive is written `ADR n (was 00NN …)` so the history stays
+   findable while the live number is the one a reader acts on. A bare `ADR 00NN` outside
+   `archive/` fails the guard.
+5. **Every invariant names its guard.** One without a test is listed under *Unguarded* with the
+   reason, never mixed into the numbered list. The guard checks that every named test module and
+   test function exists. That list is expected to shrink.
+6. **Cite symbols and test names, never source line numbers.**
 
-| ADR | Title | Historical decision | Status | Read instead |
-| --- | --- | --- | --- | --- |
-| [0003](0003-constraint-based-layout.md) | Constraint-based layout: one solver for every placeable | Explored a universal `Placeable`/`LayoutSolver` and page-global constraint solve. | Retired; carrier deleted and #94 closed as unnecessary | [0004](0004-compose-then-pack-view-blocks.md) for outer layout and [0014](0014-collect-then-solve-annotation-placement.md) for inner placement |
-| [0008](0008-unified-feature-model-and-dimensioning-planner.md) | The part-drawing compiler: a Feature/DimParameter IR and a dimensioning planner | Introduced the feature/parameter IR and dimensioning-planner direction. | Superseded by 0015; frozen | [0015](0015-part-drawing-compiler-as-built.md) |
-| [0009](0009-boundary-labeling-strip-placement.md) | Boundary labeling: collect-then-solve per-strip annotation placement | Developed collect-then-solve boundary-label placement through nine amendments. | Superseded by 0014; frozen | [0014](0014-collect-then-solve-annotation-placement.md) |
+## Reading order
 
-## Reading paths
+Pipeline first (1), then whichever aspect the change touches. Layout (2) and declared intent (4)
+each assume the pipeline; recognition (3) and trust (5) each assume the other four's boundaries.
 
-- Compiler and state ownership: 0001 → 0005 → 0015.
-- Recognition and public declaration: 0007 → 0013 → 0011 → 0015.
-- Layout and placement: 0004 → 0014 → 0012 → 0018.
-- Declared intent and the editable surface: 0001 → 0011 → 0012 → 0016 → 0018 → 0019.
-- Quality and correction: 0002, with provenance from 0010.
-- Recognition correspondence and completeness: 0007 → 0013 → 0015 → 0017.
-
-Tracking issue: #745.
+The consolidation itself is recorded in `docs/plans/adr-consolidation-plan.md`.

@@ -24,7 +24,7 @@ what was never recognised never became a requirement, so it is absent from the l
 than counted against it.  (Where nothing auditable was recognised at all, the component
 reports ``available: False`` and a ``None`` score — not a perfect one.)  The qualifier
 belongs in the field name, where it survives being quoted, and not only in the metadata
-beside it.  **It is not a completion gate**: gate on issue codes and severities (ADR 0002),
+beside it.  **It is not a completion gate**: gate on issue codes and severities (ADR 5 (was 0002)),
 and read ``excludes`` for what the denominator cannot see.
 """
 

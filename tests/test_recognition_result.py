@@ -1,4 +1,4 @@
-"""ADR 0017 phase 1: one explicit recognition result."""
+"""ADR 3 (was 0017) phase 1: one explicit recognition result."""
 
 from dataclasses import FrozenInstanceError
 
@@ -129,7 +129,7 @@ def test_injecting_the_aggregate_builds_the_same_model_as_detecting(name, build)
     would agree on the same wrong answer and the guard would pass (Codex #1030 r1).
 
     This compares the two paths end to end instead: detect-for-yourself against
-    inject-from-the-aggregate. It is the equivalence every hoist in ADR 0017 assumes and the
+    inject-from-the-aggregate. It is the equivalence every hoist in ADR 3 (was 0017) assumes and the
     one that silently stops holding when a recogniser's contract drifts.
     """
     part = build()

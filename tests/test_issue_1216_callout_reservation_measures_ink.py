@@ -1,6 +1,6 @@
 """The callout-width reservation must measure the string the callout will DRAW.
 
-ADR 0014 Amendment 3: budgets must measure, not predict. `compose._est_planned_bore_callout_width`
+ADR 2 (was 0014 Amendment 3): budgets must measure, not predict. `compose._est_planned_bore_callout_width`
 sizes the page and the side strips from the planned IR before any annotation exists, and the
 renderer then draws from the same plan — so the two are a measurement and its subject, and they
 have drifted twice.

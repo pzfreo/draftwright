@@ -1,6 +1,6 @@
 """A declared build recognises nothing; critique on that path recognises once (#1022).
 
-ADR 0011 says a caller-supplied ``PartModel`` skips detection, and ADR 0017 §6 restates it for
+ADR 4 (was 0011) says a caller-supplied ``PartModel`` skips detection, and ADR 3 (was 0017 §6) restates it for
 the aggregate. Neither held: ``_analyse`` ran ``build_raw_recognition_result`` before it knew
 whether a model had been declared, so a declared build recognised the full inventory and threw
 most of it away.
@@ -74,7 +74,7 @@ def test_a_declared_build_recognises_nothing():
         sheet.build()
 
     assert dict(counts) == {}, (
-        f"a declared build recognised {dict(counts)}. ADR 0011 says a caller-supplied model "
+        f"a declared build recognised {dict(counts)}. ADR 4 (was 0011) says a caller-supplied model "
         "skips detection — every one of these scanned a solid whose features the caller had "
         "already stated."
     )
@@ -192,7 +192,7 @@ def test_a_rejected_export_does_not_recognise_first(kwargs, message):
 
 
 def test_the_lazy_aggregate_is_owned_by_the_build_state():
-    """ADR 0017 §6: one owner. ``Drawing._cyl_cache`` is the existing violation (#1023) and
+    """ADR 3 (was 0017 §6): one owner. ``Drawing._cyl_cache`` is the existing violation (#1023) and
     this must not add a second — the aggregate lands in ``BuildState``, which is where a
     finished drawing already keeps its build context.
     """
@@ -212,7 +212,7 @@ def test_the_lazy_aggregate_is_owned_by_the_build_state():
 
 
 def test_repair_asks_for_the_placement_critique_only():
-    """Repair acts on ``dim_inside_part`` and nothing else (ADR 0002), so it has no use for
+    """Repair acts on ``dim_inside_part`` and nothing else (ADR 5 (was 0002)), so it has no use for
     the feature-coverage half — and asking for it is what forced recognition back onto the
     declared path after ``_analyse`` was gated.
     """
@@ -356,7 +356,7 @@ def test_lint_projects_the_shared_riser_evidence_and_rescans_nothing():
     """#1025's headline: the last per-lint rescan is gone.
 
     ``recognise_step_shoulders`` did a full face scan on every critique pass, because its
-    answer depended on the caller's level set and ADR 0015 forbids lint taking that from the
+    answer depended on the caller's level set and ADR 1 (was 0015) forbids lint taking that from the
     model. Splitting the scan (``recognise_risers``) from the filter
     (``project_step_shoulders``) gives the aggregate something single-valued to own, and each
     consumer projects. This is phase 0's third guard for epic #1018.
@@ -395,7 +395,7 @@ def test_the_critique_rejects_an_assembled_shoulder_inventory():
     ``build_raw_recognition_result(some_other_solid)``, or construct a valid frozen result with
     empty inventories, and this function will use it (Codex #1031 r2). That is true of every
     injected inventory in the engine — `holes=`, `pockets=`, `pads=` — and is the accepted
-    cost of ADR 0008 Amdt 5 dependency injection, not something specific to this parameter.
+    cost of ADR 1 (was 0008 Amdt 5) dependency injection, not something specific to this parameter.
     Closing it needs an unforgeable association between an aggregate and its solid, which is
     tracked separately (#1032); singling out this one parameter would be inconsistent and
     would still not make the check fail-closed.

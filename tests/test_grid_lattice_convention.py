@@ -259,7 +259,7 @@ def test_an_oblique_lattice_does_not_become_a_pattern_feature():
     redeclared to a Z spread of 0.00, flat in the letter's canonical plane.
 
     Checked through `build_part_model`, not against the recogniser. `recognise_hole_patterns`
-    still FINDS this lattice — ADR 0013 says a recogniser reports the geometry it finds, and the
+    still FINDS this lattice — ADR 3 (was 0013) says a recogniser reports the geometry it finds, and the
     limitation is draftwright's IR, so the refusal lives at the adapter. Asserting the
     recogniser returned nothing would codify the layering violation the first cut had
     (#983 review).

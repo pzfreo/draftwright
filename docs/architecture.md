@@ -8,7 +8,7 @@ keep that table, this document, and `CLAUDE.md`'s compact map in step. The
 
 ## The module map
 
-The dependency graph is a DAG (the #138 / ADR 0005 split is complete). Bottom to
+The dependency graph is a DAG (the #138 / ADR 1 (was 0005) split is complete). Bottom to
 top: leaf modules (`layout.py`, `registry.py`, `fonts.py`, `_geometry.py`,
 `fits.py`, `intents.py`, `recognition_cache.py`, `recognition_ownership.py`,
 `plate_correspondence.py`, `recogniser_policy.py`, `recogniser_schema.py`,
@@ -51,7 +51,7 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
     measure-and-repack → `Drawing`) and `make_drawing` (+ export). Imports
     `drawing`/`analysis`/the annotation orchestrator/the stage modules — never
     `make_drawing` (a DAG). *(`generate_script`, the imperative editable-script
-    generator, was retired by #940 — ADR 0016 phase 6 / ADR 0001 Amdt 2 — and
+    generator, was retired by #940 — ADR 4 (was 0016) phase 6 / ADR 4 (was 0001 Amdt 2) — and
     **deleted** at its 0.4.0 date (#720), along with the raising stub that stood
     in for it and the bespoke `--style imperative` message. `--style` itself
     survives with the single value `sheet` so existing invocations keep
@@ -69,28 +69,28 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
     *(The build context lives in ONE typed `BuildState` on `Drawing` (`_build`:
     analysis, part model, lint's geometry caches) — filled at a single site in
     `builder._assemble`, read through compat properties, single-writer-guarded
-    by `test_drawing_encapsulation`. ADR 0005 §2 / #639 closed: `annotations/`
+    by `test_drawing_encapsulation`. ADR 1 (was 0005 §2) / #639 closed: `annotations/`
     has zero private `Drawing` reads (empty allowlist ratchet) — and since #699
     slice d the state-bus guard covers the WHOLE engine: no module but
     `drawing.py` touches `dwg._*` (rationale-carrying allowlist, builder's
     fill site only).)*
 - **`annotate.py`** — thin compat facade re-exporting `_auto_annotate` (the
   orchestrator) from `annotations/`. The annotation passes were split into the
-  **`annotations/`** subpackage (#164 / ADR 0005, P5):
+  **`annotations/`** subpackage (#164 / ADR 1 (was 0005), P5):
   - **`annotations/orchestrator.py`** — `_auto_annotate`, the single entry point
     (called by `build_drawing`); classifies the part and drives the render passes
     + title block. Owns **`_PASS_SEQUENCE`** — the ONE canonical stage order
     (#699 slice b): `_auto_annotate` and `Drawing._drain_intents` (the finalize
     drain) both hand name→thunk dicts to the shared `run_stages`, so the two
     build paths cannot diverge in sequencing (the drain step itself is the
-    shared `drain_and_reconcile`). The current ADR 0015 shape is
+    shared `drain_and_reconcile`). The current ADR 1 (was 0015) shape is
     `build model → plan/model-routed intents → render`; some inline engine code remains — chiefly
     `_maybe_tabulate_holes` (the hole-table/balloon escalation resolver) and the
     iso right-strip outer-limit tightening — pending the last convergence steps.
   - **`annotations/from_model.py`** — the **IR render layer** (largest annotations
     module): turns the planner's `DimensionGroup`/render-intents into placed
     dimensions/callouts/centre marks/section triggers. This is where the turned,
-    PMI/GD&T, envelope/OD, centre-mark and step-length passes converged (ADR 0015,
+    PMI/GD&T, envelope/OD, centre-mark and step-length passes converged (ADR 1 (was 0015),
     #200/#208/#237) — the old per-feature `annotations/{turned,pmi}.py` modules
     were deleted as each migrated here.
   - **`annotations/holes.py`** — hole/pattern callouts, balloons, location dims
@@ -119,7 +119,7 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   `feature_leader_crossing`, independently of opt-in tracing, while a producer
   replay beyond the exact fixed-probe budget persists as
   `feature_leader_fixed_ink_unverified` without exceeding that bound and cannot
-  report a perfect legibility quality score. ADR 0014 Amendment 3 (#798) adds
+  report a perfect legibility quality score. ADR 2 (was 0014 Amendment 3) (#798) adds
   material re-entry to that Policy-B penalty at a stated exchange rate (one unit
   per visible stroke width of buried shaft) — a cost, never an eligibility gate
   and never an acceptance test, so no callout is dropped because its route cuts.
@@ -134,7 +134,7 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   - **`annotations/gears.py`** — standards-backed data-table presentation for the
     declaration-only metric external spur gear; the table flows through the generic
     solver-owned late-furniture path (#1086).
-  - **`annotations/_common.py`** — the ADR 0014 corridor-solve engine
+  - **`annotations/_common.py`** — the ADR 2 (was 0014) corridor-solve engine
     (`CorridorCandidate`, `solve_corridor`, `register_corridor`/`drain_corridors`,
     `place_strip_candidates`, `PlacementContext`) plus `_box_hits`, at the
     bottom of the annotations DAG. (The bbox/segment primitives it delegates to
@@ -156,7 +156,7 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
 - **`layout.py`** — the deterministic placement primitives used by ADRs 0004/0014:
   the deterministic
   1D PAVA strip solve (`_solve_strip_1d_pava`, plus `plan_strip`/`StripCandidate`,
-  the ADR 0014 collect-then-solve entry point), the 2D free-rectangle placer
+  the ADR 2 (was 0014) collect-then-solve entry point), the 2D free-rectangle placer
   (`fit_box`), and the balloon band-assignment min-cost max-flow solve
   (`_assign_balloon_bands`, #516; here since #699 — solvers live in the solver
   layer). Sits *below* the domain API.
@@ -167,7 +167,7 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   and `model.declare._plane_axes` so a pattern's `angle` means the same thing
   detected as declared (#969); the DAG's bottom leaf (guarded
   by `test_geometry_is_a_leaf`) so the IR waist uses them without importing
-  `_core`. Also the ADR 0014 Amendment 3 **filled material field** (#798):
+  `_core`. Also the ADR 2 (was 0014 Amendment 3) **filled material field** (#798):
   `MaterialField`/`material_field` (page-plane triangles + a uniform grid index),
   `material_span`, `material_intervals`, and `material_reentry_span` — exact
   half-plane clipping with a fixed-point interval union and an incremental cell
@@ -181,19 +181,19 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   dependency-free leaf. Separate from `_core` on purpose: `_core` imports build123d, so a
   category defined there costs the CAD kernel (~6 s) to reach, and the pytest
   `filterwarnings` entry naming it pays that on every invocation (#1043).
-- **`fits.py`** — the ISO 286 fit tables (`fit_deviation`, `FitClass`; ADR 0011
+- **`fits.py`** — the ISO 286 fit tables (`fit_deviation`, `FitClass`; ADR 4 (was 0011)
   P2a.2): a rank-0 leaf consumed by `_core`, `model/ir` and `sheet`.
 - **`intents.py`** — the deferred-placement "low IR" behind `Drawing.finalize()`
   (#426): a dependency-free leaf recording edit-verb intents for the recompose
   (deliberately stringly-typed in its Phase-1 form).
 - **`registry.py`** — `AnnotationRegistry`: the single owner of annotation
-  identity/ownership/pins/build-issues (#138 / ADR 0005, Step 2). `Drawing`
+  identity/ownership/pins/build-issues (#138 / ADR 1 (was 0005), Step 2). `Drawing`
   delegates here and keeps the render list. The `_named`/`_anno_view`/`_pinned`/
   `_build_issues` aliases on `Drawing` (and coverage's three) were **deleted** at
   their §4 date (#720): reach the state through `dwg.registry` (`in reg`,
   `names()`, `issues`, `restore_issues()`) and `dwg.coverage`. Their absence is
   asserted by `test_the_expired_compat_aliases_stay_deleted`.
-- **`linting/`** — the lint subpackage (#138 / ADR 0005; ADR 0007: draftwright
+- **`linting/`** — the lint subpackage (#138 / ADR 1 (was 0005); ADR 3 (was 0007): draftwright
   owns linting): `coverage.py` (`lint_feature_coverage` + `CoverageState`),
   `structural.py` (geometry/standards checks), `issues.py` (the `LintIssue` type),
   `gear_coverage.py` (declared gear table/profile reconciliation), and `suggest.py`
@@ -202,13 +202,13 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   `b123d_recognisers` (typed hole records in `coverage.py`) + build123d_drafting.
   `_QUOTED_RE` (a lint-message label regex shared with the
   repair loop) lives in `_core`.
-- **`recognition_cache.py`** — Draftwright's ADR 0017 one-result lifecycle owner. Raw automatic
+- **`recognition_cache.py`** — Draftwright's ADR 3 (was 0017) one-result lifecycle owner. Raw automatic
   analysis seeds it with one external `build_recognition_evidence(part)` acquisition; on a lazy
   declared critique the empty cache makes that call itself. It retains the exact
   `RecognitionResult` projection and evidence authority together. The package owns recognition,
   while Draftwright owns when the pair is computed and reused. A bare or explicit framed result
   remains valid without evidence; the cache never rescans to backfill it.
-- **`recognition_ownership.py`** — the run-local consumer ledger below/beside the ADR 0015 IR
+- **`recognition_ownership.py`** — the run-local consumer ledger below/beside the ADR 1 (was 0015) IR
   waist. During record→IR conversion it binds opaque provider occurrences to the exact IR
   feature objects that represent or absorb them, by same-run record identity and explicit
   aggregate membership. Ownerless outcomes are projected from the existing consumer capability
@@ -233,7 +233,7 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   `Drawing` owns all report reads from its `BuildState`, while generated Python passes the exact
   retained evidence, ownership, detected model, and source digest explicitly. Reporting never
   reaches through `Drawing` private state or triggers recognition, placement, or export.
-- **`recognition_frame.py`** — the ADR 0020 prepared local-frame boundary. It calls the public
+- **`recognition_frame.py`** — the ADR 3 (was 0020) prepared local-frame boundary. It calls the public
   provider preparation seam, classifies the exact normalized solid from its already-scanned
   cylinders, runs one paired aggregate, propagates typed refusal without fallback, and exposes
   conservative FULL/ORTHOGONAL/AXIAL semantic policy. Analysis calls it only for the explicit
@@ -252,7 +252,7 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   reads. It validates inspection manifest format 1/API major 1, the exact installed recogniser
   release, and only the stable `b123d_recognisers.inspection` symbols and value schemas consumed
   by `model/declare.py`. It deliberately does not declare recognition-family semantics.
-- **`model/`** — the ADR 0015 IR waist: `ir.py` (the `Feature`/`DimParameter`/
+- **`model/`** — the ADR 1 (was 0015) IR waist: `ir.py` (the `Feature`/`DimParameter`/
   `Datum`/`PartModel` types — the one inventory), `detect.py` (detectors →
   `Feature` objects, adapting `b123d_recognisers` records), `planner.py`
   (`plan_dimensions` —
@@ -260,17 +260,17 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   the one cross-feature reconciliation: two features measuring between the same two
   support planes state one fact, so the overall extent keeps it and the feature-local
   one records where it went), and
-  `declare.py` (ADR 0011 object→feature constructors: `hole`/`boss`/`step`/… read
+  `declare.py` (ADR 4 (was 0011) object→feature constructors: `hole`/`boss`/`step`/… read
   a feature's size off the build123d object — a second, *declared* front-end into
   the same IR the detectors fill). The narrow middle of the compiler hourglass;
   consumed by `annotations/from_model.py`.
-- **`compose.py`** — the ADR 0004 **outer** compose-then-pack layout engine
+- **`compose.py`** — the ADR 2 (was 0004) **outer** compose-then-pack layout engine
   (`choose_scale`, `ViewBlock`, zone/strip depths). Née `sheet.py`; renamed
   (#640) so the layout engine stops shadowing the user-facing `Sheet` facade
   (which now owns the `sheet.py` name).
 - **`analysis.py`** — the `_analyse` stage: solid classification, the one-shot
-  feature-inventory detection (ADR 0015), view sizing, and the strip/zone
-  model (`fv_zones`/`pv_zones`/`sv_zones`) that ADR 0014 placement reads.
+  feature-inventory detection (ADR 1 (was 0015)), view sizing, and the strip/zone
+  model (`fv_zones`/`pv_zones`/`sv_zones`) that ADR 2 (was 0014) placement reads.
 - **`projection.py`** — HLR projection and view-coordinate transforms
   (`_assemble`'s geometry half; #161). Also the #798 **material lowering**:
   `part_material_mesh` tessellates the part once per build and
@@ -278,18 +278,18 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   the same material. The mesh is taken under explicit control (copy →
   `BRepTools.Clean_s` → `BRepMesh_IncrementalMesh`) because OCC caches a
   triangulation on the shape and returns it for any later request — even a finer
-  one — which would make the field a function of build *history* (the ADR 0006
+  one — which would make the field a function of build *history* (the ADR 5 (was 0006)
   hazard). `Drawing.material_fields()` holds the result on `BuildState`.
   `_fit_iso_view` **returns** the iso bbox when the fitted iso is off sheet scale and
   therefore needs an NTS caption, else `None`; it does not place that caption. `builder`
   does, at the common post-fit point *before* `render_gear_tables` — the caption is tied
   to the block it labels while a table may sit anywhere, so the constrained furniture
   claims space first (#1197).
-- **`sheet.py`** — the fluent declarative **`Sheet`** facade (ADR 0011):
+- **`sheet.py`** — the fluent declarative **`Sheet`** facade (ADR 4 (was 0011)):
   feature verbs (`hole`/`boss`/`slot`/…), aspect verbs (`.tolerance`/`.fit`/
   `.finish`), GD&T (`datum`/`control`). Facade tier: builds a `PartModel` via
   `model/declare.py` and calls `build_drawing(model=…)`. Née `sheet_dsl.py`
-  (renamed #640 — it's a fluent facade, not a DSL, per ADR 0001; the `sheet_dsl`
+  (renamed #640 — it's a fluent facade, not a DSL, per ADR 4 (was 0001); the `sheet_dsl`
   alias shim was deleted at 0.4.0, #720).
 - **`sheet_emit.py`** — **the** script emitter, behind `--script` (#940 retired the
   imperative alternative): generates an editable `Sheet` script from a detected
@@ -304,12 +304,12 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   `b123d_recognisers`, identity-preserving and scheduled for removal in 0.6.0. There are no
   embedded recogniser modules. Engine code imports the external package directly; private
   historical `draftwright.recognition.*` paths are intentionally unsupported.
-- **`b123d_recognisers` (external)** — the ADR 0013 geometry-only bottom layer: uniform
+- **`b123d_recognisers` (external)** — the ADR 3 (was 0013) geometry-only bottom layer: uniform
   deterministic `recognise_*` functions, frozen serialisable records, shared substrates,
   `RecognitionResult` orchestration/manifest, repeating-profile correspondence, and
   `feature_census`. It imports build123d/OCP and never imports Draftwright.
 - **`fonts.py`** — vendored, path-pinned IBM Plex fonts for deterministic
-  cross-platform layout (ADR 0006).
+  cross-platform layout (ADR 5 (was 0006)).
 - **`export.py`** — SVG/DXF/PDF/PNG export + post-processing (page-size fix,
   attribution hyperlink/metadata, DXF metadata, arc sanitisation, element-wise
   shape-export degradation). The render chain is **SVG → PDF → PNG**: PDF via
@@ -350,7 +350,7 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   `build_drawing(..., reproducible=True)` (the default a returned `Drawing` then
   carries) and per call as `Drawing.export(..., reproducible=True)`. Weigh any
   change here against #602, which removed a `zoom.extents` walk from the same path.
-- **`repair.py`** — the deterministic lint→repair loop (#30 / ADR 0002): the
+- **`repair.py`** — the deterministic lint→repair loop (#30 / ADR 5 (was 0002)): the
   re-place helpers (`_find_dim`/`_replace_dim`/`_repair_*`/`repair_drawing`) take
   the drawing duck-typed as `dwg`; `Drawing.repair()` stays a thin wrapper.
   Depends only on `_core`.
@@ -360,270 +360,8 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   preserves unsupported facts in the raw IR fallback, and exposes explicit blockers to typed
   lowering; XCAF and Part21 source identities survive both paths.
 
-## Current ADRs — status detail
+## Architecture decisions
 
-The working rules (read ADRs first, assess architectural fit, the amendment
-policy) live in `CLAUDE.md`. This is the per-ADR status trail; each ADR's
-**Current decision** header remains the authoritative amended state.
-- **0001** — deterministic generation over an editable DSL.
-- **0002** — iterate via lint-critique and domain-repair (repair is a *safety
-  net*, not the primary placement mechanism).
-- **0003** — **Retired**: historical universal-solver exploration. Its live
-  responsibilities are split between 0004 (outer layout) and 0014 (inner placement).
-- **0004** — **compose-then-pack** (Accepted; the **outer** layout): each view is
-  a *block* = `view_rect(scale) + its annotation boxes`; choose `(scale, page)`
-  by a monotone search whose fitness function is composing + packing the blocks
-  **disjoint**; build OCC geometry once at the end. Footprints are page-mm
-  **box layouts**, never bbox-measured geometry (perf). Byte-identity is **not**
-  required — output may change; acceptance = plan-view labels never overlap
-  front-view dimensions (CTC-02) + lint clean. Execution (**#121**) **landed** —
-  all nine implementation steps done (see the ADR's 2026-07-09 status amendment).
-- **0005** — **Accepted (split complete)** (#138): compiler-pipeline module
-  boundaries + single-owner build state. `Drawing` stops being the implicit state
-  bus; annotation identity/pins/build-issues moved to `registry.py`, coverage
-  state to `linting/`, build context (`Analysis`, edge cache) into the pipeline.
-  Stages split into `builder`/`analysis`/`compose` (née `sheet`, #640)/`projection`/`linting/`/`repair`/
-  `export`/`annotations/` (all #160–#166 landed; `make_drawing.py` 3,907 → ~20
-  facade). `layout.py` unchanged. **Roadmap:** `docs/plans/138-module-split-roadmap.md`.
-  Both deferred follow-ups are resolved: the §2 build-context threading closed
-  via **#639** (epic #635 — one typed `BuildState`, empty-allowlist ratchet), and
-  `annotations/envelope.py` was overtaken by the compiler convergence now
-  recorded in ADR 0015 (the envelope pass
-  converged into `annotations/from_model.py` instead). §4's compat-alias exit is
-  tracked by **#720** for 0.4.0.
-- **0006** — **Accepted** (#149): deterministic cross-platform layout via bundled,
-  path-pinned fonts. Layout depends on measured text width; resolving a font *name*
-  (`"Arial"`) substitutes a different font on Linux, drifting the whole sheet ~1 mm.
-  draftwright vendors IBM Plex (OFL) and pins it by `font_path` (Plex Mono for
-  dimensions, Plex Sans Condensed for title blocks); the helper renders via
-  `font_path` (needs `>=0.13.0`). Output changed once for every drawing.
-- **0007** — **Accepted, amended by the deployed extraction**: Draftwright owns linting,
-  recognition lifecycle/cache, IR conversion, and drafting policy; `b123d-recognisers`
-  owns geometry recognition; `build123d-drafting-helpers` is the rendering library.
-  (The 0005 golden harness, `tests/test_golden.py`,
-  was **retired** here — byte-exact digests are friction during deliberate output
-  evolution; regression coverage rests on the geometry-level + `test_e2e_standards`
-  suites. See ADR 0005 §3's retirement note.)
-- **0008** — **Superseded by 0015** (#697): the compiler-convergence why-trail,
-  frozen. Read 0015 for current state.
-- **0009** — **Superseded by 0014** (#697): the collect-then-solve why-trail
-  (9 amendments), frozen. Read 0014 for current state.
-- **0010** — **Accepted; landed**: **annotation provenance seam**.
-  The editable-surface epic needs "which annotations did this feature/intent
-  produce?" (for `drop`/`dimension`/`finalize`/the #400 emitter). Rather than
-  tagging each render pass (the link is lost at the corridor placer, the
-  diameter-spec flattening, and the recognition→IR boundary), record
-  `intent → [names]` **once** at the intent→render seam, with an `origin` back-link
-  on every IR feature was rejected; aspect features retain targeting handles.
-  The render seam is the automatic populator and the contract is audit-tested.
-- **0011** — **Accepted** (core landed; #62/#462/#495 remain):
-  **the IR as a public input** — declare features, don't only detect them.
-  `build_drawing(part, model=…)` accepts a caller-supplied `PartModel`/`Sequence[Feature]`
-  and **skips detection**; object→feature constructors
-  (`model.hole`/`boss`/`step`/`slot`/`pattern`/`envelope`) read a feature's size off the
-  build123d object you built (⌀ from the cylindrical face; axis/location from the bbox),
-  with an explicit-value flavour. The fluent `Sheet` façade (`draftwright.Sheet`) is the
-  "beautiful-Python" surface over the existing renderers. **Aspects geometry can't carry
-  are now built:** tolerance/fit ride `DimParameter` (P2a/P2a.2); **GD&T + surface finish**
-  are standalone IR features (`ControlFrame`/`DatumRef`/`Finish`, `model/ir.py`) placed as
-  first-class ADR 0014 corridor candidates by `render_gdt` (P2b #478), authored via
-  `sheet.datum`/`sheet.control(…).position(…)`/`.finish` whose target view+strip derive
-  from the referenced feature/face (`declare.gdt_target`, P2c #480/#482). Complete AP242
-  geometric tolerances with no modifier, or the export-safe all-around modifier, lower through
-  that same `ControlFrame` path (#1095); unsupported modifiers remain provenance-rich raw
-  fallbacks, and all-over export is tracked by #1097. Datum lowering remains #62; number-free
-  aspects remain #462 and raw-cutter slot reading remains #495. Sidesteps #298 misdetection;
-  complements #400 (read + edit → now also input). Roadmap:
-  `docs/plans/0011-phase2-aspects-roadmap.md`; #446/#445.
-- **0012** — **Accepted; partially landed** (2026-07-08; corrected 2026-07-19):
-  user annotation edits are pinned, priority-ranked corridor candidates. A
-  `dimension(..., pin=, priority=)` edit records a
-  scale-independent *dimension intent* on the model — **pin** = the solver's `anchored`/
-  `_ANCHOR_WEIGHT` (stays put while the rest flow around it), **priority** =
-  `CorridorCandidate.priority` (#357). `Drawing.finalize()` drains only recorded
-  deferred intents through `_PASS_SEQUENCE`; it does not reconstruct auto candidates or
-  perform a global auto-plus-user recompose. `place_dim()` remains the deprecated raw-
-  coordinate escape hatch. Full recomposition/parity remains #426/#661/#707.
-- **0013** — **Accepted** (#568; **Phases 1–2 deployed**): the **uniform recogniser
-  contract** — `recognise_<feature>(part, *, <injected deps>) -> list[<frozen
-  record>]` (plus the part-less *derived* shape, e.g.
-  `recognise_hole_patterns(holes)`), mechanically enforced by
-  `tests/test_recogniser_contract.py`; and the typed record→`Feature` converter
-  registry in `model/detect.py` (roadmap 1c / #752), whose completeness+uniqueness
-  is fail-closed by `tests/test_detect_registry.py`. The shared `b123d-recognisers`
-  `v0.1.0a1` package is now the implementation; Draftwright's duplicate modules are deleted.
-  Roadmap: `docs/plans/0013-shared-recognisers-roadmap.md`.
-- **0014** — **Accepted** (supersedes 0009, #697): **collect-then-solve
-  annotation placement as built** — collect every strip occupant as a
-  candidate; one solve per strip (select → order(=feature order ⇒
-  crossing-free) → space, the PAVA L1 solve); post-#636 the guarantee holds for
-  every auto-pass occupant, with the `carve_free_position` exemptions pinned
-  fail-closed. Includes the strip/zone/corridor glossary and the
-  StripCandidate↔CorridorCandidate layering. Amendment 1 (#740) introduced
-  bounded within-pass machined-leader assignment; Amendment 2 (#1166) collects
-  compatible sparse ordinary side/plan hole and post-drain machined leaders into
-  one canonical late stage (maximum placed, priority, clear-route penalty, then
-  leader length), retaining the old lazy greedy result as the resource-cap floor
-  without relaxing page/view/title hard constraints and preserving the abandoned
-  admitted inventory in state-cap traces. Amendment 3 (#798) prices a shaft
-  cutting back through the part into that same Policy-B penalty, measured on one
-  filled projected-material lowering **shared with the
-  `leader_crosses_silhouette` critique**, so router and lint cannot disagree; it
-  is a cost, never an acceptance test, and the resource-cap floor — which is what
-  actually runs on dense parts — gained a bounded clear-route lookahead. Amendment 4
-  (2026-08-16) records that a work budget must bound **measured** work rather than
-  predict it: three guards were found silently disabling the feature they protect on
-  ordinary input (the joint assignment never running on any dense part; two balloon
-  bounds over by 1.5x and **497x**, the latter refusing a hole table at 0.4% of its
-  real cost). Prefer a live counter; an unavoidable pre-check must be exact rather
-  than conservative; and a budget that fires is a capability loss that should say so.
-- **0015** — **Accepted** (supersedes 0008, #697): **the part-drawing compiler
-  as built** — detectors + declared features → the one PartModel waist (two
-  tiers, ADR 0013) → planner → render-intents → shared infra; with the
-  planner-coverage split (the #698 migrations are complete; correlated
-  furniture/aspects remain model-routed by design, while rotational OD/bore
-  groups are residual debt tracked by #754) and the lint/coverage carve-out
-  stated properly. New kinds must add every applicable IR, planning, rendering,
-  coverage, and test surface while keeping orientation data-driven.
-- **0016** — **Accepted; epic #867 complete** (PR0–PR8, #868–#876): **declared
-  dimensioning intent**. `sheet.dimension(feature, role)` is *referential* — it names
-  a measurement and carries no number; the engine still derives the value from the
-  geometry and owns placement. Three parts landed:
-  - **A build must say where its dimensions come from** (#874, breaking): either
-    `auto_dimensions()` (the planner's set, optionally augmented by `add_dimension`)
-    or an authored set of `dimension(...)` declarations. Mutually exclusive, because
-    "everything the planner chooses, plus these" and "only these" cannot both hold.
-  - **Omission from an authored set means suppression** (#876) — on *every* generated
-    dimensional path, positions included. A dimension the author cannot address is a
-    dimension the author cannot omit, so `location` became addressable per feature
-    (`planner.location_datum` is the single eligibility answer; per-*member* identity
-    remains #883).
-  - **Amendment 1 — the compiled-plan boundary**: renderers may emit dimensional
-    content only from `model/compiled.py`'s `RenderableDimensionPlan`. *Suppression is
-    not a flag renderers check, it is content they never receive* — `ApprovedDimension`
-    has no `suppressed` field. Guarded on both the symptom
-    (`tests/test_compiled_plan_boundary.py`: an empty plan draws nothing) and the cause
-    (`tests/test_label_provenance.py`: a renderer that formats a number got it as a
-    number rather than as the compiler's `value_text`). Hole callouts (`hc_`) are the
-    one renderer still on the legacy surface (#926); the label budget drawdown is #927.
-  - **Amendment 6 — the converse**: a renderer must emit everything the plan approves,
-    and where it cannot place it, must say so. Two failure modes, one rule. (a) An
-    authored tolerance reaches the sheet composed into the **label** — helpers resolve
-    `label if label is not None else _number_with_units(measured, tolerance)`, and every
-    dimension here passes a label, so a forwarded `tolerance=` renders nothing while
-    type-checking and reading back correctly from `Dimension.label`. (b) An approved
-    dimension that no annotation claims must be reported: a starved overall extent and a
-    rung below the legibility floor both used to vanish with the lint clean. The report
-    carries the measurement, must not gate the build (reporting through
-    `placement_unsatisfiable` made `build_drawing(scale=…)` raise on parts that had always
-    built), and is retracted if a later pass draws the measurement after all. Whether
-    either should instead be *placed* is an open ADR 0014 question (#1236); reporting is
-    not contingent on answering it. The converse is asserted over `plan.groups` and
-    `plan.ladders` only — a contingency is deliberately undrawn (Amdt 5) and a location
-    carries no tolerance. Guarded by
-    `tests/test_issue_1215_no_approved_tolerance_is_dropped.py`, which sweeps every
-    parameter of every feature through both `decorations=` key shapes.
-  **Not** shipped: the emitter dimension-mirror (phase 4). `emit_sheet_script` refuses a
-  model with an authored set rather than silently writing `auto_dimensions()`, because
-  naming a feature in a generated script would have to address it by position — #922.
-- **0017** — **Accepted with narrowed scope; ownership phase landed, correspondence work is
-  evidence-gated by epic #1018**: **the recognition inventory as a first-class result**.
-  Recognition stops being a
-  scatter of ad-hoc calls: one orchestration per build produces a frozen
-  external `RecognitionResult`, held by Draftwright's `RecognitionCache` in `BuildState` and reused by
-  model construction *and* by critique. Automatic-path lint reads its inventories off
-  `Analysis`; declared-path critique obtains the same aggregate lazily through `BuildState`.
-  ADR 0017 §5 explicitly permits both (independence from the *plan* is not independence from
-  the *recognition*).
-  Phase 1 (#1019) introduced the **fail-closed manifest**. After extraction, its registry,
-  family classification, applicability, and exactly-once execution contract are provider-owned
-  and tested by the released `b123d-recognisers` suite. Draftwright does not re-certify that
-  private orchestration. Its consumer guard observes the public aggregate by code object and
-  reports any public, part-taking recogniser invoked outside it, so a consumer cannot quietly
-  grow a second scan while pure record projections remain reusable.
-  Double-D, Passage, PrismaticPocket, and repeating-profile consumer tests likewise read the
-  aggregate and test Draftwright's independent physical correlation; private profile predicates,
-  attribution, and family reconciliation remain provider-suite responsibilities.
-  **#1022** landed the **ADR 0011 declared-path gate**: a declared build now recognises
-  **nothing**. It was not one `if` — sizing sources the turned profile and step ladder from
-  the declaration (`_declared_turned_profiles` / `_declared_step_zs` in `analysis.py`), and
-  the lint→repair loop stopped asking for the feature-coverage half it never used
-  (`Drawing.lint(physical=False)`; repair acts on `dim_inside_part` alone, ADR 0002).
-  Critique on that path still needs an inventory, so `BuildState.ensure_recognition()` builds
-  one lazily, once — in the typed build state, not a lint- or `Drawing`-side memo, which
-  would make critique a second recognition owner. Exporting a declared drawing pays for that
-  one aggregate by design: `export` logs the coverage critique, and suppressing it to reach
-  "zero" would trade a user-facing diagnostic for a benchmark number. Two consequences worth
-  knowing: lint takes `step_zs`/`pads`/`pockets` from the **aggregate**, never from
-  `Analysis` on the declared path (ADR 0015 — critique must not inventory from the model);
-  and `recognise_face_levels` migrated into the aggregate as `step_levels`, its
-  `NO_INDEPENDENT_CONSUMER` deferral having stopped being true the moment declared-path
-  critique needed the geometry ladder. The gate also exposed a latent strip-sizing bug on
-  *both* paths: `_est_right_strip_depth` counted ladder steps only, while boss heights share
-  that strip — detected builds hid it in the ladder's slack (`_n_right_strip_boss_heights`,
-  `compose.py`).
-  **Phase 1 is complete.** #1025 split `recognise_step_shoulders` into level-free riser
-  evidence the aggregate owns (`recognise_risers`) plus a pure `project_step_shoulders` each
-  consumer applies with its own level set — which took *lint's* per-pass rescan to zero, epic
-  #1018's third phase-0 guard, and closed a false-negative door on the way (coverage's
-  `step_zs=` argument fully determined the shoulder answer, so `step_zs=[]` silenced
-  `unrecognised_defining_geometry`). #1026 then migrated the three `BUILD_MODEL_ONLY`
-  families once #1022 had removed their cost, and #1028 migrated the last three by moving
-  their classification gate *into* the orchestration — the distinction that made it possible
-  being that **owning a family and always running it are different things**. In
-  b123d-recognisers 0.2.9 chamfers and fillets became unconditional because the package now
-  recognises their conical/toroidal turned forms. In 0.4.6, plates and the four prismatic step
-  families (angled, circular blind, paired ramp, and through) remain classification-gated
-  (#1254/#1281/#1382).
-  The provider's current manifest has no deferred family: every public physical family is
-  owned by its one orchestration, with applicability still provider policy. Draftwright's
-  executable claim is deliberately narrower: an automatic build requests one aggregate and
-  makes no physical-recogniser bypass; a declared build/render requests none; physical critique
-  or export may obtain one cached aggregate. The three 0.4.6 step inventories are consumed with
-  evidence-backed, scored semantics under #1382. Their framed-coordinate parity remains a
-  separate #1357 acceptance item.
-  `RaisedPad` schema v2 is likewise adapted only after the shared aggregate: axis and signed
-  attachment direction are IR data, all six orientations use the same footprint/height/location
-  compiler grammar and placement solve, and a side-normal footprint is filtered from the legacy
-  Z-level projection only when exact support correspondence proves that ownership. No renderer
-  consumes the provider record or places an annotation at a caller-supplied page coordinate.
-  Amendments 12–18 give unconditional 1:1 adapters, hole/slot/pocket singleton/grouped/pattern
-  members, nested countersinks, conditional channel/turned-step decisions, and direct or
-  multi-feature through-step decisions exact run-local occurrence→final-IR ownership in
-  `BuildState`, while settled unsupported, evidence-only, and deferred occurrences have explicit
-  ownerless outcomes. Remaining conditional families, plus general IR-feature→requirement
-  correspondence, are not yet provided. The original
-  four-type identity taxonomy, shared requirements module, general outcome ledger,
-  reconciliation stage, and diagnostics model are candidate extensions rather than an
-  approved phase sequence. #1018 now requires two end-to-end slices before any of them is
-  generalised: flats first (using #1011's fixtures without label/tip/page inference), then
-  off-centre slots plus N:1 slot patterns. Each new semantic guard needs the mutation that
-  breaks its claimed contract; a green suite alone is not evidence that the guard is
-  load-bearing.
-
-- **0019** — **Proposed**: **display-complete labels and a dimension-outcome ledger** —
-  finishing the 0016 Amdt 1 boundary after epic #1215/#1216's ten review rounds showed its
-  half-built state: `ApprovedDimension` gains `display_text` (tolerance suffix, fit class and
-  collapse wording included) so renderers render and never compose; `_tol_suffix` moves below
-  the model rank and drawn precision becomes a compile input; dimension outcomes reconcile at
-  one end-of-build seam on both routes, replacing the withholding-code/retraction machinery;
-  ladder rungs get per-mark identity (amending 0016 Amdt 3). Success criterion is a
-  net-negative diff.
-- **0018** — **Accepted** (2026-08-16; #1130): **requirement-driven view planning
-  and editable sheet layout**. One view-planning model between drawing requirements and
-  projection: authored `ViewConstraints` and the automatic planner share one semantic
-  `ViewSpec`/layout vocabulary and produce one immutable `ResolvedViewPlan`. Page,
-  preferred scale, view set and arrangement are chosen **jointly** against complete view
-  blocks measured with fixed paper-space typography; a candidate is feasible only when
-  the real shared annotation solve preserves every supported requirement and all blocks
-  stay in bounds. Supersedes ADR 0004's **fixed four-view topology** (0004's
-  compose-then-pack of each selected block still stands). Users edit whole view blocks,
-  never feature-annotation coordinates (ADR 0012/0014 keep those). Infeasibility is a
-  first-class `plan_infeasible` result, never a silent relaxation of an authored
-  constraint.
-  **Nothing is implemented yet** — there is no `ViewSpec`/`ResolvedViewPlan` in the code
-  and the engine still builds fixed front/plan/side/iso. The ADR's "Required evidence
-  before acceptance" list is the per-slice delivery gate, not waived by acceptance.
-  Accepted on converging evidence from #1187 (leaders that cut the part have no clear
-  route because the SHEET is full — every remedy is compositional) and #1190 (the
-  section is placed into leftover space, so its presence tracks room rather than need).
+The five live records in `docs/adr/` own every decision this map implements; each names the
+tests that guard it. This document is the module map only — where things live and what imports
+what, kept in step with `tests/test_import_boundaries.py`. It does not restate the decisions.

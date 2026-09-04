@@ -1,5 +1,8 @@
 # ADR 0018 — Requirement-driven view planning and editable sheet layout
 
+> **Archived 2026-09-04.** Frozen history; the current decision is [ADR 2 — Sheet layout and view planning](../0002-sheet-layout-and-view-planning.md). Nothing here is a work instruction.
+
+
 - **Status:** **Accepted** (2026-08-16), **partially implemented** — see Amendments 1–3.
   Delivery is phased through #1130. What exists: `ViewSpec`, `ViewConstraints`,
   `ResolvedViewPlan` and `ViewCoverage` (`view_plan.py`); the public `Sheet` authored/augmenting

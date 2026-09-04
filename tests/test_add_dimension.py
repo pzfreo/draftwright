@@ -1,4 +1,4 @@
-"""ADR 0016 augmenting intent — `Sheet.add_dimension()` (#872).
+"""ADR 4 (was 0016) augmenting intent — `Sheet.add_dimension()` (#872).
 
 `add_dimension(feature, role)` asks the planner to carry one more measurement. It is
 *referential*: it names a feature and a role and carries no number, so the value still
@@ -93,7 +93,7 @@ class TestPlannerIntentInput:
         assert all(not m.suppressed for u in asked.units for m in u.members)
 
     def test_a_request_resolves_by_bare_role_or_by_dotted_identity(self):
-        """Both call-site vocabularies reach the planner. ADR 0016 leaves the role
+        """Both call-site vocabularies reach the planner. ADR 4 (was 0016) leaves the role
         vocabulary open; the dotted form is the identity #871 built, the bare role is
         what a caller reaches for when it is unambiguous."""
         from draftwright.model.planner import _request_for
@@ -160,7 +160,7 @@ class TestSheetSurface:
             sheet.build()
 
     def test_the_source_may_be_declared_after_the_augment(self):
-        """Order independence (ADR 0016). The gate is at build, not in the verb, so
+        """Order independence (ADR 4 (was 0016)). The gate is at build, not in the verb, so
         these two scripts must not disagree."""
         sheet = Sheet(_part(), title="T", number="N")  # the source arrives below
         bore = sheet.hole(diameter=10, at=(0, 0, 14), axis="z").depth(12)
@@ -286,7 +286,7 @@ class TestSheetSurface:
         every measurement on that feature goes silently blank (#921 review round 4).
 
         Unreachable through `Sheet`, which materialises entries against the final
-        features; reachable through the ADR 0011 public input, which is exactly where a
+        features; reachable through the ADR 4 (was 0011) public input, which is exactly where a
         caller assembles a `PartModel` by hand. So the miss says so."""
         from dataclasses import replace
 
@@ -479,7 +479,7 @@ class TestSheetSurface:
 def test_an_ambiguous_role_raises_rather_than_guessing():
     """A grid pattern carries two `grid_pitch` measurements. Picking one silently is
     the kind of wrong a reader cannot see on the sheet, so the verb refuses and names
-    the choices (ADR 0016 identity, tier 2)."""
+    the choices (ADR 4 (was 0016) identity, tier 2)."""
     from draftwright.model import PatternFeature
 
     sheet = Sheet(_part(), title="T", number="N").auto_dimensions()
@@ -556,7 +556,7 @@ class TestFeatureResolution:
 
 
 def test_a_verbatim_partmodel_carries_requests_through_the_builder():
-    """ADR 0011's public-input path: a caller-supplied `PartModel` is used verbatim, so
+    """ADR 4 (was 0011)'s public-input path: a caller-supplied `PartModel` is used verbatim, so
     requests merged onto it must survive into the plan without mutating the caller's
     reusable model."""
     from draftwright.builder import _coerce_model
@@ -1083,7 +1083,7 @@ class TestOmittedDimensionsDoNotRender:
         assert self._rungs(sheet.build()) == []
 
     def test_a_correlated_set_is_addressed_whole(self):
-        """ADR 0016 identity tier 3: one `role=` line keeps the WHOLE ladder. With two
+        """ADR 4 (was 0016) identity tier 3: one `role=` line keeps the WHOLE ladder. With two
         rungs in play this distinguishes "the set was addressed" from "one member
         happened to survive" — a per-member reading of the plan would draw neither, and
         a half-honoured one would draw a partial staircase."""

@@ -1,4 +1,4 @@
-"""sheet.of(feature) — decorate a generated/existing feature (ADR 0011, #463).
+"""sheet.of(feature) — decorate a generated/existing feature (ADR 4 (was 0011), #463).
 
 Where the from_part-generated feature list and the aspect layer (P2a/P2a.2) meet: a handle
 onto an existing feature so `.fit(...)` / `.tolerance(...)` reach a feature you didn't declare

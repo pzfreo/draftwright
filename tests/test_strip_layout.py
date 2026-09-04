@@ -1,4 +1,4 @@
-"""Unit tests for the ADR 0009 collect-then-solve strip-placement stage.
+"""Unit tests for the ADR 2 (was 0009) collect-then-solve strip-placement stage.
 
 Grows with the boundary-labeling migration (tracking #320). P0b (#317): the
 complete per-strip occupancy model — `strip_obstacles` — that closes the
@@ -217,7 +217,7 @@ def test_strip_obstacles_keeps_section_hatch_in_every_per_view_query():
         assert any(_same(x, hbox) for x in strip_obstacles(dwg, view=v)), f"hatch dropped from {v}"
 
 
-# --- Escalation objects (ADR 0009 Amendment 1, P5-strand-2 scaffolding, #351) -----
+# --- Escalation objects (ADR 2 (was 0009 Amendment 1), P5-strand-2 scaffolding, #351) -----
 
 
 def test_record_callout_drop_emits_a_callout_escalation():
@@ -491,7 +491,7 @@ def test_carve_free_segments_fully_covered_leaves_no_segment():
 
 
 def test_carve_then_plan_strip_keeps_a_label_off_a_reserved_row():
-    # ADR 0009 Amendment 9 (#381): `plan_strip` no longer knows about keep-out
+    # ADR 2 (was 0009 Amendment 9) (#381): `plan_strip` no longer knows about keep-out
     # bands itself — a caller carves the band out of the strip with the same
     # `carve_free_segments` every other obstacle already uses, then calls
     # `plan_strip` once per free segment (see `annotations/holes.py`). A label
@@ -521,7 +521,7 @@ def test_carve_around_a_band_keeps_an_anchored_candidate_on_its_natural():
     # candidate assigned to its own band-free segment is never in the same
     # solve as anything the band would have forced a trade-off against.
     # naturals [29, 34], gap 10, band (30, 33) — the DP's own reachable
-    # regression case (docs/adr/0009 Amendment 5) — with label 1 anchored.
+    # regression case (docs/adr/archive/0009 Amendment 5) — with label 1 anchored.
     import pytest
 
     from draftwright.annotations._common import carve_free_segments
@@ -551,7 +551,7 @@ def test_carve_free_segments_no_bands_is_the_whole_strip():
 
 
 def test_holes_band_clearance_exceeds_min_gap_on_the_real_draft():
-    # Guards the invariant docs/adr/0009's "Investigated, not fixed" paragraph
+    # Guards the invariant docs/adr/archive/0009's "Investigated, not fixed" paragraph
     # relies on to call the cross-segment min_gap violation unreachable: a
     # band's half-width (clr) must exceed min_gap on the actual production
     # draft (builder.py's _assemble draft_preset() call), or that paragraph's
@@ -1070,7 +1070,7 @@ def test_two_cross_hole_heights_share_their_end_view_ladder_without_crossing():
     assert drawing.lint() == []
 
 
-# --- unified above-corridor solve (ADR 0009 end state, #345/#346) -----------
+# --- unified above-corridor solve (ADR 2 (was 0009) end state, #345/#346) -----------
 
 
 def _holed_slot():

@@ -1,4 +1,4 @@
-"""ADR 0018 slice 1: the view plan is a value, it is the one owner, and it changed nothing.
+"""ADR 2 (was 0018) slice 1: the view plan is a value, it is the one owner, and it changed nothing.
 
 The ADR's required evidence for this slice is three claims, and this file is each of them:
 
@@ -101,7 +101,7 @@ class TestTheResolvedPlanCannotBeMistakenForARequest:
 
         A frozen dataclass wrapping a plain dict is frozen in name only — `plan.placements[...]
         = ...` would edit the resolved answer through the immutable object, which is exactly the
-        "one mutable object for authored constraints and resolved output" ADR 0018 rejects.
+        "one mutable object for authored constraints and resolved output" ADR 2 (was 0018) rejects.
         """
         with pytest.raises(TypeError):
             built.view_plan.placements["front"] = ViewPlacement(0, 0, 1, 1)  # type: ignore[index]
@@ -227,7 +227,7 @@ def test_the_repack_loop_really_consumes_the_plan():
 
 
 class TestPerViewRequirementCoverage:
-    """ADR 0018 slice 2: what each view carries, and what would go with it.
+    """ADR 2 (was 0018) slice 2: what each view carries, and what would go with it.
 
     Selection cannot happen until something can answer "what is lost if this view goes", and
     nothing could. This is that answer, and the ADR names the two cases it must separate:
@@ -405,7 +405,7 @@ class TestPerViewRequirementCoverage:
             )
 
     def test_coverage_is_read_from_what_the_sheet_actually_carries(self):
-        """Through the ADR 0010 seam, not from the compiler's intentions.
+        """Through the ADR 5 (was 0010) seam, not from the compiler's intentions.
 
         A measurement the compiler approved and no annotation drew must not appear as covered —
         that is the difference between "the plan wanted this" and "the drawing says this", and
@@ -453,7 +453,7 @@ class TestPerViewRequirementCoverage:
 class TestSectionsAndDetailsAreNotPlannedYet:
     """The gap this slice does not close, pinned so it cannot be forgotten or overstated.
 
-    ADR 0018's `ViewSpec.kind` already admits `section` and `detail`, and the ADR's own "why
+    ADR 2 (was 0018)'s `ViewSpec.kind` already admits `section` and `detail`, and the ADR's own "why
     now" cites #1190: the section "is not part of the scale/layout decision at all… placed
     opportunistically into whatever is left, which is why its presence tracked leftover space
     rather than need." That is still true. These views are created by annotation passes long
@@ -479,7 +479,7 @@ class TestSectionsAndDetailsAreNotPlannedYet:
         """The trap, and the reason coverage fails closed.
 
         A detail exists to redraw the marks the main view could not fit. Those marks share their
-        parameter's `DimensionId` with the ones that DID fit (ADR 0016 Amdt 3 — an id names a
+        parameter's `DimensionId` with the ones that DID fit (ADR 4 (was 0016 Amdt 3) — an id names a
         parameter, not a mark), so by id alone the detail carries nothing exclusively. On
         `_crowded_staircase` it draws three step heights and every one of them reads as already
         covered by the front view.
@@ -487,7 +487,7 @@ class TestSectionsAndDetailsAreNotPlannedYet:
         Answering "droppable" there would lose three dimensions off the sheet — precisely ADR
         0018's "visually similar but semantically necessary view", reached by arithmetic. So
         coverage reports the ids as INDETERMINATE and the view as not a candidate. Per-mark
-        identity (ADR 0019 §3) is what would let this be answered rather than declined.
+        identity (ADR 4 (was 0019 §3)) is what would let this be answered rather than declined.
         """
         from test_issue_1215_no_approved_tolerance_is_dropped import _PARTS
 
@@ -517,7 +517,7 @@ class TestSectionsAndDetailsAreNotPlannedYet:
 
 
 class TestTheLayoutCandidate:
-    """ADR 0018 §5: page, scale, views and arrangement as ONE constrained choice.
+    """ADR 2 (was 0018 §5): page, scale, views and arrangement as ONE constrained choice.
 
     `compose.choose_scale` has always been the planner's candidate loop — build a list of
     possibilities, return the first that fits — but the possibility was an anonymous
@@ -553,7 +553,7 @@ class TestTheLayoutCandidate:
         assert third_angle_view_names() == tuple(spec.name for spec in third_angle_principals())
 
     def test_an_infeasible_candidate_says_why_rather_than_returning_false(self):
-        """ADR 0018 §6, the half of it this slice delivers.
+        """ADR 2 (was 0018 §6), the half of it this slice delivers.
 
         The terminal behaviour is unchanged — `choose_scale` still falls back to the last
         candidate with a warning, which the ADR wants replaced by a `plan_infeasible` result.

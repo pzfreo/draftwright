@@ -1,4 +1,4 @@
-"""ir — the part-drawing compiler's intermediate representation (ADR 0008).
+"""ir — the part-drawing compiler's intermediate representation (ADR 1 (was 0008)).
 
 The narrow waist between recognition and dimensioning. Two protocols carry the
 weight:
@@ -274,7 +274,7 @@ AUTHORED_DIMENSION_KINDS = frozenset(
 # roles): "bore", "counterbore", "spotface", "od", "step", "boss", "thread",
 # "pattern", "slot", "envelope", "location", …
 Role = str
-# The semantic identity of one addressable measurement (ADR 0016). A readable string,
+# The semantic identity of one addressable measurement (ADR 4 (was 0016)). A readable string,
 # not an opaque token: it surfaces in diagnostics, lint messages and (later) emitted
 # `dimension(...)` lines, and must stay stable across re-detection and planner changes.
 # See :attr:`DimParameter.parameter_id` for how it is derived.
@@ -396,19 +396,19 @@ class DimParameter:
     value: float
     span: tuple[Point, Point] | None = None
     refs: tuple[str, ...] = ()
-    # An authored ± tolerance (ADR 0011 §4 / P2a): a symmetric ``float`` or an
+    # An authored ± tolerance (ADR 4 (was 0011 §4) / P2a): a symmetric ``float`` or an
     # ``(lower, upper)`` limit pair; or a resolved fit class (``FitClass``, P2a.2) that
     # renders its own class-code / deviation suffix; ``None`` when untoleranced. Set by the
     # planner from the caller's ``decorations`` — geometry never supplies it.
     tolerance: float | tuple[float, float] | FitClass | None = None
     # A semantic discriminator for measurements ``(role, kind)`` cannot tell apart
-    # (ADR 0016 identity, tier 2). Today's sole instance is a grid pattern's two pitches
+    # (ADR 4 (was 0016) identity, tier 2). Today's sole instance is a grid pattern's two pitches
     # (``"row"`` / ``"col"``). ``None`` wherever role + kind already identify the thing.
     discriminator: str | None = None
 
     @property
     def parameter_id(self) -> ParameterId:
-        """This parameter's semantic identity (ADR 0016) — ``role.kind``, plus the
+        """This parameter's semantic identity (ADR 4 (was 0016)) — ``role.kind``, plus the
         discriminator where one is needed: ``bore.diameter``, ``bore.depth``,
         ``grid_pitch.length.row``.
 
@@ -564,7 +564,7 @@ class ThreadOperation:
 
     A plain thread string remains the compact form for an unspecified/full-depth thread.
     This value object carries an explicit tap depth through the public IR as
-    ``thread.depth`` instead of burying the manufacturing value in prose (ADR 0011).
+    ``thread.depth`` instead of burying the manufacturing value in prose (ADR 4 (was 0011)).
     """
 
     designation: str
@@ -726,7 +726,7 @@ class HoleFeature:
     csink: tuple[float, float] | None = None
     # A thread spec (tap/thread), e.g. ``"M3x0.5"`` — free text folded onto the hole's
     # compound callout (#764), or ``ThreadOperation`` when an authored tap depth must remain
-    # independently addressable. A declaration-only aspect (ADR 0011 side-layer): threads
+    # independently addressable. A declaration-only aspect (ADR 4 (was 0011) side-layer): threads
     # are cosmetic, rarely modelled as geometry, so there is no recogniser — declare + emit.
     thread: str | ThreadOperation | ThreadRequirement | None = None
     # A structural bore profile. ``None`` is the ordinary circular bore; ``double_d``
@@ -743,7 +743,7 @@ class HoleFeature:
         """Keep profiled-bore geometry complete at the public IR waist.
 
         Detection, declaration and direct ``PartModel`` construction are equal producers
-        (ADR 0011). Validating here prevents a direct model from planning ``DOUBLE-D`` with
+        (ADR 4 (was 0011)). Validating here prevents a direct model from planning ``DOUBLE-D`` with
         no A/F value, or carrying an orientation that the profile cannot have.
         """
         if (
@@ -878,7 +878,7 @@ class PatternFeature:
             ps.append(DimParameter("length", "pitch", self.pitch))
         if self.grid is not None:
             rp, cp = self.grid
-            # Same role AND kind, semantically distinct — the ADR 0016 tier-2 case that
+            # Same role AND kind, semantically distinct — the ADR 4 (was 0016) tier-2 case that
             # forces a discriminator. "row"/"col" (not "x"/"y"): `angle` may rotate the
             # lattice, so a row pitch is not an X pitch in general. Mapping a user-facing
             # `axis=` selector onto these is the facade's job, not the IR's.
@@ -1392,7 +1392,7 @@ class PocketPatternFeature:
             ps.append(DimParameter("length", "pitch", self.pitch))
         if self.grid is not None:
             rp, cp = self.grid
-            # Same role AND kind, semantically distinct — the ADR 0016 tier-2 case that
+            # Same role AND kind, semantically distinct — the ADR 4 (was 0016) tier-2 case that
             # forces a discriminator. "row"/"col" (not "x"/"y"): `angle` may rotate the
             # lattice, so a row pitch is not an X pitch in general. Mapping a user-facing
             # `axis=` selector onto these is the facade's job, not the IR's.
@@ -1437,7 +1437,7 @@ class SlotPatternFeature:
             ps.append(DimParameter("length", "pitch", self.pitch))
         if self.grid is not None:
             rp, cp = self.grid
-            # Same role AND kind, semantically distinct — the ADR 0016 tier-2 case that
+            # Same role AND kind, semantically distinct — the ADR 4 (was 0016) tier-2 case that
             # forces a discriminator. "row"/"col" (not "x"/"y"): `angle` may rotate the
             # lattice, so a row pitch is not an X pitch in general. Mapping a user-facing
             # `axis=` selector onto these is the facade's job, not the IR's.
@@ -2228,7 +2228,7 @@ class ThroughStepFeature:
         """Topology-only signs from the concave corner toward the missing rectangle.
 
         Unlike :attr:`exterior_corner`, these signs carry no distance. They are safe compiled
-        placement facts when an authored set withholds either dimensional leg (ADR 0016).
+        placement facts when an authored set withholds either dimensional leg (ADR 4 (was 0016)).
         """
         first, corner, last = self.section
         directions = []
@@ -2461,7 +2461,7 @@ class RotationalFeature:
     kind: ClassVar[str] = "rotational"
 
     def __post_init__(self):
-        """Bores are Z-axis only, enforced HERE because the IR is the one waist (ADR 0015).
+        """Bores are Z-axis only, enforced HERE because the IR is the one waist (ADR 1 (was 0015)).
 
         The rule is real: detection carries bores only when `od_axis == "z"`, and
         `render_rotational` leaders them in that branch alone — on a part turned about X or Y
@@ -2469,13 +2469,13 @@ class RotationalFeature:
         `bore.diameter` parameters that planned, mirrored into a generated script, and drew
         nothing, with lint clean (#949 review r4/r5).
 
-        It started life in `declare.rotational`, which left the sanctioned ADR 0011 route —
+        It started life in `declare.rotational`, which left the sanctioned ADR 4 (was 0011) route —
         a hand-built `PartModel` through `Sheet.add` or `build_drawing(model=…)` — wide open,
         and let the emitter write a `sheet.rotational(bores=…, axis="x")` line that the
         declare layer would then reject. Guarding the constructor rather than the type is the
-        two-places-to-decide defect ADR 0016 names, so the invalid state is simply not
+        two-places-to-decide defect ADR 4 (was 0016) names, so the invalid state is simply not
         representable and every route inherits one answer. #952 tracks lifting the engine
-        restriction (or recording the hole-pass split in ADR 0015 and keeping this forever).
+        restriction (or recording the hole-pass split in ADR 1 (was 0015) and keeping this forever).
         """
         if self.bores and self.frame.axis != "z":
             raise ValueError(
@@ -2535,7 +2535,7 @@ class AuthoredDimension:
     # require two reference stations.
     cylindrical_refs: tuple[CylindricalReference, ...] = ()
     # Declarative projection/strip intent. These select ordinary corridor candidates;
-    # they are not page coordinates and do not bypass placement solving (ADR 0012/0014).
+    # they are not page coordinates and do not bypass placement solving (ADR 2 (was 0012/0014)).
     view: str | None = None
     side: str | None = None
     kind: ClassVar[str] = "authored_dimension"
@@ -2605,7 +2605,7 @@ class PmiFeature:
 @dataclass(frozen=True)
 class ControlFrame:
     """A geometric-tolerance feature control frame (ISO 1101) declared on the drawing
-    (ADR 0011 §4 aspect side-layer, #61). Placed as a first-class ADR 0009 corridor
+    (ADR 4 (was 0011 §4) aspect side-layer, #61). Placed as a first-class ADR 2 (was 0009) corridor
     candidate by ``render_gdt`` — NOT through the dimension planner, so ``parameters()``
     is empty (like :class:`PmiFeature`). The target ``(view, side)`` strip and the
     model-space site (``frame.origin``) the leader hangs from are carried explicitly:
@@ -2620,7 +2620,7 @@ class ControlFrame:
     datums: tuple[str, ...] = ()
     diameter: bool = False  # ⌀ prefix on the tolerance zone
     modifier: str | None = None  # material-condition modifier: "M" | "L" | "P" | ...
-    # The IR feature this frame decorates — recorded as provenance (ADR 0010); ``None``
+    # The IR feature this frame decorates — recorded as provenance (ADR 5 (was 0010)); ``None``
     # leaves it feature-less. Untyped to avoid an import cycle with the geometric features.
     origin: object | None = None
     # An imported AP242 scope symbol belongs at the leader kink, not in the tolerance cell's
@@ -2642,7 +2642,7 @@ class ControlFrame:
 @dataclass(frozen=True)
 class DatumRef:
     """A datum feature symbol (ISO 5459) — a boxed letter tagging a surface/axis as a
-    datum (#61). Placed as an ADR 0009 corridor candidate by ``render_gdt``, not through
+    datum (#61). Placed as an ADR 2 (was 0009) corridor candidate by ``render_gdt``, not through
     the dimension planner (``parameters()`` is empty). Imported datums retain every source
     occurrence in ``source_ids`` while rendering the physical datum feature once."""
 
@@ -2666,7 +2666,7 @@ class DatumRef:
 @dataclass(frozen=True)
 class Finish:
     """A surface-finish symbol (ISO 1302) — a roughness callout on a surface (#61).
-    Placed as an ADR 0009 corridor candidate by ``render_gdt``, not through the
+    Placed as an ADR 2 (was 0009) corridor candidate by ``render_gdt``, not through the
     dimension planner (``parameters()`` is empty)."""
 
     frame: Frame
@@ -2687,7 +2687,7 @@ class Finish:
 class Note:
     """A free-text manufacturing note (#488) hung on a leader to a feature/site — the shop
     callouts detection can't infer (thread specs, ``DEBURR``, chip-relief, knurl). Placed like
-    the GD&T items — a first-class ADR 0009 corridor candidate via ``render_gdt`` (its glyph is a
+    the GD&T items — a first-class ADR 2 (was 0009) corridor candidate via ``render_gdt`` (its glyph is a
     single-line ``TextBlock``), NOT the dimension planner (``parameters()`` is empty)."""
 
     frame: Frame
@@ -2716,7 +2716,7 @@ class Note:
         available = {parameter.parameter_id for parameter in self.origin.parameters()}
         # ``location`` is the one addressable dimension with no DimParameter. IR can validate
         # its spelling here; the Sheet/compiler boundaries validate planner-owned eligibility
-        # without reversing the IR -> planner dependency (ADR 0015).
+        # without reversing the IR -> planner dependency (ADR 1 (was 0015)).
         if "location" in self.satisfies:
             available.add("location")
         invalid = sorted(set(self.satisfies) - available)
@@ -2736,9 +2736,9 @@ class Note:
 @dataclass(frozen=True)
 class RequestedDimension:
     """A caller's ``add_dimension(...)`` — *augment the planner's set with this
-    measurement* (ADR 0016).
+    measurement* (ADR 4 (was 0016)).
 
-    Referential like every ADR 0016 intent: it names a feature and a role and carries
+    Referential like every ADR 4 (was 0016) intent: it names a feature and a role and carries
     **no number**, so the value still comes from the geometry. What it changes is
     *selection*, not derivation — if the planner suppressed this parameter the request
     un-suppresses it; if the planner already emits it the request is a no-op. Overlap
@@ -2746,7 +2746,7 @@ class RequestedDimension:
     ask for a measurement without first knowing whether the rule set already volunteers
     it, or the verb would leak the planner's internals into every caller.
 
-    Emphasis (ADR 0012's ``pin`` / ``priority``) is deliberately NOT here. The engine
+    Emphasis (ADR 2 (was 0012)'s ``pin`` / ``priority``) is deliberately NOT here. The engine
     already carries two spellings of "keep this dimension put" — ``Drawing.pin(name)``
     on a placed annotation, and the post-build ``intents`` route that reaches the solve
     through ``render_locations(pinned=…)`` for location dims only. Adding a third,
@@ -2800,18 +2800,18 @@ class PartModel:
     orientation: str | None  # turning axis if rotational, else None
     features: list[Feature] = field(default_factory=list)
     datums: list[Datum] = field(default_factory=list)
-    # Authored aspects the frozen features can't carry (ADR 0011 §4). P2a uses it for
+    # Authored aspects the frozen features can't carry (ADR 4 (was 0011 §4)). P2a uses it for
     # per-dimension tolerances: ``{(feature, ParamKind) -> float | (lo, hi)}``. Imported
     # requirements wrap that value in :class:`ToleranceDecoration` so source identities
     # survive without widening renderer tolerance types (#1116). The planner consults this
     # map to set ``DimParameter.tolerance``; otherwise empty on a detected model.
     decorations: dict = field(default_factory=dict)
-    # Caller-requested augmenting measurements (ADR 0016 / #872) — the planner's
+    # Caller-requested augmenting measurements (ADR 4 (was 0016) / #872) — the planner's
     # *intent input*. Kept distinct from `decorations` on purpose: a decoration enriches
     # a dimension the planner already chose, a request changes WHICH dimensions it
     # chooses. Empty on a detected model.
     requested_dimensions: tuple[RequestedDimension, ...] = ()
-    # The COMPLETE authored dimension set (ADR 0016 / #874/#876), or ``None`` for the
+    # The COMPLETE authored dimension set (ADR 4 (was 0016) / #874/#876), or ``None`` for the
     # planner's automatic set. The two are the model's only dimension sources and are
     # mutually exclusive — omission is only meaningful inside a set declared complete,
     # which is exactly why the source has to be stated rather than inferred.

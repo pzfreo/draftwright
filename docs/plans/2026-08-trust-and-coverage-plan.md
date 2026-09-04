@@ -132,7 +132,7 @@ the weekly audit fails if any are omitted.
 
 ## Decision log
 
-- **2026-08-05:** ADR 0017 phase 1 is treated as evidence to test, not automatic
+- **2026-08-05:** ADR 3 (was 0017) phase 1 is treated as evidence to test, not automatic
   authority to execute phases 2-6.
 - **2026-08-07:** GitHub Project 3 replaces issue #758 as the live execution layer.
   Repository plans retain strategy, outcome gates, and durable decisions.
@@ -142,6 +142,6 @@ the weekly audit fails if any are omitted.
   scoped issues complete. Semantic fidelity and honest failure became the active
   outcome.
 - **2026-08-21:** Reconciled every open issue into Project 3, retired the stale W2
-  queue, split ADR 0018 delivery into #1259-#1262, and made #1259 the sole W3 Now
+  queue, split ADR 2 (was 0018) delivery into #1259-#1262, and made #1259 the sole W3 Now
   item. Current Delivery now excludes closed cards and the milestone view targets
   milestone 5.

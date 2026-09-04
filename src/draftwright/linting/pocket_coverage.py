@@ -96,7 +96,7 @@ def _parameter_ids(feature) -> tuple[str, ...] | None:
 
 
 def _evidence_parameter(parameter: str) -> str:
-    # Location is one feature-level authored intent (ADR 0016), even when its rendered
+    # Location is one feature-level authored intent (ADR 4 (was 0016)), even when its rendered
     # evidence has directional identities.  Z-normal pockets use
     # ``location_pocket.location.x/y`` facts while side/front-opening pockets use
     # ``location_pocket.<axis>`` measurements, but omission from an authored set is

@@ -1,4 +1,4 @@
-"""ADR 0013 Phase 1c — the typed record→Feature converter registry (#752).
+"""ADR 3 (was 0013) Phase 1c — the typed record→Feature converter registry (#752).
 
 `model/detect.py` translates recognition records into IR `Feature`s through one
 typed registry seam. These tests are the fail-closed guard on that seam:
@@ -148,7 +148,7 @@ def test_registry_tiers_partition_every_record_type():
 
 
 def test_orchestrated_records_document_their_residual_reason():
-    """Tier 3 is the ADR 0013 Phase 1 accepted residual — each entry states why."""
+    """Tier 3 is the ADR 3 (was 0013) Phase 1 accepted residual — each entry states why."""
     for rec_type, reason in _ORCHESTRATED_RECORDS.items():
         assert isinstance(reason, str) and reason.strip(), f"{rec_type.__name__} needs a reason"
 

@@ -1,5 +1,8 @@
 # ADR 0009 — Boundary labeling: collect-then-solve per-strip annotation placement
 
+> **Archived 2026-09-04.** Frozen history; the current decision is [ADR 2 — Sheet layout and view planning](../0002-sheet-layout-and-view-planning.md). Nothing here is a work instruction.
+
+
 - **Status:** **Superseded by [ADR 0014](0014-collect-then-solve-annotation-placement.md)**
   (2026-07-18, #697). After 9 amendments + 2 dated notes this record's instructed
   reading path (header first) yielded stale state; 0014 restates the current

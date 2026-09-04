@@ -509,7 +509,7 @@ def _evidence_parameter(parameter: str) -> str:
         # those compiler-owned ids instead of inventing a second suppression vocabulary.
         return parameter.replace(".centerline.", ".")
     if parameter.startswith(("location.location.", "location_pattern.location.")):
-        # X/Y are independent physical critique requirements, while ADR 0016 / #883 keeps
+        # X/Y are independent physical critique requirements, while ADR 4 (was 0016) / #883 keeps
         # their authored addressability as one feature-level location unit.
         return parameter.rsplit(".", 1)[0]
     return parameter
@@ -1087,7 +1087,7 @@ def hole_requirement_outcomes(
         # is in the right space, but `countersink_matches_hole` can accept more than one hole —
         # its tolerances scale with diameter — so the lookup needs a rule for choosing among
         # them, and `next()` silently chose "first". Which hole a seat physically sits on is the
-        # recogniser's question (ADR 0013), not a policy for draftwright to invent in a lint
+        # recogniser's question (ADR 3 (was 0013)), not a policy for draftwright to invent in a lint
         # module; getting it wrong publishes a confident, canonical-looking key pointing at the
         # wrong hole, which is worse than publishing none.
         #

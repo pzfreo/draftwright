@@ -178,7 +178,7 @@ class TestTheRecordFiltersAgree:
 
 
 class TestEveryDimensionKindIsClassified:
-    """Fail-closed, in the shape ADR 0017 phase 1 gave the recogniser manifest: a new kind
+    """Fail-closed, in the shape ADR 3 (was 0017) phase 1 gave the recogniser manifest: a new kind
     cannot be added to the IR and silently admitted to a renderer that cannot draw it.
 
     Nothing iterated `AUTHORED_DIMENSION_KINDS` before, so a ninth kind would have gone

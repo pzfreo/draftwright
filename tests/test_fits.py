@@ -1,4 +1,4 @@
-"""ISO 286 fit-class → deviation table (ADR 0011 P2a.2, #29).
+"""ISO 286 fit-class → deviation table (ADR 4 (was 0011) P2a.2, #29).
 
 Every expected value below is a published ISO 286 limit deviation (µm → mm), so the
 table is pinned against the standard, not against itself.

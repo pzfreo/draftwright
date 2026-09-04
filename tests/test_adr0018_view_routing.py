@@ -1,4 +1,4 @@
-"""ADR 0018: one owner for "which view does this feature read end-on in", and a named
+"""ADR 2 (was 0018): one owner for "which view does this feature read end-on in", and a named
 result when that view is not on the sheet.
 
 View-set selection — the ADR's headline, and the thing the thin-plate case needs — cannot
@@ -12,7 +12,7 @@ decision, a diagnosis, or something the requirement gate could ever weigh.
 
 Two guards here, and neither claims view selection works yet — it does not. They pin the
 preconditions: the routing has exactly one owner, and asking for an absent view produces a
-first-class result (ADR 0018 §6) rather than an arbitrary pass's exception.
+first-class result (ADR 2 (was 0018 §6)) rather than an arbitrary pass's exception.
 """
 
 import pathlib
@@ -96,7 +96,7 @@ class TestAnAbsentViewIsANamedResult:
         # The end-to-end state of view-set selection today, pinned honestly: dropping the
         # plan view is REFUSED, and refused in terms of the missing view rather than
         # wherever the first pass happened to trip. Making this build succeed is the work
-        # ADR 0018 still owes — 53 view literals in the render passes — and this test is
+        # ADR 2 (was 0018) still owes — 53 view literals in the render passes — and this test is
         # what will change shape when it lands.
         principals = view_plan_mod.third_angle_principals
 

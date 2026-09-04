@@ -1,12 +1,12 @@
 # #138 — Module-split roadmap
 
-Execution roadmap for [ADR 0005](../adr/0005-pipeline-architecture-and-state-ownership.md)
+Execution roadmap for [ADR 1 (was 0005)](../adr/archive/0005-pipeline-architecture-and-state-ownership.md)
 (compiler-pipeline module boundaries + single-owner build state). Tracking issue:
 **#138**. Each phase below is a GitHub issue; each chunk is one PR.
 
 ## Why
 `make_drawing.py` (3,907 lines at the start) and `annotate.py` (2,587) held almost
-everything, and `Drawing` was the implicit state bus between subsystems. ADR 0005
+everything, and `Drawing` was the implicit state bus between subsystems. ADR 1 (was 0005)
 reshapes the package along the compiler-pipeline stages and gives each build-time
 state concern a single owner. The golden-output gate (`tests/test_golden.py`,
 made cross-platform-deterministic by the #149 font pinning) proves every move is
@@ -16,7 +16,7 @@ behaviour-preserving.
 
 **All phases complete (#138 done).** Two behaviour-sensitive sub-extractions are
 deferred as noted follow-ups: `annotations/envelope.py` (inline envelope dims) and
-build-context threading (`_analysis`/`_view_edge_cache` off `Drawing`, ADR 0005 §2).
+build-context threading (`_analysis`/`_view_edge_cache` off `Drawing`, ADR 1 (was 0005 §2)).
 
 **Landed** (`make_drawing.py` 3,907 → 3,476):
 
@@ -44,7 +44,7 @@ no PR introduces an import cycle, riskiest (annotations) last:
 | ~~P6~~ | #165 | `builder.py` + `drawing.py` ✅ (context-threading deferred) | med | P2, P4 |
 | ~~P7~~ | #166 | tighten mypy on settled contracts ✅ | cleanup | all |
 
-## Target module shape (ADR 0005 §1)
+## Target module shape (ADR 1 (was 0005 §1))
 ```text
 make_drawing.py   # compat facade / public re-exports (DONE)
 builder.py        # build_drawing/make_drawing orchestration (DONE)
@@ -59,7 +59,7 @@ export.py         # SVG/DXF/PDF export (DONE)
 fonts.py          # vendored path-pinned fonts (DONE)
 annotations/      # the split annotate.py passes (P5)
   orchestrator.py envelope.py holes.py turned.py sections.py pmi.py
-layout.py         # solver/placement — UNCHANGED (ADR 0003)
+layout.py         # solver/placement — UNCHANGED (ADR 2 (was 0003))
 _core.py          # shared primitives below everything
 ```
 
@@ -83,7 +83,7 @@ _core.py          # shared primitives below everything
   functions, so they must be extracted into `annotations/envelope.py` during the
   orchestrator split). Give these the most review.
 - **Build context** (`_analysis`, `_view_edge_cache`) is **not** made a standalone
-  owner — that would contradict ADR 0005 §2 ("threaded through `builder`/
+  owner — that would contradict ADR 1 (was 0005 §2) ("threaded through `builder`/
   `projection`, not parked on `Drawing`"). It is resolved in P6.
 
 ## Success criteria (every phase)
@@ -91,4 +91,4 @@ _core.py          # shared primitives below everything
 - No import cycle; new module imports only `_core`/below + build123d.
 - Golden gate unchanged (no snapshot regeneration).
 - `ruff check` + `ruff format --check` + `mypy` clean; targeted tests + CI green.
-- `make_drawing.py` / `annotate.py` line count drops; CLAUDE.md + ADR 0005 updated.
+- `make_drawing.py` / `annotate.py` line count drops; CLAUDE.md + ADR 1 (was 0005) updated.

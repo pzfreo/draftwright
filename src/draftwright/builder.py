@@ -1,4 +1,4 @@
-"""Build orchestration (#138 / ADR 0005, P6).
+"""Build orchestration (#138 / ADR 1 (was 0005), P6).
 
 The pipeline driver: `build_drawing` runs analysis -> assemble (project +
 annotate + fit) -> measure-and-repack -> returns the `Drawing`; `make_drawing`
@@ -131,7 +131,7 @@ def _automatic_turned_principals(analysis: Analysis) -> tuple[str, ...] | None:
 
 
 def _validate_authored_view_layout(dwg: Drawing, constraints) -> None:
-    """Apply the hard, non-relaxing half of ADR 0018's authored layout contract.
+    """Apply the hard, non-relaxing half of ADR 2 (was 0018)'s authored layout contract.
 
     Current arrangements remain the planner's candidates; this validator accepts one only
     when it satisfies every relation/pin.  A constraint that would require a candidate the
@@ -221,7 +221,7 @@ def _cross_view_overlaps(dwg, a) -> int:
 
     This is the repack trigger: a clean sheet (no cross-view conflict) is left
     exactly as pass 1 placed it, so well-estimated parts stay byte-identical;
-    only a sheet with a real collision is re-packed (ADR 0004).
+    only a sheet with a real collision is re-packed (ADR 2 (was 0004)).
     """
     items = list(_attribute_annotations(dwg, a))
     clearance = _annotation_clearance(dwg)
@@ -325,7 +325,7 @@ def _annotations_out_of_bounds(dwg, a, tol: float = 1.0) -> bool:
 
 def _measure_blocks(dwg, a) -> dict:
     """Measure each orthographic view's *actual* annotation footprint from the
-    laid-out drawing (#121, ADR 0004 — "lay out, don't predict").
+    laid-out drawing (#121, ADR 2 (was 0004) — "lay out, don't predict").
 
     Each view's four band depths are how far its annotations extend beyond its
     geometry box, **measured** from what the annotation passes produced — not
@@ -371,7 +371,7 @@ def _measure_blocks(dwg, a) -> dict:
 
 
 def _coerce_model(model, part, decorations=None, requested=None, authored=None) -> PartModel:
-    """Wrap a caller-supplied ``model=`` (ADR 0011) into a :class:`PartModel`.
+    """Wrap a caller-supplied ``model=`` (ADR 4 (was 0011)) into a :class:`PartModel`.
     A ``PartModel`` retains its authored contents while derived turned orientation is
     normalised; a sequence of features is wrapped with the part's
     bbox, a default corner location datum (matching ``detect.py``, so hole location
@@ -386,7 +386,7 @@ def _coerce_model(model, part, decorations=None, requested=None, authored=None) 
     tolerance}`` — merged onto the model so the planner can read it; only applied when
     given (a bare ``PartModel`` keeps its own decorations otherwise). A verbatim
     ``PartModel`` is never mutated — decorations merge into a copy so the caller's
-    reusable public input (ADR 0011) stays clean across builds."""
+    reusable public input (ADR 4 (was 0011)) stays clean across builds."""
     if isinstance(model, PartModel):
         if decorations or requested or authored is not None:
             out = replace(
@@ -431,11 +431,11 @@ def _coerce_model(model, part, decorations=None, requested=None, authored=None) 
 
 
 def _check_dimension_sources(model: PartModel) -> None:
-    """Refuse a model that names **both** dimension sources (ADR 0016 / #874).
+    """Refuse a model that names **both** dimension sources (ADR 4 (was 0016) / #874).
 
     The mutual exclusion is a property of the MODEL, not of the façade that usually
     builds it: `build_drawing(part, model=…, requested=…, authored=…)` is a public
-    entry point (ADR 0011) and could otherwise construct the state `Sheet` refuses.
+    entry point (ADR 4 (was 0011)) and could otherwise construct the state `Sheet` refuses.
 
     Checked against the **effective** model rather than the arguments of any one call,
     because either source can arrive two ways — as a keyword, or already carried by a
@@ -469,7 +469,7 @@ def _detect_part_model_analysis(part, *, pmi="off") -> tuple[PartModel, Analysis
 
 def detect_part_model(part, *, pmi="off") -> PartModel:
     """The **detected** :class:`PartModel` for *part* — feature recognition + analysis only,
-    with no view projection, annotation, repack, repair, or export (ADR 0011 #453). The cheap
+    with no view projection, annotation, repack, repair, or export (ADR 4 (was 0011) #453). The cheap
     seed path behind :meth:`draftwright.Sheet.from_part`, so pure feature inspection no longer
     pays for a full drawing (nor its layout/rendering failure modes)."""
 
@@ -519,10 +519,10 @@ def _assemble(
     # work even in manual mode (#398). _auto_annotate reads this attached model rather
     # than rebuilding. On a repack this runs again on the pass-2 drawing (freshness).
     # Detected path: reuse the model _analyse already built for sizing (#584 WP1 A) —
-    # detectors run once per build (ADR 0008 Amdt 5, #602). build_model(a) remains the
+    # detectors run once per build (ADR 1 (was 0008 Amdt 5), #602). build_model(a) remains the
     # fallback for a manually-constructed Analysis with no stored model.
     if model is None and (requested or authored is not None):
-        # Both verbs name a DECLARED feature object (ADR 0016 / #872, #874), and detection
+        # Both verbs name a DECLARED feature object (ADR 4 (was 0016) / #872, #874), and detection
         # builds its own. Silently dropping them would leave a caller's add_dimension() /
         # dimension() with no effect and no diagnostic — the failure mode this project
         # treats as worse than a visible error (#630/#631/#632). An authored set is the
@@ -582,7 +582,7 @@ def _assemble(
             # What this does NOT do is verify the declaration against the solid, and it never
             # did: `.step(diameter=20, length=48, at=…)` fabricating one full-extent segment
             # already defeats it on its own, groove or no groove (checked). Declared spans are
-            # the author's statement of intent, which ADR 0011 takes at face value rather than
+            # the author's statement of intent, which ADR 4 (was 0011) takes at face value rather than
             # re-deriving, so this catches the honest mistake #631 reported — declaring the
             # boss you can see and getting a worse drawing — not a fabricated coverage claim.
             # Hardening it into a real verb-domain check is #956.
@@ -633,7 +633,7 @@ def _assemble(
                 from draftwright.model.pmi_lowering import lower_ap242_dimensions
 
                 pm = lower_ap242_dimensions(replace(pm, features=[*pm.features, *pmi_feats]))
-    # ADR 0005 §2 (#639): the ONE build-context attachment — analysis + finished model
+    # ADR 1 (was 0005 §2) (#639): the ONE build-context attachment — analysis + finished model
     # in a single typed BuildState; the compat properties on Drawing read through it.
     dwg._build.analysis = a
     # A scale/view fallback is still the same build run. Preserve the exact lazy acquisition
@@ -654,9 +654,9 @@ def _assemble(
     # (or None when tracing is off) — filled here at the single construction site, not poked onto
     # a live Drawing through a named method (#830: the engine constructs, never mutates).
     dwg._build.trace = trace
-    dwg._model_declared = model is not None  # ADR 0011 #448: gate model-driven hole render
+    dwg._model_declared = model is not None  # ADR 4 (was 0011) #448: gate model-driven hole render
 
-    # The solid this assembly projects. ADR 0004 wants the real geometry built ONCE, but the
+    # The solid this assembly projects. ADR 2 (was 0004) wants the real geometry built ONCE, but the
     # measure-and-repack loop assembles up to three times, so today it is projected up to three
     # times — the root cause of #1135's hour-long build. This parameter is the seam where the
     # loop's intermediate assemblies will pass a cheap stand-in and only the final one the real
@@ -670,7 +670,7 @@ def _assemble(
     # ViewCoordinates and annotation zones retain one transform.
     part_s = _scale_world(a.part if shape is None else shape, a.SCALE)
 
-    # ADR 0018: the views this drawing has, and where they go, come from ONE resolved plan
+    # ADR 2 (was 0018): the views this drawing has, and where they go, come from ONE resolved plan
     # instead of three hardcoded calls whose cameras, page fields and layout meaning were
     # spread across this function, `Analysis` and `compose.choose_scale`'s docstring. The plan
     # describes the selected subset of the conventional third-angle set. The projection
@@ -713,7 +713,7 @@ def _assemble(
         _sv_ol = a.sv_zones.right.outer_limit
         # The orchestrator RETURNS the omission ledger rather than writing a drawing private,
         # so `annotations/` stays off the state bus (#639/#830). Filled at the single site
-        # below, not here — see there (#996 / ADR 0005 §2).
+        # below, not here — see there (#996 / ADR 1 (was 0005 §2)).
         _diagnostics = _auto_annotate(dwg, a, detail_view=detail_view)
         # The placed annotations are the fit's obstacles (#1240): the grow branch may not
         # invade ink that placed legally against the pre-fit iso. Computed HERE because the
@@ -788,7 +788,7 @@ def _assemble(
     # and `add_table()` now sees the settled views plus all earlier annotations as obstacles.
     render_gear_tables(dwg, pm)
 
-    # The audit ledger, filled at ONE site for both paths (#996 / ADR 0005 §2).
+    # The audit ledger, filled at ONE site for both paths (#996 / ADR 1 (was 0005 §2)).
     #
     # It is not a by-product of rendering. The auto path gets it from `_auto_annotate`'s
     # return; `auto_dims=False` draws no automatic dimensions, so it compiles for the
@@ -856,7 +856,7 @@ def _repack(
 ):
     """Measure the laid-out drawing's *real* per-view annotation footprints and,
     when a view collides across views, pack the blocks disjoint — escalating the
-    sheet/scale until the packed layout fits — then re-assemble (#121, ADR 0004 —
+    sheet/scale until the packed layout fits — then re-assemble (#121, ADR 2 (was 0004) —
     "lay out, don't predict"; the (scale, page) choice is the outer search whose
     fitness is *do the packed disjoint blocks fit*).
 
@@ -1182,7 +1182,7 @@ def _build_drawing_once(
             frame. Caller geometry remains provenance, the exact local solid feeds downstream
             geometry stages, and a typed refusal has one visible top-level raw fallback. Raw
             remains the default; declared ``model=`` builds do not frame or recognise.
-        model: a caller-supplied IR (ADR 0011) — a :class:`PartModel`, or a sequence
+        model: a caller-supplied IR (ADR 4 (was 0011)) — a :class:`PartModel`, or a sequence
             of :class:`Feature`\\ s (declared with :func:`draftwright.model.hole`,
             ``boss``, ``step``, … from the objects you built). When given, **feature
             detection is skipped** and the auto-pass dimensions exactly the declared
@@ -1193,7 +1193,7 @@ def _build_drawing_once(
             hole/pattern now renders at its declared position even where detection missed
             it (#448); the one remaining detection-dependent bit is the off-axis
             side-drilled hole *location* dim, which needs recogniser-Hole geometry a
-            declared feature doesn't carry. See ADR 0011.)
+            declared feature doesn't carry. See ADR 4 (was 0011).)
         trace: the opt-in **solve-trace / explain mode** (#736): record every strip
             placement decision as ONE JSON file per build (schema ``version`` 2),
             with two record types. ``solves`` — the corridor solves: the candidate
@@ -1261,7 +1261,7 @@ def _build_drawing_once(
 
     a = analyse(reuse=_analysis_base, views=_views)
     if _views is not None:
-        # Measured dimensions are model-routed (ADR 0015) and therefore do not enter
+        # Measured dimensions are model-routed (ADR 1 (was 0015)) and therefore do not enter
         # plan_dimensions' requirement check.  An authored principal set is nevertheless
         # a hard constraint: reject a measured mark targeting an absent projection before
         # corridor placement can misreport the contradiction as a capacity drop.
@@ -1370,7 +1370,7 @@ def _build_drawing_once(
 
     # Pass 1: place + annotate from the estimated layout, then measure the real
     # per-view footprints and re-pack the blocks disjoint if a view actually
-    # moves (#121, ADR 0004 — "lay out, don't predict").  Non-ballooned parts
+    # moves (#121, ADR 2 (was 0004) — "lay out, don't predict").  Non-ballooned parts
     # measure ≈ estimate, so they skip pass 2 and stand byte-identical.
     dwg = _assemble(
         a,
@@ -1508,7 +1508,7 @@ def _scale_blockers(drawing: Drawing, *, physical: bool = True) -> tuple[dict, .
     """Required placement failures on a finished drawing, as stable plain data.
 
     ``physical=False`` restricts the critique to the recognition-free components, so a caller
-    that must not materialise the ADR 0017 aggregate can still read what failed to place.
+    that must not materialise the ADR 3 (was 0017) aggregate can still read what failed to place.
     """
     return _scale_blockers_from_issues(drawing.lint(physical=physical))
 
@@ -1543,7 +1543,7 @@ def _complete_automatic_plan(drawing: Drawing, *, issues=None) -> Drawing:
     Severity is NOT the discriminator: the explicit path never accepts a drawing with blockers
     at all. The automatic path cannot safely search scales here, because annotations whose
     semantic identity has not yet reached the registry make candidate coverage unverifiable.
-    Accepting a candidate from the known subset would violate ADR 0017/0018 by allowing
+    Accepting a candidate from the known subset would violate ADR 3 (was 0017) / ADR 2 (was 0018) by allowing
     source-only or physical requirements to disappear. It therefore fails closed on the
     settled drawing and records `plan_incomplete` at error severity. This makes `passed` false
     without introducing a second sheet/scale-selection policy ahead of #1262.
@@ -1612,7 +1612,7 @@ def _complete_automatic_plan(drawing: Drawing, *, issues=None) -> Drawing:
 
 
 def _preserve_requirements_under_arrangement(drawing, chosen, build, blockers_for):
-    """ADR 0018 §5's first hard gate, applied to the arrangement: preserve every supported
+    """ADR 2 (was 0018 §5)'s first hard gate, applied to the arrangement: preserve every supported
     requirement or reject the candidate.
 
     The candidate loop can only ask whether the view blocks *fit*. Fitting is necessary and
@@ -1622,7 +1622,7 @@ def _preserve_requirements_under_arrangement(drawing, chosen, build, blockers_fo
     can compose a sheet under an arrangement whose feasibility was never established. In each
     case the geometry was feasible and the drawing lost a dimension anyway.
 
-    So the gate is not predicted, it is measured on the finished drawing (ADR 0014 Amdt 3),
+    So the gate is not predicted, it is measured on the finished drawing (ADR 2 (was 0014 Amdt 3)),
     reusing the engine's own definition of a lost requirement — the same `_scale_blockers`
     the explicit-scale policy rejects a scale on. Applying it here is what closes the gap
     that made the automatic path emit sheets it would have refused if asked for them
@@ -1881,7 +1881,7 @@ def build_drawing(
             # `analysis_base` keeps the FIRST analysis (geometry reuse across attempts);
             # `built_arrangement` tracks the LATEST, because the arrangement gate asks what
             # the attempt just built under. Read here rather than off the returned drawing:
-            # engine modules must not touch `dwg._*` (ADR 0005 §2).
+            # engine modules must not touch `dwg._*` (ADR 1 (was 0005 §2)).
             nonlocal analysis_base, built_arrangement, latest_analysis
             built_arrangement = value.arrangement
             latest_analysis = value

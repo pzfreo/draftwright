@@ -188,7 +188,7 @@ directional datum locations. Edge-anchored pockets intentionally require only th
 because the adjacent stock edges establish position. Pattern members are excluded rather than
 double-counted. Each fact must survive automatic IR, public `Sheet.pocket`, executed generated
 Sheet code and placed size/location provenance. The IR now retains provider `open_sign`, and the
-shared location renderer records which physical X/Y ordinate landed while preserving ADR 0016's
+shared location renderer records which physical X/Y ordinate landed while preserving ADR 4 (was 0016)'s
 single public `location` authoring unit.
 
 ## Pocket-pattern completeness evidence
@@ -600,7 +600,7 @@ recognition to shallow nonzero ramp pairs. A released shallow specimen now cross
 supported consumer path without changing meaning: exact record-to-IR lowering, the existing
 `Sheet.paired_ramp_step(...)` declaration, executed generated code, two compiler-approved angle/run
 requirements, one solver-owned compound leader, and the established completeness ledger. Existing
-raw and provider-framed contract suites continue to guard the ADR 0020 boundary. Draftwright uses no
+raw and provider-framed contract suites continue to guard the ADR 3 (was 0020) boundary. Draftwright uses no
 provider-private geometry or sibling checkout for any of these claims.
 
 #1438 first consumed the release's public raw `b123d_recognisers.evidence` acquisition. One
@@ -634,7 +634,7 @@ Draftwright's 0.4.9 boundary accepted `RiserEvidence` v2,
 same-solid levels and physical turned-profile membership in compounds. The fail-closed capability
 join rejects an older, future, missing, or malformed schema instead of treating it as equivalent.
 
-ADR 0020 adds `prepare_framed_detection`, the one Draftwright-owned intake for the public
+ADR 3 (was 0020) adds `prepare_framed_detection`, the one Draftwright-owned intake for the public
 `prepare_framed_part` seam. A successful unit retains the caller-space source as provenance while
 pairing the exact local working solid, provider frame, prepared cylinders, Draftwright's local
 rotational classification, and aggregate. Classification reuses the prepared cylinder objects;

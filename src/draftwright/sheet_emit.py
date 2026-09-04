@@ -1,10 +1,10 @@
-"""sheet_emit — the ``Sheet``-script emitter (ADR 0011 Amendment 1, #461).
+"""sheet_emit — the ``Sheet``-script emitter (ADR 4 (was 0011 Amendment 1), #461).
 
 Mode 3 of the three authoring modes: *generate an editable beautiful-Python script*. Walk a
 **detected** :class:`PartModel` and print a :class:`~draftwright.Sheet` script — one commentable
 line per feature — that the user edits / comments-out / extends, then re-runs.
 
-**Detected STEP input only writes numbers (the part-seam form, ADR 0011 Amdt 1 decision).** For a
+**Detected STEP input only writes numbers (the part-seam form, ADR 4 (was 0011 Amdt 1) decision).** For a
 STEP file or a recovered solid the number *is* the ground truth, so a detected value is honest. We
 never fabricate a build123d part to chase a number-free layer — a synthesised solid silently drops
 what detection didn't model (a misread band, a thread's true form, an unrecognised relief) yet reads
@@ -629,7 +629,7 @@ def _feature_line(
             # centred frame (#977/#976), so for the whole-part envelope it reconstructs exactly
             # this feature — verified on the CTC-01 STEP seam, where the raw import is
             # 1170 × 650 and the part is 800 × 450. Restating six numbers the object already
-            # carries is what ADR 0011 exists to avoid.
+            # carries is what ADR 4 (was 0011) exists to avoid.
             #
             # Guarded by equality rather than assumed: an envelope declared on a SUB-OBJECT is
             # not the part, and the bare verb would silently measure something else — the exact
@@ -681,7 +681,7 @@ def _feature_line(
         # The HEIGHT round-trips too (#938). Dropping it made the declared boss carry only
         # `boss.diameter` while the detected one also carries `boss_height.length`, so the
         # regenerated model could not express a dimension its source had — silently before
-        # the mirror named it, and as a raise afterwards. ADR 0011's round-trip rule is that
+        # the mirror named it, and as a raise afterwards. ADR 4 (was 0011)'s round-trip rule is that
         # recognise, emit and declare agree about a feature's parameters.
         height = (
             f", height={_n(f.height)}" if object_ref is None and getattr(f, "height", None) else ""
@@ -965,7 +965,7 @@ def _needs_section(model) -> bool:
 
 # The section a feature line is grouped under, and the singular noun the header manifest tallies
 # it by. Kinds sharing a section (hole+pattern, chamfer+fillet) are emitted under one header —
-# grouping is on CONSECUTIVE runs of the existing feature order (never a reorder: ADR 0014 makes
+# grouping is on CONSECUTIVE runs of the existing feature order (never a reorder: ADR 2 (was 0014) makes
 # the corridor solve order-sensitive), so a kind that recurs in two runs earns two headers.
 _SECTION = {
     "hole": "Holes",
@@ -1158,7 +1158,7 @@ def _binding(f, line: str, counts: dict[str, int]) -> str | None:
     dimension source, which is a formatting decision keyed on something unrelated to
     formatting. It is also less useful: a name removes POSITIONAL addressing from the
     artefact generally. `sheet.of(2)` silently retargets the moment a feature line is
-    commented out, which is the documented editing workflow (ADR 0011 Amdt 1); `sheet.of(bore1)`
+    commented out, which is the documented editing workflow (ADR 4 (was 0011 Amdt 1)); `sheet.of(bore1)`
     raises `NameError` at the line you edited. That benefit has nothing to do with dimensions.
 
     ``None`` for a kind with no declarative verb: its "line" is a comment, and
@@ -1304,7 +1304,7 @@ def _mirrored_requests(declared, declared_envelope=None):
 
     Emitted per addressable UNIT, never per member: a `step_height` ladder and a rotational
     body's bores are one `AddressableDimension` holding N, so one line drops the set and
-    there is no member line to mislead (ADR 0016 identity tier 3).
+    there is no member line to mislead (ADR 4 (was 0016) identity tier 3).
 
     From the planner's INTENT, never from placed annotations. Walking the drawing is the
     obvious way to build a mirror and it is wrong: a dimension the solver dropped would
@@ -1379,7 +1379,7 @@ def _dimension_block(model, names: dict[int, str], synthesised_envelope=None) ->
     positional spelling (`sheet.dimension(3, "width")`) would break the moment a user
     comments a feature out, which is the documented editing workflow.
 
-    A generated script must state its source either way (ADR 0016 / #874): a dimension the
+    A generated script must state its source either way (ADR 4 (was 0016) / #874): a dimension the
     script does not name only means "omitted" inside a set that says it is complete.
     """
     if model.authored_dimensions is None and not _is_mirrorable(model):
@@ -1436,7 +1436,7 @@ def _dimension_block(model, names: dict[int, str], synthesised_envelope=None) ->
     )
     out = [
         "# ── Dimensions ────────────────────────────────────────────────────────────────",
-        "# THIS IS THE COMPLETE SET (ADR 0016). A measurement with no line here is omitted",
+        "# THIS IS THE COMPLETE SET (ADR 4 (was 0016)). A measurement with no line here is omitted",
         "# deliberately — comment a line out to drop that dimension, add one to declare it.",
         # The role vocabulary was undiscoverable from the artefact: an editor had to guess a
         # string or read the source (#963). Typing narrows it now, but a generated file is
@@ -2115,14 +2115,14 @@ def emit_sheet_script(
         "",
         f"sheet = Sheet(part, {', '.join(ctor)})",
         "",
-        # The script must SAY where its dimensions come from (ADR 0016 / #874): an omitted
+        # The script must SAY where its dimensions come from (ADR 4 (was 0016) / #874): an omitted
         # dimension only means something inside a set that says it is complete. The planner's
         # set is stated here; an AUTHORED set is stated after the features instead, because
         # each of its lines names a feature by the variable that feature's line binds.
         # Every generated script now declares its dimensions below the features (#938), so
         # the source is stated here as a pointer rather than inline: the lines name features
         # by the variables those features' lines bind, and cannot precede them.
-        "# The dimension source is DECLARED below the features (ADR 0016).",
+        "# The dimension source is DECLARED below the features (ADR 4 (was 0016)).",
         "",
         # For a live-source part (#771), the values below were read off YOUR objects — point
         # each line back at the object to keep it a single source of truth (a STEP-sourced
@@ -2138,15 +2138,15 @@ def emit_sheet_script(
             else [
                 "# Object-reference tip: you built these objects, so swap a numbered arg for the",
                 "# object itself to read the size off it — e.g.  sheet.step(journal)  /",
-                "#  sheet.hole(m3_bore).thread('M3x0.5')  — no numbers restated (ADR 0011 declare).",
+                "#  sheet.hole(m3_bore).thread('M3x0.5')  — no numbers restated (ADR 4 (was 0011) declare).",
                 "",
             ]
             if object_ref
             else []
         ),
         # One commentable line per feature, grouped under section sub-headers with a describing
-        # comment on each (ADR 0011 Amdt 1: still one declared feature per line — comment out, edit
-        # a value, re-run). Runs are consecutive in feature order; never reordered (ADR 0014).
+        # comment on each (ADR 4 (was 0011 Amdt 1): still one declared feature per line — comment out, edit
+        # a value, re-run). Runs are consecutive in feature order; never reordered (ADR 2 (was 0014)).
         *feature_lines,
         "",
         *_dimension_block(model, _names, _synth_env),
@@ -2373,7 +2373,7 @@ def generate_sheet_script(
     # A STEP path is mutable and may be a retargetable symlink. Resolve its replay seam once,
     # then read one immutable byte snapshot. Recognition, PMI, and any semantic-correction build
     # all consume a private copy of those exact hashed bytes; no endpoint re-hash can be fooled by
-    # an A→B→A replacement during recognition (ADR 0017 Amendment 24).
+    # an A→B→A replacement during recognition (ADR 3 (was 0017 Amendment 24)).
     source_display = None if is_shape else Path(step_file)
     source_resolved = None if source_display is None else source_display.resolve()
     source_bytes = None if source_resolved is None else source_resolved.read_bytes()

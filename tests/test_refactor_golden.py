@@ -2,8 +2,8 @@
 
 These refactors (`render_pmi`, `_annotate_holes`, `finalize`, the #639 PlacementContext
 threading) are **behaviour-preserving** — the output must not change at all. This gate is a
-stronger, wider counterpart to the retired byte-exact golden (ADR 0007) and the since-retired
-ADR-0009 `test_layout_snapshot` (#641 gap 3): it snapshots the FULL placement signature of a
+stronger, wider counterpart to the retired byte-exact golden (ADR 3 (was 0007)) and the since-retired
+ADR 2 (was 0009) `test_layout_snapshot` (#641 gap 3): it snapshots the FULL placement signature of a
 corpus chosen to
 exercise every path the split touches — machined-feature leader callouts (chamfer/fillet/
 flat/pocket/groove), off-axis hole locations, prismatic height ladders + step positions,
@@ -11,8 +11,8 @@ sections, turned diameters, dense-hole table escalation — and also the **build
 (drops/escalations), which a placement-only snapshot misses but the drop logic in
 `_annotate_holes`/`render_pmi` is load-bearing on.
 
-Precision: the 0.1 mm + 1e-6-bias quantisation proven cross-platform-stable for the ADR-0009
-snapshot (ADR 0006 pinned fonts). A raw byte/SVG digest is deliberately NOT used — a refactor
+Precision: the 0.1 mm + 1e-6-bias quantisation proven cross-platform-stable for the ADR 2 (was 0009)
+snapshot (ADR 5 (was 0006) pinned fonts). A raw byte/SVG digest is deliberately NOT used — a refactor
 that reorders floating-point sums shifts a value ~1 ULP with no real placement change, which a
 byte digest false-fails on; 0.1 mm catches the ~mm drift a wrong projector/sign/order causes
 while surviving that noise.
@@ -23,7 +23,7 @@ It was a byte-exact deviation gate: `signature == recorded signature`, failing w
 a real regression, NOT to be re-blessed away". It said, in its own header, that it was
 retained "until that epic concludes" — naming #602, #638 and #639. All three closed
 2026-07-17, and #740 on 2026-08-15. The condition expired and the gate was carried on
-unexamined into ADR 0018, whose entire purpose is to change the coordinates it pinned.
+unexamined into ADR 2 (was 0018), whose entire purpose is to change the coordinates it pinned.
 
 That is the wrong instrument pointed the wrong way. A standing byte-exact assertion on a
 layout the engine is being taught to IMPROVE fails every improvement — each arriving framed
@@ -33,14 +33,14 @@ the work toward changes that change nothing, which is measurably what happened.
 So the standing contract is now what this corpus was always really for — what a drawing must
 not LOSE (see `_regressions`):
 
-- no annotation vanishes, and a retained one keeps its label (ADR 0016 Amdt 6);
+- no annotation vanishes, and a retained one keeps its label (ADR 4 (was 0016 Amdt 6));
 - no build issue gets worse;
 - the sheet never grows — a ratchet against the baseline, so footprint may shrink freely and
   may never creep back.
 
 A smaller sheet that loses nothing now PASSES, silently and correctly. A lost dimension, a
 new drop, or a bigger sheet still fails. That is the regression class that matters: it is
-what caught `centered_rebate` and `scattered_plate` losing dimensions when the ADR 0018
+what caught `centered_rebate` and `scattered_plate` losing dimensions when the ADR 2 (was 0018)
 arrangement gate was being built.
 
 Byte-exact is not gone, it is opt-in — run it deliberately for a change that CLAIMS to alter
@@ -281,7 +281,7 @@ def _regressions(expected: dict, sig: dict) -> list[str]:
     Three checks, each naming a class of real defect rather than a coordinate:
 
     1. **No annotation vanishes, and a retained one keeps its label.** The direct expression
-       of ADR 0016 Amdt 6 — a dimension the plan approved must not silently disappear.
+       of ADR 4 (was 0016 Amdt 6) — a dimension the plan approved must not silently disappear.
        Additions are NOT flagged: more of the part being dimensioned is the goal.
     2. **No new build issue.** The drop/escalation logic is load-bearing, and a snapshot that
        missed a change to it would miss the thing most worth catching.
@@ -353,7 +353,7 @@ def test_refactor_golden(name):
 # --- the contract itself, exercised directly -------------------------------------------
 #
 # A gate that cannot fail is worse than no gate, and this one now decides what the whole
-# ADR 0018 epic is allowed to change. Each check is driven from a crafted baseline rather
+# ADR 2 (was 0018) epic is allowed to change. Each check is driven from a crafted baseline rather
 # than a built drawing, so a defect in `_regressions` cannot hide behind a part that happens
 # not to exhibit it.
 

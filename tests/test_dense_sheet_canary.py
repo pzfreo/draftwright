@@ -26,10 +26,10 @@ error — while on ``main`` (post-#734) every principal survives and only pocket
 is shed. So a revert of #734's drain-ordering (or any change that lets decoration outrank a
 principal on a full strip) trips this test on the PR gate instead of post-merge.
 
-Scope (ADR 0014; #735 — test-only, no solve rewrite): the slow CTC pair + golden corpus
+Scope (ADR 2 (was 0014); #735 — test-only, no solve rewrite): the slow CTC pair + golden corpus
 remain the authoritative oracle; this narrows the *fast-tier* gap #733 fell through. The
 build is a pure function of its input (guarded by ``test_layout_cleanliness``) and fonts
-are path-pinned (ADR 0006), so the placed set is deterministic across the CI matrix.
+are path-pinned (ADR 5 (was 0006)), so the placed set is deterministic across the CI matrix.
 """
 
 from __future__ import annotations
