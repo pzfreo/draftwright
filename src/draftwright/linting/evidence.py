@@ -22,8 +22,8 @@ module resolves each pointer against the built drawing and checks the rendered c
 the value the compiler approved.
 
 **Shared, not hole-specific.** The claim is ``registry.measurement_of(name)``, which every
-feature family populates through the same seam (ADR 0010), so nothing here knows what a hole is.
-The expected value comes from the compiled plan (ADR 0016 Amendment 1), never from a renderer's
+feature family populates through the same seam (ADR 5 (was 0010)), so nothing here knows what a hole is.
+The expected value comes from the compiled plan (ADR 4 (was 0016 Amendment 1)), never from a renderer's
 own formatting — comparing rendered output against rendered output would prove only that the
 renderer is self-consistent.
 
@@ -45,7 +45,7 @@ from draftwright.linting.issues import LintIssue
 #: What became of one claim.
 #:
 #: ``unresolved`` is the interesting one: an annotation claiming a measurement the compiled plan
-#: has no entry for means a renderer emitted content the compiler never approved, which ADR 0016
+#: has no entry for means a renderer emitted content the compiler never approved, which ADR 4 (was 0016)
 #: Amendment 1 exists to prevent. It is reported rather than skipped.
 ClaimState = Literal["confirmed", "value_absent", "unresolved", "unreadable", "no_expected_value"]
 
@@ -265,7 +265,7 @@ def verify_measurement_claims(registry, plan) -> list[ClaimOutcome]:
        dimensions — confirms both. On a four-hole pattern all eight offsets share the id. The
        multimap is what stops false *mismatches*; this is its cost, and narrowing it needs
        per-member identity, which #883 deliberately leaves open.
-    3. **Reach is bounded by ADR 0010 identity**, and that bound is narrower than it looks.
+    3. **Reach is bounded by ADR 5 (was 0010) identity**, and that bound is narrower than it looks.
        An annotation carrying no measurement claim is skipped, and about half do — 81 of 170
        on ``nist_ctc_02``. But measured across the corpus in
        ``tests/test_issue_1217_the_facility_is_shared.py``, only FIVE skipped annotations
@@ -312,7 +312,7 @@ def verify_measurement_claims(registry, plan) -> list[ClaimOutcome]:
     outcomes: list[ClaimOutcome] = []
     # `sorted`, because `registry.names()` is a set: without it the emitted issue ORDER varies
     # run to run on the same drawing (measured: five orderings in five processes), against
-    # ADR 0006's determinism posture — the defect #1196 fixed for lint text, reintroduced
+    # ADR 5 (was 0006)'s determinism posture — the defect #1196 fixed for lint text, reintroduced
     # through iteration order.
     for name in sorted(registry.names()):
         claims = registry.measurement_of(name)

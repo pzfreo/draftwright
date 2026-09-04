@@ -1,6 +1,6 @@
 """Every printed number in `annotations/` must come from the compiler, not the renderer.
 
-ADR 0016's boundary says a renderer may emit dimensional content only from the compiled
+ADR 4 (was 0016)'s boundary says a renderer may emit dimensional content only from the compiled
 plan. `tests/test_compiled_plan_boundary.py` checks that as *behaviour* — an empty plan
 draws nothing. This file checks the **cause**, because behaviour tests only cover the paths
 their fixtures reach, and twice in #925 a whole dimensional path stayed outside the boundary
@@ -60,7 +60,7 @@ _FMT_BUDGET: dict[str, tuple[int, str]] = {
     "from_model._step_value_text": (1, "synthetic block segments have no approved entry"),
     # --- `hole_callout_spec` hands the callout builder floats, and the #261 invariant
     # ("every value crosses as a _fmt string") is enforced there. Fixing it means the spec
-    # carrying approved text — the hole-callout migration ADR 0016 still names as pending.
+    # carrying approved text — the hole-callout migration ADR 4 (was 0016) still names as pending.
     "from_model.callout_from_spec.f": (1, "the spec carries floats — the hc_ migration"),
     # --- A chamfer's ANGLE is a form discriminator, not a planned parameter:
     # `ChamferFeature.parameters()` emits only the leg, so the angle has no approved text to

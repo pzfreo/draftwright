@@ -1,4 +1,4 @@
-"""The Drawing result object + table builder (#138 / ADR 0005, P6).
+"""The Drawing result object + table builder (#138 / ADR 1 (was 0005), P6).
 
 `Drawing` is the composable build result: it owns the render list and view
 map and delegates identity to the registry, coverage to lint, and exposes
@@ -311,7 +311,7 @@ class FeatureInfo:
 class _HoleInstance(NamedTuple):
     """One hole occurrence for the table / balloon renderers — the IR fields those
     passes read (``location`` + ``diameter`` for a balloon, ``through``/``depth`` for a
-    table row), so no ``HoleRecord`` is needed (ADR 0008; #584 WP1). Duck-compatible
+    table row), so no ``HoleRecord`` is needed (ADR 1 (was 0008); #584 WP1). Duck-compatible
     with the recogniser record the orchestrator's balloon path still passes."""
 
     location: tuple
@@ -325,11 +325,11 @@ def _ir_hole_groups(model, target_axis: str) -> list[tuple]:
 
     One group per IR hole/pattern feature — the spec-grouping + pattern recognition
     detection already did, so no ``HoleRecord``/``HoleSpec`` re-grouping is needed
-    (ADR 0008 Am6; #584 WP1). ``spec`` is the representative ``HoleFeature`` (carries
+    (ADR 1 (was 0008 Am6); #584 WP1). ``spec`` is the representative ``HoleFeature`` (carries
     diameter / through / depth); ``positions`` are its member centres (drive balloon
     placement); ``count`` is the feature's own count (the table QTY / FeatureInfo.count).
     They coincide on the detected path (``members`` is fully populated); ``count`` stays
-    faithful for a declared feature whose ``members`` are unspecified (ADR 0011)."""
+    faithful for a declared feature whose ``members`` are unspecified (ADR 4 (was 0011))."""
     groups: list[tuple] = []
     for f in model.features:
         if f.kind == "hole" and f.frame.axis == target_axis:
@@ -452,14 +452,14 @@ _MATERIAL_MESH_UNSET = object()
 
 @dataclass
 class BuildState:
-    """The build context a finished :class:`Drawing` carries (ADR 0005 §2 / #639).
+    """The build context a finished :class:`Drawing` carries (ADR 1 (was 0005 §2) / #639).
 
     One typed home for what used to be four loose private attributes:
 
     - ``analysis`` — the pipeline's :class:`Analysis` namespace.
-    - ``part_model`` — the detected/declared ADR-0008 PartModel (read surface for
+    - ``part_model`` — the detected/declared ADR 1 (was 0008) PartModel (read surface for
       semantic edits, #397).
-    - ``recognition`` — the ADR 0017 aggregate reused by model detection and critique.
+    - ``recognition`` — the ADR 3 (was 0017) aggregate reused by model detection and critique.
     - ``recognition_ownership`` — same-run represented, grouped/pattern, nested, conditional
       aggregate, and ownerless occurrence outcomes captured while conversion makes the decision;
       provider references never enter the IR waist.
@@ -501,7 +501,7 @@ class BuildState:
     principal_profile_cache: tuple[object, bool, tuple[LintIssue, ...]] | None = None
     trace: Any = None
     detail_view: bool = False
-    #: The ADR 0018 :class:`~draftwright.view_plan.ResolvedViewPlan` — which views this drawing
+    #: The ADR 2 (was 0018) :class:`~draftwright.view_plan.ResolvedViewPlan` — which views this drawing
     #: has and where their blocks sit. ONE typed attachment, filled once by the builder at the
     #: same site it creates the views, because the alternative the ADR names explicitly is what
     #: the topology was before: the answer spread across `Analysis` fields, three hardcoded
@@ -569,10 +569,10 @@ class BuildState:
     def ensure_recognition(self, part) -> RecognitionResult:
         """The run's recognition aggregate, recognising *part* once if nothing has yet.
 
-        A declared build performs no recognition (ADR 0011 / #1022), so critique on that path
+        A declared build performs no recognition (ADR 4 (was 0011) / #1022), so critique on that path
         has no inventory to judge against and must produce one.  It is built **here**, in the
         typed build state, and at most once per drawing: a lint-side or ``Drawing``-side memo
-        would make critique a second recognition owner, which is exactly what ADR 0017 exists
+        would make critique a second recognition owner, which is exactly what ADR 3 (was 0017) exists
         to remove (and what review of #1021 rejected).
 
         On a detected build ``recognition`` is already filled by the builder, so this returns
@@ -587,7 +587,7 @@ class ViewNotPlanned(KeyError):
     Subclasses :class:`KeyError` so existing handlers keep working — the point is not a new
     control-flow contract but a named, inspectable one: `view` is what was asked for and
     `planned` is what the sheet actually carries, so a caller can report the miss instead of
-    re-deriving it from a message (ADR 0018 §6).
+    re-deriving it from a message (ADR 2 (was 0018 §6)).
     """
 
     def __init__(self, view: str, planned: tuple[str, ...] = ()):
@@ -684,12 +684,12 @@ class Drawing:
             "chosen": (),
             "attempts": (),
         }
-        # Public, JSON-friendly record of how the sheet ARRANGEMENT was resolved — ADR 0018
+        # Public, JSON-friendly record of how the sheet ARRANGEMENT was resolved — ADR 2 (was 0018)
         # §5's fourth dimension and §6's "infeasibility is a first-class result" (#1130).
         # Always present for the same reason as `section_decision`: a caller must not have to
         # infer from a log line whether an alternative was tried and rejected. `attempts` is
         # also the honest compile count, since proving an alternative preserves every
-        # requirement costs a real build (ADR 0014 Amdt 3 — measure, do not predict).
+        # requirement costs a real build (ADR 2 (was 0014 Amdt 3) — measure, do not predict).
         self.arrangement_decision = {
             "chosen": "columns",
             "attempts": ({"arrangement": "columns", "status": "chosen", "blockers": ()},),
@@ -733,15 +733,15 @@ class Drawing:
         self.items: list = []
         self._coords: dict = {}
         # Annotation identity, ownership, pins, and build issues live in the
-        # registry (#138 / ADR 0005, Step 2), reached through its own surface
+        # registry (#138 / ADR 1 (was 0005), Step 2), reached through its own surface
         # (`in reg` / `names()` / `issues`) — the `dwg._named` &c. compat aliases
-        # that shadowed them were deleted at the ADR 0005 §4 exit date (#720).
+        # that shadowed them were deleted at the ADR 1 (was 0005 §4) exit date (#720).
         self._registry = AnnotationRegistry()
         # Lint-side coverage signal (pattern callouts, patterned holes, dropped
-        # callout diameters) lives in its own owner (#138 / ADR 0005, Step 3);
+        # callout diameters) lives in its own owner (#138 / ADR 1 (was 0005), Step 3);
         # its `dwg._pattern_callouts` &c. aliases went the same way (#720).
         self._coverage = CoverageState()
-        # ADR 0005 §2 (#639): the drawing's build context in ONE typed object —
+        # ADR 1 (was 0005 §2) (#639): the drawing's build context in ONE typed object —
         # analysis, part model, and the two geometry caches lint persists.
         # Constructed empty here; builder._assemble fills it at a single site.
         # The render passes never read it off the drawing (the empty
@@ -750,7 +750,7 @@ class Drawing:
         self._build = BuildState()
         self.svg_path: str | None = None
         self.dxf_path: str | None = None
-        # True when the caller SUPPLIED the model (build_drawing(model=…), ADR 0011) rather
+        # True when the caller SUPPLIED the model (build_drawing(model=…), ADR 4 (was 0011)) rather
         # than it being detected — gates the model-driven hole/pattern render membership so a
         # declared hole draws even where detection missed it, no-op for the detected path (#448).
         self._model_declared: bool = False
@@ -762,10 +762,10 @@ class Drawing:
 
     @property
     def view_plan(self):
-        """The resolved view plan (ADR 0018), or ``None`` before the views are created.
+        """The resolved view plan (ADR 2 (was 0018)), or ``None`` before the views are created.
 
         READ ONLY, and there is no setter: a resolved plan that a caller can rebind is
-        indistinguishable from an authored request, which is the confusion ADR 0018 §1 exists to
+        indistinguishable from an authored request, which is the confusion ADR 2 (was 0018 §1) exists to
         prevent. Editing means converting it into constraints explicitly and resolving again.
         """
         return self._build.view_plan
@@ -875,7 +875,7 @@ class Drawing:
 
         Raises :class:`ViewNotPlanned` when *view* is not on the sheet. A bare ``KeyError``
         from inside whichever render pass happened to ask first is not a usable answer to
-        "this drawing does not have that view" — ADR 0018 §6 wants an absent view to be a
+        "this drawing does not have that view" — ADR 2 (was 0018 §6) wants an absent view to be a
         named result, because view-set selection makes asking for one the normal case rather
         than a bug (#1130).
         """
@@ -958,8 +958,8 @@ class Drawing:
         return result
 
     def model(self):
-        """The detected **PartModel** this drawing was built from (ADR 0008 IR) — the
-        read surface for semantic edits (#397, ADR 0001 Amendment 1).
+        """The detected **PartModel** this drawing was built from (ADR 1 (was 0008) IR) — the
+        read surface for semantic edits (#397, ADR 4 (was 0001 Amendment 1)).
 
         Both input scenarios converge here: a STEP file and a build123d solid both
         normalise to a solid, are detected once, and produce the *same* feature model
@@ -980,14 +980,14 @@ class Drawing:
         return self._part_model
 
     def recognition(self) -> RecognitionResult | None:
-        """The ADR 0017 recognition inventory used to build this drawing.
+        """The ADR 3 (was 0017) recognition inventory used to build this drawing.
 
         This is the geometry-only evidence below the detected/declared :meth:`model` and
         drafting policy.  It is an experimental, read-only result.
 
         ``None`` for a bare ``Drawing`` that did not pass through :func:`build_drawing`, and
         for a **declared** build that has not yet been critiqued — that path recognises
-        nothing (ADR 0011 / #1022) and only builds an aggregate when something asks for
+        nothing (ADR 4 (was 0011) / #1022) and only builds an aggregate when something asks for
         physical critique.  So ``None`` here means "nothing has needed recognition yet", never
         "this part has no features".
         """
@@ -1120,7 +1120,7 @@ class Drawing:
         """Record what happened to section A–A (#1190).
 
         A public verb rather than an attribute the render pass assigns, so the
-        annotations layer stays off ``Drawing`` internals (ADR 0005) and every outcome
+        annotations layer stays off ``Drawing`` internals (ADR 1 (was 0005)) and every outcome
         lands in one shape. ``status`` is ``"placed"``, ``"skipped"`` or
         ``"not_warranted"``; ``reason`` is a stable code for the skipped case.
         """
@@ -1131,7 +1131,7 @@ class Drawing:
     def material_fields(self) -> dict:
         """The per-view filled projected material of this drawing, keyed by ``id(shape)``.
 
-        The ADR 0014 leader routing and the ``leader_crosses_silhouette`` critique must
+        The ADR 2 (was 0014) leader routing and the ``leader_crosses_silhouette`` critique must
         agree on what counts as travelling through the part, so both read this ONE
         lowering rather than each deriving the answer from the projected outline. An empty
         dict means the part could not be meshed, which callers must read as "no material
@@ -1200,7 +1200,7 @@ class Drawing:
         the number.
 
         Exposed publicly (not as ``_ann_box_cache``) because the annotations layer is
-        duck-typed against ``dwg`` and, per ADR 0005, reads no private Drawing state.
+        duck-typed against ``dwg`` and, per ADR 1 (was 0005), reads no private Drawing state.
         Sharing the dict rather than adding a second memo also means ``lint()``'s
         existing liveness prune — which drops entries for objects no longer on the
         sheet — covers placement-seeded entries for free; a separate placement cache
@@ -1228,7 +1228,7 @@ class Drawing:
         The **audit read** (#996). A finished drawing shows what was drawn; this shows what
         was *not*, separated into the two cases that mean opposite things:
 
-        - ``authored`` — the script's own omission, under ADR 0016's rule that an authored
+        - ``authored`` — the script's own omission, under ADR 4 (was 0016)'s rule that an authored
           set means omission is suppression. Recoverable by adding a ``dimension(...)`` line.
         - otherwise — a **planner rule** decided it, and ``reason`` names which.
 
@@ -1287,7 +1287,7 @@ class Drawing:
 
         A **list**, because one annotation can draw several independently suppressible
         measurements — a compound hole callout renders bore diameter, depth and counterbore
-        together (ADR 0016 / #886). Empty means the renderer recorded nothing, **not** that
+        together (ADR 4 (was 0016) / #886). Empty means the renderer recorded nothing, **not** that
         the annotation measures nothing. Which renderers record it is enforced by the ratchet
         in `tests/test_audit_differential.py`; treat presence as exact and absence as unknown.
 
@@ -1322,7 +1322,7 @@ class Drawing:
 
     @property
     def model_declared(self) -> bool:
-        """Whether this drawing's model was **declared** by the caller (ADR 0011) rather than
+        """Whether this drawing's model was **declared** by the caller (ADR 4 (was 0011)) rather than
         detected — the public read the annotation pass threads onto its PlacementContext (#639)."""
         return self._model_declared
 
@@ -1331,7 +1331,7 @@ class Drawing:
         "Drawing.dimension(feature, param, ..., pin=True) or "
         "Drawing.locate(feature, ..., pin=True) for feature-backed edits. "
         "place_dim() remains only as a raw page-coordinate escape hatch. "
-        # Not dated with the #817 plumbing: ADR 0012 makes this the sanctioned escape hatch
+        # Not dated with the #817 plumbing: ADR 4 (was 0012) makes this the sanctioned escape hatch
         # until the full auto-plus-user recompose lands, so it has no replacement to point at.
         # But a bare "not before 0.5.0" is a lower bound, not an exit — and §4's complaint is
         # precisely about surfaces with no exit (Codex #987 r1). So it names BOTH: the
@@ -1379,7 +1379,7 @@ class Drawing:
         location dimensions. Both support ``pin=True`` in deferred/finalize mode
         and can participate in the shared layout solve.
 
-        Uses the single-position strip carve, not the ADR-0009 collect-then-solve
+        Uses the single-position strip carve, not the ADR 2 (was 0009) collect-then-solve
         path the automatic placers use — fine for adding a dimension into free
         space, but it does not re-solve the strip or dedup against existing dims
         (#396). Prefer :meth:`dimension` for a feature-referenced edit.
@@ -1426,7 +1426,7 @@ class Drawing:
                 strip = getattr(zones, side, None)
         dist = slot
         if strip is not None:
-            # Cursor-free tier placement (ADR 0009, #150): find a free tier that clears
+            # Cursor-free tier placement (ADR 2 (was 0009), #150): find a free tier that clears
             # every placed annotation, replacing Strip.allocate. axis = the stacking axis
             # (X for left/right, Y for above/below); perp_span = the dim's cross-axis span
             # so a perpendicular-disjoint occupant does not false-block.
@@ -1678,7 +1678,7 @@ class Drawing:
         # twin of that function, so a tolerance reaching it must go into the label or helpers
         # discard it. Without this the identical public call rendered `80 +0.2 -0.1` live and a
         # bare `80` the moment the author added `pin=True` or `priority=` — a divergence #1215
-        # INTRODUCED, since before it neither path rendered anything. `pin=True` is ADR 0012's
+        # INTRODUCED, since before it neither path rendered anything. `pin=True` is ADR 2 (was 0012)'s
         # first-class corridor candidate, so it was the going-forward surface that lost the
         # requirement (#1234 review r4).
         tolerance = dim_kwargs.pop("tolerance", None)
@@ -2218,7 +2218,7 @@ class Drawing:
             assert a is not None and isinstance(model, PartModel)
             _section = plan_sections(model, feature_hole_keys(model, a))
         # Route through the auto-pass solvers when possible (else everything live-replays):
-        #  - BOTH-axes locate → the ADR-0009 location corridor. An axes-restricted locate
+        #  - BOTH-axes locate → the ADR 2 (was 0009) location corridor. An axes-restricted locate
         #    can't go through the per-feature filter, so it live-replays (#429).
         #  - hole/pattern CALLOUT → _annotate_holes' priority-drop/anchoring solve (the
         #    section row, if any, is reserved first below).
@@ -2457,7 +2457,7 @@ class Drawing:
         * **locations / height_ladder / step_positions / slots / user_dims** — the
           register-only stages queue into the SHARED corridor (a slot position coincident
           with a hole location collapses to one dim, #345; pin/priority user dims join as
-          first-class candidates, ADR 0012);
+          first-class candidates, ADR 4 (was 0012));
         * **detail_request** — when detail recovery is enabled (the automatic default,
           persisted on ``BuildState``) and the ladder stage recorded a "step"/"illegible"
           escalation, the prismatic step-height detail is queued, exactly as the auto
@@ -2503,7 +2503,7 @@ class Drawing:
         from draftwright.annotations._common import PlacementContext
 
         # Fresh per-run placement scratch, threaded to the passes rather than hung on the drawing
-        # (ADR 0005 §2, #639): render_locations/_annotate_holes/drain_corridors register/read here.
+        # (ADR 1 (was 0005 §2), #639): render_locations/_annotate_holes/drain_corridors register/read here.
         # A local — finalize is transactional (#647), so a raised drain rolls the drawing back and
         # the retry re-runs from a clean slate with a new ctx; no cross-call persistence needed.
         ctx = PlacementContext(
@@ -2693,7 +2693,7 @@ class Drawing:
 
         def _s_reserve_section():
             # Reserve the section's cutting-plane row BEFORE the callout carve so the
-            # carve sees it as an obstacle (Coupling A, ADR 0009 P5 strand 3); rendered
+            # carve sees it as an obstacle (Coupling A, ADR 2 (was 0009) P5 strand 3); rendered
             # last (the "section" stage).
             if r.section is not None:
                 assert a is not None
@@ -3019,7 +3019,7 @@ class Drawing:
 
         def _s_user_dims():
             # User-authored pin/priority dimensions queue into the shared corridor as
-            # first-class candidates (ADR 0012).
+            # first-class candidates (ADR 4 (was 0012)).
             used_dim_names: set[str] = set()
             for it in self._intents:
                 if id(it) in r.user_dim_ids:
@@ -3154,7 +3154,7 @@ class Drawing:
         # declared route runs its own copy of the stage list, so leaving the retraction on the
         # auto path alone made the two fail in OPPOSITE directions: auto retracted, declared
         # never did, and `_crowded_staircase` finalised with every rung on the sheet and the
-        # build still claiming one was withheld. That is an ADR 0011 round-trip parity break
+        # build still claiming one was withheld. That is an ADR 4 (was 0011) round-trip parity break
         # (#1216 review r10, F3).
         if model is not None:
             retract_resolved_withholdings(self, ctx, compile_dimensions(model))
@@ -3331,7 +3331,7 @@ class Drawing:
         TAG column and the balloon glyphs line up.
 
         Sourced from the IR (``model.features``), so each group is one hole/pattern
-        feature — a pattern and same-spec loose holes are distinct groups (ADR 0008;
+        feature — a pattern and same-spec loose holes are distinct groups (ADR 1 (was 0008);
         #584 WP1). Each ``holes`` element is a :class:`_HoleInstance` (one per member
         position, driving a balloon); ``count`` is the feature's declared/detected count
         for the table QTY — equal to ``len(holes)`` on the detected path."""
@@ -3398,7 +3398,7 @@ class Drawing:
         # its own numbers off the recognised geometry, so an authored tolerance was approved,
         # claimed by the table's provenance, and never printed (#1216 review r9). Read from
         # `_part_model` rather than `model()`: an attribute, so a declared build is not made
-        # to recognise anything by adding a table (ADR 0017).
+        # to recognise anything by adding a table (ADR 3 (was 0017)).
         approved: dict = {}
         omitted: set = set()
         if self._part_model is not None:
@@ -3413,7 +3413,7 @@ class Drawing:
             }
             # What the compiler REFUSED, separately from what it merely has no entry for.
             # `Omission.authored` is the author's own `dimension(...)` set leaving a
-            # measurement out — ADR 0016's suppression-by-omission — and printing it anyway
+            # measurement out — ADR 4 (was 0016)'s suppression-by-omission — and printing it anyway
             # is the compiled-plan boundary broken from the other side: not "a renderer
             # rebuilt a suppressed value" but "a renderer printed one the author deleted"
             # (#1216 review r10, F6).
@@ -3507,7 +3507,7 @@ class Drawing:
 
         A deliberate placement — by you or an AI — must win over automatic
         layout. :meth:`repair` will not re-place a pinned annotation, and the
-        constraint solver (ADR 0003) treats it as fixed. Pinning fixes the
+        constraint solver (ADR 2 (was 0003)) treats it as fixed. Pinning fixes the
         *position*, not existence: :meth:`remove` and :meth:`clear_annotations`
         still apply. Raises ``KeyError`` if *name* is not a known annotation.
         Returns ``self`` for chaining.
@@ -3601,7 +3601,7 @@ class Drawing:
         ``physical=False`` asks for the **placement** critique only — geometry/standards
         checks over what is on the sheet — and skips the feature-coverage half that needs a
         recognition inventory of the solid. That is what the repair loop wants (it acts on
-        ``dim_inside_part`` and nothing else, ADR 0002), and on a declared build it is the
+        ``dim_inside_part`` and nothing else, ADR 5 (was 0002)), and on a declared build it is the
         difference between exporting a drawing and recognising the part to no purpose
         (#1022). The default stays the full critique: a caller asking "is this drawing
         right?" means both halves.
@@ -3612,7 +3612,7 @@ class Drawing:
         """Internal lint path with an optional summary-scoped pair ledger (#1147)."""
         # Drawable area (page minus the standard margin), passed explicitly to
         # lint_drawing for bounds checks — draftwright owns linting now and no
-        # longer relies on the helpers set_page module-global (ADR 0007).
+        # longer relies on the helpers set_page module-global (ADR 3 (was 0007)).
         page_bbox = (_MARGIN, _MARGIN, self.page_w - _MARGIN, self.page_h - _MARGIN)
         # Names and shapes come out of ONE traversal. Two comprehensions over an
         # unmutated dict would in fact agree — Python guarantees the iteration order —
@@ -3692,7 +3692,7 @@ class Drawing:
                 pockets = list(rec.pockets)
                 # The aggregate, NOT anything off `Analysis`: its levels and risers are
                 # geometry-sourced, where the declared `Analysis` carries what the author
-                # declared. Critique taking its inventory from the model is what ADR 0015
+                # declared. Critique taking its inventory from the model is what ADR 1 (was 0015)
                 # forbids — it would make lint blind to exactly the geometry a sparse
                 # declaration omitted, the case `unrecognised_defining_geometry` reports.
                 recognition = rec
@@ -3734,7 +3734,7 @@ class Drawing:
                 # checks them. Cheap — pure Python over the IR and the registry, no
                 # geometry — and it needs the compiled plan because the value an annotation
                 # SHOULD show is the compiler's, never a renderer's own formatting
-                # (ADR 0016 Amendment 1).
+                # (ADR 4 (was 0016 Amendment 1)).
                 from draftwright.model.compiled import compile_dimensions
 
                 dimension_plan = compile_dimensions(model)

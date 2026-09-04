@@ -1,8 +1,8 @@
-"""Fail-closed guard on ``carve_free_position`` callers (ADR 0014; #636).
+"""Fail-closed guard on ``carve_free_position`` callers (ADR 2 (was 0014); #636).
 
 ``carve_free_position`` (`annotations/_common.py`) returns a single free tier
 *without* joining the shared corridor solve — the "solver-invisible" placement
-the ADR 0014 collect-then-solve model exists to retire. Its guarantee (the
+the ADR 2 (was 0014) collect-then-solve model exists to retire. Its guarantee (the
 invisible-occupant collision class removed **by construction**) only holds once
 every non-exempt auto-pass strip occupant is a candidate in the solve. #636
 completed that migration; this guard stops the legacy path from silently
@@ -14,9 +14,9 @@ The guard is a **fail-closed allowlist** of ``(file, function)`` pairs. Every
 ``carve_free_position`` call anywhere under ``annotations/`` is attributed to a caller
 — a top-level function, a class method, a nested closure's owning function, or
 ``"<module>"`` for a bare module-scope call — and any caller outside the allowlist
-trips the test. The fix is to make the site a corridor candidate (the ADR 0014
+trips the test. The fix is to make the site a corridor candidate (the ADR 2 (was 0014)
 pattern), not to widen the allowlist. The allowlist may only grow for a site recorded
-as an explicit exemption in ADR 0014. Import aliases
+as an explicit exemption in ADR 2 (was 0014). Import aliases
 (``from ._common import carve_free_position as carve``) and module-qualified calls
 (``_common.carve_free_position(...)``) are both tracked; only a runtime rebinding
 (``carve = carve_free_position``) escapes, which is contrived rather than a foot-gun.
@@ -30,15 +30,15 @@ from pathlib import Path
 _ANNO_DIR = Path(__file__).resolve().parent.parent / "src" / "draftwright" / "annotations"
 
 # The only ``annotations/`` functions permitted to call ``carve_free_position``.
-# Each is a permanent exemption recorded by ADR 0014. Removing an entry when a
+# Each is a permanent exemption recorded by ADR 2 (was 0014). Removing an entry when a
 # site no longer needs the carve is still the intended direction; the allowlist
 # must never grow without an ADR amendment.
 _ALLOWED_CALLERS = {
-    # Permanent exemption (ADR 0014): the pitch-dim fallback searches an
+    # Permanent exemption (ADR 2 (was 0014)): the pitch-dim fallback searches an
     # arbitrary diagonal outward vector — a diagonal dim cannot occupy a 1-D
     # axis-aligned strip tier, so it cannot be a solve candidate at all.
     ("holes.py", "_place_pitch_dim"),
-    # Post-drain fallbacks retained explicitly by ADR 0014:
+    # Post-drain fallbacks retained explicitly by ADR 2 (was 0014):
     ("from_model.py", "render_gdt"),  # alt-strip fallback DEFERRED via ctx.post_drain (#636)
     # Beyond render_gdt's pattern (helpers ≥0.14): the primary placement IS the
     # corridor candidate; the carve runs in a ctx.post_drain-DEFERRED drop fallthrough,
@@ -48,7 +48,7 @@ _ALLOWED_CALLERS = {
     # Manual post-build verbs (the #426 half of the convergence): a single user-driven
     # annotation onto a FINISHED sheet, where every occupant is already placed — the
     # carve is the correct tool and there is no shared drain to join. Retained as an
-    # explicit exemption by ADR 0014 (#636 close-out).
+    # explicit exemption by ADR 2 (was 0014) (#636 close-out).
     ("holes.py", "add_feature_callout"),
     ("holes.py", "add_feature_location"),
 }
@@ -121,9 +121,9 @@ def test_carve_free_position_callers_are_allowlisted():
     new = found - _ALLOWED_CALLERS
     assert not new, (
         "New carve_free_position caller(s) in annotations/ — place geometry through the "
-        "shared corridor solve (register_corridor + CorridorCandidate, the ADR 0014 "
+        "shared corridor solve (register_corridor + CorridorCandidate, the ADR 2 (was 0014) "
         f"pattern), not the solver-invisible carve. Offenders: {sorted(new)}. "
-        "A genuine exemption must first be recorded by amending ADR 0014."
+        "A genuine exemption must first be recorded by amending ADR 2 (was 0014)."
     )
     # The allowlist must not carry stale entries: a migrated site is removed, not left.
     gone = _ALLOWED_CALLERS - found

@@ -1,4 +1,4 @@
-"""Suppression MARKS a dimension; it does not filter the group (ADR 0016 / #875).
+"""Suppression MARKS a dimension; it does not filter the group (ADR 4 (was 0016) / #875).
 
 The rule the whole ADR rests on:
 

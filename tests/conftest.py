@@ -1,7 +1,7 @@
 """Shared test helpers.
 
 ``counting_calls`` is here rather than in one suite because more than one needs it:
-``test_detect_once`` counts the shared cylinder substrate, and the ADR 0017 guards observe
+``test_detect_once`` counts the shared cylinder substrate, and the ADR 3 (was 0017) guards observe
 the public aggregate and any consumer-side recogniser bypasses the same way.
 """
 

@@ -1,6 +1,6 @@
 """suggest — ready-to-paste fix snippets for lint issues (#29).
 
-Split out of the coverage module (ADR 0007). Maps a :class:`LintIssue` to a
+Split out of the coverage module (ADR 3 (was 0007)). Maps a :class:`LintIssue` to a
 hint a caller or LLM can paste and fill in via the public domain API.
 """
 

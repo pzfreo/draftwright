@@ -1,5 +1,8 @@
 # ADR 0013 — A uniform recogniser/feature contract and shared `b123d-recognisers` deployment
 
+> **Archived 2026-09-04.** Frozen history; the current decision is [ADR 3 — The recognition boundary](../0003-recognition-boundary.md). Nothing here is a work instruction.
+
+
 - **Status:** Accepted; **Phase 1 and Phase 2 deployed**. The uniform contract and
   typed record→Feature registry are live, and `b123d-recognisers` `v0.1.0` is the
   external implementation consumed by Draftwright (Amendment 4).

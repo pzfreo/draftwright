@@ -1,4 +1,4 @@
-"""SVG / DXF / PDF export and post-processing (#138 / ADR 0005, Step "export").
+"""SVG / DXF / PDF export and post-processing (#138 / ADR 1 (was 0005), Step "export").
 
 The free functions the public `Drawing.export()` / `Drawing.export_pdf()` wrappers
 drive: SVG page-size fixing, the attribution hyperlink and metadata, DXF metadata,
@@ -595,7 +595,7 @@ def _render_pdf(
 def _render_png(pdf_path: str, png_path: str, *, dpi: int = 150) -> None:
     """Rasterise *pdf_path* (page 1) to *png_path* at *dpi*, via pypdfium2 (Google PDFium,
     BSD-3-Clause) + Pillow (HPND) — both permissively licensed, pre-built wheels with NO native
-    system deps, so PNG works cross-platform without cairo (ADR 0006). The PNG rides on the PDF
+    system deps, so PNG works cross-platform without cairo (ADR 5 (was 0006)). The PNG rides on the PDF
     render, so the raster matches the vector output exactly."""
     try:
         import pypdfium2 as pdfium

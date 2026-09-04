@@ -1,4 +1,4 @@
-"""ADR 0018: building a CHOSEN set of principal views, and what it costs.
+"""ADR 2 (was 0018): building a CHOSEN set of principal views, and what it costs.
 
 The ADR's headline. Its delivery gate names two evidence items this module answers:
 
@@ -356,7 +356,7 @@ class TestAnExtentMovesOrIsReported:
 
     def test_an_extent_no_planned_view_can_show_is_rejected_before_projection(self):
         # Depth reads horizontally ONLY in side. Without it the extent cannot be drawn, and
-        # ADR 0016 Amdt 6 says it must be reported against its measurement rather than
+        # ADR 4 (was 0016 Amdt 6) says it must be reported against its measurement rather than
         # disappear. Phase 5.5 moves that feasibility decision above projection, so a
         # plausible-looking incomplete drawing is no longer returned.
         with pytest.raises(ViewPlanIncomplete) as caught:
@@ -554,7 +554,7 @@ class TestTheDecisionSurvivesEveryRebuild:
 
 
 class TestTheCaseStudy:
-    """ADR 0018's motivating part, measured rather than asserted from the ADR's prose."""
+    """ADR 2 (was 0018)'s motivating part, measured rather than asserted from the ADR's prose."""
 
     @staticmethod
     def _plate():

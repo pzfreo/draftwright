@@ -1,7 +1,7 @@
 """Encapsulation guards — the ``annotations/`` render layer may not reach into ``Drawing``
-privates (#639 / ADR 0005 §2).
+privates (#639 / ADR 1 (was 0005 §2)).
 
-ADR 0005 §2 says ``Drawing`` stops being the implicit state bus: the annotation passes take
+ADR 1 (was 0005 §2) says ``Drawing`` stops being the implicit state bus: the annotation passes take
 the drawing duck-typed as ``dwg`` and must not treat its private attributes as a shared
 back-channel. Two habits are now fail-closed by AST-walking every module under
 ``src/draftwright/annotations/``:
@@ -164,7 +164,7 @@ def _dwg_private_reads(tree: ast.Module) -> set[str]:
 
 
 def test_no_dwg_private_attribute_writes():
-    """No ``annotations/`` module mutates ``dwg._<name>`` (ADR 0005 §2 / #639): build state
+    """No ``annotations/`` module mutates ``dwg._<name>`` (ADR 1 (was 0005 §2) / #639): build state
     flows in via parameters or a named method (``dwg.attach_part_model``), never a private poke.
     Covers assignment / annotated / augmented / ``del`` / ``setattr`` / ``delattr`` forms."""
     offenders: list[str] = []
@@ -174,7 +174,7 @@ def test_no_dwg_private_attribute_writes():
             offenders.append(f"{path.relative_to(_SRC)}:{lineno}: dwg.{attr} mutated")
     assert not offenders, (
         "annotations/ must not write Drawing privates — the drawing is not the state bus "
-        "(#639 / ADR 0005 §2). Thread the value in as a parameter or route it through a named "
+        "(#639 / ADR 1 (was 0005 §2)). Thread the value in as a parameter or route it through a named "
         "Drawing method (e.g. attach_part_model):\n  " + "\n  ".join(offenders)
     )
 
@@ -237,13 +237,13 @@ def test_no_build_context_probing():
                 offenders.append(f"{path.relative_to(_SRC)}: getattr(dwg, {name!r}, …)")
     assert not offenders, (
         "annotations/ must not probe the drawing for the model/analysis/model-declared flag — "
-        "pass them in as parameters or on the PlacementContext (#639 / ADR 0005 §2):\n  "
+        "pass them in as parameters or on the PlacementContext (#639 / ADR 1 (was 0005 §2)):\n  "
         + "\n  ".join(offenders)
     )
 
 
 def test_the_expired_compat_aliases_stay_deleted():
-    """ADR 0005 §4's exit criterion, made executable (#720).
+    """ADR 1 (was 0005 §4)'s exit criterion, made executable (#720).
 
     The seven ``Drawing`` alias properties that shadowed registry- and coverage-owned state
     were deleted at their 0.4.0 removal date. Nothing prevented them coming back: the
@@ -252,7 +252,7 @@ def test_the_expired_compat_aliases_stay_deleted():
     reintroduced. §4 calls the deletion the migration's completion criterion — so assert the
     absence, not merely the roster.
 
-    Reintroducing any of these recreates the two-ways-to-reach-one-state that ADR 0005 calls
+    Reintroducing any of these recreates the two-ways-to-reach-one-state that ADR 1 (was 0005) calls
     "the disease". Read through the owners instead: ``dwg.registry`` and ``dwg.coverage``.
 
     Checks a BUILT drawing, not just ``Drawing`` itself: they were class-level properties, but
@@ -265,12 +265,12 @@ def test_the_expired_compat_aliases_stay_deleted():
     from draftwright.drawing import Drawing
 
     gone = [
-        # registry-owned (ADR 0005 Step 2)
+        # registry-owned (ADR 1 (was 0005) Step 2)
         "_named",
         "_anno_view",
         "_pinned",
         "_build_issues",
-        # coverage-owned (ADR 0005 Step 3)
+        # coverage-owned (ADR 1 (was 0005) Step 3)
         "_pattern_callouts",
         "_patterned_holes",
         "_dropped_callout_diams",
@@ -278,7 +278,7 @@ def test_the_expired_compat_aliases_stay_deleted():
     dwg = build_drawing(Box(30, 20, 10), number="X")  # a full build: __init__ AND every pass
     back = sorted(n for n in gone if hasattr(Drawing, n) or hasattr(dwg, n))
     assert not back, (
-        "deleted ADR 0005 §4 compat alias(es) are back on Drawing: "
+        "deleted ADR 1 (was 0005 §4) compat alias(es) are back on Drawing: "
         f"{back}. Reach through dwg.registry / dwg.coverage instead (#720)."
     )
 
@@ -332,7 +332,7 @@ def test_private_reads_are_a_documented_shrinking_allowlist():
     new = reads - _DWG_PRIVATE_READ_ALLOW
     assert not new, (
         "New Drawing-private read(s) in annotations/ — this allowlist may only SHRINK "
-        "(#639 / ADR 0005 §2). Prefer threading the value through a parameter or a named "
+        "(#639 / ADR 1 (was 0005 §2)). Prefer threading the value through a parameter or a named "
         f"Drawing method; if a read is truly needed, add it with a rationale: {sorted(new)}"
     )
     stale = _DWG_PRIVATE_READ_ALLOW - reads
@@ -352,7 +352,7 @@ _ENGINE_DWG_PRIVATE_ALLOW: dict[str, frozenset[str]] = {
     # builder._assemble is THE sanctioned build-state fill site (#639): it fills
     # dwg._build.analysis/part_model (a _build READ + field store, pinned exactly by
     # test_build_state_has_a_single_construction_and_fill_site below) and sets the
-    # ADR 0011 #448 model-declared flag pending its move into BuildState.
+    # ADR 4 (was 0011) #448 model-declared flag pending its move into BuildState.
     "builder.py": frozenset({"_build", "_model_declared"}),
 }
 
@@ -413,7 +413,7 @@ def test_no_engine_module_touches_drawing_privates():
             offenders.append(f"{rel}:{lineno}: drawing receiver rebound to {alias!r}")
     assert not offenders, (
         "Engine modules must not touch Drawing privates — the drawing is not the state "
-        "bus (#699 slice d / ADR 0005 §2). Use the public surface (registry, "
+        "bus (#699 slice d / ADR 1 (was 0005 §2)). Use the public surface (registry, "
         "set_view_coordinates, annotation riders) or thread the value as a parameter; "
         "a truly-needed exception goes in _ENGINE_DWG_PRIVATE_ALLOW with a rationale:\n  "
         + "\n  ".join(offenders)
@@ -500,7 +500,7 @@ def test_build_state_has_a_single_construction_and_fill_site():
         # and these guards caught it.
         "builder.py": [
             "_build.analysis",
-            # ADR 0017's result/evidence pair is attached through the typed
+            # ADR 3 (was 0017)'s result/evidence pair is attached through the typed
             # BuildState.attach_recognition() method at this same construction site;
             # Drawing.recognition()/recognition_evidence() are read-only.
             "_build.part_model",
@@ -509,7 +509,7 @@ def test_build_state_has_a_single_construction_and_fill_site():
             "_build.view_plan",
             "_build.omissions",
         ],  # omissions: ONE assignment covering both the auto and auto_dims=False paths
-        # _build.view_plan: ADR 0018's resolved plan, filled at the same site that creates the
+        # _build.view_plan: ADR 2 (was 0018)'s resolved plan, filled at the same site that creates the
         # views from it — the topology and the drawing's record of the topology cannot disagree
         # because one statement produces both. `Drawing.view_plan` is read-only with no setter,
         # so this list staying at one entry is what stops a second writer appearing.

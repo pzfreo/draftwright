@@ -186,7 +186,7 @@ def diff_builds(before, after) -> dict:
     # every envelope dim of every perturbed build as "reattributed" — three noise lines on a
     # three-dimension drawing, in the one experiment this module exists to run.
     #
-    # Hole location DimensionIds remain one feature-level `location.location` unit (ADR 0016).
+    # Hole location DimensionIds remain one feature-level `location.location` unit (ADR 4 (was 0016)).
     # Physical completeness carries directional X/Y evidence separately, but this differential
     # audit intentionally compares the public addressable identity, so X↔Y substitution remains
     # part of #883's open naming decision.

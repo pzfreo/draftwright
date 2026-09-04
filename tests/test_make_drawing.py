@@ -878,7 +878,7 @@ class TestGrooveCallout:
         # The groove floor band's two walls read as shoulders, so recognise_turned_steps
         # also delimits it as a middle step. detect.py must exclude that band from the step
         # chain so the floor ø is dimensioned ONCE (the groove callout), never also as a
-        # separate step ø — ISO 129 / ADR 0008 one-band-one-owner (#148c review).
+        # separate step ø — ISO 129 / ADR 1 (was 0008) one-band-one-owner (#148c review).
         dwg = build_drawing(self._grooved(8, 4, 10), number="X")
         floor_labels = [
             n
@@ -1159,14 +1159,14 @@ class TestChooseScale:
         # 800×450×150 mm (NIST CTC-01) — iso sits above the title block so tb_w
         # is dropped from the width constraint. A2 fits; A1 is no longer chosen (#103).
         # Pinned to the `columns` arrangement: #103 is an invariant about the layout this
-        # part is composed under, and letting the ADR 0018 alternatives answer would make it
+        # part is composed under, and letting the ADR 2 (was 0018) alternatives answer would make it
         # a different claim (see the assertion below for what they answer instead).
         scale, pw, ph, tbw = choose_scale(800, 450, 150, arrangements=("columns",))
         assert scale == pytest.approx(0.2)
         assert int(pw) == 594  # A2 (594 mm), not A1 (841 mm)
 
     def test_ctc01_compacts_further_when_the_iso_shares_the_title_block_column(self):
-        # ADR 0018 §5's fourth dimension on the part #103 was written about: reclaiming the
+        # ADR 2 (was 0018 §5)'s fourth dimension on the part #103 was written about: reclaiming the
         # iso's column takes the same 1:5 drawing down another sheet size. Whether a build
         # KEEPS that is the requirement gate's call, not this one's — `choose_scale` only
         # reports what fits.
@@ -1934,7 +1934,7 @@ class TestDepthEstimators:
     def test_right_depth_fits_in_exact_corridor(self):
         # _est_right_strip_depth(n) must reserve enough corridor for dim_height + n
         # dim_steps stacked from the view edge (gap, then `spacing` between dims) — the
-        # cursor-free capacity condition the carve places into (ADR 0009 / #150).
+        # cursor-free capacity condition the carve places into (ADR 2 (was 0009) / #150).
         from draftwright._core import (
             _SLOT_DIM_HEIGHT,
             _SLOT_DIM_STEP,
@@ -2015,7 +2015,7 @@ class TestDerivedLayoutConstants:
 
 def _sizing_model(part):
     """The sizing IR + planner callout width for *part*, mirroring `_analyse` — the
-    detected-path input the sheet estimators now consume (ADR 0008; #584 WP1 A)."""
+    detected-path input the sheet estimators now consume (ADR 1 (was 0008); #584 WP1 A)."""
     from build123d_drafting.helpers import draft_preset
 
     from draftwright._core import _FONT_SIZE
@@ -2406,7 +2406,7 @@ class TestDynamicCorridors:
         from draftwright.compose import choose_scale
 
         # Pinned to `columns`: the corridor claim is about the layout whose width the
-        # corridor competes for. Under the ADR 0018 alternative the reclaimed iso column
+        # corridor competes for. Under the ADR 2 (was 0018) alternative the reclaimed iso column
         # absorbs the corridor and both land on the same sheet, which is a fact about that
         # arrangement rather than a refutation of this one.
         _, page_w_flat, _, _ = choose_scale(5.0, 90.0, 100.0, n_steps=0, arrangements=("columns",))
@@ -2554,7 +2554,7 @@ class TestTwoPassLayout:
 
 
 class TestComposeThenPackRepack:
-    """Ownership-based compose-then-pack + measure-and-repack (#121, ADR 0004):
+    """Ownership-based compose-then-pack + measure-and-repack (#121, ADR 2 (was 0004)):
     the cross-view collision detector, the disjoint block packing, the candidate
     floor, and the annotation-ownership map lifecycle.  Pure/fast — no OCP."""
 
@@ -6085,7 +6085,7 @@ class TestDetailView:
             bb=SimpleNamespace(min=SimpleNamespace(Z=0.0), max=SimpleNamespace(Z=2.0)),
             SCALE=1.0,
         )
-        # The rungs now arrive from the compiled plan (ADR 0016 Amdt 1 / #923): the detail
+        # The rungs now arrive from the compiled plan (ADR 4 (was 0016 Amdt 1) / #923): the detail
         # redraw used to re-derive them from `dwg.model()` and `a.step_zs`, which let it
         # draw a rung the compiler had withheld. `a.step_zs` is no longer consulted at all —
         # what this test still pins is the GATE: the escalation, not raw legibility.
@@ -6377,7 +6377,7 @@ class TestDetailView:
         assert _overall_height_name(dwg, a) == "dim_height"  # canonical, unpinned, correct
 
         dwg.pin("dim_height")
-        assert _overall_height_name(dwg, a) is None  # a pin is never demoted (ADR 0012)
+        assert _overall_height_name(dwg, a) is None  # a pin is never demoted (ADR 2 (was 0012))
         dwg.unpin("dim_height")
         assert _overall_height_name(dwg, a) == "dim_height"  # unpin restores it
 
@@ -6539,7 +6539,7 @@ def _model_signature(m):
 
 
 class TestModel:
-    """#397: dwg.model() exposes the detected ADR-0008 PartModel as the read surface."""
+    """#397: dwg.model() exposes the detected ADR 1 (was 0008) PartModel as the read surface."""
 
     def test_model_exposes_detected_features(self, holed_plate_dwg):
         m = holed_plate_dwg.model()
@@ -6622,7 +6622,7 @@ class TestFeatureEdits:
             assert n not in dwg.annotations()  # gone from the registry + render list
 
     def test_drop_removes_all_slot_dims(self):
-        # #398c: slot dims flow through the ADR-0009 corridor; provenance now threads it,
+        # #398c: slot dims flow through the ADR 2 (was 0009) corridor; provenance now threads it,
         # so drop(slot) removes the whole set (length + width + position).
         from build123d import Box, Mode, Pos
 
@@ -6981,7 +6981,7 @@ class TestFeatureEdits:
     def _reconstruct(dwg):
         # The per-feature verb dispatch the imperative emitter used to write. That emitter is
         # gone (#940), so this is no longer a mirror of anything generated — it exercises the
-        # `Drawing` edit verbs in-process, which remain a hand-use API (ADR 0016).
+        # `Drawing` edit verbs in-process, which remain a hand-use API (ADR 4 (was 0016)).
         for f in dwg.model().features:
             if f.kind in ("hole", "pattern"):
                 dwg.callout(f)
@@ -7242,7 +7242,7 @@ class TestFeatureEdits:
     def test_finalize_routes_locations_through_the_corridor_dedup(self):
         # #426 Phase 2a: two DISTINCT holes sharing an X. The live path places a duplicate
         # m_locx (each locate() is independent); finalize routes them through the real
-        # ADR-0009 corridor solve, which dedups the coincident X span to ONE dim — matching
+        # ADR 2 (was 0009) corridor solve, which dedups the coincident X span to ONE dim — matching
         # the auto-pass. The crossing-free / dedup win.
         part = (
             Box(100, 80, 20) - Pos(20, 25, 0) * Cylinder(4, 30) - Pos(20, -25, 0) * Cylinder(6, 30)
@@ -7372,7 +7372,7 @@ class TestFeatureEdits:
             dwg.locate(hole)  # the locations corridor (plan/side above)
             dwg.dimension(step, "length", role="step_height")  # the front-right ladder
             dwg.dimension(step, "length", role="step_position")  # the shoulder corridor
-            dwg.dimension(  # a pinned user dim joins the same drain (ADR 0012)
+            dwg.dimension(  # a pinned user dim joins the same drain (ADR 2 (was 0012))
                 env, "length", role="width", side="below", name="user_width", pin=True
             )
         assert dwg._intents == []  # every routed intent drained
@@ -7397,7 +7397,7 @@ class TestFeatureEdits:
         assert names <= dwg.registry.pinned_names()
 
     def test_live_dimension_pin_pins_raw_escape_hatch_result(self):
-        # #511/ADR 0012: live dimension() still uses the single-position page-coordinate
+        # #511/ADR 4 (was 0012): live dimension() still uses the single-position page-coordinate
         # escape hatch, but pin=True must persist on the resulting annotation name.
         dwg = build_drawing(Box(80, 50, 20), auto_dims=False)
         env = next(f for f in dwg.model().features if f.kind == "envelope")
@@ -7978,7 +7978,7 @@ class TestFeatureEdits:
         assert set(dwg.annotations_of(hole)) == before
 
     def test_model_structurally_equivalent_across_step_and_b123d_input(self, tmp_path):
-        # D5 / the convergence property (ADR 0001 Amendment 1): a STEP import re-tessellates
+        # D5 / the convergence property (ADR 4 (was 0001 Amendment 1)): a STEP import re-tessellates
         # the solid, so coordinates differ — but the DETECTED feature structure must be the
         # same whether the input was a build123d object or a STEP file of that object.
         part = _holed_plate()
@@ -9501,7 +9501,7 @@ class TestTurnedDiameters:
         # show half the 46 mm envelope in both X and Z (#881).
         assert dwg.view_of("centerline_side") == "side"
         # RaisedPad v2 no longer misclassifies two rotated flange lugs as pads. With that
-        # false requirement gone, ADR 0018 omits the redundant plan view and its furniture;
+        # false requirement gone, ADR 2 (was 0018) omits the redundant plan view and its furniture;
         # the front profile plus side end view still define the Y-axis stack completely.
         assert dwg.view_of("centerline_plan") is None
         assert "plan" not in dwg.views
@@ -9518,7 +9518,7 @@ class TestTurnedDiameters:
         # `covers_diameters` annotation wholesale, and this is a hole callout. Measured
         # against the filled material field the cut is real, and pinning WHICH leader
         # is a stronger guard than the absence it replaces. Front-view hole callouts
-        # keep their specialised placer under ADR 0014, so routing this one clear is
+        # keep their specialised placer under ADR 2 (was 0014), so routing this one clear is
         # #798's own remaining work.
         silhouette = [i for i in dwg.lint() if i.code == "leader_crosses_silhouette"]
         assert len(silhouette) == 1, [i.message for i in silhouette]
@@ -9685,7 +9685,7 @@ class TestTurnedDiameters:
         appeared in the deferred result. `test_finalize_replay_equals_live_placement` caught it.
 
         So it is an INTENT: absent unless recorded, which also makes it commentable, which is
-        the property the whole intent-level script rests on (ADR 0016, "the script records
+        the property the whole intent-level script rests on (ADR 4 (was 0016), "the script records
         intent").
         """
         # The verb's actual domain: a part with NO `EnvelopeFeature`, so the height comes
@@ -9894,7 +9894,7 @@ class TestTurnedDiameters:
         assert codes.get("feature_not_dimensioned", 0) == 0
 
     def test_callouts_are_leaders_on_the_constraint_solver(self, x_shaft_dwg):
-        # Placed via _solve_strip_ys (ADR 0003 layer-2), so two distinct
+        # Placed via _solve_strip_ys (ADR 2 (was 0003) layer-2), so two distinct
         # diameters never share an x and never collide: label xs are min_gap
         # apart and inside the front view's page bounds.
         dwg = x_shaft_dwg
@@ -10224,7 +10224,7 @@ class TestLeaderCrossesSilhouette:
         return dwg, crossing
 
     def test_reroute_skips_a_pinned_leader(self):
-        # A pin is the user's "this stays put" (ADR 0012) — the re-router must never
+        # A pin is the user's "this stays put" (ADR 2 (was 0012)) — the re-router must never
         # move a pinned ø leader, even one that crosses.
         from draftwright.annotations.from_model import _reroute_crossing_diameters
 
@@ -10542,7 +10542,7 @@ class TestTurnedLengths:
 
 
 class TestStepLadderRecognition:
-    """ADR 0008 step 1: the Z step-height ladder draws its step levels from the
+    """ADR 1 (was 0008) step 1: the Z step-height ladder draws its step levels from the
     unified turned-step model, which filters by the OD silhouette."""
 
     def test_blind_bore_floor_is_not_a_phantom_shoulder(self):
@@ -11128,7 +11128,7 @@ def dense_plate_dwg():
 
 class TestSheetFrame:
     """#767: an opt-in drawn sheet border (Option B) — the border is the content boundary,
-    so turning it on RESERVES clearance that flows through scale/page selection (ADR 0004),
+    so turning it on RESERVES clearance that flows through scale/page selection (ADR 2 (was 0004)),
     not a rectangle drawn over content. Default off ⇒ byte-identical (guarded elsewhere)."""
 
     def test_frame_off_by_default(self):
@@ -11303,7 +11303,7 @@ class TestEscalation:
     """#93: a too-dense plan view auto-escalates to a hole chart + balloons."""
 
     def test_dense_part_groups_and_types(self, dense_plate_dwg):
-        # Sized honestly for its real annotation footprint (#121, ADR 0004), the
+        # Sized honestly for its real annotation footprint (#121, ADR 2 (was 0004)), the
         # sheet grows so the X-location dims + grouped spec-callouts fit — so this
         # moderately-dense plate no longer escalates to a per-hole table + balloon
         # ring (the worse representation for a dense varying-diameter field). It
@@ -11361,7 +11361,7 @@ class TestEscalation:
 
 
 class TestPatternGroupBalloon:
-    """#351 PR-3 (ADR 0009 Amdt 1 decision 1, the #348 fix): a dropped ISO
+    """#351 PR-3 (ADR 2 (was 0009 Amdt 1) decision 1, the #348 fix): a dropped ISO
     pattern callout gets ONE balloon tagging the whole pattern, not one per
     member. Exercised directly against the resolver with a synthetic dropped
     Escalation — forcing a real drop needs a part crowded enough that even the
@@ -11445,7 +11445,7 @@ class TestPatternGroupBalloon:
         assert len(new_balloons) == 1
         assert new_balloons[0].split("_")[2] == "6×A"
         assert dwg.registry.feature_of(new_balloons[0]) == feat
-        # ADR 0009 retains one grouped visual marker, but ``6×A`` has no
+        # ADR 2 (was 0009) retains one grouped visual marker, but ``6×A`` has no
         # defining table/legend and therefore cannot certify the dropped
         # diameter/depth/pattern requirements.
         assert issue in dwg.registry.issues

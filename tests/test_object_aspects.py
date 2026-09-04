@@ -1,4 +1,4 @@
-"""Object-reading aspect verbs — the number-free 3b layer (ADR 0011 #462).
+"""Object-reading aspect verbs — the number-free 3b layer (ADR 4 (was 0011) #462).
 
 `.cbore(tool)` / `.spotface(tool)` read a counterbore/spotface's ⌀ + depth off the tool
 object and the part, so the drawing layer restates no numbers and tracks the geometry.

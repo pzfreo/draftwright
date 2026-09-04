@@ -1,6 +1,6 @@
 """The compiled dimension plan — the only thing a dimensional renderer may draw from.
 
-ADR 0016's boundary rule: **renderers may emit dimensional content only from the compiled
+ADR 4 (was 0016)'s boundary rule: **renderers may emit dimensional content only from the compiled
 plan.** A renderer receives approved entries and decides *where* and *how* to draw them; it
 does not decide *what*, and it is not given the feature inventory or the bounding box it
 would need to decide differently.
@@ -19,7 +19,7 @@ they never receive**:
 
 - :class:`ApprovedDimension` has no ``suppressed`` field. There is nothing to forget.
 - What was *not* approved leaves through :attr:`RenderableDimensionPlan.diagnostics`.
-  Omission stays inspectable — ADR 0016's "marked, not filtered" is preserved — but it is
+  Omission stays inspectable — ADR 4 (was 0016)'s "marked, not filtered" is preserved — but it is
   not on the path a renderer walks.
 
   The first consumer is `add_feature_diameter`, which asks WHY a callout has nothing to
@@ -94,7 +94,7 @@ class FeatureRef:
     convention this work exists to replace.
 
     So the handle exposes identity and category — enough for provenance tagging
-    (ADR 0010), escalation grouping, and equality — and no measurement at all. The two
+    (ADR 5 (was 0010)), escalation grouping, and equality — and no measurement at all. The two
     consumers that legitimately need the object (the corridor provenance seam and the
     escalation resolver) call :func:`resolve_feature` where the object is the point.
 
@@ -194,7 +194,7 @@ def resolve_feature(ref):
     """The `Feature` behind a :class:`FeatureRef` — for provenance and escalation ONLY.
 
     Called at the seams where the feature object itself is the point: the corridor's
-    ADR 0010 provenance map, and the escalation resolver's grouping. A dimensional
+    ADR 5 (was 0010) provenance map, and the escalation resolver's grouping. A dimensional
     renderer calling this is a boundary violation, and the guard says so."""
     if ref is None or not isinstance(ref, FeatureRef):
         return ref
@@ -365,7 +365,7 @@ _FACTS: dict[str, tuple[str, ...]] = {
     # parameters, so authored omission/tolerance policy cannot be bypassed (#1382).
     "paired_ramp_step": ("frame", "axis"),
     # Topology-only direction signs select each outside placement corridor. Absolute section
-    # points would let one approved leg reconstruct the suppressed other leg (ADR 0016), so
+    # points would let one approved leg reconstruct the suppressed other leg (ADR 4 (was 0016)), so
     # both leg values and witnesses travel only as approved spans.
     "through_step": ("axis", "outside_directions"),
     # These are STRUCTURE, not measurements: together they say which piece of stock a flat
@@ -383,7 +383,7 @@ _FACTS: dict[str, tuple[str, ...]] = {
     "plate": ("frame", "axis"),
     # Raw AP242 PMI is the documented non-generated exception: its source-authored label
     # is rendered verbatim rather than planned or suppressible. It is intentionally the
-    # sole printed value in this structural allowlist (ADR 0016, "Scope").
+    # sole printed value in this structural allowlist (ADR 4 (was 0016), "Scope").
     "pmi": ("frame", "pmi_kind", "dominant_axis", "ref_bbox", "ref_pts", "label"),
     "authored_dimension": (
         "frame",
@@ -397,7 +397,7 @@ _FACTS: dict[str, tuple[str, ...]] = {
     # receives a FeatureFacts projection. Classifying it empty keeps a future dimensional
     # renderer from acquiring normative values through the compiled-plan side door.
     "external_spur_gear": (),
-    # Existing ADR 0011 aspect kinds are deliberately classified as exposing no
+    # Existing ADR 4 (was 0011) aspect kinds are deliberately classified as exposing no
     # renderer facts yet. Listing them distinguishes "known, reviewed, empty" from a new
     # kind that has never crossed this boundary.
     "control_frame": (),
@@ -497,7 +497,7 @@ class ApprovedGroup:
 
 @dataclass(frozen=True)
 class ApprovedLadder:
-    """A correlated set approved as a whole (ADR 0016 identity tier 3).
+    """A correlated set approved as a whole (ADR 4 (was 0016) identity tier 3).
 
     A step-height ladder or shoulder chain is ONE addressable dimension holding N members,
     so it is approved or omitted whole — never half a staircase. Arriving as an explicit
@@ -593,7 +593,7 @@ def _addressable_units(group) -> list[ApprovedDimension]:
 
     A correlated set — a pattern's members, a ladder's rungs — shares one `DimensionId` and is
     addressed once, so a script drops the whole set with one line rather than emitting member
-    lines that cannot individually be honoured (ADR 0016 identity tier 3).
+    lines that cannot individually be honoured (ADR 4 (was 0016) identity tier 3).
     """
     seen: set = set()
     out: list[ApprovedDimension] = []
@@ -707,7 +707,7 @@ class RenderableDimensionPlan:
 
         One dimension per addressable UNIT, never per member: a step ladder and a rotational
         body's bores are each ONE intent holding N, so a script drops the set with one line and
-        no member line misleads (ADR 0016 identity tier 3).
+        no member line misleads (ADR 4 (was 0016) identity tier 3).
         """
         out: list[AddressableIntent] = []
         # Dispatched THROUGH the roster, not merely documented by it: the first cut hard-coded
@@ -808,7 +808,7 @@ def _suppressed_dims(model: PartModel, groups=None):
     marked — the compiler's input for what NOT to approve.
 
     *groups* lets a caller that has already planned pass the result in. The engine plans
-    once per build (ADR 0008 Amdt 5); a compiler that re-planned would both cost a second
+    once per build (ADR 1 (was 0008 Amdt 5)); a compiler that re-planned would both cost a second
     pass and create two products that can drift while the migration is partial (#923
     review)."""
     out = {}
@@ -823,7 +823,7 @@ def _suppressed_dims(model: PartModel, groups=None):
 
 
 def _dim_id(feature, parameter_id: str) -> DimensionId | None:
-    """The ADR 0016 identity for an approved entry.
+    """The ADR 4 (was 0016) identity for an approved entry.
 
     Minted here rather than left ``None``: `DimensionId` is already the stable addressable
     identity the ADR defines, and a renderer-facing result that discards it would create
@@ -1091,8 +1091,8 @@ def _compile_overall_height(
     # nothing to thread, so `dim_height` reached the sheet claiming nothing and the verifier was
     # blind to it. A PLAN-content gap, not closable at the renderer (#1230).
     #
-    # Be exact about which ADR: this is **ADR 0010 provenance / ADR 0016 identity**, NOT an
-    # ADR 0016 Amdt 1 breach, which an earlier version of this comment asserted three times.
+    # Be exact about which ADR: this is **ADR 5 (was 0010) provenance / ADR 4 (was 0016) identity**, NOT an
+    # ADR 4 (was 0016 Amdt 1) breach, which an earlier version of this comment asserted three times.
     # Amendment 1 is about renderers emitting content the plan does not contain. The plan DID
     # contain this: the rung existed with the right value, and `from_model` builds the label
     # from the compiler's own `rendered_label`. Nothing was renderer-derived. What was missing
@@ -1116,7 +1116,7 @@ def _compile_overall_height(
         # would have been its FIFTH instance: `sheet_emit` already paid for it once, and its
         # own comment calls the hand-rolled version "the fourth instance of #977's signature".
         # Measured, the literal made the direct and mirrored paths mint UNEQUAL ids for the
-        # same measurement on an off-centre part — breaking exactly the ADR 0011 round trip
+        # same measurement on an off-centre part — breaking exactly the ADR 4 (was 0011) round trip
         # `mirror_model` exists for (#1233 review).
         from draftwright.model.declare import _envelope_from_bbox
 
@@ -1246,7 +1246,7 @@ def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[
             assert feature is not None
             # One authored `location` intent, two independently observable page dimensions.
             # Hole/pattern X/Y facts remain rendering members of the ONE feature-level
-            # addressable DimensionId (ADR 0016 / #883); critique carries their directional
+            # addressable DimensionId (ADR 4 (was 0016) / #883); critique carries their directional
             # physical evidence separately. Slot patterns retain their existing directional
             # identity contract.
             for measured_axis in ("x", "y"):
@@ -1586,7 +1586,7 @@ def compile_dimensions(
     plan-once invariant holds through the migration instead of the compiler quietly
     re-planning behind it (#923 review).
 
-    *planned_views* is the ADR 0018 pre-projection constraint used only when the compiler
+    *planned_views* is the ADR 2 (was 0018) pre-projection constraint used only when the compiler
     must plan for itself.  Callers supplying *groups* have already resolved that constraint;
     the exact model/groups identity check below prevents substituting another plan.
     """

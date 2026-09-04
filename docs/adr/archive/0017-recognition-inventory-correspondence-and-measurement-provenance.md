@@ -1,5 +1,8 @@
 # ADR 0017 — One recognition result per run; correspondence is evidence-gated
 
+> **Archived 2026-09-04.** Frozen history; the current decision is [ADR 3 — The recognition boundary](../0003-recognition-boundary.md) (lifecycle) and [ADR 5](../0005-trust-and-honest-failure.md) (reports). Nothing here is a work instruction.
+
+
 - **Status:** Accepted; narrowed after phase 1 (Amendment 1, 2026-08-05), with
   external-package/cache ownership clarified by Amendment 2 (2026-08-15) and turned
   edge-treatment applicability widened by Amendment 3 (2026-08-22), and the 0.4.6

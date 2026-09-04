@@ -1,5 +1,8 @@
 # ADR 0005 — Compiler-pipeline module boundaries and single-owner build state
 
+> **Archived 2026-09-04.** Frozen history; the current decision is [ADR 1 — The compiler pipeline](../0001-compiler-pipeline.md). Nothing here is a work instruction.
+
+
 - **Status:** Accepted; implemented, with compatibility-alias deletion tracked by #720 for 0.4.0.
 - **Date:** 2026-06-27
 - **Deciders:** Paul Fremantle (pzfreo)

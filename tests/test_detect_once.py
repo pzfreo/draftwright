@@ -1,4 +1,4 @@
-"""#602: feature detection runs once per build (ADR 0008 Amendment 5, #244).
+"""#602: feature detection runs once per build (ADR 1 (was 0008 Amendment 5), #244).
 
 `_analyse` builds the PartModel pre-scale so layout sizes from the same model the
 renderers use (#584 WP1 A) — but the builder then called `build_model(a)` again,
@@ -52,7 +52,7 @@ def test_detectors_run_once_per_build(aggregate_counter, framed_recognition):
     assert aggregate_counter == expected, (
         f"unexpected recognition activity in one "
         f"{'framed' if framed_recognition else 'raw'} build: {aggregate_counter} — the "
-        "sizing and render paths must share one inventory with no consumer bypass (ADR 0008)"
+        "sizing and render paths must share one inventory with no consumer bypass (ADR 1 (was 0008))"
     )
     # The drawing's render model IS the stored sizing model — one object, one inventory.
     assert dwg.model() is dwg._analysis.model
@@ -116,7 +116,7 @@ def test_cylinder_scan_runs_once_per_build(cyls_counter):
 
 
 def test_declared_model_runs_no_detection(aggregate_counter):
-    # ADR 0011: a caller-declared model skips detection entirely — build_part_model is
+    # ADR 4 (was 0011): a caller-declared model skips detection entirely — build_part_model is
     # never invoked (the sizing path uses the declared model; the builder coerces it),
     # so the recognition aggregate must not run at all.
     from draftwright.model import declare
@@ -125,7 +125,7 @@ def test_declared_model_runs_no_detection(aggregate_counter):
     dwg = build_drawing(part, model=[declare.envelope(part)])
     assert aggregate_counter == {}, (
         f"declared-model recognition activity: {aggregate_counter} — declaration must skip "
-        "detection and consumer recogniser bypasses (ADR 0011)"
+        "detection and consumer recogniser bypasses (ADR 4 (was 0011))"
     )
     assert dwg._analysis.model is None  # declared models are not stored on Analysis
 

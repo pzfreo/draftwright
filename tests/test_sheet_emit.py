@@ -1,4 +1,4 @@
-"""The declarative Sheet-DSL emitter (ADR 0011 Amendment 1, #461).
+"""The declarative Sheet-DSL emitter (ADR 4 (was 0011 Amendment 1), #461).
 
 Generates a `Sheet(...)` script from a detected part — one commentable line per feature.
 Detected input only writes numbers (the part-seam form); we never fabricate geometry.
@@ -1779,7 +1779,7 @@ class TestCli:
 
     def test_the_retired_imperative_style_is_just_a_bad_value(self, tmp_path):
         """#720: `imperative` had its own explanatory message for one release after #940
-        retired it. That stub was dated to 0.4.0 alongside the `generate_script` one (ADR 0016),
+        retired it. That stub was dated to 0.4.0 alongside the `generate_script` one (ADR 4 (was 0016)),
         so it is now simply an unrecognised value. `--style` itself survives with its sole
         value, because a script passing `--style sheet` must keep working."""
         from typer.testing import CliRunner
@@ -2167,7 +2167,7 @@ class TestEmittedFeaturesAreNamed:
     """Every emitted feature line binds a name, and the names are usable (#922).
 
     Not primarily a dimension feature: it removes POSITIONAL addressing from the artefact.
-    The documented workflow is to comment a feature line out and re-run (ADR 0011 Amdt 1),
+    The documented workflow is to comment a feature line out and re-run (ADR 4 (was 0011 Amdt 1)),
     which shifts every later index — so `sheet.of(2)` silently retargets onto a neighbour,
     while `sheet.of(hole1)` raises `NameError` at the line you edited.
 
@@ -2407,7 +2407,7 @@ class TestAuthoredSetRoundTrips:
     def test_an_EMPTY_authored_set_round_trips(self):
         """`authored_dimensions=()` is a valid model: "the author chose no dimensions".
 
-        ADR 0016 distinguishes it from `None` ("the planner chooses"), and `build_drawing`
+        ADR 4 (was 0016) distinguishes it from `None` ("the planner chooses"), and `build_drawing`
         honours both — but the emitted script could not express it. The authored source was
         entered IMPLICITLY, by calling `dimension(...)` at least once, so a set with no lines
         stated its source in a comment and then failed the mandatory-source check at build:
@@ -2700,7 +2700,7 @@ class TestTheDimensionMirror:
 
     def test_a_correlated_set_emits_ONE_line(self):
         """A `step_height` ladder is one `AddressableDimension` holding N rungs, so there is
-        one line and no member line to mislead (ADR 0016 identity tier 3)."""
+        one line and no member line to mislead (ADR 4 (was 0016) identity tier 3)."""
         from build123d import Box, Pos
 
         part = Box(40, 12, 40) - Pos(10, 0, 20) * Box(20, 12, 20)
@@ -2805,7 +2805,7 @@ class TestTheDimensionMirror:
 
 #: Annotations a generated script legitimately does NOT declare, keyed by EXACT name prefix
 #: where the family is closed, and each carrying the argument that it can never be a
-#: dimension line (ADR 0016's permanent-exception category, #937).
+#: dimension line (ADR 4 (was 0016)'s permanent-exception category, #937).
 #:
 #: Deliberately NOT subsystem-wide prefixes: `"section_"` would admit every annotation that
 #: subsystem ever grows, including a future `section_depth` measurement — the exact blind
@@ -2919,7 +2919,7 @@ _KIND_MIRROR_COVERAGE = {
     # classified this exact behaviour as declared since #962. Calling it unnameable here
     # contradicted that, and rewording the reason would have kept the false claim
     # (Codex review of #973, round 3).
-    "pmi": "declared — raw AP242, emitted as sheet.add(PmiFeature(...)) (ADR 0016)",
+    "pmi": "declared — raw AP242, emitted as sheet.add(PmiFeature(...)) (ADR 4 (was 0016))",
     "chamfer": "corpus",
     "fillet": "corpus",
     "blend": "corpus",
@@ -3319,7 +3319,7 @@ class TestTheScriptAccountsForEveryAnnotation:
         )
 
     def test_the_furniture_list_is_argued_not_just_listed(self):
-        """A permanent exception carries its argument (ADR 0016, #937). Without one a reader
+        """A permanent exception carries its argument (ADR 4 (was 0016), #937). Without one a reader
         cannot tell it from unfinished work, and the list decays into a suppression."""
         for prefix, why in _SCRIPT_FURNITURE.items():
             assert len(why) > 20, f"{prefix} needs a reason it can never be a dimension line"

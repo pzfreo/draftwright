@@ -1,6 +1,6 @@
 """Run-local consumer outcomes for provider occurrences and Draftwright IR features.
 
-This is consumer-owned correspondence state below and beside the ADR-0015 IR waist. It keeps
+This is consumer-owned correspondence state below and beside the ADR 1 (was 0015) IR waist. It keeps
 the provider's opaque :class:`FeatureRef` only for the lifetime of one recognition run and never
 turns object addresses, feature order, record values, or topology indices into persistent IDs.
 """

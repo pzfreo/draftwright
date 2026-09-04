@@ -142,7 +142,7 @@ class TestTheProducerSaysWhatItsRepeatLabelMeasures:
     is the one #1153 reports, and the masking is what the first cut made possible.)
 
     So the producer declares it instead, carrying the compiler's own number rather than
-    re-deriving a convention from the rendered string — which is what ADR 0016 Amendment 1
+    re-deriving a convention from the rendered string — which is what ADR 4 (was 0016 Amendment 1)
     asks for, and the seam `_dw_scale` already uses.
     """
 

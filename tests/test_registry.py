@@ -1,5 +1,5 @@
 """Unit tests for AnnotationRegistry — the single owner of annotation identity,
-ownership, pins, and build issues (#138 / ADR 0005, Step 2)."""
+ownership, pins, and build issues (#138 / ADR 1 (was 0005), Step 2)."""
 
 import pytest
 

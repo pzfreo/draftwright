@@ -1,5 +1,8 @@
 # ADR 0020 — Provider-owned frame boundary for detected compilation
 
+> **Archived 2026-09-04.** Frozen history; the current decision is [ADR 3 — The recognition boundary](../0003-recognition-boundary.md). Nothing here is a work instruction.
+
+
 - **Status:** Accepted; prepared boundary and explicit opt-in activation implemented. The 0.4.14
   adoption leaves the established public frame schemas unchanged. Raw remains the rollout default
   pending platform and corpus canaries.

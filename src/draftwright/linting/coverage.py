@@ -1,6 +1,6 @@
-"""coverage — feature-coverage completeness check and its state (#138 / ADR 0005).
+"""coverage — feature-coverage completeness check and its state (#138 / ADR 1 (was 0005)).
 
-Part of the :mod:`draftwright.linting` package (ADR 0007):
+Part of the :mod:`draftwright.linting` package (ADR 3 (was 0007)):
 
 - `lint_feature_coverage` — the completeness check that reports part diameters
   with no callout (#80), avoiding double-reporting a hole a grouped ``n× ⌀``
@@ -10,7 +10,7 @@ Part of the :mod:`draftwright.linting` package (ADR 0007):
   (pattern callouts, patterned holes, dropped callout diameters). `Drawing`
   delegates to it via `dwg.coverage`; the `_pattern_callouts` /
   `_patterned_holes` / `_dropped_callout_diams` aliases that also reached it
-  were deleted at their ADR 0005 §4 removal date (#720).
+  were deleted at their ADR 1 (was 0005 §4) removal date (#720).
 
 (`_suggest_fix` now lives in :mod:`.suggest`; `lint_drawing` in
 :mod:`.structural`.) Depends only on `_core` + recognition + the rendering
@@ -181,7 +181,7 @@ class CoverageState:
         """Record that placed *callout_name* documents the holes at *refs* (a grouped
         pattern callout) — so neither becomes a table row or per-hole balloon. *refs*
         are :class:`HoleRef` position keys, not recogniser ``Hole`` objects, so the
-        shared escalation stays IR-typed (ADR 0008 Amendment 6)."""
+        shared escalation stays IR-typed (ADR 1 (was 0008 Amendment 6))."""
         self._pattern_callouts.add(callout_name)
         self._patterned_holes.update(refs)
 
@@ -1352,7 +1352,7 @@ def lint_prismatic_coverage(
     """Report undefined prismatic features.
 
     Ground truth comes directly from geometry, while coverage comes from placed
-    dimension witnesses (ADR 0015).  This intentionally does not trust the part
+    dimension witnesses (ADR 1 (was 0015)).  This intentionally does not trust the part
     model: the defect being detected is geometry that recognition/planning omitted.
     """
     if assembly is None:
@@ -1957,7 +1957,7 @@ def _lint_one_axial_profile(
     *dwg* is the drawing, duck-typed (needs ``at``/``annotations``/``view_of``).
 
     Covers **X-, Y-, and Z-axis** turning through the unified IR step-length
-    chain (ADR 0008 #223), so a missing chain on any axis is a real gap
+    chain (ADR 1 (was 0008) #223), so a missing chain on any axis is a real gap
     (e.g. the chain skipped for want of page room). Severity mirrors
     :func:`lint_feature_coverage`: ``info`` for an assembly, else ``warning``.
     ``recognition`` supplies the run-owned groove inventory used only to evidence-gate a
@@ -1974,7 +1974,7 @@ def _lint_one_axial_profile(
     satisfied_ids = satisfaction_ids(registry)
     # Match structured step-length authority back to the recognition-owned physical band by
     # its axial span. This preserves the denominator and prevents an unrelated declared step
-    # from certifying one merely because both share the same role (#1351, ADR 0017).
+    # from certifying one merely because both share the same role (#1351, ADR 3 (was 0017)).
     axis_index = "xyz".index(prof.axis)
     for identity in satisfied_ids:
         feature = getattr(identity, "feature", None)

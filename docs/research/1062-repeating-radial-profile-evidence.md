@@ -77,17 +77,17 @@ discovery does not invent them.
 
 ## ADR Fit
 
-- **ADR 0013:** the proven repeat is lower-tier, geometry-only evidence. `gear` is an
+- **ADR 3 (was 0013):** the proven repeat is lower-tier, geometry-only evidence. `gear` is an
   application semantic and must not be smuggled into the recognition record.
-- **ADR 0015:** any future automatic record must enter through the compiler's existing
+- **ADR 1 (was 0015):** any future automatic record must enter through the compiler's existing
   recognition waist. A declared gear requirement belongs on the declared path.
-- **ADR 0017:** if productionised, one orchestration owns the correspondence evidence and
+- **ADR 3 (was 0017):** if productionised, one orchestration owns the correspondence evidence and
   consumers project from it. The mutation precedes trust in the guard, and a new identity
   scheme is not justified by this single case.
-- **ADR 0011:** explicit author intent is the appropriate source for requirements that the
+- **ADR 4 (was 0011):** explicit author intent is the appropriate source for requirements that the
   B-rep cannot establish.
 
-No ADR amendment is required. No placement decision is made, so ADR 0014 is unaffected.
+No ADR amendment is required. No placement decision is made, so ADR 2 (was 0014) is unaffected.
 
 ## Follow-up Slices
 

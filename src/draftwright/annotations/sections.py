@@ -1,4 +1,4 @@
-"""Section A-A and detail views (#138 / ADR 0005, P5a).
+"""Section A-A and detail views (#138 / ADR 1 (was 0005), P5a).
 
 The cutting-plane section (ISO 128-44 arrows, ISO 128-50 hatching via
 `_section_hatch_edges`/`_fuzzy_cut`) and the enlarged detail view. Pass
@@ -86,7 +86,7 @@ def feature_hole_keys(model, a: Analysis) -> set[HoleRef]:
 
     Sourced from the **IR** (``model.features`` — the hole/pattern features detection or
     a declared model produced), not recogniser records, so no ``HoleRecord`` crosses into
-    the renderers (ADR 0008 Am6 / #584 WP1). A turned part's concentric axial bores
+    the renderers (ADR 1 (was 0008 Am6) / #584 WP1). A turned part's concentric axial bores
     (dimensioned by the centreline leaders, not a callout) are excluded; every other hole
     — singleton or pattern member — is kept."""
     keys: set[HoleRef] = set()
@@ -224,7 +224,7 @@ def _add_section_view(dwg, a: Analysis, section, *, ctx):
     """Render the planned full section A–A (#94, #207).
 
     The *trigger* + cut-plane row are decided by the planner (`plan_sections` →
-    `SectionPlan`, ADR 0008 Amendment 4); this is the shared rendering machinery it
+    `SectionPlan`, ADR 1 (was 0008 Amendment 4)); this is the shared rendering machinery it
     feeds. The cut plane (normal Y at ``section.cut_y``, parallel to the front view)
     removes material on the viewer's side so the cut face shows the hole profiles as
     visible line-work. Placed in the **leftmost free gap** right of the side view that
@@ -266,7 +266,7 @@ def _add_section_view(dwg, a: Analysis, section, *, ctx):
     # occupant veto the whole band: on GRM-01 at A4 a label at x 245-270 — under the
     # iso view, past the right limit entirely — pushed the start to x 275 while
     # x 202-245 sat empty and the section needs 24 mm. Same defect as #125's balloon
-    # ring, and the same remedy ADR 0014 records for it: a local remote obstacle must
+    # ring, and the same remedy ADR 2 (was 0014) records for it: a local remote obstacle must
     # not displace everything past it.
     blocked = [
         (x0, x1)
@@ -433,7 +433,7 @@ def _add_cutting_plane_arrows(dwg, y_page, x0, x1, *, section, ctx):
     thick wing stubs with solid filled arrowheads pointing in the viewing direction
     (−Y). Named ``section_arrow_{left,right}``/``section_wing_{left,right}``, shared
     between the early row reservation (:func:`_reserve_section_row`) and the final
-    section render (:func:`_add_section_view`, ADR 0009 P5 strand 3)."""
+    section render (:func:`_add_section_view`, ADR 2 (was 0009) P5 strand 3)."""
     arrow_sz = dwg.draft.arrow_length
     _label, _view, prefix = _section_identity(section)
     wing_h = 2.5 * arrow_sz  # perpendicular stub length
@@ -467,7 +467,7 @@ def _add_section_letters(dwg, y_page, x0, x1, *, section, ctx):
     """The 'A' identification letters above the cutting-plane line ends, clear of
     any callout leaders. Named ``section_a_{left,right}`` — shared between the
     early row reservation and the final section render, same as
-    :func:`_add_cutting_plane_arrows` (ADR 0009 P5 strand 3): a callout's full
+    :func:`_add_cutting_plane_arrows` (ADR 2 (was 0009) P5 strand 3): a callout's full
     footprint can land on the letters just as easily as on the arrows, so both
     need to be visible to the plan-view callout carve before it places."""
     lift = dwg.draft.font_size * 1.4
@@ -560,12 +560,12 @@ def _clear_section_reservation(dwg, section=None) -> None:
 
 def _reserve_section_row(dwg, a: Analysis, section, *, ctx) -> None:
     """Reserve the section A–A cutting-plane arrows' row BEFORE the plan-view hole
-    callouts place (ADR 0009 P5 strand 3).
+    callouts place (ADR 2 (was 0009) P5 strand 3).
 
     ``_add_section_view`` runs last deliberately (its own room check clears
     everything already placed) — so until now, the plan-view hole-callout carve's
     ``strip_obstacles`` had no way to see the section arrows it hadn't drawn yet,
-    the textbook invisible-occupant defect ADR 0009 targets. Placing a conservative
+    the textbook invisible-occupant defect ADR 2 (was 0009) targets. Placing a conservative
     placeholder early (the arrows' actual row, at the un-widened part-bbox extent —
     the bolt-circle widening in ``_add_section_view`` depends on furniture
     ``_annotate_holes`` hasn't placed yet either, so it is not yet knowable) gives
@@ -957,7 +957,7 @@ def _overall_height_name(dwg, a: Analysis) -> str | None:
 
     The generalised path is demotion-safe, not best-effort (Codex review): a
     **pinned** name is never a candidate — a pin is the user's "this stays put"
-    (ADR 0012), which outranks the demotion heuristic — and the match must be
+    (ADR 4 (was 0012)), which outranks the demotion heuristic — and the match must be
     **unambiguous**: zero or several surviving candidates (e.g. a hand-authored
     twin of the height dim, or a square part whose depth label equals its height)
     return ``None``, and the caller simply proceeds without a demotion retry."""
@@ -981,7 +981,7 @@ def _overall_height_name(dwg, a: Analysis) -> str | None:
 
     # The auto pass names the overall height `dim_height`; subject it to the SAME
     # demotion-safety guards as the generalised names (user review, #661): never
-    # demote a PINNED dim (a pin is the user's "this stays put", ADR 0012), and
+    # demote a PINNED dim (a pin is the user's "this stays put", ADR 2 (was 0012)), and
     # reject a replacement whose label no longer equals the part height (identity —
     # guards a user-substituted annotation under the canonical name). A guard
     # failure falls through to the generalised search, which finds nothing under
@@ -1013,7 +1013,7 @@ def _request_prismatic_detail(dwg, a: Analysis, *, ctx, plan) -> None:
     through the unified pipeline (#307).
 
     Fires on the "step"/"illegible" ``Escalation`` `render_height_ladder`
-    (from_model.py) appends (ADR 0009 Amdt 1, #351 PR-4b) rather than
+    (from_model.py) appends (ADR 2 (was 0009 Amdt 1), #351 PR-4b) rather than
     independently recomputing the legibility gate from ``a.step_zs`` — a uniform
     staircase (``model.compiled._step_repeat``) collapses to one representative dim with
     no drop at all, and re-deriving legibility straight from the raw z-list here
@@ -1034,7 +1034,7 @@ def _request_prismatic_detail(dwg, a: Analysis, *, ctx, plan) -> None:
     at the enlarged scale. The escalation carries those exact compiled objects; this
     resolver does not re-decide which rungs failed.
 
-    That was the last dimensional bypass of ADR 0016's boundary (#923 review). This
+    That was the last dimensional bypass of ADR 4 (was 0016)'s boundary (#923 review). This
     function used to re-derive the step feature from ``dwg.model()`` and rebuild the ladder
     out of ``step.levels`` against ``a.bb.min.Z``, so a rung the compiler withheld still
     reached the detail view: an approved three-rung plan drew five. Restricting the direct

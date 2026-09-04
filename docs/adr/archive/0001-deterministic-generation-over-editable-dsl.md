@@ -1,5 +1,8 @@
 # ADR 0001 — Deterministic generation and domain-semantic editing over a bespoke editable-code DSL
 
+> **Archived 2026-09-04.** Frozen history; the current decision is [ADR 4 — Declared intent](../0004-declared-intent.md). Nothing here is a work instruction.
+
+
 - **Status:** Accepted
 - **Date:** 2026-06-16
 - **Deciders:** Paul Fremantle (pzfreo)

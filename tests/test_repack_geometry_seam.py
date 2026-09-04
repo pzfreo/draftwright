@@ -1,6 +1,6 @@
 """The #1137 seam: which solid an assembly projects is an explicit input.
 
-ADR 0004 wants real geometry built once per build. The measure-and-repack loop assembles up
+ADR 2 (was 0004) wants real geometry built once per build. The measure-and-repack loop assembles up
 to three times, so it is built up to three times — the root cause of #1135, where one part's
 plan view alone took over sixteen minutes of hidden-line removal.
 

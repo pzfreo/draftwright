@@ -2,9 +2,9 @@
 
 `Sheet.auto_dimensions()` and `Sheet.add_dimension()` steer callers toward authored
 dimensions, which is what `--script` emits and the only form where omission can mean
-suppression (ADR 0016). They keep working indefinitely.
+suppression (ADR 4 (was 0016)). They keep working indefinitely.
 
-The category matters as much as the message. `docs/deprecations.md` carries ADR 0005 §4 —
+The category matters as much as the message. `docs/deprecations.md` carries ADR 1 (was 0005 §4) —
 a compat surface names a removal target, because "a facade with no exit date is a failure
 mode" — and `tests/test_deprecation_dates.py` enforces it. Raising `DeprecationWarning` for
 something we intend to keep would mean writing a removal date we do not mean.

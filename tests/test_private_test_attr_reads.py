@@ -130,7 +130,7 @@ _ALLOW: dict[str, int] = {
     # Deferred-mode flag: mode-restoration + no-op-after-drain assertions (some INSIDE
     # `with deferred()`), not mid-drain tests. No public deferred-state read.
     "_defer_intents": 3,
-    # Analysis (build context, ADR 0005): the whole `Analysis` passed to an internal render/layout
+    # Analysis (build context, ADR 1 (was 0005)): the whole `Analysis` passed to an internal render/layout
     # helper under test, plus non-geometric internal STATE with no public accessor — classification
     # flags (`is_rotational`; `Drawing.rotational` is a furniture method, not a classifier), the
     # turned-profile/section objects (`prof`/`layout_section`/`od_axis`/`pmi`/`projection`), mutable

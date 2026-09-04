@@ -1,4 +1,4 @@
-"""ADR 0018 Phase 2: typed authored view requests and Sheet verbs (#1260)."""
+"""ADR 2 (was 0018) Phase 2: typed authored view requests and Sheet verbs (#1260)."""
 
 from __future__ import annotations
 

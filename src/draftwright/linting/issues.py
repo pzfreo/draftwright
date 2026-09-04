@@ -1,4 +1,4 @@
-"""LintIssue — the structured lint result (ADR 0007).
+"""LintIssue — the structured lint result (ADR 3 (was 0007)).
 
 Vendored from ``build123d_drafting.helpers`` (which keeps its own copy for its
 standalone validators). draftwright owns linting; this is its ``LintIssue``.

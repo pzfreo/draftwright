@@ -180,7 +180,7 @@ def _parameter_ids(feature, source) -> tuple[str, ...] | None:
 
 
 def _evidence_parameter(parameter: str) -> str:
-    # Location is one feature-level authored intent (ADR 0016), even when the renderer
+    # Location is one feature-level authored intent (ADR 4 (was 0016)), even when the renderer
     # records one directional fact for each physical coordinate.
     if parameter.startswith("location_pad."):
         return "location_pad.location"

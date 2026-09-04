@@ -1,6 +1,6 @@
-# ADR 0011 Phase 2 — aspect renderers roadmap
+# ADR 4 (was 0011) Phase 2 — aspect renderers roadmap
 
-Execution roadmap for **Phase 2** of [ADR 0011](../adr/0011-ir-as-public-input.md)
+Execution roadmap for **Phase 2** of [ADR 4 (was 0011)](../adr/archive/0011-ir-as-public-input.md)
 (the IR as a public input). Phase 0 (the `model=` seam + object→feature
 constructors) and Phase 1 (the fluent `Sheet` façade over today's renderers) have
 landed; Phase 2 is the **aspect layer** — the drawing information geometry cannot
@@ -9,7 +9,7 @@ roadmap: **#446**. Each work item below is one PR (split if it grows).
 
 ## The reframing: Phase 2 is wiring + placement, not primitive authoring
 
-ADR 0011 §4 and the #446 north-star describe GD&T / finish as "the genuinely new
+ADR 4 (was 0011 §4) and the #446 north-star describe GD&T / finish as "the genuinely new
 engine work." A survey of the installed `build123d-drafting-helpers` **0.13.0**
 (the pinned floor) shows that is **no longer true at the primitive level** — every
 glyph already exists:
@@ -38,7 +38,7 @@ placement API, because **neither the IR nor the renderer has any hook today**:
 - **Renderer** — every dimension label is a bare `_fmt(value)` string passed to the
   `_dim(...)` helper (`_core.py:149`) → `Dimension(..., label=…)`. There is **no
   tolerance-suffix or symbol hook** in the label chain.
-- **Registry** — the ADR 0010 provenance sink `AnnotationRegistry._anno_feature`
+- **Registry** — the ADR 5 (was 0010) provenance sink `AnnotationRegistry._anno_feature`
   (`registry.py:43`, name→feature, post-render) proves feature-keyed side maps work
   (value-equality keying on frozen features, `names_for_feature` `registry.py:68`),
   but it points the *opposite* direction from what an authored decoration needs
@@ -49,7 +49,7 @@ placement API, because **neither the IR nor the renderer has any hook today**:
   carve-outs for renderers that don't exist yet. So placed GD&T/finish participates
   in `lint()` for free.
 
-## Where aspects live (ADR 0011 §4, confirmed against the code)
+## Where aspects live (ADR 4 (was 0011 §4), confirmed against the code)
 
 1. **Tolerance / fit → the dimension.** A tolerance is a property of a
    `DimParameter` (a dimension is toleranced). It rides as an optional field on the
@@ -145,13 +145,13 @@ rejected by the user:
 1. **Imperative post-build placement is blind to the shared cross-view corridor.** A
    frame placed *after* `build_drawing` returns (past `_auto_annotate`, past the
    measure-and-repack) never carves around the other view's dims and never triggers a
-   repack — it overlapped a plan-view dimension exactly where ADR 0004's compose-then-pack
+   repack — it overlapped a plan-view dimension exactly where ADR 2 (was 0004)'s compose-then-pack
    is supposed to prevent it. GD&T must be placed *during* the build, like every other
    annotation, so `_measure_blocks` folds it into its `ViewBlock` and the repack net
-   separates cross-view (ADR 0004).
-2. **`Strip.allocate` is the legacy cursor ADR 0009 retires.** Routing new work through
+   separates cross-view (ADR 2 (was 0004)).
+2. **`Strip.allocate` is the legacy cursor ADR 2 (was 0009) retires.** Routing new work through
    it would add to the deprecated path. New annotations join the **collect-then-solve
-   corridor** (ADR 0009), the target architecture.
+   corridor** (ADR 2 (was 0009)), the target architecture.
 
 **Delivered design (Tier 1):**
 - Three frozen IR items — `ControlFrame` / `DatumRef` / `Finish` (`model/ir.py`), peers
@@ -160,20 +160,20 @@ rejected by the user:
   computes those from a build123d face.
 - `render_gdt` (`annotations/from_model.py`) — builds each glyph, hangs it on a
   `Leader`, and **registers a `CorridorCandidate` into the target strip before
-  `drain_corridors`**, so the one ADR 0009 solve orders and spaces frames crossing-free
+  `drain_corridors`**, so the one ADR 2 (was 0009) solve orders and spaces frames crossing-free
   *with* the dims (a first-class candidate, matching the `render_pmi` corridor path that
   landed later in #524).
   Wired into `_auto_annotate` after `render_slots`, before the drain.
-- **Real-footprint plumbing (the ADR 0009 down-payment):** `CorridorCandidate.size`
+- **Real-footprint plumbing (the ADR 2 (was 0009) down-payment):** `CorridorCandidate.size`
   carries the glyph's own box (a frame is ~24×6 mm); `solve_corridor` forwards a
   `sizes` map into `place_strip_candidates`, which now feeds it to the `StripCandidate`
   instead of the `(tier, tier)` label-height hardcode. Absent → `(tier, tier)`, so every
   existing dimension stays byte-identical. The footprint is the *glyph* box, not the
   leader+glyph box — the shaft back to the feature would inflate the stacking extent
-  (the same reason dims reserve one label-height). See ADR 0009 Amendment 7.
+  (the same reason dims reserve one label-height). See ADR 2 (was 0009 Amendment 7).
 - A declared frame is **force-kept** (policy B) — no alternate view — so a full strip
   drops it with a first-class `gdt_dropped` warning rather than a silent vanish; the
-  placed frame gets `feature=`-tagged through `add(...)` into the ADR 0010 provenance
+  placed frame gets `feature=`-tagged through `add(...)` into the ADR 5 (was 0010) provenance
   sink for free.
 
 **Deferred to P2c / follow-ups:** left/right strips render but the common case is

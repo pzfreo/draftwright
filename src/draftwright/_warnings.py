@@ -15,7 +15,7 @@ from __future__ import annotations
 class SoftDeprecationWarning(UserWarning):
     """A surface that is **discouraged but supported**, with no removal planned.
 
-    Deliberately NOT a :class:`DeprecationWarning`. ``docs/deprecations.md`` carries ADR 0005
+    Deliberately NOT a :class:`DeprecationWarning`. ``docs/deprecations.md`` carries ADR 1 (was 0005)
     §4's rule — a compat surface names a tracking issue *and* a removal target, because "a
     facade with no exit date is a failure mode, not a success" — and
     ``tests/test_deprecation_dates.py`` enforces it. Raising a ``DeprecationWarning`` for

@@ -1,4 +1,4 @@
-"""compose — the outer compose-then-pack scale/page selection (#138 / ADR 0005, P3; ADR 0004).
+"""compose — the outer compose-then-pack scale/page selection (#138 / ADR 1 (was 0005), P3; ADR 2 (was 0004)).
 
 (Renamed from ``sheet.py`` 2026-07-15, #640: this is the layout *engine*, not the
 user-facing ``Sheet`` facade — that lives in ``draftwright.sheet``.)
@@ -124,7 +124,7 @@ def _est_pv_above_depth(
     (and a balloon row beyond) *before* placing views, instead of letting the
     tiers spill into headroom (#121).
 
-    WIP estimate standing in for ADR 0004's "lay out, don't predict": a
+    WIP estimate standing in for ADR 2 (was 0004)'s "lay out, don't predict": a
     conservative upper bound (one spare tier for the pitch dim / rounding), which
     the packer absorbs by scale rather than under-reserving and overlapping.
     Scale-independent (tier height is fixed page-mm).
@@ -193,7 +193,7 @@ def _est_table_size(
     rows, font_size: float = _FONT_SIZE, pad_around_text: float = 2.0, block_cols=None
 ):
     """Table footprint estimate — ``_core._build_table``'s sizing, from the
-    shared :func:`draftwright._core._table_metrics` so the ADR 0004
+    shared :func:`draftwright._core._table_metrics` so the ADR 2 (was 0004)
     ``table_fits`` fitness check can never desynchronise from what renders
     (#700; pinned by ``test_sheet_tables``)."""
 
@@ -220,7 +220,7 @@ def _est_hole_table_sizes(
     """
 
     # Scattered (loose, non-patterned) z-axis holes — one per member; a loose
-    # HoleFeature is by construction not a pattern member (ADR 0008; #584 WP1 A).
+    # HoleFeature is by construction not a pattern member (ADR 1 (was 0008); #584 WP1 A).
     z_holes = [
         (f.diameter, pos)
         for f in model.features
@@ -381,7 +381,7 @@ def _measure_strips(
 
 @dataclass(frozen=True)
 class AnnoBox:
-    """A composed annotation band as a page-mm box (#112, ADR 0004 Step 4).
+    """A composed annotation band as a page-mm box (#112, ADR 2 (was 0004) Step 4).
 
     ``side`` is the view side the band sits on (``"right"``/``"left"`` of the
     front/plan views, ``"side_right"`` outside the side view, or ``"plan_halo"``
@@ -470,7 +470,7 @@ def _compose_anno_boxes(
     # A side-normal pad contributes up to two footprint and two in-plane-location candidates
     # in its end-on view.  They consume the ordinary strips and therefore must participate in
     # the compose-before-pack footprint.  In an authored set, however, omission is suppression
-    # (ADR 0016): reserve only the independently addressed sizes/location, never phantom bands
+    # (ADR 4 (was 0016)): reserve only the independently addressed sizes/location, never phantom bands
     # for measurements the author omitted.  Automatic mode retains the complete four-band
     # grammar. Z pads retain the established footprint/location layout: their location ladder
     # already has dedicated plan/side sizing, while their HIGH callout uses the same
@@ -748,7 +748,7 @@ def choose_scale(
         candidates = _LADDER
         pack_iso_2d = False
 
-    # ADR 0018 §5: this loop is the planner's candidate evaluation, and it is now expressed as
+    # ADR 2 (was 0018 §5): this loop is the planner's candidate evaluation, and it is now expressed as
     # one. Each tuple becomes a `LayoutCandidate` carrying all four dimensions — view set,
     # scale, sheet, arrangement — and is judged by `candidate_is_feasible`, which names the
     # gates rather than returning a bare `False`.
@@ -804,13 +804,13 @@ def choose_scale(
 
     # Pass 1 — the scale. Only the preferred arrangement may decide it.
     #
-    # ADR 0018 §5 asks for the largest preferred scale admitted by a feasible candidate, and
+    # ADR 2 (was 0018 §5) asks for the largest preferred scale admitted by a feasible candidate, and
     # the ladder is ordered so the first fit is that scale. Letting the alternatives compete
     # here lets a PACKING choice bid up a LEGIBILITY one, and #1130 measured what that buys:
     # the dense plate reaches 2:1 under `stacked-iso` where `columns` reaches only 1:1, and
     # the drawing at twice the size then drops `location_ref_dropped` + `feature_not_located`
     # because the enlarged views leave its location dims nowhere to go. The candidate was
-    # geometrically feasible and lost requirements anyway — ADR 0018's first hard gate, which
+    # geometrically feasible and lost requirements anyway — ADR 2 (was 0018)'s first hard gate, which
     # `candidate_is_feasible` still cannot evaluate (#1250).
     #
     # So the alternatives are confined below to what they can support without that gate:
@@ -827,7 +827,7 @@ def choose_scale(
         # Pass 2 — the sheet, at that scale. Candidates are ordered smallest sheet first, so
         # every candidate BEFORE the winner at the same scale is a smaller sheet that the
         # preferred arrangement could not fit. An alternative that fits one of them yields
-        # the same drawing at the same scale on less paper, which is ADR 0018 §5's "at that
+        # the same drawing at the same scale on less paper, which is ADR 2 (was 0018 §5)'s "at that
         # scale, the smallest standard sheet" — and cannot cost a requirement the preferred
         # arrangement would have kept, because the views are identically sized.
         for cand in candidates:
@@ -890,7 +890,7 @@ def choose_scale(
 def _view_geom(a) -> dict:
     """The orthographic geometry boxes as ``{view: (cx, cy, hw, hh)}``.
 
-    Read off the resolved view plan (ADR 0018) rather than assembled here from `FV_X`/`PV_X`/
+    Read off the resolved view plan (ADR 2 (was 0018)) rather than assembled here from `FV_X`/`PV_X`/
     `SV_X` and the half-extent fields. Same numbers — `resolve_from_analysis` reads the same
     `Analysis` — but the set of views and their page geometry now has one owner, so a later
     slice that drops a redundant principal view changes the plan and this follows, instead of
@@ -1087,7 +1087,7 @@ def _layout_geometry(
     section_hw = max(fv_hw, 12.0)
     section_hh = fv_hh
     if blocks is not None:
-        # Measure-and-repack pass (#121, ADR 0004): pack the *measured* per-view
+        # Measure-and-repack pass (#121, ADR 2 (was 0004)): pack the *measured* per-view
         # footprints disjoint.  Floor each measured band at the estimate — the
         # repack may only GROW a corridor to fit annotations the estimate
         # under-sized (the documented FV-top vs PV-balloon overlap), never shrink
@@ -1117,7 +1117,7 @@ def _layout_geometry(
     # the column, so its gap is that column band PLUS its own facing band (sum) —
     # disjoint by construction (#121). Byte-identical for the estimator path,
     # where fv/pv bands are equal and sv.left == 0.
-    # ADR 0018: which principal views this sheet actually carries. `views=None` is the
+    # ADR 2 (was 0018): which principal views this sheet actually carries. `views=None` is the
     # third-angle three, so every existing caller is byte-identical. The column is the
     # stacked front/plan pair — it exists while EITHER is planned, and is x-wide either way,
     # since both project the x extent across the page (`view_plan.VIEW_AXES`).
@@ -1159,7 +1159,7 @@ def _layout_geometry(
     )
     # The orthographic band: everything in the row that is NOT the isometric. Split out
     # because the ARRANGEMENT is exactly the question of where the iso goes relative to
-    # it (ADR 0018 §5's fourth dimension), and both arrangements share this part.
+    # it (ADR 2 (was 0018 §5)'s fourth dimension), and both arrangements share this part.
     ortho_row_w = (
         col_left
         + col_right
@@ -1183,7 +1183,7 @@ def _layout_geometry(
         #
         # NOT the production default, and the reason is measured (`test_adr0018_arrangement_
         # gate.py`) rather than cautionary. The arrangement itself is sound — the `chamfered`
-        # part moves A3 -> A4 with no lint change at all, which is exactly ADR 0018 §5's
+        # part moves A3 -> A4 with no lint change at all, which is exactly ADR 2 (was 0018 §5)'s
         # "smallest standard sheet at that scale". What is not sound is resolving it HERE.
         #
         # This function is the single layout authority, but its three callers do not pass it
@@ -1199,7 +1199,7 @@ def _layout_geometry(
         # So the arrangement is a decision that must be made ONCE, carried alongside
         # (scale, page, tb_w), and applied by every stage — not re-derived per call site from
         # whatever each stage happens to know. That is the threading `choose_scale`'s 4-tuple
-        # return has no room for, and it is the work the next ADR 0018 slice owes: widen the
+        # return has no room for, and it is the work the next ADR 2 (was 0018) slice owes: widen the
         # decision that `LayoutCandidate` already models to the value the pipeline carries.
         columns_row_w = ortho_row_w + iso_row_budget + 2 * margin + _tb_col_w
         arrangement = "columns" if columns_row_w <= page_w + 0.5 else "stacked-iso"
@@ -1257,7 +1257,7 @@ def _layout_geometry(
     # pin the renderer uses in _add_title_block.  Its clearance is the block's
     # own bands: DIM_PAD on the three free sides, and only down to the page
     # margin below (it abuts the bottom sheet edge).  Everything else is laid
-    # out to work around its footprint.  (#112, ADR 0004.)
+    # out to work around its footprint.  (#112, ADR 2 (was 0004).)
     title_block = ViewBlock(
         tb_w / 2,
         _TB_H / 2,
@@ -1328,7 +1328,7 @@ def _layout_geometry(
     )
 
     # Does the packed disjoint layout actually fit the sheet? — the fitness the
-    # (scale, page) search optimises (#121, ADR 0004).  The union of the three
+    # (scale, page) search optimises (#121, ADR 2 (was 0004)).  The union of the three
     # view *footprints* (geometry + bands) must sit inside the drawable area; the
     # orthographic views must clear the title block (stay left of its column
     # unless their bottom is above it); and the iso must have a real gap.  This is

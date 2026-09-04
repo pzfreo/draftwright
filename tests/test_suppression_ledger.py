@@ -11,7 +11,7 @@ and it produced **four separate issue reports** (#916, #917, #918, and the shape
 of which named the cause. What finally identified it was building one part twice with a single
 property changed and diffing the dimensions — the manual form of this read.
 
-The distinction this surface has to preserve is ADR 0016's: an **authored** omission is the
+The distinction this surface has to preserve is ADR 4 (was 0016)'s: an **authored** omission is the
 script's own (omission means suppression, recoverable with a `dimension(...)` line), while a
 rule suppression is the engine's decision and must name the rule. They look identical on paper
 and mean opposite things.
@@ -56,7 +56,7 @@ def test_a_part_with_nothing_suppressed_has_an_empty_ledger():
 
 
 def test_an_authored_omission_is_distinguished_from_a_rule_suppression():
-    """ADR 0016: omission from an authored set is the AUTHOR's decision. Conflating it with a
+    """ADR 4 (was 0016): omission from an authored set is the AUTHOR's decision. Conflating it with a
     rule suppression would make the audit unusable — every authored script would look like the
     engine dropping dimensions."""
     sheet = Sheet(Box(80, 50, 20) - Pos(10, 5, 0) * Cylinder(4, 30), title="T", number="N")
@@ -204,7 +204,7 @@ def test_a_model_with_no_datum_records_the_locations_it_cannot_measure():
     It breaks the same guarantee as the edge-anchored pocket: `_check_authored_targets`
     accepts `dimension(hole, "location")` on feature eligibility alone, so an author could
     name a position, pass validation, and receive neither the dimension nor a reason. It bites
-    a caller-supplied `PartModel` (ADR 0011), which `build_drawing` preserves verbatim —
+    a caller-supplied `PartModel` (ADR 4 (was 0011)), which `build_drawing` preserves verbatim —
     datums included, or not.
 
     Not fixed by defaulting a datum into model coercion: that would hide malformed compiler

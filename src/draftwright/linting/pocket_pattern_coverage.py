@@ -158,7 +158,7 @@ def _parameter_ids(feature) -> tuple[str, ...] | None:
     if [parameter.parameter_id for parameter in parameters] != expected:
         return None
     stem = getattr(feature, "LOCATION_STEM", None)
-    # Off-axis pattern locations have never had a compiler owner (ADR 0016). Retain the
+    # Off-axis pattern locations have never had a compiler owner (ADR 4 (was 0016)). Retain the
     # recognised physical source as unverifiable rather than certifying a partial drawing.
     if feature.frame.axis != "z" or not isinstance(stem, str):
         return None

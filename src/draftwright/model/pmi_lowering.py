@@ -172,7 +172,7 @@ def lower_ap242_hole_tolerances(
         proposals[dim_index] = (owner_index, member_indices, value)
 
     # Existing authored ownership wins.  Silently replacing it with imported PMI would make
-    # the same parameter have two sources and violate ADR 0011's single-owner decoration map.
+    # the same parameter have two sources and violate ADR 4 (was 0011)'s single-owner decoration map.
     for dim_index, (owner_index, _member_indices, _value) in tuple(proposals.items()):
         owner = target_by_index[owner_index]
         if (owner, "diameter", "bore") in model.decorations or (

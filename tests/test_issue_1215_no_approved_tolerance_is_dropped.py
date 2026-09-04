@@ -1,6 +1,6 @@
 """Every tolerance the compiler approves must reach the annotation that claims it.
 
-`tests/test_compiled_plan_boundary.py` enforces one direction of ADR 0016 Amdt 1 — a renderer
+`tests/test_compiled_plan_boundary.py` enforces one direction of ADR 4 (was 0016 Amdt 1) — a renderer
 must not emit what the plan withheld. Nothing enforced the converse: **a renderer must emit
 everything the plan approved.**
 
@@ -15,7 +15,7 @@ through **both** spellings of a `decorations=` key, builds, and joins what the c
 against what the claiming annotation actually renders. It found three live sites in a single run
 — the ones round 6 was still discovering by hand — and it fails on any new one.
 
-Why the join is sound: `registry.measurement_of(name)` is the ADR 0010 seam, so an annotation
+Why the join is sound: `registry.measurement_of(name)` is the ADR 5 (was 0010) seam, so an annotation
 that claims a `DimensionId` is asserting it draws that measurement. If the compiler attached a
 tolerance to that id and the label carries no suffix, the drawing states a requirement less
 precisely than the author wrote it — silently, which is the whole failure mode.
@@ -31,7 +31,7 @@ had been looked at (#1216 review r9):
    short a dimension with the lint perfectly clean.
 
 Scope of (2), because it is narrower than "everything the plan approves": `plan.groups` and
-`plan.ladders`. Not `plan.contingencies`, whose whole design (ADR 0016 Amdt 5) is to be approved
+`plan.ladders`. Not `plan.contingencies`, whose whole design (ADR 4 (was 0016 Amdt 5)) is to be approved
 and deliberately undrawn unless the primary representation places nothing; and not
 `plan.locations`, which carry no tolerance to drop — `location` is not among any feature's
 `parameters()`, so there is no key to author one against (measured: 204 compiled locations
@@ -205,7 +205,7 @@ def test_direct_detection_matches_built_model_features_for_sweep_parts(part_name
 
 #: The two shapes a `decorations=` key takes. BOTH are swept, because they are not the same
 #: experiment: the role key tolerances one parameter, while the bare `(feature, kind)` key —
-#: the public spelling in ADR 0011 — tolerances every role of that kind at once. Only the
+#: the public spelling in ADR 4 (was 0011) — tolerances every role of that kind at once. Only the
 #: second produces a label that must carry the SAME suffix twice (a counterbored callout's
 #: bore and its recess), which is exactly what the old substring predicate could not tell
 #: apart from carrying it once (#1216 review r9).
@@ -241,7 +241,7 @@ def _rendered_text(registry, name) -> str:
 
     A `label` for a dimension or callout — and a TABLE's cells, which have no label at all.
     Reading only `label` made both hole-table routes invisible to this sweep: a table claims
-    `bore.diameter` through the same ADR 0010 seam a leader does, and printed the bare number
+    `bore.diameter` through the same ADR 5 (was 0010) seam a leader does, and printed the bare number
     while the guard read its empty label and passed (#1216 review r9).
     """
     obj = registry.named(name)
@@ -279,7 +279,7 @@ def _missing(text: str, approved) -> list[str]:
     (#1216 review r9).
 
     The plan holds the tolerance, so the expected text is computable exactly rather than
-    guessed — which is also the ADR 0016 Amdt 1 shape: compare to the compiler, not to a
+    guessed — which is also the ADR 4 (was 0016 Amdt 1) shape: compare to the compiler, not to a
     pattern.
     """
     want = Counter(_tol_suffix(dim.tolerance, _DRAFT) for dim in approved)
@@ -350,7 +350,7 @@ def _sweep(part_name, model, feature, param, mode):
     #
     # The assertion is "not silently", not "always drawn": whether a leader may starve an
     # overall extent, and whether a rung too short to dimension should escalate, are placement
-    # policy (ADR 0014) and are not settled here. Reporting is not contingent on settling them.
+    # policy (ADR 2 (was 0014)) and are not settled here. Reporting is not contingent on settling them.
     reported = _absence_reported(drawing)
     silent = sorted(
         str(m.parameter) for m in approved if m not in claimed_anywhere and m not in reported
@@ -520,7 +520,7 @@ def test_the_public_hole_table_verb_prints_the_authored_tolerance():
     """`add_hole_table()` is the same table by the other door.
 
     It formatted its own cells off the recognised geometry with `_fmt`, so it dropped the
-    tolerance AND minted a value the compiler had already formatted — the ADR 0016 boundary in
+    tolerance AND minted a value the compiler had already formatted — the ADR 4 (was 0016) boundary in
     both directions at one site.
     """
     drawing, approved = _toleranced_bore(_plate_with_holes)
@@ -665,7 +665,7 @@ def _partly_drawn_ladder():
 
     The case a retraction keyed on "is this id claimed" cannot see. Both rungs carry the SAME
     `DimensionId` — `step_height.length`, one per feature, because there is no per-level
-    identity (ADR 0016 Amdt 3) — so the drawn rung claims the id on behalf of the undrawn one.
+    identity (ADR 4 (was 0016 Amdt 3)) — so the drawn rung claims the id on behalf of the undrawn one.
     """
     part = Box(120, 70, 40)
     part -= Pos(-30, 0, 40 / 2 - 6 / 2 + 0.001) * Box(30, 30, 6)
@@ -739,7 +739,7 @@ def test_a_withholding_is_retracted_only_when_every_mark_is_drawn():
 
 
 def test_the_public_hole_table_honours_an_authored_omission():
-    """Suppression by omission reaches the table too (ADR 0016, #1216 review r10, F6).
+    """Suppression by omission reaches the table too (ADR 4 (was 0016), #1216 review r10, F6).
 
     `add_hole_table()` fell back to formatting the recognised geometry whenever the compiler
     had no dimension for a cell — which cannot tell "no entry exists" from "the author left
@@ -785,7 +785,7 @@ def test_the_public_hole_table_honours_an_authored_omission():
 
 
 def test_the_declared_route_retracts_too():
-    """Live and declared must agree about what was withheld (ADR 0011 round-trip).
+    """Live and declared must agree about what was withheld (ADR 4 (was 0011) round-trip).
 
     The retraction was added to `_auto_annotate` only, and `Drawing.finalize()` runs its own
     copy of the stage list — so the two paths failed in OPPOSITE directions: the auto build of

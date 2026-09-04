@@ -281,7 +281,7 @@ def segments_of(item, seen=None) -> tuple:
     ``(0, 0)-(150, 16)`` while they are drawn at ``(166, 11)-(286, 27)``. Every
     other reader in this repository uses ``segments`` for the same reason.
 
-    Read defensively: ``items`` is duck-typed (ADR 0005), so an annotation that
+    Read defensively: ``items`` is duck-typed (ADR 1 (was 0005)), so an annotation that
     has never heard of the attribute — or whose attribute is not a sequence of
     point pairs — contributes no line-work rather than killing lint. The
     materialisation is inside the guard because an iterable that raises partway
@@ -301,7 +301,7 @@ def segments_of(item, seen=None) -> tuple:
             # `tuple()`, and a 3-tuple survives the unpacking above only to raise
             # inside `length_inside` — out of `crossing_length`, out of
             # `lint_drawing`, killing the whole run. Duck-typed items reach here
-            # (ADR 0005), so the shape is checked rather than assumed.
+            # (ADR 1 (was 0005)), so the shape is checked rather than assumed.
             if (
                 len(start) != 2
                 or len(end) != 2
@@ -530,7 +530,7 @@ def _is_box(value) -> bool:
     """Whether *value* is usable as ``(min_x, min_y, max_x, max_y)``.
 
     ``tuple``/``list`` specifically, and the four entries checked for numbers.
-    Not ``len(value) != 4``: a duck-typed item (ADR 0005) may hand back a
+    Not ``len(value) != 4``: a duck-typed item (ADR 1 (was 0005)) may hand back a
     ``build123d.BoundBox``, which defines neither ``__bool__`` nor ``__len__``, so
     ``len()`` on one raises ``TypeError`` out of `lint_drawing`. And not
     ``Sequence``, which accepts ``str`` — a four-character label box passed that

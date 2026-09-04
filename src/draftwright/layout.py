@@ -1,12 +1,12 @@
-"""Constraint-based layout primitives (ADR 0003): the deterministic 1D strip
+"""Constraint-based layout primitives (ADR 2 (was 0003)): the deterministic 1D strip
 solve and the 2D free-rectangle box placer.
 
-ADR 0003 originally proposed a class-based surface for this — a
+ADR 2 (was 0003) originally proposed a class-based surface for this — a
 :class:`Placeable` value object plus a :class:`LayoutSolver` that would
 accumulate placeables and solve them. That surface shipped (#79/#80) but never
 became the path production code actually used: hole callouts and turned
 diameters were ported onto a sibling implementation instead —
-:class:`StripCandidate`/:func:`plan_strip` (ADR 0009's collect-then-solve
+:class:`StripCandidate`/:func:`plan_strip` (ADR 2 (was 0009)'s collect-then-solve
 boundary labeling), later wrapped again by ``CorridorCandidate``/
 ``solve_corridor`` in ``annotations/_common.py`` for strips shared across
 passes. By 2026-07-10 `Placeable`/`LayoutSolver` had no production caller left
@@ -20,7 +20,7 @@ What actually lives here today:
 
 - The 1D strip-placement primitives, bottoming out in
   :func:`_solve_strip_1d_pava` — the deterministic minimum-total-leader-length
-  PAVA algorithm (ADR 0009 Amdt 4), pure standard library, no third-party
+  PAVA algorithm (ADR 2 (was 0009 Amdt 4)), pure standard library, no third-party
   solver (the earlier Cassowary/``kiwisolver`` satisfaction solve was retired
   once PAVA gave the exact L1 placement). :func:`plan_strip` is the
   production-facing collect-then-solve entry point built on top of it
@@ -29,7 +29,7 @@ What actually lives here today:
   and consumed directly by the balloon-spread pass (imported from here) and
   the diameter-row pass (via the `_core` aliases). Keep-out-band avoidance
   (a callout must not sit on a centre-line or a location-dim row) briefly lived
-  as a `plan_strip`-internal banded solve (ADR 0009 Amendment 5, #318); that had
+  as a `plan_strip`-internal banded solve (ADR 2 (was 0009 Amendment 5), #318); that had
   a cross-segment correctness gap (#381), so Amendment 9 retired it in favour of
   the caller carving bands into the same obstacle segmentation it already uses
   (`holes.py`) — `plan_strip` itself no longer knows about bands.
@@ -42,7 +42,7 @@ What actually lives here today:
   maximises placed jobs, then minimises total leader length, retaining the
   legacy greedy incumbent if its deterministic search budget is exhausted.
 
-Global 2D non-overlap (the disjunctive constraint ADR 0003 notes is
+Global 2D non-overlap (the disjunctive constraint ADR 2 (was 0003) notes is
 non-linear) stays deferred (#94) and may never be needed — see that ADR's
 2026-06-18 correction.
 """
@@ -128,7 +128,7 @@ def _solve_guarded_strip_1d(naturals, min_gap, allowed_segments):
     Python DP cells before the caller gets a chance to restore its fallbacks.
     Returning ``None`` at the budget is the conservative result: guarded balloon
     placement treats it exactly like any other infeasible inventory and fails the
-    replacement transaction closed (ADR 0014 Policy B).
+    replacement transaction closed (ADR 2 (was 0014) Policy B).
     """
     if not naturals:
         return []
@@ -245,7 +245,7 @@ def _weighted_median(members):
     """Lower weighted median of ``(value, weight)`` pairs — the smallest value at
     which the cumulative weight reaches half the total. The L1-minimising point of
     a pool; picking the *lower* end of the (possibly interval-valued) median makes
-    the choice deterministic regardless of platform or solver (ADR 0001)."""
+    the choice deterministic regardless of platform or solver (ADR 4 (was 0001))."""
     ordered = sorted(members)
     half = sum(w for _, w in ordered) / 2.0
     cum = 0.0
@@ -258,7 +258,7 @@ def _weighted_median(members):
 
 def _solve_strip_1d_pava(naturals, gaps, lo, hi, weights=None):
     """Minimum-(weighted-)total-leader-length 1D placement with per-pair gaps
-    (ADR 0009 Amendment 4, P4b, #318).
+    (ADR 2 (was 0009 Amendment 4), P4b, #318).
 
     Unlike a bare constraint-*satisfaction* solve (which only needs to satisfy
     order/gap/bounds — the retired Cassowary/kiwisolver path), this finds the
@@ -335,7 +335,7 @@ def _solve_strip_1d_pava(naturals, gaps, lo, hi, weights=None):
 
 
 # ---------------------------------------------------------------------------
-# Collect-then-solve strip stage (ADR 0009)
+# Collect-then-solve strip stage (ADR 2 (was 0009))
 # ---------------------------------------------------------------------------
 
 
@@ -798,7 +798,7 @@ def _assign_balloon_bands(
 
 @dataclass(frozen=True)
 class StripCandidate:
-    """One *measured render-intent* ready for strip placement (ADR 0009).
+    """One *measured render-intent* ready for strip placement (ADR 2 (was 0009)).
 
     The boundary-labeling solve reasons over geometry, not semantics: the collect
     step (in ``annotations/``, which may depend on the IR) projects each planner
@@ -820,7 +820,7 @@ class StripCandidate:
             the P0 seam (all-or-nothing).
         anchored: when ``True`` the spacing solve keeps this candidate at its
             natural position (its ``anchor`` along the strip axis) and flows the
-            rest around it (ADR 0009 Amendment 4, P4b). For a central/coaxial hole
+            rest around it (ADR 2 (was 0009 Amendment 4), P4b). For a central/coaxial hole
             whose callout belongs on the view-centre row: without it the exact
             minimum-total-leader-length solve is free, on a tie, to move the
             central label off centre (the two equal-cost vertices differ only in
@@ -851,7 +851,7 @@ class StripPlacement(NamedTuple):
 
 
 def plan_strip(candidates, lo, hi, min_gap, *, axis: Axis = "y"):
-    """Collect-then-solve placement of *candidates* along one strip (ADR 0009).
+    """Collect-then-solve placement of *candidates* along one strip (ADR 2 (was 0009)).
 
     Orders the labels in **site order** along *axis* — placing them in site order
     keeps leaders crossing-free when the sites have **distinct** strip-axis
@@ -876,7 +876,7 @@ def plan_strip(candidates, lo, hi, min_gap, *, axis: Axis = "y"):
     applied to ``StripCandidate.size`` instead of an explicit per-item
     ``min_gap`` field. *min_gap* is therefore a floor (minimum
     clearance/padding regardless of label size), not the whole story; solved via
-    :func:`_solve_strip_1d_pava` (P4b, ADR 0009 Amendment 4), which finds the
+    :func:`_solve_strip_1d_pava` (P4b, ADR 2 (was 0009 Amendment 4)), which finds the
     *minimum-total-leader-length* placement rather than merely one that satisfies
     the constraints, deterministically. A candidate marked ``anchored`` is kept at
     its natural position (a dominating weight into the solve) so a tie in that
@@ -887,7 +887,7 @@ def plan_strip(candidates, lo, hi, min_gap, *, axis: Axis = "y"):
     No keep-out-band support: a caller that needs to avoid a reserved row (a
     view centre-line, a location dimension's extension line — #305/#321) folds
     it into its own obstacle carve and calls this once per free segment, the
-    same way it already handles any other 2-D obstacle (ADR 0009 Amendment 9,
+    same way it already handles any other 2-D obstacle (ADR 2 (was 0009 Amendment 9),
     #381, retiring a `plan_strip`-internal banded solve that had a cross-segment
     correctness gap — see `annotations/holes.py`).
     """
@@ -920,7 +920,7 @@ def plan_strip(candidates, lo, hi, min_gap, *, axis: Axis = "y"):
 
 
 # ---------------------------------------------------------------------------
-# 2D free-rectangle box placement (ADR 0003, #93)
+# 2D free-rectangle box placement (ADR 2 (was 0003), #93)
 # ---------------------------------------------------------------------------
 
 
@@ -971,7 +971,7 @@ def _boxes_overlap(left, right):
 
 def fit_box(size, region, obstacles, prefer="br", *, clearance=0.0, trace=None):
     """Place a ``(w, h)`` box in *region* avoiding *obstacles*, sat as near the
-    *prefer* corner as possible (ADR 0003, #93).
+    *prefer* corner as possible (ADR 2 (was 0003), #93).
 
     *region* and each obstacle are ``(x0, y0, x1, y1)`` page-mm boxes. *prefer* is
     one of ``"bl" "br" "tl" "tr"``. Obstacles may instead be supplied as

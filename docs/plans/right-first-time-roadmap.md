@@ -64,8 +64,8 @@ The three clusters that defined this arc are **complete and released**.
   after #909. Re-draws crowded shoulders at a larger scale; per-view-scale lint.
 
 ### Design record
-- **ADR 0001** — deterministic generation over an editable-code DSL.
-- **ADR 0002** — iterate via lint critique and domain repair.
+- **ADR 4 (was 0001)** — deterministic generation over an editable-code DSL.
+- **ADR 5 (was 0002)** — iterate via lint critique and domain repair.
 
 ## The next arc — correctness, then GD&T, then output polish
 

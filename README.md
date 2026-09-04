@@ -95,7 +95,7 @@ and removed in 0.5.0 (see [docs/deprecations.md](docs/deprecations.md)).
 Instead of relying on detection, **reference the build123d objects you built** and declare
 only the drawing intent — geometry supplies the sizes (⌀ read off the object), you supply
 tolerances, fits, datums, GD&T, and surface finish. The fluent `Sheet` skips detection and
-dimensions exactly what you declare (ADR 0011):
+dimensions exactly what you declare (ADR 4 (was 0011)):
 
 ```python
 from build123d import Box, Cylinder, Pos
@@ -111,7 +111,7 @@ hole = sheet.hole(bore).finish("1.6").note("M3x0.5 TAP")  # ⌀8 bore, Ra 1.6, t
 sheet.control(hole).position(0.1, to="A", diameter=True)  # ⌀0.1 position wrt A
 
 sheet.authored_dimensions()                               # THIS is the complete set
-sheet.dimension(env, "width.length")                      # (ADR 0016: a build says where
+sheet.dimension(env, "width.length")                      # (ADR 4 (was 0016): a build says where
 sheet.dimension(env, "height.length")                     #  its dimensions come from, and
 sheet.dimension(hole, "bore.diameter")                    #  omitting one means suppress it)
 
@@ -158,7 +158,7 @@ draftwright mymodule:thumbwheel --script
 
 The emitted values are *detected* off the geometry — honest, and a good starting point. Since
 you have the objects, swap each numbered line for a reference so the object stays the single
-source of truth (ADR 0011 — the size is read off the object, no numbers restated):
+source of truth (ADR 4 (was 0011) — the size is read off the object, no numbers restated):
 
 ```python
 # generated (detected):
@@ -292,7 +292,7 @@ generation, the lint→repair loop, and collect-then-solve placement).
 
 ## Architecture
 
-draftwright is structured as a **part-drawing compiler** (ADR 0015): recognised
+draftwright is structured as a **part-drawing compiler** (ADR 1 (was 0015)): recognised
 or declared features converge on a `PartModel` IR, then planner-fed and
 sanctioned model-routed render intents feed shared placement, projection, and
 export. Coverage lint independently compares recognised geometry with the

@@ -1,4 +1,4 @@
-"""The annotation registry (#138 / ADR 0005, Step 2).
+"""The annotation registry (#138 / ADR 1 (was 0005), Step 2).
 
 `Drawing` was both the public editable object and the internal state bus for
 every subsystem. This module gives one of those concerns — **annotation identity
@@ -11,7 +11,7 @@ and build-time metadata** — a single owner:
   from page coordinates. Drawing-level marks (title block, iso/section notes)
   carry no view.
 - ``_pinned`` — names whose position the caller fixed; the engine must not move
-  them (repair now, the global solve later — ADR 0003 #89).
+  them (repair now, the global solve later — ADR 2 (was 0003) #89).
 - ``_build_issues`` — lint issues found while building (e.g. annotations the
   layout had to drop), so :meth:`Drawing.lint` can surface them — a dropped
   feature must never be silent.
@@ -19,7 +19,7 @@ and build-time metadata** — a single owner:
 `Drawing` delegates its annotation add/remove/pin/ownership/build-issue
 operations here and keeps ``items`` (the ordered render list). The four field
 names were reachable as ``Drawing`` properties during the migration; those
-aliases were deleted at their ADR 0005 §4 removal date (#720), so this class's
+aliases were deleted at their ADR 1 (was 0005 §4) removal date (#720), so this class's
 own surface — ``in reg`` / :meth:`names` / :attr:`issues` — is the only way in.
 
 This module sits at the bottom of the import DAG — it depends on nothing in
@@ -36,7 +36,7 @@ def _as_ids(measurement) -> tuple:
     Renderers that draw exactly one measurement pass the bare `DimensionId` they already
     hold; a compound renderer passes a sequence. Accepting both keeps the common call site
     honest — ``measurement=pd.id`` — without the storage pretending the relationship is
-    one-to-one, which ADR 0016 says it is not.
+    one-to-one, which ADR 4 (was 0016) says it is not.
     """
     if measurement is None:
         return ()
@@ -68,7 +68,7 @@ class AnnotationRegistry:
         #
         # A TUPLE rather than one id, from the start, because the relationship really is
         # one-to-many: a compound hole callout renders bore diameter, depth, counterbore
-        # diameter and depth as ONE annotation, each independently suppressible. ADR 0016
+        # diameter and depth as ONE annotation, each independently suppressible. ADR 4 (was 0016)
         # states this outright — the channel "has to become `name → tuple[DimensionId,
         # ...]` before per-dimension resolution is possible at all" (#886). Storing one id
         # would have to be widened again later, and worse, would make the audit's
@@ -212,7 +212,7 @@ class AnnotationRegistry:
 
         Restores the pin too. :meth:`add` deliberately drops it, because a same-name add is a
         fresh object that has not earned the user's pin (#89) — but a restore puts the SAME
-        object back, and dropping the user's ADR 0012 pin because an engine-internal fallback
+        object back, and dropping the user's ADR 2 (was 0012) pin because an engine-internal fallback
         round-tripped it is a bug. The detail-view retry already re-pinned by hand; this makes
         the other two agree.
         """

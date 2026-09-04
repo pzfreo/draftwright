@@ -1,4 +1,4 @@
-"""View projection — silhouette recovery and the isometric view (#138 / ADR 0005, P2).
+"""View projection — silhouette recovery and the isometric view (#138 / ADR 1 (was 0005), P2).
 
 Two concerns, both *below* `make_drawing` in the DAG (it imports these, never the
 reverse): silhouette recovery (`_exactify_silhouettes`/`_raw_view_projector` —
@@ -101,7 +101,7 @@ def part_material_mesh(part, scale: float, *, max_triangles: int = _MATERIAL_MAX
     a strictly finer one — so ``face.tessellate(deflection)`` alone returns whatever mesh
     some earlier operation (HLR, a bounding box, an export) happened to leave behind. That
     makes the field a function of build HISTORY, which is precisely the silent
-    cross-platform layout variable ADR 0006 exists to eliminate; measured on GRM-03, the
+    cross-platform layout variable ADR 5 (was 0006) exists to eliminate; measured on GRM-03, the
     incidental mesh also carried 4,154 triangles where a controlled one needs 776. The copy
     is what keeps the reset off the shared part: cleaning in place would discard a
     triangulation the render path may still want.
@@ -378,7 +378,7 @@ def _largest_clear_factor(dwg, a, hi, obstacles, base_box) -> float:
     """A factor in ``[1, hi]`` whose RE-PROJECTED iso clears every obstacle, as large as this
     search finds.
 
-    **Measured, not predicted** — ADR 0014 Amendment 3. Its first version computed the answer
+    **Measured, not predicted** — ADR 2 (was 0014 Amendment 3). Its first version computed the answer
     from a linear model: re-projection at factor *f* maps each bbox edge *e* to ``c + f*(e-c)``
     about the page centre. That is false. The projected bbox is affine in *f* but carries a
     translation term as well as the scale, so the model drifts linearly with the factor:

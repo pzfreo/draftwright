@@ -211,7 +211,7 @@ def test_structured_callout_label_does_not_waive_a_count_shortfall():
 
 
 def test_structured_bolt_circle_label_does_not_suppress_an_unrelated_boss_diameter():
-    """Renderer dedup must consume structured coverage, not BCD suffix text (ADR 0017)."""
+    """Renderer dedup must consume structured coverage, not BCD suffix text (ADR 3 (was 0017))."""
     cutter_align = (Align.CENTER, Align.CENTER, Align.MIN)
     part = Box(200, 100, 10, align=cutter_align)
     boss_solid = Pos(-60, 0, 10) * Cylinder(30, 5, align=cutter_align)

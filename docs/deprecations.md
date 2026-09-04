@@ -2,7 +2,7 @@
 
 Every deprecated surface in draftwright, what replaces it, and when it goes.
 
-ADR 0005 §4: *"Each alias carries a tracking issue and a removal target... A facade with no
+ADR 1 (was 0005 §4): *"Each alias carries a tracking issue and a removal target... A facade with no
 exit date is a failure mode, not a success."* This page is where those dates live in one
 place. `tests/test_deprecation_dates.py` fails if any `@deprecated` message or
 `DeprecationWarning` lacks a removal statement, so the rule is executable rather than a
@@ -15,7 +15,7 @@ These are **soft deprecated**: they warn, they steer you elsewhere, and they are
 away**. They raise `draftwright.SoftDeprecationWarning` (a `UserWarning` subclass), *not*
 `DeprecationWarning`, and they deliberately carry **no removal target**.
 
-That is not a violation of ADR 0005 §4's exit-date rule — it is the reason the two categories
+That is not a violation of ADR 1 (was 0005 §4)'s exit-date rule — it is the reason the two categories
 are separate. §4 governs *compat surfaces*: things kept alive only so old code keeps working,
 which rot if they never leave. These are different. They work, they are supported, and there
 is a better way to do the same thing. Writing a removal date we did not mean would be the exact
@@ -35,7 +35,7 @@ warnings.filterwarnings("ignore", category=SoftDeprecationWarning)
 
 | Surface | Prefer | Since | Why |
 |---|---|---|---|
-| `Sheet.auto_dimensions()` | `authored_dimensions()` + `dimension(feature, role)` lines | 0.4.1 (#1043) | authored is what `--script` emits, is editable text, and is the only form where omission can mean suppression (ADR 0016) |
+| `Sheet.auto_dimensions()` | `authored_dimensions()` + `dimension(feature, role)` lines | 0.4.1 (#1043) | authored is what `--script` emits, is editable text, and is the only form where omission can mean suppression (ADR 4 (was 0016)) |
 | `Sheet.add_dimension()` | a `dimension(feature, role)` line on an authored set | 0.4.1 (#1043) | it augments the automatic set, which is itself discouraged here |
 
 **Not affected:** `build_drawing(part)`'s automatic dimensioning. Point the CLI at a STEP or a
@@ -46,7 +46,7 @@ being automatic is the whole point of it.
 
 The recognition extraction keeps two import facades for one migration window. They do not warn
 at import time because importing a compatibility module must not make otherwise-correct builds
-noisy, but they are compatibility surfaces under ADR 0005 §4 and therefore have an explicit
+noisy, but they are compatibility surfaces under ADR 1 (was 0005 §4) and therefore have an explicit
 exit. The extraction epic is the tracker; private historical submodules were not retained.
 
 | Surface | Use instead | Compatibility since | Removed in |
@@ -106,7 +106,7 @@ That matters because the bare role is the **pre-existing** spelling: `dimension(
 is what scripts were written with, and `"width.length"` is the new one. So this is a hard
 break on longstanding usage with no migration release.
 
-**Decided: 0.4.0** (maintainer, 2026-08-01), as ADR 0016 already specified. The warning period
+**Decided: 0.4.0** (maintainer, 2026-08-01), as ADR 4 (was 0016) already specified. The warning period
 is skipped knowingly rather than by oversight, which makes it **a documented break**: this
 page, the 0.4.0 CHANGELOG entry, and the raise itself have to carry what the runtime cannot.
 Nothing in your own run will tell you.
@@ -136,7 +136,7 @@ in place of the thing it was supposed to measure.
 
 ### Why `place_dim` has a gate rather than a version
 
-ADR 0012 makes it the sanctioned raw page-coordinate escape hatch until the full
+ADR 4 (was 0012) makes it the sanctioned raw page-coordinate escape hatch until the full
 auto-plus-user recompose lands (#426 / #661 / #707). Until then it has no replacement for the
 cases it exists to serve, so dating it to a release would be a promise the engine cannot keep.
 A gate names the blocker instead of inventing a version — still an answer to "when", and still

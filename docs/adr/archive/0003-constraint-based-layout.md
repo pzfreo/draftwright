@@ -1,5 +1,8 @@
 # ADR 0003 — Constraint-based layout: one solver for every placeable
 
+> **Archived 2026-09-04.** Frozen history; the current decision is [ADR 2 — Sheet layout and view planning](../0002-sheet-layout-and-view-planning.md). Nothing here is a work instruction.
+
+
 - **Status:** **Retired (2026-07-19). Superseded jointly by
   [ADR 0004](0004-compose-then-pack-view-blocks.md) and
   [ADR 0014](0014-collect-then-solve-annotation-placement.md).** See the final

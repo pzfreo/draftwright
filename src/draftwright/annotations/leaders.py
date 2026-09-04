@@ -1653,7 +1653,7 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
                     # Acceptable, but it cuts the part. Keep looking a bounded distance
                     # for a route that does not, and remember this one in case none does:
                     # Policy B keeps a required callout at a logged cost rather than
-                    # dropping it for a placement reason (ADR 0014).
+                    # dropping it for a placement reason (ADR 2 (was 0014)).
                     held.append((units, candidate.raw_index, candidate, blockers))
                     if examined_since_accept is None:
                         examined_since_accept = 0

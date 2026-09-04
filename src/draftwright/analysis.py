@@ -1,4 +1,4 @@
-"""Geometry/feature analysis — build the Analysis namespace from a part (#138 / ADR 0005, P4).
+"""Geometry/feature analysis — build the Analysis namespace from a part (#138 / ADR 1 (was 0005), P4).
 
 `_analyse` imports the part (STEP or Shape), runs feature detection (holes,
 patterns, cylinders, face levels), classifies it (rotational vs prismatic),
@@ -242,7 +242,7 @@ def _will_section(model, *, is_rotational=False, cx=0.0, cy=0.0) -> bool:
 
     if model is None:
         return False
-    # An explicit Sheet.section() request (ADR 0011, #841) reserves the row even when no
+    # An explicit Sheet.section() request (ADR 4 (was 0011), #841) reserves the row even when no
     # hole gate qualifies — a blind pocket's floor/depth section has no driving Z hole.
     if getattr(model, "decorations", {}).get("section") is not None:
         return True
@@ -821,9 +821,9 @@ def _analyse(
         pmi_report = None
         pmi_records = []
 
-        # Declarations retain caller-coordinate authority and run no aggregate (ADR 0011).
+        # Declarations retain caller-coordinate authority and run no aggregate (ADR 4 (was 0011)).
         # Automatic builds make the framed/raw selection here, above every bbox, IR, planner,
-        # projection and physical-lint consumer (ADR 0020 activation).
+        # projection and physical-lint consumer (ADR 3 (was 0020) activation).
         layout_model = _coerce_layout_model(model, part, decorations)
         recognition = None
         if layout_model is None and _framed_recognition:
@@ -890,7 +890,7 @@ def _analyse(
 
         # Semantic PMI census (AP242 only; separate read-only pass). Framed extraction receives
         # the provider frame before it classifies correlation topology, preserving tight local
-        # boxes and arbitrary directions (#1401 / ADR 0020). Even off mode inventories a STEP
+        # boxes and arbitrary directions (#1401 / ADR 3 (was 0020)). Even off mode inventories a STEP
         # source so it can report ignored authored PMI; in-memory Shapes have no AP242 document.
         if not isinstance(step_file, Shape):
             from draftwright.pmi import PmiExtractionReport, extract_pmi_report
@@ -920,13 +920,13 @@ def _analyse(
 
     # Step Z-levels feed both the step-height ladder and the page-sizing step
     # count. For a vertical (Z-axis) turned part, take them from the unified
-    # turned-step model (ADR 0008 step 1): it filters shoulders by the OD
+    # turned-step model (ADR 1 (was 0008) step 1): it filters shoulders by the OD
     # silhouette, so an internal feature face — a blind bore's flat floor — is
     # never read as a phantom OD shoulder (the area-only filter in
     # recognise_face_levels admitted it). Prismatic and other parts keep the
     # general face-level scan, which recognise_turned_steps cannot replace (no
     # cylinders → no profile).
-    # ADR 0011 / ADR 0017 §6: a declared model skips detection (#1022).  The gate has to sit
+    # ADR 4 (was 0011) / ADR 3 (was 0017 §6): a declared model skips detection (#1022).  The gate has to sit
     # here, ABOVE the aggregate, which is why `_coerce_layout_model` moved up from its old
     # place below — it is pure (IR in, IR out) and reads nothing this block computes.
     _turned: TurnedProfile | None
@@ -1000,8 +1000,8 @@ def _analyse(
     pads = list(recognition.pads) if recognition else []
     # Build the IR once, up front, so page/scale selection sizes from the SAME feature
     # model the renderers use — detected and declared parts share one sizing path and no
-    # recogniser record reaches the sheet estimators (ADR 0008; #584 WP1 A). A declared
-    # model sizes from its own declaration (ADR 0011); otherwise the detected records are
+    # recogniser record reaches the sheet estimators (ADR 1 (was 0008); #584 WP1 A). A declared
+    # model sizes from its own declaration (ADR 4 (was 0011)); otherwise the detected records are
     # adapted into the IR (cheap — no re-recognition). Sizing is byte-identical to the old
     # record-based estimators EXCEPT where a pattern shares a machining spec with loose
     # holes: the IR keeps them as separate features, so the corridor sizes for the pattern's
@@ -1036,7 +1036,7 @@ def _analyse(
             channels=list(recognition.channels) if recognition else None,
             slots=slots,
             # Injected from the aggregate since #1026 — `build_part_model` detected these
-            # three itself, which is the duplicate scan ADR 0017 exists to remove. On this
+            # three itself, which is the duplicate scan ADR 3 (was 0017) exists to remove. On this
             # branch `recognition` is non-None by construction (it is the not-declared arm).
             slot_patterns=list(recognition.slot_patterns) if recognition else None,
             grooves=list(recognition.grooves) if recognition else None,
@@ -1087,7 +1087,7 @@ def _analyse(
         if authored is not None
         else sizing_model
     )
-    # ADR 0018 Phase 5.5: prove the chosen principal set can carry every approved
+    # ADR 2 (was 0018) Phase 5.5: prove the chosen principal set can carry every approved
     # dimension before scale selection or projection.  A reduced view set is therefore a
     # re-plan, not the fixed three-view plan rendered into fewer views.
     sizing_groups = plan_dimensions(sizing_model, planned_views=_views)
@@ -1152,7 +1152,7 @@ def _analyse(
         lambda scale_i: len(_legible_steps(step_zs, bb.min.Z, scale_i)[0]),
     )
     SCALE, PAGE_W, PAGE_H, TB_W = scale_pick
-    # The fourth dimension of the ADR 0018 §5 choice, carried from `choose_scale` rather than
+    # The fourth dimension of the ADR 2 (was 0018 §5) choice, carried from `choose_scale` rather than
     # re-derived here: this call sees MEASURED strip depths where selection saw estimates, so
     # re-deriving would compose the sheet under a different arrangement than the one whose
     # feasibility was actually established (#1130).
@@ -1345,7 +1345,7 @@ def _analyse(
         fv_hh=fv_hh,
         pv_hh=pv_hh,
         sv_hw=sv_hw,
-        # Strip / zone layout model — the per-view strips ADR 0009 placement reads
+        # Strip / zone layout model — the per-view strips ADR 2 (was 0009) placement reads
         fv_zones=fv_zones,
         pv_zones=pv_zones,
         sv_zones=sv_zones,
@@ -1367,7 +1367,7 @@ def _analyse(
         pmi_defaulted=pmi_defaulted,
         # The sizing model IS the render model when detection ran (identical inputs by
         # construction — #584 WP1 A); store it so the pipeline never detects twice
-        # (ADR 0008 Amdt 5, #602). A declared model (layout_model) is NOT stored: the
+        # (ADR 1 (was 0008 Amdt 5), #602). A declared model (layout_model) is NOT stored: the
         # builder coerces + decorates the caller's model itself.
         model=sizing_model if layout_model is None else None,
     )

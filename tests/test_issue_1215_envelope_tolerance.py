@@ -281,7 +281,7 @@ class TestTheGeneralisedFallbackMatchesToo:
 class TestAFitClassRendersToo:
     """#1215's third acceptance line, which I first asserted was unreachable. It is not.
 
-    `build_drawing(decorations=...)` is public (ADR 0011's public-IR input) and `_Params`
+    `build_drawing(decorations=...)` is public (ADR 4 (was 0011)'s public-IR input) and `_Params`
     forwards unknown attributes to the `Sheet`, so `not hasattr(handle, "fit")` proved only that
     `Sheet` has no `fit` verb at all — not that an envelope cannot take one (#1234 review).
 

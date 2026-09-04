@@ -1,4 +1,4 @@
-"""Property/fuzz coverage for the layout-cleanliness invariant (#301, ADR 0009 P5
+"""Property/fuzz coverage for the layout-cleanliness invariant (#301, ADR 2 (was 0009) P5
 strand 4).
 
 `TestLayoutCleanlinessInvariant` (`test_make_drawing.py`, #293) proved the

@@ -1,5 +1,5 @@
 """Unit tests for CoverageState — the lint-side coverage-signal owner
-(#138 / ADR 0005, Step 3)."""
+(#138 / ADR 1 (was 0005), Step 3)."""
 
 import pytest
 

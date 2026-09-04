@@ -1,9 +1,9 @@
 """Tests for draftwright.linting.lint_drawing — the duck-typed structural lint.
 
-Vendored from build123d_drafting's test_helpers.py (ADR 0007): the TestLintDrawing
+Vendored from build123d_drafting's test_helpers.py (ADR 3 (was 0007)): the TestLintDrawing
 / TestLintIssueCode / TestAnnotationOverlapLabelBbox / TestLintViewShapes classes.
 Page bounds are passed explicitly via page_bbox (draftwright severed the set_page
-module-global, ADR 0007); the one set_page/clear_page-based test is adapted to the
+module-global, ADR 3 (was 0007)); the one set_page/clear_page-based test is adapted to the
 omit-page-bbox default, which is the equivalent "no page context" state.
 """
 

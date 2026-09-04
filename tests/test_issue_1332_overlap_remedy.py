@@ -6,7 +6,7 @@ Keeping that stale real-part build would make main red without protecting the re
 This fast test instead states the exact geometry, proves the precondition, and runs
 in every pull request; deleting either half of the production predicate makes it fail.
 
-`lint_drawing` is duck-typed (ADR 0005), so the branch can be exercised directly
+`lint_drawing` is duck-typed (ADR 1 (was 0005)), so the branch can be exercised directly
 with stub annotations: no OCC, no fixture build, and the geometry is stated rather
 than hunted for.
 """

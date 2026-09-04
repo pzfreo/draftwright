@@ -1,4 +1,4 @@
-"""ADR 0016's boundary: a dimensional renderer draws only what the compiler approved.
+"""ADR 4 (was 0016)'s boundary: a dimensional renderer draws only what the compiler approved.
 
 The rule — *renderers may emit dimensional content only from the compiled plan* — exists
 because the previous arrangement made honouring suppression a convention each renderer had
@@ -376,7 +376,7 @@ class TestTheRendererCannotSeeContent:
                 operation()
 
     def test_identities_survive_the_compile(self):
-        """`DimensionId` is ADR 0016's stable addressable identity; a renderer-facing result
+        """`DimensionId` is ADR 4 (was 0016)'s stable addressable identity; a renderer-facing result
         that discarded it would create identity debt on the boundary meant to remove it."""
         plan = compile_dimensions(detect_part_model(_staircase()))
         for ladder in plan.ladders:
@@ -1198,7 +1198,7 @@ def test_every_approved_collection_is_addressable():
     `sheet_emit._mirrored_requests` is a serialisation of that walk. Before #946 the emitter
     assembled its answer from three sources, so a category the compiler grew rendered
     correctly and stayed invisible to scripts until someone remembered to extend it — the
-    failure mode stated in the issue, one level up from where ADR 0016 Amendment 1 fixed it
+    failure mode stated in the issue, one level up from where ADR 4 (was 0016 Amendment 1) fixed it
     for renderers.
 
     This makes the roster fail closed: add a collection of approved content and it must be

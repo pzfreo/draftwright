@@ -333,7 +333,7 @@ def test_two_features_of_one_kind_are_not_separated_by_the_cross_build_key():
 
     Tolerable only because attribution never cancels an alarm: the loss is still reported,
     with a hint that may be the wrong slot. Narrowing it needs a cross-build feature
-    correspondence the engine does not have (ADR 0016 leaves a durable `FeatureId` open).
+    correspondence the engine does not have (ADR 4 (was 0016) leaves a durable `FeatureId` open).
     """
     before = _FakeDrawing(
         {"m_slot0_width": "20"},
@@ -527,7 +527,7 @@ def test_an_annotation_can_draw_several_measurements():
     hole callout renders bore diameter, depth and counterbore as ONE annotation, each
     independently suppressible.
 
-    ADR 0016 states this outright — the provenance channel "has to become
+    ADR 4 (was 0016) states this outright — the provenance channel "has to become
     `name -> tuple[DimensionId, ...]` before per-dimension resolution is possible at all"
     (#886). Storing one id would make the audit's "exact when present" promise false for
     every other measurement the annotation carries, so the storage models it from the start
@@ -587,7 +587,7 @@ def test_a_location_dim_two_features_share_records_both_measurements():
     """The dedup path, which the single-hole canary never reached (#1002 r4).
 
     Two distinct holes at the same X collapse to ONE `m_locx0`. That dim is deliberately
-    feature-*unowned* so `drop(feature)` cannot strip a sibling's dimension (ADR 0010) — but
+    feature-*unowned* so `drop(feature)` cannot strip a sibling's dimension (ADR 5 (was 0010)) — but
     the first cut let the measurement follow the feature and recorded nothing, conflating an
     ownership rule with an identity one. A shared dim carries BOTH holes' feature-level
     location identities; directional X evidence is separate while #883 remains open.
@@ -603,7 +603,9 @@ def test_a_location_dim_two_features_share_records_both_measurements():
             Hole(5)
     dwg = build_drawing(p.part)
 
-    assert dwg.registry.feature_of("m_locx0") is None, "shared dim stays unowned (ADR 0010)"
+    assert dwg.registry.feature_of("m_locx0") is None, (
+        "shared dim stays unowned (ADR 5 (was 0010))"
+    )
     keys = dwg.measurement_keys("m_locx0")
     assert len(keys) == 2, "it measures BOTH holes' feature location, not neither"
     assert {k["parameter_id"] for k in keys} == {"location.location"}
@@ -619,7 +621,7 @@ def test_a_real_build_records_identity_for_the_machined_feature_callouts():
     simply absent from a path nothing scanned — so this reads a real build's output.
 
     Four equal chamfers and four equal fillets each collapse to one callout, so each annotation
-    genuinely draws four measurements. Those are the one-to-many relationships ADR 0016
+    genuinely draws four measurements. Those are the one-to-many relationships ADR 4 (was 0016)
     requires the channel to carry (#886), exercised end to end rather than asserted on the
     registry in isolation.
     """
@@ -738,7 +740,7 @@ def test_every_direct_placement_records_identity_or_says_why_not():
         # -- identity arrives by another route --------------------------------------
         ("from_model.py", "_reroute_crossing_diameters"): "reapplies the saved identity",
         ("sections.py", "_resolve_details"): "reapplies the saved identity",
-        # -- not a measurement (ADR 0011) -------------------------------------------
+        # -- not a measurement (ADR 4 (was 0011)) -------------------------------------------
         ("from_model.py", "_drop._retry"): "GD&T relaxed-side retry places a control frame",
         ("from_model.py", "_pmi_queue_options"): "PMI records are not compiled dimensions",
         ("from_model.py", "render_gdt"): "a control frame is not a measurement",

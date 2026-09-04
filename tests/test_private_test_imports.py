@@ -62,7 +62,7 @@ _ALLOW: frozenset[tuple[str, str]] = frozenset(
         # without hunting for such geometry, and its mutation demonstrably fails.
         ("sections", "_segments_clearing_title_block"),
         # _UNRENDERABLE_DIMENSION_KINDS / _MEASUREMENT_BASIS: the #1177 fail-closed
-        # partition, in the shape ADR 0017 phase 1 gave the recogniser manifest. The guard
+        # partition, in the shape ADR 3 (was 0017) phase 1 gave the recogniser manifest. The guard
         # asserts that EVERY member of `AUTHORED_DIMENSION_KINDS` is either known-truthful
         # or explicitly refused, so it must read the refusal set itself — a built drawing
         # can only ever show one kind at a time, which is precisely how `curve_length`,
