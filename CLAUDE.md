@@ -67,8 +67,10 @@ Compact map, bottom to top:
   `_build_profile.py` (developer-only pytest/runner profiling support),
   `evaluation/` (the versioned STEP-analysis benchmark — production code must never
   depend on benchmark expectations or scores), `recogniser_contract.py` (the
-  fail-closed cross-repository capability join), and `inspection_contract.py` (the
-  separate fail-closed declared-geometry inspection join).
+  fail-closed cross-repository capability join), `inspection_contract.py` (the
+  separate fail-closed declared-geometry inspection join), and `inspection.py`
+  (`inspect_step`: versioned read-only STEP evidence over one hashed byte snapshot and the
+  one-run detect seam — no drawing, placement, render, export, or lint path).
 - `score.py` / `recognition/` — temporary identity-preserving re-exports of
   `b123d_recognisers`; removal scheduled for 0.6.0.
 

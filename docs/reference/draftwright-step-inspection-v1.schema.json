@@ -1,0 +1,340 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://draftwright.dev/schema/draftwright-step-inspection-v1.schema.json",
+  "title": "Draftwright STEP inspection v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "status",
+    "qualifiers",
+    "producer",
+    "source",
+    "units",
+    "geometry",
+    "recognition",
+    "pmi"
+  ],
+  "properties": {
+    "schema": { "const": "draftwright-step-inspection" },
+    "schema_version": { "const": 1 },
+    "status": { "enum": ["bounded-recognition-evidence", "needs-attention"] },
+    "qualifiers": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "bounded_recognition_evidence_only",
+          "not_physical_completeness",
+          "not_manufacturing_readiness",
+          "no_inferred_material_process_finish_thread_fit_or_tolerance_intent"
+        ]
+      }
+    },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["draftwright", "b123d-recognisers"],
+      "properties": {
+        "draftwright": { "type": "string", "minLength": 1 },
+        "b123d-recognisers": { "type": "string", "minLength": 1 }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "name", "sha256", "byte_count", "artifact_id"],
+      "properties": {
+        "kind": { "const": "step" },
+        "name": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "byte_count": { "type": "integer", "minimum": 0 },
+        "artifact_id": { "type": "string", "pattern": "^step-sha256:[0-9a-f]{64}$" }
+      }
+    },
+    "units": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["length", "area", "volume", "angle"],
+      "properties": {
+        "length": { "const": "mm" },
+        "area": { "const": "mm²" },
+        "volume": { "const": "mm³" },
+        "angle": { "const": "degree" }
+      }
+    },
+    "geometry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provenance", "coverage", "coordinates", "bbox", "volume", "topology"],
+      "properties": {
+        "provenance": { "const": "step-source" },
+        "coverage": { "const": "solid-body" },
+        "coordinates": { "const": "caller" },
+        "bbox": { "$ref": "#/$defs/bbox" },
+        "volume": { "type": "number" },
+        "topology": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["solids", "shells", "faces", "wires", "edges", "vertices"],
+          "properties": {
+            "solids": { "type": "integer", "minimum": 1 },
+            "shells": { "type": "integer", "minimum": 0 },
+            "faces": { "type": "integer", "minimum": 0 },
+            "wires": { "type": "integer", "minimum": 0 },
+            "edges": { "type": "integer", "minimum": 0 },
+            "vertices": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "recognition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provenance",
+        "coverage",
+        "identity_scope",
+        "coordinates",
+        "frame",
+        "occurrences",
+        "summary",
+        "association"
+      ],
+      "properties": {
+        "provenance": { "const": "recogniser-inference" },
+        "coverage": { "const": "accepted-occurrences" },
+        "identity_scope": { "const": "document-local" },
+        "coordinates": { "const": "caller" },
+        "frame": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status"],
+          "properties": { "status": { "const": "raw" } }
+        },
+        "occurrences": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/occurrence" }
+        },
+        "summary": { "$ref": "#/$defs/summary" },
+        "association": { "$ref": "#/$defs/association" }
+      }
+    },
+    "pmi": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provenance", "coverage", "status", "error", "sources", "records", "summary"],
+      "properties": {
+        "provenance": { "const": "step-ap242-source" },
+        "coverage": { "const": "source-census-and-extracted-records" },
+        "status": { "enum": ["present", "absent", "extraction_error"] },
+        "error": { "type": ["string", "null"] },
+        "sources": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/pmi_source" }
+        },
+        "records": {
+          "type": "array",
+          "items": { "type": "object" }
+        },
+        "summary": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sources",
+            "records",
+            "extracted",
+            "partially_extracted",
+            "presentation_only",
+            "not_extracted"
+          ],
+          "properties": {
+            "sources": { "type": "integer", "minimum": 0 },
+            "records": { "type": "integer", "minimum": 0 },
+            "extracted": { "type": "integer", "minimum": 0 },
+            "partially_extracted": { "type": "integer", "minimum": 0 },
+            "presentation_only": { "type": "integer", "minimum": 0 },
+            "not_extracted": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "point": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": { "type": "number" }
+    },
+    "bbox": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["min", "max", "size"],
+      "properties": {
+        "min": { "$ref": "#/$defs/point" },
+        "max": { "$ref": "#/$defs/point" },
+        "size": { "$ref": "#/$defs/point" }
+      }
+    },
+    "face": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["surface", "area", "centroid", "bbox"],
+      "properties": {
+        "surface": { "type": "string", "minLength": 1 },
+        "area": { "type": "number", "minimum": 0 },
+        "centroid": { "$ref": "#/$defs/point" },
+        "bbox": { "$ref": "#/$defs/bbox" }
+      }
+    },
+    "owner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": { "type": "string", "minLength": 1 }
+      }
+    },
+    "occurrence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "family",
+        "record_type",
+        "record_schema_version",
+        "record",
+        "disposition",
+        "reason_code",
+        "tracking",
+        "owners",
+        "faces"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "family": { "type": "string", "minLength": 1 },
+        "record_type": { "type": "string", "minLength": 1 },
+        "record_schema_version": { "type": "integer", "minimum": 1 },
+        "record": { "type": "object" },
+        "disposition": {
+          "enum": [
+            "represented",
+            "absorbed",
+            "unsupported",
+            "deferred",
+            "evidence_only",
+            "unexpectedly_missing"
+          ]
+        },
+        "reason_code": { "type": "string", "minLength": 1 },
+        "tracking": { "type": ["string", "null"] },
+        "owners": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/owner" }
+        },
+        "faces": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["coverage", "defining", "constituent"],
+          "properties": {
+            "coverage": { "const": "defining-and-constituent" },
+            "defining": { "type": "array", "items": { "$ref": "#/$defs/face" } },
+            "constituent": { "type": "array", "items": { "$ref": "#/$defs/face" } }
+          }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "total",
+        "represented",
+        "absorbed",
+        "unsupported",
+        "deferred",
+        "evidence_only",
+        "unexpectedly_missing"
+      ],
+      "properties": {
+        "total": { "type": "integer", "minimum": 0 },
+        "represented": { "type": "integer", "minimum": 0 },
+        "absorbed": { "type": "integer", "minimum": 0 },
+        "unsupported": { "type": "integer", "minimum": 0 },
+        "deferred": { "type": "integer", "minimum": 0 },
+        "evidence_only": { "type": "integer", "minimum": 0 },
+        "unexpectedly_missing": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "measure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total", "associated", "unassociated", "ratio"],
+      "properties": {
+        "total": { "type": "number", "minimum": 0 },
+        "associated": { "type": "number", "minimum": 0 },
+        "unassociated": { "type": "number", "minimum": 0 },
+        "ratio": { "type": ["number", "null"] }
+      }
+    },
+    "association": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provenance",
+        "coverage",
+        "face_count",
+        "surface_area",
+        "families",
+        "unassociated"
+      ],
+      "properties": {
+        "provenance": { "const": "recogniser-evidence" },
+        "coverage": { "const": "accepted-constituent-evidence" },
+        "face_count": { "$ref": "#/$defs/measure" },
+        "surface_area": { "$ref": "#/$defs/measure" },
+        "families": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["family", "face_count", "surface_area"],
+            "properties": {
+              "family": { "type": "string", "minLength": 1 },
+              "face_count": { "type": "integer", "minimum": 0 },
+              "surface_area": { "type": "number", "minimum": 0 }
+            }
+          }
+        },
+        "unassociated": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["qualifier", "faces"],
+          "properties": {
+            "qualifier": { "const": "not_evidence_of_missed_feature" },
+            "faces": { "type": "array", "items": { "$ref": "#/$defs/face" } }
+          }
+        }
+      }
+    },
+    "pmi_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_id", "category", "type_code", "outcome", "reason"],
+      "properties": {
+        "source_id": { "type": "string" },
+        "category": {
+          "enum": ["dimension", "geometric_tolerance", "datum", "manufacturing_requirement"]
+        },
+        "type_code": { "type": ["integer", "null"] },
+        "outcome": {
+          "enum": ["extracted", "partially_extracted", "presentation_only", "not_extracted"]
+        },
+        "reason": { "type": "string" }
+      }
+    }
+  }
+}
