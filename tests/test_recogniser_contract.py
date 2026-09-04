@@ -40,6 +40,7 @@ from b123d_recognisers import (
     recognise_circular_blind_steps,
     recognise_countersinks,
     recognise_double_d_bores,
+    recognise_edge_open_circular_pockets,
     recognise_face_levels,
     recognise_fillets,
     recognise_flats,
@@ -83,6 +84,7 @@ from build123d import (
     RadiusArc,
     RegularPolygon,
     Rot,
+    SlotOverall,
     Vector,
     chamfer,
     extrude,
@@ -188,6 +190,18 @@ def _round_bottom_blind_slot_part():
     stock = Pos(0, -5, 0) * Box(30, 10, 40)
     tool = extrude(sketch.sketch, amount=length, dir=Vector(0, 0, 1))
     return stock - tool
+
+
+def _edge_open_circular_pocket_part():
+    with BuildPart() as stock_builder:
+        with BuildSketch(Plane.XY):
+            Polygon((-30, -20), (30, -20), (30, 10), (20, 20), (-30, 20))
+        extrude(amount=12)
+    with BuildPart() as cutter_builder:
+        with BuildSketch(Plane.XY.offset(4)):
+            SlotOverall(30, 10)
+        extrude(amount=10)
+    return stock_builder.part - Pos(16, 10, 0) * cutter_builder.part
 
 
 def _bolt_circle_plate(n=6, r=30):
@@ -340,6 +354,10 @@ def _records_from_recognisers():
         (
             "recognise_round_bottom_blind_slots",
             recognise_round_bottom_blind_slots(_round_bottom_blind_slot_part()),
+        ),
+        (
+            "recognise_edge_open_circular_pockets",
+            recognise_edge_open_circular_pockets(_edge_open_circular_pocket_part()),
         ),
         ("recognise_pockets", recognise_pockets(pocketed)),
         (

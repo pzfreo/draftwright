@@ -997,6 +997,52 @@ class PocketFeature:
 
 
 @dataclass(frozen=True)
+class OpenCircularPocketSegment:
+    """One physical line or circular arc in an interrupted recess profile."""
+
+    kind: str
+    start: tuple[float, float]
+    end: tuple[float, float]
+    center: tuple[float, float] | None = None
+    radius: float | None = None
+    sweep: float | None = None
+
+
+@dataclass(frozen=True)
+class EdgeOpenCircularPocketFeature:
+    """A detected blind circular-ended recess with one physically interrupted end.
+
+    The profile is deliberately open. Nothing downstream may join ``opening`` or infer an
+    overall obround length from the surviving arc/line chain.
+    """
+
+    frame: Frame
+    axis: str
+    open_sign: int
+    run_interval: tuple[float, float]
+    segments: tuple[OpenCircularPocketSegment, ...]
+    opening: tuple[tuple[float, float], tuple[float, float]]
+    kind: ClassVar[str] = "edge_open_circular_pocket"
+
+    @property
+    def depth(self) -> float:
+        return self.run_interval[1] - self.run_interval[0]
+
+    @property
+    def radius(self) -> float:
+        return next(segment.radius for segment in self.segments if segment.radius is not None)
+
+    def parameters(self) -> list[DimParameter]:
+        return [
+            DimParameter("radius", "edge_open_circular_pocket_radius", self.radius),
+            DimParameter("length", "edge_open_circular_pocket_depth", self.depth),
+        ]
+
+    def references(self) -> list[Datum]:
+        return []
+
+
+@dataclass(frozen=True)
 class ChannelFeature:
     """A floored rectangular channel open through both longitudinal ends.
 

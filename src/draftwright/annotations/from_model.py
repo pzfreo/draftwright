@@ -2574,6 +2574,71 @@ def render_circular_blind_steps(dwg, plan, a, *, ctx, only=None) -> int:
     )
 
 
+def render_edge_open_circular_pockets(dwg, plan, a, *, ctx, only=None) -> int:
+    """Render the proved radius and stopped depth without implying a closed footprint."""
+
+    draft = dwg.draft
+    reach = _leader_callout_reach(draft)
+    jobs = []
+    for index, group in enumerate(plan.of_kind("edge_open_circular_pocket")):
+        if only is not None and group.ref not in only:
+            continue
+        radius = next(
+            (
+                dim
+                for dim in group.dims
+                if (dim.role, dim.kind) == ("edge_open_circular_pocket_radius", "radius")
+            ),
+            None,
+        )
+        depth = next(
+            (
+                dim
+                for dim in group.dims
+                if (dim.role, dim.kind) == ("edge_open_circular_pocket_depth", "length")
+            ),
+            None,
+        )
+        if radius is None and depth is None:
+            continue
+        view = group.view
+        bounds = dwg.view_bounds(view) if view is not None else None
+        if view is None or bounds is None:
+            continue
+        parts = ["OPEN"]
+        if radius is not None:
+            parts.append(f"R{radius.value_text}{_tol_suffix(radius.tolerance, draft)}")
+        if depth is not None:
+            parts.append(f"{depth.value_text}{_tol_suffix(depth.tolerance, draft)} DEEP")
+        label = " × ".join(parts)
+        jobs.append(
+            (
+                f"m_edge_open_circular_pocket_{group.facts.axis}{index}",
+                view,
+                bounds,
+                label,
+                _radial_candidates(
+                    dwg,
+                    view,
+                    bounds,
+                    group.facts,
+                    reach,
+                    provenance=group.ref,
+                ),
+                tuple(dim.id for dim in (radius, depth) if dim is not None),
+            )
+        )
+    return place_machined_leader_jobs(
+        dwg,
+        a,
+        jobs,
+        noun="edge-open circular pocket",
+        drop_code="edge_open_circular_pocket_dropped",
+        ctx=ctx,
+        joint=True,
+    )
+
+
 def render_through_steps(dwg, plan, a, *, ctx, only=None) -> int:
     """Render both defining legs of each rectangular through step (#1382).
 

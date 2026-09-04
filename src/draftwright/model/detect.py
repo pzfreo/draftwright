@@ -18,7 +18,7 @@ from collections import Counter
 from collections.abc import Callable
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
-from math import isfinite, ulp
+from math import atan2, cos, isfinite, pi, sin, ulp
 from numbers import Real
 from typing import Any, Literal
 
@@ -32,6 +32,7 @@ from b123d_recognisers import (
     CircularBlindStep,
     CounterSink,
     DoubleDBore,
+    EdgeOpenCircularPocket,
     FaceLevel,
     Fillet,
     Flat,
@@ -111,6 +112,7 @@ from draftwright.model.ir import (
     ControlFrame,
     Datum,
     DatumRef,
+    EdgeOpenCircularPocketFeature,
     Feature,
     FilletFeature,
     FlatFeature,
@@ -118,6 +120,7 @@ from draftwright.model.ir import (
     GrooveFeature,
     HoleFeature,
     LevelSupport,
+    OpenCircularPocketSegment,
     PadFeature,
     PairedRampStepFeature,
     PartModel,
@@ -627,6 +630,52 @@ def _convert_pocket(pk: Pocket, ctx: ConvContext) -> PocketFeature:
     return _member_pocket(pk)
 
 
+def _convert_edge_open_circular_pocket(
+    pocket: EdgeOpenCircularPocket, ctx: ConvContext
+) -> EdgeOpenCircularPocketFeature:
+    """Lower the truthful open profile without reconstructing a closed Pocket envelope."""
+
+    section_axes = tuple(axis for axis in "xyz" if axis != pocket.axis)
+    intact = next(
+        segment
+        for segment in pocket.section.segments
+        if segment.kind == "arc"
+        and segment.sweep is not None
+        and abs(abs(segment.sweep) - pi) < 1e-5
+    )
+    assert intact.center is not None and intact.radius is not None and intact.sweep is not None
+    start_angle = atan2(intact.start[1] - intact.center[1], intact.start[0] - intact.center[0])
+    mid_angle = start_angle + intact.sweep / 2
+    arc_midpoint = (
+        intact.center[0] + intact.radius * cos(mid_angle),
+        intact.center[1] + intact.radius * sin(mid_angle),
+    )
+    centre = {
+        pocket.axis: (pocket.run_interval[0] + pocket.run_interval[1]) / 2,
+        section_axes[0]: arc_midpoint[0],
+        section_axes[1]: arc_midpoint[1],
+    }
+    segments = tuple(
+        OpenCircularPocketSegment(
+            segment.kind,
+            segment.start,
+            segment.end,
+            segment.center,
+            segment.radius,
+            segment.sweep,
+        )
+        for segment in pocket.section.segments
+    )
+    return EdgeOpenCircularPocketFeature(
+        frame=Frame((centre["x"], centre["y"], centre["z"]), pocket.axis),
+        axis=pocket.axis,
+        open_sign=pocket.open_sign,
+        run_interval=pocket.run_interval,
+        segments=segments,
+        opening=pocket.section.opening,
+    )
+
+
 def _convert_channel(channel: Channel, ctx: ConvContext) -> ChannelFeature:
     c = channel.location
     return ChannelFeature(
@@ -1074,6 +1123,7 @@ _CONVERTERS: dict[type, Converter] = {
     Channel: _convert_channel,
     Slot: _convert_slot,
     Pocket: _convert_pocket,
+    EdgeOpenCircularPocket: _convert_edge_open_circular_pocket,
     RaisedPad: _convert_pad,
     TurnedStep: _convert_step,
     BossRecord: _convert_boss,
@@ -1483,6 +1533,7 @@ def build_part_model(
     grooves=None,
     flats=None,
     pockets=None,
+    edge_open_circular_pockets=None,
     pocket_patterns=None,
     rectangular_blind_slots=None,
     round_bottom_blind_slots=None,
@@ -1565,6 +1616,7 @@ def build_part_model(
                 grooves,
                 flats,
                 pockets,
+                edge_open_circular_pockets,
                 pocket_patterns,
                 rectangular_blind_slots,
                 round_bottom_blind_slots,
@@ -1755,6 +1807,11 @@ def build_part_model(
         grooves = recognition.grooves if grooves is None else grooves
         flats = recognition.flats if flats is None else flats
         pockets = recognition.pockets if pockets is None else pockets
+        edge_open_circular_pockets = (
+            recognition.edge_open_circular_pockets
+            if edge_open_circular_pockets is None
+            else edge_open_circular_pockets
+        )
         pocket_patterns = (
             recognition.pocket_patterns if pocket_patterns is None else pocket_patterns
         )
@@ -2143,6 +2200,11 @@ def build_part_model(
     # slots, pockets, channels and passages must not regain ownership downstream.
     for blind_slot in round_bottom_blind_slots:
         append_direct(blind_slot)
+
+    # The provider proves an open curved profile, not a closed Pocket envelope. Preserve that
+    # semantic distinction through its dedicated adapter and renderer.
+    for open_pocket in edge_open_circular_pockets:
+        append_direct(open_pocket)
 
     # Blind rectangular recesses — floored slots/pockets (#148a). A recognised array of
     # identical pockets becomes ONE PocketPatternFeature (count× W×L×D + pitch, #841); its

@@ -74,6 +74,16 @@ _FAMILIES: dict[str, _FamilySpec] = {
     "double-d-bores": _FamilySpec(
         ("DoubleDBore",), "_convert_double_d_bore", "double_d_bore", "_annotate_holes"
     ),
+    "edge-open-circular-pockets": _FamilySpec(
+        (
+            "EdgeOpenCircularPocket",
+            "OpenCircularSection",
+            "OpenCircularSectionSegment",
+        ),
+        "_convert_edge_open_circular_pocket",
+        "",
+        "render_edge_open_circular_pockets",
+    ),
     "face-levels": _FamilySpec(
         ("FaceLevel",), "build_part_model", "step_level", "render_height_ladder"
     ),
@@ -164,6 +174,7 @@ _COMPLETENESS_TRACKING = {
     "channels": 1371,
     "countersinks": 1370,
     "double-d-bores": 1370,
+    "edge-open-circular-pockets": 1457,
     "face-levels": 1373,
     "fillets": 1374,
     "flats": 1371,
@@ -312,7 +323,7 @@ def _family_declaration(family_id: str, spec: _FamilySpec) -> dict[str, Any]:
         )
     else:
         completeness = _deferred_completeness(family_id)
-    return {
+    declaration = {
         "id": family_id,
         "record_schemas": _record_schema_versions(family_id, spec.records),
         "disposition": "supported",
@@ -343,6 +354,19 @@ def _family_declaration(family_id: str, spec: _FamilySpec) -> dict[str, Any]:
             ],
         },
     }
+    if family_id == "edge-open-circular-pockets":
+        declaration["dsl_declaration"] = {
+            "state": "not-applicable",
+            "rationale": (
+                "The first slice consumes detected geometry only; no authored operation needs "
+                "to reconstruct an interrupted historical profile."
+            ),
+        }
+        declaration["generated_code"] = {
+            "state": "not-applicable",
+            "rationale": "No authored declaration exists to emit in the detected-only slice.",
+        }
+    return declaration
 
 
 def _geometry_only_declaration() -> dict[str, Any]:

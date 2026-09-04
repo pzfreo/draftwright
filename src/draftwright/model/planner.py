@@ -35,6 +35,7 @@ from draftwright.model.ir import (
     ChannelFeature,
     Datum,
     DimParameter,
+    EdgeOpenCircularPocketFeature,
     Feature,
     FilletFeature,
     FlatFeature,
@@ -379,6 +380,8 @@ def _preferred_group_view(feature: Feature) -> str:
         return _END_ON[_plane_normal(feature)]
     if isinstance(feature, PocketFeature):
         return _END_ON[feature.depth_axis]
+    if isinstance(feature, EdgeOpenCircularPocketFeature):
+        return _END_ON[feature.axis]
     if isinstance(feature, RectangularBlindSlotFeature):
         return _END_ON[feature.depth_axis]
     if isinstance(feature, RoundBottomBlindSlotFeature):
@@ -1250,6 +1253,8 @@ def _parameter_view_preferences(feature: Feature, pd: PlannedDimension) -> tuple
         return (_END_ON[_plane_normal(feature)],)
     if isinstance(feature, PocketFeature):
         return (_END_ON[feature.depth_axis],)
+    if isinstance(feature, EdgeOpenCircularPocketFeature):
+        return (_END_ON[feature.axis],)
     if isinstance(feature, RectangularBlindSlotFeature):
         return (_END_ON[feature.depth_axis],)
     if isinstance(feature, RoundBottomBlindSlotFeature):
