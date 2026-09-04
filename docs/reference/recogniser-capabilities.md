@@ -553,9 +553,30 @@ with exact full-record correspondence and parameter/outcome provenance under the
 rules as the rectangular family. It now participates independently in `audited_score`; ordinary
 slots, pockets, channels and rectangular blind slots do not share ownership.
 
-## Recognisers 0.4.12 adoption and additive-family boundary
+## Recognisers 0.4.14 adoption and path-complete Blends
 
-Draftwright exactly pins `b123d-recognisers==0.4.12`, including the immutable 0.4.11 `Blend`
+Draftwright exactly pins `b123d-recognisers==0.4.14`; the provider family count remains 33 and
+the inspection API remains format 1 / major 1. The fail-closed record join now accepts `Blend`
+schema v3 with nested `StraightBlendPath` and `CircularBlendPath` schema-v1 records. It also
+accepts `PassageEnds`, `PassageSection`, and `SectionPassage` schema v2. Passage remains explicitly
+unsupported under #1245: accepting its released structural schema does not invent an IR feature,
+Sheet declaration, or completeness credit.
+
+The supported Blend adapter preserves the complete discriminated path. Straight occurrences keep
+their canonical line direction and anchor; circular occurrences keep their centre, canonical
+normal, and major path radius; both keep rolling-ball radius and proved convex/concave material
+side. `BlendFeature`, `Sheet.blend(...)`, generated replay, report projection, renderer, and
+completeness all carry those facts. The provider aggregate remains the only Fillet/Blend precedence
+authority, and Draftwright does not rescan or reinterpret detached faces. Circular leaders combine
+the two radii with analysis-owned coaxial cylinder candidates, then use exact same-run
+occurrence/IR ownership and the provider-issued defining face to select the physical surface
+tangency instead of the rolling path or its centre. A declaration without that face authority
+refuses competing support radii rather than choosing another body's cylinder; the shared placement
+solve still owns the page position.
+
+## Historical 0.4.12 adoption and additive-family boundary
+
+Draftwright initially pinned `b123d-recognisers==0.4.12`, including the immutable 0.4.11 `Blend`
 addition and the 0.4.12 `OrientedSlot`, `OrientedSlotArray`, and `OrientedSlotGrid` records. The
 provider capability manifest therefore contains 33 families. Every family and public record has an
 explicit consumer declaration and registry home; the inspection API remains format 1 / major 1.
@@ -582,14 +603,15 @@ requirements, one solver-owned compound leader, and the established completeness
 raw and provider-framed contract suites continue to guard the ADR 0020 boundary. Draftwright uses no
 provider-private geometry or sibling checkout for any of these claims.
 
-#1438 now consumes the release's public raw `b123d_recognisers.evidence` acquisition. One
+#1438 first consumed the release's public raw `b123d_recognisers.evidence` acquisition. One
 `RecognitionEvidence` owns the accepted physical occurrence/face references and projects the same
 `RecognitionResult` the existing compiler and lint consumers already read. Draftwright retains
 both in its per-drawing `RecognitionCache`, including across scale/view retries; declared builds
 remain recognition-free until physical critique, and a bare result is never rescanned merely to
-backfill evidence. The framed route remains evidence-less pending upstream
-[`b123d-recognisers#463`](https://github.com/pzfreo/b123d-recognisers/issues/463). This foundation
-does not yet claim a report disposition or change any rendered artefact.
+backfill evidence. Recognisers 0.4.14 publishes the framed-evidence contract requested by
+[`b123d-recognisers#463`](https://github.com/pzfreo/b123d-recognisers/issues/463), but Draftwright's
+framed route remains evidence-less until the independent #1438 consumer slice adopts it; it does
+not infer cross-frame occurrence identity in the interim.
 
 Round-boss ownership is now explicit at that same run-local boundary. Each accepted `BossRecord`
 retains the exact consumer-selected final owner: its singleton `BossFeature`, the one existing
@@ -673,12 +695,12 @@ profile warning only for that occurrence, so an unrelated unrecognised profile r
 
 ## Passage compatibility boundary
 
-The installed `b123d-recognisers==0.4.8` release contains the `passages` family introduced
-in 0.2.6. Version 0.4.0 makes `SectionPassage` the authoritative physical output and retains
-schema-v1 `Passage` as its compatibility projection. Draftwright declares all six public and nested
-record schemas exhaustively but deliberately keeps the family `unsupported`, with the drafting
-decision recorded by issue #1245. This is a truthful consumer disposition: both aggregate
-inventories remain visible, but only authoritative `section_passages` contributes an explicitly
+The installed `b123d-recognisers==0.4.14` release contains the `passages` family introduced
+in 0.2.6. Version 0.4.0 made `SectionPassage` the authoritative physical output; 0.4.14 publishes
+its nested schema v2 and retains `Passage` as a compatibility projection. Draftwright declares all
+six public and nested record schemas exhaustively but deliberately keeps the family `unsupported`,
+with the drafting decision recorded by issue #1245. This is a truthful consumer disposition: both
+aggregate inventories remain visible, but only authoritative `section_passages` contributes an explicitly
 `unsupported` completeness requirement. Draftwright does not invent an IR feature, DSL
 declaration, generated code, or drawing annotation for either inventory.
 
@@ -691,7 +713,7 @@ The 0.4 contract is explicit:
 - rich split-junction passages can supersede a Slot claim, moving physical ownership to the
   unsupported Passage family through `SLOT_SUPERSEDED_BY_PASSAGE`.
 
-The exact 0.4.8 pin, manifest-v2 validator and explicit unsupported inventories make that limitation
+The exact 0.4.14 pin, manifest-v2 validator and explicit unsupported inventories make that limitation
 fail-visible rather than silently treating rich passages as supported. Draftwright deliberately
 does not claim that a regular-polygon `HEX … A/F THRU` callout covers the complete line/arc section
 schema. Each authoritative `RecognitionResult.section_passages` occurrence therefore emits

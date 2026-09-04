@@ -767,11 +767,16 @@ def _feature_line(
             f"lo={lo}, hi={hi}, w_center={_n(f.w_center)}, at={_pt(f.frame.origin)})"
         )
     if k == "blend":
+        path = (
+            ""
+            if f.path_kind == "straight"
+            else f", path_kind='circular', path_radius={_authored_n(f.path_radius)}"
+        )
         return (
             "sheet.blend("
             f"axis={f.axis!r}, radius={_authored_n(f.radius)}, "
             f"at={_authored_pt(f.frame.origin)}, side={f.side!r}, "
-            f"axis_direction={_authored_pt(f.axis_direction)})"
+            f"axis_direction={_authored_pt(f.axis_direction)}{path})"
         )
     if k == "rectangular_blind_slot":
         return (
@@ -1093,7 +1098,7 @@ def _short_label(f) -> str:
     if k == "fillet":
         return f"R{_n(f.radius)}"
     if k == "blend":
-        return f"R{_n(f.radius)} convex blend"
+        return f"R{_n(f.radius)} {f.side} {f.path_kind} blend"
     if k == "flat":
         return f"{_n(f.across)} A/F flat"
     if k == "groove":

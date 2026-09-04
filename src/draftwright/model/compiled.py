@@ -137,6 +137,59 @@ class FeatureRef:
         return f"FeatureRef({self.kind})"
 
 
+class FeatureInstanceIndex:
+    """Values keyed by the exact IR instance behind an opaque :class:`FeatureRef`.
+
+    This is the narrow bridge for same-run physical authority that structural ``FeatureRef``
+    equality cannot carry. Values are accumulated linearly and exposed only as frozen tuples;
+    neither the underlying feature nor its process address leaves the index.
+    """
+
+    __slots__ = ("__values",)
+
+    def __init__(self) -> None:
+        self.__values: dict[int, tuple[Feature, list[object]]] = {}
+
+    def extend(self, feature: Feature, values) -> None:
+        """Associate *values* with the exact live *feature* instance."""
+
+        key = id(feature)
+        entry = self.__values.get(key)
+        if entry is None:
+            self.__values[key] = (feature, list(values))
+        elif entry[0] is feature:
+            entry[1].extend(values)
+        else:  # pragma: no cover - the existing strong reference prevents live id reuse
+            raise RuntimeError("live feature identity collision")
+
+    def values_for(self, ref: FeatureRef) -> tuple[object, ...]:
+        """Return values for the exact instance behind *ref*, never an equal-valued peer."""
+
+        if not isinstance(ref, FeatureRef):
+            raise TypeError("FeatureInstanceIndex requires an exact FeatureRef")
+        feature = ref._feature
+        entry = self.__values.get(id(feature))
+        return tuple(entry[1]) if entry is not None and entry[0] is feature else ()
+
+    def __len__(self) -> int:
+        return len(self.__values)
+
+    def __copy__(self):
+        raise TypeError("FeatureInstanceIndex is run-local and cannot be copied or serialized")
+
+    def __deepcopy__(self, _memo):
+        raise TypeError("FeatureInstanceIndex is run-local and cannot be copied or serialized")
+
+    def __reduce_ex__(self, _protocol):
+        raise TypeError("FeatureInstanceIndex is run-local and cannot be copied or serialized")
+
+    def __reduce__(self):
+        raise TypeError("FeatureInstanceIndex is run-local and cannot be copied or serialized")
+
+    def __getstate__(self):
+        raise TypeError("FeatureInstanceIndex is run-local and cannot expose serialized state")
+
+
 def resolve_feature(ref):
     """The `Feature` behind a :class:`FeatureRef` — for provenance and escalation ONLY.
 
@@ -304,7 +357,7 @@ _FACTS: dict[str, tuple[str, ...]] = {
     "fillet": ("frame", "axis", "turned"),
     # Full free-axis direction is structural identity and survives to the renderer/replay.
     # Radius remains an approved dimension and cannot leak through these facts.
-    "blend": ("frame", "axis", "side", "axis_direction"),
+    "blend": ("frame", "axis", "side", "axis_direction", "path_kind", "path_radius"),
     # The frame origin is the physical curved-wall arrow anchor. Radius and depth remain
     # approved dimensions, so neither can be reconstructed when authored intent omits it.
     "circular_blind_step": ("frame", "axis"),

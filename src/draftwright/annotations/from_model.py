@@ -107,7 +107,12 @@ from draftwright.layout import StripCandidate, plan_strip
 from draftwright.model.callout import _first as _first
 from draftwright.model.callout import hole_callout_spec as hole_callout_spec
 from draftwright.model.callout import hole_callout_suffix as hole_callout_suffix
-from draftwright.model.compiled import DimensionId, FeatureRef, resolve_feature
+from draftwright.model.compiled import (
+    DimensionId,
+    FeatureInstanceIndex,
+    FeatureRef,
+    resolve_feature,
+)
 from draftwright.model.ir import (
     AUTHORED_DIMENSION_KINDS,
     ChamferFeature,
@@ -1959,17 +1964,20 @@ def _leader_callout_reach(draft) -> float:
     return float(draft.font_size + 6 * draft.pad_around_text)
 
 
-def _corner_candidates(dwg, view, vb, members, reach, *, provenances=None, cylinders=None):
+def _corner_candidates(
+    dwg, view, vb, members, reach, *, provenances=None, cylinders=None, sites=None
+):
     """Lead candidates for a corner-sitting feature (chamfer/fillet/flat): from each member's
-    projected origin, a diagonal from the view centre out through the corner, *reach* beyond
-    the tip — a corner clears the silhouette this way. Yields ``(tip, elbow, member)`` in the
-    given member order, which is the stable tie-break after #740's cardinality/length solve;
-    a single-feature callout passes a one-element *members*."""
+    projected origin (or supplied semantic surface site), a diagonal from the view centre out
+    through the corner, *reach* beyond the tip — a corner clears the silhouette this way. Yields
+    ``(tip, elbow, member)`` in the given member order, which is the stable tie-break after #740's
+    cardinality/length solve; a single-feature callout passes a one-element *members*."""
     x0, y0, x1, y1 = vb
     cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
-    owners = provenances if provenances is not None else members
-    for m, owner in zip(members, owners):
-        site = m.frame.origin
+    members = list(members)
+    owners = list(provenances if provenances is not None else members)
+    candidate_sites = list(sites if sites is not None else (m.frame.origin for m in members))
+    for m, owner, site in zip(members, owners, candidate_sites, strict=True):
         if cylinders is not None and getattr(m, "turned", False):
             site = _turned_profile_site(site, m.axis, view, cylinders)
         tip = dwg.at(view, *site)
@@ -1979,7 +1987,9 @@ def _corner_candidates(dwg, view, vb, members, reach, *, provenances=None, cylin
         yield (tip, elbow, owner)
 
 
-def _corner_escape_candidates(dwg, view, vb, members, reach, *, provenances=None, cylinders=None):
+def _corner_escape_candidates(
+    dwg, view, vb, members, reach, *, provenances=None, cylinders=None, sites=None
+):
     """Corner leaders plus silhouette-outward horizontal/vertical escapes.
 
     The diagonal remains the stable first choice.  The two axis-aligned rays
@@ -1989,13 +1999,20 @@ def _corner_escape_candidates(dwg, view, vb, members, reach, *, provenances=None
 
     members = list(members)
     owners = list(provenances if provenances is not None else members)
+    candidate_sites = list(sites if sites is not None else (m.frame.origin for m in members))
     yield from _corner_candidates(
-        dwg, view, vb, members, reach, provenances=owners, cylinders=cylinders
+        dwg,
+        view,
+        vb,
+        members,
+        reach,
+        provenances=owners,
+        cylinders=cylinders,
+        sites=candidate_sites,
     )
     x0, y0, x1, y1 = vb
     cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
-    for member, owner in zip(members, owners, strict=True):
-        site = member.frame.origin
+    for member, owner, site in zip(members, owners, candidate_sites, strict=True):
         if cylinders is not None and getattr(member, "turned", False):
             site = _turned_profile_site(site, member.axis, view, cylinders)
         tip = dwg.at(view, *site)
@@ -2019,6 +2036,129 @@ def _corner_escape_candidates(dwg, view, vb, members, reach, *, provenances=None
                 ),
                 owner,
             )
+
+
+_BLEND_POINT_TOL = 2e-3
+_BLEND_DIRECTION_TOL = 2e-6
+
+
+def _blend_faces_by_ref(analysis):
+    """Index exact run-local Blend faces by the compiler's opaque provenance handle.
+
+    ``RecognitionOwnership`` is the only lawful accepted-occurrence -> IR join. Add its exact
+    owner to ``FeatureInstanceIndex`` and query that index with the opaque ``FeatureRef`` already
+    carried by each approved dimension. Structural ``FeatureRef`` equality deliberately merges
+    equal-valued marks, so it is not physical occurrence authority. Dimensional renderers still
+    never resolve that handle back to model content.
+    """
+    evidence = analysis.recognition_evidence
+    ownership = analysis.recognition_ownership
+    if evidence is None or ownership is None or ownership.evidence is not evidence:
+        return None
+    indexed = FeatureInstanceIndex()
+    for binding in ownership.bindings:
+        if evidence.family(binding.occurrence) != "blends":
+            continue
+        faces = tuple(evidence.face(ref) for ref in evidence.defining_faces(binding.occurrence))
+        for feature in binding.features:
+            indexed.extend(feature, faces)
+    return indexed
+
+
+def _blend_surface_site(
+    blend,
+    cylinders,
+    rolling_radius: float,
+    *,
+    defining_faces=None,
+) -> tuple[float, float, float] | None:
+    """Return a deterministic natural leader site on a circular Blend surface.
+
+    A circular path stores the rolling-ball centre trajectory, not a surface point. Its proved
+    supports include one coaxial finite cylinder whose radius differs from the path radius by
+    the rolling radius. Reuse the analysis-owned cylinder inventory to find candidate tangencies,
+    then use the accepted occurrence's exact defining face to select the physical one. A declared
+    build has no occurrence authority: one unambiguous support remains usable, but competing
+    support radii refuse placement rather than borrowing another body's cylinder. A declaration
+    without a matching support retains the outer analytic fallback; completeness independently
+    exposes any source mismatch. These are part-space facts, not page coordinates: the shared
+    solve still owns placement.
+    """
+    if blend.path_kind != "circular":
+        origin: tuple[float, float, float] = blend.frame.origin
+        return origin
+    origin = blend.frame.origin
+    normal: tuple[float, float, float] = blend.axis_direction
+    seed_index = min(range(3), key=lambda index: (abs(normal[index]), index))
+    seed = tuple(1.0 if index == seed_index else 0.0 for index in range(3))
+    radial = (
+        normal[1] * seed[2] - normal[2] * seed[1],
+        normal[2] * seed[0] - normal[0] * seed[2],
+        normal[0] * seed[1] - normal[1] * seed[0],
+    )
+    length = math.hypot(*radial)
+    unit = tuple(component / length for component in radial)
+    path_radius: float | None = blend.path_radius
+    assert path_radius is not None  # validated by BlendFeature
+    outer_radius = path_radius + rolling_radius
+    inner_radius = path_radius - rolling_radius
+    matches = []
+    for family in cylinders:
+        for cylinder in family:
+            direction = cylinder["dir_xyz"]
+            alignment = abs(sum(normal[index] * direction[index] for index in range(3)))
+            # Blend points/radii are released at 0.001 and directions at 0.000001. These
+            # bounds cover their worst coordinate/vector round-trip without admitting a
+            # materially different support.
+            if abs(alignment - 1.0) > _BLEND_DIRECTION_TOL:
+                continue
+            axis_point = cylinder["axis_xyz"]
+            delta = tuple(origin[index] - axis_point[index] for index in range(3))
+            cross = (
+                delta[1] * direction[2] - delta[2] * direction[1],
+                delta[2] * direction[0] - delta[0] * direction[2],
+                delta[0] * direction[1] - delta[1] * direction[0],
+            )
+            if math.hypot(*cross) > _BLEND_POINT_TOL:
+                continue
+            radius = cylinder["diameter"] / 2.0
+            radius_error = abs(abs(radius - path_radius) - rolling_radius)
+            along = sum(origin[index] * direction[index] for index in range(3))
+            end_error = min(abs(along - cylinder["s_lo"]), abs(along - cylinder["s_hi"]))
+            if radius_error <= _BLEND_POINT_TOL and end_error <= _BLEND_POINT_TOL:
+                matches.append((radius_error, end_error, radius))
+
+    def site(radius: float) -> tuple[float, float, float]:
+        return (
+            origin[0] + radius * unit[0],
+            origin[1] + radius * unit[1],
+            origin[2] + radius * unit[2],
+        )
+
+    if defining_faces is not None:
+        # Automatic recognition has an exact face authority. If its ownership or surface is
+        # absent, fail closed; scalar cylinders must not silently replace missing evidence.
+        if not defining_faces:
+            return None
+        radii = sorted(
+            {
+                *(candidate[2] for candidate in matches),
+                *(radius for radius in (inner_radius, outer_radius) if radius >= 0.0),
+            }
+        )
+        candidates = [
+            (min(float(face.distance_to(site(radius))) for face in defining_faces), radius)
+            for radius in radii
+        ]
+        distance, surface_radius = min(candidates)
+        return site(surface_radius) if distance <= _BLEND_POINT_TOL else None
+
+    if matches:
+        support_radii = sorted(candidate[2] for candidate in matches)
+        if support_radii[-1] - support_radii[0] > _BLEND_POINT_TOL:
+            return None
+        return site(min(matches)[2])
+    return site(outer_radius)
 
 
 def _flat_candidates(dwg, view, vb, members, reach, *, provenances):
@@ -2417,6 +2557,7 @@ def _render_radius_callouts(
     """Shared solver path for one-radius rounded-feature families."""
     draft = dwg.draft
     reach = _leader_callout_reach(draft)
+    blend_faces = _blend_faces_by_ref(a) if kind == "blend" else None
     collapse: dict = {}
     for g in plan.of_kind(kind):
         pd = next(
@@ -2442,29 +2583,56 @@ def _render_radius_callouts(
             members = [gp for gp in members if gp[0].ref in only]
             if not members:
                 continue
+        tol = _collapsed_tolerance(members, ctx=ctx, noun=noun)
+        callout_label = _fillet_label(members[0][1].value_text, len(members)) + _tol_suffix(
+            tol, draft
+        )
         # Point the leader at one coherent visible set. Members on other edge axes/views still
         # contribute to the printed count and semantic measurements, but mixing their 3-D
-        # origins into this view could point at unrelated projected corners. Prefer the
-        # axis/view pair with the most members; ties are deterministic.
+        # origins into this view could point at unrelated projected corners. An ineligible Blend
+        # surface is one lost alternative, not grounds to discard safe siblings before ADR 0014's
+        # shared solve. Prefer the most populous remaining axis/view pair; ties are deterministic.
         by_presentation: dict[tuple[str, str], list] = {}
-        for gp in members:
-            key = (gp[0].facts.axis, gp[0].view)
-            by_presentation.setdefault(key, []).append(gp)
+        for group, dimension in members:
+            site = None
+            if kind == "blend":
+                defining_faces = None if blend_faces is None else blend_faces.values_for(group.ref)
+                site = _blend_surface_site(
+                    group.facts,
+                    a.cyls,
+                    dimension.value,
+                    defining_faces=defining_faces,
+                )
+                if site is None:
+                    continue
+            key = (group.facts.axis, group.view)
+            by_presentation.setdefault(key, []).append((group, dimension, site))
+        if not by_presentation:
+            ctx.record_issue(
+                "warning",
+                drop_code,
+                f"{noun} callout {callout_label} not placed "
+                "(physical surface could not be selected without guessing)",
+                measurement=tuple(pd.id for _, pd in members),
+                outcome_stage="placement",
+            )
+            continue
         (axis, _view), visible = min(
             by_presentation.items(), key=lambda item: (-len(item[1]), item[0])
         )
-        ordered = sorted(visible, key=lambda gp: gp[0].facts.frame.origin)
+        visible.sort(key=lambda item: item[0].facts.frame.origin)
+        ordered = [(group, dimension) for group, dimension, _site in visible]
+        sites = [site for _group, _dimension, site in visible] if kind == "blend" else None
         view = ordered[0][0].view
         vb = dwg.view_bounds(view)
         if vb is None:
             continue
-        tol = _collapsed_tolerance(members, ctx=ctx, noun=noun)
         jobs.append(
             (
                 f"m_{name_stem}_{axis}{gi}",
                 view,
                 vb,
-                _fillet_label(members[0][1].value_text, len(members)) + _tol_suffix(tol, draft),
+                callout_label,
                 _corner_escape_candidates(
                     dwg,
                     view,
@@ -2473,6 +2641,7 @@ def _render_radius_callouts(
                     reach,
                     provenances=[g.ref for g, _ in ordered],
                     cylinders=a.cyls,
+                    sites=sites,
                 ),
                 # One `n× R` callout stands for EVERY collapsed member, so it draws all of
                 # their radii — the tuple storage exists for exactly this (#1002).

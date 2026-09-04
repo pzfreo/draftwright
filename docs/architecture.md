@@ -238,7 +238,8 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   cylinders, runs one paired aggregate, propagates typed refusal without fallback, and exposes
   conservative FULL/ORTHOGONAL/AXIAL semantic policy. Analysis calls it only for the explicit
   `framed_recognition=True` rollout path and owns any visible raw fallback above this leaf.
-- **`blend_contract.py`** — the strict leaf boundary for released schema-v1 `Blend` records.
+- **`blend_contract.py`** — the strict leaf boundary for released schema-v3 straight/circular
+  `Blend` path records.
   It rejects widened, mutable, non-finite, non-canonical, and unreleased values and owns the
   exact occurrence key shared by conversion and completeness lint.
 - **`recogniser_contract.py`** — the fail-closed cross-repository capability join. It consumes

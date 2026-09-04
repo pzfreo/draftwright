@@ -692,12 +692,24 @@ def fillet(obj=None, *, axis=None, radius=None, at=None, turned=False) -> Fillet
     )
 
 
-def blend(*, axis, radius, at, side="convex", axis_direction=None) -> BlendFeature:
-    """Declare one complete convex cylindrical rolling-ball chain.
+def blend(
+    *,
+    axis,
+    radius,
+    at,
+    side="convex",
+    axis_direction=None,
+    path_kind="straight",
+    path_radius=None,
+) -> BlendFeature:
+    """Declare one complete straight or circular rolling-ball path.
 
-    This word is explicit-only: a detached round face cannot prove a complete chain or the
-    aggregate-owned Fillet precedence. ``axis_direction`` retains a non-principal run; when
-    omitted it defaults to the positive principal direction named by ``axis``.
+    This word is explicit-only: a detached round face cannot prove complete path ownership or
+    aggregate-owned Fillet precedence. For a straight path, ``at`` is a point on its line and
+    ``axis_direction`` is its direction. For a circular path, ``at`` is its centre,
+    ``axis_direction`` is its normal, and ``path_radius`` is the centre-line radius. ``axis`` uses
+    the canonical first-maximum x/y/z tie-break of the path direction so declared and detected
+    occurrence identities remain exact.
     """
     axis = _norm_axis(axis)
     if axis_direction is None:
@@ -708,6 +720,8 @@ def blend(*, axis, radius, at, side="convex", axis_direction=None) -> BlendFeatu
         radius=radius,
         side=side,
         axis_direction=axis_direction,
+        path_kind=path_kind,
+        path_radius=path_radius,
     )
 
 

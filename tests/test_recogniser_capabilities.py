@@ -201,14 +201,18 @@ def test_0410_blind_slot_family_dispositions_are_explicit() -> None:
         assert family_id not in pending_family_declarations()
 
 
-def test_0412_additive_family_dispositions_are_explicit_and_fail_closed() -> None:
+def test_additive_family_dispositions_are_explicit_and_fail_closed() -> None:
     package = _families(recognition.capability_manifest())
     consumer = _families(consumer_capability_declaration())
     expected = {
         "blends": {
             "introduced_in": "0.4.11",
             "census_output": "RecognitionResult.blends",
-            "records": {"Blend": {"at", "axis", "axis_direction", "radius", "side"}},
+            "records": {
+                "Blend": {"path", "radius", "side"},
+                "CircularBlendPath": {"center", "normal", "radius"},
+                "StraightBlendPath": {"at", "direction"},
+            },
         },
         "oriented-slot-patterns": {
             "introduced_in": "0.4.12",
@@ -250,11 +254,13 @@ def test_0412_additive_family_dispositions_are_explicit_and_fail_closed() -> Non
         assert {
             record["name"]: set(record["fields"]) for record in package_family["records"]
         } == contract["records"]
-        assert all(record["schema_version"] == 1 for record in package_family["records"])
-
         declaration = consumer[family_id]
-        assert declaration["record_schemas"] == {name: [1] for name in contract["records"]}
         if family_id == "blends":
+            assert declaration["record_schemas"] == {
+                "Blend": [3],
+                "CircularBlendPath": [1],
+                "StraightBlendPath": [1],
+            }
             assert declaration["disposition"] == "supported"
             assert "tracking" not in declaration
             assert {
@@ -268,6 +274,8 @@ def test_0412_additive_family_dispositions_are_explicit_and_fail_closed() -> Non
                 )
             } == {"supported"}
         else:
+            assert all(record["schema_version"] == 1 for record in package_family["records"])
+            assert declaration["record_schemas"] == {name: [1] for name in contract["records"]}
             assert declaration["disposition"] == "deferred"
             assert declaration["tracking"] == "https://github.com/pzfreo/draftwright/issues/1430"
             assert {
@@ -287,7 +295,7 @@ def test_0412_additive_family_dispositions_are_explicit_and_fail_closed() -> Non
 def test_rich_passage_contract_has_an_explicit_unsupported_completeness_outcome() -> None:
     """Pin the 0.4 physical record and compatibility projection to one decision."""
 
-    assert INSTALLED_PACKAGE_VERSION == "0.4.12"
+    assert INSTALLED_PACKAGE_VERSION == "0.4.14"
     installed = tuple(int(component) for component in INSTALLED_PACKAGE_VERSION.split("."))
     assert (0, 4, 0) <= installed < (0, 5, 0)
     package = _families(recognition.capability_manifest())
@@ -312,11 +320,11 @@ def test_rich_passage_contract_has_an_explicit_unsupported_completeness_outcome(
     assert section_record["aggregate_membership"] == ["RecognitionResult.section_passages"]
     assert passage_consumer["record_schemas"] == {
         "Passage": [1],
-        "PassageEnds": [1],
+        "PassageEnds": [2],
         "PassageFrame": [1],
-        "PassageSection": [1],
+        "PassageSection": [2],
         "PassageSectionVertex": [1],
-        "SectionPassage": [1],
+        "SectionPassage": [2],
     }
     assert passage_consumer["disposition"] == "unsupported"
     assert passage_consumer["tracking"] == "https://github.com/pzfreo/draftwright/issues/1245"
@@ -1457,8 +1465,8 @@ def test_schema_format_fails_closed() -> None:
         _validate(package=package)
 
 
-def test_only_reviewed_records_accept_installed_schema_2() -> None:
-    """The pinned package uses schema 2 only for the reviewed consumed records."""
+def test_only_reviewed_records_accept_non_v1_schemas() -> None:
+    """The pinned package uses later schemas only for reviewed consumed records."""
     declaration = consumer_capability_declaration()
     families = _families(declaration)
     assert families["chamfers"]["record_schemas"] == {"Chamfer": [2]}
@@ -1473,13 +1481,28 @@ def test_only_reviewed_records_accept_installed_schema_2() -> None:
         "TurnedProfileKey": [1],
         "TurnedStep": [2],
     }
+    assert families["blends"]["record_schemas"] == {
+        "Blend": [3],
+        "CircularBlendPath": [1],
+        "StraightBlendPath": [1],
+    }
+    assert families["passages"]["record_schemas"] == {
+        "Passage": [1],
+        "PassageEnds": [2],
+        "PassageFrame": [1],
+        "PassageSection": [2],
+        "PassageSectionVertex": [1],
+        "SectionPassage": [2],
+    }
     assert all(
         versions == [1]
         for family_id, family in families.items()
         if family_id
         not in {
             "chamfers",
+            "blends",
             "fillets",
+            "passages",
             "rectangular-pads",
             "risers",
             "turned-steps",

@@ -952,13 +952,15 @@ def _convert_fillet(fl: Fillet, ctx: ConvContext) -> FilletFeature:
 def _convert_blend(blend: Blend, ctx: ConvContext) -> BlendFeature:
     from draftwright.blend_contract import blend_provider_key
 
-    axis, radius, at, side, direction = blend_provider_key(blend)
+    axis, radius, at, side, direction, path_kind, path_radius = blend_provider_key(blend)
     return BlendFeature(
         frame=Frame(at, axis),
         axis=axis,
         radius=radius,
         side=side,
         axis_direction=direction,
+        path_kind=path_kind,
+        path_radius=path_radius,
     )
 
 

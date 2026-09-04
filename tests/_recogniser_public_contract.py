@@ -126,7 +126,13 @@ def public_record_universe(
     get_member = public_recogniser_member if member is None else member
     for name in published_names:
         fn = get_member(name)
-        if inspect.isclass(fn) or not callable(fn):
+        # Python 3.10 reports parameterised ``typing.Union`` aliases as callable.
+        # Root publication includes contract aliases such as ``FramedEvidence``;
+        # they are not emitters and therefore have no return hints to inventory.
+        # Exclude typing aliases specifically: a callable-object decorator can
+        # still be a real public emitter and must remain inside the fail-closed
+        # return-grammar census.
+        if inspect.isclass(fn) or not callable(fn) or typing.get_origin(fn) is not None:
             continue
         try:
             hints = typing.get_type_hints(fn)

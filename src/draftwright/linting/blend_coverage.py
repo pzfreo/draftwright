@@ -1,4 +1,4 @@
-"""Exact semantic completeness for released convex Blend chains (#1433)."""
+"""Exact semantic completeness for released straight/circular Blend paths (#1433/#1438)."""
 
 from __future__ import annotations
 
@@ -48,16 +48,18 @@ def blend_feature_key(feature) -> tuple:
     if not is_exact_blend_feature(feature):
         raise TypeError("blend completeness requires exact BlendFeature and Frame values")
     frame = feature.frame
-    axis, radius, at, side, direction = validate_blend_fields(
+    axis, radius, at, side, direction, path_kind, path_radius = validate_blend_fields(
         axis=feature.axis,
         radius=feature.radius,
         at=frame.origin,
         side=feature.side,
         axis_direction=feature.axis_direction,
+        path_kind=feature.path_kind,
+        path_radius=feature.path_radius,
     )
     if frame.axis != axis:
         raise ValueError("blend feature frame axis disagrees with its public dominant axis")
-    return axis, radius, at, side, direction
+    return axis, radius, at, side, direction, path_kind, path_radius
 
 
 def _has_parameter(feature) -> bool:
