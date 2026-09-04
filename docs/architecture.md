@@ -9,7 +9,7 @@ keep that table, this document, and `CLAUDE.md`'s compact map in step. The
 ## The module map
 
 The dependency graph is a DAG (the #138 / ADR 1 (was 0005) split is complete). Bottom to
-top: leaf modules (`layout.py`, `registry.py`, `fonts.py`, `_geometry.py`,
+top: leaf modules (`_section_recess_prototype.py`, `layout.py`, `registry.py`, `fonts.py`, `_geometry.py`,
 `fits.py`, `intents.py`, `recognition_cache.py`, `recognition_ownership.py`,
 `plate_correspondence.py`, `recogniser_policy.py`, `recogniser_schema.py`,
 `recognition_frame.py`, and the strict `blend_contract.py` provider-record boundary) →
@@ -173,6 +173,9 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   half-plane clipping with a fixed-point interval union and an incremental cell
   walk, no sampling. Re-entry, not traversal, is the routing defect: a leader's
   first passage out of the body is the legitimate exit every callout makes.
+- **`_section_recess_prototype.py`** — dependency-free, private validation and dimensional
+  projection for the recogniser's versioned section-recess JSON document. It remains outside
+  automatic detection and the public IR until the coordinated contract migration is complete.
 - **`_pmi_part21.py`** — the rank-0 structured ISO 10303-21 adapter for AP242
   geometric-tolerance facts that OCCT's XCAF transfer drops. It resolves explicit
   Part21 references and SI length units, and requires unique semantic-name + kind

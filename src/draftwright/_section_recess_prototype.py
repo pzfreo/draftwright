@@ -1,4 +1,4 @@
-"""Private consumer spike for the ADR-0019 section-recess JSON contract.
+"""Private consumer spike for the recogniser's section-recess JSON contract.
 
 This is deliberately not connected to automatic detection or the public IR.  It proves that a
 Draftwright-like consumer can validate the geometry document and derive drafting dimensions without

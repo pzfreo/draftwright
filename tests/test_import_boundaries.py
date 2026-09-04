@@ -65,6 +65,7 @@ _RECOGNISER_INSPECTION_PUBLIC = frozenset(recogniser_inspection.__all__)
 _LAYERS: dict[str, int] = {
     # 0 — leaves: import nothing from draftwright (or only same-rank leaves / the IR waist)
     "_geometry": 0,
+    "_section_recess_prototype": 0,
     # Structured ISO 10303-21 facts only; XCAF correspondence remains in rank-2 pmi.py.
     "_pmi_part21": 0,
     # Warning categories only. Imports nothing at all — deliberately, because a category

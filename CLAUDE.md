@@ -33,7 +33,8 @@ keep `_LAYERS`, that document, and this compact map in step.
 
 Compact map, bottom to top:
 
-- **Leaf modules** — `layout.py` (the deterministic placement solvers: 1D PAVA strip
+- **Leaf modules** — `_section_recess_prototype.py` (private JSON-contract validation spike),
+  `layout.py` (the deterministic placement solvers: 1D PAVA strip
   solve, `fit_box`, balloon band flow), `registry.py` (annotation identity/pins/issues),
   `_geometry.py` (page-plane maths + the ADR 2 (was 0014 Amdt 3) material field; the DAG's
   bottom leaf), `fonts.py` (pinned IBM Plex, ADR 5 (was 0006)), `fits.py` (ISO 286),
