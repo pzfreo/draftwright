@@ -17,7 +17,8 @@ The document therefore says three things, and keeps them apart:
 ``missed`` is currently one half of the story. It reports geometry that went unclaimed, which is
 the provider's own accounting. It does **not** yet report what the recogniser considered and
 rejected — the provider can explain that, but only from a second recognition run, which would
-break the one-run rule of ADR 0017. An upstream change is needed first.
+break the one-run rule of ADR 0017. b123d-recognisers#494 asks for an API that
+explains an already-completed result.
 
 Nothing here is a completeness or readiness claim. An unclaimed face is not proof of a missed
 feature: stock and plain faces are unclaimed too.
@@ -139,7 +140,8 @@ def _missed(evidence) -> dict[str, Any]:
 
     The other half — what the recogniser proposed and then rejected, and which families it did
     not evaluate — is the provider's to state and needs a second recognition run to obtain.
-    Joining it needs a provider API that explains an already-completed result.
+    Joining it needs a provider API that explains an already-completed result
+    (b123d-recognisers#494).
     """
 
     association = evidence.association

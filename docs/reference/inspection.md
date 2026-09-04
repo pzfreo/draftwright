@@ -54,8 +54,8 @@ deliberately plain faces are unclaimed too, and they are in the denominator.
 `rejected_candidates` is the other half of the story and is currently `available: false`. The
 recogniser can explain what it proposed and then rejected, and which families it did not
 evaluate — but only from a second recognition run, which would break the one-run rule of
-ADR 0017. Obtaining it needs a provider API that explains an already-completed result. The field
-says so rather than letting its absence read as "nothing was rejected".
+ADR 0017. b123d-recognisers#494 asks for an API that explains an already-completed result. The
+field states its own absence rather than letting it read as "nothing was rejected".
 
 ## source and producer
 
