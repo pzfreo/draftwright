@@ -7,15 +7,160 @@ turns object addresses, feature order, record values, or topology indices into p
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 from b123d_recognisers.evidence import FeatureRef, RecognitionEvidence
 
+from draftwright.blend_contract import blend_provider_key
 from draftwright.recogniser_policy import (
     OwnerlessDisposition,
     ownerless_occurrence_policy,
 )
+
+_BOSS_ENVELOPE_SPAN_TOL = 0.005
+
+#: Two circular values within this (mm) state the same circle. Detect and lint must use the
+#: SAME number when reconciling a boss against a blend: they were two independent `0.15`
+#: literals (`detect._DIA_TOL` and `lint_feature_coverage(tol=...)`) that happened to agree,
+#: and if they ever drifted the IR would absorb a boss the lint still demanded a callout for.
+BOSS_BLEND_DIAMETER_TOL = 0.15
+
+#: A boss OD within this (mm) of both footprint extents means the body is round, and its
+#: overall size is dimensioned by that OD rather than by a width x depth envelope.
+_ROUND_FOOTPRINT_TOL = 0.5
+
+
+def boss_fills_footprint(bbox, bosses, tol: float = _ROUND_FOOTPRINT_TOL) -> bool:
+    """Whether some boss's OD fills the part footprint — a round body of revolution."""
+
+    return any(
+        abs(boss.diameter - bbox.size.X) <= tol and abs(boss.diameter - bbox.size.Y) <= tol
+        for boss in bosses
+    )
+
+
+def envelope_is_emittable(*, bbox, bosses, turned_profiles, polygonal_stock) -> bool:
+    """Whether an ordinary envelope dimension will carry this part's overall size.
+
+    Absorbing a boss into a blend removes the boss's axial length, so the projection is only
+    safe when the envelope is itself emitted and can carry that length. Detect and lint both
+    have to answer this, and they have to answer it the *same way* — the IR drops a boss
+    diameter exactly when lint stops requiring one.
+
+    They did not share an answer. `detect` called `_is_round`; `linting.coverage` inlined that
+    function's body with its `0.5` copied in, and read `turned_profiles` off the recognition
+    result while detect used the *build's* profile set, which on a declared build is the
+    caller's (`detect._analyse`: `profiles = () if prof is None else (prof,)`). A build that
+    declared its profiles could therefore have detect absorb a boss whose diameter lint still
+    demanded — `feature_not_dimensioned` against a diameter the plan deliberately removed —
+    or the converse, hiding a real duplicate. One formula, one input, one answer.
+    """
+
+    return bool(
+        not turned_profiles and not boss_fills_footprint(bbox, bosses) and not polygonal_stock
+    )
+
+
+def boss_spans_envelope(boss: Any, bbox: Any) -> bool:
+    """Whether a boss's axial length is already carried by the part envelope.
+
+    `Any`, not `object`: both arguments are read by attribute — a provider record and a
+    build123d bounding box — which `object` cannot express, and the module's sibling
+    `recognition_frame` already types provider records this way. Annotated `object` these
+    seven accesses failed mypy, which the branch never ran.
+    """
+
+    axis_index = max(range(3), key=lambda index: abs(float(boss.axis[index])))
+    boss_lo, boss_hi = sorted(
+        (
+            float(boss.location[axis_index]),
+            float(boss.location[axis_index] - boss.axis[axis_index] * boss.height),
+        )
+    )
+    bbox_lo = float((bbox.min.X, bbox.min.Y, bbox.min.Z)[axis_index])
+    bbox_hi = float((bbox.max.X, bbox.max.Y, bbox.max.Z)[axis_index])
+    return (
+        abs(boss_lo - bbox_lo) <= _BOSS_ENVELOPE_SPAN_TOL
+        and abs(boss_hi - bbox_hi) <= _BOSS_ENVELOPE_SPAN_TOL
+    )
+
+
+def boss_blend_owner_pairs(
+    evidence: RecognitionEvidence,
+    bosses: tuple,
+    blends: tuple,
+    *,
+    bbox: object,
+    envelope_emittable: bool,
+    diameter_tolerance: float = 0.15,
+) -> tuple[tuple[object, object], ...]:
+    """Return unambiguous same-face boss/blend projections from one provider run.
+
+    Scalar equality is not ownership evidence: unrelated ``R4`` and ``ø8`` features are
+    common. A pair is accepted only when the provider's opaque evidence assigns both records
+    the same non-empty defining-face set, their axes agree, and their values state the same
+    circle. Absorbing the boss would also remove its length, so its axial span must already be
+    carried by an emitted envelope. The final one-to-one gate prevents one occurrence from
+    crediting several owners.
+    """
+
+    if not envelope_emittable:
+        return ()
+
+    def occurrence_for(family: str, record: object) -> FeatureRef | None:
+        matches = tuple(
+            occurrence
+            for occurrence in evidence.features
+            if evidence.family(occurrence) == family and evidence.record(occurrence) is record
+        )
+        return matches[0] if len(matches) == 1 else None
+
+    candidate_rows: list[tuple[object, tuple[object, ...]]] = []
+    for boss in bosses:
+        if not boss_spans_envelope(boss, bbox):
+            candidate_rows.append((boss, ()))
+            continue
+        boss_occurrence = occurrence_for("bosses", boss)
+        if boss_occurrence is None:
+            candidate_rows.append((boss, ()))
+            continue
+        boss_faces = evidence.defining_faces(boss_occurrence)
+        if not boss_faces:
+            candidate_rows.append((boss, ()))
+            continue
+        axis_index = max(range(3), key=lambda index: abs(float(boss.axis[index])))
+        boss_axis = "xyz"[axis_index]
+        candidates = []
+        for blend in blends:
+            # `Blend.axis` was removed by recognisers 0.4.14, which moved the direction into a
+            # `StraightBlendPath`/`CircularBlendPath` (#1459). `blend_provider_key` is the one
+            # fail-closed reader of that released shape — deriving the axis here again would be
+            # a second, unvalidated copy of the provider boundary (ADR 3).
+            blend_axis, blend_radius = blend_provider_key(blend)[:2]
+            if (
+                blend_axis != boss_axis
+                or abs(boss.diameter - 2.0 * blend_radius) > diameter_tolerance
+            ):
+                continue
+            blend_occurrence = occurrence_for("blends", blend)
+            if (
+                blend_occurrence is not None
+                and evidence.defining_faces(blend_occurrence) == boss_faces
+            ):
+                candidates.append(blend)
+        candidate_rows.append((boss, tuple(candidates)))
+
+    claim_counts = Counter(
+        id(candidate) for _boss, candidates in candidate_rows for candidate in candidates
+    )
+    return tuple(
+        (boss, candidates[0])
+        for boss, candidates in candidate_rows
+        if len(candidates) == 1 and claim_counts[id(candidates[0])] == 1
+    )
+
 
 # These aggregate families have an unconditional one-record -> one-feature adapter in
 # model.detect. Remaining nested and classification-only families stay unclassified until a later
@@ -104,6 +249,7 @@ _MULTI_FEATURE_ABSORPTION_EXISTING_OWNER = {
 }
 _REASON_FAMILY = {
     "boss_adapter": "bosses",
+    "boss_blend_owner": "bosses",
     "boss_diameter_group_member": "bosses",
     "boss_groove_owner": "bosses",
     "boss_turned_step_owner": "bosses",
@@ -137,6 +283,7 @@ _FEATURE_ABSORPTION_EXISTING_OWNER = {
     "turned_step_groove_owner": ("grooves", "direct_adapter"),
 }
 _CHAINED_OWNER_FAMILY = {
+    "boss_blend_owner": "blends",
     "boss_groove_owner": "grooves",
     "boss_turned_step_owner": "turned_steps",
 }

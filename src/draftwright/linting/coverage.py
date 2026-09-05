@@ -58,6 +58,11 @@ from draftwright.recognition_frame import (
     groove_owns_turned_step_band,
     profiles_owning_axial_band,
 )
+from draftwright.recognition_ownership import (
+    BOSS_BLEND_DIAMETER_TOL,
+    boss_blend_owner_pairs,
+    envelope_is_emittable,
+)
 from draftwright.view_plan import VIEW_AXES
 
 _UNSET = object()  # sentinel: distinguishes "not supplied" from a valid prof=None
@@ -269,6 +274,9 @@ def lint_feature_coverage(
     assembly=None,
     holes=None,
     bosses=None,
+    blends=None,
+    recognition_evidence=None,
+    turned_profiles=_UNSET,
     registry=None,
 ) -> list:
     """Coarse completeness check: report part diameters with no callout (#80).
@@ -303,6 +311,11 @@ def lint_feature_coverage(
     ``cyls`` accepts a precomputed ``analyse_cylinders(part)`` result so
     repeated lint runs need not re-scan the solid.
 
+    When same-run ``recognition_evidence`` proves that a recognised boss and blend share the
+    same defining face and circular value, the boss diameter is excluded from this coarse
+    physical inventory. The blend radius is the truthful callout for that face; counting its
+    equivalent diameter again would recreate the duplicate this lint is meant to detect.
+
     Counts are checked too (#92): the part's holes (via ``recognise_holes``) give
     a required count per diameter (each bore, counterbore, and spotface
     occurrence counts one), and structured callouts declare how many holes
@@ -318,6 +331,44 @@ def lint_feature_coverage(
     z_cyls, cross_cyls = cyls if cyls is not None else analyse_cylinders(part)
     if holes is None:
         holes = recognise_holes(part, cyls=(z_cyls, cross_cyls))
+    if bosses is None and recognition_evidence is not None:
+        bosses = recognition_evidence.result.bosses
+    if blends is None and recognition_evidence is not None:
+        blends = recognition_evidence.result.blends
+    # `bosses`/`blends` are inventories, so an empty one is not None. Testing `is not None`
+    # bought a `part.bounding_box()` on every lint of every part, including the great majority
+    # with no boss or blend to reconcile — a second solid measurement on the re-lint path that
+    # `test_relint_recomputes_no_annotation_boxes` budgets exactly one of. Truthiness skips it.
+    if bosses and blends and recognition_evidence is not None:
+        bbox = part.bounding_box()
+        # The BUILD's profile set, not the recognition result's. On a declared build they
+        # differ — `detect._analyse` uses the caller's `prof`/`profiles` — and detect decides
+        # absorption from its own. Re-deriving here let the IR drop a boss diameter that this
+        # lint still demanded a callout for. `_UNSET` means the caller had none to state, which
+        # is the same condition under which detect falls back to the aggregate.
+        profiles = (
+            recognition_evidence.result.turned_profiles
+            if turned_profiles is _UNSET
+            else turned_profiles
+        )
+        envelope_emittable = envelope_is_emittable(
+            bbox=bbox,
+            bosses=bosses,
+            turned_profiles=profiles,
+            polygonal_stock=recognition_evidence.result.polygonal_stock,
+        )
+        blend_owned_boss_ids = {
+            id(boss)
+            for boss, _blend in boss_blend_owner_pairs(
+                recognition_evidence,
+                tuple(bosses),
+                tuple(blends),
+                bbox=bbox,
+                envelope_emittable=envelope_emittable,
+                diameter_tolerance=BOSS_BLEND_DIAMETER_TOL,
+            )
+        }
+        bosses = tuple(boss for boss in bosses if id(boss) not in blend_owned_boss_ids)
     # Coverage inventory: the *recognised* dimensionable diameters (bores,
     # cbore/spotface steps, bosses) from feature_diameters — built via
     # recognise_holes/recognise_bosses, so slot ends and interrupted recesses (partial
