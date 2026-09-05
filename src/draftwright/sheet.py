@@ -1170,8 +1170,11 @@ class Sheet:
     # -- feature declaration --------------------------------------------------
 
     def add(self, feature) -> _Params:
-        """Append a pre-built IR :class:`~draftwright.model.Feature` (escape hatch for
+        """Register a pre-built IR :class:`~draftwright.model.Feature` (escape hatch for
         the constructors this façade does not surface directly, e.g. PMI).
+
+        Adding the exact feature object already in :attr:`features` returns a handle to
+        its existing registration. Equal-valued distinct objects remain separate features.
 
         Returns a handle, like every declaration verb (#922). It matters here more than it
         looks: the ENVELOPE is emitted through this escape hatch rather than through
@@ -1181,6 +1184,10 @@ class Sheet:
         in the middle of the file, which is worse than being absent everywhere. A raw
         ``ControlFrame`` or ``DatumRef`` may name a handle as its ``origin``; ``add`` resolves
         and token-binds that provenance exactly like the public GD&T verbs."""
+        if isinstance(feature, Feature):
+            token = self._declared_token(feature, verb="add()")
+            if token is not None:
+                return _Params(self, self._index_of_token(token))
         src_token = None
         if (
             getattr(feature, "kind", None) in ("control_frame", "datum_ref", "note")
