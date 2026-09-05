@@ -89,3 +89,9 @@ def test_measured_fit_retracts_seed_uncertainty():
     assert "page_fit_uncertain" in _codes(drawing)
     assert _repack(a, drawing, "", None, None) is None
     assert "page_fit_uncertain" not in _codes(drawing)
+
+
+def test_computed_scale_reaches_public_declared_lint():
+    drawing = Sheet(Box(1e7, 1e7, 1e7)).authored_dimensions().build()
+    assert 0 < drawing.scale < 0.0001
+    assert "scale_fallback_applied" in _codes(drawing)
