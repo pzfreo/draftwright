@@ -105,7 +105,14 @@ from draftwright.model.declare import (
 )
 from draftwright.model.declare import read_bore_step as _read_bore_step
 from draftwright.model.declare import read_countersink as _read_countersink
-from draftwright.model.ir import NominalRequirement, RequestedDimension, ToleranceDecoration
+from draftwright.model.ir import (
+    ControlFrame,
+    DatumRef,
+    NominalRequirement,
+    Note,
+    RequestedDimension,
+    ToleranceDecoration,
+)
 from draftwright.model.planner import LOCATION_ROLE as _LOCATION_ROLE
 from draftwright.model.planner import location_role as _location_role
 from draftwright.view_plan import (
@@ -1175,6 +1182,7 @@ class Sheet:
 
         Adding the exact feature object already in :attr:`features` returns a handle to
         its existing registration. Equal-valued distinct objects remain separate features.
+        Other inputs raise :class:`TypeError` before changing the sheet.
 
         Returns a handle, like every declaration verb (#922). It matters here more than it
         looks: the ENVELOPE is emitted through this escape hatch rather than through
@@ -1184,15 +1192,13 @@ class Sheet:
         in the middle of the file, which is worse than being absent everywhere. A raw
         ``ControlFrame`` or ``DatumRef`` may name a handle as its ``origin``; ``add`` resolves
         and token-binds that provenance exactly like the public GD&T verbs."""
-        if isinstance(feature, Feature):
-            token = self._declared_token(feature, verb="add()")
-            if token is not None:
-                return _Params(self, self._index_of_token(token))
+        if not isinstance(feature, Feature):
+            raise TypeError("add() requires an IR Feature")
+        token = self._declared_token(feature, verb="add()")
+        if token is not None:
+            return _Params(self, self._index_of_token(token))
         src_token = None
-        if (
-            getattr(feature, "kind", None) in ("control_frame", "datum_ref", "note")
-            and feature.origin is not None
-        ):
+        if isinstance(feature, (ControlFrame, DatumRef, Note)) and feature.origin is not None:
             src_token = self._declared_token(feature.origin, verb=f"add() {feature.kind} origin")
             if src_token is not None:
                 feature = replace(
