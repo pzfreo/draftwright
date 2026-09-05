@@ -289,3 +289,11 @@ drop, or missing ink is not hidden by the ownership choice.
 ::: draftwright.sheet._Control
     options:
       filters: public
+
+Layout advisories are also available as structured findings from `Drawing.lint()` and
+`lint(physical=False)`. `legibility_floor_breached` reports an explicit scale below the
+legibility floor when a legible automatic fit exists; `page_fit_uncertain` reports an
+unsuccessful layout fit; `layout_repack_stalled` reports unresolved measured-repack
+triggers; and `scale_fallback_applied` reports a computed scale or a completeness-driven
+scale fallback. These warnings contribute to the legibility component of `lint_summary()`.
+A successful measured fit replaces the earlier estimated fit warning.

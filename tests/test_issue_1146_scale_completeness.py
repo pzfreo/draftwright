@@ -123,6 +123,7 @@ def test_default_fallback_returns_largest_complete_standard_scale_and_reports_de
         drawing = build_drawing(_scale_sensitive_plate(), page="A4", scale=1.0, repair=False)
 
     assert drawing.scale == 0.5
+    assert "scale_fallback_applied" in {i.code for i in drawing.lint(physical=False)}
     assert _placement_drops(drawing) == []
     assert drawing.scale_decision == {
         "policy": "fallback",
