@@ -83,9 +83,8 @@ aggregate. The script itself contains none of this: it is a drawing declaration 
 and evidence about the run belongs in a file that can be diffed and re-read without parsing
 Python.
 
-Pass `inspect=False` (the CLI's `--no-report`) to skip it. Note that skipping also **removes**
-any document already at that path — see below. Generation then removes any document
-already at that path, because an earlier run's evidence beside a new script describes a
+Pass `inspect=False` (the CLI's `--no-report`) to skip it. Skipping also **removes** any
+document already at that path, because an earlier run's evidence beside a new script describes a
 different part and nothing in it would say so.
 
 Two sources produce a script but no document: a live build123d object has no STEP bytes and so
