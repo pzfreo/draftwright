@@ -543,38 +543,35 @@ def test_generating_a_script_writes_the_document_beside_it(tmp_path, monkeypatch
     )
 
 
-def test_the_document_records_the_run_options_that_determined_it(tmp_path, monkeypatch) -> None:
-    """Two runs over identical bytes can disagree, so the document must say why.
+def test_two_runs_over_identical_bytes_can_disagree_and_the_document_says_why() -> None:
+    """The reason `run` exists. PMI lowering rewrites a grouped hole member into a singleton
+    owner, so the same bytes can yield different answers to "what did Draftwright do with this
+    finding" — and `source.sha256` alone would imply a reproducibility the document lacks.
 
-    PMI lowering rewrites a grouped hole member into a singleton owner, which changes what
-    this document says Draftwright did with a finding. `source.sha256` alone would imply a
-    reproducibility the document does not have.
+    Detect-only: proving the modes diverge needs no drawing build, and building one twice on
+    this fixture cost 38 s against 2.7 s here.
     """
 
-    source = tmp_path / "part.stp"
-    source.write_bytes(_UNLOWERED_PMI_FIXTURE.read_bytes())
-    monkeypatch.chdir(tmp_path)
-    from draftwright.sheet_emit import generate_sheet_script, inspection_sidecar_path
+    from draftwright.builder import _detect_part_model_analysis
 
     documents = {}
     for mode in ("off", "annotate"):
-        script = generate_sheet_script("part.stp", out=f"g_{mode}", pmi=mode)
-        documents[mode] = json.loads(
-            Path(inspection_sidecar_path(script)).read_text(encoding="utf-8")
-        )
+        model, analysis = _detect_part_model_analysis(_UNLOWERED_PMI_FIXTURE, pmi=mode)
+        assert analysis.pmi_mode == mode, "fixture precondition: the run used the asked mode"
+        documents[mode] = inspection_module._document(model, analysis, "part.stp", b"")
 
     off, annotate = documents["off"], documents["annotate"]
     _validate(off)
     _validate(annotate)
-    assert off["source"] == annotate["source"], "fixture precondition: identical bytes"
-    assert off["producer"] == annotate["producer"], "fixture precondition: identical producer"
+    assert off["source"] == annotate["source"], "identical bytes"
+    assert off["producer"] == annotate["producer"], "identical producer"
     assert off["found"] != annotate["found"], (
         "fixture precondition: this part must actually lower PMI onto hole ownership, or the "
         "guard proves nothing"
     )
     assert off["run"] == {"pmi_mode": "off"}
     assert annotate["run"] == {"pmi_mode": "annotate"}, (
-        "the sidecar describes the run that produced the script beside it"
+        "two documents agreeing on source, producer and run must agree entirely"
     )
 
 
@@ -611,6 +608,19 @@ def test_the_generated_script_contains_none_of_the_evidence(tmp_path, monkeypatc
         "draftwright-step",
     ):
         assert marker not in source
+
+
+def test_the_sidecar_records_the_mode_its_script_was_generated_with(tmp_path, monkeypatch):
+    """The sidecar describes the run that produced the script beside it, so a non-default mode
+    must reach it. The plumbing is what is under test, so this uses a part with no AP242 PMI:
+    nothing is lowered, the build stays cheap, and the mode is still recorded. Whether the mode
+    changes the answer is proved separately, on the fixture where it does."""
+
+    _py_path, sidecar = _generate(tmp_path, monkeypatch, _PLATE_FIXTURE, pmi="annotate")
+    document = json.loads(sidecar.read_text(encoding="utf-8"))
+
+    _validate(document)
+    assert document["run"] == {"pmi_mode": "annotate"}
 
 
 def test_the_document_costs_no_second_aggregate_recognition_run(tmp_path, monkeypatch) -> None:
