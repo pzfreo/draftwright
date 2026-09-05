@@ -529,6 +529,24 @@ def _fit_iso_view(dwg, a: Analysis, obstacles=()):
         # page region, so it must shrink whatever else is nearby, and a resulting collision is
         # reported by `view_annotation_overlap` rather than prevented here (#1240 review F3).
         factor = math.floor(needed * 0.98 * 10000) / 10000
+    if factor <= 0.0:
+        # One guard, at the boundary it protects rather than at the condition that causes it.
+        # `extent > 0` filters the ratio's numerator; nothing filters its counterpart, so a
+        # collapsed or inverted zone yields a non-positive factor — a section sharing the iso's
+        # y-range raises `region_left` with no upper bound and can pass `iso_right_limit`. OCC
+        # answers that three ways: zero raises `Standard_Failure` on macOS, raises
+        # `Standard_ConstructionError` on Linux (a class that does NOT subclass
+        # `Standard_Failure`, so the caller's handler misses it and the build aborts), and a
+        # NEGATIVE factor is accepted silently, mirroring the iso onto a delivered sheet. All
+        # three are one layout fact, known here, before any transform: leave the iso at sheet
+        # scale and let the candidate search continue (#1395).
+        _log.info(
+            "Iso zone %.3f × %.3f mm admits no positive scale (%g); leaving it at sheet scale",
+            region[2] - region[0],
+            region[3] - region[1],
+            factor,
+        )
+        return
     if abs(factor - 1.0) < 0.05:
         # Undo the probes ONLY here: every other exit re-projects at `factor` below, so the
         # restore would be a wasted projection — and on CTC-01 a projection is 14 ms.
