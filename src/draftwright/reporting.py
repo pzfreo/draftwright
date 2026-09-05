@@ -146,10 +146,12 @@ def _outcome_measurements(outcome: object) -> tuple[tuple[object, str], ...]:
     return tuple((feature, parameter) for feature in getattr(outcome, "features", ()))
 
 
-AnnotationIndex = dict[tuple[int, str], tuple[object, tuple[str, ...]]]
+# Private: read only by the two `_annotation_*` helpers below. A published name is a
+# promise to a consumer, and this alias has none (#1469).
+_AnnotationIndex = dict[tuple[int, str], tuple[object, tuple[str, ...]]]
 
 
-def _annotation_index(registry: object) -> AnnotationIndex:
+def _annotation_index(registry: object) -> _AnnotationIndex:
     """Index exact semantic provenance once for linear report projection."""
 
     names = getattr(registry, "names", None)
@@ -179,7 +181,7 @@ def _annotation_index(registry: object) -> AnnotationIndex:
     return {key: (feature, tuple(sorted(values))) for key, (feature, values) in building.items()}
 
 
-def _annotation_names(index: AnnotationIndex, outcome: object) -> list[str]:
+def _annotation_names(index: _AnnotationIndex, outcome: object) -> list[str]:
     result: set[str] = set()
     for feature, parameter in _outcome_measurements(outcome):
         candidate = index.get((id(feature), parameter))
@@ -513,8 +515,14 @@ def drawing_report(
     }
 
 
-def write_report_document(report: Mapping[str, object], path: str | PathLike[str]) -> str:
-    """Atomically write one strict, deterministic UTF-8 report document."""
+def write_json_document(report: Mapping[str, object], path: str | PathLike[str]) -> str:
+    """Atomically write one strict, deterministic UTF-8 JSON document.
+
+    Named for what it does rather than for its first caller: the body is document-agnostic,
+    and `sheet_emit` already uses it for the STEP-inspection sidecar, a different schema with
+    a different `$id`. It was `write_report_document` until #1469 promoted it to `__all__`,
+    which is the moment an inaccurate name stops being free to change.
+    """
 
     destination = Path(path)
     payload = (
@@ -533,7 +541,7 @@ def write_report_document(report: Mapping[str, object], path: str | PathLike[str
             mode="w",
             encoding="utf-8",
             newline="\n",
-            prefix=".draftwright-report-",
+            prefix=".draftwright-",
             suffix=".tmp",
             dir=destination.parent,
             delete=False,
@@ -571,5 +579,5 @@ __all__ = [
     "producer",
     "project_occurrences",
     "validate_report_inputs",
-    "write_report_document",
+    "write_json_document",
 ]

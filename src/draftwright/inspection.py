@@ -198,26 +198,12 @@ def inspect_step(path: str | PathLike[str]) -> dict[str, JsonValue]:
     ownership are reused as-is. No drawing build, view projection, annotation placement, render,
     export or physical lint path runs.
 
-    It does, however, share the engine's ONE detect seam, which sizes the part while detecting,
-    so some scale-selection and dimension-planning work is done and discarded. #1462 asked
-    whether that justifies an inspect-only detect path. Measured with `cProfile` over one warm
-    inspection of each fixture (2026-09-05, this machine), attributing `tottime` by defining
-    file so provider frames are not counted as ours:
-
-        fixture                        wall    discarded  all draftwright frames
-        grm04_drive_plate.step         0.03 s   0.000 s    0.002 s
-        nist_ctc_04_asme1_ap242.stp    6.63 s   0.002 s    0.142 s
-        nist_ctc_02_asme1_ap242.stp   13.54 s   0.003 s    0.171 s
-
-    "discarded" is `compose` + `planner` + `callout` + `view_plan` — the modules #1462 named.
-    Every draftwright frame together is 0.17 s of CTC-02's 13.5 s; the rest is recognition,
-    STEP parsing and OCC. Two idle-machine runs agreed to the millisecond on the discarded
-    column; a third, run under full-suite CPU contention, quadrupled every wall time and left
-    the discarded share at 0.01-0.02%.
-
-    #1462 sized the discarded work by CALL COUNT (528 compose calls, 334 planner), which turns
-    out to say nothing about its cost. A second seam would save single-digit milliseconds and
-    could not be checked against the drawing path, so the shared seam stays.
+    It does, however, share the engine's ONE detect seam, which sizes the part while
+    detecting, so some scale-selection and dimension-planning work is done and discarded.
+    Measured, that is about 0.02% of an inspection — the cost is recognition and STEP
+    parsing — so the shared seam stays rather than growing a second one that could not be
+    checked against the drawing path. Evidence and method:
+    `docs/research/1462-inspect-seam-cost.md`.
 
     Raises:
         OSError: the path could not be read (missing, a directory, permissions).

@@ -18,7 +18,12 @@ from typing import Literal
 from b123d_recognisers import RecognitionResult
 
 from draftwright.linting._registry import satisfaction_ids, satisfaction_of
-from draftwright.linting.issues import LintIssue, is_placement_drop, requirement_subject
+from draftwright.linting.issues import (
+    UNJOINED_PARAMETER_ID,
+    LintIssue,
+    is_placement_drop,
+    requirement_subject,
+)
 from draftwright.plate_correspondence import (
     _between,
     _depth_axis,
@@ -701,7 +706,9 @@ def plate_requirement_outcomes(
                 )
                 continue
             outcomes.append(
-                PlateRequirementOutcome(at, "?", "unverifiable", source_records=(source_record,))
+                PlateRequirementOutcome(
+                    at, UNJOINED_PARAMETER_ID, "unverifiable", source_records=(source_record,)
+                )
             )
             continue
         outcomes.append(
@@ -760,14 +767,8 @@ def lint_plate_coverage(
                 severity=severity,
                 code=f"plate_requirement_{outcome.state}",
                 message=(
-                    f"plate at {outcome.source_at} {_subject(outcome)} {messages[outcome.state]}"
+                    f"plate at {outcome.source_at} {requirement_subject(outcome)} {messages[outcome.state]}"
                 ),
             )
         )
     return issues
-
-
-def _subject(outcome) -> str:
-    """Name this outcome's requirement, or say plainly that no id exists (#1397)."""
-
-    return requirement_subject(outcome.parameter_id, outcome.requirement_count, noun="measurement")

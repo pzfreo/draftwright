@@ -582,21 +582,49 @@ def test_linting_consumes_recognisers_only_through_the_public_root():
 
 
 def _private_reporting_imports(path: Path) -> list[str]:
-    """Names a module imports from `draftwright.reporting` that `__all__` does not publish."""
+    """Names a module takes from `draftwright.reporting` that `__all__` does not publish.
+
+    Three spellings reach the same module and all three must be seen. The first version of
+    this helper matched only the absolute `from draftwright.reporting import _x` form: it
+    skipped `node.level > 1`, which is *exactly* how a submodule of `linting/`, `model/` or
+    `annotations/` spells the same import, and it never looked at `ast.Import` at all. Both
+    holes were found by mutation, not by reading.
+    """
 
     published = set(reporting.__all__)
     offenders: list[str] = []
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    aliases: dict[str, str] = {}
     for node in ast.walk(tree):
-        if not isinstance(node, ast.ImportFrom):
-            continue
-        if node.module not in {"draftwright.reporting", "reporting"} or node.level > 1:
-            continue
-        offenders.extend(
-            f"{path.name}:{node.lineno} imports unpublished {alias.name}"
-            for alias in node.names
-            if alias.name not in published
-        )
+        if isinstance(node, ast.ImportFrom):
+            # level 0 -> "draftwright.reporting"; level >= 1 -> a relative hop ending in
+            # "reporting", whatever the depth. Both name this module.
+            absolute = node.level == 0 and node.module == "draftwright.reporting"
+            relative = node.level >= 1 and (node.module or "").split(".")[-1] == "reporting"
+            if not (absolute or relative):
+                continue
+            offenders.extend(
+                f"{path.name}:{node.lineno} imports unpublished {alias.name}"
+                for alias in node.names
+                if alias.name not in published
+            )
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == "draftwright.reporting":
+                    aliases[alias.asname or "draftwright"] = alias.name
+    if aliases:
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Attribute) or not node.attr.startswith("_"):
+                continue
+            base = node.value
+            reached = (isinstance(base, ast.Name) and base.id in aliases) or (
+                isinstance(base, ast.Attribute)
+                and base.attr == "reporting"
+                and isinstance(base.value, ast.Name)
+                and base.value.id in aliases
+            )
+            if reached and node.attr not in published:
+                offenders.append(f"{path.name}:{node.lineno} reaches unpublished {node.attr}")
     return offenders
 
 
@@ -628,14 +656,27 @@ def test_report_consumers_use_only_the_published_projector(tmp_path):
         f"Unpublished imports: {offenders}"
     )
 
-    # The guard is worthless if it cannot see a violation, and it would pass vacuously on a
-    # tree it never matched. Both halves are checked against a synthetic module.
-    breach = tmp_path / "breach.py"
-    breach.write_text(
-        "from draftwright.reporting import _feature_ids, project_occurrences" + chr(10),
-        encoding="utf-8",
-    )
-    assert _private_reporting_imports(breach) == ["breach.py:1 imports unpublished _feature_ids"]
+    # The guard is worthless if it cannot see a violation, and a self-check that exercises
+    # only ONE spelling is how the relative-import hole survived the first version. Each
+    # spelling below was an uncaught mutation before this helper was rewritten.
+    spellings = {
+        "absolute": "from draftwright.reporting import _feature_ids, project_occurrences",
+        "relative": "from ..reporting import _feature_ids",
+        "deep": "from ...reporting import _feature_ids",
+        "aliased": "import draftwright.reporting as _rep" + chr(10) + "_rep._feature_ids(1)",
+        "dotted": "import draftwright.reporting"
+        + chr(10)
+        + "draftwright.reporting._feature_ids(1)",
+    }
+    for label, source in spellings.items():
+        breach = tmp_path / f"breach_{label}.py"
+        breach.write_text(source + chr(10), encoding="utf-8")
+        found = _private_reporting_imports(breach)
+        assert found and all("_feature_ids" in entry for entry in found), (label, found)
+    # ... and that it does NOT fire on the published names, or it would be trivially true.
+    clean = tmp_path / "clean.py"
+    clean.write_text("from draftwright.reporting import project_occurrences" + chr(10), "utf-8")
+    assert _private_reporting_imports(clean) == []
 
     # And that the real consumers are matched rather than skipped by the module filter.
     consumers = {
@@ -647,21 +688,70 @@ def test_report_consumers_use_only_the_published_projector(tmp_path):
     assert {"inspection.py", "sheet_emit.py", "drawing.py"} <= consumers, consumers
 
 
+def test_the_disposition_vocabulary_matches_both_published_schemas():
+    """`_DISPOSITIONS` is triplicated into two versioned JSON schemas; nothing bound them.
+
+    The code tuple and the two `enum` blocks agreed by luck. Schema validation in the report
+    tests cannot catch a drift, because it only ever sees the dispositions the test corpus
+    happens to emit — add a seventh disposition to the code and no published document
+    declares it, remove one from a schema and no fixture notices. ADR 5 makes a versioned
+    document a contract; this is what makes it one.
+    """
+
+    import json
+
+    reference = _SRC.parent.parent / "docs" / "reference"
+    schemas = sorted(reference.glob("draftwright-*-v1.schema.json"))
+    assert len(schemas) == 2, [p.name for p in schemas]
+
+    def _disposition_enums(node):
+        if isinstance(node, dict):
+            values = node.get("enum")
+            if isinstance(values, list) and "represented" in values:
+                yield tuple(values)
+            for child in node.values():
+                yield from _disposition_enums(child)
+        elif isinstance(node, list):
+            for child in node:
+                yield from _disposition_enums(child)
+
+    expected = set(reporting._DISPOSITIONS)
+    found = 0
+    for schema in schemas:
+        for enum in _disposition_enums(json.loads(schema.read_text(encoding="utf-8"))):
+            found += 1
+            assert set(enum) == expected, (schema.name, sorted(set(enum) ^ expected))
+    assert found >= 2, f"no disposition enum located in {[p.name for p in schemas]}"
+
+    # `_ATTENTION_DISPOSITIONS` is the subset a consumer must look at; it cannot name a
+    # disposition the vocabulary does not contain.
+    assert set(reporting._ATTENTION_DISPOSITIONS) < expected
+
+
 def test_the_published_projector_is_what_the_consumers_actually_call():
     """`__all__` must name live functions, not aspirational ones."""
 
-    for name in ("json_value", "producer", "project_occurrences", "write_report_document"):
+    for name in ("json_value", "producer", "project_occurrences", "write_json_document"):
         assert name in reporting.__all__
         assert callable(getattr(reporting, name)), name
 
     # The converse: every public name the module defines is published. `drawing_report` was
     # imported by `drawing.py` and absent from `__all__` — the same defect #1461 describes,
-    # found by this guard on its first run. Without this half, the next one is invisible.
-    defined = {
-        node.name
-        for node in ast.parse((_SRC / "reporting.py").read_text(encoding="utf-8")).body
-        if isinstance(node, (ast.FunctionDef, ast.ClassDef)) and not node.name.startswith("_")
-    }
+    # found by this guard on its first run. The walk covers assignments as well as defs:
+    # while it saw only FunctionDef/ClassDef, `REPORT_SCHEMA`, `REPORT_SCHEMA_VERSION` and
+    # `JsonValue` could each be dropped from `__all__` with nothing failing, so the guard
+    # passed for the wrong reason on exactly the names its own rationale is about.
+    module = ast.parse((_SRC / "reporting.py").read_text(encoding="utf-8"))
+    defined: set[str] = set()
+    for node in module.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            defined.add(node.name)
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            defined.add(node.target.id)
+        elif isinstance(node, ast.Assign):
+            defined.update(t.id for t in node.targets if isinstance(t, ast.Name))
+    defined = {name for name in defined if not name.startswith("_")}
+    assert {"REPORT_SCHEMA", "REPORT_SCHEMA_VERSION", "JsonValue", "drawing_report"} <= defined
     assert defined <= set(reporting.__all__), defined - set(reporting.__all__)
 
     # `_ATTENTION_DISPOSITIONS` and `_DISPOSITIONS` stay private BECAUSE nothing outside

@@ -230,7 +230,10 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
 - **`recogniser_schema.py`** — the rank-0 Draftwright-owned table of public provider record
   schema versions consumed by adapters. The report projector and rank-7 cross-repository
   validator share this leaf, so the engine never imports the validator to learn schema metadata.
-- **`reporting.py`** — the rank-0 pure schema-v1 report and generation-snapshot projector.
+- **`reporting.py`** — the rank-2 pure schema-v1 report projector, and the named seam
+  (`project_occurrences`, `json_value`, `producer`, `write_json_document`) that the
+  drawing report and the STEP-inspection document are both built from (#1461). The
+  generation snapshot it also used to project was removed in #1460.
   `Drawing` owns all report reads from its `BuildState`, while generated Python passes the exact
   retained evidence, ownership, detected model, and source digest explicitly. Reporting never
   reaches through `Drawing` private state or triggers recognition, placement, or export.

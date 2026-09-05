@@ -19,7 +19,12 @@ from typing import Literal
 from b123d_recognisers import PolygonalBoss, RecognitionResult
 
 from draftwright.linting._registry import satisfaction_ids, satisfaction_of
-from draftwright.linting.issues import LintIssue, is_placement_drop, requirement_subject
+from draftwright.linting.issues import (
+    UNJOINED_PARAMETER_ID,
+    LintIssue,
+    is_placement_drop,
+    requirement_subject,
+)
 
 PolygonalBossRequirementState = Literal[
     "placed",
@@ -324,7 +329,7 @@ def polygonal_boss_requirement_outcomes(
             outcomes.append(
                 PolygonalBossRequirementOutcome(
                     at,
-                    "?",
+                    UNJOINED_PARAMETER_ID,
                     "unverifiable",
                     requirement_count=2,
                     source_records=(source,),
@@ -382,14 +387,8 @@ def lint_polygonal_boss_coverage(
                 severity=severity,
                 code=f"polygonal_boss_requirement_{outcome.state}",
                 message=(
-                    f"polygonal boss {location} {_subject(outcome)} {messages[outcome.state]}"
+                    f"polygonal boss {location} {requirement_subject(outcome)} {messages[outcome.state]}"
                 ),
             )
         )
     return issues
-
-
-def _subject(outcome) -> str:
-    """Name this outcome's requirement, or say plainly that no id exists (#1397)."""
-
-    return requirement_subject(outcome.parameter_id, outcome.requirement_count, noun="measurement")

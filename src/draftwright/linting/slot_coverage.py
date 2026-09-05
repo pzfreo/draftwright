@@ -15,7 +15,7 @@ from typing import Literal
 from b123d_recognisers import RecognitionResult
 
 from draftwright.linting._registry import satisfaction_ids, satisfaction_of
-from draftwright.linting.issues import LintIssue, requirement_subject
+from draftwright.linting.issues import UNJOINED_PARAMETER_ID, LintIssue, requirement_subject
 
 SlotRequirementState = Literal[
     "placed",
@@ -301,7 +301,7 @@ def slot_requirement_outcomes(
                     kind,
                     at,
                     member_count,
-                    "?",
+                    UNJOINED_PARAMETER_ID,
                     "unverifiable",
                     requirement_count=_physical_requirement_count(kind, _source),
                     source_records=source_records,
@@ -359,14 +359,8 @@ def lint_slot_coverage(
                 severity=severity,
                 code=f"slot_requirement_{outcome.state}",
                 message=(
-                    f"{noun} at {outcome.source_at} {_subject(outcome)} {messages[outcome.state]}"
+                    f"{noun} at {outcome.source_at} {requirement_subject(outcome)} {messages[outcome.state]}"
                 ),
             )
         )
     return issues
-
-
-def _subject(outcome) -> str:
-    """Name this outcome's requirement, or say plainly that no id exists (#1397)."""
-
-    return requirement_subject(outcome.parameter_id, outcome.requirement_count, noun="measurement")

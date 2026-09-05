@@ -17,7 +17,12 @@ from typing import Literal
 from b123d_recognisers import RecognitionResult
 
 from draftwright.linting._registry import satisfaction_ids, satisfaction_of
-from draftwright.linting.issues import LintIssue, is_placement_drop, requirement_subject
+from draftwright.linting.issues import (
+    UNJOINED_PARAMETER_ID,
+    LintIssue,
+    is_placement_drop,
+    requirement_subject,
+)
 from draftwright.recognition_frame import validated_groove_geometry
 
 GrooveRequirementState = Literal[
@@ -38,6 +43,9 @@ class GrooveRequirementOutcome:
     parameter_id: str
     state: GrooveRequirementState
     requirement_count: int = 1
+    #: False when the count above is a placeholder for an inventory whose size cannot be
+    #: known (see the corrupt-inventory path below), so a message must not name a number.
+    requirement_count_known: bool = True
     features: tuple = ()
     source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
 
@@ -127,12 +135,23 @@ def groove_requirement_outcomes(
             # than inventing a physical groove count or silently treating corruption as an
             # empty tuple.
             return [
-                GrooveRequirementOutcome((0.0, 0.0, 0.0), "?", "unverifiable", requirement_count=1)
+                GrooveRequirementOutcome(
+                    (0.0, 0.0, 0.0),
+                    UNJOINED_PARAMETER_ID,
+                    "unverifiable",
+                    requirement_count=1,
+                    # `requirement_count` is 1 because this is ONE aggregate contract outcome,
+                    # not because one measurement is missing — the comment above says the
+                    # cardinality is unknowable, and the denominator must still count the
+                    # corruption. Flagging it keeps the message from naming a number that the
+                    # count does not mean: it read "its sole physical measurement" until #1469.
+                    requirement_count_known=False,
+                )
             ]
         return [
             GrooveRequirementOutcome(
                 (0.0, 0.0, 0.0),
-                "?",
+                UNJOINED_PARAMETER_ID,
                 "unverifiable",
                 requirement_count=2,
                 source_records=(_source,),
@@ -172,7 +191,7 @@ def groove_requirement_outcomes(
             outcomes.append(
                 GrooveRequirementOutcome(
                     (0.0, 0.0, 0.0),
-                    "?",
+                    UNJOINED_PARAMETER_ID,
                     "unverifiable",
                     requirement_count=2,
                     source_records=(_source,),
@@ -187,7 +206,7 @@ def groove_requirement_outcomes(
             outcomes.append(
                 GrooveRequirementOutcome(
                     at,
-                    "?",
+                    UNJOINED_PARAMETER_ID,
                     "unverifiable",
                     requirement_count=2,
                     source_records=(_source,),
@@ -242,14 +261,8 @@ def lint_groove_coverage(
                 severity=severity,
                 code=f"groove_requirement_{outcome.state}",
                 message=(
-                    f"groove at {outcome.source_at} {_subject(outcome)} {messages[outcome.state]}"
+                    f"groove at {outcome.source_at} {requirement_subject(outcome)} {messages[outcome.state]}"
                 ),
             )
         )
     return issues
-
-
-def _subject(outcome) -> str:
-    """Name this outcome's requirement, or say plainly that no id exists (#1397)."""
-
-    return requirement_subject(outcome.parameter_id, outcome.requirement_count, noun="measurement")

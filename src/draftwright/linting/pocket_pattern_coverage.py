@@ -18,7 +18,12 @@ from b123d_recognisers import RecognitionResult
 
 from draftwright._core import _decode_hole_location_fact
 from draftwright.linting._registry import satisfaction_ids, satisfaction_of
-from draftwright.linting.issues import LintIssue, is_placement_drop, requirement_subject
+from draftwright.linting.issues import (
+    UNJOINED_PARAMETER_ID,
+    LintIssue,
+    is_placement_drop,
+    requirement_subject,
+)
 
 PocketPatternRequirementState = Literal[
     "placed",
@@ -314,7 +319,7 @@ def pocket_pattern_requirement_outcomes(
                 PocketPatternRequirementOutcome(
                     at,
                     member_count,
-                    "?",
+                    UNJOINED_PARAMETER_ID,
                     "unverifiable",
                     requirement_count=_physical_requirement_count(source),
                     members=members,
@@ -377,14 +382,8 @@ def lint_pocket_pattern_coverage(
                 code=f"pocket_pattern_requirement_{outcome.state}",
                 message=(
                     f"{outcome.member_count}-pocket pattern at {outcome.source_at} "
-                    f"{_subject(outcome)} {messages[outcome.state]}"
+                    f"{requirement_subject(outcome)} {messages[outcome.state]}"
                 ),
             )
         )
     return issues
-
-
-def _subject(outcome) -> str:
-    """Name this outcome's requirement, or say plainly that no id exists (#1397)."""
-
-    return requirement_subject(outcome.parameter_id, outcome.requirement_count, noun="measurement")

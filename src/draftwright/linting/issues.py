@@ -105,13 +105,13 @@ def _collect_issue_aggregation():
 
 #: The ``parameter_id`` a coverage module records when a recognised source matched no IR
 #: feature at all. There is no per-requirement id to name at that point — the join that
-#: would have produced one is precisely what failed — so the ledger stores a sentinel and
-#: carries the truth in ``requirement_count`` instead.
+#: would have produced one is precisely what failed — so the ledger stores this sentinel and
+#: carries the truth in ``requirement_count`` instead. Import it; do not spell the literal.
 UNJOINED_PARAMETER_ID = "?"
 
 
-def requirement_subject(parameter_id: str, requirement_count: int, *, noun: str) -> str:
-    """Name what an outcome is about, in a message that reads as a sentence subject.
+def requirement_subject(outcome, *, noun: str = "measurement") -> str:
+    """Name what an outcome is about, as a sentence subject for a coverage message.
 
     Printing the sentinel verbatim produced ``requirement ? cannot be joined to measurement
     provenance without guessing`` (#1397) — a diagnostic about guessing that required one.
@@ -121,10 +121,19 @@ def requirement_subject(parameter_id: str, requirement_count: int, *, noun: str)
 
     ``noun`` is the caller's own word (``hole_coverage`` says "requirement", every sibling
     says "measurement"), so the shared helper does not quietly relabel a module's ledger.
+
+    An outcome may set ``requirement_count_known = False`` to say the cardinality itself is
+    unknowable — ``groove_coverage``'s corrupt-inventory path is the one such site. Naming a
+    number there would invent the very count that path exists to refuse to invent, which is
+    what the first version of this helper did: it printed "its sole physical measurement" for
+    an inventory of unknown size.
     """
 
+    parameter_id = outcome.parameter_id
     if parameter_id != UNJOINED_PARAMETER_ID:
         return f"{noun} {parameter_id}"
-    if requirement_count == 1:
+    if not getattr(outcome, "requirement_count_known", True):
+        return f"its physical {noun}s, of unknown number, which no IR feature claimed,"
+    if outcome.requirement_count == 1:
         return f"its sole physical {noun}, which no IR feature claimed,"
-    return f"all {requirement_count} physical {noun}s, which no IR feature claimed,"
+    return f"all {outcome.requirement_count} physical {noun}s, which no IR feature claimed,"

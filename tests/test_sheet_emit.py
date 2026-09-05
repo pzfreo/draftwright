@@ -4170,16 +4170,21 @@ def test_the_object_reference_doc_example_actually_runs(tmp_path):
     module_src = text.split("```python", 2)[2].split("```")[0]
     declarative = text.split("## Declaring the drawing by reference")[1]
     declarative = declarative.split("```python")[1].split("```")[0]
-    assert "authored_dimensions()" in declarative, (
-        "the doc dropped its dimension source again — Sheet.build() will refuse"
-    )
+    # Assert on the EXECUTABLE line, not the substring: the snippet's own explanatory comment
+    # contains the word `authored_dimensions()`, so `"authored_dimensions()" in declarative`
+    # could not fail, and did not when the call alone was deleted.
+    assert any(
+        line.strip() == "sheet.authored_dimensions()" for line in declarative.splitlines()
+    ), "the doc dropped its dimension source again"
 
-    # Precondition: without the verb the doc adds, the example really does fail. A test that
-    # only ran the fixed snippet would pass just as well against a doc that never had the bug.
-    broken = declarative.partition("sheet.authored_dimensions()")[0] + "sheet.build()\n"
+    # Precondition: with NO dimension source at all the example really does fail, which is the
+    # state the doc shipped in. Deleting only the verb is NOT that state — a `dimension(...)`
+    # line selects the authored source by itself — so the strip has to take both.
+    broken = declarative.partition("sheet.authored_dimensions()")[0] + "sheet.build()" + chr(10)
     assert "sheet.hole(features.tap)" in broken, "the strip removed the declarations too"
+    assert "sheet.dimension(" not in broken, "a dimension() line would select the source anyway"
     script = tmp_path / "doc_example.py"
-    script.write_text(module_src + "\n" + broken, encoding="utf-8")
+    script.write_text(module_src + chr(10) + broken, encoding="utf-8")
     r = subprocess.run([sys.executable, str(script)], cwd=tmp_path, capture_output=True, text=True)
     assert r.returncode != 0 and "does not say where its dimensions come from" in r.stderr, (
         r.stderr[-800:]
@@ -4188,13 +4193,28 @@ def test_the_object_reference_doc_example_actually_runs(tmp_path):
     # And the documented snippet, run as documented, builds and reports what the doc says.
     runner = (
         module_src
-        + "\n"
+        + chr(10)
         + declarative.replace('sheet.export("thumbwheel")', "_drawing = sheet.build()")
-        + "\nfor _i in _drawing.lint():\n    print(_i.severity, _i.code)\n"
+        + chr(10)
+        + "print('PAGE', _drawing.page_w, _drawing.page_h)"
+        + chr(10)
+        + "print('SCALE', _drawing.scale)"
+        + chr(10)
+        + "print('VIEWS', [v.name for v in _drawing.view_plan.specs])"
+        + chr(10)
+        + "print('ANNOT', sorted(_drawing.annotations()))"
+        + chr(10)
+        + "for _i in _drawing.lint():"
+        + chr(10)
+        + "    print(_i.severity, _i.code)"
+        + chr(10)
     )
     script.write_text(runner, encoding="utf-8")
     r = subprocess.run([sys.executable, str(script)], cwd=tmp_path, capture_output=True, text=True)
-    assert r.returncode == 0, f"the documented example failed:\n{r.stderr[-1500:]}"
+    assert r.returncode == 0, f"the documented example failed:{chr(10)}{r.stderr[-1500:]}"
+    out = dict(
+        line.split(" ", 1) for line in r.stdout.splitlines() if line.split(" ", 1)[0].isupper()
+    )
 
     findings = sorted(
         line.split()[1]
@@ -4203,8 +4223,38 @@ def test_the_object_reference_doc_example_actually_runs(tmp_path):
     )
     assert findings == ["axial_length_missing", "hole_requirement_unverifiable"], findings
     assert not any(line.startswith("error ") for line in r.stdout.splitlines()), r.stdout
-    for promised in ("axial_length_missing", "hole_requirement_unverifiable", "no errors"):
-        assert promised in text.split("### What you should see")[1], promised
+
+    # Everything the "What you should see" section promises, pinned against the real run.
+    # These were free text until #1469: rewriting them to "A3 portrait at 5:1" and to nine
+    # invented annotation names changed no test.
+    section = text.split("### What you should see")[1].split(chr(10) + "## ")[0]
+
+    # Derive the sentence the doc must contain from the MEASURED page and scale, rather than
+    # checking that "A4" appears somewhere in the section: "A4" and "2:1" both occur in the
+    # surrounding prose, so a substring test passed with the headline rewritten to
+    # "A3 portrait at 5:1".
+    pages = {"297.0 210.0": "A4", "420.0 297.0": "A3", "594.0 420.0": "A2", "841.0 594.0": "A1"}
+    scale = float(out["SCALE"])
+    ratio = f"{scale:g}:1" if scale >= 1 else f"1:{1 / scale:g}"
+    headline = f"**{pages[out['PAGE']]} landscape at {ratio}**"
+    assert headline in section, (headline, section[:200])
+
+    views = ast.literal_eval(out["VIEWS"])
+    assert views == ["front", "side", "iso"], views
+    for view in views:
+        assert f"`{view}`" in section, view
+
+    names = sorted(ast.literal_eval(out["ANNOT"]))
+    assert len(names) == 11 and "Eleven annotations" in section, names
+    for name in names:
+        assert f"`{name}`" in section, f"{name} is on the sheet but the doc does not list it"
+
+    # The promised findings must appear in the FENCED BLOCK, not merely somewhere below it.
+    # `split("### What you should see")[1]` ran to the next heading, and the prose in between
+    # names `axial_length_missing` too — so deleting it from the quoted output changed nothing.
+    quoted = section.split("```")[1]
+    for promised in findings:
+        assert promised in quoted, f"{promised} is emitted but not in the quoted output block"
 
 
 def test_the_object_reference_doc_quotes_real_generated_output(tmp_path):

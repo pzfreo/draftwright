@@ -20,7 +20,12 @@ from typing import Literal
 from b123d_recognisers import PolygonalStock, RecognitionResult
 
 from draftwright.linting._registry import satisfaction_ids, satisfaction_of
-from draftwright.linting.issues import LintIssue, is_placement_drop, requirement_subject
+from draftwright.linting.issues import (
+    UNJOINED_PARAMETER_ID,
+    LintIssue,
+    is_placement_drop,
+    requirement_subject,
+)
 
 PolygonalStockState = Literal[
     "placed",
@@ -358,7 +363,7 @@ def polygonal_stock_outcomes(
         return [
             PolygonalStockOutcome(
                 None,
-                "?",
+                UNJOINED_PARAMETER_ID,
                 "unverifiable",
                 requirement_count=2,
                 source_records=sources,
@@ -375,7 +380,7 @@ def polygonal_stock_outcomes(
         return [
             PolygonalStockOutcome(
                 None,
-                "?",
+                UNJOINED_PARAMETER_ID,
                 "unverifiable",
                 requirement_count=2,
                 source_records=(source,),
@@ -404,7 +409,7 @@ def polygonal_stock_outcomes(
         return [
             PolygonalStockOutcome(
                 at,
-                "?",
+                UNJOINED_PARAMETER_ID,
                 "unverifiable",
                 requirement_count=2,
                 source_records=(source,),
@@ -460,14 +465,8 @@ def lint_polygonal_stock_coverage(
                 severity=severity,
                 code=f"polygonal_stock_requirement_{outcome.state}",
                 message=(
-                    f"polygonal stock {location} {_subject(outcome)} {messages[outcome.state]}"
+                    f"polygonal stock {location} {requirement_subject(outcome)} {messages[outcome.state]}"
                 ),
             )
         )
     return issues
-
-
-def _subject(outcome) -> str:
-    """Name this outcome's requirement, or say plainly that no id exists (#1397)."""
-
-    return requirement_subject(outcome.parameter_id, outcome.requirement_count, noun="measurement")
