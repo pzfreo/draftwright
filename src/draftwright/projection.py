@@ -529,19 +529,30 @@ def _fit_iso_view(dwg, a: Analysis, obstacles=()):
         # page region, so it must shrink whatever else is nearby, and a resulting collision is
         # reported by `view_annotation_overlap` rather than prevented here (#1240 review F3).
         factor = math.floor(needed * 0.98 * 10000) / 10000
-    if factor <= 0.0:
-        # One guard, at the boundary it protects rather than at the condition that causes it.
-        # `extent > 0` filters the ratio's numerator; nothing filters its counterpart, so a
-        # collapsed or inverted zone yields a non-positive factor — a section sharing the iso's
-        # y-range raises `region_left` with no upper bound and can pass `iso_right_limit`. OCC
-        # answers that three ways: zero raises `Standard_Failure` on macOS, raises
-        # `Standard_ConstructionError` on Linux (a class that does NOT subclass
-        # `Standard_Failure`, so the caller's handler misses it and the build aborts), and a
-        # NEGATIVE factor is accepted silently, mirroring the iso onto a delivered sheet. All
-        # three are one layout fact, known here, before any transform: leave the iso at sheet
-        # scale and let the candidate search continue (#1395).
-        _log.info(
-            "Iso zone %.3f × %.3f mm admits no positive scale (%g); leaving it at sheet scale",
+    if not factor > 0.0:
+        # One guard, at the boundary it protects. `extent > 0` filters the ratio's numerator;
+        # nothing filters its counterpart, so a zone with no room yields a non-positive factor.
+        # Spelled `not factor > 0.0` rather than `factor <= 0.0` so NaN is refused too: OCC
+        # accepts a NaN scale silently, and `NaN <= 0.0` is False.
+        #
+        # Two ways a zone ends up with no room, and the REPORTED one is not the section bump:
+        # `_largest_empty_rect` answers "no gap" with a floating-point sliver (#1395's own trace
+        # is 136 x 1.4e-14 mm — full width, zero height), and separately a section sharing the
+        # iso's y-range raises `region_left` with no upper bound, which can pass
+        # `iso_right_limit` and invert the width.
+        #
+        # This is strictly stronger than checking the zone's shape: it also catches a positive
+        # but vanishing `needed` (1e-9 rounds to a 0.0 factor at 4 dp), which no shape check
+        # would see.
+        #
+        # It matters because OCC answers a non-positive scale three ways: zero raises
+        # `Standard_Failure` on macOS, raises `Standard_ConstructionError` on Linux (a class
+        # that does NOT subclass `Standard_Failure`), and a NEGATIVE factor is accepted
+        # silently, mirroring the iso onto a delivered sheet. Whether either exception is caught
+        # depends on where the fit runs: the candidate-build handlers do not cover
+        # `_settle_iso_view`, so on that path the zero case aborts the build on macOS too.
+        _log.warning(
+            "Iso zone %.3f x %.3f mm admits no positive scale (%g); leaving it at sheet scale",
             region[2] - region[0],
             region[3] - region[1],
             factor,
