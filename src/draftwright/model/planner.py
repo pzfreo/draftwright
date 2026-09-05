@@ -521,7 +521,7 @@ def _decorated(model: PartModel, feature: Feature, param: DimParameter) -> DimPa
     from draftwright.model.ir import NominalRequirement, ToleranceDecoration
 
     nominal = model.decorations.get((feature, "nominal_requirement", param.parameter_id))
-    if isinstance(nominal, NominalRequirement) and abs(float(param.value) - nominal.value) > 1e-6:
+    if isinstance(nominal, NominalRequirement) and not nominal.agrees_with(param.value):
         raise ValueError(
             f"{nominal.source} nominal requirement {nominal.value:g} disagrees with "
             f"{param.parameter_id}={param.value:g}"
