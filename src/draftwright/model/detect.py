@@ -142,7 +142,13 @@ from draftwright.recognition_frame import (
     groove_owns_turned_step_band,
     require_unambiguous_groove_owner,
 )
-from draftwright.recognition_ownership import RecognitionOwnershipBuilder
+from draftwright.recognition_ownership import (
+    BOSS_BLEND_DIAMETER_TOL,
+    RecognitionOwnershipBuilder,
+    boss_blend_owner_pairs,
+    boss_fills_footprint,
+    envelope_is_emittable,
+)
 
 
 def _member_hole(h, frame: Frame, members: tuple = (), count: int = 1) -> HoleFeature:
@@ -1828,8 +1834,26 @@ def build_part_model(
     pending_boss_owners: list[tuple[object, object, str]] = []
     if polygonal_stock is None:
         polygonal_stock = recognise_polygonal_stock(part)
-    envelope_emittable = bool(
-        not profiles and not _is_round(bbox, bosses_d) and not polygonal_stock
+    envelope_emittable = envelope_is_emittable(
+        bbox=bbox,
+        bosses=bosses_d,
+        turned_profiles=profiles,
+        polygonal_stock=polygonal_stock,
+    )
+    boss_blend_owner_by_id = (
+        {
+            id(boss): blend
+            for boss, blend in boss_blend_owner_pairs(
+                recognition_evidence,
+                tuple(bosses),
+                tuple(blends),
+                bbox=bbox,
+                envelope_emittable=envelope_emittable,
+                diameter_tolerance=BOSS_BLEND_DIAMETER_TOL,
+            )
+        }
+        if recognition_evidence is not None
+        else {}
     )
     if through_steps is None:
         # Match RecognitionResult applicability on the standalone path. A supplied aggregate
@@ -2260,6 +2284,9 @@ def build_part_model(
         boss_step_candidates: list[tuple[object, tuple[object, ...]]] = []
         boss_groove_candidates: list[tuple[object, tuple[object, ...]]] = []
         for b in bosses:
+            if owner_blend := boss_blend_owner_by_id.get(id(b)):
+                pending_boss_owners.append((b, owner_blend, "boss_blend_owner"))
+                continue
             axis = _axis_letter(b)
             axis_index = "xyz".index(axis)
             b_lo, b_hi = sorted(
@@ -2317,8 +2344,20 @@ def build_part_model(
                 if len(candidates) == 1 and groove_claim_counts[id(candidates[0])] == 1
             )
     else:
+        remaining_boss_groups = []
+        for group in boss_groups:
+            remaining = []
+            for boss in group:
+                if owner_blend := boss_blend_owner_by_id.get(id(boss)):
+                    pending_boss_owners.append((boss, owner_blend, "boss_blend_owner"))
+                else:
+                    remaining.append(boss)
+            if remaining:
+                remaining_boss_groups.append(remaining)
         boss_groove_candidates = [
-            (boss, _boss_groove_floor_candidates(boss, grooves)) for boss in bosses
+            (boss, _boss_groove_floor_candidates(boss, grooves))
+            for group in remaining_boss_groups
+            for boss in group
         ]
         groove_claim_counts = Counter(
             id(candidate) for _, candidates in boss_groove_candidates for candidate in candidates
@@ -2326,7 +2365,7 @@ def build_part_model(
         groove_candidates_by_boss_id = {
             id(boss): candidates for boss, candidates in boss_groove_candidates
         }
-        for group in boss_groups:
+        for group in remaining_boss_groups:
             b = group[0]
             # A grooved round body can still fail the turned-step squareness gate (e.g. a
             # shaft with a rectangular flange) and land here with prof=None. Suppress the
@@ -2611,12 +2650,18 @@ def build_part_model(
                     )
 
     if ownership is not None:
-        # A turned step is the more specific correspondence. Resolve it before the direct
-        # groove-floor fallback so the builder's final-owner cardinality guard leaves a
-        # disconnected same-diameter boss honestly missing rather than crediting both.
+        # Same-face blends and turned steps are more specific correspondences. Resolve them
+        # before the direct groove-floor fallback so the builder's final-owner cardinality
+        # guard leaves a disconnected same-diameter boss honestly missing rather than
+        # crediting both.
+        owner_precedence = {
+            "boss_blend_owner": 0,
+            "boss_turned_step_owner": 1,
+            "boss_groove_owner": 2,
+        }
         ordered_boss_owners = sorted(
             pending_boss_owners,
-            key=lambda pending: pending[2] != "boss_turned_step_owner",
+            key=lambda pending: owner_precedence[pending[2]],
         )
         for boss_record, owner_record, reason_code in ordered_boss_owners:
             if ownership.has_owner(owner_record) and not ownership.has_chained_dependent(
@@ -2659,8 +2704,9 @@ def build_part_model(
 
 def _is_round(bbox, bosses, tol: float = 0.5) -> bool:
     """True when a boss's OD fills the part footprint — a round body of revolution,
-    dimensioned by its OD rather than a width×depth box."""
-    return any(
-        abs(b.diameter - bbox.size.X) <= tol and abs(b.diameter - bbox.size.Y) <= tol
-        for b in bosses
-    )
+    dimensioned by its OD rather than a width×depth box.
+
+    Delegates so that `linting.coverage`, which cannot import `model`, shares this exact
+    predicate rather than keeping a second copy of its body and its tolerance.
+    """
+    return boss_fills_footprint(bbox, bosses, tol)
