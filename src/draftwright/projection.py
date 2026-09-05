@@ -529,6 +529,42 @@ def _fit_iso_view(dwg, a: Analysis, obstacles=()):
         # page region, so it must shrink whatever else is nearby, and a resulting collision is
         # reported by `view_annotation_overlap` rather than prevented here (#1240 review F3).
         factor = math.floor(needed * 0.98 * 10000) / 10000
+    if not factor > 0.0:
+        # One guard, at the boundary it protects. `extent > 0` filters the ratio's DENOMINATOR;
+        # nothing bounds the available side above it, so a zone with no room yields a
+        # non-positive factor — the sign comes from `avail`, which is never checked.
+        # Spelled `not factor > 0.0` rather than `factor <= 0.0` so NaN is refused too: OCC
+        # accepts a NaN scale silently, and `NaN <= 0.0` is False.
+        #
+        # Two ways a zone ends up with no room, and the REPORTED one is not the section bump:
+        # `_largest_empty_rect` answers "no gap" with a floating-point sliver (#1395's own trace
+        # is 136 x 1.4e-14 mm — full width, zero height), and separately a section sharing the
+        # iso's y-range raises `region_left` with no upper bound, which can pass
+        # `iso_right_limit` and invert the width.
+        #
+        # Chosen over an equivalent check on the zone's shape, which an earlier cut also had.
+        # Neither strictly contains the other: this one additionally catches a positive but
+        # vanishing `needed` (1e-9 rounds to a 0.0 factor at 4 dp), while a shape check would
+        # additionally catch an inverted zone whose iso bbox has zero extent on the inverted
+        # axis, so `extent > 0` filters both offending ratios. That second case needs a
+        # projected solid whose isometric bbox is a line and has never been observed; the
+        # first is the one the corpus actually produces, so one guard here is enough.
+        #
+        # It matters because OCC answers a non-positive scale three ways: zero raises
+        # `Standard_Failure` on macOS, raises `Standard_ConstructionError` on Linux (a class
+        # that does NOT subclass `Standard_Failure`), and a NEGATIVE factor is accepted
+        # silently, mirroring the iso onto a delivered sheet. Whether either exception is caught
+        # depends on where the fit runs. The `except (ValueError, Standard_Failure)` sites wrap
+        # `_build(...)`, so they DO cover a fit inside a candidate build; the requested-scale
+        # build reaches `_settle_iso_view` outside them, and on that path the zero case aborts
+        # the build on macOS too.
+        _log.warning(
+            "Iso zone %.3f x %.3f mm admits no positive scale (%g); leaving it at sheet scale",
+            region[2] - region[0],
+            region[3] - region[1],
+            factor,
+        )
+        return
     if abs(factor - 1.0) < 0.05:
         # Undo the probes ONLY here: every other exit re-projects at `factor` below, so the
         # restore would be a wasted projection — and on CTC-01 a projection is 14 ms.

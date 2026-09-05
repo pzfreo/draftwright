@@ -195,6 +195,21 @@ def _settle_iso_view(dwg: Drawing, a: Analysis, *, obstacles=()):
         a.iso_right_limit,
         a.iso_top_limit,
     )
+    if region[2] <= region[0] or region[3] <= region[1]:
+        # The zone the engine composed has no room at all — the `_largest_empty_rect` sliver
+        # case of #1395. Reporting that as an infeasible *authored* scale states a falsehood
+        # about the caller's input: no ordinary authored scale fits a zone of zero extent.
+        #
+        # Scope, stated because the sibling guard in `projection` covers more: this path builds
+        # `region` from the RAW `a.iso_*_limit` and applies no section bump, so a zone inverted
+        # by a section crossing `iso_right_limit` is invisible here. Sharing one region helper
+        # between the two paths would close that; it is a wider change than this fix.
+        _log.warning(
+            "Iso zone %.3f x %.3f mm has no room for any scale; leaving the authored iso as projected",
+            region[2] - region[0],
+            region[3] - region[1],
+        )
+        return bb
     if not _bbox_within(bb, region):
         source = None
         constraints = a.view_constraints
