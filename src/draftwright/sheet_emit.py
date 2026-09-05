@@ -63,7 +63,7 @@ from draftwright.model.ir import (
     ThreadRequirement,
     ToleranceDecoration,
 )
-from draftwright.reporting import _write_report_document
+from draftwright.reporting import write_json_document
 from draftwright.view_plan import ViewConstraints
 
 _log = logging.getLogger(__name__)
@@ -2499,7 +2499,7 @@ def generate_sheet_script(
     Path(py_path).write_text(script, encoding="utf-8")  # the script has box-drawing / × / ← glyphs
     sidecar = inspection_sidecar_path(py_path)
     if inspection is not None:
-        _write_report_document(inspection, sidecar)
+        write_json_document(inspection, sidecar)
     elif _is_inspection_document(sidecar):
         # An earlier run's document left beside a freshly generated script is evidence about a
         # different part, and nothing in it would say so. Only a document this tool wrote is

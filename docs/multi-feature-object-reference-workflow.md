@@ -4,9 +4,10 @@ The README's ["From a part to an object-referenced script"](../README.md#from-a-
 section shows the pattern in miniature: expose a `features` object from your build123d
 source, then reference its members (`features.journal`, `features.m3_bore`) instead of
 restating detected numbers. This doc is a complete, runnable version of that pattern
-applied to a real multi-feature turned part, plus two things the miniature example
-doesn't surface: external threads have no `.thread()` equivalent, and object-sourcing a
-script re-runs your *full* build — pick the cheap geometry variant if your source has one.
+applied to a real multi-feature turned part, plus three things the miniature example
+doesn't surface: a spec must be a **zero-arg** callable, external threads have no
+`.thread()` equivalent, and object-sourcing a script re-runs your *full* build — pick the
+cheap geometry variant if your source has one.
 
 ## Starting point: a builder that returns one fused `Part`
 
@@ -142,11 +143,26 @@ from draftwright import Sheet
 features = build_thumbwheel_features()
 sheet = Sheet(features.body, title="THUMBWHEEL", number="DWG-001")
 
-sheet.step(features.journal)
-sheet.step(features.boss)
-sheet.step(features.disc)
-sheet.hole(features.tap).thread("M2x0.4")     # internal (tapped) thread
-sheet.step(features.thread).note("M3×0.5")    # external thread — see below
+journal = sheet.step(features.journal)
+boss = sheet.step(features.boss)
+disc = sheet.step(features.disc)
+tap = sheet.hole(features.tap)                # the cutter, not a bore — see below
+tap.thread("M2×0.4")                          # internal (tapped) thread
+ext = sheet.step(features.thread)
+ext.note("M3×0.5")                            # external thread — see below
+
+# Say where the dimensions come from. `authored_dimensions()` declares that the lines
+# below are the COMPLETE set, so anything not listed is omitted on purpose (ADR 4).
+# A `dimension(...)` line selects the authored source on its own, so the verb is not
+# what makes this build; it is how a complete-but-EMPTY set says so, and it states the
+# intent for a reader. Building with NEITHER the verb nor a `dimension(...)` line — as
+# this example did before #1469 — raises `ValueError`.
+sheet.authored_dimensions()
+sheet.dimension(tap, "bore.diameter")
+sheet.dimension(tap, "location")
+for handle in (journal, boss, disc, ext):
+    sheet.dimension(handle, "step.diameter")
+sheet.dimension(journal, "step.length")
 
 sheet.export("thumbwheel")                    # writes thumbwheel.pdf
 ```
@@ -154,21 +170,88 @@ sheet.export("thumbwheel")                    # writes thumbwheel.pdf
 Run the two snippets above as one file and it produces a real drawing end to end — no
 gramel, no STEP file, nothing else required beyond `draftwright` and `build123d`.
 
+### What you should see
+
+Measured from the snippet above on 2026-09-05 (draftwright 0.4.x, `Sheet.build()`):
+
+- **A4 landscape at 2:1**, chosen automatically — the part is 20 mm long.
+- **Two orthographic views plus an isometric**: `front` (x–z) and `side` (y–z), then `iso`.
+  Two, not three: the part is rotational about x, so a top view (x–y) would show the same
+  profile as the front (x–z). The side view is the circular end view, and carries the
+  diameters.
+- **Eleven annotations.** `Drawing.annotations()` names them, which is the quickest way to
+  confirm the run did what you asked. In full: `m_dia_x0`, `m_dia_x1`, `m_dia_x2`,
+  `m_dia_x3` (the four turned diameters), `m_steplen0` (the journal's length), `hc_side0`
+  (the `M2×0.4` tap callout, on the side view), `m_gdt0` (the `M3×0.5` note),
+  `centerline_front`, `m_cm0`, `title_block` and `note_iso_nts`.
+- **Two `warning`-level lint notes, and no errors.** Both are correct reports about this
+  deliberately-short example, not failures of the workflow:
+
+  ```
+  axial_length_missing        turned part has 4 axial steps but only 1 step length(s)
+                              dimensioned — shoulders cannot be located
+  hole_requirement_unverifiable
+                              hole at (0.8, 0.0, 0.0) all 4 physical requirements, which
+                              no IR feature claimed, cannot be joined to measurement
+                              provenance without guessing
+  ```
+
+  The first is the authored-set contract working: only one `step.length` was declared, so
+  the other three shoulders are unlocated and Draftwright says so rather than inventing
+  them. Declaring the other three does **not** clear it — measured, the four shoulders are
+  then too close together to dimension at 2:1 on A4, the chain is dropped whole, and you get
+  `axial_length_missing` (now 0 of 4 dimensioned) plus `warning step_dim_dropped` and
+  `error plan_incomplete`. Widening the page or dropping the scale is the real fix; this is
+  a four-shoulder part 20 mm long. The second warning is explained under
+  [Why `sheet.hole(features.tap)` works](#why-sheethofeatures-tap-works) below.
+
+  Neither of the two is an `error`. `plan_incomplete` is what an error looks like.
+
+## Why `sheet.hole(features.tap)` works
+
+`features.tap` is the **cutter** — the cylinder that was subtracted (`body = body - tap`).
+It is not a bore in the finished solid. `sheet.hole(...)` reads ⌀, axis and location off
+that tool object, which is the whole trick: the subtraction tool is the only thing that
+still knows the *intent* ("an M2 tap here, on this axis"), and the fused solid does not. So
+you reference the tool, not the hole it left. The same applies to
+`sheet.step(features.thread)`: an external thread is declared from the reference cylinder
+that made it.
+
+That is also why `hole_requirement_unverifiable` shows up above — and it is worth seeing
+exactly what disagrees, because "reference the tool" is not free. Measured on this part:
+
+| | anchor | depth | end condition |
+| --- | --- | --- | --- |
+| declared, from `features.tap` | `(-3.2, 0, 0)` | `None` | `through=True` |
+| recognised, from the solid | `(0.8, 0, 0)` | `8.0` | flat-bottomed (blind) |
+
+Both describe the same 8 mm of cylinder, and they are still not the same feature. A cutter
+is positioned and sized for cutting, so it is anchored where the tool starts rather than at
+the bore's mouth, and it has no end condition of its own — `through` is a property of the
+tool's sweep, not of the part. Draftwright will not assert that these two are one feature
+without a join it can prove, so it reports the requirement as unattributable instead. That
+refusal is the point: the alternative is a confident wrong provenance.
+
 ## Gotcha: `.thread()` only exists on holes
 
 `_Hole.thread(spec)` folds a tap/thread callout onto a **bore** — there is no equivalent on
 `_Dim` (the handle returned by `sheet.step(...)` / `sheet.diameter(...)`). The tapped
-`features.tap` hole above takes `.thread("M2x0.4")` directly. `features.thread` is an
+`features.tap` hole above takes `.thread("M2×0.4")` directly. `features.thread` is an
 **external** thread — a turned major-diameter cylinder, not a bore — so it's declared as a
 step, and the designation goes on a `.note(...)` instead:
 
 ```python
 sheet.step(features.thread).note("M3×0.5")   # external thread: no .thread() for a step
-sheet.hole(features.tap).thread("M2x0.4")    # internal (tapped) thread: use .thread()
+sheet.hole(features.tap).thread("M2×0.4")    # internal (tapped) thread: use .thread()
 ```
 
 Both render as a leader callout next to the feature; only the tapped-hole one is the
-structured `.thread()` aspect that also folds onto `.finish(...)` (Ra-on-thread, #764).
+structured `.thread()` aspect that also folds onto `.finish(...)` (Ra-on-thread).
+
+`sheet.diameter(...)` is the other verb that returns a `_Dim`. Use `step(...)` for a turned
+segment that has a **length** as well as a diameter — a shoulder the drawing must locate —
+and `diameter(...)` when only the diameter is a requirement. `step` is what you want for
+every cylinder in this example.
 
 ## Gotcha: object-sourcing rebuilds your *full* source, every run
 
@@ -186,10 +269,15 @@ variant explicitly inside your zero-arg factory rather than relying on whatever 
 builder's default happens to be:
 
 ```python
+# Illustrative, not runnable: `build_my_part_features` is YOUR parametrised builder, and
+# `default_params()` / `.model_copy(...)` assume a Pydantic-v2 params model. The point is
+# the shape — the zero-arg factory pins the cheap variant explicitly — not this API.
+# `build_thumbwheel_features` above is deliberately a DIFFERENT, zero-arg function; a spec
+# must be zero-arg, which is why the parametrised one needs this wrapper at all.
 def make_part():
-    params = default_params()
-    params = params.model_copy(update={"process": params.process.model_copy(update={"prototype": False})})
-    return build_thumbwheel_features(params).body
+    params = default_params()                       # your own params object
+    params = params.with_prototype(False)           # however yours spells "cheap variant"
+    return build_my_part_features(params).body      # your parametrised builder
 ```
 
 If a `draftwright ... --script` invocation against an object spec is taking minutes rather

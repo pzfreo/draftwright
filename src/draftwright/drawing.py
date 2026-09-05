@@ -1085,9 +1085,9 @@ class Drawing:
         artefact.
         """
 
-        from draftwright.reporting import _write_report_document
+        from draftwright.reporting import write_json_document
 
-        return _write_report_document(self.report(), path)
+        return write_json_document(self.report(), path)
 
     # --- build-context compat properties (#639): one BuildState, thin views.
     # _part_model and the two caches are GETTER-ONLY by design (#691 review):

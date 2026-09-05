@@ -361,7 +361,7 @@ def test_a_refused_occurrence_ledger_surfaces_as_an_inspection_failure(monkeypat
             "accepted occurrence family 'x' has no reportable disposition"
         )
 
-    monkeypatch.setattr(inspection_module, "_occurrences", refuse)
+    monkeypatch.setattr(inspection_module, "project_occurrences", refuse)
 
     with pytest.raises(InspectionUnavailableError, match="no reportable disposition") as caught:
         inspect_step(_PLATE_FIXTURE)

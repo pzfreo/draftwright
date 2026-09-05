@@ -36,9 +36,9 @@ from typing import TYPE_CHECKING, Any, cast
 from draftwright.reporting import (
     JsonValue,
     ReportUnavailableError,
-    _json_value,
-    _occurrences,
-    _producer,
+    json_value,
+    producer,
+    project_occurrences,
 )
 
 if TYPE_CHECKING:  # typing only — naming these must not cost the CAD kernel at import
@@ -78,7 +78,7 @@ def _json_value_or_refuse(value: Any) -> Any:
     """
 
     try:
-        return _json_value(value)
+        return json_value(value)
     except ValueError as error:
         raise InspectionUnavailableError(f"a value cannot be stated as JSON: {error}") from error
 
@@ -122,7 +122,7 @@ def _faces(evidence, references) -> list[dict[str, Any]]:
     """
 
     described = [_face(evidence.face(reference)) for reference in references]
-    # One strict-JSON gate, not two: this sort key rejected NaN independently of `_json_value`
+    # One strict-JSON gate, not two: this sort key rejected NaN independently of `json_value`
     # and escaped as a bare `ValueError`, outside the documented failure contract.
     return sorted(described, key=lambda item: json.dumps(_json_value_or_refuse(item)))
 
@@ -136,7 +136,7 @@ def _found(evidence, ownership, model) -> list[dict[str, Any]]:
     """
 
     try:
-        occurrences, _requirements, _summary = _occurrences(evidence, ownership, model)
+        occurrences, _requirements, _summary = project_occurrences(evidence, ownership, model)
     except ReportUnavailableError as error:
         raise InspectionUnavailableError(str(error)) from error
 
@@ -198,6 +198,13 @@ def inspect_step(path: str | PathLike[str]) -> dict[str, JsonValue]:
     ownership are reused as-is. No drawing build, view projection, annotation placement, render,
     export or physical lint path runs.
 
+    It does, however, share the engine's ONE detect seam, which sizes the part while
+    detecting, so some scale-selection and dimension-planning work is done and discarded.
+    Measured, that is about 0.02% of an inspection — the cost is recognition and STEP
+    parsing — so the shared seam stays rather than growing a second one that could not be
+    checked against the drawing path. Evidence and method:
+    `docs/research/1462-inspect-seam-cost.md`.
+
     Raises:
         OSError: the path could not be read (missing, a directory, permissions).
         InspectionUnavailableError: the bytes are not a readable solid STEP body, or the run
@@ -254,7 +261,7 @@ def _document(
             "name": source_name,
             "sha256": hashlib.sha256(source_bytes).hexdigest(),
         },
-        "producer": _producer(),
+        "producer": producer(),
         # The run options that determined the content below. Without this, two documents over
         # identical bytes can disagree and neither says why.
         "run": {"pmi_mode": pmi_mode},

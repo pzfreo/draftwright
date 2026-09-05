@@ -16,7 +16,12 @@ from b123d_recognisers import RecognitionResult
 
 from draftwright._core import _decode_hole_location_fact
 from draftwright.linting._registry import satisfaction_ids, satisfaction_of
-from draftwright.linting.issues import LintIssue, is_placement_drop
+from draftwright.linting.issues import (
+    UNJOINED_PARAMETER_ID,
+    LintIssue,
+    is_placement_drop,
+    requirement_subject,
+)
 
 _POCKET_LOCATION_DATUM_COINCIDENT_CODE = "pocket_location_coincident_with_datum"
 
@@ -245,7 +250,7 @@ def pocket_requirement_outcomes(
             outcomes.append(
                 PocketRequirementOutcome(
                     at,
-                    "?",
+                    UNJOINED_PARAMETER_ID,
                     "unverifiable",
                     requirement_count=_physical_requirement_count(source),
                     source_records=(source,),
@@ -320,7 +325,7 @@ def lint_pocket_coverage(
                 severity=severity,
                 code=f"pocket_requirement_{outcome.state}",
                 message=(
-                    f"blind pocket at {outcome.source_at} measurement {outcome.parameter_id} "
+                    f"blind pocket at {outcome.source_at} {requirement_subject(outcome)} "
                     f"{messages[outcome.state]}"
                 ),
             )

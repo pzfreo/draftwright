@@ -19,7 +19,12 @@ from b123d_recognisers import RecognitionResult
 
 from draftwright._core import _decode_hole_location_fact
 from draftwright.linting._registry import satisfaction_ids, satisfaction_of
-from draftwright.linting.issues import LintIssue, is_placement_drop
+from draftwright.linting.issues import (
+    UNJOINED_PARAMETER_ID,
+    LintIssue,
+    is_placement_drop,
+    requirement_subject,
+)
 
 _PAD_LOCATION_DATUM_COINCIDENT_CODE = "pad_location_coincident_with_datum"
 _PAD_PLANE_AXES = {"x": ("y", "z"), "y": ("z", "x"), "z": ("x", "y")}
@@ -323,7 +328,7 @@ def pad_requirement_outcomes(
             outcomes.append(
                 PadRequirementOutcome(
                     at,
-                    "?",
+                    UNJOINED_PARAMETER_ID,
                     "unverifiable",
                     requirement_count=5,
                     source_records=(source,),
@@ -386,7 +391,7 @@ def lint_pad_coverage(
                 severity=severity,
                 code=f"pad_requirement_{outcome.state}",
                 message=(
-                    f"raised pad at {outcome.source_at} measurement {outcome.parameter_id} "
+                    f"raised pad at {outcome.source_at} {requirement_subject(outcome)} "
                     f"{messages[outcome.state]}"
                 ),
             )

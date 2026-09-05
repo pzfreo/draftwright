@@ -18,7 +18,7 @@ from typing import Literal
 from b123d_recognisers import RecognitionResult, TurnedProfile, TurnedProfileKey
 
 from draftwright.linting._registry import satisfaction_ids, satisfaction_of
-from draftwright.linting.issues import is_placement_drop
+from draftwright.linting.issues import UNJOINED_PARAMETER_ID, is_placement_drop
 from draftwright.recognition_frame import (
     AmbiguousTurnedOwnershipError,
     groove_owns_turned_step_band,
@@ -323,7 +323,7 @@ def turned_step_requirement_outcomes(
             # tuple.  This is one aggregate contract outcome, not an invented physical band.
             return [
                 TurnedStepRequirementOutcome(
-                    None, None, None, "?", "unverifiable", requirement_count=1
+                    None, None, None, UNJOINED_PARAMETER_ID, "unverifiable", requirement_count=1
                 )
             ]
     if not isinstance(raw_step_inventory, tuple) or not isinstance(recognition.grooves, tuple):
