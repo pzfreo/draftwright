@@ -530,8 +530,9 @@ def _fit_iso_view(dwg, a: Analysis, obstacles=()):
         # reported by `view_annotation_overlap` rather than prevented here (#1240 review F3).
         factor = math.floor(needed * 0.98 * 10000) / 10000
     if not factor > 0.0:
-        # One guard, at the boundary it protects. `extent > 0` filters the ratio's numerator;
-        # nothing filters its counterpart, so a zone with no room yields a non-positive factor.
+        # One guard, at the boundary it protects. `extent > 0` filters the ratio's DENOMINATOR;
+        # nothing bounds the available side above it, so a zone with no room yields a
+        # non-positive factor — the sign comes from `avail`, which is never checked.
         # Spelled `not factor > 0.0` rather than `factor <= 0.0` so NaN is refused too: OCC
         # accepts a NaN scale silently, and `NaN <= 0.0` is False.
         #
@@ -553,8 +554,10 @@ def _fit_iso_view(dwg, a: Analysis, obstacles=()):
         # `Standard_Failure` on macOS, raises `Standard_ConstructionError` on Linux (a class
         # that does NOT subclass `Standard_Failure`), and a NEGATIVE factor is accepted
         # silently, mirroring the iso onto a delivered sheet. Whether either exception is caught
-        # depends on where the fit runs: the candidate-build handlers do not cover
-        # `_settle_iso_view`, so on that path the zero case aborts the build on macOS too.
+        # depends on where the fit runs. The `except (ValueError, Standard_Failure)` sites wrap
+        # `_build(...)`, so they DO cover a fit inside a candidate build; the requested-scale
+        # build reaches `_settle_iso_view` outside them, and on that path the zero case aborts
+        # the build on macOS too.
         _log.warning(
             "Iso zone %.3f x %.3f mm admits no positive scale (%g); leaving it at sheet scale",
             region[2] - region[0],

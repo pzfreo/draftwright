@@ -1,8 +1,8 @@
 """A degenerate iso zone is a layout fact, not an OCC exception (#1395).
 
-`_fit_iso_view` scales the isometric to fit its page zone. `extent > 0` filters the ratio's
-numerator; nothing filtered its counterpart, so a zone with no room yielded a non-positive
-factor and handed it to `gp_Trsf.SetScale`. Measured, OCC answers that three ways:
+`_fit_iso_view` scales the isometric to fit its page zone by `avail / extent`. `extent > 0`
+filters the DENOMINATOR; nothing bounded the available side, so a zone with no room yielded a
+non-positive factor and handed it to `gp_Trsf.SetScale`. Measured, OCC answers that three ways:
 
 | factor | OCC |
 | --- | --- |
@@ -11,10 +11,10 @@ factor and handed it to `gp_Trsf.SetScale`. Measured, OCC answers that three way
 | negative | **accepted** — the iso is mirrored through the origin, silently, on every platform |
 
 Whether either exception is caught depends on *where* the fit runs. The
-`except (ValueError, Standard_Failure)` handlers in `builder` wrap **candidate** builds only;
-the requested-scale build reaches `_settle_iso_view` outside them, so on that path the zero
-case aborts `build_drawing` on macOS too — verified below, not assumed. The Linux case
-additionally escapes even inside a candidate build, because its class is not caught at all.
+`except (ValueError, Standard_Failure)` handlers wrap `_build(...)`, so they do cover a fit
+inside a candidate build — but the requested-scale build reaches `_settle_iso_view` outside
+them, so on that path the zero case aborts `build_drawing` on macOS too, verified below. The
+Linux case escapes even inside a candidate, because its class is not caught at all.
 
 The negative case is the worst of the three and the issue's own reproduction cannot reach it:
 both failures it reports are the zero one.
@@ -162,8 +162,10 @@ def test_a_zone_with_no_room_hands_no_scale_to_the_transform(
     assert "admits no positive scale" in _zone_log.text, (
         f"{name}: something other than the degenerate-zone guard returned first"
     )
-    assert f"{unguarded_factor:g}" in _zone_log.text, (
-        f"{name}: expected the guard to report factor {unguarded_factor:g}"
+    assert f"scale ({unguarded_factor:g})" in _zone_log.text, (
+        f"{name}: expected the guard to report factor {unguarded_factor:g}. Matched against the "
+        "parenthesised field, not the bare number: the zone dimensions already contain '0', so a "
+        "bare match was vacuous for the two zero cases."
     )
 
 
