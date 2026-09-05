@@ -30,6 +30,9 @@ _FIXTURES = Path(__file__).parent / "fixtures"
 _PMI_FIXTURE = _FIXTURES / "grm03_thumbwheel_drive_screw_ap242_pmi.step"
 _PLATE_FIXTURE = _FIXTURES / "grm04_drive_plate.step"
 _PLAIN_FIXTURE = _FIXTURES / "evaluation" / "plain-block.step"
+# The only fixture measured to lower AP242 PMI onto hole ownership, which is what makes the
+# two run modes disagree about what Draftwright did.
+_UNLOWERED_PMI_FIXTURE = _FIXTURES / "nist_ctc_01_asme1_ap242.stp"
 _SCHEMA_PATH = (
     Path(__file__).parents[1] / "docs/reference/draftwright-step-inspection-v1.schema.json"
 )
@@ -534,9 +537,56 @@ def test_generating_a_script_writes_the_document_beside_it(tmp_path, monkeypatch
     assert sidecar.name == "drawing.draftwright-inspection.json"
     document = json.loads(sidecar.read_text(encoding="utf-8"))
     _validate(document)
+    assert document["run"] == {"pmi_mode": "off"}
     assert document == inspect_step(tmp_path / "part.step"), (
-        "the sidecar must be what inspect_step produces for the same bytes"
+        "at the same run options the sidecar must be what inspect_step produces"
     )
+
+
+def test_the_document_records_the_run_options_that_determined_it(tmp_path, monkeypatch) -> None:
+    """Two runs over identical bytes can disagree, so the document must say why.
+
+    PMI lowering rewrites a grouped hole member into a singleton owner, which changes what
+    this document says Draftwright did with a finding. `source.sha256` alone would imply a
+    reproducibility the document does not have.
+    """
+
+    source = tmp_path / "part.stp"
+    source.write_bytes(_UNLOWERED_PMI_FIXTURE.read_bytes())
+    monkeypatch.chdir(tmp_path)
+    from draftwright.sheet_emit import generate_sheet_script, inspection_sidecar_path
+
+    documents = {}
+    for mode in ("off", "annotate"):
+        script = generate_sheet_script("part.stp", out=f"g_{mode}", pmi=mode)
+        documents[mode] = json.loads(
+            Path(inspection_sidecar_path(script)).read_text(encoding="utf-8")
+        )
+
+    off, annotate = documents["off"], documents["annotate"]
+    _validate(off)
+    _validate(annotate)
+    assert off["source"] == annotate["source"], "fixture precondition: identical bytes"
+    assert off["producer"] == annotate["producer"], "fixture precondition: identical producer"
+    assert off["found"] != annotate["found"], (
+        "fixture precondition: this part must actually lower PMI onto hole ownership, or the "
+        "guard proves nothing"
+    )
+    assert off["run"] == {"pmi_mode": "off"}
+    assert annotate["run"] == {"pmi_mode": "annotate"}, (
+        "the sidecar describes the run that produced the script beside it"
+    )
+
+
+def test_an_unknown_run_mode_is_refused_rather_than_recorded_verbatim(tmp_path) -> None:
+    from draftwright.builder import _detect_part_model_analysis
+
+    model, analysis = _detect_part_model_analysis(_PLATE_FIXTURE, pmi="off")
+    common = (model, analysis, "part.step", b"")
+
+    assert inspection_module._document(*common, "off")["run"] == {"pmi_mode": "off"}
+    with pytest.raises(InspectionUnavailableError, match="unknown recognition PMI mode"):
+        inspection_module._document(*common, "geometry_only")
 
 
 def test_the_generated_script_contains_none_of_the_evidence(tmp_path, monkeypatch) -> None:

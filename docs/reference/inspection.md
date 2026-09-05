@@ -57,7 +57,7 @@ evaluate — but only from a second recognition run, which would break the one-r
 ADR 3 (was 0017). b123d-recognisers#494 asks for an API that explains an already-completed result. The
 field states its own absence rather than letting it read as "nothing was rejected".
 
-## source and producer
+## source, producer and run
 
 `source` names the file by basename and its SHA-256. The path is resolved once and read once,
 and recognition consumes a private copy of those exact bytes, so replacing a mutable or
@@ -66,6 +66,13 @@ is caller-machine detail and never appears.
 
 `producer` gives the Draftwright and recogniser versions, so a finding can be reproduced or
 filed upstream against the right release.
+
+`run` records the options that determined the content. Today that is `pmi_mode`. It matters
+because PMI lowering can rewrite a grouped hole member into a singleton owner, so two runs over
+identical bytes can disagree about what Draftwright did with a finding — `source.sha256` alone
+would imply a reproducibility the document does not have. `inspect_step` always records `off`;
+a sidecar records the mode its script was generated with. Two documents agreeing on `source`,
+`producer` and `run` agree entirely.
 
 ## Beside a generated script
 
@@ -76,7 +83,8 @@ aggregate. The script itself contains none of this: it is a drawing declaration 
 and evidence about the run belongs in a file that can be diffed and re-read without parsing
 Python.
 
-Pass `inspect=False` (the CLI's `--no-report`) to skip it. Generation then removes any document
+Pass `inspect=False` (the CLI's `--no-report`) to skip it. Note that skipping also **removes**
+any document already at that path — see below. Generation then removes any document
 already at that path, because an earlier run's evidence beside a new script describes a
 different part and nothing in it would say so.
 

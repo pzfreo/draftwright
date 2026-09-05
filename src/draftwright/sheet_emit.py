@@ -2410,7 +2410,7 @@ def generate_sheet_script(
             assert source_display is not None
             try:
                 inspection = _inspection_document(
-                    model, analysis, source_display.name, source_bytes
+                    model, analysis, source_display.name, source_bytes, pmi
                 )
             except InspectionUnavailableError as error:
                 # Never fail script generation over its sidecar, and never drop it in silence.

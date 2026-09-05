@@ -4,7 +4,7 @@
   "title": "Draftwright STEP inspection v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "schema_version", "source", "producer", "found", "missed"],
+  "required": ["schema", "schema_version", "source", "producer", "run", "found", "missed"],
   "properties": {
     "schema": { "const": "draftwright-step-inspection" },
     "schema_version": { "const": 1 },
@@ -24,6 +24,14 @@
       "properties": {
         "draftwright": { "type": "string", "minLength": 1 },
         "b123d-recognisers": { "type": "string", "minLength": 1 }
+      }
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pmi_mode"],
+      "properties": {
+        "pmi_mode": { "enum": ["off", "report", "annotate"] }
       }
     },
     "found": {

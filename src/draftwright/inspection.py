@@ -54,6 +54,12 @@ INSPECTION_SCHEMA_VERSION = 1
 # caller coordinates (ADR 3, was 0020).
 _SUPPORTED_FRAME_STATUS = "raw"
 
+# The recognition options that change what this document says. PMI lowering can rewrite a
+# grouped hole member into a singleton owner, so two runs over identical bytes can disagree
+# about what Draftwright did with a finding. The document records the mode rather than leaving
+# `source.sha256` to imply a reproducibility it does not have.
+_PMI_MODES = frozenset({"off", "report", "annotate"})
+
 # Draftwright acted on the feature: it is represented by an IR feature of its own, or absorbed
 # into one. Every other disposition means the recogniser found something the drawing does not
 # use, which is the conversion failing this document exists to surface.
@@ -195,16 +201,23 @@ def inspect_step(path: str | PathLike[str]) -> dict[str, JsonValue]:
             raise InspectionUnavailableError(
                 f"could not read solid STEP geometry from {source_name!r}"
             ) from error
-        return _document(model, analysis, source_name, source_bytes)
+        return _document(model, analysis, source_name, source_bytes, "off")
 
 
 def _document(
-    model: PartModel, analysis: Analysis, source_name: str, source_bytes: bytes
+    model: PartModel,
+    analysis: Analysis,
+    source_name: str,
+    source_bytes: bytes,
+    pmi_mode: str,
 ) -> dict[str, JsonValue]:
     if not analysis.part.solids():
         raise InspectionUnavailableError(f"{source_name!r} carries no solid body to inspect")
 
     frame_status = (analysis.recognition_frame_decision or {}).get("status")
+    if pmi_mode not in _PMI_MODES:
+        raise InspectionUnavailableError(f"unknown recognition PMI mode {pmi_mode!r}")
+
     if frame_status != _SUPPORTED_FRAME_STATUS:
         raise InspectionUnavailableError(
             "inspection reports raw caller coordinates only; this run recognised with frame "
@@ -220,6 +233,9 @@ def _document(
             "sha256": hashlib.sha256(source_bytes).hexdigest(),
         },
         "producer": _producer(),
+        # The run options that determined the content below. Without this, two documents over
+        # identical bytes can disagree and neither says why.
+        "run": {"pmi_mode": pmi_mode},
         "found": _found(analysis.recognition_evidence, analysis.recognition_ownership, model),
         "missed": _missed(analysis.recognition_evidence),
     }

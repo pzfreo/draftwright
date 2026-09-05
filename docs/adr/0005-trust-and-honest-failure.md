@@ -97,7 +97,13 @@ proves nothing about a guard that was never mutated.
     stale one, and a document it cannot state truthfully is logged and skipped rather than
     failing generation. `test_issue_1460_step_inspection.py`,
     `test_issue_1438_generation_snapshot.py`.
-16. **An evidence document states what it cannot say.** Unclaimed geometry is not a missed
+16. **A document records the run options that determined it.** PMI lowering can rewrite a
+    grouped hole member into a singleton owner, so two runs over identical bytes can disagree
+    about what Draftwright did with a finding. The document carries the mode, rather than
+    letting `source.sha256` imply a reproducibility it does not have; two documents agreeing
+    on source, producer and run options agree entirely.
+    `test_issue_1460_step_inspection.py`.
+17. **An evidence document states what it cannot say.** Unclaimed geometry is not a missed
     feature, and what recognition proposed and rejected is reported as unavailable rather than
     left to read as "nothing was rejected". `test_issue_1460_step_inspection.py`.
 

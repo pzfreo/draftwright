@@ -95,6 +95,13 @@ def test_every_numbered_invariant_names_a_guard(record: Path):
     unguarded = [item.split("**")[1] for item in numbered if not _TEST_MODULE.search(item)]
     assert not unguarded, f"{record.name} numbered invariants without a guard: {unguarded}"
 
+    # A gap reads as a deleted invariant and hides a copy-paste from another record; #1464
+    # added an item numbered 14 to a list ending at 12 and this guard did not notice.
+    numbers = [int(re.match(r"(\d+)\.", item).group(1)) for item in numbered]
+    assert numbers == list(range(1, len(numbers) + 1)), (
+        f"{record.name} invariants are not numbered contiguously from 1: {numbers}"
+    )
+
 
 def test_no_live_document_cites_an_archived_record_as_authority():
     offenders: list[str] = []
