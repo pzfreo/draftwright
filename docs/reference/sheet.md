@@ -289,3 +289,9 @@ drop, or missing ink is not hidden by the ownership choice.
 ::: draftwright.sheet._Control
     options:
       filters: public
+
+Imported AP242 nominal-diameter ownership requires absolute agreement within `1e-6`
+with the canonical feature diameter, using the same rule as planning. A larger mismatch
+keeps the original source value and identity in a blocked dimension; it does not replace
+the canonical value or crash planning. Generated Sheet scripts retain the blocker, and
+`authored_dim_source_unresolved` reports the withheld source dimension through lint.
