@@ -3718,6 +3718,12 @@ class Drawing:
                 assembly=self.assembly,
                 holes=holes,
                 bosses=bosses,
+                blends=recognition.blends,
+                recognition_evidence=self._build.recognition_evidence,
+                # The same profile set `detect` used, so the boss/blend absorption decision
+                # is one decision rather than two that can disagree. `prof_kw` is empty only
+                # where detect also falls back to the aggregate.
+                **({"turned_profiles": prof_kw["profiles"]} if "profiles" in prof_kw else {}),
                 registry=self._registry,
             )
             issues += lint_axial_coverage(
