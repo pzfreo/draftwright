@@ -541,9 +541,13 @@ def _fit_iso_view(dwg, a: Analysis, obstacles=()):
         # iso's y-range raises `region_left` with no upper bound, which can pass
         # `iso_right_limit` and invert the width.
         #
-        # This is strictly stronger than checking the zone's shape: it also catches a positive
-        # but vanishing `needed` (1e-9 rounds to a 0.0 factor at 4 dp), which no shape check
-        # would see.
+        # Chosen over an equivalent check on the zone's shape, which an earlier cut also had.
+        # Neither strictly contains the other: this one additionally catches a positive but
+        # vanishing `needed` (1e-9 rounds to a 0.0 factor at 4 dp), while a shape check would
+        # additionally catch an inverted zone whose iso bbox has zero extent on the inverted
+        # axis, so `extent > 0` filters both offending ratios. That second case needs a
+        # projected solid whose isometric bbox is a line and has never been observed; the
+        # first is the one the corpus actually produces, so one guard here is enough.
         #
         # It matters because OCC answers a non-positive scale three ways: zero raises
         # `Standard_Failure` on macOS, raises `Standard_ConstructionError` on Linux (a class

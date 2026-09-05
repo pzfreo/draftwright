@@ -88,8 +88,8 @@ def _scales_handed_to_occ(monkeypatch, zone, sheet=None):
 def _degenerate_part():
     """A turned part that, at 10:1 on A4, composes an iso zone with no room.
 
-    Found by sweeping parts and scales rather than by construction: this is the shape that
-    reproduces the reported crash through the ordinary public entry point.
+    Found by sweeping parts and scales. Synthetic, and kept in the fast tier for that reason:
+    it reproduces the reported crash in ~2 s where the real corpus fixture takes ~30 s.
     """
 
     return Cylinder(4, 30) + Pos(0, 0, 15) * Cylinder(6, 6) - Cylinder(1.5, 60)
@@ -112,6 +112,25 @@ def test_the_reported_crash_is_fixed_end_to_end():
 
     assert {"front", "plan", "side"} <= set(drawing.views), "required views must survive"
     assert drawing.views["iso"][0].bounding_box().size.X > 0, "the iso must not be degenerate"
+
+
+@pytest.mark.slow
+def test_a_real_fixture_reproduces_the_crash_and_now_builds():
+    """The same bug on a part already in the corpus, not a shape constructed to provoke it.
+
+    `issue_915_case_study_2.step` at 10:1 composes an iso zone with `needed = 6.9e-18`. Without
+    the guard this raises `Standard_Failure` out of `build_drawing`; with it the automatic
+    search falls back to 2:1 and keeps every view including the section and detail. Slow tier
+    (~30 s) because the synthetic case above proves the same contract in ~2 s; this one is here
+    so the evidence is a real part rather than only a manufactured one.
+    """
+
+    drawing = build_drawing(
+        "tests/fixtures/issue_915_case_study_2.step", pmi="off", repair=False, scale=10.0
+    )
+
+    assert {"front", "plan", "side", "section_aa"} <= set(drawing.views)
+    assert drawing.scale == 2.0, "the search must fall back, not abort"
 
 
 # ── the invariant, at the seam ────────────────────────────────────────────────────────────
