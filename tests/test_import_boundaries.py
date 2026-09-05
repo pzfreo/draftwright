@@ -51,6 +51,8 @@ import b123d_recognisers.evidence as recogniser_evidence
 import b123d_recognisers.inspection as recogniser_inspection
 import pytest
 
+from draftwright import reporting
+
 _SRC = Path(__file__).resolve().parent.parent / "src" / "draftwright"
 _MODEL_DIR = _SRC / "model"
 _RECOGNISER_PUBLIC = frozenset(b123d_recognisers.__all__)
@@ -577,6 +579,104 @@ def test_linting_consumes_recognisers_only_through_the_public_root():
         "linting/ must consume the released b123d-recognisers contract through its public "
         f"package root (ADRs 0013/0017; #1411). Private submodule imports: {offenders}"
     )
+
+
+def _private_reporting_imports(path: Path) -> list[str]:
+    """Names a module imports from `draftwright.reporting` that `__all__` does not publish."""
+
+    published = set(reporting.__all__)
+    offenders: list[str] = []
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom):
+            continue
+        if node.module not in {"draftwright.reporting", "reporting"} or node.level > 1:
+            continue
+        offenders.extend(
+            f"{path.name}:{node.lineno} imports unpublished {alias.name}"
+            for alias in node.names
+            if alias.name not in published
+        )
+    return offenders
+
+
+def test_report_consumers_use_only_the_published_projector(tmp_path):
+    """The occurrence projector is a contract with three documents on it, not a convention.
+
+    `reporting` builds the drawing report, the STEP inspection document and the sidecar the
+    script emitter writes. Two of those are produced by OTHER modules calling into it, so the
+    projector's shape is load-bearing outside this file. Underscore names say the opposite —
+    that is what #1461 was raised to fix. This guard keeps the seam named.
+
+    Scope is deliberately `reporting` alone, not every module: 358 cross-module private
+    imports exist in `src/draftwright` (measured 2026-09-05 by walking every `ImportFrom`),
+    because a leading underscore in this package means "not the package's public API", not
+    "not importable by a sibling". `reporting` is different in kind — it publishes versioned
+    JSON schemas that outlive any one caller. Tests are exempt on purpose: they reach in via
+    attribute access to unit-test internals such as `_feature_ids`, which is white-box
+    testing of this module, not a second consumer of its contract.
+    """
+
+    offenders = [
+        offender
+        for path in sorted(_SRC.rglob("*.py"))
+        if path.name != "reporting.py"
+        for offender in _private_reporting_imports(path)
+    ]
+    assert not offenders, (
+        "modules outside reporting.py must consume it through `reporting.__all__` (#1461). "
+        f"Unpublished imports: {offenders}"
+    )
+
+    # The guard is worthless if it cannot see a violation, and it would pass vacuously on a
+    # tree it never matched. Both halves are checked against a synthetic module.
+    breach = tmp_path / "breach.py"
+    breach.write_text(
+        "from draftwright.reporting import _feature_ids, project_occurrences" + chr(10),
+        encoding="utf-8",
+    )
+    assert _private_reporting_imports(breach) == ["breach.py:1 imports unpublished _feature_ids"]
+
+    # And that the real consumers are matched rather than skipped by the module filter.
+    consumers = {
+        path.name
+        for path in sorted(_SRC.rglob("*.py"))
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"), filename=str(path)))
+        if isinstance(node, ast.ImportFrom) and node.module == "draftwright.reporting"
+    }
+    assert {"inspection.py", "sheet_emit.py", "drawing.py"} <= consumers, consumers
+
+
+def test_the_published_projector_is_what_the_consumers_actually_call():
+    """`__all__` must name live functions, not aspirational ones."""
+
+    for name in ("json_value", "producer", "project_occurrences", "write_report_document"):
+        assert name in reporting.__all__
+        assert callable(getattr(reporting, name)), name
+
+    # The converse: every public name the module defines is published. `drawing_report` was
+    # imported by `drawing.py` and absent from `__all__` — the same defect #1461 describes,
+    # found by this guard on its first run. Without this half, the next one is invisible.
+    defined = {
+        node.name
+        for node in ast.parse((_SRC / "reporting.py").read_text(encoding="utf-8")).body
+        if isinstance(node, (ast.FunctionDef, ast.ClassDef)) and not node.name.startswith("_")
+    }
+    assert defined <= set(reporting.__all__), defined - set(reporting.__all__)
+
+    # `_ATTENTION_DISPOSITIONS` and `_DISPOSITIONS` stay private BECAUSE nothing outside
+    # reporting reads them — #1461 asserted `sheet_emit`/`inspection` imported the first of
+    # those, and no module ever did. Publishing an unread name is a promise made to no one,
+    # so this pins the measurement that corrected the issue rather than the issue's claim.
+    for name in ("_ATTENTION_DISPOSITIONS", "_DISPOSITIONS"):
+        assert hasattr(reporting, name), name
+        assert name not in reporting.__all__, name
+    readers = [
+        path.name
+        for path in sorted(_SRC.rglob("*.py"))
+        if path.name != "reporting.py" and "_ATTENTION_DISPOSITIONS" in path.read_text("utf-8")
+    ]
+    assert not readers, readers
 
 
 _ALLOWED_PRIVATE_RECOGNISER_REFERENCES = {

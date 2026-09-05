@@ -17,7 +17,7 @@ from typing import Literal
 from b123d_recognisers import RecognitionResult
 
 from draftwright.linting._registry import satisfaction_ids, satisfaction_of
-from draftwright.linting.issues import LintIssue, is_placement_drop
+from draftwright.linting.issues import LintIssue, is_placement_drop, requirement_subject
 from draftwright.recognition_frame import validated_groove_geometry
 
 GrooveRequirementState = Literal[
@@ -242,9 +242,14 @@ def lint_groove_coverage(
                 severity=severity,
                 code=f"groove_requirement_{outcome.state}",
                 message=(
-                    f"groove at {outcome.source_at} measurement {outcome.parameter_id} "
-                    f"{messages[outcome.state]}"
+                    f"groove at {outcome.source_at} {_subject(outcome)} {messages[outcome.state]}"
                 ),
             )
         )
     return issues
+
+
+def _subject(outcome) -> str:
+    """Name this outcome's requirement, or say plainly that no id exists (#1397)."""
+
+    return requirement_subject(outcome.parameter_id, outcome.requirement_count, noun="measurement")

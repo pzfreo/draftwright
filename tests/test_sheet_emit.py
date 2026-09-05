@@ -7,6 +7,7 @@ Detected input only writes numbers (the part-seam form); we never fabricate geom
 import ast
 import math
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -4146,6 +4147,64 @@ def test_the_generated_script_imports_exactly_what_it_uses(name, tmp_path):
         text=True,
     )
     assert r.returncode == 0, f"{name}: generated script has unused imports\n{r.stdout}"
+
+
+def test_the_object_reference_doc_example_actually_runs(tmp_path):
+    """ "Run the two snippets above as one file" must be true (#856/#858).
+
+    It was not. The declarative snippet called `sheet.export(...)` with no dimension source,
+    so `Sheet.build()` raised `ValueError: this sheet does not say where its dimensions come
+    from` — the doc's central claim, "produces a real drawing end to end", failed on the
+    first line a reader would run. `test_the_object_reference_doc_quotes_real_generated_output`
+    did not catch it because it checks the GENERATED-script section, and the broken snippet is
+    the hand-written one below it.
+
+    So this executes what the doc tells the reader to execute, and pins the lint findings the
+    doc now promises. Quoting output a test does not run is how the last three wrong quotes
+    got in (see the docstring above).
+    """
+
+    doc = Path(__file__).parent.parent / "docs" / "multi-feature-object-reference-workflow.md"
+    text = doc.read_text(encoding="utf-8")
+
+    module_src = text.split("```python", 2)[2].split("```")[0]
+    declarative = text.split("## Declaring the drawing by reference")[1]
+    declarative = declarative.split("```python")[1].split("```")[0]
+    assert "authored_dimensions()" in declarative, (
+        "the doc dropped its dimension source again — Sheet.build() will refuse"
+    )
+
+    # Precondition: without the verb the doc adds, the example really does fail. A test that
+    # only ran the fixed snippet would pass just as well against a doc that never had the bug.
+    broken = declarative.partition("sheet.authored_dimensions()")[0] + "sheet.build()\n"
+    assert "sheet.hole(features.tap)" in broken, "the strip removed the declarations too"
+    script = tmp_path / "doc_example.py"
+    script.write_text(module_src + "\n" + broken, encoding="utf-8")
+    r = subprocess.run([sys.executable, str(script)], cwd=tmp_path, capture_output=True, text=True)
+    assert r.returncode != 0 and "does not say where its dimensions come from" in r.stderr, (
+        r.stderr[-800:]
+    )
+
+    # And the documented snippet, run as documented, builds and reports what the doc says.
+    runner = (
+        module_src
+        + "\n"
+        + declarative.replace('sheet.export("thumbwheel")', "_drawing = sheet.build()")
+        + "\nfor _i in _drawing.lint():\n    print(_i.severity, _i.code)\n"
+    )
+    script.write_text(runner, encoding="utf-8")
+    r = subprocess.run([sys.executable, str(script)], cwd=tmp_path, capture_output=True, text=True)
+    assert r.returncode == 0, f"the documented example failed:\n{r.stderr[-1500:]}"
+
+    findings = sorted(
+        line.split()[1]
+        for line in r.stdout.splitlines()
+        if line.startswith(("info ", "warning ", "error "))
+    )
+    assert findings == ["axial_length_missing", "hole_requirement_unverifiable"], findings
+    assert not any(line.startswith("error ") for line in r.stdout.splitlines()), r.stdout
+    for promised in ("axial_length_missing", "hole_requirement_unverifiable", "no errors"):
+        assert promised in text.split("### What you should see")[1], promised
 
 
 def test_the_object_reference_doc_quotes_real_generated_output(tmp_path):

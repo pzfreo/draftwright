@@ -101,3 +101,30 @@ def _collect_issue_aggregation():
         yield aggregation
     finally:
         _CURRENT_AGGREGATION.reset(token)
+
+
+#: The ``parameter_id`` a coverage module records when a recognised source matched no IR
+#: feature at all. There is no per-requirement id to name at that point — the join that
+#: would have produced one is precisely what failed — so the ledger stores a sentinel and
+#: carries the truth in ``requirement_count`` instead.
+UNJOINED_PARAMETER_ID = "?"
+
+
+def requirement_subject(parameter_id: str, requirement_count: int, *, noun: str) -> str:
+    """Name what an outcome is about, in a message that reads as a sentence subject.
+
+    Printing the sentinel verbatim produced ``requirement ? cannot be joined to measurement
+    provenance without guessing`` (#1397) — a diagnostic about guessing that required one.
+    The reader wanted to know *which* requirement; the honest answer is that all of the
+    source's requirements are in this one outcome, which ``requirement_count`` already knew
+    and the message threw away.
+
+    ``noun`` is the caller's own word (``hole_coverage`` says "requirement", every sibling
+    says "measurement"), so the shared helper does not quietly relabel a module's ledger.
+    """
+
+    if parameter_id != UNJOINED_PARAMETER_ID:
+        return f"{noun} {parameter_id}"
+    if requirement_count == 1:
+        return f"its sole physical {noun}, which no IR feature claimed,"
+    return f"all {requirement_count} physical {noun}s, which no IR feature claimed,"

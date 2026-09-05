@@ -20,7 +20,7 @@ from typing import Literal
 from b123d_recognisers import PolygonalStock, RecognitionResult
 
 from draftwright.linting._registry import satisfaction_ids, satisfaction_of
-from draftwright.linting.issues import LintIssue, is_placement_drop
+from draftwright.linting.issues import LintIssue, is_placement_drop, requirement_subject
 
 PolygonalStockState = Literal[
     "placed",
@@ -460,9 +460,14 @@ def lint_polygonal_stock_coverage(
                 severity=severity,
                 code=f"polygonal_stock_requirement_{outcome.state}",
                 message=(
-                    f"polygonal stock {location} measurement "
-                    f"{outcome.parameter_id} {messages[outcome.state]}"
+                    f"polygonal stock {location} {_subject(outcome)} {messages[outcome.state]}"
                 ),
             )
         )
     return issues
+
+
+def _subject(outcome) -> str:
+    """Name this outcome's requirement, or say plainly that no id exists (#1397)."""
+
+    return requirement_subject(outcome.parameter_id, outcome.requirement_count, noun="measurement")

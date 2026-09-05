@@ -36,9 +36,9 @@ from typing import TYPE_CHECKING, Any, cast
 from draftwright.reporting import (
     JsonValue,
     ReportUnavailableError,
-    _json_value,
-    _occurrences,
-    _producer,
+    json_value,
+    producer,
+    project_occurrences,
 )
 
 if TYPE_CHECKING:  # typing only — naming these must not cost the CAD kernel at import
@@ -78,7 +78,7 @@ def _json_value_or_refuse(value: Any) -> Any:
     """
 
     try:
-        return _json_value(value)
+        return json_value(value)
     except ValueError as error:
         raise InspectionUnavailableError(f"a value cannot be stated as JSON: {error}") from error
 
@@ -122,7 +122,7 @@ def _faces(evidence, references) -> list[dict[str, Any]]:
     """
 
     described = [_face(evidence.face(reference)) for reference in references]
-    # One strict-JSON gate, not two: this sort key rejected NaN independently of `_json_value`
+    # One strict-JSON gate, not two: this sort key rejected NaN independently of `json_value`
     # and escaped as a bare `ValueError`, outside the documented failure contract.
     return sorted(described, key=lambda item: json.dumps(_json_value_or_refuse(item)))
 
@@ -136,7 +136,7 @@ def _found(evidence, ownership, model) -> list[dict[str, Any]]:
     """
 
     try:
-        occurrences, _requirements, _summary = _occurrences(evidence, ownership, model)
+        occurrences, _requirements, _summary = project_occurrences(evidence, ownership, model)
     except ReportUnavailableError as error:
         raise InspectionUnavailableError(str(error)) from error
 
@@ -198,6 +198,27 @@ def inspect_step(path: str | PathLike[str]) -> dict[str, JsonValue]:
     ownership are reused as-is. No drawing build, view projection, annotation placement, render,
     export or physical lint path runs.
 
+    It does, however, share the engine's ONE detect seam, which sizes the part while detecting,
+    so some scale-selection and dimension-planning work is done and discarded. #1462 asked
+    whether that justifies an inspect-only detect path. Measured with `cProfile` over one warm
+    inspection of each fixture (2026-09-05, this machine), attributing `tottime` by defining
+    file so provider frames are not counted as ours:
+
+        fixture                        wall    discarded  all draftwright frames
+        grm04_drive_plate.step         0.03 s   0.000 s    0.002 s
+        nist_ctc_04_asme1_ap242.stp    6.63 s   0.002 s    0.142 s
+        nist_ctc_02_asme1_ap242.stp   13.54 s   0.003 s    0.171 s
+
+    "discarded" is `compose` + `planner` + `callout` + `view_plan` — the modules #1462 named.
+    Every draftwright frame together is 0.17 s of CTC-02's 13.5 s; the rest is recognition,
+    STEP parsing and OCC. Two idle-machine runs agreed to the millisecond on the discarded
+    column; a third, run under full-suite CPU contention, quadrupled every wall time and left
+    the discarded share at 0.01-0.02%.
+
+    #1462 sized the discarded work by CALL COUNT (528 compose calls, 334 planner), which turns
+    out to say nothing about its cost. A second seam would save single-digit milliseconds and
+    could not be checked against the drawing path, so the shared seam stays.
+
     Raises:
         OSError: the path could not be read (missing, a directory, permissions).
         InspectionUnavailableError: the bytes are not a readable solid STEP body, or the run
@@ -254,7 +275,7 @@ def _document(
             "name": source_name,
             "sha256": hashlib.sha256(source_bytes).hexdigest(),
         },
-        "producer": _producer(),
+        "producer": producer(),
         # The run options that determined the content below. Without this, two documents over
         # identical bytes can disagree and neither says why.
         "run": {"pmi_mode": pmi_mode},

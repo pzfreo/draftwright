@@ -41,7 +41,7 @@ class ReportUnavailableError(RuntimeError):
     """The drawing cannot yet produce a truthful occurrence-level report."""
 
 
-def _json_value(value: object) -> JsonValue:
+def json_value(value: object) -> JsonValue:
     """Return isolated strict JSON primitives, rejecting NaN/Infinity and repr fallbacks."""
 
     return cast(JsonValue, json.loads(json.dumps(value, allow_nan=False, sort_keys=True)))
@@ -63,7 +63,7 @@ def _source(source: str | PathLike[str] | None) -> dict[str, str | None]:
     return {"kind": "build123d", "name": None}
 
 
-def _producer() -> dict[str, str]:
+def producer() -> dict[str, str]:
     return {
         "draftwright": distribution_version("draftwright"),
         "b123d-recognisers": distribution_version("b123d-recognisers"),
@@ -342,7 +342,7 @@ def validate_report_inputs(
     return evidence, ownership, model
 
 
-def _occurrences(
+def project_occurrences(
     evidence: RecognitionEvidence | None,
     ownership: RecognitionOwnership | None,
     model: PartModel | None,
@@ -404,7 +404,7 @@ def _occurrences(
                 "family": family,
                 "record_type": type(record).__name__,
                 "record_schema_version": _record_schema_version(family, record),
-                "record": _json_value(record.to_dict()),
+                "record": json_value(record.to_dict()),
                 "disposition": status,
                 "reason_code": reason_code,
                 "tracking": tracking,
@@ -473,7 +473,7 @@ def drawing_report(
     can miss physical geometry and manufacturing intent remains separately authored.
     """
 
-    occurrences, requirements, summary = _occurrences(
+    occurrences, requirements, summary = project_occurrences(
         evidence,
         ownership,
         model,
@@ -483,7 +483,7 @@ def drawing_report(
         part=part,
         requirement_outcomes=requirement_outcomes,
     )
-    lint = cast(dict[str, object], _json_value(lint))
+    lint = cast(dict[str, object], json_value(lint))
     needs_attention = not bool(lint.get("passed")) or any(
         summary[disposition] for disposition in _ATTENTION_DISPOSITIONS
     )
@@ -499,7 +499,7 @@ def drawing_report(
         "schema": REPORT_SCHEMA,
         "schema_version": REPORT_SCHEMA_VERSION,
         "status": "needs-attention" if needs_attention else "bounded-clear",
-        "producer": _producer(),
+        "producer": producer(),
         "source": _source(source),
         "outputs": {},
         "recognition": {
@@ -513,7 +513,7 @@ def drawing_report(
     }
 
 
-def _write_report_document(report: Mapping[str, object], path: str | PathLike[str]) -> str:
+def write_report_document(report: Mapping[str, object], path: str | PathLike[str]) -> str:
     """Atomically write one strict, deterministic UTF-8 report document."""
 
     destination = Path(path)
@@ -558,6 +558,18 @@ def _write_report_document(report: Mapping[str, object], path: str | PathLike[st
 __all__ = [
     "REPORT_SCHEMA",
     "REPORT_SCHEMA_VERSION",
+    "JsonValue",
     "ReportUnavailableError",
+    "drawing_report",
+    # The shared occurrence projector (#1461). Three schema'd public documents are built
+    # from these — the drawing report, the STEP inspection document, and the sidecar the
+    # script emitter writes — so their shape is a contract, not an implementation detail.
+    # `_ATTENTION_DISPOSITIONS` and `_DISPOSITIONS` deliberately stay private: nothing
+    # outside this module reads them, and a public name with no consumer is a promise
+    # made to no one.
+    "json_value",
+    "producer",
+    "project_occurrences",
     "validate_report_inputs",
+    "write_report_document",
 ]

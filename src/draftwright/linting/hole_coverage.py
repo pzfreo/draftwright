@@ -17,7 +17,7 @@ from b123d_recognisers import HoleSpec, RecognitionResult, countersink_matches_h
 from draftwright._core import _decode_hole_location_fact
 from draftwright._geometry import _END_ON, _is_principal_axis
 from draftwright.linting._registry import satisfaction_ids
-from draftwright.linting.issues import LintIssue, is_placement_drop
+from draftwright.linting.issues import LintIssue, is_placement_drop, requirement_subject
 
 HoleRequirementState = Literal[
     "placed",
@@ -1138,9 +1138,14 @@ def lint_hole_coverage(
                 severity=severity,
                 code=f"hole_requirement_{outcome.state}",
                 message=(
-                    f"{noun} at {outcome.source_at} requirement {outcome.parameter_id} "
-                    f"{messages[outcome.state]}"
+                    f"{noun} at {outcome.source_at} {_subject(outcome)} {messages[outcome.state]}"
                 ),
             )
         )
     return issues
+
+
+def _subject(outcome) -> str:
+    """Name this outcome's requirement, or say plainly that no id exists (#1397)."""
+
+    return requirement_subject(outcome.parameter_id, outcome.requirement_count, noun="requirement")

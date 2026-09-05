@@ -744,12 +744,12 @@ def test_reproducible_builds_emit_the_same_report_document() -> None:
 @pytest.mark.parametrize("value", (math.nan, math.inf, -math.inf))
 def test_report_json_boundary_rejects_non_finite_values(value: float) -> None:
     with pytest.raises(ValueError, match="Out of range float values"):
-        reporting_module._json_value({"value": value})
+        reporting_module.json_value({"value": value})
 
 
 def test_report_json_boundary_never_falls_back_to_python_repr() -> None:
     with pytest.raises(TypeError, match="not JSON serializable"):
-        reporting_module._json_value({"value": object()})
+        reporting_module.json_value({"value": object()})
 
 
 def test_report_refuses_an_unknown_consumer_record_schema() -> None:

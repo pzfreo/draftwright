@@ -19,7 +19,7 @@ from b123d_recognisers import RecognitionResult
 
 from draftwright._core import _decode_hole_location_fact
 from draftwright.linting._registry import satisfaction_ids, satisfaction_of
-from draftwright.linting.issues import LintIssue, is_placement_drop
+from draftwright.linting.issues import LintIssue, is_placement_drop, requirement_subject
 
 _PAD_LOCATION_DATUM_COINCIDENT_CODE = "pad_location_coincident_with_datum"
 _PAD_PLANE_AXES = {"x": ("y", "z"), "y": ("z", "x"), "z": ("x", "y")}
@@ -386,9 +386,15 @@ def lint_pad_coverage(
                 severity=severity,
                 code=f"pad_requirement_{outcome.state}",
                 message=(
-                    f"raised pad at {outcome.source_at} measurement {outcome.parameter_id} "
+                    f"raised pad at {outcome.source_at} {_subject(outcome)} "
                     f"{messages[outcome.state]}"
                 ),
             )
         )
     return issues
+
+
+def _subject(outcome) -> str:
+    """Name this outcome's requirement, or say plainly that no id exists (#1397)."""
+
+    return requirement_subject(outcome.parameter_id, outcome.requirement_count, noun="measurement")
