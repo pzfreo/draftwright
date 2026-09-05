@@ -2904,21 +2904,24 @@ class TestComposeThenPackRepack:
         from types import SimpleNamespace
 
         import draftwright.builder as builder
+        from draftwright.registry import AnnotationRegistry
 
         calls = []
 
         def fake_repack(a, dwg, *args, **kwargs):
             calls.append((a.pass_id, dwg.pass_id))
             pass_id = len(calls)
-            return SimpleNamespace(pass_id=pass_id), SimpleNamespace(pass_id=pass_id)
+            return SimpleNamespace(
+                pass_id=pass_id, registry=AnnotationRegistry()
+            ), SimpleNamespace(pass_id=pass_id, registry=AnnotationRegistry())
 
         monkeypatch.setattr(builder, "_repack", fake_repack)
         monkeypatch.setattr(builder, "_needs_repack", lambda dwg, a: True)
 
         with caplog.at_level(logging.WARNING):
             out_a, out_dwg = builder._repack_to_fixed_point(
-                SimpleNamespace(pass_id=0),
-                SimpleNamespace(pass_id=0),
+                SimpleNamespace(pass_id=0, registry=AnnotationRegistry()),
+                SimpleNamespace(pass_id=0, registry=AnnotationRegistry()),
                 "out",
                 None,
                 False,
@@ -2932,14 +2935,15 @@ class TestComposeThenPackRepack:
         from types import SimpleNamespace
 
         import draftwright.builder as builder
+        from draftwright.registry import AnnotationRegistry
 
         monkeypatch.setattr(builder, "_repack", lambda *args, **kwargs: None)
         monkeypatch.setattr(builder, "_needs_repack", lambda dwg, a: True)
 
         with caplog.at_level(logging.WARNING):
             out = builder._repack_to_fixed_point(
-                SimpleNamespace(pass_id=0),
-                SimpleNamespace(pass_id=0),
+                SimpleNamespace(pass_id=0, registry=AnnotationRegistry()),
+                SimpleNamespace(pass_id=0, registry=AnnotationRegistry()),
                 "out",
                 None,
                 False,

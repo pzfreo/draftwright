@@ -1202,6 +1202,7 @@ class Analysis:
     # Standing ISO 7200 title-block fields (#766) — defaulted, so they sit after the
     # non-default fields above. Defaults preserve the prior output: revision "A", the rest
     # blank (the TitleBlock helper's own defaults).
+    layout_advisories: tuple[tuple[str, str], ...] = ()
     material: str = ""
     date: str = ""
     revision: str = "A"

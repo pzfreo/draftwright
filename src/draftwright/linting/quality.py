@@ -53,6 +53,10 @@ _OUTCOME_STATES = (
 # distinguish validation from layout.
 _LEGIBILITY_CODES = frozenset(
     {
+        "legibility_floor_breached",
+        "page_fit_uncertain",
+        "layout_repack_stalled",
+        "scale_fallback_applied",
         "annotation_out_of_bounds",
         "annotation_overlap",
         "annotation_ink_overlap",

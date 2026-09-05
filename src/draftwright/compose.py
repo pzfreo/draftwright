@@ -689,6 +689,7 @@ def choose_scale(
     views: tuple[str, ...] | None = None,
     include_iso: bool = True,
     iso_scale_factor: float | None = None,
+    advisories: list[tuple[str, str]] | None = None,
 ) -> tuple:
     """Return (SCALE, PAGE_W, PAGE_H, TB_W) for a 4-view layout.
 
@@ -734,6 +735,13 @@ def choose_scale(
             include_iso=include_iso,
             iso_scale_factor=iso_scale_factor,
         ):
+            if advisories is not None:
+                advisories.append(
+                    (
+                        "page_fit_uncertain",
+                        f"Requested scale {scale} on {page} may not fit the requested view layout",
+                    )
+                )
             _log.warning(
                 "Requested scale %s on %s page may not fit the requested view layout",
                 scale,
@@ -867,6 +875,10 @@ def choose_scale(
             iso_scale_factor=iso_scale_factor,
         )
         if s is not None:
+            if advisories is not None:
+                advisories.append(
+                    ("scale_fallback_applied", f"No standard scale fits; using computed {s:g}")
+                )
             _log.warning(
                 "No standard scale fits %.0f × %.0f × %.0f mm; using computed %s",
                 x_size,
@@ -875,6 +887,14 @@ def choose_scale(
                 format_drawing_scale(s),
             )
             return s, _pw, _ph, _tb
+    if advisories is not None:
+        advisories.append(
+            (
+                "page_fit_uncertain",
+                f"No layout fits {x_size:g} × {y_size:g} × {z_size:g} mm; "
+                f"falling back to {candidates[-1]}",
+            )
+        )
     _log.warning(
         "No layout fits %.0f × %.0f × %.0f mm; falling back to %s",
         x_size,
