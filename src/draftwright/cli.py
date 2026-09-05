@@ -241,7 +241,8 @@ def main(
                 part_expr=source.seam,
                 object_candidates=source.candidates,
                 formats=tuple(formats),
-                inspect=not no_report,
+                # No `inspect=`: a live object has no STEP bytes, so this branch never writes a
+                # document and the flag would read as if it might.
             )
         else:
             py_path = generate_sheet_script(

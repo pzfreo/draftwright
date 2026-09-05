@@ -69,9 +69,14 @@ ownership from values, labels, rendered coordinates, topology traversal, or a se
 scan. Declared reconciliation and framed evidence remain explicit later contracts rather than
 holes disguised as an empty report.
 
+
+
 `generate_sheet_script(...)` writes its recognition evidence to
-`<stem>.draftwright-inspection.json` beside the generated script — see
-[Recognition evidence](inspection.md). It used to embed a `DRAFTWRIGHT_RECOGNITION_SNAPSHOT`
-literal in the Python instead; #1460 moved it to a file that can be diffed and re-read without
-parsing Python, and widened it from the gaps alone to every accepted finding with the outcome
-Draftwright gave it.
+`<stem>.draftwright-inspection.json` beside the generated script — a different document with a
+different schema; see [Recognition evidence](inspection.md). It used to embed a
+`DRAFTWRIGHT_RECOGNITION_SNAPSHOT` literal in the Python instead; #1460 moved it to a file that
+can be diffed and re-read without parsing Python, and widened it from the gaps alone to every
+accepted finding with the outcome Draftwright gave it. The one thing that document does not
+carry, which the embedded snapshot did, is each finding's tracking issue: it states a stable
+`reason` code, and where a decision is tracked is repository detail rather than evidence about
+the part.

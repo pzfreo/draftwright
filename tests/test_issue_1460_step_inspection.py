@@ -21,7 +21,7 @@ from build123d import Align, Box, Line, Pos, Rot, export_step
 from conftest import recognition_consumer_calls
 from jsonschema.validators import validator_for
 
-from draftwright import InspectionUnavailableError, inspect_step
+from draftwright import INSPECTION_SCHEMA, InspectionUnavailableError, inspect_step
 from draftwright import builder as builder_module
 from draftwright import inspection as inspection_module
 from draftwright.reporting import ReportUnavailableError
@@ -33,6 +33,9 @@ _PLAIN_FIXTURE = _FIXTURES / "evaluation" / "plain-block.step"
 # The only fixture measured to lower AP242 PMI onto hole ownership, which is what makes the
 # two run modes disagree about what Draftwright did.
 _UNLOWERED_PMI_FIXTURE = _FIXTURES / "nist_ctc_01_asme1_ap242.stp"
+# Unclaimed faces spanning bspline and cylinder: a part whose face evidence a
+# hardcoded surface kind or a repeated vector component cannot satisfy.
+_CURVED_FIXTURE = _FIXTURES / "issue_1058_wheel_rh.step"
 _SCHEMA_PATH = (
     Path(__file__).parents[1] / "docs/reference/draftwright-step-inspection-v1.schema.json"
 )
@@ -184,7 +187,7 @@ def test_unclaimed_geometry_is_reported_with_the_providers_own_accounting() -> N
     )
     assert len(missed["unclaimed_faces"]) == missed["face_count"]["unclaimed"]
     for face in missed["unclaimed_faces"]:
-        assert set(face) == {"surface", "area", "centroid", "bbox"}
+        assert set(face) == {"surface", "area", "position", "bbox"}
         assert face["area"] > 0
         assert face["surface"]
 
@@ -199,20 +202,72 @@ def test_the_missing_half_of_missed_says_so_rather_than_reading_as_none() -> Non
     assert "second recognition run" in rejected["reason"]
 
 
-def test_unclaimed_face_evidence_states_the_real_surface_and_centroid() -> None:
-    faces = inspect_step(_PLATE_FIXTURE)["missed"]["unclaimed_faces"]
+def test_unclaimed_face_evidence_matches_independently_measured_geometry() -> None:
+    """Every field checked against build123d directly, not against itself.
 
-    assert {face["surface"] for face in faces} == {"plane"}
-    for face in faces:
-        assert face["centroid"] != face["bbox"]["min"], (
-            "the centroid must be the face's own centre, not a corner of its box"
+    The previous version asserted the surface set was `{"plane"}` and that the position lay
+    inside its own bbox. Both hold when `surface` is hardcoded and when `_vector` returns the
+    same component twice — measured: four such mutations passed the whole suite. This uses a
+    part whose unclaimed faces are NOT all planar, and compares each value with one computed
+    from the source solid.
+    """
+
+    from draftwright.builder import _detect_part_model_analysis
+
+    document = inspect_step(_CURVED_FIXTURE)
+    faces = document["missed"]["unclaimed_faces"]
+    _model, analysis = _detect_part_model_analysis(_CURVED_FIXTURE, pmi="off")
+    evidence = analysis.recognition_evidence
+
+    surfaces = {face["surface"] for face in faces}
+    assert len(surfaces) > 1, (
+        "fixture precondition: unclaimed faces must span more than one surface kind, or a "
+        "hardcoded `surface` satisfies this test"
+    )
+
+    # Measured from the source solid by calling build123d directly, never through `_face`, so
+    # a constant surface kind or a repeated vector component cannot satisfy both sides.
+    def described(source) -> tuple:
+        centre = source.center()
+        return (
+            source.geom_type.name.lower(),
+            round(float(source.area), 6),
+            (round(centre.X, 6), round(centre.Y, 6), round(centre.Z, 6)),
         )
-        assert all(
-            low <= value <= high
-            for value, low, high in zip(
-                face["centroid"], face["bbox"]["min"], face["bbox"]["max"], strict=True
-            )
-        )
+
+    expected = sorted(
+        described(evidence.face(reference))
+        for reference in evidence.association.unassociated_faces
+    )
+    actual = sorted(
+        (face["surface"], round(face["area"], 6), tuple(round(v, 6) for v in face["position"]))
+        for face in faces
+    )
+    assert actual == expected, (
+        "every field must match geometry measured independently of the projector"
+    )
+    assert any(position[0] != position[1] for _kind, _area, position in actual), (
+        "fixture precondition: some position must have distinct X and Y, or a repeated "
+        "component would go unnoticed"
+    )
+
+
+def test_a_face_position_is_the_point_on_the_face_not_the_area_centroid() -> None:
+    """`Face.center()` is CenterOf.GEOMETRY. On a cylindrical wall it is 5 mm from the area
+    centroid, which sits on the axis inside the material rather than on the face. The field is
+    named `position` because calling it a centroid would be false."""
+
+    from build123d import CenterOf, Cylinder
+
+    wall = next(f for f in Cylinder(5, 10).faces() if f.geom_type.name == "CYLINDER")
+    geometry, mass = wall.center(CenterOf.GEOMETRY), wall.center(CenterOf.MASS)
+    assert (geometry - mass).length == pytest.approx(5.0), (
+        "precondition: the two must differ, or this test proves nothing"
+    )
+
+    document = inspect_step(_CURVED_FIXTURE)
+    assert all("centroid" not in face for face in document["missed"]["unclaimed_faces"])
+    assert all("position" in face for face in document["missed"]["unclaimed_faces"])
 
 
 def test_a_face_whose_surface_cannot_be_named_is_refused() -> None:
@@ -498,7 +553,7 @@ def test_no_absolute_source_path_reaches_the_document(tmp_path) -> None:
 
 def test_importing_the_public_inspection_names_does_not_load_the_cad_kernel() -> None:
     probe = (
-        "import sys; from draftwright import InspectionUnavailableError, inspect_step; "
+        "import sys; from draftwright import INSPECTION_SCHEMA, InspectionUnavailableError, inspect_step; "
         "print('build123d' in sys.modules or 'OCP' in sys.modules)"
     )
     result = subprocess.run(
@@ -660,6 +715,29 @@ def test_regenerating_without_a_document_removes_the_previous_one(tmp_path, monk
     generate_sheet_script("b.step", out="drawing", inspect=False)
 
     assert not sidecar.exists(), "the previous run's document must not survive a new script"
+
+
+def test_generation_never_deletes_a_file_it_did_not_write(tmp_path, monkeypatch) -> None:
+    """The sidecar path is derived from the caller's stem, so an unrelated file can sit there.
+    Removing a stale document is ours to do; removing someone else's data is not."""
+
+    from draftwright.sheet_emit import generate_sheet_script, inspection_sidecar_path
+
+    (tmp_path / "part.step").write_bytes(_PLATE_FIXTURE.read_bytes())
+    monkeypatch.chdir(tmp_path)
+    foreign = Path(inspection_sidecar_path("drawing.py"))
+    foreign.write_text('{"schema": "someone-elses-notes", "keep": true}', encoding="utf-8")
+
+    generate_sheet_script("part.step", out="drawing", inspect=False)
+
+    assert foreign.exists(), "a file this tool never wrote must survive"
+    assert json.loads(foreign.read_text(encoding="utf-8"))["keep"] is True
+
+    # A document we did write is still cleared, so a stale one cannot outlive its script.
+    generate_sheet_script("part.step", out="drawing")
+    assert json.loads(foreign.read_text(encoding="utf-8"))["schema"] == INSPECTION_SCHEMA
+    generate_sheet_script("part.step", out="drawing", inspect=False)
+    assert not foreign.exists()
 
 
 def test_a_source_without_a_solid_body_warns_and_still_generates(

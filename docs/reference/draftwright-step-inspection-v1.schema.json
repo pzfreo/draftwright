@@ -71,11 +71,11 @@
     "face": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["surface", "area", "centroid", "bbox"],
+      "required": ["surface", "area", "position", "bbox"],
       "properties": {
         "surface": { "type": "string", "minLength": 1 },
         "area": { "type": "number", "minimum": 0 },
-        "centroid": { "$ref": "#/$defs/point" },
+        "position": { "$ref": "#/$defs/point" },
         "bbox": {
           "type": "object",
           "additionalProperties": false,

@@ -70,6 +70,19 @@ class InspectionUnavailableError(RuntimeError):
     """The STEP source cannot yield a truthful inspection document."""
 
 
+def _json_value_or_refuse(value: Any) -> Any:
+    """Apply the strict-JSON gate, converting its refusal into the documented failure.
+
+    NaN and Infinity mean a measurement that cannot be stated, which is an inspection failure
+    rather than a bare `ValueError` from `json` escaping the contract.
+    """
+
+    try:
+        return _json_value(value)
+    except ValueError as error:
+        raise InspectionUnavailableError(f"a value cannot be stated as JSON: {error}") from error
+
+
 def _vector(value) -> list[float]:
     return [float(value.X), float(value.Y), float(value.Z)]
 
@@ -81,15 +94,22 @@ def _face(face) -> dict[str, Any]:
         # Not `getattr(face, "geom_type", None)`: the property raises on a degenerate face
         # rather than returning None, so a default cannot stand in for it.
         surface = face.geom_type.name.lower()
-        centre = face.center()
+        # `Face.center()` is CenterOf.GEOMETRY — the parameter-space mid-point, which lies on
+        # the surface. It is NOT the area centroid: on a cylindrical hole wall the two are 5 mm
+        # apart, and the area centroid sits on the axis, inside the material rather than on the
+        # face. A reader locating this face wants the point on it, so the field is named for
+        # what it is rather than borrowing a word that would be wrong.
+        position = face.center()
         box = face.bounding_box()
+        area = float(face.area)
+        bounds = {"min": _vector(box.min), "max": _vector(box.max)}
     except ValueError as error:
         raise InspectionUnavailableError("a source face cannot be described") from error
     return {
         "surface": surface,
-        "area": float(face.area),
-        "centroid": _vector(centre),
-        "bbox": {"min": _vector(box.min), "max": _vector(box.max)},
+        "area": area,
+        "position": _vector(position),
+        "bbox": bounds,
     }
 
 
@@ -102,7 +122,9 @@ def _faces(evidence, references) -> list[dict[str, Any]]:
     """
 
     described = [_face(evidence.face(reference)) for reference in references]
-    return sorted(described, key=lambda item: json.dumps(item, sort_keys=True, allow_nan=False))
+    # One strict-JSON gate, not two: this sort key rejected NaN independently of `_json_value`
+    # and escaped as a bare `ValueError`, outside the documented failure contract.
+    return sorted(described, key=lambda item: json.dumps(_json_value_or_refuse(item)))
 
 
 def _found(evidence, ownership, model) -> list[dict[str, Any]]:
@@ -239,12 +261,9 @@ def _document(
         "found": _found(analysis.recognition_evidence, analysis.recognition_ownership, model),
         "missed": _missed(analysis.recognition_evidence),
     }
-    try:
-        # The one strict-JSON gate: isolates the document from live objects, renders tuples as
-        # arrays, and rejects NaN/Infinity rather than emitting a value JSON cannot state.
-        return cast("dict[str, JsonValue]", _json_value(document))
-    except ValueError as error:
-        raise InspectionUnavailableError(f"a value cannot be stated as JSON: {error}") from error
+    # Isolates the document from live objects, renders tuples as arrays, and rejects
+    # NaN/Infinity rather than emitting a value JSON cannot state.
+    return cast("dict[str, JsonValue]", _json_value_or_refuse(document))
 
 
 __all__ = [

@@ -46,8 +46,8 @@ Provider references, topology indexes, object addresses and absolute paths are n
 
 ## missed — what nothing claimed
 
-`unclaimed_faces` are faces no accepted feature claimed, described by surface kind, area,
-centroid and bounding box, with `face_count` giving the totals. This is the recogniser's own
+`unclaimed_faces` are faces no accepted feature claimed, described by surface kind, area, a
+representative `position` on the face and a bounding box, with `face_count` giving the totals. This is the recogniser's own
 accounting, and it is a place to start looking — **not** a defect list. Stock, background and
 deliberately plain faces are unclaimed too, and they are in the denominator.
 

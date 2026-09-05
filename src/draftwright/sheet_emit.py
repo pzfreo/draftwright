@@ -30,6 +30,7 @@ fixtures (#472).
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import math
 import re
@@ -49,6 +50,7 @@ from draftwright.builder import (
 )
 from draftwright.fits import FitClass
 from draftwright.inspection import (
+    INSPECTION_SCHEMA,
     InspectionUnavailableError,
 )
 from draftwright.inspection import (
@@ -69,6 +71,16 @@ _log = logging.getLogger(__name__)
 # The evidence document written beside a generated script. Derived from the returned
 # script path so the writer and every caller name the same file from one place.
 _INSPECTION_SUFFIX = ".draftwright-inspection.json"
+
+
+def _is_inspection_document(path: str) -> bool:
+    """Is the file at *path* one of ours — a readable inspection document of this schema?"""
+
+    try:
+        with open(path, encoding="utf-8") as handle:
+            return bool(json.load(handle).get("schema") == INSPECTION_SCHEMA)
+    except (OSError, ValueError, AttributeError):
+        return False
 
 
 def inspection_sidecar_path(py_path: str) -> str:
@@ -2488,8 +2500,10 @@ def generate_sheet_script(
     sidecar = inspection_sidecar_path(py_path)
     if inspection is not None:
         _write_report_document(inspection, sidecar)
-    else:
-        # This run owns that path. An earlier run's document left beside a freshly generated
-        # script is evidence about a different part, and nothing in it would say so.
+    elif _is_inspection_document(sidecar):
+        # An earlier run's document left beside a freshly generated script is evidence about a
+        # different part, and nothing in it would say so. Only a document this tool wrote is
+        # removed: the path is derived from the caller's stem, so an unrelated file can sit
+        # there, and deleting it would destroy data we were never asked to own.
         Path(sidecar).unlink(missing_ok=True)
     return py_path

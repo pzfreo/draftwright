@@ -259,8 +259,8 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   resulting evidence, ownership and association accounting through the rank-2 `reporting.py`
   occurrence projector. It builds no drawing: no projection, placement, render, export, or
   physical lint path runs. The engine imports the builder lazily inside the function so
-  `from draftwright import inspect_step` stays sub-second (#313), and nothing in the engine
-  depends on this module.
+  `from draftwright import inspect_step` stays sub-second (#313). `sheet_emit` imports it at
+  the same rank to write its sidecar; nothing below rank 7 depends on it.
 - **`model/`** — the ADR 1 (was 0015) IR waist: `ir.py` (the `Feature`/`DimParameter`/
   `Datum`/`PartModel` types — the one inventory), `detect.py` (detectors →
   `Feature` objects, adapting `b123d_recognisers` records), `planner.py`

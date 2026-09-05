@@ -133,7 +133,8 @@ _LAYERS: dict[str, int] = {
     # but remains a top-layer consumer policy boundary rather than an engine dependency.
     "inspection_contract": 7,
     # Read-only STEP inspection evidence: a public front door onto the one-run detect seam and
-    # the report projector. It consumes the engine and nothing in the engine consumes it.
+    # the report projector. `sheet_emit` consumes it at the same rank to write its sidecar;
+    # nothing below rank 7 does.
     "inspection": 7,
     # Versioned, independently-authored recognition benchmark. It may validate through the
     # cross-repository contract, but the drawing engine must never depend on its evaluator.
