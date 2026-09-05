@@ -785,7 +785,7 @@ def _convert_section_recess_pocket(record: Mapping, *, schema_version: int) -> P
     length = world_bounds[span_index][1] - world_bounds[span_index][0]
     if not all(isfinite(n) for n in (*center, width, length, high - low)):
         raise ValueError("projected pocket measurements must be finite")
-    if width <= 0 or length <= 0:
+    if any(hi <= lo for lo, hi in world_bounds.values()):
         raise ValueError("projected pocket extents must remain positive")
     return PocketFeature(
         frame=Frame(origin=(center[0], center[1], center[2]), axis="xyz"[run_index]),

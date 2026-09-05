@@ -349,3 +349,13 @@ def test_declared_omission_still_withholds_the_whole_pocket_callout():
         len(callouts(("pocket_width.length", "pocket_length.length", "pocket_depth.length"))) == 1
     )
     assert callouts(("pocket_width.length",)) == []
+
+
+@pytest.mark.parametrize("axis", [0, 1, 2])
+def test_translation_must_not_collapse_any_world_extent(axis):
+    record = _record()
+    record["geometry"]["frame"]["origin"][axis] = 1e308
+    # Adding the finite local extent cannot change this floating-point coordinate.
+    assert 1e308 + 30 == 1e308
+    with pytest.raises(ValueError, match="remain positive"):
+        _convert_section_recess_pocket(record, schema_version=2)
