@@ -101,8 +101,8 @@ It is not free. Draftwright has one detect seam, shared with the drawing path, a
 sizes the part while detecting — it picks a page and scale, runs the dimension planner, builds
 hole-callout specs and arranges views, all discarded. A leaner inspect-only path would be a
 second seam whose divergence from the drawing path could not be checked; issue #1462 tracks
-whether that trade should be revisited. A plain block inspects in about 1.5 s, a dense AP242
-part such as NIST CTC-02 in about 14 s.
+whether that trade should be revisited. Order of magnitude on a developer machine: a plain block
+inspects in a couple of seconds, a dense AP242 part such as NIST CTC-02 in tens of seconds.
 
 ## What it never claims
 

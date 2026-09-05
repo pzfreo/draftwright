@@ -578,15 +578,25 @@ def test_the_document_records_the_run_options_that_determined_it(tmp_path, monke
     )
 
 
-def test_an_unknown_run_mode_is_refused_rather_than_recorded_verbatim(tmp_path) -> None:
+def test_the_run_mode_is_read_from_the_run_not_asserted_by_the_caller() -> None:
+    """A provenance field a caller can assert is one that can contradict the run it
+    describes — the untruthful document this field exists to prevent."""
+
+    from dataclasses import replace
+
     from draftwright.builder import _detect_part_model_analysis
 
-    model, analysis = _detect_part_model_analysis(_PLATE_FIXTURE, pmi="off")
-    common = (model, analysis, "part.step", b"")
+    model, analysis = _detect_part_model_analysis(_UNLOWERED_PMI_FIXTURE, pmi="annotate")
+    assert analysis.pmi_mode == "annotate", "fixture precondition: the run really lowered PMI"
 
-    assert inspection_module._document(*common, "off")["run"] == {"pmi_mode": "off"}
+    document = inspection_module._document(model, analysis, "part.stp", b"")
+    assert document["run"] == {"pmi_mode": "annotate"}, (
+        "the document must report the mode the aggregate actually ran under"
+    )
+
+    rogue = replace(analysis, pmi_mode="geometry_only")
     with pytest.raises(InspectionUnavailableError, match="unknown recognition PMI mode"):
-        inspection_module._document(*common, "geometry_only")
+        inspection_module._document(model, rogue, "part.stp", b"")
 
 
 def test_the_generated_script_contains_none_of_the_evidence(tmp_path, monkeypatch) -> None:

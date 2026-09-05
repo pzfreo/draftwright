@@ -201,20 +201,20 @@ def inspect_step(path: str | PathLike[str]) -> dict[str, JsonValue]:
             raise InspectionUnavailableError(
                 f"could not read solid STEP geometry from {source_name!r}"
             ) from error
-        return _document(model, analysis, source_name, source_bytes, "off")
+        return _document(model, analysis, source_name, source_bytes)
 
 
 def _document(
-    model: PartModel,
-    analysis: Analysis,
-    source_name: str,
-    source_bytes: bytes,
-    pmi_mode: str,
+    model: PartModel, analysis: Analysis, source_name: str, source_bytes: bytes
 ) -> dict[str, JsonValue]:
     if not analysis.part.solids():
         raise InspectionUnavailableError(f"{source_name!r} carries no solid body to inspect")
 
     frame_status = (analysis.recognition_frame_decision or {}).get("status")
+    # Read from the run, never taken from the caller: a provenance field a caller can assert
+    # is a field that can contradict the run it describes, which is the untruthful document
+    # this field exists to prevent.
+    pmi_mode = analysis.pmi_mode
     if pmi_mode not in _PMI_MODES:
         raise InspectionUnavailableError(f"unknown recognition PMI mode {pmi_mode!r}")
 
