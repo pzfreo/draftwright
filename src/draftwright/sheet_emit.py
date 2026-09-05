@@ -30,8 +30,9 @@ fixtures (#472).
 from __future__ import annotations
 
 import hashlib
+import json
+import logging
 import math
-import pprint
 import re
 from collections.abc import Mapping, Sequence
 from contextlib import ExitStack
@@ -48,6 +49,13 @@ from draftwright.builder import (
     build_drawing,
 )
 from draftwright.fits import FitClass
+from draftwright.inspection import (
+    INSPECTION_SCHEMA,
+    InspectionUnavailableError,
+)
+from draftwright.inspection import (
+    _document as _inspection_document,
+)
 from draftwright.model.ir import (
     KnurlRequirement,
     NominalRequirement,
@@ -55,8 +63,30 @@ from draftwright.model.ir import (
     ThreadRequirement,
     ToleranceDecoration,
 )
-from draftwright.reporting import JsonValue, _generation_snapshot, _json_value
+from draftwright.reporting import _write_report_document
 from draftwright.view_plan import ViewConstraints
+
+_log = logging.getLogger(__name__)
+
+# The evidence document written beside a generated script. Derived from the returned
+# script path so the writer and every caller name the same file from one place.
+_INSPECTION_SUFFIX = ".draftwright-inspection.json"
+
+
+def _is_inspection_document(path: str) -> bool:
+    """Is the file at *path* one of ours — a readable inspection document of this schema?"""
+
+    try:
+        with open(path, encoding="utf-8") as handle:
+            return bool(json.load(handle).get("schema") == INSPECTION_SCHEMA)
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
+def inspection_sidecar_path(py_path: str) -> str:
+    """Return the evidence document that accompanies the generated script *py_path*."""
+
+    return f"{py_path.removesuffix('.py')}{_INSPECTION_SUFFIX}"
 
 
 @dataclass(frozen=True)
@@ -1947,7 +1977,6 @@ def emit_sheet_script(
     formats: Sequence[str] = ("pdf",),
     settled_layout: Mapping | None = None,
     view_constraints: ViewConstraints | None = None,
-    recognition_snapshot: Mapping[str, JsonValue] | None = None,
 ) -> str:
     """The generated declarative ``Sheet`` script text for a detected *model*.
 
@@ -1982,16 +2011,10 @@ def emit_sheet_script(
     and derived source choices plus semantic view declarations; targets remain stable feature
     bindings rather than raw page coordinates.
 
-    ``recognition_snapshot``, when supplied by the generation front door, must contain only
-    strict JSON values. It is normalized through that boundary before becoming a Python literal,
-    so cyclic, non-finite, or arbitrary repr-bearing objects cannot make the emitted script
-    syntactically invalid."""
+    Recognition evidence is deliberately NOT embedded here. The generated script is a drawing
+    declaration a person edits; evidence about the run that produced it belongs in the sidecar
+    document beside it, where a reader can diff or re-read it without parsing Python (#1460)."""
     _validate_scale_policy(scale, scale_policy)
-    normalized_snapshot = (
-        cast(dict[str, JsonValue], _json_value(dict(recognition_snapshot)))
-        if recognition_snapshot is not None
-        else None
-    )
     # The script declares this model — `model` plus an envelope when the overall height would
     # otherwise be unnameable under the mirrored (authored) set. BEFORE the import scan, since
     # a synthesised envelope needs `EnvelopeFeature` imported like a detected one.
@@ -2101,16 +2124,6 @@ def emit_sheet_script(
             else []
         ),
         "",
-        *(
-            [
-                "# Generation-time evidence only: the fresh runtime report remains authoritative.",
-                "DRAFTWRIGHT_RECOGNITION_SNAPSHOT = "
-                + pprint.pformat(normalized_snapshot, sort_dicts=False, width=99),
-                "",
-            ]
-            if normalized_snapshot is not None
-            else []
-        ),
         part_expr,
         "",
         f"sheet = Sheet(part, {', '.join(ctor)})",
@@ -2348,6 +2361,7 @@ def generate_sheet_script(
     part_expr: str | None = None,
     object_candidates: Mapping[str, Shape] | None = None,
     formats: Sequence[str] = ("pdf",),
+    inspect: bool = True,
 ) -> str:
     """Write a declarative ``Sheet``-DSL script for *step_file* (a STEP path or a build123d
     object). Returns the path to the generated ``.py``. **The** script emitter, since #940
@@ -2400,13 +2414,21 @@ def generate_sheet_script(
             detection_source.write_bytes(source_bytes)
 
         model, analysis = _detect_part_model_analysis(detection_source, pmi=pmi)
-        recognition_snapshot = _generation_snapshot(
-            evidence=analysis.recognition_evidence,
-            ownership=analysis.recognition_ownership,
-            model=model,
-            source=source_display,
-            source_sha256=source_sha256,
-        )
+        # The evidence document is written beside the script, never into it. It is projected
+        # from THIS run — no second aggregate (#1460). A build123d object source has no STEP
+        # bytes and therefore no document.
+        inspection = None
+        if inspect and source_bytes is not None:
+            assert source_display is not None
+            try:
+                inspection = _inspection_document(
+                    model, analysis, source_display.name, source_bytes
+                )
+            except InspectionUnavailableError as error:
+                # Never fail script generation over its sidecar, and never drop it in silence.
+                _log.warning(
+                    "No inspection sidecar written for %s: %s", source_display.name, error
+                )
         settled_layout = None
         # Generated scripts mirror dimensions as an authored set. Resolve the two established
         # semantic-correction families against the same immutable STEP snapshot as recognition.
@@ -2461,7 +2483,6 @@ def generate_sheet_script(
             source_part=step_file if isinstance(step_file, Shape) else None,
             formats=formats,
             settled_layout=settled_layout,
-            recognition_snapshot=recognition_snapshot,
         )
     if source_resolved is not None:
         try:
@@ -2476,4 +2497,13 @@ def generate_sheet_script(
             )
     py_path = f"{stem}.py"
     Path(py_path).write_text(script, encoding="utf-8")  # the script has box-drawing / × / ← glyphs
+    sidecar = inspection_sidecar_path(py_path)
+    if inspection is not None:
+        _write_report_document(inspection, sidecar)
+    elif _is_inspection_document(sidecar):
+        # An earlier run's document left beside a freshly generated script is evidence about a
+        # different part, and nothing in it would say so. Only a document this tool wrote is
+        # removed: the path is derived from the caller's stem, so an unrelated file can sit
+        # there, and deleting it would destroy data we were never asked to own.
+        Path(sidecar).unlink(missing_ok=True)
     return py_path

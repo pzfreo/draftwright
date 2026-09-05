@@ -29,6 +29,10 @@ _LAZY = {
     "Drawing": "draftwright.drawing",
     "FeatureInfo": "draftwright.drawing",
     "ReportUnavailableError": "draftwright.reporting",
+    "INSPECTION_SCHEMA": "draftwright.inspection",
+    "INSPECTION_SCHEMA_VERSION": "draftwright.inspection",
+    "InspectionUnavailableError": "draftwright.inspection",
+    "inspect_step": "draftwright.inspection",
     "Sheet": "draftwright.sheet",
     "lint_feature_coverage": "draftwright.linting",
     "PmiExtractionReport": "draftwright.pmi",
@@ -86,6 +90,12 @@ if TYPE_CHECKING:  # static analysers / IDEs — no runtime import, no kernel co
     from draftwright.builder import ScaleIncompatibilityError, build_drawing, make_drawing
     from draftwright.compose import choose_scale
     from draftwright.drawing import Drawing, FeatureInfo
+    from draftwright.inspection import (
+        INSPECTION_SCHEMA,
+        INSPECTION_SCHEMA_VERSION,
+        InspectionUnavailableError,
+        inspect_step,
+    )
     from draftwright.linting import lint_feature_coverage
     from draftwright.pmi import (
         PmiExtractionReport,
@@ -107,9 +117,12 @@ def __dir__():
 
 
 __all__ = [
+    "INSPECTION_SCHEMA",
+    "INSPECTION_SCHEMA_VERSION",
     "Drawing",
     "SoftDeprecationWarning",
     "FeatureInfo",
+    "InspectionUnavailableError",
     "PmiExtractionReport",
     "PmiRecord",
     "PmiSourceEntity",
@@ -124,6 +137,7 @@ __all__ = [
     "choose_scale",
     "extract_pmi",
     "extract_pmi_report",
+    "inspect_step",
     "lint_feature_coverage",
     "make_drawing",
 ]

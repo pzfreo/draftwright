@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://draftwright.dev/schema/draftwright-step-inspection-v1.schema.json",
+  "title": "Draftwright STEP inspection v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "schema_version", "source", "producer", "run", "found", "missed"],
+  "properties": {
+    "schema": { "const": "draftwright-step-inspection" },
+    "schema_version": { "const": 1 },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "sha256"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["draftwright", "b123d-recognisers"],
+      "properties": {
+        "draftwright": { "type": "string", "minLength": 1 },
+        "b123d-recognisers": { "type": "string", "minLength": 1 }
+      }
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pmi_mode"],
+      "properties": {
+        "pmi_mode": { "enum": ["off", "report", "annotate"] }
+      }
+    },
+    "found": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/found_feature" }
+    },
+    "missed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["unclaimed_faces", "face_count", "rejected_candidates"],
+      "properties": {
+        "unclaimed_faces": { "type": "array", "items": { "$ref": "#/$defs/face" } },
+        "face_count": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["total", "claimed", "unclaimed"],
+          "properties": {
+            "total": { "type": "integer", "minimum": 0 },
+            "claimed": { "type": "integer", "minimum": 0 },
+            "unclaimed": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "rejected_candidates": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["available", "reason"],
+          "properties": {
+            "available": { "const": false },
+            "reason": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "point": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "number" } },
+    "face": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["surface", "area", "position", "bbox"],
+      "properties": {
+        "surface": { "type": "string", "minLength": 1 },
+        "area": { "type": "number", "minimum": 0 },
+        "position": { "$ref": "#/$defs/point" },
+        "bbox": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["min", "max"],
+          "properties": {
+            "min": { "$ref": "#/$defs/point" },
+            "max": { "$ref": "#/$defs/point" }
+          }
+        }
+      }
+    },
+    "found_feature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "family",
+        "feature",
+        "feature_type",
+        "feature_schema_version",
+        "draftwright"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "family": { "type": "string", "minLength": 1 },
+        "feature": { "type": "object" },
+        "feature_type": { "type": "string", "minLength": 1 },
+        "feature_schema_version": { "type": "integer", "minimum": 1 },
+        "draftwright": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["acted_on", "disposition", "reason", "owners"],
+          "properties": {
+            "acted_on": { "type": "boolean" },
+            "disposition": {
+              "enum": [
+                "represented",
+                "absorbed",
+                "unsupported",
+                "deferred",
+                "evidence_only",
+                "unexpectedly_missing"
+              ]
+            },
+            "reason": { "type": "string", "minLength": 1 },
+            "owners": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    }
+  }
+}

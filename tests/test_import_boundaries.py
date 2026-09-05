@@ -132,6 +132,10 @@ _LAYERS: dict[str, int] = {
     # Separate cross-repository inspection contract. It currently imports no engine module,
     # but remains a top-layer consumer policy boundary rather than an engine dependency.
     "inspection_contract": 7,
+    # Read-only STEP inspection evidence: a public front door onto the one-run detect seam and
+    # the report projector. `sheet_emit` consumes it at the same rank to write its sidecar;
+    # nothing below rank 7 does.
+    "inspection": 7,
     # Versioned, independently-authored recognition benchmark. It may validate through the
     # cross-repository contract, but the drawing engine must never depend on its evaluator.
     "evaluation": 7,

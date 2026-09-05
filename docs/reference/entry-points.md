@@ -7,3 +7,7 @@
 ## Build and export in one call
 
 ::: draftwright.builder.make_drawing
+
+## Inspect a STEP file without drawing it
+
+::: draftwright.inspection.inspect_step

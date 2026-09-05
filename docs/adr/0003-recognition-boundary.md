@@ -84,6 +84,12 @@ Each names the test that fails when it is broken. "Unguarded" lists the ones tha
     profile or merges disjoint bodies; a groove that cannot name one owner is refused.
     `test_issue_1357_plural_turned_profiles.py`.
 
+13. **A second consumer of one run costs no second run.** The evidence projector never
+    recognises, imports geometry or reads the filesystem, so a consumer that has already
+    detected — script generation — projects its document from that aggregate rather than
+    starting another. `test_issue_1460_step_inspection.py`,
+    `test_issue_1438_generation_snapshot.py`.
+
 **Unguarded.** The provider's own explanation of a run — what it proposed and rejected, which
 families it did not evaluate — is on a separate entry point that re-runs recognition, so no
 Draftwright consumer reads it; b123d-recognisers#494 asks for an API over an already-completed

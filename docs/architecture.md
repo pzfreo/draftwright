@@ -19,7 +19,8 @@ the `linting/` subpackage, the `model/` IR subpackage, the `annotations/` subpac
 `builder.py` → the
 user-facing surfaces: the `make_drawing.py` / `annotate.py` compat facades, the
 fluent `Sheet` facade (`sheet.py`), the Sheet-script emitter
-(`sheet_emit.py`), the recognition-evaluation package (`evaluation/`), and the
+(`sheet_emit.py`), the read-only STEP inspection surface (`inspection.py`), the
+recognition-evaluation package (`evaluation/`), and the
 `cli.py` entry point. Developer-only `_build_profile.py` sits at the same top layer: it
 patches the public builder and Sheet bindings lazily for pytest measurement, and no engine
 module depends on it. No lower module imports an
@@ -252,6 +253,14 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   reads. It validates inspection manifest format 1/API major 1, the exact installed recogniser
   release, and only the stable `b123d_recognisers.inspection` symbols and value schemas consumed
   by `model/declare.py`. It deliberately does not declare recognition-family semantics.
+- **`inspection.py`** — the rank-7 public read-only STEP inspection surface (`inspect_step`).
+  It hashes one immutable source-byte snapshot, drives the shared one-run
+  `_detect_part_model_analysis` seam over a private copy of those bytes, and projects the
+  resulting evidence, ownership and association accounting through the rank-2 `reporting.py`
+  occurrence projector. It builds no drawing: no projection, placement, render, export, or
+  physical lint path runs. The engine imports the builder lazily inside the function so
+  `from draftwright import inspect_step` stays sub-second (#313). `sheet_emit` imports it at
+  the same rank to write its sidecar; nothing below rank 7 depends on it.
 - **`model/`** — the ADR 1 (was 0015) IR waist: `ir.py` (the `Feature`/`DimParameter`/
   `Datum`/`PartModel` types — the one inventory), `detect.py` (detectors →
   `Feature` objects, adapting `b123d_recognisers` records), `planner.py`

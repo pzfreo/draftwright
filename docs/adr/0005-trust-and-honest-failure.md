@@ -86,6 +86,27 @@ proves nothing about a guard that was never mutated.
     are the literals; nothing is called complete or ready. `test_issue_1438_report_projection.py`,
     `test_issue_1438_generation_snapshot.py`.
 
+14. **Read-only evidence is a projection, never a build.** `inspect_step(path)` returns what
+    recognition found, what Draftwright did with each finding, and what nothing claimed —
+    without a `Drawing`, compiled plan, placement, render, export or lint score. A guard pins
+    the exact set of engine modules an inspection executes.
+    `test_issue_1460_step_inspection.py`.
+15. **Evidence lives beside a generated script, not inside it.** A script is a declaration a
+    person edits; its evidence is a sidecar that can be diffed and re-read without parsing
+    Python. Generation owns that path in both directions — it writes the document or removes a
+    stale one, and a document it cannot state truthfully is logged and skipped rather than
+    failing generation. `test_issue_1460_step_inspection.py`,
+    `test_issue_1438_generation_snapshot.py`.
+16. **A document records the run options that determined it.** PMI lowering can rewrite a
+    grouped hole member into a singleton owner, so two runs over identical bytes can disagree
+    about what Draftwright did with a finding. The document carries the mode, rather than
+    letting `source.sha256` imply a reproducibility it does not have; two documents agreeing
+    on source, producer and run options agree entirely.
+    `test_issue_1460_step_inspection.py`.
+17. **An evidence document states what it cannot say.** Unclaimed geometry is not a missed
+    feature, and what recognition proposed and rejected is reported as unavailable rather than
+    left to read as "nothing was rejected". `test_issue_1460_step_inspection.py`.
+
 **Unguarded.** Lint's coverage of "everything a competent reviewer would flag" is a goal, not a
 property; a blind spot is a silent pass. Visual-channel defects (which row a section should cut)
 are outside lint by definition and rest on a human or a vision reader.
@@ -108,6 +129,9 @@ are outside lint by definition and rest on a human or a vision reader.
   enabled was later retired in favour of geometry-level and standards suites.
 - 0010 — one provenance seam at intent → render. Its universal `origin` back-link was never built:
   the seam links annotation → feature directly and recognition → IR resolves by position.
+- 0017 Amendment 24 embedded a gap snapshot in generated Python; Amendment 28 replaced it with
+  a sidecar carrying the whole document, and widened it from the gaps alone to every accepted
+  finding with the outcome Draftwright gave it.
 - 0017 Amendment 21 — report schema v1 over the raw occurrence ledger; 22 — atomic persistence;
   23 — Plate ownership; 24 — a gap snapshot embedded in generated Python; 25 — the CLI sidecar
   default; 26 — reports project the recognition-owned requirement ledger, never a denominator
