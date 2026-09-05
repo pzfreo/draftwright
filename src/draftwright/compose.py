@@ -709,7 +709,10 @@ def choose_scale(
             ``page`` are given they are used as-is (a warning is logged if the
             layout does not fit).
     """
-    if scale is not None and float(scale) <= 0:
+    if scale is not None and not float(scale) > 0:
+        # `not x > 0` rather than `x <= 0` so NaN is refused: `nan <= 0` is False, and a NaN
+        # scale is not merely wrong but unrecoverable — it reaches `project_to_viewport` and
+        # the build hangs rather than raising (#1395 review).
         raise ValueError(f"scale must be positive, got {scale!r}")
     if scale is not None and page is not None:
         pw, ph, tb = _parse_page(page)

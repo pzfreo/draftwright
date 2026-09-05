@@ -199,15 +199,27 @@ def test_across_many_zones_every_projected_scale_is_positive_and_some_are(monkey
 
 
 def test_a_nan_factor_is_refused_although_it_is_not_less_than_zero(monkeypatch):
-    """`NaN <= 0.0` is False and OCC accepts a NaN scale silently, so the guard is spelled
-    `not factor > 0.0`. No reachable input produces NaN today; this pins the spelling."""
+    """Why the spelling matters at every scale gate — including the one that does see NaN.
+
+    `factor` itself provably cannot be NaN: `math.floor` raises `ValueError` on NaN and
+    `OverflowError` on inf before the guard is reached, so `not factor > 0.0` there is
+    belt-and-braces rather than load-bearing. The public `scale=` gate is different — it takes
+    the caller's value directly, and spelled `<= 0` it let NaN through and the build HUNG in
+    `project_to_viewport` rather than raising.
+    """
 
     nan = float("nan")
     mirrored = gp_Trsf()
     mirrored.SetScale(gp_Pnt(0, 0, 0), nan)  # accepted, no exception
 
     assert not (nan <= 0.0), "the reason `<= 0.0` would not be enough"
-    assert not nan > 0.0, "the spelling the guard uses does refuse it"
+    assert not nan > 0.0, "the spelling the guards use does refuse it"
+
+    # The gate that genuinely needs it: a caller-supplied NaN scale must raise, not hang.
+    # Spelled `<= 0` this does not fail, it HANGS in `project_to_viewport`, so the module's
+    # 300 s pytest-timeout is what turns a regression here into a report rather than a wedge.
+    with pytest.raises(ValueError, match="scale must be positive"):
+        build_drawing(Cylinder(5, 20), title="T", number="N", scale=nan, page="A4")
 
 
 # ── the authored-scale sibling path ───────────────────────────────────────────────────────
@@ -236,9 +248,9 @@ def test_a_degenerate_zone_is_not_reported_as_an_infeasible_authored_scale(_zone
 
     assert result is not None, "the authored iso is left as projected, not refused"
     assert "has no room for any scale" in _zone_log.text
-    assert "authored iso scale" not in _zone_log.text, (
-        "the caller must not be blamed for a zone the engine composed"
-    )
+    # Not asserted against the log: "authored iso scale" only ever appears in a `raise`, never
+    # in a record, so a log-absence check there could never fail. The guard returning at all is
+    # what proves the falsehood is not raised.
 
 
 # ── platform facts the old handler rested on ──────────────────────────────────────────────
