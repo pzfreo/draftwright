@@ -881,3 +881,44 @@ def test_documented_schema_has_the_same_closed_top_level() -> None:
     unknown_requirement["recognition"]["requirements"][0]["unknown"] = True
     with pytest.raises(ValidationError):
         validator_for(schema)(schema).validate(unknown_requirement)
+
+
+@pytest.mark.parametrize("contradiction", ("unsupported_requirement", "supported_requirement"))
+def test_report_rejects_disagreement_between_requirement_and_occurrence_status(
+    monkeypatch, contradiction
+):
+    drawing = build_drawing(
+        _through_step_part() if contradiction == "unsupported_requirement" else _passage_part()
+    )
+    report = drawing.report()
+    evidence = drawing.recognition_evidence()
+    assert evidence is not None
+    wanted = "represented" if contradiction == "unsupported_requirement" else "unsupported"
+    occurrence = next(
+        row for row in report["recognition"]["occurrences"] if row["disposition"] == wanted
+    )
+    # The occurrence projection preserves the independently supplied evidence roster order.
+    index = report["recognition"]["occurrences"].index(occurrence)
+    source = evidence.record(evidence.features[index])
+    state = "unsupported" if contradiction == "unsupported_requirement" else "missing"
+    monkeypatch.setattr(
+        requirement_module,
+        "recognized_requirement_outcomes",
+        lambda *_args, **_kwargs: {
+            occurrence["family"]: (
+                SimpleNamespace(
+                    state=state,
+                    source_records=(source,),
+                    parameter_id="diameter",
+                    requirement_count=1,
+                ),
+            )
+        },
+    )
+    message = (
+        "contradicts occurrence ownership"
+        if contradiction == "unsupported_requirement"
+        else "conflicting requirement outcomes"
+    )
+    with pytest.raises(ReportUnavailableError, match=message):
+        drawing.report()

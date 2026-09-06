@@ -317,7 +317,6 @@ def test_lowering_an_existing_document_does_not_recognise_again(monkeypatch):
 
     monkeypatch.setattr(quiddity, "build_section_recess_document", forbidden)
     monkeypatch.setattr(quiddity, "build_raw_recognition_result", forbidden)
-    monkeypatch.setattr(quiddity, "build_raw_recognition_result", forbidden)
     monkeypatch.setattr(detect, "build_recognition_evidence", forbidden)
     assert _convert_section_recess_pocket(_record(), schema_version=2).depth == 6
 

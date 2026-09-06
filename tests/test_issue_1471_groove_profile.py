@@ -57,6 +57,7 @@ def test_profile_identity_cannot_override_contradictory_geometry(source, change)
         {"axis": True},
         {"axis_origin": (False, 0, 0)},
         {"axis_origin": [0, 0, 0]},
+        {"axis_origin": (0, 0, 1)},
         {"body_bounds": (-15, 15, -15, 15, -10, float("inf"))},
         {"body_bounds": (-15, 15, -15, 15, 0, 0)},
         {"body_key": (float("nan"),) * 8},
@@ -151,3 +152,28 @@ def test_axial_lint_credits_a_keyed_groove_only_to_its_own_coaxial_profile():
             sheet.note("2 WIDE GROOVE", feature, satisfies=("groove.length",))
     drawing = sheet.build()
     assert not [i for i in drawing.lint() if i.code == "axial_length_missing"]
+
+
+def test_structurally_similar_profile_is_not_public_membership(source):
+    from types import SimpleNamespace
+
+    groove = source.grooves[0]
+    forged = SimpleNamespace(**vars(groove.profile))
+    with pytest.raises(TypeError, match="exact public TurnedProfileKey"):
+        require_unambiguous_groove_owner(replace(groove, profile=forged), source.turned_profiles)
+
+
+@pytest.mark.parametrize("group", ("", " ", 1))
+def test_owner_join_rejects_malformed_retained_author_group(source, group):
+    from types import SimpleNamespace
+
+    groove = source.grooves[0]
+    retained = SimpleNamespace(
+        axis=groove.axis,
+        at=groove.at,
+        width=groove.width,
+        diameter=groove.diameter,
+        profile_group=group,
+    )
+    with pytest.raises(ValueError, match="profile_group must be a non-empty string"):
+        require_unambiguous_groove_owner(retained, source.turned_profiles)

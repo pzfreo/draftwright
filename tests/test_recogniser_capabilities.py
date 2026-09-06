@@ -120,7 +120,7 @@ def test_installed_package_contract_validates_without_a_sibling_checkout() -> No
     assert distribution.version == INSTALLED_PACKAGE_VERSION
     assert distribution.read_text("direct_url.json") is None
     package_path = Path(inspect.getfile(recognition.capability_manifest)).resolve()
-    assert package_path.is_relative_to(ROOT / ".venv")
+    assert package_path.is_relative_to(Path(distribution.locate_file("quiddity")).resolve())
 
     _validate()
     package = recognition.capability_manifest(format_version=2)

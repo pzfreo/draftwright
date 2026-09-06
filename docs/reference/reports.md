@@ -37,6 +37,9 @@ from the provider's accepted-occurrence order, Draftwright's final IR order, and
 semantic completeness ledgers; they are not persistent topology IDs and must not be stored as
 identities across recognition runs. `record` is the public recogniser record's JSON projection,
 and `record_schema_version` comes from Draftwright's installed consumer capability declaration.
+The open `record` payload preserves the provider's public JSON, including any run-local body or
+face indices. Those values are evidence from that run, not document IDs or references that a
+consumer may reuse across runs.
 
 `recognition.requirements` contains each auditable physical requirement once. Its
 `occurrence_ids` point to the exact accepted records that establish the requirement and its
@@ -66,7 +69,7 @@ recogniser output rather than every physical feature a recogniser might fail to 
 thread, fit, tolerance, finish, and process intent also remain separately authored readiness facts;
 the report never invents them.
 
-Version 1 refuses declared, provider-framed, foreign-result, and bare drawings with
+Version 2 refuses declared, provider-framed, foreign-result, and bare drawings with
 `ReportUnavailableError` because those paths do not carry exact run-local occurrence ownership.
 It also refuses a raw automatic drawing when any accepted occurrence remains unclassified; the
 report never silently removes that occurrence from its denominator. It does not reconstruct
