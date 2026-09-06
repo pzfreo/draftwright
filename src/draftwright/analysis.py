@@ -676,6 +676,7 @@ def _validate_explicit_scale(
     layout_required_tables=(),
     margin=_MARGIN,
     warn_advisory: bool = True,
+    advisories: list[tuple[str, str]] | None = None,
     views: tuple[str, ...] | None = None,
     include_iso: bool = True,
     iso_scale_factor: float | None = None,
@@ -701,7 +702,7 @@ def _validate_explicit_scale(
             f"below {_MIN_RENDER_MM:g} mm (OCCT arc construction fails). "
             f"Use scale ≥ {safe:.3g} or omit the scale for automatic selection."
         )
-    if not warn_advisory:
+    if not warn_advisory and advisories is None:
         return
     auto_scale, _, _, _ = choose_scale(
         x_size,
@@ -727,12 +728,16 @@ def _validate_explicit_scale(
         # No stacklevel that reaches user code: this fires deep in _analyse, and the public
         # entry points (make_drawing, Sheet.export, build_drawing) sit at different depths.
         # The message is self-contained (names the scale, the projection, and the fix).
-        warnings.warn(
+        message = (
             f"scale {SCALE!r} projects the smallest part dimension ({min_dim:.0f} mm) to "
             f"{min_view:.1f} mm, below the {_MIN_VIEW_MM:.0f} mm legibility floor — "
             f"annotations may crowd or overlap. Honouring the requested scale; use "
             f"scale ≥ {safe:.3g} or omit the scale for an automatic legible fit."
         )
+        if advisories is not None:
+            advisories.append(("legibility_floor_breached", message))
+        if warn_advisory:
+            warnings.warn(message)
 
 
 def _analyse(
@@ -1126,7 +1131,10 @@ def _analyse(
             bore_callout_width=bore_callout_width,
         )
 
+    layout_advisories: list[tuple[str, str]] = []
+
     def _pick_for_step_count(n_steps_i: int, strips_i: StripDepths) -> _ScalePick:
+        layout_advisories.clear()
         return choose_scale(
             x_size,
             y_size,
@@ -1140,6 +1148,7 @@ def _analyse(
             required_tables=layout_required_tables,
             margin=margin,
             arrangements=_arrangements,
+            advisories=layout_advisories,
             views=_views,
             include_iso=_include_iso,
             iso_scale_factor=planned_iso_scale,
@@ -1171,6 +1180,7 @@ def _analyse(
         layout_required_tables,
         margin=margin,
         warn_advisory=_reuse is None,
+        advisories=layout_advisories,
         views=_views,
         include_iso=_include_iso,
         iso_scale_factor=planned_iso_scale,
@@ -1264,6 +1274,7 @@ def _analyse(
     )
 
     return Analysis(
+        layout_advisories=tuple(layout_advisories),
         arrangement=ARRANGEMENT,
         planned_views=_views,
         planned_iso=_include_iso,

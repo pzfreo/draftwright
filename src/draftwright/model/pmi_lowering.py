@@ -504,6 +504,7 @@ def lower_ap242_nominal_diameters(model: PartModel) -> PartModel:
         ],
     ] = {}
     blocked: dict[int, str] = {}
+    nominal_conflicts: set[int] = set()
     for dimension_index, dimension in dimensions.items():
         if dimension.lowering_blockers or dimension.rendering_blockers:
             continue
@@ -529,7 +530,19 @@ def lower_ap242_nominal_diameters(model: PartModel) -> PartModel:
             )
             continue
         owner = matches[0]
-        proposals[dimension_index] = (owner, _nominal_owner_key(owner))
+        key = _nominal_owner_key(owner)
+        nominal = NominalRequirement(
+            value=dimension.value, source="ap242_pmi", source_ids=_source_ids(dimension)
+        )
+        parameter = next(p for p in owner.parameters() if p.parameter_id == key[2])
+        if not nominal.agrees_with(parameter.value):
+            nominal_conflicts.add(dimension_index)
+            blocked[dimension_index] = (
+                f"source nominal {dimension.value!r} disagrees with canonical "
+                f"{parameter.parameter_id}={parameter.value!r}"
+            )
+            continue
+        proposals[dimension_index] = (owner, key)
 
     decorations = dict(model.decorations)
     consumed: set[int] = set()
@@ -543,9 +556,7 @@ def lower_ap242_nominal_diameters(model: PartModel) -> PartModel:
             )
             consumed.add(dimension_index)
             continue
-        if isinstance(existing, NominalRequirement) and _same_number(
-            existing.value, dimension.value
-        ):
+        if isinstance(existing, NominalRequirement) and existing.agrees_with(dimension.value):
             decorations[key] = replace(
                 existing,
                 source_ids=tuple(dict.fromkeys((*existing.source_ids, *incoming_ids))),
@@ -562,6 +573,10 @@ def lower_ap242_nominal_diameters(model: PartModel) -> PartModel:
             continue
         if index in blocked and isinstance(feature, AuthoredDimension):
             feature = _block(feature, blocked[index])
+            if index in nominal_conflicts:
+                feature = replace(
+                    feature, rendering_blockers=(*feature.rendering_blockers, blocked[index])
+                )
         rebuilt.append(feature)
     return _apply_standalone_cylinder_blockers(
         replace(model, features=rebuilt, decorations=decorations)

@@ -50,3 +50,13 @@ def test_detected_chamfer_keeps_single_rendered_count(repeat):
     annotations = drawing.annotations_of(feature)
     labels = [a.label for a in annotations.values() if hasattr(a, "label")]
     assert labels == ["C0.5"]
+
+
+@pytest.mark.parametrize("invalid", [None, True, 0, "feature", object()])
+def test_add_refuses_non_features_without_mutating_registration(invalid):
+    sheet = Sheet(Box(20, 20, 10)).authored_dimensions()
+    feature = chamfer(leg1=0.5, at=(0, 0, 5), axis="z")
+    sheet.add(feature)
+    with pytest.raises(TypeError, match="requires an IR Feature"):
+        sheet.add(invalid)
+    assert len(sheet.features) == 1 and sheet.features[0] is feature

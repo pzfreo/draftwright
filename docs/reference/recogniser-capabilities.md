@@ -70,6 +70,36 @@ issue. The contract test derives package record outputs, converter registries, l
 and emitter branches independently, so copying a new name into the declaration alone cannot make CI
 pass.
 
+### Quiddity migration baseline
+
+The first [#1471](https://github.com/pzfreo/draftwright/issues/1471) migration slice tests the
+released Quiddity SectionRecess document against the existing authored pocket corpus. Quiddity is
+pinned in the development dependencies for this comparison. Production continues to use the
+existing recogniser dependency and capability declaration.
+
+The private pocket adapter in `model/detect.py` reads primitive schema-2 occurrence geometry and
+produces the existing `PocketFeature`. It admits principal-axis closed rectangles and open
+rectangular corner/edge chains, preserves the opening direction, and refuses unsupported shapes,
+sloped ends, invalid frames and malformed measurements. An open chain remains edge-anchored; its
+missing boundary is never reconstructed as a physical edge.
+
+`tests/test_issue_1471_section_recess_pockets.py` checks independently authored dimensions,
+opposed and side openings, disconnected bodies, topology variants, the existing drawing path,
+executed generated Sheet scripts and authored omission. The baseline tests for pocket patterns,
+channels and both blind-slot families remain the acceptance floor for their later adapters.
+
+This is preparation for adoption, not a new automatic detection mode. The adapter does not yet
+participate in the production registry, bind occurrence ownership or provide Quiddity-based lint.
+Its comparison drawings use the pinned provider for physical critique. The eventual cutover must
+validate result-local references, bind exact same-run occurrences, migrate patterns and explicit
+refusals, and update independent lint, reports and inspection together. A build already holding an
+aggregate must project it rather than invoke the document builder for a second recognition run.
+
+The comparison pins Quiddity 0.2.1, which fixes
+[Quiddity #505](https://github.com/pzfreo/quiddity/issues/505): support proofs now handle
+build123d 0.10 `ShapeList` boolean results. The pocket corpus exercises this public recognition
+path across the supported Python/build123d matrix before consumer adaptation.
+
 `bosses` is the fully consumed reference family. `repeating-radial-profiles` is the opposite
 reference: it remains geometry-only critique evidence for a separately authored gear declaration,
 with no inferred gear feature added to fill the table.

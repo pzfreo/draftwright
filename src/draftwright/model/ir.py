@@ -454,6 +454,10 @@ class NominalRequirement:
     source: str
     source_ids: tuple[str, ...]
 
+    def agrees_with(self, value: float) -> bool:
+        """Whether a canonical value can carry this nominal without changing its meaning."""
+        return abs(float(value) - self.value) <= 1e-6
+
     def __post_init__(self) -> None:
         if isinstance(self.value, bool):
             raise ValueError("nominal requirement value must be finite and positive")
