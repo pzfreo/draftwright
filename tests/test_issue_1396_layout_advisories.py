@@ -1,5 +1,6 @@
 """Layout degradations are available without parsing Python warnings or logs."""
 
+import warnings
 from dataclasses import replace
 
 import pytest
@@ -95,3 +96,39 @@ def test_computed_scale_reaches_public_declared_lint():
     drawing = Sheet(Box(1e7, 1e7, 1e7)).authored_dimensions().build()
     assert 0 < drawing.scale < 0.0001
     assert "scale_fallback_applied" in _codes(drawing)
+
+
+@pytest.mark.parametrize("warn_advisory", [False, True])
+@pytest.mark.parametrize("collect_advisories", [False, True])
+def test_warning_delivery_and_diagnostic_collection_are_independent(
+    warn_advisory, collect_advisories
+):
+    from draftwright.analysis import _validate_explicit_scale
+
+    # This part has an automatic legible fit, while the requested scale is too small.
+    auto_scale, *_ = choose_scale(680, 860, 80)
+    assert 80 * 0.1 < 15 <= 80 * auto_scale
+    advisories = [] if collect_advisories else None
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        _validate_explicit_scale(
+            0.1,
+            0.1,
+            680,
+            860,
+            80,
+            0,
+            None,
+            None,
+            False,
+            (),
+            warn_advisory=warn_advisory,
+            advisories=advisories,
+        )
+    assert len(caught) == int(warn_advisory)
+    if caught:
+        assert "legibility floor" in str(caught[0].message)
+    if collect_advisories:
+        assert len(advisories) == 1
+        assert advisories[0][0] == "legibility_floor_breached"
+        assert "legibility floor" in advisories[0][1]
