@@ -104,6 +104,7 @@ _RECOGNISED_REQUIREMENT_FAMILIES = {
     "channels": "channels",
     "circular_blind_steps": "circular_blind_steps",
     "slots": "slots",
+    "oriented_slots": "oriented_slots",
     "slot_patterns": "slot_patterns",
     "grooves": "grooves",
     "flats": "flats",
@@ -155,7 +156,6 @@ _NON_REQUIREMENT_INVENTORIES = frozenset(
 #: unsupported outcome.
 _UNDECIDED_INVENTORIES: dict[str, str] = {
     "oriented_slot_patterns": "https://github.com/pzfreo/draftwright/issues/1430",
-    "oriented_slots": "https://github.com/pzfreo/draftwright/issues/1430",
 }
 
 _AUDITED_FAMILIES = (
@@ -170,6 +170,7 @@ _AUDITED_FAMILIES = (
     "grooves",
     "hole_patterns",
     "holes",
+    "oriented_slots",
     "passages",
     "pads",
     "plates",
@@ -385,6 +386,7 @@ _STAGE_ROUTED_CODES = frozenset(
         "polygonal_stock_dropped",
         "rectangular_blind_slot_dropped",
         "round_bottom_blind_slot_dropped",
+        "oriented_slot_dropped",
         "slot_dropped",
     }
 )
@@ -417,6 +419,7 @@ _UNSCORED_CODE_PREFIXES = (
     "polygonal_stock_requirement_",
     "rectangular_blind_slot_requirement_",
     "round_bottom_blind_slot_requirement_",
+    "oriented_slot_requirement_",
     "slot_requirement_",
 )
 

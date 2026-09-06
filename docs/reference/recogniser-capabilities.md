@@ -618,12 +618,13 @@ the complete canonical `axis_direction`; `Sheet.blend(...)`, generated replay an
 solver-owned `n× R` leader preserve it without pretending it is a legacy Fillet. Exact occurrence
 and measurement provenance place Blend in `audited_score`.
 
-`oriented_slots` and `oriented_slot_patterns` remain separately registered as undecided under
-#1430. Their real occurrences are visible in `unscored_recognized_families`, but contribute no
-invented requirement. The free-axis slot record retains vector width/long directions and its
-authoritative `SectionPassage` source; array/grid records retain those member identities and their
-vector lattice. Coercing either into principal-axis `SlotFeature` / `SlotPatternFeature` would
-discard that contract, so no Sheet word or completeness claim exists for them on main.
+Standalone `oriented_slots` are supported through dedicated vector-valued IR, the public
+`Sheet.oriented_slot(...)` declaration, executable generated code, two compiler-approved width/length
+requirements, and solver-owned leaders. Exact run-local identity binds each accepted record to its
+IR owner. Array/grid members are excluded by exact provider-record membership and retain the
+still-deferred `oriented-slot-patterns` policy; they are not emitted as competing singletons.
+The shared requirement ledger feeds both lint and reports. Malformed or copied pattern authority
+is refused rather than reconstructed from equal geometry.
 
 The existing schema-v1 `PairedRampStep` record is unchanged, while 0.4.12 expands provider
 recognition to shallow nonzero ramp pairs. A released shallow specimen now crosses the already

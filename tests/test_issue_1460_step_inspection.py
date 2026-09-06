@@ -64,6 +64,7 @@ _EXPECTED_ENGINE_MODULES = frozenset(
         "draftwright._pmi_part21",
         "draftwright.analysis",
         "draftwright.blend_contract",
+        "draftwright.oriented_slot_contract",
         "draftwright.builder",
         "draftwright.compose",
         "draftwright.inspection",

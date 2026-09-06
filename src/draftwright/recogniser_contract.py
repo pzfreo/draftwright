@@ -143,6 +143,12 @@ _FAMILIES: dict[str, _FamilySpec] = {
         "render_slot_patterns",
     ),
     "slots": _FamilySpec(("Slot",), "_convert_slot", "slot", "render_slots"),
+    "oriented-slots": _FamilySpec(
+        ("OrientedSlot",),
+        "_convert_oriented_slot",
+        "oriented_slot",
+        "render_oriented_slots",
+    ),
     "through-steps": _FamilySpec(
         ("ThroughStep",), "_convert_through_step", "through_step", "render_through_steps"
     ),
@@ -309,6 +315,11 @@ def _family_declaration(family_id: str, spec: _FamilySpec) -> dict[str, Any]:
             "draftwright.linting.round_bottom_blind_slot_coverage."
             "lint_round_bottom_blind_slot_coverage",
             "tests/test_issue_1421_round_bottom_blind_slot_completeness.py",
+        )
+    elif family_id == "oriented-slots":
+        completeness = _supported(
+            "draftwright.linting.oriented_slot_coverage.lint_oriented_slot_coverage",
+            "tests/test_issue_1432_oriented_slot_semantics.py",
         )
     elif family_id == "through-steps":
         completeness = _supported(

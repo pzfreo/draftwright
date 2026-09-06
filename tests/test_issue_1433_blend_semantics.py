@@ -192,6 +192,8 @@ def test_fully_supplied_competing_inventory_requires_internal_provenance() -> No
         "channels": recognition.channels,
         "slots": recognition.slots,
         "slot_patterns": recognition.slot_patterns,
+        "oriented_slots": recognition.oriented_slots,
+        "oriented_slot_patterns": recognition.oriented_slot_patterns,
         "risers": recognition.risers,
         "chamfers": recognition.chamfers,
         "fillets": (fabricated,),

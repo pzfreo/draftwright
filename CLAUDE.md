@@ -47,6 +47,8 @@ Compact map, bottom to top:
   `recognition_frame.py` (ADR 3 (was 0020) prepared local-frame boundary and fail-closed
   body-local occurrence joins), `blend_contract.py` (strict released-Blend schema and
   occurrence identity),
+  `oriented_slot_contract.py` (released free-axis slot validation and exact pattern membership),
+  `feature_identity.py` (registered exact oriented-slot IR types for independent lint),
   `_warnings.py`, and `_pmi_part21.py`.
 - **`_core.py`** — shared primitives: the `Analysis` namespace, dim/format helpers,
   page/slot/margin constants.

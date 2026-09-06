@@ -14,6 +14,7 @@ from typing import Any, Literal
 from b123d_recognisers.evidence import FeatureRef, RecognitionEvidence
 
 from draftwright.blend_contract import blend_provider_key
+from draftwright.oriented_slot_contract import standalone_oriented_slots
 from draftwright.recogniser_policy import (
     OwnerlessDisposition,
     ownerless_occurrence_policy,
@@ -175,6 +176,7 @@ DIRECT_FAMILIES = frozenset(
         "fillets",
         "flats",
         "grooves",
+        "oriented_slots",
         "pads",
         "paired_ramp_steps",
         "polygonal_bosses",
@@ -338,9 +340,20 @@ class OccurrencePolicyOutcome:
 def _policy_outcomes(evidence: RecognitionEvidence) -> tuple[OccurrencePolicyOutcome, ...]:
     """Project the existing consumer capability declaration onto exact occurrences."""
 
+    standalone_ids = {
+        id(record)
+        for record in standalone_oriented_slots(
+            evidence.result.oriented_slots, evidence.result.oriented_slot_patterns
+        )
+    }
     outcomes: list[OccurrencePolicyOutcome] = []
     for occurrence in evidence.features:
-        policy = ownerless_occurrence_policy(evidence.family(occurrence))
+        family = evidence.family(occurrence)
+        if family == "oriented_slots" and id(evidence.record(occurrence)) not in standalone_ids:
+            # Pattern records are derived, not separate physical FeatureRefs. Their exact
+            # member occurrences carry the still-deferred pattern family's consumer policy.
+            family = "oriented_slot_patterns"
+        policy = ownerless_occurrence_policy(family)
         if policy is None:
             continue
         outcomes.append(
@@ -442,10 +455,15 @@ class RecognitionOwnershipBuilder:
         if type(evidence) is not RecognitionEvidence:
             raise TypeError("evidence must be an exact RecognitionEvidence")
         self.evidence = evidence
+        self._policy_outcomes = _policy_outcomes(evidence)
+        policy_ids = {id(outcome.occurrence) for outcome in self._policy_outcomes}
         self._expected_direct = tuple(
             occurrence
             for occurrence in evidence.features
             if evidence.family(occurrence) in DIRECT_FAMILIES
+            and not (
+                evidence.family(occurrence) == "oriented_slots" and id(occurrence) in policy_ids
+            )
         )
         self._expected_groupable = tuple(
             occurrence
@@ -472,7 +490,6 @@ class RecognitionOwnershipBuilder:
             record = evidence.record(occurrence)
             self._by_record_identity.setdefault(id(record), []).append((occurrence, record))
         self._bindings: list[OccurrenceBinding] = []
-        self._policy_outcomes = _policy_outcomes(evidence)
         expected_ids = {
             id(occurrence)
             for occurrence in (
