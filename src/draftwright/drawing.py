@@ -1027,7 +1027,7 @@ class Drawing:
     def report(self) -> dict[str, object]:
         """Return the versioned machine-readable recognition and drawing report.
 
-        Schema version 1 projects accepted raw recognition occurrences, their exact run-local
+        Schema version 2 projects accepted raw recognition occurrences, their exact run-local
         consumer dispositions, final IR owners, recognition-owned semantic requirement outcomes,
         and the existing structured lint summary.
         Report IDs are deterministic within this document only; they are not topology or durable
