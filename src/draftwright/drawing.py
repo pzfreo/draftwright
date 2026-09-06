@@ -99,6 +99,7 @@ from draftwright.linting import (
     lint_angled_step_coverage,
     lint_axial_coverage,
     lint_blend_coverage,
+    lint_blend_leader_targets,
     lint_boss_height_coverage,
     lint_chamfer_coverage,
     lint_channel_coverage,
@@ -3865,6 +3866,13 @@ class Drawing:
                 registry=self._registry,
                 omissions=self._build.omissions,
                 assembly=self.assembly,
+            )
+            issues += lint_blend_leader_targets(
+                registry=self._registry,
+                cylinders=cyls,
+                project=self.at,
+                evidence=self._build.recognition_evidence,
+                ownership=self._build.recognition_ownership,
             )
             issues += lint_blend_coverage(
                 working_part,

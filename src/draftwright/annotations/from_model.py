@@ -63,7 +63,12 @@ from draftwright._core import (
     _title_block_box,
     _tol_suffix,
 )
-from draftwright._geometry import _segment_clips_box, _turned_profile_site
+from draftwright._geometry import (
+    _blend_profile_arcs,
+    _segment_clips_box,
+    _straight_blend_faces,
+    _turned_profile_site,
+)
 from draftwright.annotations._common import (
     CROSSABLE_TYPES,
     PRIORITY,
@@ -2065,14 +2070,14 @@ def _blend_faces_by_ref(analysis):
     return indexed
 
 
-def _blend_surface_site(
+def _blend_surface_sites(
     blend,
     cylinders,
     rolling_radius: float,
     *,
     defining_faces=None,
-) -> tuple[float, float, float] | None:
-    """Return a deterministic natural leader site on a circular Blend surface.
+) -> tuple[tuple[float, float, float], ...]:
+    """Return natural sites on a straight profile arc or circular Blend surface.
 
     A circular path stores the rolling-ball centre trajectory, not a surface point. Its proved
     supports include one coaxial finite cylinder whose radius differs from the path radius by
@@ -2085,8 +2090,14 @@ def _blend_surface_site(
     solve still owns placement.
     """
     if blend.path_kind != "circular":
-        origin: tuple[float, float, float] = blend.frame.origin
-        return origin
+        faces = _straight_blend_faces(
+            blend, cylinders, rolling_radius, defining_faces=defining_faces
+        )
+        arcs = _blend_profile_arcs(faces, rolling_radius)
+        if not arcs:
+            return ()
+        arc = min(arcs, key=lambda edge: (-edge.length, tuple(edge.position_at(0.5))))
+        return tuple(tuple(arc.position_at(fraction)) for fraction in (0.5, 0.25, 0.75))
     origin = blend.frame.origin
     normal: tuple[float, float, float] = blend.axis_direction
     seed_index = min(range(3), key=lambda index: (abs(normal[index]), index))
@@ -2139,7 +2150,7 @@ def _blend_surface_site(
         # Automatic recognition has an exact face authority. If its ownership or surface is
         # absent, fail closed; scalar cylinders must not silently replace missing evidence.
         if not defining_faces:
-            return None
+            return ()
         radii = sorted(
             {
                 *(candidate[2] for candidate in matches),
@@ -2151,14 +2162,14 @@ def _blend_surface_site(
             for radius in radii
         ]
         distance, surface_radius = min(candidates)
-        return site(surface_radius) if distance <= _BLEND_POINT_TOL else None
+        return (site(surface_radius),) if distance <= _BLEND_POINT_TOL else ()
 
     if matches:
         support_radii = sorted(candidate[2] for candidate in matches)
         if support_radii[-1] - support_radii[0] > _BLEND_POINT_TOL:
-            return None
-        return site(min(matches)[2])
-    return site(outer_radius)
+            return ()
+        return (site(min(matches)[2]),)
+    return (site(outer_radius),)
 
 
 def _flat_candidates(dwg, view, vb, members, reach, *, provenances):
@@ -2597,13 +2608,13 @@ def _render_radius_callouts(
             site = None
             if kind == "blend":
                 defining_faces = None if blend_faces is None else blend_faces.values_for(group.ref)
-                site = _blend_surface_site(
+                site = _blend_surface_sites(
                     group.facts,
                     a.cyls,
                     dimension.value,
                     defining_faces=defining_faces,
                 )
-                if site is None:
+                if not site:
                     continue
             key = (group.facts.axis, group.view)
             by_presentation.setdefault(key, []).append((group, dimension, site))
@@ -2621,6 +2632,12 @@ def _render_radius_callouts(
             by_presentation.items(), key=lambda item: (-len(item[1]), item[0])
         )
         visible.sort(key=lambda item: item[0].facts.frame.origin)
+        if kind == "blend":
+            visible = [
+                (group, dimension, point)
+                for group, dimension, points in visible
+                for point in points
+            ]
         ordered = [(group, dimension) for group, dimension, _site in visible]
         sites = [site for _group, _dimension, site in visible] if kind == "blend" else None
         view = ordered[0][0].view

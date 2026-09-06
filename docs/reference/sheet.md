@@ -191,6 +191,13 @@ explicit declaration has the same exact occurrence identity and view routing as 
 record.
 Generated Sheet code preserves every field.
 
+Straight-path radius leaders target curved boundaries of the physical cylindrical patch.
+Their `at` value locates the analytic axis, not the arrow tip. If a declared support is missing
+or ambiguous, the engine reports `blend_dropped`. Physical lint reports
+`radius_leader_target_mismatch` when a placed tip misses its trimmed boundary, or
+`radius_leader_target_unverifiable` when that boundary cannot be established; these findings
+lower fidelity. Circular-path toroidal blends retain their separate tangency selection.
+
 These are part-space feature coordinates, never page positions. The annotation placement solve
 owns the final leader and label coordinates. The word is explicit-only because detached surface
 geometry cannot prove a complete chain or the provider aggregate's Fillet precedence.

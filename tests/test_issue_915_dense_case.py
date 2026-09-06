@@ -28,8 +28,11 @@ _KNOWN_CROSSINGS = (
     ("170", "75"),
     ("170", "44 × 93.4 × 10 DEEP"),
 )
-_KNOWN_FEATURE_CROSSING = (
-    "pocket callout 50 × 120 × 5 DEEP retained under Policy B across: hc_front0:label"
+# With #1479's tips on the actual trimmed arcs, R5 crosses a dimension line under Policy B.
+# Quarter-arc alternatives keep R4 clear; R5 retains this explicit soft crossing on both pages.
+_KNOWN_FEATURE_CROSSINGS = (
+    "pocket callout 50 × 120 × 5 DEEP retained under Policy B across: hc_front0:label",
+    "blend callout 4× R5 retained under Policy B across: m_pocket0_pos_long:segment:2",
 )
 
 
@@ -41,11 +44,11 @@ def _is_known(issue):
             and f"through the label '{crossed}'" in issue.message
             for crosser, crossed in _KNOWN_CROSSINGS
         )
-    ) or (issue.code == "feature_leader_crossing" and issue.message == _KNOWN_FEATURE_CROSSING)
+    ) or (issue.code == "feature_leader_crossing" and issue.message in _KNOWN_FEATURE_CROSSINGS)
 
 
 def _lint_apart_from_the_known_crossings(dwg):
-    """Every issue except the four explicitly rendered crossings this fixture carries."""
+    """Every issue except the explicitly rendered crossings this fixture carries."""
     return [issue for issue in dwg.lint() if not _is_known(issue)]
 
 
@@ -115,7 +118,7 @@ def test_issue_915_actually_carries_the_known_crossings(detail_dwg):
     """
     page, dwg = detail_dwg
     matched = [issue for issue in dwg.lint() if _is_known(issue)]
-    assert len(matched) == len(_KNOWN_CROSSINGS) + 1, (
+    assert len(matched) == len(_KNOWN_CROSSINGS) + len(_KNOWN_FEATURE_CROSSINGS), (
         f"the {page} sheet no longer carries every known crossing — the filter in "
         f"this module is now over-broad; matched {[i.message for i in matched]}"
     )

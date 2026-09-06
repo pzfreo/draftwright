@@ -16,7 +16,8 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 # Recorded from the OCC-measured path immediately before #1308.  This is intentionally
 # semantic rather than SVG-byte exact: every annotation, its rendered type, its 3-decimal
-# ink box, and the lint-code inventory must remain identical.
+# ink box, and lint-code inventory. #1479 updates the three Blend boxes after correcting
+# their radius targets; the spline-boundary assertion below verifies that change physically.
 EXPECTED = {
     "grm03_thumbwheel_drive_screw.step": (
         {
@@ -98,9 +99,9 @@ EXPECTED = {
             "m_chamfer_y0": ("Leader", (89.433, 169.491, 108.266, 183.115)),
             "m_chamfer_z1": ("Leader", (192.775, 275.0, 213.032, 283.142)),
             "m_fillet_z0": ("Leader", (15.101, 184.659, 40.704, 192.929)),
-            "m_blend_x0": ("Leader", (225.168, 159.935, 286.249, 162.065)),
-            "m_blend_z1": ("Leader", (93.375, 257.0, 108.548, 296.083)),
-            "m_blend_z2": ("Leader", (10.278, 203.917, 72.775, 206.083)),
+            "m_blend_x0": ("Leader", (225.168, 159.203, 289.818, 161.333)),
+            "m_blend_z1": ("Leader", (94.789, 255.586, 109.962, 296.083)),
+            "m_blend_z2": ("Leader", (10.278, 207.453, 69.239, 209.619)),
             "title_block": ("TitleBlock", (432.925, 10.925, 583.075, 27.075)),
             "note_iso_nts": ("Note", (460.221, 103.057, 484.554, 105.751)),
         },
@@ -237,6 +238,35 @@ def test_analytical_machined_leaders_preserve_the_occ_measured_drawing(fixture, 
     assert actual == expected_annotations
     assert drawing.lint_summary()["by_code"] == expected_lint
     if fixture == "nist_ctc_01_asme1_ap242.stp":
+        from build123d import Edge, GeomType
+
+        # #1479 moved all three Blend tips from analytic axes to physical boundaries.
+        # R5's oblique end trims are splines: preserve this radius and check its own
+        # occurrence's trimmed edge, independently of the renderer's candidate selection.
+        feature = drawing.registry.feature_of("m_blend_x0")
+        assert feature.radius == 5
+        assert drawing.view_of("m_blend_x0") == "side"
+        evidence = drawing.recognition_evidence()
+        ownership = drawing.recognition_ownership()
+        (binding,) = [
+            item
+            for item in ownership.bindings
+            if evidence.family(item.occurrence) == "blends" and item.feature is feature
+        ]
+        curves = [
+            edge
+            for ref in evidence.defining_faces(binding.occurrence)
+            for edge in evidence.face(ref).edges()
+            if edge.geom_type != GeomType.LINE
+        ]
+        assert curves and all(edge.geom_type == GeomType.BSPLINE for edge in curves)
+        tip = drawing.get_annotation("m_blend_x0").tip
+        origin = drawing.at("side", 0, 0, 0)
+        y = (tip[0] - origin[0]) / (drawing.at("side", 0, 1, 0)[0] - origin[0])
+        z = (tip[1] - origin[1]) / (drawing.at("side", 0, 0, 1)[1] - origin[1])
+        bounds = drawing.working_part.bounding_box()
+        ray = Edge.make_line((bounds.min.X - 1, y, z), (bounds.max.X + 1, y, z))
+        assert min(edge.distance_to(ray) for edge in curves) < 1e-6
         polygonal_jobs = [job for job in immediate_jobs if job.name == "m_polygonal_boss_z0"]
         assert polygonal_jobs
         assert all(job.analytical_geometry is not None for job in polygonal_jobs)
