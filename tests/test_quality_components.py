@@ -319,7 +319,7 @@ def test_0410_blind_slot_families_keep_independent_completeness_dispositions():
                     PassageFrame((0, 0, 5), (1, 0, 0), (0, 1, 0), (0, 0, 1)),
                     (-6, 6),
                     profile,
-                    SectionRecessEnds(SectionEnd("capped", (0, 0)), SectionEnd("open", (0, 0))),
+                    SectionRecessEnds(SectionEnd("capped"), SectionEnd("open")),
                 ),
                 classification=SectionRecessClassification("edge_open_recess", shape),
                 evidence=SectionRecessEvidence((index,), (index,)),

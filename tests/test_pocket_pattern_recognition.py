@@ -184,22 +184,14 @@ def test_sheet_emit_round_trips_the_pattern(tmp_path):
     assert "at=" in line and "pitch=" in line and "direction=" in line
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Quiddity 0.2.2 known limitation: https://github.com/pzfreo/quiddity/issues/536",
-)
 def test_tuner_jig_fixture_recognised_as_one_pattern():
-    # #837/#841: five blind obround pockets on one centreline collapse to ONE SectionRecessArray.
+    # #837/#841: five identical rounded pockets on one centreline form one array.
     part = import_step(str(_FIXTURE))
     pats = build_raw_recognition_result(part).section_recess_patterns
     assert len(pats) == 1 and isinstance(pats[0], SectionRecessArray)
     assert len(pats[0].members) == 5
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Quiddity 0.2.2 known limitation: https://github.com/pzfreo/quiddity/issues/536",
-)
 def test_tuner_jig_renders_one_grouped_callout_not_five():
     # the payoff: the imported STEP renders ONE `5× 7.9 × 13.6 × 19 DEEP` callout + a pitch dim,
     # not five competing per-pocket size dims (#841 outcome 1).

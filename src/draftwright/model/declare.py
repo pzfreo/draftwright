@@ -1440,6 +1440,10 @@ def pocket(
     at=None,
     edge_anchored=False,
     open_sign=1,
+    corner_radius=0.0,
+    mouth_axis=None,
+    mouth_radius=None,
+    mouth_at=None,
 ) -> PocketFeature:
     """A blind rectangular recess — a floored slot/pocket, dimensioned width × length ×
     depth (#148a). The blind counterpart of :func:`slot`: unlike a through-slot the depth
@@ -1448,7 +1452,13 @@ def pocket(
     remaining axes are long_axis (the longer) / width_axis (the shorter). Pass
     ``depth_axis=`` when the recess is deeper than it is wide (#490-style). ``lo``/``hi`` are
     the extent along the long axis and ``w_center`` the centre across the width axis. An
-    object supplies *defaults*; any explicit keyword overrides that field."""
+    object supplies *defaults*; any explicit keyword overrides that field.
+    ``corner_radius=`` declares four equal tangent corners on a closed profile; it is
+    retained geometry; use the constituent ``blend.radius`` measurements to dimension
+    those corners. A cylindrical mouth is declared with ``mouth_axis=`` (a principal
+    section-plane axis), ``mouth_radius=`` and ``mouth_at=`` (a point on its world axis).
+    For that surface, ``depth=`` is the maximum floor-to-mouth distance, and ``at=``
+    centres that maximum-depth envelope. Its dimension ID is ``pocket_max_depth.length``."""
     if obj is not None:
         bb = obj.bounding_box()
         c = bb.center()
@@ -1530,6 +1540,10 @@ def pocket(
         hi=hi,
         edge_anchored=bool(edge_anchored),
         open_sign=int(open_sign),
+        corner_radius=corner_radius,
+        mouth_axis=mouth_axis,
+        mouth_radius=mouth_radius,
+        mouth_at=mouth_at,
     )
 
 

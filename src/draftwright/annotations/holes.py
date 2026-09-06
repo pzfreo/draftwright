@@ -1854,8 +1854,9 @@ def render_pocket_patterns(dwg, plan, a, *, ctx, only=None) -> int:
         by_key = {(pd.role, pd.kind): pd for pd in g.dims}
         wpd = by_key.get(("pocket_width", "length"))
         lpd = by_key.get(("pocket_length", "length"))
-        dpd = by_key.get(("pocket_depth", "length"))
-        if wpd is None or lpd is None or dpd is None:
+        dpd = by_key.get(("pocket_depth", "length")) or by_key.get(("pocket_max_depth", "length"))
+        dimensions = tuple(d for d in (wpd, lpd, dpd) if d is not None)
+        if not dimensions:
             continue
         view = view_of.get(feat.member_depth_axis)
         if view is None:
@@ -1864,12 +1865,13 @@ def render_pocket_patterns(dwg, plan, a, *, ctx, only=None) -> int:
         if vb is None:
             continue
         label = f"{feat.count}× " + _pocket_label(
-            wpd.value_text,
-            lpd.value_text,
-            dpd.value_text,
-            wsfx=_tol_suffix(wpd.tolerance, draft),
-            lsfx=_tol_suffix(lpd.tolerance, draft),
-            dsfx=_tol_suffix(dpd.tolerance, draft),
+            wpd.value_text if wpd is not None else None,
+            lpd.value_text if lpd is not None else None,
+            dpd.value_text if dpd is not None else None,
+            wsfx=_tol_suffix(wpd.tolerance, draft) if wpd is not None else "",
+            lsfx=_tol_suffix(lpd.tolerance, draft) if lpd is not None else "",
+            maximum_depth=dpd is not None and dpd.role == "pocket_max_depth",
+            dsfx=_tol_suffix(dpd.tolerance, draft) if dpd is not None else "",
         )
         # Anchor the one representative leader at the array CENTRE (feat.frame.origin) and
         # attribute it to the pattern feature (ADR 5 (was 0010) provenance).
@@ -1881,7 +1883,7 @@ def render_pocket_patterns(dwg, plan, a, *, ctx, only=None) -> int:
                 vb,
                 label,
                 _radial_candidates(dwg, view, vb, feat, reach, provenance=g.ref),
-                (wpd.id, lpd.id, dpd.id),  # width × length × depth, one callout (#1002)
+                tuple(d.id for d in dimensions),
             )
         )
         furniture.append((i, g, view, name))

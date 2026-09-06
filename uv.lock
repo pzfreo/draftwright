@@ -749,7 +749,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=1.24" },
     { name = "pillow", specifier = ">=10" },
     { name = "pypdfium2", specifier = ">=4" },
-    { name = "quiddity", specifier = "==0.2.2" },
+    { name = "quiddity", specifier = "==0.2.3" },
     { name = "reportlab", specifier = ">=4.0" },
     { name = "steputils", specifier = "==0.1" },
     { name = "svglib", specifier = ">=1.5" },
@@ -2577,15 +2577,15 @@ wheels = [
 
 [[package]]
 name = "quiddity"
-version = "0.2.2"
+version = "0.2.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "build123d", version = "0.10.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
     { name = "build123d", version = "0.11.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.13'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/db/36/0326bc0a5037bcc42c38defa2d74896e0f28f7c185b35848dccdadf9769c/quiddity-0.2.2.tar.gz", hash = "sha256:a295fd6eb24d7a0b4b2e3c305b543a01a521fd8056a23c911d8b4abedb7744a4", size = 13772003, upload-time = "2026-09-06T09:12:07.14Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7e/92/92cc3f004cc1450367bcf9cb30bff4957d386d9b6bba947855aad00621ed/quiddity-0.2.3.tar.gz", hash = "sha256:f52e925c49f3f9f3783b43c546261971516a91dce78ccbbd917b18ddcbeaca7f", size = 14775288, upload-time = "2026-09-06T15:18:00.573Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/57/8f/3cac44f48cfe9a7b3f0c4ca80aea574b916c1afcd246437d0b5f4f1bd649/quiddity-0.2.2-py3-none-any.whl", hash = "sha256:1dfffc732b341c8d0f5ebdcaebb5501f4c7442b93b1a6a1356c4363251fcee60", size = 467671, upload-time = "2026-09-06T09:12:05.481Z" },
+    { url = "https://files.pythonhosted.org/packages/5e/65/3876b6aa53e44602394392f96d61211b24cfee380636cb9ef597866fba06/quiddity-0.2.3-py3-none-any.whl", hash = "sha256:193c0d439ba4a2dce5ba8aeaaff91092191a8ffce2a103f9e8213b56dfd82a3e", size = 487798, upload-time = "2026-09-06T15:17:58.876Z" },
 ]
 
 [[package]]

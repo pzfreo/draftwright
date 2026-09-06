@@ -150,6 +150,7 @@ from draftwright.recognition_ownership import (
 )
 from draftwright.section_recess_contract import (
     UnsupportedSectionRecess,
+    distinct_section_recess_patterns,
     section_recess_fields,
     section_recess_pattern_members,
     section_recess_pocket_fields,
@@ -2143,7 +2144,7 @@ def build_part_model(
     # Patterns join published occurrence indices to the exact records from this aggregate.
     # Only the pocket grammar currently has a corresponding grouped drawing feature.
     patterned_recesses: set[int] = set()
-    for pattern in section_recess_patterns:
+    for pattern in distinct_section_recess_patterns(section_recess_patterns, section_recesses):
         recess_members = section_recess_pattern_members(pattern, section_recesses)
         member_features = tuple(recess_features.get(id(member)) for member in recess_members)
         if any(getattr(feature, "kind", None) != "pocket" for feature in member_features):

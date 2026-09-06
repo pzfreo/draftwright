@@ -8145,21 +8145,17 @@ class TestFindSlots:
         part = Cylinder(10, 40) - (Cylinder(10, 4) - Cylinder(7, 4))
         assert recognise_slots(part) == []
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Quiddity 0.2.2 known limitation: https://github.com/pzfreo/quiddity/issues/541",
-    )
     def test_arc_walled_slot_in_round_stock_recognised(self):
-        # #148e: a slot milled into a curved surface has walls the OD clips into an
-        # arc + a straight floor/chord. The relaxed wall test (LINE/CIRCLE with at
-        # least one straight edge) now recognises it, where the old rectangular-only
-        # test — which requires every edge to be a straight LINE — missed it.
+        # The published cylindrical mouth must survive lowering, including the distinction
+        # between the maximum floor-to-mouth depth and a uniform rectangular recess.
         bar = Rotation(0, 90, 0) * Cylinder(20, 80)  # X-axis round bar
         part = bar - Pos(0, 0, 14) * Box(6, 24, 12)  # enclosed slot milled into the top
         (p,) = _recognised_pocket_fields(part)
         assert p["width"] == 6.0
         assert p["width_axis"] == "x"  # width runs ALONG the bar axis → arc-clipped walls
         assert p["length"] == 24.0
+        assert p["mouth_axis"] == "x" and p["mouth_radius"] == 20
+        assert p["depth"] == 12.0  # maximum; the edge depth is only 8 mm
 
     def test_arc_wall_relaxation_still_excludes_grooves(self):
         # The relaxation must NOT admit a turned groove's pure-annular wall (CIRCLE
@@ -8324,14 +8320,9 @@ class TestFindSlots:
             p["width"] == 8.0 and p["length"] == 13.5 and p["depth"] == 19.0 for p in pockets
         )
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Quiddity 0.2.2 known limitation: https://github.com/pzfreo/quiddity/issues/536",
-    )
-    def test_step_imported_blind_obround_pockets_with_quarter_cylinder_ends(self):
-        # #837: the reported failure — an imported STEP whose semicircular ends are each split into
-        # two quarter-cylinder faces (r × r, not the 2r × r half-cylinder build123d emits). The caps
-        # are recombined by axis-line proximity, so the five blind pockets are recognised.
+    def test_step_imported_rounded_pockets_retain_the_short_straight_sides(self):
+        # The released profile has four R3.94 corners and 0.02 mm short straight sides:
+        # it is 7.9 mm wide, not the approximate 7.88 mm obround formerly reported here.
         from pathlib import Path
 
         from build123d import import_step
@@ -8341,9 +8332,10 @@ class TestFindSlots:
         pockets = _recognised_pocket_fields(part)
         assert recognise_slots(part) == []  # blind, not through
         assert len(pockets) == 5
-        assert all(
-            p["width"] == 7.88 and p["length"] == 13.6 and p["depth"] == 19.0 for p in pockets
-        )
+        for pocket in pockets:
+            assert tuple(
+                pocket[k] for k in ("width", "length", "depth", "corner_radius")
+            ) == pytest.approx((7.9, 13.6, 19.0, 3.94), abs=1e-9, rel=0)
 
     def test_sealed_internal_obround_void_is_not_a_pocket(self):
         # #837 review: a fully enclosed obround cavity (planar caps at BOTH depth ends, no

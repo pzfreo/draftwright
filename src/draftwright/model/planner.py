@@ -113,6 +113,7 @@ _CONVENTION = {
     ("pocket_width", "length"): "leader",
     ("pocket_length", "length"): "leader",
     ("pocket_depth", "length"): "leader",
+    ("pocket_max_depth", "length"): "leader",
     # One open-slot callout carries the rectangular section width, capped run and depth.
     ("rectangular_blind_slot_width", "length"): "leader",
     ("rectangular_blind_slot_length", "length"): "leader",

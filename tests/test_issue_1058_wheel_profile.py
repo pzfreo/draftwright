@@ -598,28 +598,26 @@ def test_one_public_record_cannot_cover_two_coincident_assembly_occurrences():
     assert [issue.code for issue in issues] == ["unrecognised_defining_geometry"]
 
 
-def test_a_blind_double_d_recess_is_not_certified_as_a_through_bore():
-    part = _blind_double_d_recess()
+@pytest.mark.parametrize(
+    ("make_part", "expected_count", "expected_depth"),
+    ((_blind_double_d_recess, 1, 5), (_opposed_double_d_recesses_with_a_web, 2, 3)),
+)
+def test_blind_double_d_recesses_are_not_certified_as_through_bores(
+    make_part, expected_count, expected_depth
+):
+    part = make_part()
     assert _recognised_double_d_bores(part) == ()
-    issues = [
-        issue
-        for issue in build_drawing(part).lint()
-        if issue.code == "unrecognised_defining_geometry"
-    ]
-    assert len(issues) == 1
-    assert "unsupported internal profile" in issues[0].message
-
-
-def test_opposed_blind_recesses_do_not_prove_a_through_bore():
-    part = _opposed_double_d_recesses_with_a_web()
-    assert _recognised_double_d_bores(part) == ()
-    issues = [
-        issue
-        for issue in build_drawing(part).lint()
-        if issue.code == "unrecognised_defining_geometry"
-    ]
-    assert len(issues) == 1
-    assert "unsupported internal profile" in issues[0].message
+    drawing = build_drawing(part)
+    recesses = drawing.recognition().section_recesses
+    assert len(recesses) == expected_count
+    assert all(r.classification.feature_kind == "pocket" for r in recesses)
+    assert all(
+        r.geometry.run_interval[1] - r.geometry.run_interval[0] == expected_depth for r in recesses
+    )
+    assert not [f for f in drawing.model().features if f.kind in {"double_d_bore", "pocket"}]
+    issues = [i for i in drawing.lint() if i.code == "prismatic_pocket_requirement_unsupported"]
+    assert len(issues) == expected_count
+    assert all("not represented by Draftwright dimensions" in i.message for i in issues)
 
 
 def test_declared_object_and_explicit_forms_preserve_profile_and_skip_recognition():

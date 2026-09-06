@@ -155,7 +155,13 @@ def test_sloped_ends_refuse_existing_perpendicular_drafting_grammar(recess):
         source,
         geometry=replace(
             geometry,
-            ends=replace(geometry.ends, low=replace(geometry.ends.low, gradient=(0.1, 0.0))),
+            ends=replace(
+                geometry.ends,
+                low=replace(
+                    geometry.ends.low,
+                    surface=replace(geometry.ends.low.surface, gradient=(0.1, 0.0)),
+                ),
+            ),
         ),
     )
     assert section_recess_fields(source)
@@ -212,13 +218,15 @@ def test_obround_pocket_measures_arc_extrema_and_preserves_complete_drawing(angl
 
 @pytest.fixture(scope="module")
 def refused_drawing():
-    from pathlib import Path
+    from _section_recess_cases import unsupported_roof_recess
+    from build123d import Compound
 
     from draftwright import build_drawing
 
-    drawing = build_drawing(
-        Path(__file__).parent / "fixtures/tuner_jig_blind_obround_pockets.step"
-    )
+    # Suspended material violates the constant-section proof. Keep five independent
+    # refusals now that the tuner fixture's five rounded pockets are accepted (#1485).
+    part = unsupported_roof_recess()
+    drawing = build_drawing(Compound(children=[Pos(75 * i, 0, 0) * part for i in range(5)]))
     recognition = drawing.recognition()
     assert recognition.section_recesses == ()
     assert len(recognition.section_recess_refusals) == 5

@@ -23,6 +23,7 @@ from draftwright.linting.issues import (
     requirement_subject,
 )
 from draftwright.section_recess_contract import (
+    pocket_mouth_key,
     recesses_with_kind,
     section_recess_fields,
     section_recess_pattern_members,
@@ -79,6 +80,10 @@ def _key(pocket) -> tuple:
             _point(data["origin"]),
             data["open_sign"],
             data["edge_anchored"],
+            round(data.get("corner_radius", 0.0), 3),
+            pocket_mouth_key(
+                data.get("mouth_axis"), data.get("mouth_radius"), data.get("mouth_at")
+            ),
         )
     return (
         pocket.width_axis,
@@ -92,6 +97,12 @@ def _key(pocket) -> tuple:
         _point(pocket.location if hasattr(pocket, "location") else pocket.frame.origin),
         int(getattr(pocket, "open_sign", 1)),
         bool(getattr(pocket, "edge_anchored", False)),
+        round(getattr(pocket, "corner_radius", 0.0), 3),
+        pocket_mouth_key(
+            getattr(pocket, "mouth_axis", None),
+            getattr(pocket, "mouth_radius", None),
+            getattr(pocket, "mouth_at", None),
+        ),
     )
 
 
@@ -100,10 +111,12 @@ def _parameter_ids(feature) -> tuple[str, ...] | None:
         ids = tuple(parameter.parameter_id for parameter in feature.parameters())
     except (AttributeError, TypeError):
         return None
-    required_sizes = (
+    required_sizes: tuple[str, ...] = (
         "pocket_width.length",
         "pocket_length.length",
-        "pocket_depth.length",
+        "pocket_max_depth.length"
+        if getattr(feature, "mouth_axis", None)
+        else "pocket_depth.length",
     )
     if ids != required_sizes:
         return None
@@ -291,7 +304,9 @@ def pocket_requirement_outcomes(
                 )
             continue
         if section_recess_fields(source)[1]["edge_anchored"]:
-            inapplicable.update((feature, parameter) for parameter in parameter_ids[3:])
+            inapplicable.update(
+                (feature, parameter) for parameter in parameter_ids if _is_location(parameter)
+            )
         outcomes.extend(
             PocketRequirementOutcome(
                 at,

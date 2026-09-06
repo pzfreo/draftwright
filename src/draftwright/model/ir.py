@@ -35,6 +35,7 @@ from draftwright._geometry import (
 )
 from draftwright.blend_contract import register_blend_ir_types, validate_blend_fields
 from draftwright.feature_identity import register_oriented_slot_feature_type
+from draftwright.section_recess_contract import validate_pocket_mouth
 
 if TYPE_CHECKING:
     from draftwright.fits import FitClass
@@ -366,6 +367,7 @@ DimensionParameterId = Literal[
     "pad_width.length",
     "pitch.length",
     "pocket_depth.length",
+    "pocket_max_depth.length",
     "pocket_length.length",
     "pocket_width.length",
     "polygon_across_flats.length",
@@ -1291,11 +1293,13 @@ register_oriented_slot_feature_type(OrientedSlotFeature, OrientedSlotPassage, Fr
 
 @dataclass(frozen=True)
 class PocketFeature:
-    """A blind rectangular recess — a floored slot/pocket (#148a). A `SlotFeature`
-    with a third defining size, the ``depth`` from the open face to the floor; the
-    in-plane geometry (width/length/position) mirrors a slot so the renderer places
-    the callout in the view the two in-plane axes span (the recogniser's `Pocket`,
-    normalised into the IR)."""
+    """A blind pocket with width, length and uniform or maximum depth.
+
+    A positive ``corner_radius`` describes four equal tangent quarter-circle corners
+    with positive straight sides. The constituent Blend features own their radii.
+    ``mouth_axis/radius/at`` retain a principal cylindrical opening; its ``depth``
+    is the maximum from the planar floor, exposed as ``pocket_max_depth.length``.
+    """
 
     #: The compiled stem this feature's position is minted under — see
     #: :attr:`HoleFeature.LOCATION_STEM` for why it is declared here (#966).
@@ -1314,11 +1318,37 @@ class PocketFeature:
     # Which depth end is the opening. Recognition retains this physical distinction;
     # dropping it here makes equal opposed-face pockets indistinguishable to correspondence.
     open_sign: int = 1
+    corner_radius: float = 0.0
+    mouth_axis: str | None = None
+    mouth_radius: float | None = None
+    mouth_at: Point | None = None
     kind: ClassVar[str] = "pocket"
 
     def __post_init__(self) -> None:
-        if self.open_sign not in (-1, 1):
+        if type(self.open_sign) is not int or self.open_sign not in (-1, 1):
             raise ValueError(f"pocket open_sign must be -1 or 1 (got {self.open_sign!r})")
+        if self.mouth_axis is not None and (self.corner_radius or self.edge_anchored):
+            raise ValueError("cylindrical mouth requires a closed rectangular pocket")
+        validate_pocket_mouth(
+            axis=self.mouth_axis,
+            radius=self.mouth_radius,
+            at=self.mouth_at,
+            origin=self.frame.origin,
+            depth_axis=self.depth_axis,
+            width_axis=self.width_axis,
+            long_axis=self.long_axis,
+            width=self.width,
+            length=self.length,
+            depth=self.depth,
+            open_sign=self.open_sign,
+        )
+        radius = _strict_finite_real("pocket corner_radius", self.corner_radius)
+        if radius < 0 or (
+            radius and (self.edge_anchored or 2 * radius >= min(self.width, self.length))
+        ):
+            raise ValueError(
+                "pocket corner_radius requires a closed profile with positive straight sides"
+            )
 
     @property
     def depth_axis(self) -> str:
@@ -1327,11 +1357,16 @@ class PocketFeature:
         return next(a for a in "xyz" if a not in (self.width_axis, self.long_axis))
 
     def parameters(self) -> list[DimParameter]:
-        return [
+        result = [
             DimParameter("length", "pocket_width", self.width),
             DimParameter("length", "pocket_length", self.length),
-            DimParameter("length", "pocket_depth", self.depth),
         ]
+
+        if self.mouth_axis is None:
+            result.append(DimParameter("length", "pocket_depth", self.depth))
+        else:
+            result.append(DimParameter("length", "pocket_max_depth", self.depth))
+        return result
 
     def references(self) -> list[Datum]:
         return []

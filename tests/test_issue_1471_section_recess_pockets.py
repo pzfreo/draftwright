@@ -153,8 +153,14 @@ def _record():
                 ],
             },
             "ends": {
-                "low": {"condition": "capped", "gradient": [0.0, 0.0]},
-                "high": {"condition": "open", "gradient": [0.0, 0.0]},
+                "low": {
+                    "condition": "capped",
+                    "surface": {"type": "plane", "gradient": [0.0, 0.0]},
+                },
+                "high": {
+                    "condition": "open",
+                    "surface": {"type": "plane", "gradient": [0.0, 0.0]},
+                },
             },
         },
         "classification": {"feature_kind": "pocket", "section_shape": "rectangular"},
@@ -200,13 +206,13 @@ def _change(record, path, value):
 )
 def test_malformed_geometry_cannot_enter_the_ir(path, value):
     record = _record()
-    assert _convert_section_recess_pocket(record, schema_version=2).width == 12
+    assert _convert_section_recess_pocket(record, schema_version=3).width == 12
     _change(record, path, value)
     with pytest.raises(ValueError):
-        _convert_section_recess_pocket(record, schema_version=2)
+        _convert_section_recess_pocket(record, schema_version=3)
 
 
-@pytest.mark.parametrize("version", [1, 3, True, 2.0, "2"])
+@pytest.mark.parametrize("version", [1, 2, True, 3.0, "3"])
 def test_only_the_released_schema_is_admitted(version):
     with pytest.raises(ValueError, match="schema"):
         _convert_section_recess_pocket(_record(), schema_version=version)
@@ -217,7 +223,7 @@ def test_only_the_released_schema_is_admitted(version):
     [
         (("classification", "section_shape"), "obround"),
         (("geometry", "frame", "u"), [0.8, 0.6, 0]),
-        (("geometry", "ends", "low", "gradient"), [0.1, 0]),
+        (("geometry", "ends", "low", "surface", "gradient"), [0.1, 0]),
         (("geometry", "profile", "boundary", 0, "bulge"), 1.0),
         (("geometry", "profile", "boundary", 0, "point"), [-10, 0]),
         (("geometry", "profile", "boundary"), []),
@@ -227,23 +233,23 @@ def test_unsupported_sections_are_not_replaced_by_bounding_rectangles(path, valu
     record = _record()
     _change(record, path, value)
     with pytest.raises(UnsupportedSectionRecess):
-        _convert_section_recess_pocket(record, schema_version=2)
+        _convert_section_recess_pocket(record, schema_version=3)
 
 
 def test_negative_run_and_reversed_profile_keep_the_physical_pocket():
     record = _record()
-    expected = _convert_section_recess_pocket(record, schema_version=2)
+    expected = _convert_section_recess_pocket(record, schema_version=3)
     frame = record["geometry"]["frame"]
     frame["run"] = [0, 0, -1]
     frame["v"] = [0, -1, 0]
     record["geometry"]["run_interval"] = [-10, -4]
     record["geometry"]["ends"] = {
-        "low": {"condition": "open", "gradient": [0, 0]},
-        "high": {"condition": "capped", "gradient": [0, 0]},
+        "low": {"condition": "open", "surface": {"type": "plane", "gradient": [0, 0]}},
+        "high": {"condition": "capped", "surface": {"type": "plane", "gradient": [0, 0]}},
     }
     for vertex in record["geometry"]["profile"]["boundary"]:
         vertex["point"][1] *= -1
-    assert _convert_section_recess_pocket(record, schema_version=2) == expected
+    assert _convert_section_recess_pocket(record, schema_version=3) == expected
 
 
 def test_crossing_vertex_order_is_refused():
@@ -251,13 +257,13 @@ def test_crossing_vertex_order_is_refused():
     boundary = record["geometry"]["profile"]["boundary"]
     boundary[1], boundary[2] = boundary[2], boundary[1]
     with pytest.raises(UnsupportedSectionRecess, match="diagonal"):
-        _convert_section_recess_pocket(record, schema_version=2)
+        _convert_section_recess_pocket(record, schema_version=3)
 
 
 def test_adapter_does_not_mutate_or_retain_provider_json():
     record = _record()
     original = copy.deepcopy(record)
-    feature = _convert_section_recess_pocket(record, schema_version=2)
+    feature = _convert_section_recess_pocket(record, schema_version=3)
     assert record == original
     record["geometry"]["run_interval"][1] = 100
     assert feature.depth == 6
@@ -277,7 +283,7 @@ def _open_record(*, corner=True):
 
 @pytest.mark.parametrize("corner", [True, False])
 def test_open_corner_and_edge_keep_only_the_existing_pocket_measurements(corner):
-    feature = _convert_section_recess_pocket(_open_record(corner=corner), schema_version=2)
+    feature = _convert_section_recess_pocket(_open_record(corner=corner), schema_version=3)
     assert _parameters(feature) == {"width": 12, "length": 30, "depth": 6, "edge_anchored": True}
     assert feature.frame.origin == (22, -11, 7)
     assert feature.open_sign == 1
@@ -288,7 +294,7 @@ def test_opening_must_reference_the_observed_loose_endpoints(opening):
     record = _open_record()
     record["geometry"]["profile"]["opening"] = opening
     with pytest.raises(ValueError, match="loose endpoints"):
-        _convert_section_recess_pocket(record, schema_version=2)
+        _convert_section_recess_pocket(record, schema_version=3)
 
 
 def test_zero_section_and_unrepresentable_world_extents_are_refused():
@@ -296,15 +302,15 @@ def test_zero_section_and_unrepresentable_world_extents_are_refused():
     for vertex in record["geometry"]["profile"]["boundary"]:
         vertex["point"][0] = 0
     with pytest.raises(ValueError, match="positive extents"):
-        _convert_section_recess_pocket(record, schema_version=2)
+        _convert_section_recess_pocket(record, schema_version=3)
     record = _record()
     record["geometry"]["frame"]["origin"][0] = 1e308
     with pytest.raises(ValueError, match="remain positive"):
-        _convert_section_recess_pocket(record, schema_version=2)
+        _convert_section_recess_pocket(record, schema_version=3)
     record = _record()
     record["geometry"]["run_interval"] = [-1e308, 1e308]
     with pytest.raises(ValueError, match="must be finite"):
-        _convert_section_recess_pocket(record, schema_version=2)
+        _convert_section_recess_pocket(record, schema_version=3)
 
 
 def test_lowering_an_existing_document_does_not_recognise_again(monkeypatch):
@@ -318,12 +324,12 @@ def test_lowering_an_existing_document_does_not_recognise_again(monkeypatch):
     monkeypatch.setattr(quiddity, "build_section_recess_document", forbidden)
     monkeypatch.setattr(quiddity, "build_raw_recognition_result", forbidden)
     monkeypatch.setattr(detect, "build_recognition_evidence", forbidden)
-    assert _convert_section_recess_pocket(_record(), schema_version=2).depth == 6
+    assert _convert_section_recess_pocket(_record(), schema_version=3).depth == 6
 
 
-def test_declared_omission_still_withholds_the_whole_pocket_callout():
+def test_declared_pocket_subset_names_only_the_approved_measurements():
     part = Box(100, 60, 20) - Pos(22, -11, 7) * Box(30, 12, 6)
-    feature = _convert_section_recess_pocket(_record(), schema_version=2)
+    feature = _convert_section_recess_pocket(_record(), schema_version=3)
 
     def callouts(parameters):
         sheet = Sheet(part)
@@ -342,12 +348,17 @@ def test_declared_omission_still_withholds_the_whole_pocket_callout():
         for parameter in parameters:
             sheet.dimension(handle, parameter)
         drawing = sheet.build()
-        return [name for name in drawing.annotations() if name.startswith("m_pocket_")]
+        return [
+            drawing.get_annotation(name).label
+            for name in drawing.annotations()
+            if name.startswith("m_pocket_")
+        ]
 
     assert (
         len(callouts(("pocket_width.length", "pocket_length.length", "pocket_depth.length"))) == 1
     )
-    assert callouts(("pocket_width.length",)) == []
+    assert callouts(("pocket_width.length",)) == ["POCKET 12 WIDE"]
+    assert callouts(("pocket_depth.length",)) == ["POCKET 6 DEEP"]
 
 
 @pytest.mark.parametrize("axis", [0, 1, 2])
@@ -357,4 +368,4 @@ def test_translation_must_not_collapse_any_world_extent(axis):
     # Adding the finite local extent cannot change this floating-point coordinate.
     assert 1e308 + 30 == 1e308
     with pytest.raises(ValueError, match="remain positive"):
-        _convert_section_recess_pocket(record, schema_version=2)
+        _convert_section_recess_pocket(record, schema_version=3)

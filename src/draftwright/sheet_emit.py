@@ -437,22 +437,29 @@ def _member_hole_str(m, *, exact_parameter: str | None = None) -> str:
 
 def _member_pocket_str(m) -> str:
     """The ``pocket(...)`` template for a pocket-pattern member — carries its width × length ×
-    depth, orientation and position. Length is derived from the emitted lo/hi so
-    ``hi - lo == length`` exactly (declare.pocket rejects a 1e-6 mismatch).
+    depth, orientation and position. Planar-pocket length is derived from emitted lo/hi;
+    cylindrical mouths preserve every mutually constrained size and position losslessly.
 
     ``at=`` is carried for the same reason as the standalone verb (#962): without it
     `declare.pocket` synthesises an origin whose DEPTH-axis component is zero, so a member
     recessed into a face came back at 0 and the declared model diverged from the detected one.
     It cannot move the array — `declare.pocket_pattern` takes its centre from the pattern's own
     ``at=`` and falls back to the member's only when that is absent."""
-    lo, hi = _n(m.lo), _n(m.hi)
-    length = _n(round(float(hi) - float(lo), 3))
+    pocket_n = _authored_n if m.mouth_axis else _n
+    lo, hi = pocket_n(m.lo), pocket_n(m.hi)
+    length = pocket_n(m.length) if m.mouth_axis else _n(round(float(hi) - float(lo), 3))
     return (
-        f"pocket(width={_n(m.width)}, length={length}, depth={_n(m.depth)}, "
+        f"pocket(width={pocket_n(m.width)}, length={length}, depth={pocket_n(m.depth)}, "
         f'long_axis="{m.long_axis}", width_axis="{m.width_axis}", '
-        f"lo={lo}, hi={hi}, w_center={_n(m.w_center)}, at={_pt(m.frame.origin)}"
+        f"lo={lo}, hi={hi}, w_center={pocket_n(m.w_center)}, at={_authored_pt(m.frame.origin) if m.mouth_axis else _pt(m.frame.origin)}"
         + (", edge_anchored=True" if m.edge_anchored else "")
         + (", open_sign=-1" if m.open_sign == -1 else "")
+        + (f", corner_radius={_authored_n(m.corner_radius)}" if m.corner_radius else "")
+        + (
+            f", mouth_axis={m.mouth_axis!r}, mouth_radius={_authored_n(m.mouth_radius)}, mouth_at={_authored_pt(m.mouth_at)}"
+            if m.mouth_axis
+            else ""
+        )
         + ")"
     )
 
@@ -859,23 +866,7 @@ def _feature_line(
             f"flat_width={_n(f.flat_width)}, at={_pt(f.frame.origin)})"
         )
     if k == "pocket":
-        lo, hi = _n(f.lo), _n(f.hi)
-        # Derive length from the EMITTED lo/hi so hi - lo == length exactly — declare.pocket()
-        # rejects an independently-rounded (lo, hi, length) with a 1e-6 tolerance.
-        length = _n(round(float(hi) - float(lo), 3))
-        return (
-            f"sheet.pocket(width={_n(f.width)}, length={length}, depth={_n(f.depth)}, "
-            f'long_axis="{f.long_axis}", width_axis="{f.width_axis}", '
-            # `at=` is NOT redundant with lo/hi/w_center: those fix two axes, and with `at`
-            # omitted `declare.pocket` synthesises an origin whose DEPTH-axis component is
-            # zero. So a recess in an underside came back at z=0, the declared model diverged
-            # from the detected one, and annotation parity still passed because the callout is
-            # placed from the projected geometry (#962). Same reasoning on `slot` above.
-            f"lo={lo}, hi={hi}, w_center={_n(f.w_center)}, at={_pt(f.frame.origin)}"
-            + (", edge_anchored=True" if f.edge_anchored else "")
-            + (", open_sign=-1" if f.open_sign == -1 else "")
-            + ")"
-        )
+        return "sheet." + _member_pocket_str(f)
     if k == "channel":
         return (
             f"sheet.channel(width={_n(f.width)}, "
@@ -929,7 +920,11 @@ def _feature_line(
         # count + pitch/grid), so emit the array CENTRE as at= and the arrangement params —
         # the computed layout then lands where detected. direction= is required for a linear
         # array (else declare defaults to the first in-plane axis, mis-orienting the row).
-        parts = [f'kind="{f.pattern}"', f"count={f.count}", f"at={_pt(f.frame.origin)}"]
+        parts = [
+            f'kind="{f.pattern}"',
+            f"count={f.count}",
+            f"at={_authored_pt(f.frame.origin) if f.member.mouth_axis else _pt(f.frame.origin)}",
+        ]
         if f.pattern == "linear":
             parts.append(f"pitch={_n(f.pitch)}")
             if f.direction:

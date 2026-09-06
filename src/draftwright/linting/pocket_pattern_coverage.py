@@ -25,6 +25,8 @@ from draftwright.linting.issues import (
     requirement_subject,
 )
 from draftwright.section_recess_contract import (
+    distinct_section_recess_patterns,
+    pocket_mouth_key,
     recesses_with_kind,
     section_recess_fields,
     section_recess_pattern_members,
@@ -82,6 +84,13 @@ def _member_spec(pocket) -> tuple:
             *(_rounded(data[key]) for key in ("width", "length", "depth")),
             data["open_sign"],
             data["edge_anchored"],
+            round(data.get("corner_radius", 0.0), 3),
+            pocket_mouth_key(
+                data.get("mouth_axis"),
+                data.get("mouth_radius"),
+                data.get("mouth_at"),
+                origin=data["origin"],
+            ),
         )
     return (
         pocket.width_axis,
@@ -92,6 +101,13 @@ def _member_spec(pocket) -> tuple:
         _rounded(pocket.depth),
         int(getattr(pocket, "open_sign", 1)),
         bool(getattr(pocket, "edge_anchored", False)),
+        round(getattr(pocket, "corner_radius", 0.0), 3),
+        pocket_mouth_key(
+            getattr(pocket, "mouth_axis", None),
+            getattr(pocket, "mouth_radius", None),
+            getattr(pocket, "mouth_at", None),
+            origin=pocket.frame.origin,
+        ),
     )
 
 
@@ -174,12 +190,15 @@ def _parameter_ids(feature) -> tuple[str, ...] | None:
     """Derive the required vocabulary from the matched feature and its compiler contract."""
     try:
         parameters = tuple(feature.parameters())
+        member = feature.member
     except (AttributeError, TypeError):
         return None
     expected = [
         "pocket_width.length",
         "pocket_length.length",
-        "pocket_depth.length",
+        "pocket_max_depth.length"
+        if getattr(member, "mouth_axis", None)
+        else "pocket_depth.length",
     ]
     if feature.pattern == "linear":
         expected.append("pitch.length")
@@ -267,6 +286,7 @@ def _state(
             "pocket_width.length",
             "pocket_length.length",
             "pocket_depth.length",
+            "pocket_max_depth.length",
         }
         if size_ids & {item for owner, item in suppressed if owner == feature}:
             return "suppressed"
@@ -317,7 +337,9 @@ def pocket_pattern_requirement_outcomes(
     pocket_ids = {id(source) for source in recesses_with_kind(inventory, "pocket")}
     sources = tuple(
         pattern
-        for pattern in recognition.section_recess_patterns
+        for pattern in distinct_section_recess_patterns(
+            recognition.section_recess_patterns, inventory
+        )
         if all(
             id(member) in pocket_ids
             for member in section_recess_pattern_members(pattern, inventory)

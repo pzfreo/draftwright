@@ -122,7 +122,7 @@ _FAMILIES: dict[str, _FamilySpec] = {
     ),
     "slots": _FamilySpec(("Slot",), "_convert_slot", "slot", "render_slots"),
     "oriented-slots": _FamilySpec(
-        ("OrientedSlot",),
+        ("OrientedSlot", "SectionPassage", "PassageEnds"),
         "_convert_oriented_slot",
         "oriented_slot",
         "render_oriented_slots",
@@ -143,6 +143,8 @@ _FAMILIES: dict[str, _FamilySpec] = {
             "PassageFrame",
             "PassageSection",
             "PassageSectionVertex",
+            "PlanarEndSurface",
+            "CylindricalEndSurface",
             "SectionEnd",
             "SectionRecess",
             "SectionRecessArray",

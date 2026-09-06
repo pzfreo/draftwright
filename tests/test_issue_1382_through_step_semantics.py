@@ -444,7 +444,7 @@ def test_edge_pocket_floor_cannot_preempt_then_erase_the_aggregate_owner() -> No
             frame=PassageFrame((-16, -7, 0), (0, 0, 1), (1, 0, 0), (0, 1, 0)),
             run_interval=(0, 15),
             profile=profile,
-            ends=SectionRecessEnds(SectionEnd("capped", (0, 0)), SectionEnd("open", (0, 0))),
+            ends=SectionRecessEnds(SectionEnd("capped"), SectionEnd("open")),
         ),
         classification=SectionRecessClassification("edge_open_recess", "polygonal"),
     )
