@@ -30,6 +30,8 @@ from dataclasses import dataclass, replace
 
 from draftwright._geometry import _EDGE_ON, _END_ON, HoleRef
 from draftwright.model.ir import (
+    PLACEMENT_SIDES,
+    PLACEMENT_VIEWS,
     BlendFeature,
     ChamferFeature,
     ChannelFeature,
@@ -48,6 +50,7 @@ from draftwright.model.ir import (
     PocketPatternFeature,
     Point,
     RectangularBlindSlotFeature,
+    RequestedDimension,
     RoundBottomBlindSlotFeature,
     SlotFeature,
     SlotPatternFeature,
@@ -362,8 +365,8 @@ def _preferred_group_view(feature: Feature) -> str:
     `render_step_lengths` draws the chain on the front view (X → horizontal
     above, Z → vertical right) and `render_diameters` hangs its ø row/column off
     the front view (X → row below, Z → column left). A Y-axis step derives to
-    its geometric profile ("side"); no step render pipeline consumes Y today
-    (`render_diameters` buckets x/z only).
+    its geometric profile ("side") for lengths; its diameter leaders use the
+    end-on front view. `_parameter_view_preferences` records that distinction.
     """
     if isinstance(feature, ChamferFeature | FilletFeature) and feature.turned:
         return _PROFILE.get(feature.frame.axis, "front")
@@ -1127,6 +1130,51 @@ def _group_placement(feature: Feature, dims: list[PlannedDimension], planned_vie
     return selected_view, requested_side
 
 
+def validate_dimension_placement(request: RequestedDimension) -> None:
+    """Apply the planner's placement rules to one request, without whole-build context.
+
+    This is the same group-placement validator planning uses. Acceptance does not prove
+    actual renderer support: whole-part classification can select another renderer.
+    Chosen views, compound intent, placement capacity and completeness also need a build.
+    """
+    if request.role == LOCATION_ROLE:
+        if location_role(request.feature) is None:
+            raise ValueError("feature has no location measurement")
+        return  # RequestedDimension already refuses location view/side overrides.
+    parameters = [
+        parameter
+        for parameter in request.feature.parameters()
+        if _authored_addresses(request, request.feature, parameter)
+    ]
+    if not parameters:
+        raise ValueError(f"no parameter matches {request.role!r}")
+    _group_placement(
+        request.feature,
+        [
+            PlannedDimension(
+                param=parameter,
+                convention=_CONVENTION.get((parameter.role, parameter.kind), "linear"),
+                view=request.view,
+                side=request.side,
+            )
+            for parameter in parameters
+        ],
+    )
+
+
+def dimension_placement_options(request: RequestedDimension) -> list[dict[str, str | None]]:
+    """Enumerate valid view/side pairs using the planner's existing support checks."""
+    options = []
+    for view in (None, *sorted(PLACEMENT_VIEWS)):
+        for side in (None, *sorted(PLACEMENT_SIDES)):
+            try:
+                validate_dimension_placement(replace(request, view=view, side=side))
+            except ValueError:
+                continue
+            options.append({"view": view, "side": side})
+    return options
+
+
 def authored_location_omitted(model, feature) -> bool:
     """Did an AUTHORED set leave *feature*'s position out?
 
@@ -1243,6 +1291,8 @@ def _parameter_view_preferences(feature: Feature, pd: PlannedDimension) -> tuple
     if role in {"boss_height", "stock_length"}:
         return (_PROFILE.get(axis, "front"),)
     if kind == "step_level" and role == "step_height":
+        return ("front",)
+    if kind == "step" and axis == "y" and pd.param.kind == "diameter":
         return ("front",)
     if kind in {"step", "groove", "rotational", "plate"}:
         return (_PROFILE.get(axis, "front"),)
