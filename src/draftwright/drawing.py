@@ -23,8 +23,8 @@ from itertools import permutations
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 if TYPE_CHECKING:
-    from b123d_recognisers import RecognitionResult
-    from b123d_recognisers.evidence import RecognitionEvidence
+    from quiddity import RecognitionResult
+    from quiddity.evidence import RecognitionEvidence
 
     from draftwright.recognition_ownership import RecognitionOwnership
 
@@ -36,7 +36,6 @@ if sys.version_info >= (3, 13):
 else:
     from typing_extensions import deprecated
 
-from b123d_recognisers import analyse_cylinders
 from build123d import (
     Align,
     Color,
@@ -47,6 +46,7 @@ from build123d import (
     Text,
 )
 from build123d_drafting.helpers import DEFAULT_FONT_PATH
+from quiddity import analyse_cylinders
 
 from draftwright._core import (
     _MARGIN,
@@ -117,7 +117,6 @@ from draftwright.linting import (
     lint_oriented_slot_coverage,
     lint_pad_coverage,
     lint_paired_ramp_step_coverage,
-    lint_passage_coverage,
     lint_plate_coverage,
     lint_pmi_extraction,
     lint_pmi_ignored,
@@ -129,7 +128,6 @@ from draftwright.linting import (
     lint_polygonal_stock_coverage,
     lint_principal_profile_coverage,
     lint_prismatic_coverage,
-    lint_prismatic_pocket_coverage,
     lint_profiled_bore_coverage,
     lint_rectangular_blind_slot_coverage,
     lint_round_bottom_blind_slot_coverage,
@@ -139,6 +137,7 @@ from draftwright.linting import (
 )
 from draftwright.linting.issues import _collect_issue_aggregation, _current_issue_aggregation
 from draftwright.linting.quality import quality_components
+from draftwright.linting.section_recess_coverage import lint_section_recess_coverage
 from draftwright.projection import (
     part_material_mesh,
     project_view_geometry,
@@ -200,6 +199,8 @@ _GEOMETRY_AWARE_CODES = frozenset(
         "pad_footprint_not_defined",
         "passage_requirement_unsupported",
         "prismatic_pocket_requirement_unsupported",
+        "section_recess_requirement_unsupported",
+        "section_recess_recognition_refused",
         "pocket_not_located",
         "unrecognised_defining_geometry",
         "pmi_not_lowered",
@@ -1026,7 +1027,7 @@ class Drawing:
     def report(self) -> dict[str, object]:
         """Return the versioned machine-readable recognition and drawing report.
 
-        Schema version 1 projects accepted raw recognition occurrences, their exact run-local
+        Schema version 2 projects accepted raw recognition occurrences, their exact run-local
         consumer dispositions, final IR owners, recognition-owned semantic requirement outcomes,
         and the existing structured lint summary.
         Report IDs are deterministic within this document only; they are not topology or durable
@@ -3676,13 +3677,12 @@ class Drawing:
             patterns: list | None
             bosses: list | None
             pads: list | None
-            pockets: list | None
             recognition: RecognitionResult | None
             prof_kw: dict
             if a is not None and a.recognition is not None:
                 cyls = a.cyls
                 holes, patterns, bosses = a.holes, a.patterns, a.bosses
-                pads, pockets = a.pads, a.pockets
+                pads = a.pads
                 # The whole aggregate, not a level set: coverage projects the shared riser
                 # evidence over recognition's OWN levels, so no caller can narrow the
                 # shoulder inventory (#1025).
@@ -3699,7 +3699,6 @@ class Drawing:
                 patterns = list(rec.hole_patterns)
                 bosses = list(rec.bosses)
                 pads = list(rec.pads)
-                pockets = list(rec.pockets)
                 # The aggregate, NOT anything off `Analysis`: its levels and risers are
                 # geometry-sourced, where the declared `Analysis` carries what the author
                 # declared. Critique taking its inventory from the model is what ADR 1 (was 0015)
@@ -3715,7 +3714,7 @@ class Drawing:
                     self._cyl_cache = analyse_cylinders(working_part)
                 cyls = self._cyl_cache
                 holes = patterns = bosses = None
-                pads = pockets = recognition = None
+                pads = recognition = None
                 prof_kw = {}
             if recognition is None:
                 recognition = self._build.ensure_recognition(working_part)
@@ -3781,7 +3780,7 @@ class Drawing:
                 self,
                 assembly=self.assembly,
                 pads=pads,
-                pockets=pockets,
+                section_recesses=recognition.section_recesses,
                 bbox=a.bb if a is not None else None,
                 features=getattr(model, "features", ()) if model is not None else (),
                 recognition=recognition,
@@ -3810,8 +3809,7 @@ class Drawing:
                 omissions=self._build.omissions,
                 assembly=self.assembly,
             )
-            issues += lint_passage_coverage(recognition)
-            issues += lint_prismatic_pocket_coverage(recognition)
+            issues += lint_section_recess_coverage(recognition)
             issues += lint_angled_step_coverage(recognition)
             resolved_assembly = self.assembly
             if resolved_assembly is None:
@@ -3827,8 +3825,7 @@ class Drawing:
                         working_part,
                         assembly=resolved_assembly,
                         double_d_bores=recognition.double_d_bores,
-                        prismatic_pockets=recognition.prismatic_pockets,
-                        section_passages=recognition.section_passages,
+                        section_recesses=recognition.section_recesses,
                     )
                 )
                 profile_cache = (working_part, resolved_assembly, profile_issues)

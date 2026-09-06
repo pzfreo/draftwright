@@ -4,6 +4,14 @@
 are documented here because they are part of normal use even though their Python names begin
 with an underscore.
 
+## Grooves on coaxial bodies
+
+When different turned bodies share an axis line, give their steps distinct `profile_group`
+values and use the owning body's value on `s.groove(..., profile_group="outer")`.
+The token associates features; it does not specify an annotation position or add a measurement.
+Generated scripts preserve this association using Draftwright-owned tokens instead of provider
+keys. A groove can still be declared when the authored set omits all of that body's steps.
+
 ## Checking dimension placement rules
 
 Call `handle.dimension_ids()` to find the measurements a declared feature exposes, then

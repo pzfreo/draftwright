@@ -18,16 +18,22 @@ for entry in document["found"]:
         print(entry["family"], entry["draftwright"]["reason"])
 ```
 
+Version 2 names the actual recognition provider in `producer.quiddity`.
+[Version 1](draftwright-step-inspection-v1.schema.json) used `producer.b123d-recognisers`
+and remains available for existing documents. Readers must select the schema using
+`schema_version`; a Quiddity version is not a b123d-recognisers version.
+
 The closed schema is published as
-[`draftwright-step-inspection-v1.schema.json`](draftwright-step-inspection-v1.schema.json).
+[`draftwright-step-inspection-v2.schema.json`](draftwright-step-inspection-v2.schema.json).
 `schema` is always `"draftwright-step-inspection"`; check `schema_version` before interpreting
 the document. Every object is closed except `found[].feature`, which is the recogniser's own
 record.
 
 ## found — what recognition produced, and what became of it
 
-One entry per accepted feature, in the recogniser's order. Each carries two halves that must not
-be confused:
+One entry per record in the recogniser's evidence roster, in its order. This includes accepted
+geometry and `SectionRecessRefusal` evidence where Quiddity could not establish supported
+recess geometry. Each carries two halves that must not be confused:
 
 - `feature` is the recogniser's record, forwarded exactly as it stated it, with `feature_type`
   and `feature_schema_version` naming its format. Draftwright never edits it. If it is wrong,
@@ -37,12 +43,16 @@ be confused:
   precise one (`represented`, `absorbed`, `unsupported`, `deferred`, `evidence_only`,
   `unexpectedly_missing`), with a stable `reason` code and the `owners` it maps to.
 
-`acted_on: false` is the conversion failing this document exists to surface: recognition found
-something real and the drawing does not use it, and `reason` says why.
+`acted_on: false` means no drawing feature represents the record, and `reason` says why.
+For accepted geometry this identifies a consumer limitation; for `SectionRecessRefusal`,
+`reason: recognition_refused` identifies a provider limitation, not a drawable feature.
 
 IDs are deterministic **within one document**, allocated from the recogniser's order and
 Draftwright's IR order. They are not persistent identities and must not be stored across runs.
-Provider references, topology indexes, object addresses and absolute paths are never serialized.
+Document-owned IDs are never derived from provider references or topology. The open `feature`
+payload preserves the provider's public JSON, including any run-local body or face indices;
+those are not persistent references. Runtime reference objects, object addresses and absolute
+paths are never serialized.
 
 ## missed — what nothing claimed
 
@@ -56,6 +66,8 @@ recogniser can explain what it proposed and then rejected, and which families it
 evaluate — but only from a second recognition run, which would break the one-run rule of
 ADR 3 (was 0017). b123d-recognisers#494 asks for an API that explains an already-completed result. The
 field states its own absence rather than letting it read as "nothing was rejected".
+Quiddity's section-recess refusals are already in the single-run evidence roster and appear in
+`found` as `SectionRecessRefusal`; they do not provide the complete explanation for every family.
 
 ## source, producer and run
 

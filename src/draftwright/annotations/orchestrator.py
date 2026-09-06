@@ -370,7 +370,6 @@ def build_model(a: Analysis):
         bosses=a.bosses,
         polygonal_bosses=a.recognition.polygonal_bosses,
         polygonal_stock=a.recognition.polygonal_stock,
-        channels=a.recognition.channels,
         slots=a.slots,
         # The engine's SECOND build_part_model call site; unthreaded, these three were
         # detected again here after _analyse had already recognised them (#1019). Read off
@@ -390,10 +389,8 @@ def build_model(a: Analysis):
         through_steps=a.recognition.through_steps,
         plates=a.recognition.plates,
         flats=a.recognition.flats,
-        pockets=a.recognition.pockets,
-        pocket_patterns=a.recognition.pocket_patterns,
-        rectangular_blind_slots=a.recognition.rectangular_blind_slots,
-        round_bottom_blind_slots=a.recognition.round_bottom_blind_slots,
+        section_recesses=a.recognition.section_recesses,
+        section_recess_patterns=a.recognition.section_recess_patterns,
         pads=a.recognition.pads,
         profiles=a.profiles,
         step_zs=a.step_zs,

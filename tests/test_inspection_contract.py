@@ -7,8 +7,8 @@ import importlib.metadata
 import inspect
 from pathlib import Path
 
-import b123d_recognisers.inspection as inspection
 import pytest
+import quiddity.inspection as inspection
 
 from draftwright.inspection_contract import (
     InspectionContractError,
@@ -24,9 +24,9 @@ def _manifest() -> dict:
 
 
 def test_installed_pypi_wheel_satisfies_the_inspection_contract() -> None:
-    distribution = importlib.metadata.distribution("b123d-recognisers")
+    distribution = importlib.metadata.distribution("quiddity")
 
-    assert distribution.version == "0.4.14"
+    assert distribution.version == "0.2.2"
     assert distribution.read_text("direct_url.json") is None
     assert (
         Path(inspect.getfile(inspection.inspection_api_manifest))
@@ -49,7 +49,7 @@ def test_consumer_declaration_is_an_isolated_value() -> None:
         (("format_version",), 2),
         (("package", "version"), "0.4.5"),
         (("api", "major"), 2),
-        (("api", "namespace"), "b123d_recognisers.experimental_geometry"),
+        (("api", "namespace"), "quiddity.experimental_geometry"),
     ],
 )
 def test_provider_identity_and_version_mutations_fail_closed(
@@ -146,7 +146,7 @@ def test_additive_provider_symbol_does_not_break_the_consumed_subset() -> None:
         {
             "name": "future_inspection",
             "kind": "function",
-            "qualified_name": "b123d_recognisers.inspection.future_inspection",
+            "qualified_name": "quiddity.inspection.future_inspection",
             "contract": {"signature": "() -> None"},
         }
     )

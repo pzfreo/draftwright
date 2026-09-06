@@ -6,8 +6,8 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
-from b123d_recognisers.evidence import build_recognition_evidence
 from build123d import Align, Box, Compound, Pos, RegularPolygon, Rot, extrude
+from quiddity.evidence import build_recognition_evidence
 
 from draftwright import build_drawing
 from draftwright import plate_correspondence as correspondence

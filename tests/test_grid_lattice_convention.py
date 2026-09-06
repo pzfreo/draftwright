@@ -27,7 +27,7 @@ near-axis shortcut quietly stopped being.
 import math
 
 import pytest
-from b123d_recognisers._features import _plane_uv, _rect_grid
+from quiddity._features import _plane_uv, _rect_grid
 
 from draftwright._geometry import plane_axes
 from draftwright.model.declare import _pattern_members
@@ -232,7 +232,7 @@ def test_a_reversed_axis_keeps_the_same_frame(axis):
 
 def _oblique_and_principal_lattices():
     """The same 2×3 lattice laid in an oblique plane and in the Z plane."""
-    from b123d_recognisers import HoleRecord
+    from quiddity import HoleRecord
 
     axis = (0.6, -0.48, 0.64)
     n = math.hypot(*axis)
@@ -264,8 +264,8 @@ def test_an_oblique_lattice_does_not_become_a_pattern_feature():
     recogniser returned nothing would codify the layering violation the first cut had
     (#983 review).
     """
-    from b123d_recognisers import recognise_hole_patterns
     from build123d import Box
+    from quiddity import recognise_hole_patterns
 
     from draftwright.model.detect import build_part_model
 

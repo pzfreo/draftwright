@@ -180,7 +180,7 @@ def test_polygonal_boss_ledger_tracks_two_requirements_and_fails_closed() -> Non
 
 
 def test_polygonal_boss_ledger_rejects_foreign_malformed_and_duplicate_ir() -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     from draftwright import build_drawing
     from draftwright.linting.polygonal_boss_coverage import (
@@ -284,7 +284,7 @@ def test_malformed_source_record_fails_closed_through_drawing_lint(
 def test_equivalent_public_sheet_ring_representations_keep_exact_coverage(
     representation,
 ) -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     from draftwright import Sheet
 

@@ -17,7 +17,11 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import cast
 
-from b123d_recognisers import (
+from build123d import Compound, Shape
+from build123d_drafting.helpers import draft_preset
+from OCP.IFSelect import IFSelect_ReturnStatus
+from OCP.STEPControl import STEPControl_Reader
+from quiddity import (
     PartFrame,
     RecognitionResult,
     TurnedProfile,
@@ -26,11 +30,7 @@ from b123d_recognisers import (
     analyse_cylinders,
     full_cylinders,
 )
-from b123d_recognisers.evidence import RecognitionEvidence, build_recognition_evidence
-from build123d import Compound, Shape
-from build123d_drafting.helpers import draft_preset
-from OCP.IFSelect import IFSelect_ReturnStatus
-from OCP.STEPControl import STEPControl_Reader
+from quiddity.evidence import RecognitionEvidence, build_recognition_evidence
 
 from draftwright._core import (
     _CONCENTRIC_TOL_MM,
@@ -1000,8 +1000,6 @@ def _analyse(
     polygonal_bosses = list(recognition.polygonal_bosses) if recognition else []
     polygonal_stock = list(recognition.polygonal_stock) if recognition else []
     slots = list(recognition.slots) if recognition else []
-    pockets = list(recognition.pockets) if recognition else []
-    pocket_patterns = list(recognition.pocket_patterns) if recognition else []
     pads = list(recognition.pads) if recognition else []
     # Build the IR once, up front, so page/scale selection sizes from the SAME feature
     # model the renderers use — detected and declared parts share one sizing path and no
@@ -1038,7 +1036,6 @@ def _analyse(
             bosses=bosses,
             polygonal_bosses=polygonal_bosses,
             polygonal_stock=polygonal_stock,
-            channels=list(recognition.channels) if recognition else None,
             slots=slots,
             # Injected from the aggregate since #1026 — `build_part_model` detected these
             # three itself, which is the duplicate scan ADR 3 (was 0017) exists to remove. On this
@@ -1058,13 +1055,9 @@ def _analyse(
             through_steps=list(recognition.through_steps) if recognition else None,
             plates=list(recognition.plates) if recognition else None,
             flats=list(recognition.flats) if recognition else None,
-            pockets=pockets,
-            pocket_patterns=pocket_patterns,
-            rectangular_blind_slots=(
-                list(recognition.rectangular_blind_slots) if recognition else None
-            ),
-            round_bottom_blind_slots=(
-                list(recognition.round_bottom_blind_slots) if recognition else None
+            section_recesses=list(recognition.section_recesses) if recognition else None,
+            section_recess_patterns=(
+                list(recognition.section_recess_patterns) if recognition else None
             ),
             pads=pads,
             profiles=_profiles,
@@ -1306,8 +1299,6 @@ def _analyse(
         patterns=patterns,
         bosses=bosses,
         slots=slots,
-        pockets=pockets,
-        pocket_patterns=pocket_patterns,
         pads=pads,
         z_diams=z_diams,
         cross_diams=cross_diams,

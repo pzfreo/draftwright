@@ -18,17 +18,15 @@ from collections import Counter
 from collections.abc import Callable, Mapping
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
-from math import isfinite, ulp
-from numbers import Real
+from math import atan2, degrees, isfinite, ulp
 from typing import Any, Literal
 
-from b123d_recognisers import (
+from quiddity import (
     AngledStep,
     Blend,
     BoltCircle,
     BossRecord,
     Chamfer,
-    Channel,
     CircularBlindStep,
     CounterSink,
     DoubleDBore,
@@ -43,22 +41,19 @@ from b123d_recognisers import (
     OrientedSlotArray,
     OrientedSlotGrid,
     PairedRampStep,
-    Passage,
     Plate,
-    Pocket,
-    PocketArray,
-    PocketGrid,
     PolygonalBoss,
     PolygonalStock,
-    PrismaticPocket,
     RaisedPad,
     RecognitionResult,
-    RectangularBlindSlot,
     RectGrid,
     RepeatingRadialProfile,
     RiserEvidence,
-    RoundBottomBlindSlot,
-    SectionPassage,
+    SectionRecess,
+    SectionRecessArray,
+    SectionRecessDocument,
+    SectionRecessGrid,
+    SectionRecessRefusal,
     Slot,
     SlotArray,
     SlotGrid,
@@ -70,7 +65,6 @@ from b123d_recognisers import (
     project_step_shoulders,
     recognise_bosses,
     recognise_chamfers,
-    recognise_channels,
     recognise_countersinks,
     recognise_double_d_bores,
     recognise_fillets,
@@ -81,8 +75,6 @@ from b123d_recognisers import (
     recognise_oriented_slot_patterns,
     recognise_paired_ramp_steps,
     recognise_plates,
-    recognise_pocket_patterns,
-    recognise_pockets,
     recognise_polygonal_bosses,
     recognise_polygonal_stock,
     recognise_risers,
@@ -91,7 +83,7 @@ from b123d_recognisers import (
     recognise_through_steps,
     step_level_records,
 )
-from b123d_recognisers.evidence import RecognitionEvidence, build_recognition_evidence
+from quiddity.evidence import RecognitionEvidence, build_recognition_evidence
 
 from draftwright._geometry import (
     _axis_letter,
@@ -155,6 +147,12 @@ from draftwright.recognition_ownership import (
     boss_blend_owner_pairs,
     boss_fills_footprint,
     envelope_is_emittable,
+)
+from draftwright.section_recess_contract import (
+    UnsupportedSectionRecess,
+    section_recess_fields,
+    section_recess_pattern_members,
+    section_recess_pocket_fields,
 )
 
 
@@ -609,226 +607,10 @@ def _slot_pattern_feature(pat, members) -> SlotPatternFeature:
     )
 
 
-def _member_pocket(pk: Pocket) -> PocketFeature:
-    """A recogniser `Pocket` → an IR `PocketFeature`. The representative member of a
-    `PocketPatternFeature` too (its size/axes drive the grouped callout), so it is factored
-    out of :func:`_convert_pocket` and reused by :func:`_pocket_pattern_feature` (#841)."""
-    # Frame at the recess centroid — in-plane centre + mid-depth. The render leader
-    # projects into the view normal to the depth axis, so the depth coord is inert,
-    # but a true centroid keeps the frame honest.
-    c = {
-        pk.long_axis: (pk.lo + pk.hi) / 2,
-        pk.width_axis: pk.w_center,
-        pk.depth_axis: (pk.d_lo + pk.d_hi) / 2,
-    }
-    return PocketFeature(
-        frame=Frame(origin=(c["x"], c["y"], c["z"]), axis=pk.depth_axis),
-        width_axis=pk.width_axis,
-        long_axis=pk.long_axis,
-        width=pk.width,
-        length=pk.length,
-        depth=pk.depth,
-        w_center=pk.w_center,
-        lo=pk.lo,
-        hi=pk.hi,
-        edge_anchored=pk.edge_anchored,
-        open_sign=pk.open_sign,
-    )
-
-
-def _convert_pocket(pk: Pocket, ctx: ConvContext) -> PocketFeature:
-    return _member_pocket(pk)
-
-
-class _UnsupportedSectionRecess(ValueError):
-    """Valid recess geometry outside the first migration adapter's drawing vocabulary."""
-
-
-def _section_object(value: object, keys: set[str], name: str) -> Mapping:
-    if not isinstance(value, Mapping) or set(value) != keys:
-        raise ValueError(f"{name} must contain exactly {sorted(keys)}")
-    return value
-
-
-def _section_numbers(value: object, count: int, name: str) -> tuple[float, ...]:
-    if (
-        not isinstance(value, (tuple, list))
-        or type(value) not in (tuple, list)
-        or len(value) != count
-    ):
-        raise ValueError(f"{name} must contain {count} finite numbers")
-    if any(type(item) not in (int, float) for item in value):
-        raise ValueError(f"{name} requires built-in non-boolean numbers")
-    try:
-        result = tuple(float(item) for item in value)
-    except OverflowError as exc:
-        raise ValueError(f"{name} must be finite") from exc
-    if not all(isfinite(item) for item in result):
-        raise ValueError(f"{name} must be finite")
-    return result
-
-
-def _section_axis(vector: tuple[float, ...]) -> tuple[int, int]:
-    index = max(range(3), key=lambda i: abs(vector[i]))
-    sign = 1 if vector[index] > 0 else -1
-    if any(abs(value - (sign if i == index else 0)) > 1e-9 for i, value in enumerate(vector)):
-        raise _UnsupportedSectionRecess("pocket requires principal section and run directions")
-    return index, sign
-
-
 def _convert_section_recess_pocket(record: Mapping, *, schema_version: int) -> PocketFeature:
-    """Lower a schema-2 document's rectangular pocket into the existing drafting IR.
-
-    This private migration adapter consumes JSON primitives from a released SectionRecess.
-    It performs no recognition and returns no provider references. It is not yet wired into
-    production detection: the aggregate, ownership and independent lint cutover must land
-    together before the runtime dependency changes (#1471). The caller remains responsible
-    for validating result-local references and recording ownership from the exact source run.
-
-    Closed rectangles and open rectangular corner/edge cuts share the existing PocketFeature
-    grammar. Open cuts keep ``edge_anchored=True``; no closing edge is manufactured. Curved,
-    general polygonal, sloped-end and free-axis sections are explicitly refused by this slice.
-    """
-
-    if type(schema_version) is not int or schema_version != 2:
-        raise ValueError("unsupported SectionRecess schema version")
-    row = _section_object(
-        record, {"index", "body", "geometry", "classification", "evidence"}, "occurrence"
-    )
-    if any(type(row[key]) is not int or row[key] < 0 for key in ("index", "body")):
-        raise ValueError("occurrence and body indices must be non-negative integers")
-    evidence = _section_object(
-        row["evidence"], {"defining_faces", "constituent_faces"}, "evidence"
-    )
-    for refs in evidence.values():
-        if (
-            type(refs) not in (tuple, list)
-            or any(type(ref) is not int or ref < 0 for ref in refs)
-            or list(refs) != sorted(set(refs))
-        ):
-            raise ValueError("face references must be sorted unique non-negative integers")
-    if not evidence["defining_faces"] or not set(evidence["defining_faces"]) <= set(
-        evidence["constituent_faces"]
-    ):
-        raise ValueError("pocket requires defining faces contained in constituent faces")
-    classification = _section_object(
-        row["classification"], {"feature_kind", "section_shape"}, "classification"
-    )
-    kind, shape = classification["feature_kind"], classification["section_shape"]
-    if (kind, shape) not in (("pocket", "rectangular"), ("edge_open_recess", "polygonal")):
-        raise _UnsupportedSectionRecess("recess is outside the rectangular pocket vocabulary")
-    geometry = _section_object(
-        row["geometry"], {"type", "frame", "run_interval", "profile", "ends"}, "geometry"
-    )
-    if geometry["type"] != "section_recess":
-        raise ValueError("expected section_recess geometry")
-    frame = _section_object(geometry["frame"], {"origin", "run", "u", "v"}, "frame")
-    origin = _section_numbers(frame["origin"], 3, "frame origin")
-    run, u, v = (_section_numbers(frame[key], 3, key) for key in ("run", "u", "v"))
-    run_index, run_sign = _section_axis(run)
-    u_index, u_sign = _section_axis(u)
-    v_index, v_sign = _section_axis(v)
-    if len({run_index, u_index, v_index}) != 3:
-        raise ValueError("section frame directions must be perpendicular")
-    cross = (u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0])
-    if any(abs(a - b) > 1e-9 for a, b in zip(cross, run)):
-        raise ValueError("section frame must be right-handed")
-    low, high = _section_numbers(geometry["run_interval"], 2, "run interval")
-    if high <= low:
-        raise ValueError("run interval must increase")
-    ends = _section_object(geometry["ends"], {"low", "high"}, "ends")
-    conditions = []
-    for key in ("low", "high"):
-        end = _section_object(ends[key], {"condition", "gradient"}, "end")
-        conditions.append(end["condition"])
-        if any(_section_numbers(end["gradient"], 2, "end gradient")):
-            raise _UnsupportedSectionRecess("pocket requires perpendicular run ends")
-    if sorted(conditions, key=str) != ["capped", "open"]:
-        raise ValueError("pocket requires exactly one capped and one open end")
-
-    edge_anchored = kind == "edge_open_recess"
-    profile = _section_object(
-        geometry["profile"],
-        {"closure", "boundary", "opening"} if edge_anchored else {"closure", "boundary"},
-        "profile",
-    )
-    if profile["closure"] != ("open" if edge_anchored else "closed"):
-        raise ValueError("profile closure disagrees with pocket classification")
-    boundary = profile["boundary"]
-    if type(boundary) not in (tuple, list) or len(boundary) not in (
-        (3, 4) if edge_anchored else (4,)
-    ):
-        raise _UnsupportedSectionRecess("pocket requires a rectangular boundary or open chain")
-    points = []
-    for item in boundary:
-        vertex = _section_object(item, {"point", "bulge"}, "profile vertex")
-        point = _section_numbers(vertex["point"], 2, "profile point")
-        if _section_numbers([vertex["bulge"]], 1, "bulge")[0] != 0:
-            raise _UnsupportedSectionRecess("curved profiles need their own drafting semantics")
-        points.append(point)
-    if edge_anchored:
-        opening = profile["opening"]
-        if type(opening) not in (tuple, list) or len(opening) != 2:
-            raise ValueError("opening must join the two loose endpoints")
-        endpoints = tuple(_section_numbers(point, 2, "opening point") for point in opening)
-        if endpoints != (points[-1], points[0]):
-            raise ValueError("opening must join the two loose endpoints")
-    bounds = [(min(p[i] for p in points), max(p[i] for p in points)) for i in range(2)]
-    if any(hi <= lo for lo, hi in bounds):
-        raise ValueError("pocket section must have positive extents")
-    if len(set(points)) != len(points) or any(
-        p[0] not in bounds[0] or p[1] not in bounds[1] for p in points
-    ):
-        raise _UnsupportedSectionRecess("profile does not follow rectangular supports")
-    chain = points if edge_anchored else [*points, points[0]]
-    if any(sum(a[i] != b[i] for i in range(2)) != 1 for a, b in zip(chain, chain[1:])):
-        raise _UnsupportedSectionRecess("profile contains a diagonal or crossing support")
-
-    world_bounds = {
-        run_index: sorted(origin[run_index] + run_sign * n for n in (low, high)),
-        u_index: sorted(origin[u_index] + u_sign * n for n in bounds[0]),
-        v_index: sorted(origin[v_index] + v_sign * n for n in bounds[1]),
-    }
-    span_index = max(
-        (u_index, v_index), key=lambda i: (world_bounds[i][1] - world_bounds[i][0], i)
-    )
-    width_index = v_index if span_index == u_index else u_index
-    center = tuple(lo / 2 + hi / 2 for lo, hi in (world_bounds[i] for i in range(3)))
-    width = world_bounds[width_index][1] - world_bounds[width_index][0]
-    length = world_bounds[span_index][1] - world_bounds[span_index][0]
-    if not all(isfinite(n) for n in (*center, width, length, high - low)):
-        raise ValueError("projected pocket measurements must be finite")
-    if any(hi <= lo for lo, hi in world_bounds.values()):
-        raise ValueError("projected pocket extents must remain positive")
-    return PocketFeature(
-        frame=Frame(origin=(center[0], center[1], center[2]), axis="xyz"[run_index]),
-        width_axis="xyz"[width_index],
-        long_axis="xyz"[span_index],
-        width=width,
-        length=length,
-        depth=high - low,
-        w_center=center[width_index],
-        lo=world_bounds[span_index][0],
-        hi=world_bounds[span_index][1],
-        edge_anchored=edge_anchored,
-        open_sign=run_sign * (1 if conditions[1] == "open" else -1),
-    )
-
-
-def _convert_channel(channel: Channel, ctx: ConvContext) -> ChannelFeature:
-    c = channel.location
-    return ChannelFeature(
-        frame=Frame(origin=c, axis=channel.long_axis),
-        width_axis=channel.width_axis,
-        long_axis=channel.long_axis,
-        width=channel.width,
-        w_center=channel.w_center,
-        lo=channel.lo,
-        hi=channel.hi,
-        d_lo=channel.d_lo,
-        d_hi=channel.d_hi,
-        open_sign=channel.open_sign,
-    )
+    """Lower the validated schema-2 pocket fields into the existing drafting IR."""
+    values = section_recess_pocket_fields(record, schema_version=schema_version)
+    return PocketFeature(frame=Frame(values.pop("origin"), values.pop("axis")), **values)
 
 
 _CHANNEL_PUBLICATION_HALF_CELL = 0.005
@@ -865,7 +647,7 @@ def _channel_coordinate_in_span(
 
 
 def _step_level_owns_channel(
-    channel: Channel,
+    channel: ChannelFeature,
     feature: StepLevelFeature,
     *,
     face_levels: tuple[FaceLevel, ...],
@@ -991,42 +773,54 @@ def _convert_pad(pad: RaisedPad, ctx: ConvContext) -> PadFeature:
 
 
 def _pocket_pattern_feature(pat, members) -> PocketPatternFeature:
-    """Map a recognised pocket array + its member pockets to a `PocketPatternFeature` (#841) —
-    the recess analog of :func:`_pattern_feature`. Composes a representative member pocket (its
-    width/length/depth drive the grouped ``count× W×L×D DEEP`` callout) and keeps the member
-    centres as the raw arrangement the pitch furniture indexes. The frame axis is the members'
-    shared DEPTH axis (the opening normal), matching the declared `pocket_pattern`."""
+    """Lower an exact run-local recess pattern whose members use the pocket grammar."""
     n = len(members)
-    axis = members[0].depth_axis  # the opening normal — the plane the array lies in
-    locs = tuple(_xyz(m.location) for m in members)  # raw arrangement — never discarded
-    if isinstance(pat, PocketGrid):
-        frame = Frame(_xyz(pat.center), axis)
+    axis = members[0].depth_axis
+    locs = tuple(m.frame.origin for m in members)
+    if type(pat) is SectionRecessGrid:
+        long_axis, width_axis = plane_axis_names(axis)
+        angle = degrees(
+            atan2(
+                pat.col_direction["xyz".index(width_axis)],
+                pat.col_direction["xyz".index(long_axis)],
+            )
+        )
         return PocketPatternFeature(
-            frame=frame,
+            frame=Frame((pat.center[0], pat.center[1], pat.center[2]), axis),
             pattern="grid",
             count=n,
-            member=_member_pocket(members[0]),
+            member=members[0],
             members=locs,
             grid=(pat.row_pitch, pat.col_pitch),
             rows=pat.rows,
             cols=pat.cols,
-            angle=pat.angle,
+            angle=angle,
         )
-    # PocketArray (linear) — the frame sits at the array centroid (no separate centre field).
-    c = (
-        sum(m.location[0] for m in members) / n,
-        sum(m.location[1] for m in members) / n,
-        sum(m.location[2] for m in members) / n,
-    )
+    center = tuple(sum(at[i] for at in locs) / n for i in range(3))
     return PocketPatternFeature(
-        frame=Frame(c, axis),
+        frame=Frame(center, axis),
         pattern="linear",
         count=n,
-        member=_member_pocket(members[0]),
+        member=members[0],
         members=locs,
         pitch=pat.pitch,
         direction=tuple(pat.direction),
     )
+
+
+def _convert_section_recess(source: SectionRecess, ctx: ConvContext) -> Feature:
+    """Lower one published recess into the established drafting vocabulary."""
+    kind, values = section_recess_fields(source)
+    origin, axis = values.pop("origin"), values.pop("axis")
+    constructor: Callable[..., Feature] = {
+        "pocket": PocketFeature,
+        "channel": ChannelFeature,
+        "rectangular_blind_slot": RectangularBlindSlotFeature,
+        "round_bottom_blind_slot": RoundBottomBlindSlotFeature,
+    }[kind]
+    if kind in ("rectangular_blind_slot", "round_bottom_blind_slot"):
+        values["axis"] = axis
+    return constructor(frame=Frame(origin, axis), **values)
 
 
 def _convert_step(s: TurnedStep, ctx: ConvContext) -> StepFeature:
@@ -1201,60 +995,7 @@ def _convert_groove(groove: Groove, ctx: ConvContext) -> GrooveFeature:
         axis=groove.axis,
         width=groove.width,
         diameter=groove.diameter,
-    )
-
-
-def _convert_rectangular_blind_slot(
-    slot: RectangularBlindSlot, ctx: ConvContext
-) -> RectangularBlindSlotFeature:
-    """Lower the provider's complete, principal-axis blind-slot record without rescanning."""
-    if (
-        not isinstance(slot.at, tuple)
-        or len(slot.at) != 3
-        or any(isinstance(value, bool) or not isinstance(value, Real) for value in slot.at)
-    ):
-        raise ValueError("rectangular blind slot at must be an immutable real-number 3-vector")
-    for name in ("width", "length", "depth"):
-        value = getattr(slot, name)
-        if isinstance(value, bool) or not isinstance(value, Real):
-            raise ValueError(f"rectangular blind slot {name} must be a real number")
-    return RectangularBlindSlotFeature(
-        frame=Frame((slot.at[0], slot.at[1], slot.at[2]), slot.axis),
-        axis=slot.axis,
-        open_sign=slot.open_sign,
-        width_axis=slot.width_axis,
-        depth_axis=slot.depth_axis,
-        depth_sign=slot.depth_sign,
-        width=slot.width,
-        length=slot.length,
-        depth=slot.depth,
-    )
-
-
-def _convert_round_bottom_blind_slot(
-    slot: RoundBottomBlindSlot, ctx: ConvContext
-) -> RoundBottomBlindSlotFeature:
-    """Lower the provider's complete round-bottom record without rescanning geometry."""
-    if (
-        not isinstance(slot.at, tuple)
-        or len(slot.at) != 3
-        or any(isinstance(value, bool) or not isinstance(value, Real) for value in slot.at)
-    ):
-        raise ValueError("round-bottom blind slot at must be an immutable real-number 3-vector")
-    for name in ("length", "radius", "flat_width"):
-        value = getattr(slot, name)
-        if isinstance(value, bool) or not isinstance(value, Real):
-            raise ValueError(f"round-bottom blind slot {name} must be a real number")
-    return RoundBottomBlindSlotFeature(
-        frame=Frame((slot.at[0], slot.at[1], slot.at[2]), slot.axis),
-        axis=slot.axis,
-        open_sign=slot.open_sign,
-        width_axis=slot.width_axis,
-        depth_axis=slot.depth_axis,
-        depth_sign=slot.depth_sign,
-        length=slot.length,
-        radius=slot.radius,
-        flat_width=slot.flat_width,
+        profile=groove.profile,
     )
 
 
@@ -1302,9 +1043,8 @@ def _convert_oriented_slot(slot: OrientedSlot, ctx: ConvContext) -> OrientedSlot
 # Tier 1 — uniform converters: a pure (record, ctx) -> Feature mapping.
 _CONVERTERS: dict[type, Converter] = {
     DoubleDBore: _convert_double_d_bore,
-    Channel: _convert_channel,
+    SectionRecess: _convert_section_recess,
     Slot: _convert_slot,
-    Pocket: _convert_pocket,
     RaisedPad: _convert_pad,
     TurnedStep: _convert_step,
     BossRecord: _convert_boss,
@@ -1319,8 +1059,6 @@ _CONVERTERS: dict[type, Converter] = {
     ThroughStep: _convert_through_step,
     Flat: _convert_flat,
     Groove: _convert_groove,
-    RectangularBlindSlot: _convert_rectangular_blind_slot,
-    RoundBottomBlindSlot: _convert_round_bottom_blind_slot,
     OrientedSlot: _convert_oriented_slot,
 }
 
@@ -1333,8 +1071,8 @@ _DERIVED_CONVERTERS: dict[type, Callable[..., Feature]] = {
     BoltCircle: _pattern_feature,
     LinearArray: _pattern_feature,
     RectGrid: _pattern_feature,
-    PocketArray: _pocket_pattern_feature,
-    PocketGrid: _pocket_pattern_feature,
+    SectionRecessArray: _pocket_pattern_feature,
+    SectionRecessGrid: _pocket_pattern_feature,
     SlotArray: _slot_pattern_feature,
     SlotGrid: _slot_pattern_feature,
 }
@@ -1343,6 +1081,14 @@ _DERIVED_CONVERTERS: dict[type, Callable[..., Feature]] = {
 # nested sub-record, aggregated into a correlated feature, or retained solely as independent
 # physical evidence; the reason is the residual scope ADR 3 (was 0013) Phase 1 explicitly accepts.
 _ORCHESTRATED_RECORDS: dict[type, str] = {
+    SectionRecessDocument: (
+        "public serialization envelope for recess occurrences, patterns and refusals; "
+        "its members are accounted for individually, never as another feature"
+    ),
+    SectionRecessRefusal: (
+        "provider refusal evidence retained in the occurrence ledger with an explicit "
+        "unsupported requirement; no accepted geometry exists to convert (#1471)"
+    ),
     CounterSink: "a nested sub-record of HoleRecord — rides on the hole callout, never a top-level feature",
     FaceLevel: "aggregated into a single StepLevelFeature step ladder (one feature per part, not per level)",
     StepShoulder: "aggregated into StepLevelFeature.shoulders (in-plane step positions, not a standalone feature)",
@@ -1377,20 +1123,6 @@ _UNCONSUMED_RECORDS: dict[type, str] = {
         "a derived free-axis slot grid whose member correspondence, vector plane, and lattice "
         "identity cannot be represented by SlotPatternFeature; its consumer semantics remain "
         "undecided (#1430)"
-    ),
-    Passage: (
-        "the accepted-only compatibility projection of authoritative SectionPassage; it is not "
-        "a second physical requirement and has no converter (#1245)"
-    ),
-    SectionPassage: (
-        "the authoritative physical prismatic-opening evidence introduced in 0.4.0; its complete "
-        "line/arc section has no truthful general drafting grammar, so every occurrence has an "
-        "explicit unsupported completeness outcome (#1245)"
-    ),
-    PrismaticPocket: (
-        "an aggregate-reconciled polygonal blind recess not owned by `Pocket`; its arbitrary "
-        "section has no truthful general Draftwright dimension grammar, so every occurrence has "
-        "an explicit unsupported completeness outcome (#1246)"
     ),
 }
 
@@ -1696,7 +1428,6 @@ def build_part_model(
     bosses=None,
     polygonal_bosses=None,
     polygonal_stock=None,
-    channels=None,
     slots=None,
     slot_patterns=None,
     oriented_slots=None,
@@ -1711,11 +1442,9 @@ def build_part_model(
     plates=None,
     grooves=None,
     flats=None,
-    pockets=None,
-    pocket_patterns=None,
-    rectangular_blind_slots=None,
-    round_bottom_blind_slots=None,
     pads=None,
+    section_recesses=None,
+    section_recess_patterns=None,
     prof=_UNSET,
     profiles=_UNSET,
     step_zs=None,
@@ -1762,6 +1491,8 @@ def build_part_model(
     circular_blind_steps_supplied = circular_blind_steps is not None
     if circular_blind_steps_supplied:
         circular_blind_steps = tuple(circular_blind_steps)
+    if section_recesses is not None and section_recess_patterns is None:
+        raise ValueError("injected section recesses require explicit section_recess_patterns")
     derive_hole_patterns = holes is not None and patterns is None
     derive_slot_patterns = slots is not None and slot_patterns is None
     # Pattern projection and conversion share one materialised caller inventory. A
@@ -1769,7 +1500,6 @@ def build_part_model(
     if oriented_slots is not None:
         oriented_slots = tuple(oriented_slots)
     derive_oriented_slot_patterns = oriented_slots is not None and oriented_slot_patterns is None
-    derive_pocket_patterns = pockets is not None and pocket_patterns is None
     if prof is not _UNSET and profiles is not _UNSET:
         raise ValueError("supply profiles= or the compatible singular prof=, not both")
     needs_aggregate = (
@@ -1785,7 +1515,6 @@ def build_part_model(
                 bosses,
                 polygonal_bosses,
                 polygonal_stock,
-                channels,
                 slots,
                 slot_patterns,
                 oriented_slots,
@@ -1800,11 +1529,9 @@ def build_part_model(
                 plates,
                 grooves,
                 flats,
-                pockets,
-                pocket_patterns,
-                rectangular_blind_slots,
-                round_bottom_blind_slots,
                 pads,
+                section_recesses,
+                section_recess_patterns,
             )
         )
     )
@@ -1971,7 +1698,6 @@ def build_part_model(
         polygonal_stock = (
             recognition.polygonal_stock if polygonal_stock is None else polygonal_stock
         )
-        channels = recognition.channels if channels is None else channels
         slots = recognition.slots if slots is None else slots
         slot_patterns = recognition.slot_patterns if slot_patterns is None else slot_patterns
         oriented_slots = recognition.oriented_slots if oriented_slots is None else oriented_slots
@@ -1996,19 +1722,13 @@ def build_part_model(
         plates = recognition.plates if plates is None else plates
         grooves = recognition.grooves if grooves is None else grooves
         flats = recognition.flats if flats is None else flats
-        pockets = recognition.pockets if pockets is None else pockets
-        pocket_patterns = (
-            recognition.pocket_patterns if pocket_patterns is None else pocket_patterns
+        section_recesses = (
+            recognition.section_recesses if section_recesses is None else section_recesses
         )
-        rectangular_blind_slots = (
-            recognition.rectangular_blind_slots
-            if rectangular_blind_slots is None
-            else rectangular_blind_slots
-        )
-        round_bottom_blind_slots = (
-            recognition.round_bottom_blind_slots
-            if round_bottom_blind_slots is None
-            else round_bottom_blind_slots
+        section_recess_patterns = (
+            recognition.section_recess_patterns
+            if section_recess_patterns is None
+            else section_recess_patterns
         )
         pads = recognition.pads if pads is None else pads
         # Pattern inventories are projections of their supplied member inventories.  Preserve
@@ -2020,8 +1740,6 @@ def build_part_model(
             slot_patterns = recognise_slot_patterns(slots)
         if derive_oriented_slot_patterns:
             oriented_slot_patterns = recognise_oriented_slot_patterns(oriented_slots)
-        if derive_pocket_patterns:
-            pocket_patterns = recognise_pocket_patterns(pockets)
         if prof is _UNSET and profiles is _UNSET:
             profiles = recognition.turned_profiles
         if step_zs is None:
@@ -2097,8 +1815,26 @@ def build_part_model(
         through_steps = recognise_through_steps(part) if orientation is None else ()
     through_steps = tuple(through_steps)
 
-    if channels is None:
-        channels = recognise_channels(part)
+    assert section_recesses is not None and section_recess_patterns is not None
+    section_recesses = tuple(section_recesses)
+    section_recess_patterns = tuple(section_recess_patterns)
+    recess_features = {}
+    for source in section_recesses:
+        try:
+            recess_features[id(source)] = convert(source, ctx)
+        except UnsupportedSectionRecess:
+            # The exact occurrence remains in independent completeness and policy ledgers.
+            continue
+    channels = tuple(
+        source
+        for source in section_recesses
+        if getattr(recess_features.get(id(source)), "kind", None) == "channel"
+    )
+    pockets = tuple(
+        source
+        for source in section_recesses
+        if getattr(recess_features.get(id(source)), "kind", None) == "pocket"
+    )
     # A full-span floored gap also describes a monolithic centred rebate, whose two
     # shoulders are already owned as one correlated StepLevelFeature position set. The
     # #917 channel scheme applies only where plate recognition proves a multi-axis
@@ -2114,15 +1850,14 @@ def build_part_model(
     ownership_plates = (
         tuple(plates or ()) if not profiles and rotational is None and multi_plate else ()
     )
-    # Pocket recognition is consumed later, but its edge-open floors participate in the
-    # step-level emission gate. Detect once up front so aggregate takeover is decided against
-    # the same final legacy inventory that will actually cross the IR boundary.
-    if pockets is None:
-        pockets = recognise_pockets(part)
+    # The same lowered edge-open pocket geometry controls step-floor ownership.
     edge_floor_zs = {
-        pk.d_lo if pk.open_sign > 0 else pk.d_hi
-        for pk in pockets
-        if pk.depth_axis == "z" and pk.edge_anchored
+        feature.frame.origin[2] - feature.open_sign * feature.depth / 2
+        for source in pockets
+        for feature in (recess_features[id(source)],)
+        if isinstance(feature, PocketFeature)
+        and feature.depth_axis == "z"
+        and feature.edge_anchored
     }
     plate_zs_at_base = {
         round(pl.hi, 3)
@@ -2281,7 +2016,7 @@ def build_part_model(
     through_shoulder_sites = _through_step_shoulder_sites(lowered_through_steps, bbox)
     if not profiles and rotational is None and multi_plate:
         for channel in channels:
-            channel_feature = convert(channel, ctx)
+            channel_feature = recess_features[id(channel)]
             features.append(channel_feature)
             if ownership is not None:
                 ownership.bind(channel, channel_feature, reason_code="channel_adapter")
@@ -2405,48 +2140,28 @@ def build_part_model(
     ):
         append_direct(oriented_slot)
 
-    # Capped, edge-open rectangular U-section slots (#1421). The aggregate has already
-    # reconciled their topology against ordinary through slots, pockets, channels and passage
-    # evidence. Consume that exact inventory as a dedicated semantic feature; do not rescan or
-    # coerce it into any of those grammars.
-    for blind_slot in rectangular_blind_slots:
-        append_direct(blind_slot)
-
-    # Capped, edge-open U-section slots with a straight floor joined by equal round sides.
-    # This released aggregate inventory owns the physical family; ordinary and rectangular
-    # slots, pockets, channels and passages must not regain ownership downstream.
-    for blind_slot in round_bottom_blind_slots:
-        append_direct(blind_slot)
-
-    # Blind rectangular recesses — floored slots/pockets (#148a). A recognised array of
-    # identical pockets becomes ONE PocketPatternFeature (count× W×L×D + pitch, #841); its
-    # member pockets are NOT also emitted individually — the same grouped-callout rule as
-    # hole patterns above (member exclusion by id()).
-    if pocket_patterns is None:
-        pocket_patterns = recognise_pocket_patterns(pockets)
-    # Exclude members by VALUE, not id(): `Pocket` is a frozen (hashable) value record and two
-    # distinct pockets can never be value-equal (their positions differ), so a value-set
-    # excludes members even when `pocket_patterns=` is INJECTED from value-equal copies whose
-    # ids differ from `pockets` (Codex #849) — where an id-set would emit both the pattern and
-    # the individual pockets, restoring the competing dims this grouping removes.
-    patterned_pk: set = set()
-    for pat in pocket_patterns:
-        patterned_pk.update(pat.pockets)
-        pocket_pattern_feature = _pocket_pattern_feature(pat, list(pat.pockets))
-        features.append(pocket_pattern_feature)
-        if ownership is not None:
-            ownership.absorb(
-                tuple(pat.pockets),
-                pocket_pattern_feature,
-                reason_code="pocket_pattern_member",
-            )
-    for pk in pockets:
-        if pk in patterned_pk:
+    # Patterns join published occurrence indices to the exact records from this aggregate.
+    # Only the pocket grammar currently has a corresponding grouped drawing feature.
+    patterned_recesses: set[int] = set()
+    for pattern in section_recess_patterns:
+        recess_members = section_recess_pattern_members(pattern, section_recesses)
+        member_features = tuple(recess_features.get(id(member)) for member in recess_members)
+        if any(getattr(feature, "kind", None) != "pocket" for feature in member_features):
             continue
-        pocket_feature = convert(pk, ctx)
-        features.append(pocket_feature)
+        if patterned_recesses & {id(member) for member in recess_members}:
+            raise ValueError("section recess belongs to multiple drafting patterns")
+        patterned_recesses.update(id(member) for member in recess_members)
+        pattern_feature = _pocket_pattern_feature(pattern, member_features)
+        features.append(pattern_feature)
         if ownership is not None:
-            ownership.bind(pk, pocket_feature, reason_code="pocket_adapter")
+            ownership.absorb(recess_members, pattern_feature, reason_code="pocket_pattern_member")
+    for source in section_recesses:
+        feature = recess_features.get(id(source))
+        if feature is None or feature.kind == "channel" or id(source) in patterned_recesses:
+            continue
+        features.append(feature)
+        if ownership is not None:
+            ownership.bind(source, feature, reason_code="section_recess_adapter")
 
     # Bounded rectangular raised pads: footprint sizing, attachment-axis height, and
     # two in-plane locations. A Z attachment level may also enter the general profile
@@ -2749,8 +2464,10 @@ def build_part_model(
             features.append(step_level_feature)
             if ownership is not None and not multi_plate:
                 for channel in channels:
+                    channel_feature = recess_features[id(channel)]
+                    assert isinstance(channel_feature, ChannelFeature)
                     if _step_level_owns_channel(
-                        channel,
+                        channel_feature,
                         step_level_feature,
                         face_levels=face_levels,
                         risers=risers,

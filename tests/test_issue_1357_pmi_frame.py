@@ -6,8 +6,8 @@ from itertools import product
 from pathlib import Path
 
 import pytest
-from b123d_recognisers import FrameGauge, PartFrame
 from build123d import Axis, Box
+from quiddity import FrameGauge, PartFrame
 
 from draftwright.model.ir import CylindricalReference
 from draftwright.pmi import (

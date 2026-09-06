@@ -25,8 +25,8 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
-    from b123d_recognisers import RecognitionResult, TurnedProfile
-    from b123d_recognisers.evidence import RecognitionEvidence
+    from quiddity import RecognitionResult, TurnedProfile
+    from quiddity.evidence import RecognitionEvidence
 
     from draftwright.compose import StripDepths
     from draftwright.recognition_ownership import RecognitionOwnership
@@ -1135,8 +1135,6 @@ class Analysis:
     patterns: list
     bosses: list  # external bosses (recognise_bosses), detected once — the one inventory (#244)
     slots: list
-    pockets: list
-    pocket_patterns: list
     pads: list  # geometry-derived rectangular-pad coverage inventory (#885)
     z_diams: list[float]
     cross_diams: list[float]

@@ -40,30 +40,6 @@ UNSUPPORTED_FAMILIES: Mapping[str, tuple[tuple[str, ...], str, str]] = MappingPr
             "pattern identity. A dedicated consumer contract is being reviewed before any grouping "
             "or dimensions are emitted.",
         ),
-        "passages": (
-            (
-                "Passage",
-                "PassageEnds",
-                "PassageFrame",
-                "PassageSection",
-                "PassageSectionVertex",
-                "SectionPassage",
-            ),
-            "https://github.com/pzfreo/draftwright/issues/1245",
-            "A prismatic through-opening — the internal counterpart to polygonal stock. The rich "
-            "record permits arbitrary line/arc sections, so treating its regular-polygon subset as "
-            "a supported IR feature or HEX callout would overstate the drawing contract. Draftwright "
-            "therefore reports every occurrence as an unsupported completeness requirement.",
-        ),
-        "prismatic-pockets": (
-            ("PrismaticPocket",),
-            "https://github.com/pzfreo/draftwright/issues/1246",
-            "The aggregate removes candidates also owned by the supported `pockets` family, so each "
-            "remaining PrismaticPocket is a distinct recess not superseded by Pocket. Its section may "
-            "be any planar polygon: width/length is false for triangles and a regular-polygon A/F "
-            "callout is incomplete in the general case. Draftwright therefore reports every "
-            "surviving occurrence as an unsupported completeness requirement.",
-        ),
         "angled-steps": (
             ("AngledStep",),
             "https://github.com/pzfreo/draftwright/issues/1247",

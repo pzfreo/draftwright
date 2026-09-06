@@ -19,7 +19,7 @@ from draftwright.recogniser_contract import pending_family_declarations
 def test_every_installed_package_family_has_a_declaration() -> None:
     """The installed package's families are all declared, so nothing is silently ignored.
 
-    When this fails, the installed ``b123d-recognisers`` has grown a recogniser family and
+    When this fails, the installed ``quiddity`` has grown a recogniser family and
     the choice of what Draftwright does with it is outstanding. Declare it in
     ``recogniser_contract._FAMILIES`` — as ``supported`` with an IR adapter, DSL kind and
     renderer, or as ``geometry-only`` if the evidence informs critique without becoming a
@@ -33,7 +33,7 @@ def test_every_installed_package_family_has_a_declaration() -> None:
     pending = pending_family_declarations()
 
     assert pending == [], (
-        f"installed b123d-recognisers ships {len(pending)} undeclared "
+        f"installed quiddity ships {len(pending)} undeclared "
         f"recogniser {'family' if len(pending) == 1 else 'families'}: {pending}. "
         "Declare each in recogniser_contract._FAMILIES; see this module's docstring."
     )

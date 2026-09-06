@@ -10,12 +10,19 @@ is still a literal map.
 
 from __future__ import annotations
 
-from b123d_recognisers import (
+from quiddity import (
     Blend,
     BossRecord,
+    OpenSectionProfile,
+    PassageFrame,
+    PassageSectionVertex,
     RecognitionResult,
-    RectangularBlindSlot,
-    RoundBottomBlindSlot,
+    SectionEnd,
+    SectionRecess,
+    SectionRecessClassification,
+    SectionRecessEnds,
+    SectionRecessEvidence,
+    SectionRecessGeometry,
     StraightBlendPath,
 )
 
@@ -287,32 +294,38 @@ def test_0410_blind_slot_families_keep_independent_completeness_dispositions():
         name: False if name == "rotational" else ()
         for name in RecognitionResult.__dataclass_fields__
     }
-    inventories["rectangular_blind_slots"] = (
-        RectangularBlindSlot(
-            axis="x",
-            open_sign=1,
-            length=12.0,
-            width_axis="y",
-            depth_axis="z",
-            depth_sign=-1,
-            width=6.0,
-            depth=3.0,
-            at=(0.0, 0.0, 5.0),
-        ),
-    )
-    inventories["round_bottom_blind_slots"] = (
-        RoundBottomBlindSlot(
-            axis="x",
-            open_sign=1,
-            length=12.0,
-            width_axis="y",
-            depth_axis="z",
-            depth_sign=-1,
-            radius=3.0,
-            flat_width=6.0,
-            at=(0.0, 0.0, 5.0),
-        ),
-    )
+    records = []
+    for index, (shape, points, bulges) in enumerate(
+        (
+            ("rectangular", ((-3, 1.5), (-3, -1.5), (3, -1.5), (3, 1.5)), (0, 0, 0, 0)),
+            (
+                "general",
+                ((-6, 1.5), (-3, -1.5), (3, -1.5), (6, 1.5)),
+                (0.414213562373, 0, 0.414213562373, 0),
+            ),
+        )
+    ):
+        profile = OpenSectionProfile(
+            "open",
+            tuple(PassageSectionVertex(point, bulge) for point, bulge in zip(points, bulges)),
+            (points[-1], points[0]),
+        )
+        records.append(
+            SectionRecess(
+                index=index,
+                body=0,
+                geometry=SectionRecessGeometry(
+                    "section_recess",
+                    PassageFrame((0, 0, 5), (1, 0, 0), (0, 1, 0), (0, 0, 1)),
+                    (-6, 6),
+                    profile,
+                    SectionRecessEnds(SectionEnd("capped", (0, 0)), SectionEnd("open", (0, 0))),
+                ),
+                classification=SectionRecessClassification("edge_open_recess", shape),
+                evidence=SectionRecessEvidence((index,), (index,)),
+            )
+        )
+    inventories["section_recesses"] = tuple(records)
     recognition = RecognitionResult(**inventories)
 
     completeness = quality_components(

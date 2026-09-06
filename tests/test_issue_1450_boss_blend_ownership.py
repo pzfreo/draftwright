@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from runpy import run_path
 
-from b123d_recognisers.evidence import build_recognition_evidence
 from build123d import import_step
+from quiddity.evidence import build_recognition_evidence
 
 from draftwright import build_drawing
 from draftwright.linting.coverage import lint_feature_coverage as coverage_lint

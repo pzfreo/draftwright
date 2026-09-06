@@ -104,7 +104,7 @@ A new representation route must be admitted here or it registers as a false loss
 
 **Every draftwright import in this module is deliberately inside a function body** — there are
 no module-level ones at all — which is the #313 lazy-load pattern rather than an accident.
-(`b123d_recognisers` counts: importing it puts build123d in `sys.modules`, so it carries the
+(`quiddity` counts: importing it puts build123d in `sys.modules`, so it carries the
 same cost.) It is load-bearing: importing this module costs ~0.01 s, and hoisting ANY engine import makes it
 one to two seconds, because every one pulls build123d transitively. Measured in a single process,
 the cost is essentially all build123d and is paid once — the draftwright modules themselves are
@@ -908,7 +908,7 @@ def _hole_model_outcomes(holes, recognition, features) -> list[Outcome]:
 
 def _declared_hole_model(part, holes):
     """Declare observed holes through the public ``Sheet.hole`` seam and return its IR."""
-    from b123d_recognisers import HoleSpec
+    from quiddity import HoleSpec
 
     from draftwright.sheet import Sheet
 
@@ -974,7 +974,7 @@ def _countersink_sites(countersinks, recognition) -> list[tuple[tuple[float, flo
     remains absent: the singular ``HoleRecord`` waist cannot represent it, and the production
     ledger reports its two requirements as unverifiable.
     """
-    from b123d_recognisers import countersink_matches_hole
+    from quiddity import countersink_matches_hole
 
     from draftwright.linting.hole_coverage import canonical_hole_sites
 
@@ -1177,7 +1177,7 @@ def _double_d_direction(value) -> tuple[float, float, float]:
 
 def _double_d_record_key(bore) -> tuple:
     """Exact consumer meaning of one provider Double-D occurrence."""
-    from b123d_recognisers import DoubleDBore
+    from quiddity import DoubleDBore
 
     if type(bore) is not DoubleDBore:
         raise ValueError("Double-D inventory members must be public DoubleDBore records")
@@ -1568,7 +1568,7 @@ def _pattern_drawing_outcomes(patterns, drawing) -> list[Outcome]:
 
 def _declared_pattern_model(part, patterns):
     """Declare observed arrangements through public ``Sheet.pattern`` and return its IR."""
-    from b123d_recognisers import HoleSpec
+    from quiddity import HoleSpec
 
     from draftwright.model import hole
     from draftwright.sheet import Sheet
@@ -3004,7 +3004,7 @@ def _chamfer_drawing_outcomes(chamfers, drawing) -> list[Outcome]:
             # finite-cylinder substrate.  Do not call the production
             # ``_turned_profile_site`` helper: this observer must be able to catch a broken
             # placement implementation rather than repeat its answer by construction.
-            from b123d_recognisers import full_cylinders
+            from quiddity import full_cylinders
 
             axis_i = "xyz".index(feature.axis)
             radial = tuple(index for index in range(3) if index != axis_i)
@@ -3286,7 +3286,7 @@ def _fillet_drawing_outcomes(fillets, drawing) -> list[Outcome]:
 
             # Independently derive the visible turned-profile point from the provider's public
             # finite-cylinder substrate. Do not call the production ``_turned_profile_site``.
-            from b123d_recognisers import full_cylinders
+            from quiddity import full_cylinders
 
             axis_i = "xyz".index(feature.axis)
             radial = tuple(index for index in range(3) if index != axis_i)
@@ -3829,59 +3829,133 @@ def _turned_step_drawing_outcomes(
     return result
 
 
+def _pocket_geometry(pocket) -> dict:
+    from quiddity import SectionRecess
+
+    from draftwright.section_recess_contract import section_recess_fields
+
+    if type(pocket) is SectionRecess:
+        kind, geometry = section_recess_fields(pocket)
+        if kind != "pocket":
+            raise ValueError("pocket observation requires the supported pocket grammar")
+        return geometry
+    return {
+        **{
+            key: getattr(pocket, key)
+            for key in (
+                "width_axis",
+                "long_axis",
+                "width",
+                "length",
+                "depth",
+                "w_center",
+                "lo",
+                "hi",
+                "edge_anchored",
+                "open_sign",
+            )
+        },
+        "origin": pocket.frame.origin,
+        "axis": pocket.depth_axis,
+    }
+
+
 def _pocket_point(pocket) -> tuple[float, float, float]:
-    point = getattr(pocket, "location", None)
-    if point is None:
-        point = pocket.frame.origin
-    return tuple(round(float(component), 3) for component in point)  # type: ignore[return-value]
+    x, y, z = (round(float(c), 3) for c in _pocket_geometry(pocket)["origin"])
+    return x, y, z
 
 
 def _pocket_depth_axis(pocket) -> str:
-    return next(axis for axis in "xyz" if axis not in (pocket.width_axis, pocket.long_axis))
+    axis: str = _pocket_geometry(pocket)["axis"]
+    return axis
 
 
 def _pocket_identity(pocket) -> tuple:
+    data = _pocket_geometry(pocket)
     return (
-        str(pocket.width_axis),
-        str(pocket.long_axis),
-        _pocket_depth_axis(pocket),
-        int(getattr(pocket, "open_sign", 1)),
+        data["width_axis"],
+        data["long_axis"],
+        data["axis"],
+        data["open_sign"],
         _pocket_point(pocket),
     )
 
 
 def _pocket_parameters(pocket) -> dict[str, Value]:
+    data = _pocket_geometry(pocket)
     return {
-        "width": round(float(pocket.width), 3),
-        "length": round(float(pocket.length), 3),
-        "depth": round(float(pocket.depth), 3),
-        "edge_anchored": bool(getattr(pocket, "edge_anchored", False)),
+        **{key: round(float(data[key]), 3) for key in ("width", "length", "depth")},
+        "edge_anchored": data["edge_anchored"],
     }
 
 
 def _pocket_parameter_ids(pocket) -> tuple[str, ...]:
-    ids = (
-        "pocket_width.length",
-        "pocket_length.length",
-        "pocket_depth.length",
-    )
-    if _pocket_depth_axis(pocket) == "z":
-        locations: tuple[str, ...] = (
-            "location_pocket.location.x",
-            "location_pocket.location.y",
-        )
+    data = _pocket_geometry(pocket)
+    ids = ("pocket_width.length", "pocket_length.length", "pocket_depth.length")
+    locations: tuple[str, ...]
+    if data["axis"] == "z":
+        locations = ("location_pocket.location.x", "location_pocket.location.y")
     else:
         locations = tuple(
-            f"location_pocket.{axis}" for axis in (pocket.long_axis, pocket.width_axis)
+            f"location_pocket.{axis}" for axis in (data["long_axis"], data["width_axis"])
         )
     return (*ids, *locations)
 
 
-def _lone_pockets(recognition) -> tuple:
-    pattern_members = {
-        member for pattern in recognition.pocket_patterns for member in pattern.pockets
+def _supported_pocket_patterns(recognition) -> tuple:
+    from draftwright.section_recess_contract import (
+        recesses_with_kind,
+        section_recess_pattern_members,
+    )
+
+    pocket_ids = {
+        id(record) for record in recesses_with_kind(recognition.section_recesses, "pocket")
     }
-    return tuple(pocket for pocket in recognition.pockets if pocket not in pattern_members)
+    return tuple(
+        pattern
+        for pattern in recognition.section_recess_patterns
+        if all(
+            id(member) in pocket_ids
+            for member in section_recess_pattern_members(pattern, recognition.section_recesses)
+        )
+    )
+
+
+def _lone_pockets(recognition) -> tuple:
+    from draftwright.section_recess_contract import (
+        recesses_with_kind,
+        section_recess_pattern_members,
+    )
+
+    pattern_members = {
+        id(member)
+        for pattern in _supported_pocket_patterns(recognition)
+        for member in section_recess_pattern_members(pattern, recognition.section_recesses)
+    }
+    return tuple(
+        record
+        for record in recesses_with_kind(recognition.section_recesses, "pocket")
+        if id(record) not in pattern_members
+    )
+
+
+def _pocket_declaration_arguments(source) -> dict:
+    data = _pocket_geometry(source).copy()
+    data["at"] = data.pop("origin")
+    data["depth_axis"] = data.pop("axis")
+    return data
+
+
+def _pocket_pattern_angle(pattern, source) -> float:
+    from math import atan2, degrees
+
+    plane = tuple(axis for axis in "xyz" if axis != _pocket_depth_axis(source))
+    return degrees(
+        atan2(
+            pattern.col_direction["xyz".index(plane[1])],
+            pattern.col_direction["xyz".index(plane[0])],
+        )
+    )
 
 
 def _pocket_correspondence(pockets, recognition, features, registry=None, omissions=()):
@@ -4070,20 +4144,7 @@ def _declared_pocket_model(part, pockets):
     sheet = Sheet(part)
     sheet.authored_dimensions()
     for observed in pockets:
-        sheet.pocket(
-            width=observed.width,
-            length=observed.length,
-            depth=observed.depth,
-            long_axis=observed.long_axis,
-            width_axis=observed.width_axis,
-            depth_axis=observed.depth_axis,
-            w_center=observed.w_center,
-            lo=observed.lo,
-            hi=observed.hi,
-            at=observed.location,
-            edge_anchored=observed.edge_anchored,
-            open_sign=observed.open_sign,
-        )
+        sheet.pocket(**_pocket_declaration_arguments(observed))
     return sheet.model()
 
 
@@ -4106,7 +4167,7 @@ def _pocket_pattern_correspondence(patterns, recognition, features, registry=Non
         by_members.setdefault(outcome.members, []).append(outcome)
     result = []
     for pattern in patterns:
-        members = pocket_pattern_members(pattern)
+        members = pocket_pattern_members(pattern, inventory=recognition.section_recesses)
         candidates = by_members.get(members, ())
         expected = {
             "grouping.count",
@@ -4344,30 +4405,20 @@ def _pocket_pattern_drawing_outcomes(patterns, drawing) -> list[Outcome]:
     return result
 
 
-def _declared_pocket_pattern_model(part, patterns):
+def _declared_pocket_pattern_model(part, patterns, recognition):
     """Declare observed arrays through public ``Sheet.pocket_pattern`` and return IR."""
     from draftwright.model import pocket
     from draftwright.sheet import Sheet
 
     sheet = Sheet(part)
     sheet.authored_dimensions()
+    from draftwright.section_recess_contract import section_recess_pattern_members
+
     for observed in patterns:
-        source = observed.pockets[0]
-        member = pocket(
-            width=source.width,
-            length=source.length,
-            depth=source.depth,
-            long_axis=source.long_axis,
-            width_axis=source.width_axis,
-            depth_axis=source.depth_axis,
-            w_center=source.w_center,
-            lo=source.lo,
-            hi=source.hi,
-            at=source.location,
-            edge_anchored=source.edge_anchored,
-            open_sign=source.open_sign,
-        )
-        members = tuple(item.location for item in observed.pockets)
+        sources = section_recess_pattern_members(observed, recognition.section_recesses)
+        source = sources[0]
+        member = pocket(**_pocket_declaration_arguments(source))
+        members = tuple(_pocket_geometry(item)["origin"] for item in sources)
         center = getattr(observed, "center", None)
         if center is None:
             center = tuple(
@@ -4383,7 +4434,7 @@ def _declared_pocket_pattern_model(part, patterns):
                 grid=(observed.row_pitch, observed.col_pitch),
                 rows=observed.rows,
                 cols=observed.cols,
-                angle=observed.angle,
+                angle=_pocket_pattern_angle(observed, source),
             )
         else:
             kwargs.update(pitch=observed.pitch, direction=observed.direction)
@@ -4420,7 +4471,7 @@ def _default_observers() -> Mapping[str, Observer]:
             # recognises must still yield a scored non-answer rather than a traceback out
             # of the middle of a corpus run.
             try:
-                from b123d_recognisers import build_raw_recognition_result
+                from quiddity import build_raw_recognition_result
 
                 holes = tuple(build_raw_recognition_result(part).holes)  # type: ignore[arg-type]
             except Exception:  # noqa: BLE001 — an unanalysable fixture observes nothing
@@ -5612,7 +5663,7 @@ def _default_observers() -> Mapping[str, Observer]:
             recognition = drawing.recognition()
             if recognition is None:
                 raise ValueError("detected build has no build-owned recognition result")
-            patterns = tuple(recognition.pocket_patterns)
+            patterns = _supported_pocket_patterns(recognition)
         except Exception as exc:  # noqa: BLE001 — no safe observed numerator remains
             _log.warning(
                 "evaluation: recognition access failed (%s); observing no pocket patterns",
@@ -5649,7 +5700,7 @@ def _default_observers() -> Mapping[str, Observer]:
                 lambda: _pocket_pattern_model_outcomes(
                     patterns,
                     recognition,
-                    _declared_pocket_pattern_model(part, patterns).features,
+                    _declared_pocket_pattern_model(part, patterns, recognition).features,
                 ),
             ),
             "generated_code": observed_boundary(
@@ -5666,15 +5717,23 @@ def _default_observers() -> Mapping[str, Observer]:
             ),
         }
 
+        from draftwright.section_recess_contract import section_recess_pattern_members
+
+        def member_geometry(pattern):
+            member = section_recess_pattern_members(pattern, recognition.section_recesses)[0]
+            return _pocket_geometry(member)
+
         def parameters(pattern) -> dict[str, Value]:
-            member = pattern.pockets[0]
+            member = member_geometry(pattern)
             values: dict[str, Value] = {
-                "count": len(pattern.pockets),
-                "width": round(float(member.width), 2),
-                "length": round(float(member.length), 2),
-                "depth": round(float(member.depth), 2),
-                "edge_anchored": bool(member.edge_anchored),
-                "center": pocket_pattern_source_at(pattern),
+                "count": len(pattern.members),
+                "width": round(float(member["width"]), 2),
+                "length": round(float(member["length"]), 2),
+                "depth": round(float(member["depth"]), 2),
+                "edge_anchored": bool(member["edge_anchored"]),
+                "center": pocket_pattern_source_at(
+                    pattern, inventory=recognition.section_recesses
+                ),
             }
             if pocket_pattern_kind(pattern) == "linear":
                 values.update(
@@ -5687,7 +5746,15 @@ def _default_observers() -> Mapping[str, Observer]:
                     cols=pattern.cols,
                     row_pitch=round(float(pattern.row_pitch), 2),
                     col_pitch=round(float(pattern.col_pitch), 2),
-                    angle=round(float(pattern.angle), 2),
+                    angle=round(
+                        _pocket_pattern_angle(
+                            pattern,
+                            section_recess_pattern_members(pattern, recognition.section_recesses)[
+                                0
+                            ],
+                        ),
+                        2,
+                    ),
                 )
             return values
 
@@ -5696,13 +5763,15 @@ def _default_observers() -> Mapping[str, Observer]:
                 family="pocket-patterns",
                 identity={
                     "kind": pocket_pattern_kind(pattern),
-                    "width_axis": pattern.pockets[0].width_axis,
-                    "long_axis": pattern.pockets[0].long_axis,
-                    "depth_axis": pattern.pockets[0].depth_axis,
-                    "open_sign": pattern.pockets[0].open_sign,
+                    "width_axis": member_geometry(pattern)["width_axis"],
+                    "long_axis": member_geometry(pattern)["long_axis"],
+                    "depth_axis": member_geometry(pattern)["axis"],
+                    "open_sign": member_geometry(pattern)["open_sign"],
                     "members": tuple(
                         component
-                        for point in pocket_pattern_members(pattern)
+                        for point in pocket_pattern_members(
+                            pattern, inventory=recognition.section_recesses
+                        )
                         for component in point
                     ),
                 },

@@ -25,7 +25,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Literal, cast
 
-from b123d_recognisers import PartFrame
+from quiddity import PartFrame
 
 from draftwright._pmi_part21 import (
     DatumOccurrenceFact,

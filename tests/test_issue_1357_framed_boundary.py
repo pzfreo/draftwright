@@ -5,7 +5,8 @@ from __future__ import annotations
 from dataclasses import replace
 
 import pytest
-from b123d_recognisers import (
+from build123d import Align, Axis, Box, Compound, Cylinder, Pos
+from quiddity import (
     FramedRecognitionResult,
     FrameGauge,
     FrameRefusalReason,
@@ -15,7 +16,6 @@ from b123d_recognisers import (
     build_raw_recognition_result,
     prepare_framed_part,
 )
-from build123d import Align, Axis, Box, Compound, Cylinder, Pos
 
 import draftwright.recognition_frame as frame_module
 from draftwright.model.detect import build_part_model

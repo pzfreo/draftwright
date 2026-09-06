@@ -5,9 +5,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from b123d_recognisers import Chamfer
 from build123d import Axis, Box, Cylinder, GeomType, import_step
 from build123d import chamfer as b3d_chamfer
+from quiddity import Chamfer
 
 from draftwright import Drawing, build_drawing
 from draftwright.model import chamfer

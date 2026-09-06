@@ -25,7 +25,9 @@ from math import asin, atan2, isfinite, pi, sqrt, tau
 from numbers import Real
 from typing import Literal
 
-from b123d_recognisers import (
+from build123d import GeomType
+from build123d_drafting.helpers import CenterMark, Dimension, TitleBlock
+from quiddity import (
     RecognitionResult,
     TurnedProfile,
     analyse_cylinders,
@@ -35,12 +37,9 @@ from b123d_recognisers import (
     recognise_double_d_bores,
     recognise_hole_patterns,
     recognise_holes,
-    recognise_pockets,
     recognise_rectangular_pads,
     recognise_turned_steps,
 )
-from build123d import GeomType
-from build123d_drafting.helpers import CenterMark, Dimension, TitleBlock
 
 from draftwright._core import (
     _END_ON,
@@ -55,14 +54,16 @@ from draftwright.linting._registry import annotation_owner, satisfaction_ids
 from draftwright.linting.issues import LintIssue
 from draftwright.linting.profiled_bore_coverage import profiled_bore_key
 from draftwright.recognition_frame import (
+    AmbiguousTurnedOwnershipError,
     groove_owns_turned_step_band,
-    profiles_owning_axial_band,
+    require_unambiguous_groove_owner,
 )
 from draftwright.recognition_ownership import (
     BOSS_BLEND_DIAMETER_TOL,
     boss_blend_owner_pairs,
     envelope_is_emittable,
 )
+from draftwright.section_recess_contract import recesses_with_kind, section_recess_fields
 from draftwright.view_plan import VIEW_AXES
 
 _UNSET = object()  # sentinel: distinguishes "not supplied" from a valid prof=None
@@ -657,7 +658,7 @@ def _pair_covers(
     )
 
 
-def _passage_matches_principal_wire(
+def _recess_matches_principal_wire(
     passage,
     wire,
     axis: str,
@@ -673,7 +674,12 @@ def _passage_matches_principal_wire(
     """
 
     try:
-        frame = passage.frame
+        geometry = passage.geometry
+        if geometry.profile.closure != "closed":
+            return False
+        if any((*geometry.ends.low.gradient, *geometry.ends.high.gradient)):
+            return False
+        frame = geometry.frame
         run = tuple(float(value) for value in frame.run)
         axis_i = "xyz".index(axis)
         if abs(abs(run[axis_i]) - 1.0) > tol or any(
@@ -683,7 +689,12 @@ def _passage_matches_principal_wire(
         matching_run = next(
             (
                 float(run_at)
-                for run_at in passage.run_interval
+                for run_at, end in zip(
+                    passage.geometry.run_interval,
+                    (geometry.ends.low, geometry.ends.high),
+                    strict=True,
+                )
+                if end.condition == "open"
                 if abs(float(frame.origin[axis_i]) + run[axis_i] * float(run_at) - at)
                 <= max(8 * tol, 1e-3)
             ),
@@ -691,7 +702,7 @@ def _passage_matches_principal_wire(
         )
         if matching_run is None:
             return False
-        boundary = tuple(passage.section.boundary)
+        boundary = tuple(passage.geometry.profile.boundary)
         vertices = tuple(wire.vertices())
         edges = tuple(wire.edges())
         if len(boundary) != len(vertices) or not boundary:
@@ -729,67 +740,6 @@ def _passage_matches_principal_wire(
     match_tol = max(8 * tol, 1e-3)
     unmatched = list(actual)
     for point in expected:
-        match = next(
-            (
-                i
-                for i, candidate in enumerate(unmatched)
-                if all(abs(a - b) <= match_tol for a, b in zip(point, candidate, strict=True))
-            ),
-            None,
-        )
-        if match is None:
-            return False
-        unmatched.pop(match)
-    return not unmatched
-
-
-def _prismatic_pocket_matches_principal_wire(
-    pocket,
-    wire,
-    axis: str,
-    plane_axes: tuple[str, str],
-    at: float,
-    tol: float,
-) -> bool:
-    """Whether *wire* is the open mouth of *pocket* on this principal face.
-
-    ``PrismaticPocket.section`` is expressed in the two non-depth axes, in axis order.  The
-    aggregate has already removed candidates also owned by ``Pocket``; this correlation
-    only replaces the generic unsupported-profile report for the exact surviving polygonal
-    recess.  It does not perform cross-family reconciliation itself.
-    """
-
-    try:
-        if pocket.axis != axis:
-            return False
-        axis_i = "xyz".index(axis)
-        open_sign = int(pocket.open_sign)
-        if open_sign not in (-1, 1):
-            return False
-        mouth = float(pocket.at[axis_i]) + open_sign * float(pocket.depth) / 2
-        match_tol = max(8 * tol, 1e-3)
-        if abs(mouth - at) > match_tol:
-            return False
-        section = tuple(tuple(float(value) for value in point) for point in pocket.section)
-        vertices = tuple(wire.vertices())
-        edges = tuple(wire.edges())
-        if (
-            not section
-            or int(pocket.sides) != len(section)
-            or len(section) != len(vertices)
-            or len(edges) != len(section)
-            or any(edge.geom_type != GeomType.LINE for edge in edges)
-        ):
-            return False
-        actual = [
-            tuple(float(getattr(vertex, name.upper())) for name in plane_axes)
-            for vertex in vertices
-        ]
-    except (AttributeError, TypeError, ValueError):
-        return False
-
-    unmatched = list(actual)
-    for point in section:
         match = next(
             (
                 i
@@ -1012,8 +962,7 @@ def _supported_inner_profile(
     solid_bbox=None,
     double_d_bores=(),
     claimed_double_d_mouths: set[tuple[int, int]] | None = None,
-    prismatic_pockets=(),
-    section_passages=(),
+    section_recesses=(),
 ) -> bool:
     """Whether an inner boundary loop has a specific semantic owner.
 
@@ -1033,17 +982,8 @@ def _supported_inner_profile(
         axis is not None
         and at is not None
         and any(
-            _prismatic_pocket_matches_principal_wire(pocket, wire, axis, plane_axes, at, tol)
-            for pocket in prismatic_pockets
-        )
-    ):
-        return True
-    if (
-        axis is not None
-        and at is not None
-        and any(
-            _passage_matches_principal_wire(passage, wire, axis, plane_axes, at, tol)
-            for passage in section_passages
+            _recess_matches_principal_wire(recess, wire, axis, plane_axes, at, tol)
+            for recess in section_recesses
         )
     ):
         return True
@@ -1225,8 +1165,7 @@ def _has_unsupported_principal_inner_profile(
     *,
     double_d_bores=(),
     claimed_double_d_mouths: set[tuple[int, int]] | None = None,
-    prismatic_pockets=(),
-    section_passages=(),
+    section_recesses=(),
 ) -> bool:
     """Does a principal extremal face prove an internal profile outside the IR vocabulary?"""
     part_extent = (float(bbox.size.X), float(bbox.size.Y), float(bbox.size.Z))
@@ -1249,8 +1188,7 @@ def _has_unsupported_principal_inner_profile(
             solid_bbox=bbox,
             double_d_bores=double_d_bores,
             claimed_double_d_mouths=claimed_double_d_mouths,
-            prismatic_pockets=prismatic_pockets,
-            section_passages=section_passages,
+            section_recesses=section_recesses,
         )
         for axis, plane_axes, at, wire in wires
     )
@@ -1320,8 +1258,7 @@ def lint_principal_profile_coverage(
     *,
     double_d_bores,
     assembly=None,
-    prismatic_pockets=(),
-    section_passages=(),
+    section_recesses=(),
 ) -> list:
     """Report principal inner or outer profiles outside the current feature vocabulary.
 
@@ -1343,8 +1280,7 @@ def lint_principal_profile_coverage(
             solid.bounding_box(),
             double_d_bores=double_d_bores,
             claimed_double_d_mouths=claimed_double_d_mouths,
-            prismatic_pockets=prismatic_pockets,
-            section_passages=section_passages,
+            section_recesses=section_recesses,
         )
         for solid in sources
     )
@@ -1393,7 +1329,7 @@ def lint_prismatic_coverage(
     dwg,
     *,
     pads=None,
-    pockets=None,
+    section_recesses=None,
     bbox=None,
     assembly=None,
     tol: float = 0.6,
@@ -1544,7 +1480,14 @@ def lint_prismatic_coverage(
                 )
             )
 
-    pocket_inventory = recognise_pockets(part) if pockets is None else pockets
+    if recognition is not None and type(recognition) is not RecognitionResult:
+        raise TypeError("coverage requires the run's exact RecognitionResult")
+    _rec = recognition if recognition is not None else build_raw_recognition_result(part)
+    recess_inventory = _rec.section_recesses if section_recesses is None else section_recesses
+    pocket_inventory = tuple(
+        section_recess_fields(record)[1]
+        for record in recesses_with_kind(tuple(recess_inventory), "pocket")
+    )
     model_pockets = []
     for feature in features:
         if getattr(feature, "kind", None) == "pocket":
@@ -1554,22 +1497,22 @@ def lint_prismatic_coverage(
     missing_ir = 0
 
     def pocket_owner(pocket):
-        source_location = pocket.location
+        source_location = pocket["origin"]
         return next(
             (
                 owner
                 for f, owner, locations, is_pattern in model_pockets
-                if f.width_axis == pocket.width_axis
-                and f.long_axis == pocket.long_axis
-                and abs(f.width - pocket.width) <= tol
-                and abs(f.length - pocket.length) <= tol
-                and abs(f.depth - pocket.depth) <= tol
+                if f.width_axis == pocket["width_axis"]
+                and f.long_axis == pocket["long_axis"]
+                and abs(f.width - pocket["width"]) <= tol
+                and abs(f.length - pocket["length"]) <= tol
+                and abs(f.depth - pocket["depth"]) <= tol
                 and (
                     is_pattern
                     or (
-                        abs(f.w_center - pocket.w_center) <= tol
-                        and abs(f.lo - pocket.lo) <= tol
-                        and abs(f.hi - pocket.hi) <= tol
+                        abs(f.w_center - pocket["w_center"]) <= tol
+                        and abs(f.lo - pocket["lo"]) <= tol
+                        and abs(f.hi - pocket["hi"]) <= tol
                     )
                 )
                 and any(
@@ -1593,11 +1536,11 @@ def lint_prismatic_coverage(
             continue
         if satisfied(owner, "location"):
             continue
-        if getattr(pocket, "edge_anchored", False):
+        if pocket["edge_anchored"]:
             continue
-        view = _END_ON.get(pocket.depth_axis, "plan")
-        x, y, z = pocket.location
-        if pocket.depth_axis == "z":
+        view = _END_ON.get(pocket["axis"], "plan")
+        x, y, z = pocket["origin"]
+        if pocket["axis"] == "z":
             datum_plan, target_plan = (
                 dwg.at("plan", bb.min.X, y, z),
                 dwg.at("plan", x, y, z),
@@ -1621,9 +1564,9 @@ def lint_prismatic_coverage(
         # retain their established centre-location scheme. Keep critique on the same
         # conditional target as the compiler.
         target_world = {"x": x, "y": y, "z": z}
-        long_datum = float(getattr(bb.min, pocket.long_axis.upper()))
-        if abs(pocket.lo - long_datum) <= tol:
-            target_world[pocket.long_axis] = pocket.lo
+        long_datum = float(getattr(bb.min, pocket["long_axis"].upper()))
+        if abs(pocket["lo"] - long_datum) <= tol:
+            target_world[pocket["long_axis"]] = pocket["lo"]
         # Projection axes by principal view: plan=(x,y), front=(x,z), side=(y,z).
         coordinates = {
             "plan": (
@@ -1711,7 +1654,19 @@ def lint_prismatic_coverage(
             int(channel.open_sign),
         )
 
-    source_channels = {_channel_key(channel) for channel in _rec.channels}
+    source_channels = {
+        (
+            data["width_axis"],
+            data["long_axis"],
+            *(
+                round(float(data[key]), 3)
+                for key in ("width", "w_center", "lo", "hi", "d_lo", "d_hi")
+            ),
+            data["open_sign"],
+        )
+        for source in recesses_with_kind(_rec.section_recesses, "channel")
+        for data in (section_recess_fields(source)[1],)
+    }
     model_shoulders.update(
         (feature.width_axis, round(position, 3))
         for feature in features
@@ -1769,7 +1724,7 @@ def _feature_on_turned_axis(feature, prof, tol: float = 0.5) -> bool:
     """Whether an IR feature belongs to this body-local turned axis line."""
     profile_group = getattr(prof, "profile_group", None)
     feature_group = getattr(feature, "profile_group", None)
-    if profile_group is not None and getattr(feature, "kind", None) == "step":
+    if profile_group is not None and getattr(feature, "kind", None) in {"step", "groove"}:
         # Declared/emitted coaxial occurrences may share an axis, span, and even diameter.
         # Their opaque declaration token is one exact ownership witness. Do not geometrically
         # credit one group's placed measurement to another group (#1357).
@@ -2066,12 +2021,13 @@ def _lint_one_axial_profile(
         )
 
     def groove_belongs_exactly(feature) -> bool:
-        owners = profiles_owning_axial_band(
-            (prof, *(sibling for sibling in sibling_profiles if sibling is not prof)),
-            axis=feature.axis,
-            centre=feature.frame.origin,
-            width=feature.width,
-        )
+        try:
+            owners = require_unambiguous_groove_owner(
+                feature,
+                (prof, *(sibling for sibling in sibling_profiles if sibling is not prof)),
+            )
+        except (AmbiguousTurnedOwnershipError, TypeError, ValueError):
+            return False
         return len(owners) == 1 and owners[0] is prof
 
     placed_grooves = {

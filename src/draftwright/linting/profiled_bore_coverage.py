@@ -11,7 +11,7 @@ from collections import Counter
 from math import hypot, isfinite
 from typing import Literal
 
-from b123d_recognisers import RecognitionResult
+from quiddity import RecognitionResult
 
 from draftwright._geometry import _fmt
 from draftwright.linting._registry import annotation_owner, satisfaction_ids

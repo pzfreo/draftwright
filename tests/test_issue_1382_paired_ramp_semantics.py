@@ -6,8 +6,8 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
-from b123d_recognisers import build_raw_recognition_result
 from build123d import Box, Compound, Plane, Polygon, Pos, Rot, extrude
+from quiddity import build_raw_recognition_result
 
 from draftwright import Sheet, build_drawing
 from draftwright.linting.issues import LintIssue

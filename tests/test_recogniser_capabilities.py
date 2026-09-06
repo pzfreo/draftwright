@@ -10,8 +10,8 @@ import inspect
 import typing
 from pathlib import Path
 
-import b123d_recognisers as recognition
 import pytest
+import quiddity as recognition
 from _recogniser_public_contract import public_recogniser_member, public_recogniser_names
 from build123d import Cylinder
 
@@ -33,7 +33,7 @@ from draftwright.sheet import Sheet
 from draftwright.sheet_emit import _feature_line, emit_sheet_script
 
 ROOT = Path(__file__).parents[1]
-INSTALLED_PACKAGE_VERSION = importlib.metadata.version("b123d-recognisers")
+INSTALLED_PACKAGE_VERSION = importlib.metadata.version("quiddity")
 
 
 def _validate(*args, **kwargs) -> None:
@@ -69,7 +69,7 @@ def _runtime_record_types(annotation: object) -> set[type[object]]:
     if (
         isinstance(annotation, type)
         and dataclasses.is_dataclass(annotation)
-        and annotation.__module__.startswith("b123d_recognisers.")
+        and annotation.__module__.startswith("quiddity.")
     ):
         return {annotation}
     return set()
@@ -78,13 +78,18 @@ def _runtime_record_types(annotation: object) -> set[type[object]]:
 def _runtime_emitted_records() -> set[type[object]]:
     found: set[type[object]] = set()
     for name in public_recogniser_names():
-        if not name.startswith(("recognise_", "project_")):
+        if (
+            not name.startswith(("recognise_", "project_"))
+            and name != "build_section_recess_document"
+        ):
             continue
         function = public_recogniser_member(name)
         hints = typing.get_type_hints(function)
         records = _runtime_record_types(hints.get("return"))
         assert records, f"{name} has no independently discoverable Record return"
         found.update(records)
+    for annotation in typing.get_type_hints(recognition.RecognitionResult).values():
+        found.update(_runtime_record_types(annotation))
     return found
 
 
@@ -111,94 +116,92 @@ def _emitter_literal_kinds() -> set[str]:
 
 
 def test_installed_package_contract_validates_without_a_sibling_checkout() -> None:
-    distribution = importlib.metadata.distribution("b123d-recognisers")
+    distribution = importlib.metadata.distribution("quiddity")
     assert distribution.version == INSTALLED_PACKAGE_VERSION
     assert distribution.read_text("direct_url.json") is None
     package_path = Path(inspect.getfile(recognition.capability_manifest)).resolve()
-    assert package_path.is_relative_to(ROOT / ".venv")
+    assert package_path.is_relative_to(Path(distribution.locate_file("quiddity")).resolve())
 
     _validate()
     package = recognition.capability_manifest(format_version=2)
     declaration = consumer_capability_declaration()
-    # 33 since 0.4.12 added Blend plus oriented slots and patterns (#1430). A literal,
-    # not a length comparison against the package: the point is that BOTH sides changed
-    # together, so an upgrade that declared nothing would leave this at 30 and fail.
-    assert len(package["families"]) == len(declaration["families"]) == 33
+    # Quiddity unifies seven former families into section-recesses: 33 - 7 + 1.
+    # Keep a literal count so a coupled omission on both sides still fails.
+    assert len(package["families"]) == len(declaration["families"]) == 27
 
 
-def test_0410_blind_slot_family_dispositions_are_explicit() -> None:
+def test_section_recess_family_covers_the_published_geometry_and_occurrence_contract() -> None:
     package = _families(recognition.capability_manifest())
     consumer = _families(consumer_capability_declaration())
-
-    expected = {
-        "rectangular-blind-slots": (
-            "RectangularBlindSlot",
-            {
-                "at",
-                "axis",
-                "depth",
-                "depth_axis",
-                "depth_sign",
-                "length",
-                "open_sign",
-                "width",
-                "width_axis",
-            },
-        ),
-        "round-bottom-blind-slots": (
-            "RoundBottomBlindSlot",
-            {
-                "at",
-                "axis",
-                "depth_axis",
-                "depth_sign",
-                "flat_width",
-                "length",
-                "open_sign",
-                "radius",
-                "width_axis",
-            },
-        ),
+    retired = {
+        "channels",
+        "pockets",
+        "pocket-patterns",
+        "passages",
+        "prismatic-pockets",
+        "rectangular-blind-slots",
+        "round-bottom-blind-slots",
     }
-    for family_id, (record_name, fields) in expected.items():
-        assert package[family_id]["introduced_in"] == "0.4.10"
-        assert package[family_id]["census_output"] == (
-            f"RecognitionResult.{family_id.replace('-', '_')}"
+    assert not retired & package.keys()
+    assert not retired & consumer.keys()
+    family = package["section-recesses"]
+    assert INSTALLED_PACKAGE_VERSION == "0.2.2"
+    assert family["introduced_in"] == "0.2.0"
+    assert family["census_output"] == "RecognitionResult.section_recesses"
+    expected_fields = {
+        "ClosedSectionProfile": {"boundary", "closure"},
+        "OpenSectionProfile": {"boundary", "closure", "opening"},
+        "PassageFrame": {"origin", "run", "u", "v"},
+        "PassageSection": {"boundary"},
+        "PassageSectionVertex": {"bulge", "point"},
+        "SectionEnd": {"condition", "gradient"},
+        "SectionRecess": {"body", "classification", "evidence", "geometry", "index"},
+        "SectionRecessArray": {"direction", "members", "pitch"},
+        "SectionRecessBodyRef": {"index"},
+        "SectionRecessClassification": {"feature_kind", "section_shape"},
+        "SectionRecessDocument": {
+            "bodies",
+            "faces",
+            "occurrences",
+            "patterns",
+            "reference_scope",
+            "refusals",
+            "schema_version",
+        },
+        "SectionRecessEnds": {"high", "low"},
+        "SectionRecessEvidence": {"constituent_faces", "defining_faces"},
+        "SectionRecessFaceRef": {"index"},
+        "SectionRecessGeometry": {"ends", "frame", "profile", "run_interval", "type"},
+        "SectionRecessGrid": {
+            "center",
+            "col_direction",
+            "col_pitch",
+            "cols",
+            "members",
+            "row_direction",
+            "row_pitch",
+            "rows",
+        },
+        "SectionRecessRefusal": {"body", "evidence", "reason"},
+    }
+    assert {r["name"]: set(r["fields"]) for r in family["records"]} == expected_fields
+    schemas = {name: [2] if name == "PassageSection" else [1] for name in expected_fields}
+    assert {r["name"]: [r["schema_version"]] for r in family["records"]} == schemas
+    declaration = consumer["section-recesses"]
+    assert declaration["record_schemas"] == schemas
+    assert declaration["disposition"] == "supported"
+    assert {
+        declaration[boundary]["state"]
+        for boundary in (
+            "ir_adapter",
+            "dsl_declaration",
+            "generated_code",
+            "drawing_consumer",
+            "completeness",
+            "documentation",
         )
-        record = package[family_id]["records"][0]
-        assert record["name"] == record_name
-        assert record["schema_version"] == 1
-        assert set(record["fields"]) == fields
-
-        declaration = consumer[family_id]
-        assert declaration["record_schemas"] == {record_name: [1]}
-        if family_id in {"rectangular-blind-slots", "round-bottom-blind-slots"}:
-            assert declaration["disposition"] == "supported"
-            assert {
-                declaration[boundary]["state"]
-                for boundary in (
-                    "ir_adapter",
-                    "dsl_declaration",
-                    "generated_code",
-                    "drawing_consumer",
-                )
-            } == {"supported"}
-            assert declaration["completeness"]["state"] == "supported"
-        else:
-            assert declaration["disposition"] == "deferred"
-            assert declaration["tracking"] == ("https://github.com/pzfreo/draftwright/issues/1421")
-            assert {
-                declaration[boundary]["state"]
-                for boundary in (
-                    "ir_adapter",
-                    "dsl_declaration",
-                    "generated_code",
-                    "drawing_consumer",
-                    "completeness",
-                )
-            } == {"deferred"}
-        assert declaration["documentation"]["state"] == "supported"
-        assert family_id not in pending_family_declarations()
+    } == {"supported"}
+    assert "section-recesses" not in pending_family_declarations()
 
 
 def test_additive_family_dispositions_are_explicit_and_fail_closed() -> None:
@@ -206,7 +209,7 @@ def test_additive_family_dispositions_are_explicit_and_fail_closed() -> None:
     consumer = _families(consumer_capability_declaration())
     expected = {
         "blends": {
-            "introduced_in": "0.4.11",
+            "introduced_in": "0.2.0",
             "census_output": "RecognitionResult.blends",
             "records": {
                 "Blend": {"path", "radius", "side"},
@@ -215,7 +218,7 @@ def test_additive_family_dispositions_are_explicit_and_fail_closed() -> None:
             },
         },
         "oriented-slot-patterns": {
-            "introduced_in": "0.4.12",
+            "introduced_in": "0.2.0",
             "census_output": None,
             "records": {
                 "OrientedSlotArray": {"direction", "pitch", "slots"},
@@ -231,7 +234,7 @@ def test_additive_family_dispositions_are_explicit_and_fail_closed() -> None:
             },
         },
         "oriented-slots": {
-            "introduced_in": "0.4.12",
+            "introduced_in": "0.2.0",
             "census_output": "RecognitionResult.oriented_slots",
             "records": {
                 "OrientedSlot": {
@@ -304,63 +307,7 @@ def test_additive_family_dispositions_are_explicit_and_fail_closed() -> None:
         assert family_id not in pending_family_declarations()
 
 
-def test_rich_passage_contract_has_an_explicit_unsupported_completeness_outcome() -> None:
-    """Pin the 0.4 physical record and compatibility projection to one decision."""
-
-    assert INSTALLED_PACKAGE_VERSION == "0.4.14"
-    installed = tuple(int(component) for component in INSTALLED_PACKAGE_VERSION.split("."))
-    assert (0, 4, 0) <= installed < (0, 5, 0)
-    package = _families(recognition.capability_manifest())
-    declaration = _families(consumer_capability_declaration())
-    passage_package = package["passages"]
-    passage_consumer = declaration["passages"]
-
-    assert passage_package["introduced_in"] == "0.2.6"
-    assert passage_package["census_output"] == "RecognitionResult.section_passages"
-    assert len(passage_package["records"]) == 6
-    passage_record = next(
-        record for record in passage_package["records"] if record["name"] == "Passage"
-    )
-    assert passage_record["name"] == "Passage"
-    assert passage_record["role"] == "projection"
-    assert passage_record["schema_version"] == 1
-    assert passage_record["aggregate_membership"] == ["RecognitionResult.passages"]
-    section_record = next(
-        record for record in passage_package["records"] if record["name"] == "SectionPassage"
-    )
-    assert section_record["role"] == "output"
-    assert section_record["aggregate_membership"] == ["RecognitionResult.section_passages"]
-    assert passage_consumer["record_schemas"] == {
-        "Passage": [1],
-        "PassageEnds": [2],
-        "PassageFrame": [1],
-        "PassageSection": [2],
-        "PassageSectionVertex": [1],
-        "SectionPassage": [2],
-    }
-    assert passage_consumer["disposition"] == "unsupported"
-    assert passage_consumer["tracking"] == "https://github.com/pzfreo/draftwright/issues/1245"
-    assert {
-        passage_consumer[name]["state"]
-        for name in (
-            "ir_adapter",
-            "dsl_declaration",
-            "generated_code",
-            "drawing_consumer",
-        )
-    } == {"unsupported"}
-    assert passage_consumer["completeness"] == {
-        "state": "unsupported",
-        "rationale": (
-            "Every authoritative SectionPassage occurrence produces a warning and an "
-            "unsupported completeness outcome; no drafting requirement is invented."
-        ),
-    }
-    assert passage_consumer["documentation"] == {
-        "state": "supported",
-        "evidence": ["docs/reference/recogniser-capabilities.md"],
-    }
-    assert "passages" not in pending_family_declarations()
+def test_retained_family_transitions_keep_their_review_evidence() -> None:
     assert consumer_capability_declaration()["transitions"] == [
         {
             "boundary": "completeness",
@@ -589,49 +536,11 @@ def test_rich_passage_contract_has_an_explicit_unsupported_completeness_outcome(
         {
             "boundary": "completeness",
             "compatibility_evidence": [
-                "tests/test_issue_1245_passage_disposition.py",
-                "tests/test_recogniser_capabilities.py",
-            ],
-            "family": "passages",
-            "from": "deferred",
-            "release_notes": "CHANGELOG.md",
-            "to": "unsupported",
-            "version": importlib.metadata.version("draftwright"),
-        },
-        {
-            "boundary": "completeness",
-            "compatibility_evidence": [
                 "tests/test_issue_1373_plate_completeness_evidence.py",
                 "tests/test_recogniser_capabilities.py",
                 "tests/test_step_analysis_evaluation.py",
             ],
             "family": "plates",
-            "from": "deferred",
-            "release_notes": "CHANGELOG.md",
-            "to": "supported",
-            "version": importlib.metadata.version("draftwright"),
-        },
-        {
-            "boundary": "completeness",
-            "compatibility_evidence": [
-                "tests/test_issue_1372_pocket_pattern_completeness_evidence.py",
-                "tests/test_recogniser_capabilities.py",
-                "tests/test_step_analysis_evaluation.py",
-            ],
-            "family": "pocket-patterns",
-            "from": "deferred",
-            "release_notes": "CHANGELOG.md",
-            "to": "supported",
-            "version": importlib.metadata.version("draftwright"),
-        },
-        {
-            "boundary": "completeness",
-            "compatibility_evidence": [
-                "tests/test_issue_1372_pocket_completeness_evidence.py",
-                "tests/test_recogniser_capabilities.py",
-                "tests/test_step_analysis_evaluation.py",
-            ],
-            "family": "pockets",
             "from": "deferred",
             "release_notes": "CHANGELOG.md",
             "to": "supported",
@@ -666,143 +575,11 @@ def test_rich_passage_contract_has_an_explicit_unsupported_completeness_outcome(
         {
             "boundary": "completeness",
             "compatibility_evidence": [
-                "tests/test_issue_1246_prismatic_pocket_disposition.py",
-                "tests/test_recogniser_capabilities.py",
-            ],
-            "family": "prismatic-pockets",
-            "from": "deferred",
-            "release_notes": "CHANGELOG.md",
-            "to": "unsupported",
-            "version": importlib.metadata.version("draftwright"),
-        },
-        {
-            "boundary": "completeness",
-            "compatibility_evidence": [
-                "tests/test_issue_1421_rectangular_blind_slot_completeness.py",
-                "tests/test_recogniser_capabilities.py",
-            ],
-            "family": "rectangular-blind-slots",
-            "from": "deferred",
-            "release_notes": "CHANGELOG.md",
-            "to": "supported",
-            "version": importlib.metadata.version("draftwright"),
-        },
-        {
-            "boundary": "drawing_consumer",
-            "compatibility_evidence": [
-                "tests/test_issue_1421_rectangular_blind_slot_semantics.py",
-                "tests/test_recogniser_capabilities.py",
-            ],
-            "family": "rectangular-blind-slots",
-            "from": "deferred",
-            "release_notes": "CHANGELOG.md",
-            "to": "supported",
-            "version": importlib.metadata.version("draftwright"),
-        },
-        {
-            "boundary": "dsl_declaration",
-            "compatibility_evidence": [
-                "tests/test_issue_1421_rectangular_blind_slot_semantics.py",
-                "tests/test_recogniser_capabilities.py",
-            ],
-            "family": "rectangular-blind-slots",
-            "from": "deferred",
-            "release_notes": "CHANGELOG.md",
-            "to": "supported",
-            "version": importlib.metadata.version("draftwright"),
-        },
-        {
-            "boundary": "generated_code",
-            "compatibility_evidence": [
-                "tests/test_issue_1421_rectangular_blind_slot_semantics.py",
-                "tests/test_recogniser_capabilities.py",
-            ],
-            "family": "rectangular-blind-slots",
-            "from": "deferred",
-            "release_notes": "CHANGELOG.md",
-            "to": "supported",
-            "version": importlib.metadata.version("draftwright"),
-        },
-        {
-            "boundary": "ir_adapter",
-            "compatibility_evidence": [
-                "tests/test_issue_1421_rectangular_blind_slot_semantics.py",
-                "tests/test_recogniser_capabilities.py",
-            ],
-            "family": "rectangular-blind-slots",
-            "from": "deferred",
-            "release_notes": "CHANGELOG.md",
-            "to": "supported",
-            "version": importlib.metadata.version("draftwright"),
-        },
-        {
-            "boundary": "completeness",
-            "compatibility_evidence": [
                 "tests/test_issue_1372_pad_completeness_evidence.py",
                 "tests/test_recogniser_capabilities.py",
                 "tests/test_step_analysis_evaluation.py",
             ],
             "family": "rectangular-pads",
-            "from": "deferred",
-            "release_notes": "CHANGELOG.md",
-            "to": "supported",
-            "version": importlib.metadata.version("draftwright"),
-        },
-        {
-            "boundary": "completeness",
-            "compatibility_evidence": [
-                "tests/test_issue_1421_round_bottom_blind_slot_completeness.py",
-                "tests/test_recogniser_capabilities.py",
-            ],
-            "family": "round-bottom-blind-slots",
-            "from": "deferred",
-            "release_notes": "CHANGELOG.md",
-            "to": "supported",
-            "version": importlib.metadata.version("draftwright"),
-        },
-        {
-            "boundary": "drawing_consumer",
-            "compatibility_evidence": [
-                "tests/test_issue_1421_round_bottom_blind_slot_semantics.py",
-                "tests/test_recogniser_capabilities.py",
-            ],
-            "family": "round-bottom-blind-slots",
-            "from": "deferred",
-            "release_notes": "CHANGELOG.md",
-            "to": "supported",
-            "version": importlib.metadata.version("draftwright"),
-        },
-        {
-            "boundary": "dsl_declaration",
-            "compatibility_evidence": [
-                "tests/test_issue_1421_round_bottom_blind_slot_semantics.py",
-                "tests/test_recogniser_capabilities.py",
-            ],
-            "family": "round-bottom-blind-slots",
-            "from": "deferred",
-            "release_notes": "CHANGELOG.md",
-            "to": "supported",
-            "version": importlib.metadata.version("draftwright"),
-        },
-        {
-            "boundary": "generated_code",
-            "compatibility_evidence": [
-                "tests/test_issue_1421_round_bottom_blind_slot_semantics.py",
-                "tests/test_recogniser_capabilities.py",
-            ],
-            "family": "round-bottom-blind-slots",
-            "from": "deferred",
-            "release_notes": "CHANGELOG.md",
-            "to": "supported",
-            "version": importlib.metadata.version("draftwright"),
-        },
-        {
-            "boundary": "ir_adapter",
-            "compatibility_evidence": [
-                "tests/test_issue_1421_round_bottom_blind_slot_semantics.py",
-                "tests/test_recogniser_capabilities.py",
-            ],
-            "family": "round-bottom-blind-slots",
             "from": "deferred",
             "release_notes": "CHANGELOG.md",
             "to": "supported",
@@ -889,7 +666,7 @@ def test_circular_blind_steps_are_supported_at_every_consumer_boundary() -> None
     package = _families(recognition.capability_manifest())[family_id]
     consumer = _families(consumer_capability_declaration())[family_id]
 
-    assert package["introduced_in"] == "0.4.6"
+    assert package["introduced_in"] == "0.2.0"
     assert package["census_output"] == "RecognitionResult.circular_blind_steps"
     assert [record["name"] for record in package["records"]] == ["CircularBlindStep"]
     assert consumer["record_schemas"] == {"CircularBlindStep": [1]}
@@ -930,7 +707,7 @@ def test_paired_ramp_steps_are_supported_at_every_consumer_boundary() -> None:
 def test_through_steps_are_supported_at_every_consumer_boundary() -> None:
     family = _families(consumer_capability_declaration())["through-steps"]
 
-    assert family["record_schemas"] == {"ThroughStep": [1]}
+    assert family["record_schemas"] == {"ThroughStep": [2]}
     assert family["disposition"] == "supported"
     assert {
         family[boundary]["state"]
@@ -1036,24 +813,36 @@ def test_pad_completeness_is_supported_by_independent_protrusion_facts() -> None
     }
 
 
-def test_pocket_completeness_is_supported_by_independent_blind_recess_facts() -> None:
-    family = _families(consumer_capability_declaration())["pockets"]
-
-    assert family["completeness"] == {
-        "state": "supported",
-        "implementation": "draftwright.evaluation.step_analysis.evaluate_step_corpus",
-        "evidence": ["tests/test_issue_1372_pocket_completeness_evidence.py"],
+def test_section_recess_completeness_names_all_supported_and_unsupported_grammars() -> None:
+    family = _families(consumer_capability_declaration())["section-recesses"]
+    assert family["completeness"]["state"] == "supported"
+    assert family["completeness"]["implementation"] == (
+        "draftwright.linting.requirements.recognized_requirement_outcomes"
+    )
+    assert set(family["completeness"]["evidence"]) == {
+        "tests/test_issue_1245_passage_disposition.py",
+        "tests/test_issue_1246_prismatic_pocket_disposition.py",
+        "tests/test_issue_1372_pocket_completeness_evidence.py",
+        "tests/test_issue_1372_pocket_pattern_completeness_evidence.py",
+        "tests/test_issue_1421_rectangular_blind_slot_completeness.py",
+        "tests/test_issue_1421_round_bottom_blind_slot_completeness.py",
+        "tests/test_issue_1438_channel_ownership.py",
+        "tests/test_issue_1471_section_recess_contract.py",
+        "tests/test_issue_1471_section_recess_pockets.py",
     }
 
 
-def test_pocket_pattern_completeness_is_supported_without_recounting_members() -> None:
-    family = _families(consumer_capability_declaration())["pocket-patterns"]
-
-    assert family["completeness"] == {
-        "state": "supported",
-        "implementation": "draftwright.evaluation.step_analysis.evaluate_step_corpus",
-        "evidence": ["tests/test_issue_1372_pocket_pattern_completeness_evidence.py"],
-    }
+def test_section_recess_drafting_contract_uses_the_shared_adapter_and_engine() -> None:
+    family = _families(consumer_capability_declaration())["section-recesses"]
+    assert (
+        family["ir_adapter"]["implementation"]
+        == "draftwright.model.detect._convert_section_recess"
+    )
+    assert (
+        family["drawing_consumer"]["implementation"]
+        == "draftwright.annotations.orchestrator._auto_annotate"
+    )
+    assert family["generated_code"]["implementation"] == "draftwright.sheet_emit._feature_line"
 
 
 def test_double_d_completeness_uses_the_public_profile_word_and_exact_drawing_ink() -> None:
@@ -1103,7 +892,6 @@ def test_plate_completeness_uses_independent_body_local_slab_facts() -> None:
 
 def test_each_deferred_supported_family_links_its_real_delivery_slice() -> None:
     expected = {
-        "channels": 1371,
         "face-levels": 1373,
         "risers": 1373,
         "slot-patterns": 1371,
@@ -1129,7 +917,7 @@ def test_angled_step_contract_has_an_explicit_unsupported_completeness_outcome()
     package = _families(recognition.capability_manifest())["angled-steps"]
     consumer = _families(consumer_capability_declaration())["angled-steps"]
 
-    assert package["introduced_in"] == "0.2.5"
+    assert package["introduced_in"] == "0.2.0"
     assert package["census_output"] == "RecognitionResult.angled_steps"
     assert len(package["records"]) == 1
     record = package["records"][0]
@@ -1163,44 +951,28 @@ def test_angled_step_contract_has_an_explicit_unsupported_completeness_outcome()
     assert "angled-steps" not in pending_family_declarations()
 
 
-def test_prismatic_pocket_contract_has_an_explicit_unsupported_completeness_outcome() -> None:
-    """Pin aggregate ownership and the arbitrary-polygon boundary to one decision."""
-
-    package = _families(recognition.capability_manifest())["prismatic-pockets"]
-    consumer = _families(consumer_capability_declaration())["prismatic-pockets"]
-
-    assert package["introduced_in"] == "0.2.6"
-    assert package["census_output"] == "RecognitionResult.prismatic_pockets"
-    assert len(package["records"]) == 1
-    record = package["records"][0]
-    assert record["name"] == "PrismaticPocket"
-    assert record["role"] == "output"
-    assert record["schema_version"] == 1
-    assert record["aggregate_membership"] == ["RecognitionResult.prismatic_pockets"]
-    assert consumer["record_schemas"] == {"PrismaticPocket": [1]}
-    assert consumer["disposition"] == "unsupported"
-    assert consumer["tracking"] == "https://github.com/pzfreo/draftwright/issues/1246"
+def test_section_recess_patterns_and_refusals_keep_their_aggregate_membership() -> None:
+    family = _families(recognition.capability_manifest())["section-recesses"]
+    records = {record["name"]: record for record in family["records"]}
     assert {
-        consumer[name]["state"]
-        for name in (
-            "ir_adapter",
-            "dsl_declaration",
-            "generated_code",
-            "drawing_consumer",
-        )
-    } == {"unsupported"}
-    assert consumer["completeness"] == {
-        "state": "unsupported",
-        "rationale": (
-            "Every aggregate-reconciled PrismaticPocket occurrence produces a warning and an "
-            "unsupported completeness outcome; no polygonal drafting grammar is invented."
-        ),
+        name: record["aggregate_membership"]
+        for name, record in records.items()
+        if record["aggregate_membership"]
+    } == {
+        "SectionRecess": ["RecognitionResult.section_recesses"],
+        "SectionRecessArray": ["RecognitionResult.section_recess_patterns"],
+        "SectionRecessGrid": ["RecognitionResult.section_recess_patterns"],
+        "SectionRecessRefusal": ["RecognitionResult.section_recess_refusals"],
     }
-    assert consumer["documentation"] == {
-        "state": "supported",
-        "evidence": ["docs/reference/recogniser-capabilities.md"],
-    }
-    assert "prismatic-pockets" not in pending_family_declarations()
+    assert records["SectionRecess"]["role"] == "output"
+    assert records["SectionRecessDocument"]["role"] == "aggregate"
+    assert records["SectionRecessRefusal"]["role"] == "projection"
+    for name in ("SectionRecessArray", "SectionRecessGrid"):
+        assert records[name]["fields"]["members"] == {
+            "required": True,
+            "type": "list[int]",
+            "units": "none",
+        }
 
 
 def test_runtime_adapter_inventory_is_derived_independently_and_exhaustive() -> None:
@@ -1272,7 +1044,6 @@ def test_dsl_and_generated_code_inventories_are_derived_from_live_code() -> None
         "blends": "blend",
         "bosses": "boss",
         "chamfers": "chamfer",
-        "channels": "channel",
         "circular-blind-steps": "circular_blind_step",
         "countersinks": "hole",
         "double-d-bores": "hole",
@@ -1283,23 +1054,27 @@ def test_dsl_and_generated_code_inventories_are_derived_from_live_code() -> None
         "hole-patterns": "pattern",
         "holes": "hole",
         "plates": "plate",
-        "pocket-patterns": "pocket_pattern",
-        "pockets": "pocket",
         "paired-ramp-steps": "paired_ramp_step",
         "polygonal-bosses": "polygonal_boss",
         "polygonal-stock": "polygonal_stock",
         "rectangular-pads": "pad",
-        "rectangular-blind-slots": "rectangular_blind_slot",
-        "round-bottom-blind-slots": "round_bottom_blind_slot",
         "risers": "step_level",
         "slot-patterns": "slot_pattern",
         "slots": "slot",
+        "section-recesses": "pocket",
         "oriented-slots": "oriented_slot",
         "through-steps": "through_step",
         "turned-steps": "step",
     }
     assert {family["id"] for family in supported} == set(family_kinds)
-    assert set(family_kinds.values()) <= _emitter_literal_kinds()
+    required_kinds = set(family_kinds.values()) | {
+        "channel",
+        "pocket",
+        "pocket_pattern",
+        "rectangular_blind_slot",
+        "round_bottom_blind_slot",
+    }
+    assert required_kinds <= _emitter_literal_kinds()
 
 
 def test_boss_is_fully_consumed_and_generated_sheet_round_trips() -> None:
@@ -1368,7 +1143,7 @@ def _supported(value: dict) -> dict:
         (lambda value: value["consumer"].update({"version": "0.4.6"}), "identity/version"),
         (
             lambda value: value["package_compatibility"].update({"version": "==0.1.0"}),
-            "installed b123d-recognisers metadata",
+            "installed quiddity metadata",
         ),
         (
             # The stale direction, and the one that really breaks: an id the package does not
@@ -1479,70 +1254,42 @@ def test_schema_format_fails_closed() -> None:
 
 
 def test_only_reviewed_records_accept_non_v1_schemas() -> None:
-    """The pinned package uses later schemas only for reviewed consumed records."""
     declaration = consumer_capability_declaration()
-    families = _families(declaration)
-    assert families["chamfers"]["record_schemas"] == {"Chamfer": [2]}
-    assert families["fillets"]["record_schemas"] == {"Fillet": [2]}
-    assert families["rectangular-pads"]["record_schemas"] == {"RaisedPad": [2]}
-    assert families["risers"]["record_schemas"] == {
-        "RiserEvidence": [2],
-        "StepShoulder": [1],
+    assert {
+        (family["id"], name): versions
+        for family in declaration["families"]
+        for name, versions in family["record_schemas"].items()
+        if versions != [1]
+    } == {
+        ("blends", "Blend"): [3],
+        ("chamfers", "Chamfer"): [2],
+        ("face-levels", "FaceLevel"): [2],
+        ("fillets", "Fillet"): [2],
+        ("grooves", "Groove"): [2],
+        ("plates", "Plate"): [2],
+        ("rectangular-pads", "RaisedPad"): [2],
+        ("risers", "RiserEvidence"): [3],
+        ("section-recesses", "PassageSection"): [2],
+        ("through-steps", "ThroughStep"): [2],
+        ("turned-steps", "TurnedProfile"): [2],
+        ("turned-steps", "TurnedProfileKey"): [2],
+        ("turned-steps", "TurnedStep"): [2],
     }
-    assert families["turned-steps"]["record_schemas"] == {
-        "TurnedProfile": [2],
-        "TurnedProfileKey": [1],
-        "TurnedStep": [2],
-    }
-    assert families["blends"]["record_schemas"] == {
-        "Blend": [3],
-        "CircularBlendPath": [1],
-        "StraightBlendPath": [1],
-    }
-    assert families["passages"]["record_schemas"] == {
-        "Passage": [1],
-        "PassageEnds": [2],
-        "PassageFrame": [1],
-        "PassageSection": [2],
-        "PassageSectionVertex": [1],
-        "SectionPassage": [2],
-    }
-    assert all(
-        versions == [1]
-        for family_id, family in families.items()
-        if family_id
-        not in {
-            "chamfers",
-            "blends",
-            "fillets",
-            "passages",
-            "rectangular-pads",
-            "risers",
-            "turned-steps",
-        }
-        for versions in family["record_schemas"].values()
-    )
-
     package = recognition.capability_manifest()
-    package_families = _families(package)
-    package_families["chamfers"]["records"][0]["schema_version"] = 2
-    package_families["fillets"]["records"][0]["schema_version"] = 2
-    package_families["rectangular-pads"]["records"][0]["schema_version"] = 2
     _validate(declaration, package=package)
-
-    package_families["chamfers"]["records"][0]["schema_version"] = 3
+    _families(package)["chamfers"]["records"][0]["schema_version"] = 3
     with pytest.raises(RecogniserCapabilityError, match="record schema mismatch"):
         _validate(declaration, package=package)
 
 
-def test_049_body_local_record_schemas_are_exact_and_fail_closed() -> None:
+def test_quiddity_body_local_record_schemas_are_exact_and_fail_closed() -> None:
     package = recognition.capability_manifest()
     families = _families(package)
 
     riser = next(
         record for record in families["risers"]["records"] if record["name"] == "RiserEvidence"
     )
-    assert riser["schema_version"] == 2
+    assert riser["schema_version"] == 3
     assert riser["fields"]["body_levels"] == {
         "required": False,
         "type": "list[record:FaceLevel]|null",
@@ -1553,11 +1300,12 @@ def test_049_body_local_record_schemas_are_exact_and_fail_closed() -> None:
     assert set(turned) == {"TurnedProfile", "TurnedProfileKey", "TurnedStep"}
     assert turned["TurnedProfile"]["schema_version"] == 2
     assert turned["TurnedStep"]["schema_version"] == 2
-    assert turned["TurnedProfileKey"]["schema_version"] == 1
+    assert turned["TurnedProfileKey"]["schema_version"] == 2
     assert turned["TurnedProfileKey"]["fields"] == {
         "axis": {"required": True, "type": "str", "units": "none"},
         "axis_origin": {"required": True, "type": "tuple[float,3]", "units": "mm"},
         "body_bounds": {"required": True, "type": "tuple[float,6]", "units": "mm"},
+        "body_key": {"required": False, "type": "list[float]|null", "units": "none"},
     }
 
     for family_id, record_name in (
@@ -1580,7 +1328,7 @@ def test_049_body_local_record_schemas_are_exact_and_fail_closed() -> None:
 def test_package_identity_must_match_the_installed_distribution() -> None:
     package = recognition.capability_manifest()
     package["package"]["version"] = "99.99.99"
-    with pytest.raises(RecogniserCapabilityError, match="installed b123d-recognisers metadata"):
+    with pytest.raises(RecogniserCapabilityError, match="installed quiddity metadata"):
         _validate(package=package)
 
     package = recognition.capability_manifest()
@@ -1639,7 +1387,7 @@ def test_state_transition_requires_version_release_notes_and_compatibility_evide
         {
             "boundary": "completeness",
             "compatibility_evidence": ["tests/test_recogniser_capabilities.py"],
-            "family": "channels",
+            "family": "slots",
             "from": "supported",
             "release_notes": "CHANGELOG.md",
             "to": "deferred",
@@ -1686,7 +1434,7 @@ def test_state_transition_requires_version_release_notes_and_compatibility_evide
             # A family whose `completeness` is genuinely deferred — "bosses" declares it
             # supported, and index 1 stopped being a deferred one when 0.2.6's three new
             # families changed the sort order (#1244).
-            lambda declaration, _package: _families(declaration)["channels"]["completeness"].pop(
+            lambda declaration, _package: _families(declaration)["slots"]["completeness"].pop(
                 "tracking"
             ),
             "deferred state needs rationale and tracking",
@@ -1709,7 +1457,7 @@ def test_state_transition_requires_version_release_notes_and_compatibility_evide
         ),
         (
             lambda _declaration, package: package["package"].update({"version": "99.99.99"}),
-            "does not satisfy installed b123d-recognisers metadata",
+            "does not satisfy installed quiddity metadata",
         ),
         (
             lambda _declaration, package: package.update({"families": {}}),
@@ -1781,7 +1529,7 @@ def _transition() -> dict[str, object]:
     return {
         "boundary": "completeness",
         "compatibility_evidence": ["tests/test_recogniser_capabilities.py"],
-        "family": "channels",
+        "family": "slots",
         "from": "supported",
         "release_notes": "CHANGELOG.md",
         "to": "deferred",

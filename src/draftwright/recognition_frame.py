@@ -15,7 +15,8 @@ from math import isfinite
 from numbers import Real
 from typing import Any
 
-from b123d_recognisers import (
+from build123d import Shape
+from quiddity import (
     FramedRecognitionResult,
     FrameGauge,
     FrameRefusalReason,
@@ -24,9 +25,9 @@ from b123d_recognisers import (
     RecognitionResult,
     RefusedPartFrame,
     TurnedProfile,
+    TurnedProfileKey,
     prepare_framed_part,
 )
-from build123d import Shape
 
 from draftwright._geometry import _classify_rotational_cylinders
 
@@ -158,21 +159,56 @@ def profiles_owning_axial_band(
     return tuple(owners)
 
 
-def require_unambiguous_groove_owner(groove: Any, profiles: Iterable[Any]) -> tuple[Any, ...]:
-    """Return the zero/one groove owner or refuse the missing provider contract."""
+def _validate_groove_profile_key(key: object) -> TurnedProfileKey:
+    """Validate a published membership key before using its equality as authority."""
+    if type(key) is not TurnedProfileKey:
+        raise TypeError("groove profile must be an exact public TurnedProfileKey")
+    if type(key.axis) is not str or key.axis not in {"x", "y", "z"}:
+        raise ValueError("groove profile axis must be principal")
+    for field, size in (("axis_origin", 3), ("body_bounds", 6)):
+        values = getattr(key, field)
+        if type(values) is not tuple or len(values) != size:
+            raise TypeError(f"groove profile {field} must be an immutable {size}-number tuple")
+        for value in values:
+            _strict_real(value, field=f"profile {field}")
+    if key.axis_origin["xyz".index(key.axis)] != 0:
+        raise ValueError("groove profile axis origin must be canonical")
+    if any(key.body_bounds[i] >= key.body_bounds[i + 1] for i in (0, 2, 4)):
+        raise ValueError("groove profile bounds must have positive spans")
+    if key.body_key is not None:
+        if type(key.body_key) is not tuple or len(key.body_key) not in (0, 8):
+            raise TypeError("groove profile body key must be the published immutable tuple")
+        for value in key.body_key:
+            _strict_real(value, field="profile body key")
+    return key
 
+
+def require_unambiguous_groove_owner(groove: Any, profiles: Iterable[Any]) -> tuple[Any, ...]:
+    """Join published or authored profile membership, retaining the geometric cross-check."""
     axis, centre, width, _diameter = validated_groove_geometry(groove)
-    owners = profiles_owning_axial_band(
-        profiles,
-        axis=axis,
-        centre=centre,
-        width=width,
-    )
+    selected = tuple(profiles)
+    group = getattr(groove, "profile_group", None)
+    key = getattr(groove, "profile", None)
+    if group is not None:
+        if type(group) is not str or not group.strip():
+            raise ValueError("groove profile_group must be a non-empty string")
+        selected = tuple(
+            owner for owner in selected if getattr(owner, "profile_group", None) == group
+        )
+    elif key is not None:
+        key = _validate_groove_profile_key(key)
+        selected = tuple(owner for owner in selected if getattr(owner, "profile", None) == key)
+    # An authored set may omit every step belonging to this groove's profile. The
+    # groove can still state its own width/diameter; it owns no axial band here.
+    owners = profiles_owning_axial_band(selected, axis=axis, centre=centre, width=width)
+    if (group is not None or key is not None) and selected and not owners:
+        raise AmbiguousTurnedOwnershipError(
+            "groove profile membership does not match an available physical profile and axial band"
+        )
     if len(owners) > 1:
         raise AmbiguousTurnedOwnershipError(
-            "a groove matches multiple body-local turned profiles, but "
-            "current b123d-recognisers Groove records carry no profile identity; "
-            "refusing to guess (https://github.com/pzfreo/b123d-recognisers/issues/354)"
+            "a groove matches multiple body-local turned profiles; "
+            "supply unambiguous profile membership rather than guessing"
         )
     return owners
 

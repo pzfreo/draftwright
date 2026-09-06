@@ -73,7 +73,7 @@ def test_real_pocket_corpus_scores_all_layers_and_topology_variants() -> None:
 
 
 def test_overlapping_recess_families_retain_one_physical_owner() -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     fixtures = CORPUS.parent
     through = build_raw_recognition_result(import_step(fixtures / "pocket-through-negative.step"))
@@ -81,10 +81,12 @@ def test_overlapping_recess_families_retain_one_physical_owner() -> None:
         import_step(fixtures / "pocket-prismatic-negative.step")
     )
 
-    assert through.pockets == ()
+    assert through.section_recesses == ()
     assert len(through.slots) == 1
-    assert polygonal.pockets == ()
-    assert len(polygonal.prismatic_pockets) == 1
+    assert len(polygonal.section_recesses) == 1
+    (recess,) = polygonal.section_recesses
+    assert recess.classification.feature_kind == "pocket"
+    assert recess.classification.section_shape == "hexagonal"
 
 
 def test_opposite_openings_survive_ir_declaration_and_generated_code() -> None:
@@ -137,7 +139,7 @@ def test_edge_anchored_pocket_reports_location_as_intentionally_inapplicable() -
 
 
 def test_pattern_members_are_not_counted_again_as_lone_pockets() -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     from draftwright.builder import build_drawing
     from draftwright.linting.pocket_coverage import pocket_requirement_outcomes
@@ -148,8 +150,8 @@ def test_pattern_members_are_not_counted_again_as_lone_pockets() -> None:
     drawing = build_drawing(part)
     recognition = build_raw_recognition_result(part)
 
-    assert len(recognition.pockets) == 4
-    assert len(recognition.pocket_patterns) == 1
+    assert len(recognition.section_recesses) == 4
+    assert len(recognition.section_recess_patterns) == 1
     assert (
         pocket_requirement_outcomes(
             drawing.recognition(), drawing.model().features, drawing.registry
@@ -308,7 +310,7 @@ def test_exact_pocket_ink_contract_accepts_compiler_approved_tolerances() -> Non
     recognition = drawing.recognition()
     assert recognition is not None
 
-    assert _pocket_drawing_outcomes(recognition.pockets, drawing) == ["supported"]
+    assert _pocket_drawing_outcomes(recognition.section_recesses, drawing) == ["supported"]
     labels = {
         drawing.registry.named(name).label
         for name in drawing.annotations()
@@ -402,14 +404,17 @@ def test_deleting_provider_pockets_cannot_shrink_independent_denominator(monkeyp
     import draftwright.analysis as analysis
 
     original = analysis._result_from_evidence
+    removed = []
 
     def without_pockets(*args, **kwargs):
         result = original(*args, **kwargs)
-        return replace(result, pockets=(), pocket_patterns=())
+        removed.extend(result.section_recesses)
+        return replace(result, section_recesses=(), section_recess_patterns=())
 
     monkeypatch.setattr(analysis, "_result_from_evidence", without_pockets)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))
 
+    assert len(removed) == 14
     assert damaged.detection.matched == 0
     assert damaged.detection.missed == 13
     assert damaged.detection.recall == 0.0
@@ -423,8 +428,48 @@ def test_weakening_provider_widths_reduces_parameter_fidelity(monkeypatch) -> No
 
     def weakened_pockets(*args, **kwargs):
         result = original(*args, **kwargs)
-        pockets = tuple(replace(pocket, width=pocket.width + 1.0) for pocket in result.pockets)
-        return replace(result, pockets=pockets)
+        from draftwright.section_recess_contract import recesses_with_kind, section_recess_fields
+
+        supported = {
+            id(recess) for recess in recesses_with_kind(result.section_recesses, "pocket")
+        }
+        changed = []
+        for recess in result.section_recesses:
+            if id(recess) not in supported:
+                changed.append(recess)
+                continue
+            _, geometry = section_recess_fields(recess)
+            axis = "xyz".index(geometry["width_axis"])
+            frame = recess.geometry.frame
+            component = 0 if abs(frame.u[axis]) == 1 else 1
+            profile = recess.geometry.profile
+            coordinates = [vertex.point[component] for vertex in profile.boundary]
+            low, high = min(coordinates), max(coordinates)
+            assert high - low == pytest.approx(geometry["width"])
+            # Narrow the published profile around its unchanged center; narrowing also
+            # preserves the width/length convention for the authored square corner pocket.
+            center = (low + high) / 2
+            factor = (high - low - 1) / (high - low)
+
+            def narrowed(point):
+                return tuple(
+                    center + (value - center) * factor if i == component else value
+                    for i, value in enumerate(point)
+                )
+
+            values = {
+                "boundary": tuple(
+                    replace(vertex, point=narrowed(vertex.point)) for vertex in profile.boundary
+                )
+            }
+            if profile.closure == "open":
+                values["opening"] = tuple(narrowed(point) for point in profile.opening)
+            changed.append(
+                replace(
+                    recess, geometry=replace(recess.geometry, profile=replace(profile, **values))
+                )
+            )
+        return replace(result, section_recesses=tuple(changed))
 
     monkeypatch.setattr(analysis, "_result_from_evidence", weakened_pockets)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))

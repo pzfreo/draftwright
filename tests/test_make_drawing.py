@@ -10,14 +10,14 @@ from pathlib import Path
 
 import pytest
 from _kernel import B123D_GE_011, SKIP_011
-from b123d_recognisers import (
-    Slot,
-    recognise_face_levels,
-    recognise_pockets,
-    recognise_slots,
-)
 from build123d import Align, Axis, Box, Compound, Cylinder, Edge, Pos, Rot, Rotation, export_step
 from build123d_drafting import HoleCallout, Leader, ViewCoordinates, view_axes
+from quiddity import (
+    Slot,
+    build_raw_recognition_result,
+    recognise_face_levels,
+    recognise_slots,
+)
 
 from draftwright import Drawing, build_drawing, make_drawing
 from draftwright._core import _MARGIN, _MIN_VIEW_MM, _fmt
@@ -113,6 +113,13 @@ def holed_plate_dwg():
 @pytest.fixture(scope="module")
 def x_shaft_dwg():
     return build_drawing(_x_stepped_shaft())
+
+
+def _recognised_pocket_fields(part):
+    from draftwright.section_recess_contract import recesses_with_kind, section_recess_fields
+
+    inventory = build_raw_recognition_result(part).section_recesses
+    return [section_recess_fields(source)[1] for source in recesses_with_kind(inventory, "pocket")]
 
 
 class TestFmt:
@@ -565,8 +572,8 @@ class TestChamferCallout:
     def test_leader_anchors_on_the_bevel_interior_not_an_endpoint(self):
         # #621: the leader anchor must sit ON the chamfer bevel, near the middle of its run — not
         # at the supporting plane's parametric origin, which projects to an endpoint/corner.
-        from b123d_recognisers import recognise_chamfers
         from build123d import Axis, GeomType, Vertex, chamfer
+        from quiddity import recognise_chamfers
 
         part = chamfer(Box(60, 40, 30).edges().filter_by(Axis.Z).sort_by(Axis.X)[-1], 6)
         (ch,) = recognise_chamfers(part)
@@ -591,7 +598,7 @@ class TestChamferCallout:
         # origin was the corner (400, 175); the fix anchors on the bevel centroid (375, 200), the
         # diagonal midpoint. render_chamfers projects the in-plane X, Y, so this is what the
         # rendered leader tip actually uses.
-        from b123d_recognisers import recognise_chamfers
+        from quiddity import recognise_chamfers
 
         from draftwright.analysis import _import_step
 
@@ -721,7 +728,7 @@ class TestFlatCallout:
         return bar
 
     def test_hex_reads_across_flats(self):
-        from b123d_recognisers import recognise_flats
+        from quiddity import recognise_flats
 
         flats = recognise_flats(self._hex_on_stock(9.3, 10))
         assert len(flats) == 6
@@ -730,8 +737,8 @@ class TestFlatCallout:
 
     def test_odd_polygon_falls_back_to_D_height(self):
         # Three flats 120° apart have no opposing face → each reads flat-to-opposite-OD (R+d).
-        from b123d_recognisers import recognise_flats
         from build123d import Rot
+        from quiddity import recognise_flats
 
         bar = Cylinder(10, 30)
         for k in range(3):
@@ -740,8 +747,8 @@ class TestFlatCallout:
         assert len(flats) == 3 and {round(f.across, 1) for f in flats} == {19.3}
 
     def test_flat_on_x_axis_stock(self):
-        from b123d_recognisers import recognise_flats
         from build123d import Rot
+        from quiddity import recognise_flats
 
         xbar = Rot(0, 90, 0) * Cylinder(8, 30) - Pos(0, 0, 8) * Box(40, 40, 6)
         flats = recognise_flats(xbar)
@@ -750,7 +757,7 @@ class TestFlatCallout:
 
     def test_shallow_tangent_sliver_is_not_a_flat(self):
         # A cut that barely grazes the OD (depth R − d below the min) is not a machined flat.
-        from b123d_recognisers import recognise_flats
+        from quiddity import recognise_flats
 
         grazed = Cylinder(10, 30) - Pos(10, 0, 0) * Box(0.4, 40, 40)  # depth ≈ 0.2 mm
         assert recognise_flats(grazed) == []
@@ -768,7 +775,7 @@ class TestFlatCallout:
         # A slot/recess offset to one side of the axis has a near wall whose outward normal
         # points *away* from the axis — the sign test alone would pass it. But that wall reaches
         # the OD on one end only (the other abuts the slot floor), so it is not a flat.
-        from b123d_recognisers import recognise_flats
+        from quiddity import recognise_flats
 
         recessed = Cylinder(30, 40) - Pos(20, 25, 0) * Box(10, 30, 50)
         assert recognise_flats(recessed) == []
@@ -777,7 +784,7 @@ class TestFlatCallout:
         # Two distinct z-shafts, each with one flat facing opposite ways. They share the axis
         # *letter* but not the axis *line*, so neither is the other's opposite: each reads the
         # D height (R + d = 15), not a spurious flat-to-flat (2d = 10).
-        from b123d_recognisers import recognise_flats
+        from quiddity import recognise_flats
 
         left = Cylinder(10, 30) - Pos(10, 0, 0) * Box(10, 40, 40)
         right = Pos(50, 0, 0) * (Cylinder(10, 30) - Pos(-10, 0, 0) * Box(10, 40, 40))
@@ -796,7 +803,7 @@ class TestGrooveCallout:
         return Cylinder(r, length) - (Cylinder(r, width) - Cylinder(floor_r, width))
 
     def test_single_groove_reads_width_and_diameter(self):
-        from b123d_recognisers import recognise_grooves
+        from quiddity import recognise_grooves
 
         grooves = recognise_grooves(self._grooved(8, 4, 10))
         assert len(grooves) == 1
@@ -804,7 +811,7 @@ class TestGrooveCallout:
         assert grooves[0].diameter == pytest.approx(16, abs=0.05)
 
     def test_two_grooves_on_one_shaft(self):
-        from b123d_recognisers import recognise_grooves
+        from quiddity import recognise_grooves
 
         shaft = Cylinder(10, 60)
         shaft -= Pos(0, 0, 15) * (Cylinder(10, 4) - Cylinder(8, 4))
@@ -815,19 +822,19 @@ class TestGrooveCallout:
 
     def test_monotonic_step_is_not_a_groove(self):
         # A plain stepped shaft (OD changes once, not a local minimum) has no groove.
-        from b123d_recognisers import recognise_grooves
+        from quiddity import recognise_grooves
 
         stepped = Cylinder(10, 20) + Pos(0, 0, 15) * Cylinder(6, 10)
         assert recognise_grooves(stepped) == []
 
     def test_plain_cylinder_has_no_groove(self):
-        from b123d_recognisers import recognise_grooves
+        from quiddity import recognise_grooves
 
         assert recognise_grooves(Cylinder(10, 40)) == []
 
     def test_slot_on_round_stock_is_not_a_groove(self):
         # A milled slot's walls are rectangular / radial — not the annular walls of a groove.
-        from b123d_recognisers import recognise_grooves
+        from quiddity import recognise_grooves
 
         assert recognise_grooves(Cylinder(10, 30) - Box(6, 40, 40)) == []
 
@@ -835,8 +842,8 @@ class TestGrooveCallout:
         # An alternating fine-step head (⌀ dips to a local minimum but the band is as wide as
         # its neighbours) is a stepped profile, not a channel — a groove must be NARROWER than
         # both bounding walls (#148c review: else a staircase dip is misread as a groove).
-        from b123d_recognisers import recognise_grooves
         from build123d import Align, Rotation
+        from quiddity import recognise_grooves
 
         b = Align.MIN
         shaft = None
@@ -850,7 +857,7 @@ class TestGrooveCallout:
     def test_grooves_on_two_parallel_shafts_are_not_confused(self):
         # Two distinct z-shafts, each with one groove. Grouped by axis *line* (not letter),
         # so their bands are never interleaved into a phantom third groove.
-        from b123d_recognisers import recognise_grooves
+        from quiddity import recognise_grooves
 
         a = Cylinder(10, 40) - (Cylinder(10, 4) - Cylinder(8, 4))
         b = Pos(40, 0, 0) * (Cylinder(10, 40) - (Cylinder(10, 4) - Cylinder(6, 4)))
@@ -911,8 +918,8 @@ class TestGrooveCallout:
         # Three coaxial butted but SEPARATE bodies (a disc between two collars) form no single
         # channel — solid_idx in the shaft key keeps them distinct, so no phantom groove
         # (#148c review; mirrors #68).
-        from b123d_recognisers import recognise_grooves
         from build123d import Compound
+        from quiddity import recognise_grooves
 
         stack = Compound(
             [Cylinder(20, 4), Pos(0, 0, 4) * Cylinder(5, 4), Pos(0, 0, 8) * Cylinder(20, 4)]
@@ -924,7 +931,7 @@ class TestGrooveCallout:
         # its step at the WALL ø (local_od's pad engulfs both walls), so the step-exclusion must
         # key on axial position, not floor ø — else the floor ø double-dimensions via a spurious
         # step / boss (#148c 2nd-pass review, the primary use case).
-        from b123d_recognisers import recognise_grooves
+        from quiddity import recognise_grooves
 
         narrow = Cylinder(10, 40) - Pos(0, 0, 10) * (Cylinder(10, 1.3) - Cylinder(9, 1.3))
         assert len(recognise_grooves(narrow)) == 1
@@ -941,8 +948,8 @@ class TestGrooveCallout:
         # A groove near the shaft end leaves a thin retaining LAND on the end side. That wall is
         # narrow because of end-proximity, not a staircase — the recogniser tests the WIDER wall,
         # so the real groove is still recognised (#148c 2nd-pass review).
-        from b123d_recognisers import recognise_grooves
         from build123d import Align
+        from quiddity import recognise_grooves
 
         b = Align.MIN
         part = Cylinder(10, 30, align=(Align.CENTER, Align.CENTER, b))
@@ -984,7 +991,7 @@ class TestCountersinkCallout:
         return plate
 
     def test_countersink_recognised(self):
-        from b123d_recognisers import recognise_countersinks
+        from quiddity import recognise_countersinks
 
         cs = recognise_countersinks(self._csk_plate())
         assert len(cs) == 3
@@ -1022,7 +1029,7 @@ class TestCountersinkCallout:
         plate = Box(90, 60, 12)
         plate -= Pos(0, 0, 0) * Cylinder(3, 12)
         plate -= Pos(0, 0, 3) * Cylinder(9, 6)
-        from b123d_recognisers import recognise_countersinks
+        from quiddity import recognise_countersinks
 
         assert recognise_countersinks(plate) == []
         holes = [f for f in build_drawing(plate, number="X").model().features if f.kind == "hole"]
@@ -1032,8 +1039,8 @@ class TestCountersinkCallout:
         # #558 review (BLOCKER): a 0.5 mm edge-break / deburr at a hole mouth is the same
         # cone shape as a shallow csk — the flare-ratio floor must exclude it, else every
         # chamfered hole mouth gets a spurious csk callout.
-        from b123d_recognisers import recognise_countersinks, recognise_holes
         from build123d import Axis, chamfer
+        from quiddity import recognise_countersinks, recognise_holes
 
         plate = Box(30, 30, 10) - Pos(0, 0, 0) * Cylinder(3, 20)
         edge = plate.edges().filter_by(Axis.Z).group_by(lambda e: e.center().Z)[-1]
@@ -1044,8 +1051,8 @@ class TestCountersinkCallout:
     def test_opposite_face_coaxial_hole_is_not_mis_associated(self):
         # #558 review (BLOCKER): a countersink must attach only to the bore at its mouth,
         # facing the same way — NOT to a coaxial hole drilled from the opposite face.
-        from b123d_recognisers import recognise_countersinks, recognise_holes
         from build123d import Cone
+        from quiddity import recognise_countersinks, recognise_holes
 
         p = Box(40, 40, 30)
         p -= Pos(0, 0, 9) * Cylinder(3, 12)  # top hole, opening at z=15
@@ -1062,8 +1069,8 @@ class TestCountersinkCallout:
         # #558 review round 2 (BLOCKER): a through hole is open at both faces, so
         # recognise_holes may call either end the "opening". The countersink must attach
         # regardless of which — a Z-flip must not drop it to plain THRU.
-        from b123d_recognisers import recognise_countersinks, recognise_holes
         from build123d import Rotation
+        from quiddity import recognise_countersinks, recognise_holes
 
         flipped = Rotation(180, 0, 0) * self._csk_plate()
         holes = [
@@ -8138,6 +8145,10 @@ class TestFindSlots:
         part = Cylinder(10, 40) - (Cylinder(10, 4) - Cylinder(7, 4))
         assert recognise_slots(part) == []
 
+    @pytest.mark.xfail(
+        strict=True,
+        reason="Quiddity 0.2.2 known limitation: https://github.com/pzfreo/quiddity/issues/541",
+    )
     def test_arc_walled_slot_in_round_stock_recognised(self):
         # #148e: a slot milled into a curved surface has walls the OD clips into an
         # arc + a straight floor/chord. The relaxed wall test (LINE/CIRCLE with at
@@ -8145,10 +8156,10 @@ class TestFindSlots:
         # test — which requires every edge to be a straight LINE — missed it.
         bar = Rotation(0, 90, 0) * Cylinder(20, 80)  # X-axis round bar
         part = bar - Pos(0, 0, 14) * Box(6, 24, 12)  # enclosed slot milled into the top
-        (p,) = recognise_pockets(part)
-        assert p.width == 6.0
-        assert p.width_axis == "x"  # width runs ALONG the bar axis → arc-clipped walls
-        assert p.length == 24.0
+        (p,) = _recognised_pocket_fields(part)
+        assert p["width"] == 6.0
+        assert p["width_axis"] == "x"  # width runs ALONG the bar axis → arc-clipped walls
+        assert p["length"] == 24.0
 
     def test_arc_wall_relaxation_still_excludes_grooves(self):
         # The relaxation must NOT admit a turned groove's pure-annular wall (CIRCLE
@@ -8156,7 +8167,7 @@ class TestFindSlots:
         # distinction the relaxed test preserves.
         part = Cylinder(10, 40) - (Cylinder(10, 4) - Cylinder(8, 4))
         assert recognise_slots(part) == []
-        assert recognise_pockets(part) == []
+        assert _recognised_pocket_fields(part) == []
 
     def test_transverse_notch_spanning_bar_is_not_a_slot(self):
         # A notch cut fully ACROSS a round bar exits both sides of the OD — an open
@@ -8164,7 +8175,7 @@ class TestFindSlots:
         bar = Rotation(0, 90, 0) * Cylinder(15, 60)
         part = bar - Pos(0, 0, 9) * Box(6, 40, 20)
         assert recognise_slots(part) == []
-        assert recognise_pockets(part) == []
+        assert _recognised_pocket_fields(part) == []
 
     def test_keyed_groove_does_not_leak_as_a_slot(self):
         # A circlip groove crossed by a wrench flat / keyway notches a straight edge into
@@ -8178,7 +8189,7 @@ class TestFindSlots:
             - Pos(9, 0, 34) * Box(6, 30, 60)
         )
         assert recognise_slots(part) == []
-        assert recognise_pockets(part) == []
+        assert _recognised_pocket_fields(part) == []
 
     def test_obround_slot_reports_overall_length(self):
         # A radiused-end (obround) slot's flat side walls stop at the straight portion; its
@@ -8197,8 +8208,8 @@ class TestFindSlots:
         from build123d import Plane, SlotOverall, extrude
 
         part = Box(60, 30, 20) - Pos(0, 0, 5) * extrude(Plane.XY * SlotOverall(30, 8), 12)
-        (p,) = recognise_pockets(part)
-        assert p.length == 30.0
+        (p,) = _recognised_pocket_fields(part)
+        assert p["length"] == 30.0
 
     def test_rectangular_slot_length_is_unchanged(self):
         # A rectangular slot has no semicircular end caps, so the overall extension is inert —
@@ -8291,17 +8302,15 @@ class TestFindSlots:
     def test_stubby_blind_obround_pocket_is_recognised_not_a_slot(self):
         # #837: the blind counterpart of the stubby through-slot — a floored obround pocket whose
         # straight walls are too short to pair. It must be a Pocket (with depth), not a through Slot.
-        from b123d_recognisers import recognise_pockets
         from build123d import Plane, SlotOverall, extrude
 
         part = Box(60, 30, 21) - Pos(0, 0, -8.5) * extrude(Plane.XY * SlotOverall(13.5, 8), 19)
         assert recognise_slots(part) == []
-        (p,) = recognise_pockets(part)
-        assert p.width == 8.0 and p.length == 13.5 and p.depth == 19.0
+        (p,) = _recognised_pocket_fields(part)
+        assert p["width"] == 8.0 and p["length"] == 13.5 and p["depth"] == 19.0
 
     def test_row_of_stubby_blind_obround_pockets_stays_separate(self):
         # #837: five blind obround pockets down one centreline stay five distinct pockets.
-        from b123d_recognisers import recognise_pockets
         from build123d import Plane, SlotOverall, extrude
 
         part = Box(26, 161, 21)
@@ -8309,36 +8318,42 @@ class TestFindSlots:
             part = part - Pos(0, cy, -8.5) * extrude(
                 Plane.XY * SlotOverall(13.5, 8, rotation=90), 19
             )
-        pockets = recognise_pockets(part)
+        pockets = _recognised_pocket_fields(part)
         assert len(pockets) == 5
-        assert all(p.width == 8.0 and p.length == 13.5 and p.depth == 19.0 for p in pockets)
+        assert all(
+            p["width"] == 8.0 and p["length"] == 13.5 and p["depth"] == 19.0 for p in pockets
+        )
 
+    @pytest.mark.xfail(
+        strict=True,
+        reason="Quiddity 0.2.2 known limitation: https://github.com/pzfreo/quiddity/issues/536",
+    )
     def test_step_imported_blind_obround_pockets_with_quarter_cylinder_ends(self):
         # #837: the reported failure — an imported STEP whose semicircular ends are each split into
         # two quarter-cylinder faces (r × r, not the 2r × r half-cylinder build123d emits). The caps
         # are recombined by axis-line proximity, so the five blind pockets are recognised.
         from pathlib import Path
 
-        from b123d_recognisers import recognise_pockets
         from build123d import import_step
 
         step = Path(__file__).parent / "fixtures" / "tuner_jig_blind_obround_pockets.step"
         part = import_step(str(step))
-        pockets = recognise_pockets(part)
+        pockets = _recognised_pocket_fields(part)
         assert recognise_slots(part) == []  # blind, not through
         assert len(pockets) == 5
-        assert all(p.width == 7.88 and p.length == 13.6 and p.depth == 19.0 for p in pockets)
+        assert all(
+            p["width"] == 7.88 and p["length"] == 13.6 and p["depth"] == 19.0 for p in pockets
+        )
 
     def test_sealed_internal_obround_void_is_not_a_pocket(self):
         # #837 review: a fully enclosed obround cavity (planar caps at BOTH depth ends, no
         # opening) is not a machinable recess — the end-cap recovery routes on the exact floor
         # count (a pocket has ONE floor + one opening), so a both-ends-capped void is neither a
         # pocket nor a full-thickness-deep phantom.
-        from b123d_recognisers import recognise_pockets
         from build123d import Plane, SlotOverall, extrude
 
         void = Box(60, 30, 20) - Pos(0, 0, -1.5) * extrude(Plane.XY * SlotOverall(13.5, 8), 3)
-        assert recognise_pockets(void) == []
+        assert _recognised_pocket_fields(void) == []
 
     def test_pivot_boss_at_slot_end_does_not_extend_length(self):
         # A rectangular cut interrupted by a cylindrical pivot boss contains solid material
@@ -8352,8 +8367,8 @@ class TestFindSlots:
         # face, coaxial with one pocket end but at a different depth (solid material between),
         # must NOT extend the pocket length — the cap's depth extent must match the slot's (#613 review).
         part = Box(60, 30, 20) - Pos(0, 0, 4) * Box(22, 8, 12) - Pos(11.2, 0, -10) * Cylinder(4, 8)
-        (p,) = recognise_pockets(part)
-        assert p.length == 22.0
+        (p,) = _recognised_pocket_fields(part)
+        assert p["length"] == 22.0
 
     def test_coaxial_posts_at_both_ends_do_not_extend_length(self):
         # Symmetric coaxial POSTS (added material, radius = width/2) protruding into both slot
@@ -9734,12 +9749,19 @@ class TestTurnedDiameters:
         below, since the source-text half described a file that no longer exists.
         """
         part = self._issue_881_y_step_flange()
-        assert not any(f.kind == "envelope" for f in build_drawing(part).model().features), (
+        from math import pi
+
+        for x in (-18, 18):
+            for z in (-18, 18):
+                lug = Pos(x, -2, z) * Box(10, 4, 10)
+                assert (part & lug).volume == pytest.approx(400 - pi * 2**2 * 4)
+        auto = build_drawing(part)
+        assert not any(f.kind == "pocket" for f in auto.model().features)
+        assert not any(f.kind == "envelope" for f in auto.model().features), (
             "the fixture must have NO envelope feature — the bbox fallback is the case "
             "with no intent to record"
         )
 
-        auto = build_drawing(part)
         _source, replayed = _sheet_script_drawing(part, tmp_path, "flange")
 
         automatic = {n for n, _ in auto.iter_annotations()}
@@ -9762,12 +9784,15 @@ class TestTurnedDiameters:
         # Candidate prevention (#1334) removes the same-batch step-chain crossings, and
         # measured block clearance now clears the former cross-producer ink crossing. The
         # remaining critique is reproduced on both paths.
+        # Quiddity refuses four recess proposals at the solid mounting lugs. The
+        # material-volume checks above prohibit reviving the old false pocket claims.
         assert (
             auto.lint_summary()["by_code"]
             == replayed.lint_summary()["by_code"]
             == {
                 "hole_requirement_missing": 2,
                 "leader_crosses_silhouette": 1,
+                "section_recess_recognition_refused": 4,
             }
         )
 

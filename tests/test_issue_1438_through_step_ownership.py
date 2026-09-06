@@ -5,9 +5,9 @@ from __future__ import annotations
 from dataclasses import replace
 
 import pytest
-from b123d_recognisers import Plate as RecognisedPlate
-from b123d_recognisers.evidence import build_recognition_evidence
 from build123d import Box, Compound, Pos, Rot
+from quiddity import Plate as RecognisedPlate
+from quiddity.evidence import build_recognition_evidence
 
 from draftwright import build_drawing
 from draftwright.analysis import _analyse
@@ -419,7 +419,9 @@ def test_multi_feature_reason_cannot_bind_another_conditional_family() -> None:
     evidence = build_recognition_evidence(part)
     builder = RecognitionOwnershipBuilder(evidence)
     channel = next(
-        occurrence for occurrence in evidence.features if evidence.family(occurrence) == "channels"
+        occurrence
+        for occurrence in evidence.features
+        if evidence.family(occurrence) == "section_recesses"
     )
 
     class StepLevel:

@@ -201,7 +201,7 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   `gear_coverage.py` (declared gear table/profile reconciliation), and `suggest.py`
   (`_suggest_fix`, #29 snippets). Depends only on `_core`, the pure
   `plate_correspondence` leaf,
-  `b123d_recognisers` (typed hole records in `coverage.py`) + build123d_drafting.
+  `quiddity` (typed hole records in `coverage.py`) + build123d_drafting.
   `_QUOTED_RE` (a lint-message label regex shared with the
   repair loop) lives in `_core`.
 - **`recognition_cache.py`** — Draftwright's ADR 3 (was 0017) one-result lifecycle owner. Raw automatic
@@ -254,14 +254,14 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   same-named ducks without the
   ADR 1 (was 0015)-forbidden `linting` → `model` import.
 - **`recogniser_contract.py`** — the fail-closed cross-repository capability join. It consumes
-  only the installed `b123d-recognisers` public manifest and rank-0 consumer policy, then validates
+  only the installed `quiddity` public manifest and rank-0 consumer policy, then validates
   Draftwright-owned IR,
   `Sheet`, generated-code, drawing, completeness, and documentation declarations. It is rank 7
   because validation dynamically resolves implementation references across every lower layer;
   package geometry policy never imports or owns this consumer overlay.
 - **`inspection_contract.py`** — the separate fail-closed join for declared-feature geometry
   reads. It validates inspection manifest format 1/API major 1, the exact installed recogniser
-  release, and only the stable `b123d_recognisers.inspection` symbols and value schemas consumed
+  release, and only the stable `quiddity.inspection` symbols and value schemas consumed
   by `model/declare.py`. It deliberately does not declare recognition-family semantics.
 - **`inspection.py`** — the rank-7 public read-only STEP inspection surface (`inspect_step`).
   It hashes one immutable source-byte snapshot, drives the shared one-run
@@ -273,7 +273,7 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   the same rank to write its sidecar; nothing below rank 7 depends on it.
 - **`model/`** — the ADR 1 (was 0015) IR waist: `ir.py` (the `Feature`/`DimParameter`/
   `Datum`/`PartModel` types — the one inventory), `detect.py` (detectors →
-  `Feature` objects, adapting `b123d_recognisers` records), `planner.py`
+  `Feature` objects, adapting `quiddity` records), `planner.py`
   (`plan_dimensions` —
   one rule set → a `DimensionGroup` per feature, + `plan_sections`; and, since #1154,
   the one cross-feature reconciliation: two features measuring between the same two
@@ -320,10 +320,10 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   `_LAZY_UPWARD_EXEMPT` is now empty. The graph is a plain DAG —
   `cli → {builder, sheet_emit}`, `sheet_emit → {builder, reporting}`, `builder → ∅`.
 - **`score.py` / `recognition/`** — temporary public compatibility re-exports of
-  `b123d_recognisers`, identity-preserving and scheduled for removal in 0.6.0. There are no
+  `quiddity`, identity-preserving and scheduled for removal in 0.6.0. There are no
   embedded recogniser modules. Engine code imports the external package directly; private
   historical `draftwright.recognition.*` paths are intentionally unsupported.
-- **`b123d_recognisers` (external)** — the ADR 3 (was 0013) geometry-only bottom layer: uniform
+- **`quiddity` (external)** — the ADR 3 (was 0013) geometry-only bottom layer: uniform
   deterministic `recognise_*` functions, frozen serialisable records, shared substrates,
   `RecognitionResult` orchestration/manifest, repeating-profile correspondence, and
   `feature_census`. It imports build123d/OCP and never imports Draftwright.

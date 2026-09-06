@@ -3,11 +3,11 @@
 from dataclasses import FrozenInstanceError
 
 import pytest
-from b123d_recognisers import (
+from build123d import Align, Axis, Box, Cylinder, Pos, chamfer, fillet
+from quiddity import (
     RecognitionResult,
     build_raw_recognition_result,
 )
-from build123d import Align, Axis, Box, Cylinder, Pos, chamfer, fillet
 
 from draftwright import build_drawing
 from draftwright.model import build_part_model
@@ -55,13 +55,13 @@ def test_built_drawing_exposes_its_recognition_result_without_private_state(monk
 
 # `test_orchestrator_injects_each_shared_dependency_once` was here until #1244.
 #
-# It replaced every recogniser in `b123d_recognisers.result` with a fake to assert the aggregate
+# It replaced every recogniser in `quiddity.result` with a fake to assert the aggregate
 # injects the cylinder substrate once and hands the same objects on. Every symbol it asserted
 # belonged to the package — it stated nothing about draftwright — and 0.2.6 restructured that
 # orchestration (`analyse_cylinders` gave way to `CylinderInventory`), so its patch targets no
 # longer exist.
 #
-# Not retargeted: released b123d-recognisers v0.4.10 owns the provider-side exactly-once proof in
+# Not retargeted: released quiddity v0.4.10 owns the provider-side exactly-once proof in
 # `test_recognition_result.py::test_orchestrator_injects_each_shared_dependency_once`.
 # Draftwright's `recognition_consumer_calls` guards only its side of the boundary: one public
 # aggregate per automatic build, cache reuse, and no public physical-recogniser bypass outside
@@ -145,13 +145,12 @@ def test_injecting_the_aggregate_builds_the_same_model_as_detecting(name, build)
         bosses=list(rec.bosses),
         polygonal_bosses=list(rec.polygonal_bosses),
         polygonal_stock=list(rec.polygonal_stock),
-        channels=list(rec.channels),
+        section_recesses=rec.section_recesses,
+        section_recess_patterns=rec.section_recess_patterns,
         slots=list(rec.slots),
         slot_patterns=list(rec.slot_patterns),
         grooves=list(rec.grooves),
         flats=list(rec.flats),
-        pockets=list(rec.pockets),
-        pocket_patterns=list(rec.pocket_patterns),
         pads=list(rec.pads),
         step_zs=rec.step_ladder_for_z_span(bb.min.Z, bb.max.Z),
         face_levels=list(rec.step_levels),

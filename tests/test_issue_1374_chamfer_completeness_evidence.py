@@ -77,8 +77,8 @@ def test_real_chamfer_corpus_scores_all_layers_and_topology_variants() -> None:
 
 
 def test_public_framed_route_preserves_arbitrarily_rotated_planar_and_turned_bevels() -> None:
-    from b123d_recognisers import FramedRecognitionResult, build_framed_recognition_result
     from build123d import Cylinder, GeomType, Rot
+    from quiddity import FramedRecognitionResult, build_framed_recognition_result
 
     shaft = Cylinder(15, 60)
     end = shaft.edges().filter_by(GeomType.CIRCLE).sort_by(lambda edge: edge.center().Z)[-1]
@@ -104,7 +104,7 @@ def test_public_framed_route_preserves_arbitrarily_rotated_planar_and_turned_bev
 
 
 def test_angled_step_slant_and_independent_chamfer_have_one_owner_each() -> None:
-    from b123d_recognisers import (
+    from quiddity import (
         build_raw_recognition_result,
         recognise_angled_steps,
         recognise_chamfers,
@@ -176,7 +176,7 @@ def test_chamfer_ledger_tracks_one_callout_per_physical_bevel_and_fails_closed()
 
 
 def test_chamfer_ledger_rejects_foreign_results_and_malformed_ir_without_guessing() -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     from draftwright.linting.chamfer_coverage import chamfer_requirement_outcomes
     from draftwright.registry import AnnotationRegistry

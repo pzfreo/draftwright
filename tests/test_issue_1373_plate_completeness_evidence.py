@@ -182,7 +182,7 @@ def test_plate_ledger_tracks_one_requirement_per_occurrence_and_fails_closed() -
 
 
 def test_plate_ledger_rejects_foreign_malformed_and_duplicate_ir() -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     from draftwright import build_drawing
     from draftwright.linting.plate_coverage import plate_requirement_outcomes
@@ -480,7 +480,7 @@ def test_exact_overlapping_family_owners_do_not_create_a_second_plate_denominato
 
 
 def test_raw_slot_owner_requires_one_schema_for_every_member() -> None:
-    from b123d_recognisers import recognise_slot_patterns
+    from quiddity import recognise_slot_patterns
 
     from draftwright import build_drawing
     from draftwright.linting.plate_coverage import (
@@ -571,7 +571,7 @@ def test_raw_slot_owner_requires_one_schema_for_every_member() -> None:
 
 
 def test_raw_slot_grid_uses_only_members_crossing_each_plate_witness() -> None:
-    from b123d_recognisers import recognise_slot_patterns
+    from quiddity import recognise_slot_patterns
 
     from draftwright import build_drawing
     from draftwright.linting.plate_coverage import (
@@ -595,7 +595,7 @@ def test_raw_slot_grid_uses_only_members_crossing_each_plate_witness() -> None:
     )
 
     with patch(
-        "b123d_recognisers.recognise_slot_patterns",
+        "quiddity.recognise_slot_patterns",
         wraps=recognise_slot_patterns,
     ) as replay:
         outcomes = plate_requirement_outcomes(
@@ -659,7 +659,7 @@ def test_dense_slot_grid_accepts_exact_public_replay_despite_rounded_pitch(
     exact_row_pitch: float,
     exact_col_pitch: float,
 ) -> None:
-    from b123d_recognisers import Slot, recognise_slot_patterns
+    from quiddity import Slot, recognise_slot_patterns
 
     from draftwright.linting.plate_coverage import _validated_recognised_pattern
 
@@ -694,7 +694,7 @@ def test_dense_slot_grid_accepts_exact_public_replay_despite_rounded_pitch(
     )
 
     with patch(
-        "b123d_recognisers.recognise_slot_patterns",
+        "quiddity.recognise_slot_patterns",
         wraps=recognise_slot_patterns,
     ) as replay:
         assert _validated_recognised_pattern(pattern) is pattern.slots[0]

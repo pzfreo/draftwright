@@ -1,4 +1,4 @@
-"""Consumer evidence for the b123d-recognisers 0.4.8 adoption (#1392)."""
+"""Consumer evidence for the quiddity 0.4.8 adoption (#1392)."""
 
 from __future__ import annotations
 
@@ -7,13 +7,6 @@ from dataclasses import asdict, fields, replace
 from pathlib import Path
 
 import pytest
-from b123d_recognisers import (
-    FramedRecognitionResult,
-    build_framed_recognition_result,
-    recognise_plates,
-    recognise_polygonal_bosses,
-    recognise_rectangular_pads,
-)
 from build123d import (
     Align,
     Box,
@@ -23,6 +16,13 @@ from build123d import (
     RegularPolygon,
     Rot,
     extrude,
+)
+from quiddity import (
+    FramedRecognitionResult,
+    build_framed_recognition_result,
+    recognise_plates,
+    recognise_polygonal_bosses,
+    recognise_rectangular_pads,
 )
 
 import draftwright.analysis as analysis_mod

@@ -11,7 +11,8 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from b123d_recognisers.evidence import FeatureRef, RecognitionEvidence
+from quiddity import SectionRecessRefusal
+from quiddity.evidence import FeatureRef, RecognitionEvidence
 
 from draftwright.blend_contract import blend_provider_key
 from draftwright.oriented_slot_contract import standalone_oriented_slots
@@ -19,6 +20,7 @@ from draftwright.recogniser_policy import (
     OwnerlessDisposition,
     ownerless_occurrence_policy,
 )
+from draftwright.section_recess_contract import UnsupportedSectionRecess, section_recess_fields
 
 _BOSS_ENVELOPE_SPAN_TOL = 0.005
 
@@ -181,8 +183,6 @@ DIRECT_FAMILIES = frozenset(
         "paired_ramp_steps",
         "polygonal_bosses",
         "polygonal_stock",
-        "rectangular_blind_slots",
-        "round_bottom_blind_slots",
     }
 )
 
@@ -190,7 +190,7 @@ DIRECT_FAMILIES = frozenset(
 # lower one member to one feature or absorb several members into one grouped/pattern feature.
 # The derived pattern records are deliberately not FeatureRefs and must not be promoted into
 # invented persistent occurrences.
-GROUPABLE_FAMILIES = frozenset({"holes", "pockets", "slots"})
+GROUPABLE_FAMILIES = frozenset({"holes", "section_recesses", "slots"})
 
 # These accepted occurrences are nested records carried by a supported parent occurrence. They
 # must retain their own outcome while sharing the parent's final IR owner rather than creating a
@@ -200,7 +200,7 @@ NESTED_FAMILIES = frozenset({"countersinks"})
 # These accepted occurrences have a supported consumer path, but the final owner depends on
 # Draftwright's cross-family classification.  The conversion site must record either the direct
 # adapter or the exact aggregate feature that intentionally absorbs the occurrence.
-CONDITIONAL_FAMILIES = frozenset({"bosses", "channels", "plates", "through_steps", "turned_steps"})
+CONDITIONAL_FAMILIES = frozenset({"bosses", "plates", "through_steps", "turned_steps"})
 
 OwnershipDisposition = Literal["represented", "absorbed"]
 PolicyDisposition = OwnerlessDisposition
@@ -221,7 +221,7 @@ _REPRESENTED_REASON_CODES = frozenset(
         "channel_adapter",
         "hole_adapter",
         "pmi_split_member",
-        "pocket_adapter",
+        "section_recess_adapter",
         "plate_adapter",
         "slot_adapter",
         "through_step_adapter",
@@ -255,15 +255,15 @@ _REASON_FAMILY = {
     "boss_diameter_group_member": "bosses",
     "boss_groove_owner": "bosses",
     "boss_turned_step_owner": "bosses",
-    "channel_adapter": "channels",
-    "channel_step_level_owner": "channels",
+    "channel_adapter": "section_recesses",
+    "channel_step_level_owner": "section_recesses",
     "countersink_hole_owner": "countersinks",
     "grouped_hole_member": "holes",
     "hole_adapter": "holes",
     "hole_pattern_member": "holes",
     "pmi_split_member": "holes",
-    "pocket_adapter": "pockets",
-    "pocket_pattern_member": "pockets",
+    "section_recess_adapter": "section_recesses",
+    "pocket_pattern_member": "section_recesses",
     "plate_adapter": "plates",
     "plate_slot_pattern_owner": "plates",
     "plate_step_ladder_owner": "plates",
@@ -353,6 +353,29 @@ def _policy_outcomes(evidence: RecognitionEvidence) -> tuple[OccurrencePolicyOut
             # Pattern records are derived, not separate physical FeatureRefs. Their exact
             # member occurrences carry the still-deferred pattern family's consumer policy.
             family = "oriented_slot_patterns"
+        if family == "section_recesses":
+            if type(evidence.record(occurrence)) is SectionRecessRefusal:
+                outcomes.append(
+                    OccurrencePolicyOutcome(
+                        occurrence=occurrence,
+                        disposition="unsupported",
+                        reason_code="recognition_refused",
+                        tracking="https://github.com/pzfreo/draftwright/issues/1471",
+                    )
+                )
+                continue
+            try:
+                section_recess_fields(evidence.record(occurrence))
+            except UnsupportedSectionRecess:
+                outcomes.append(
+                    OccurrencePolicyOutcome(
+                        occurrence=occurrence,
+                        disposition="unsupported",
+                        reason_code="consumer_semantics_unsupported",
+                        tracking="https://github.com/pzfreo/draftwright/issues/1471",
+                    )
+                )
+            continue
         policy = ownerless_occurrence_policy(family)
         if policy is None:
             continue
@@ -448,6 +471,18 @@ class RecognitionOwnership:
         )
 
 
+def _section_recess_requires_owner(evidence: RecognitionEvidence, occurrence: FeatureRef) -> bool:
+    """Determine ownership from source geometry, independently of policy outcomes."""
+    source = evidence.record(occurrence)
+    if type(source) is SectionRecessRefusal:
+        return False
+    try:
+        section_recess_fields(source)
+    except UnsupportedSectionRecess:
+        return False
+    return True
+
+
 class RecognitionOwnershipBuilder:
     """Mutable conversion-time collector; snapshot before attaching it to a drawing."""
 
@@ -469,6 +504,10 @@ class RecognitionOwnershipBuilder:
             occurrence
             for occurrence in evidence.features
             if evidence.family(occurrence) in GROUPABLE_FAMILIES
+            and (
+                evidence.family(occurrence) != "section_recesses"
+                or _section_recess_requires_owner(evidence, occurrence)
+            )
         )
         self._expected_nested = tuple(
             occurrence

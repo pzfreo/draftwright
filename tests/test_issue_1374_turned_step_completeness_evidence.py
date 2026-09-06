@@ -102,7 +102,7 @@ def test_real_turned_step_corpus_scores_all_layers_and_topology_variants() -> No
 
 
 def test_raw_translated_record_retains_body_local_axis_line_and_band_facts() -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     result = build_raw_recognition_result(_shaft("turned-step-translated-blind-bore.step"))
 
@@ -115,7 +115,7 @@ def test_raw_translated_record_retains_body_local_axis_line_and_band_facts() -> 
 
 
 def test_framed_route_preserves_rotated_turned_profile_on_exact_local_part() -> None:
-    from b123d_recognisers import (
+    from quiddity import (
         FramedRecognitionResult,
         build_framed_recognition_result,
     )
@@ -132,7 +132,7 @@ def test_framed_route_preserves_rotated_turned_profile_on_exact_local_part() -> 
 
 
 def test_compound_retains_two_body_local_profile_lines() -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     result = build_raw_recognition_result(_shaft("turned-step-compound.step"))
 
@@ -145,7 +145,7 @@ def test_compound_retains_two_body_local_profile_lines() -> None:
 
 
 def test_unique_groove_floor_band_is_not_a_second_turned_step_fact() -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     from draftwright.linting.turned_step_coverage import physical_turned_steps
 
@@ -161,7 +161,7 @@ def test_unique_groove_floor_band_is_not_a_second_turned_step_fact() -> None:
 
 
 def test_groove_floor_ownership_allows_the_public_coordinate_quantisation_boundary() -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     from draftwright import build_drawing
     from draftwright.linting.turned_step_coverage import (
@@ -372,7 +372,7 @@ def test_turned_step_ledger_tracks_two_requirements_per_physical_band() -> None:
 
 
 def test_turned_step_ledger_rejects_foreign_results_and_malformed_ir() -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     from draftwright.linting.turned_step_coverage import turned_step_requirement_outcomes
     from draftwright.registry import AnnotationRegistry
@@ -444,7 +444,7 @@ def test_turned_step_ir_schema_rejects_nonphysical_values(mutation: str, message
     ],
 )
 def test_malformed_public_step_records_fail_closed(field: str, value) -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     from draftwright import build_drawing
     from draftwright.linting.turned_step_coverage import turned_step_requirement_outcomes
@@ -464,7 +464,7 @@ def test_malformed_public_step_records_fail_closed(field: str, value) -> None:
 
 
 def test_public_step_profile_relation_rejects_every_structural_schema_break() -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     from draftwright.linting.turned_step_coverage import turned_step_source_key
 
@@ -536,7 +536,7 @@ def test_public_step_profile_relation_rejects_every_structural_schema_break() ->
     ],
 )
 def test_complete_public_profile_key_schema_fails_closed(bounds) -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     from draftwright import build_drawing
     from draftwright.linting.turned_step_coverage import turned_step_requirement_outcomes
@@ -560,7 +560,7 @@ def test_complete_public_profile_key_schema_fails_closed(bounds) -> None:
 
 @pytest.mark.parametrize("field", ["axis_origin", "body_bounds"])
 def test_public_profile_key_requires_immutable_tuple_fields(field: str) -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     from draftwright import build_drawing
     from draftwright.linting.turned_step_coverage import turned_step_requirement_outcomes
@@ -584,7 +584,7 @@ def test_public_profile_key_requires_immutable_tuple_fields(field: str) -> None:
 
 @pytest.mark.parametrize("field", ["diameter", "lo"])
 def test_overflowing_public_reals_fail_closed(field: str) -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     from draftwright import build_drawing
     from draftwright.linting.turned_step_coverage import turned_step_requirement_outcomes
@@ -719,7 +719,7 @@ def test_automatic_ir_cannot_drop_profile_ownership() -> None:
 def test_malformed_groove_ownership_makes_the_raw_band_roster_unverifiable(
     field: str, value
 ) -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     from draftwright import build_drawing
     from draftwright.linting.quality import quality_components
@@ -761,7 +761,7 @@ def test_malformed_groove_ownership_makes_the_raw_band_roster_unverifiable(
 def test_mutable_or_one_shot_root_inventories_preserve_the_raw_step_denominator(
     field: str, container: str
 ) -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     from draftwright import build_drawing
     from draftwright.linting.quality import quality_components
@@ -799,7 +799,7 @@ def test_mutable_or_one_shot_root_inventories_preserve_the_raw_step_denominator(
 
 
 def test_physical_band_roster_requires_both_root_tuple_inventories() -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     from draftwright.linting.turned_step_coverage import physical_turned_steps
 
@@ -812,7 +812,7 @@ def test_physical_band_roster_requires_both_root_tuple_inventories() -> None:
 
 @pytest.mark.parametrize("value", [None, 42, object()])
 def test_noniterable_root_step_inventory_retains_an_aggregate_contract_outcome(value) -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     from draftwright import build_drawing
     from draftwright.linting.quality import quality_components
@@ -1481,7 +1481,15 @@ def test_weakening_provider_band_parameter_reduces_fidelity(monkeypatch, paramet
                 )
                 for step in result.turned_steps
             )
-        return replace(result, turned_steps=steps)
+        grooves = (
+            result.grooves
+            if parameter == "diameter"
+            else tuple(
+                replace(groove, profile=profiles.get(groove.profile, groove.profile))
+                for groove in result.grooves
+            )
+        )
+        return replace(result, turned_steps=steps, grooves=grooves)
 
     monkeypatch.setattr(analysis, "_result_from_evidence", weakened)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))

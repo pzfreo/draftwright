@@ -2,15 +2,25 @@
 
 from dataclasses import replace
 
-from b123d_recognisers import recognise_channels, recognise_pockets
+import pytest
 from build123d import Align, Box, Cylinder, Pos, Rot
+from quiddity import build_raw_recognition_result
 
 from draftwright import build_drawing
 from draftwright.builder import detect_part_model
 from draftwright.model import ChannelFeature, HoleFeature, PartModel, plan_dimensions
+from draftwright.section_recess_contract import section_recess_fields
 
 
-def _u_channel(*, lower_wall=12.5, upper_wall=12.5):
+def _recesses(part, *, kind):
+    return [
+        source
+        for source in build_raw_recognition_result(part).section_recesses
+        if source.classification.feature_kind == kind
+    ]
+
+
+def _u_channel(*, lower_wall=12.5, upper_wall=12.5, pierced=True):
     width = 50.0
     lower_center = -width / 2 + lower_wall / 2
     upper_center = width / 2 - upper_wall / 2
@@ -19,6 +29,8 @@ def _u_channel(*, lower_wall=12.5, upper_wall=12.5):
         + Pos(0, lower_center, 15) * Box(50, lower_wall, 18)
         + Pos(0, upper_center, 15) * Box(50, upper_wall, 18)
     )
+    if not pierced:
+        return part
     part -= Cylinder(2, 12)
     part -= Pos(0, 0, 4) * Cylinder(6, 4)
     part -= (
@@ -37,20 +49,19 @@ def _labels(drawing, prefix):
     }
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason="Quiddity 0.2.2 known limitation: https://github.com/pzfreo/quiddity/issues/538",
+)
 def test_corrected_fixture_has_one_channel_and_one_independent_wall_thickness():
     part = _u_channel()
-    channels = recognise_channels(part)
+    channels = _recesses(part, kind="channel")
     assert len(channels) == 1
-    assert (
-        channels[0].long_axis,
-        channels[0].width_axis,
-        channels[0].width,
-        channels[0].lo,
-        channels[0].hi,
-        channels[0].d_lo,
-        channels[0].d_hi,
+    fields = section_recess_fields(channels[0])[1]
+    assert tuple(
+        fields[key] for key in ("long_axis", "width_axis", "width", "lo", "hi", "d_lo", "d_hi")
     ) == ("x", "y", 25.0, -25.0, 25.0, 6.0, 24.0)
-    assert recognise_pockets(part) == []
+    assert _recesses(part, kind="pocket") == []
 
     drawing = build_drawing(part)
     detected = detect_part_model(_u_channel())
@@ -80,6 +91,10 @@ def test_corrected_fixture_has_one_channel_and_one_independent_wall_thickness():
     assert first == second == [("info", "step_dim_withheld")]
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason="Quiddity 0.2.2 known limitation: https://github.com/pzfreo/quiddity/issues/538",
+)
 def test_every_independent_channel_chain_measurement_has_actionable_lint():
     expected = {
         "dim_channel_y0": "channel.channel_width.length",
@@ -95,6 +110,10 @@ def test_every_independent_channel_chain_measurement_has_actionable_lint():
         assert "open channel" in issues[0].message
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason="Quiddity 0.2.2 known limitation: https://github.com/pzfreo/quiddity/issues/538",
+)
 def test_asymmetric_walls_keep_lower_wall_and_derive_the_opposite_wall():
     drawing = build_drawing(_u_channel(lower_wall=10.0, upper_wall=15.0))
     assert _labels(drawing, "dim_channel") == {"dim_channel_y0": "25"}
@@ -104,33 +123,60 @@ def test_asymmetric_walls_keep_lower_wall_and_derive_the_opposite_wall():
 
 def test_ordinary_bounded_pocket_does_not_become_a_channel():
     part = Box(80, 60, 20) - Pos(0, 0, 6) * Box(30, 20, 8)
-    assert recognise_channels(part) == []
-    assert len(recognise_pockets(part)) == 1
+    assert _recesses(part, kind="channel") == []
+    assert len(_recesses(part, kind="pocket")) == 1
 
 
 def test_monolithic_centered_rebate_stays_with_the_step_ladder():
     part = Box(80, 60, 30) - Pos(0, 0, 7.5) * Box(80, 20, 15)
-    assert len(recognise_channels(part)) == 1  # geometry census remains honest
+    assert len(_recesses(part, kind="channel")) == 1  # geometry census remains honest
     drawing = build_drawing(part)
     assert not [feature for feature in drawing.model().features if feature.kind == "channel"]
     assert sorted(_labels(drawing, "dim_shoulder").values()) == ["20", "40"]
     assert not [issue for issue in drawing.lint() if issue.severity != "info"]
 
 
-def test_channel_must_reach_both_longitudinal_envelope_ends():
-    for length, x_center in ((40, 0), (45, -2.5)):
-        part = (
-            Box(50, 50, 12)
-            + Pos(x_center, -18.75, 15) * Box(length, 12.5, 18)
-            + Pos(x_center, 18.75, 15) * Box(length, 12.5, 18)
-        )
-        assert recognise_channels(part) == []
+def test_shorter_walls_retain_the_actual_channel_run_and_both_wall_dimensions():
+    part = (
+        Box(50, 50, 12)
+        + Pos(0, -18.75, 15) * Box(40, 12.5, 18)
+        + Pos(0, 18.75, 15) * Box(40, 12.5, 18)
+    )
+    drawing = build_drawing(part)
+    (source,) = drawing.recognition().section_recesses
+    assert source.classification.feature_kind == "channel"
+    kind, fields = section_recess_fields(source)
+    assert kind == "channel"
+    assert tuple(fields[k] for k in ("lo", "hi", "width", "d_lo", "d_hi")) == (-20, 20, 25, 6, 24)
+    (channel,) = [f for f in drawing.model().features if isinstance(f, ChannelFeature)]
+    assert (channel.lo, channel.hi, channel.width) == (-20, 20, 25)
+    assert _labels(drawing, "dim_channel") == {"dim_channel_y0": "25"}
+    assert _labels(drawing, "dim_plate_y") == {"dim_plate_y0": "12.5", "dim_plate_y1": "12.5"}
+    assert sorted(_labels(drawing, "m_pad").values()) == [
+        "12.5",
+        "12.5",
+        "18 HIGH",
+        "18 HIGH",
+        "40",
+        "40",
+    ]
+    assert not [f for f in drawing.model().features if f.kind == "pocket"]
+    assert not [i for i in drawing.lint() if i.code.startswith("channel_requirement_")]
+
+
+def test_one_shortened_end_does_not_invent_a_channel_record():
+    part = (
+        Box(50, 50, 12)
+        + Pos(-2.5, -18.75, 15) * Box(45, 12.5, 18)
+        + Pos(-2.5, 18.75, 15) * Box(45, 12.5, 18)
+    )
+    assert _recesses(part, kind="channel") == []
 
 
 def test_channel_requires_a_floor_and_opposed_inner_walls():
-    assert recognise_channels(Box(50, 50, 12)) == []
+    assert _recesses(Box(50, 50, 12), kind="channel") == []
     through_gap = Box(50, 50, 30) - Box(50, 25, 30)
-    assert recognise_channels(through_gap) == []
+    assert _recesses(through_gap, kind="channel") == []
 
 
 def test_channel_width_places_for_principal_axis_rotations_and_both_open_signs():
@@ -172,7 +218,16 @@ def test_wrong_channel_identity_cannot_clear_the_physical_transition_warning():
 
 
 def test_declared_non_full_span_channel_does_not_suppress_a_wall():
-    detected = detect_part_model(_u_channel())
+    detected = detect_part_model(_u_channel(pierced=False))
+    assert len([f for f in detected.features if isinstance(f, ChannelFeature)]) == 1
+    original_plate_dims = [
+        dimension
+        for group in plan_dimensions(detected)
+        if group.feature_kind == "plate" and group.feature.axis == "y"
+        for dimension in group.dims
+    ]
+    assert len(original_plate_dims) == 2
+    assert sum(d.suppressed for d in original_plate_dims) == 1
     features = [
         replace(feature, lo=feature.lo + 1, hi=feature.hi - 1)
         if isinstance(feature, ChannelFeature)

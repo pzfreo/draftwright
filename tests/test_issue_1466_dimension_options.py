@@ -128,11 +128,11 @@ def test_queries_preserve_existing_intent_and_require_no_build_or_preparation(mo
     def forbidden(*args, **kwargs):
         pytest.fail("discovery must not prepare, build, or recognise")
 
-    import b123d_recognisers
+    import quiddity
 
     monkeypatch.setattr(Sheet, "_prepare", forbidden)
     monkeypatch.setattr(Sheet, "build", forbidden)
-    monkeypatch.setattr(b123d_recognisers, "build_raw_recognition_result", forbidden)
+    monkeypatch.setattr(quiddity, "build_raw_recognition_result", forbidden)
     result = sheet.validate_dimension(handle, "bore.diameter", view="plan", side="right")
     assert result["supported"] and result["scope"] == "single_dimension_placement_rules"
     assert result["requires_build_validation"] is True

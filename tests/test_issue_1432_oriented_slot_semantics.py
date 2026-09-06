@@ -8,14 +8,14 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
-from b123d_recognisers import (
+from build123d import Align, Axis, Box, Pos, Rot
+from quiddity import (
     OrientedSlot,
     OrientedSlotArray,
     OrientedSlotGrid,
     recognise_oriented_slot_patterns,
     recognise_oriented_slots,
 )
-from build123d import Align, Axis, Box, Pos, Rot
 
 from draftwright import Sheet, build_drawing
 from draftwright.feature_identity import register_oriented_slot_feature_type

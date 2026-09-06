@@ -166,7 +166,7 @@ def test_pad_ledger_tracks_five_physical_requirements_and_fails_closed() -> None
 
 
 def test_pad_ledger_rejects_foreign_results_malformed_and_duplicate_ir() -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     from draftwright import build_drawing
     from draftwright.linting.pad_coverage import pad_requirement_outcomes

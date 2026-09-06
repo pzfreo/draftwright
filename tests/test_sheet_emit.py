@@ -2603,10 +2603,9 @@ class TestTheDimensionMirror:
     #: only an envelope) and "slot" (detected a pocket) until #947's review counted them.
     _EXPECTED_KINDS = {
         "plate+hole": {"hole"},
-        # RaisedPad v2 no longer treats two of the flange's end lugs as +Z pads after the
-        # whole part is rotated. They are the four genuine Y-opening edge pockets below;
-        # the dedicated "pad" fixture remains this corpus's pad mirror evidence.
-        "flange (no envelope feature)": {"boss", "hole", "pattern", "pocket", "step"},
+        # The mounting lugs are solid material pierced by bores, not pockets. The
+        # dedicated pocket and pad fixtures exercise those two mirror paths.
+        "flange (no envelope feature)": {"boss", "hole", "pattern", "step"},
         "stepped": {"step_level"},
         "slot": {"slot"},
         "pocket": {"pocket"},
@@ -2649,6 +2648,20 @@ class TestTheDimensionMirror:
         """The two tables cannot drift: a fixture added without an expectation is a fixture
         nobody has said what it is for."""
         assert set(self._corpus()) == set(self._EXPECTED_KINDS)
+
+    def test_flange_mounting_lugs_are_material_not_pockets(self):
+        from math import pi
+
+        from build123d import Box, Pos
+
+        part = self._corpus()["flange (no envelope feature)"]
+        for x in (-18, 18):
+            for z in (-18, 18):
+                lug = Pos(x, -2, z) * Box(10, 4, 10)
+                # Only the radius-2 bore is removed from each nominal lug volume.
+                assert (part & lug).volume == pytest.approx(400 - pi * 2**2 * 4)
+        model = detect_part_model(part)
+        assert not [f for f in model.features if f.kind == "pocket"]
 
     def test_the_side_drilled_fixture_reaches_the_off_axis_location_path(self):
         """Named because it is the path that was silently uncovered. An X-axis bore's
@@ -3588,6 +3601,8 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
     #: need not reproduce something, so each one is argued AND checked below — a bare skip
     #: list would let a real divergence hide behind a plausible sentence.
     _EXEMPT = {
+        ("groove", "profile"): "provider membership is replaced by an authored profile_group",
+        ("groove", "profile_group"): "the generated groove shares its owning steps' group token",
         ("hole", "members"): "a single hole's member list is exactly its own frame origin",
         ("plate", "frame"): "detection fills a plate's frame with the PART centroid, so it "
         "carries no per-plate information and nothing reads it",
@@ -3615,9 +3630,9 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
                 and tuple(rebuilt.members) == ()
                 and tuple(map(tuple, original.members)) == (tuple(original.frame.origin),)
             )
-        if (original.kind, field) == ("step", "profile"):
+        if original.kind in {"step", "groove"} and field == "profile":
             return original.profile is not None and rebuilt.profile is None
-        if (original.kind, field) == ("step", "profile_group"):
+        if original.kind in {"step", "groove"} and field == "profile_group":
             return original.profile is not None and rebuilt.profile_group is not None
         return False
 

@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import pytest
-from b123d_recognisers.evidence import build_recognition_evidence
 from build123d import Align, Box, Cylinder, Pos
+from quiddity.evidence import build_recognition_evidence
 
 from draftwright import build_drawing
 from draftwright.model.detect import _build_part_model_from_recognition
@@ -70,14 +70,14 @@ def _occurrences(ownership, family):
 
 
 def test_groupable_family_roster_is_explicit() -> None:
-    assert GROUPABLE_FAMILIES == {"holes", "pockets", "slots"}
+    assert GROUPABLE_FAMILIES == {"holes", "section_recesses", "slots"}
 
 
 def test_each_unpatterned_groupable_family_has_a_direct_final_owner() -> None:
     cases = (
         (_single_hole(), "holes", "hole", "hole_adapter"),
         (_single_slot(), "slots", "slot", "slot_adapter"),
-        (_single_pocket(), "pockets", "pocket", "pocket_adapter"),
+        (_single_pocket(), "section_recesses", "pocket", "section_recess_adapter"),
     )
 
     for part, family, feature_kind, reason_code in cases:
@@ -125,7 +125,7 @@ def test_pattern_members_are_absorbed_by_the_exact_shared_pattern_owner() -> Non
     cases = (
         (_hole_row(), "holes", "pattern", "hole_pattern_member", 4),
         (_slot_row(), "slots", "slot_pattern", "slot_pattern_member", 4),
-        (_pocket_row(), "pockets", "pocket_pattern", "pocket_pattern_member", 4),
+        (_pocket_row(), "section_recesses", "pocket_pattern", "pocket_pattern_member", 4),
     )
 
     for part, family, feature_kind, reason_code, count in cases:

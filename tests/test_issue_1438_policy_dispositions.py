@@ -5,8 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from b123d_recognisers import capability_manifest
-from b123d_recognisers.evidence import build_recognition_evidence
 from build123d import (
     Align,
     Box,
@@ -21,6 +19,8 @@ from build123d import (
     extrude,
     import_step,
 )
+from quiddity import capability_manifest
+from quiddity.evidence import build_recognition_evidence
 
 from draftwright import build_drawing
 from draftwright import recognition_ownership as ownership_module
@@ -84,19 +84,19 @@ def _step_projection_evidence_part():
         ),
         (
             _passage_part,
-            "passages",
+            "section_recesses",
             1,
             "unsupported",
             "consumer_semantics_unsupported",
-            "https://github.com/pzfreo/draftwright/issues/1245",
+            "https://github.com/pzfreo/draftwright/issues/1471",
         ),
         (
             _prismatic_pocket_part,
-            "prismatic_pockets",
+            "section_recesses",
             1,
             "unsupported",
             "consumer_semantics_unsupported",
-            "https://github.com/pzfreo/draftwright/issues/1246",
+            "https://github.com/pzfreo/draftwright/issues/1471",
         ),
         (
             _oriented_slot_part,
@@ -194,7 +194,7 @@ def test_supported_unknown_and_malformed_families_cannot_gain_ownerless_policy()
 
 def test_shared_ownerless_policy_table_is_immutable() -> None:
     with pytest.raises(TypeError, match="does not support item assignment"):
-        UNSUPPORTED_FAMILIES["passages"] = UNSUPPORTED_FAMILIES["angled-steps"]  # type: ignore[index]
+        UNSUPPORTED_FAMILIES["section_recesses"] = UNSUPPORTED_FAMILIES["angled-steps"]  # type: ignore[index]
     with pytest.raises(TypeError, match="does not support item assignment"):
         EVIDENCE_ONLY_FAMILIES["risers"] = EVIDENCE_ONLY_FAMILIES["step-levels"]  # type: ignore[index]
 
@@ -263,12 +263,18 @@ def test_raw_step_ladder_keeps_supported_ir_beside_evidence_only_inputs() -> Non
         assert all(occurrence not in ownership.unexpectedly_missing for occurrence in occurrences)
 
 
-def test_an_occurrence_cannot_have_both_owner_and_ownerless_policy(monkeypatch) -> None:
+@pytest.mark.parametrize("family", ["holes", "section_recesses"])
+def test_an_occurrence_cannot_have_both_owner_and_ownerless_policy(monkeypatch, family) -> None:
     evidence = build_recognition_evidence(
-        Box(30, 30, 10, align=_CENTER) - Cylinder(3, 10, align=_CENTER)
+        Box(30, 30, 10, align=_CENTER)
+        - (
+            Cylinder(3, 10, align=_CENTER)
+            if family == "holes"
+            else Pos(0, 0, 4) * Box(10, 8, 4, align=_CENTER)
+        )
     )
     occurrence = next(
-        occurrence for occurrence in evidence.features if evidence.family(occurrence) == "holes"
+        occurrence for occurrence in evidence.features if evidence.family(occurrence) == family
     )
     conflict = OccurrencePolicyOutcome(
         occurrence=occurrence,
@@ -286,16 +292,18 @@ def test_policy_outcome_uses_the_existing_capability_declaration() -> None:
     declarations = {
         family["id"]: family for family in consumer_capability_declaration()["families"]
     }
-    evidence = build_recognition_evidence(_passage_part())
+    evidence = build_recognition_evidence(_angled_step_part())
     ownership = RecognitionOwnershipBuilder(evidence).snapshot()
     occurrence = next(
-        occurrence for occurrence in evidence.features if evidence.family(occurrence) == "passages"
+        occurrence
+        for occurrence in evidence.features
+        if evidence.family(occurrence) == "angled_steps"
     )
     outcome = ownership.policy_for(occurrence)
 
     assert outcome is not None
-    assert outcome.disposition == declarations["passages"]["disposition"]
-    assert outcome.tracking == declarations["passages"]["tracking"]
+    assert outcome.disposition == declarations["angled-steps"]["disposition"]
+    assert outcome.tracking == declarations["angled-steps"]["tracking"]
 
 
 def test_raw_automatic_build_attaches_policy_to_its_exact_evidence_authority() -> None:
@@ -307,10 +315,12 @@ def test_raw_automatic_build_attaches_policy_to_its_exact_evidence_authority() -
     assert ownership is not None
     assert ownership.evidence is evidence
     occurrence = next(
-        occurrence for occurrence in evidence.features if evidence.family(occurrence) == "passages"
+        occurrence
+        for occurrence in evidence.features
+        if evidence.family(occurrence) == "section_recesses"
     )
     assert ownership.status(occurrence) == "unsupported"
     outcome = ownership.policy_for(occurrence)
     assert outcome is not None
     assert outcome.tracking is not None
-    assert outcome.tracking.endswith("/1245")
+    assert outcome.tracking.endswith("/1471")

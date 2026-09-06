@@ -15,7 +15,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Literal
 
-from b123d_recognisers import RecognitionResult
+from quiddity import RecognitionResult
 
 from draftwright._core import _decode_hole_location_fact
 from draftwright.linting._registry import satisfaction_ids, satisfaction_of

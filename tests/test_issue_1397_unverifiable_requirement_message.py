@@ -182,7 +182,7 @@ def test_the_groove_corrupt_inventory_path_does_not_invent_a_count():
 
     from dataclasses import fields
 
-    from b123d_recognisers import RecognitionResult
+    from quiddity import RecognitionResult
 
     from draftwright.linting.groove_coverage import groove_requirement_outcomes
 
@@ -238,7 +238,10 @@ def test_no_module_can_both_record_the_sentinel_and_print_it_raw():
     # reason. These are exact counts, not floors: a floor of ">= 9" stayed green when one
     # module stopped minting, and ">= 6" would have forbidden legitimately converting one of
     # the seven. If either number changes, this test should be read, not bumped.
-    assert len(mints) == 10, mints
+    # Unified unsupported geometry and refusal outcomes cannot claim a named measurement.
+    assert "section_recess_coverage.py" in mints
+    assert "section_recess_coverage.py" not in prints_raw
+    assert len(mints) == 11, mints
     # Oriented slots always retain the two named width/length requirements, including
     # corrupt-source outcomes; they never mint the unjoined-parameter sentinel.
     assert "oriented_slot_coverage.py" in prints_raw

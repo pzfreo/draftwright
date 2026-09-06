@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from math import hypot
 from typing import Literal
 
-from b123d_recognisers import HoleSpec, RecognitionResult, countersink_matches_hole
+from quiddity import HoleSpec, RecognitionResult, countersink_matches_hole
 
 from draftwright._core import _decode_hole_location_fact
 from draftwright._geometry import _END_ON, _is_principal_axis

@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from math import hypot, isclose, isfinite
 from typing import Literal
 
-from b123d_recognisers import CircularBlindStep, RecognitionResult
+from quiddity import CircularBlindStep, RecognitionResult
 
 from draftwright._geometry import quantised_radius_agrees, quantised_span_agrees
 from draftwright.linting._registry import satisfaction_ids, satisfaction_of

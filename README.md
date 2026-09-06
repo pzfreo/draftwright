@@ -301,12 +301,12 @@ builds on three libraries:
 
 ```
 draftwright
-    └── b123d-recognisers          — deterministic geometry recognition
+    └── quiddity          — deterministic geometry recognition
     └── build123d-drafting-helpers  — Dimension, Leader, HoleCallout, …
     └── build123d                   — CAD kernel
 ```
 
-Geometry recognition lives in the Apache-2.0 `b123d-recognisers` package. Draftwright owns
+Geometry recognition lives in the Apache-2.0 `quiddity` package. Draftwright owns
 the per-build recognition cache, record→IR conversion, drafting policy, and linting
 (`linting/`); annotation primitives (`Dimension`, `Leader`, etc.) live in
 `build123d-drafting-helpers` and can be used independently. The compiler is largely converged

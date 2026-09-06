@@ -90,7 +90,7 @@ def test_real_countersink_corpus_scores_all_layers_and_topology_variants() -> No
 
 
 def test_aggregate_reuses_each_seat_on_one_hole_without_recounting_the_bore() -> None:
-    from b123d_recognisers import build_raw_recognition_result, countersink_matches_hole
+    from quiddity import build_raw_recognition_result, countersink_matches_hole
 
     recognition = build_raw_recognition_result(_mixed_part())
     countersink_ids = {id(seat) for seat in recognition.countersinks}
@@ -121,7 +121,7 @@ def test_aggregate_reuses_each_seat_on_one_hole_without_recounting_the_bore() ->
 
 
 def test_swapped_nested_seats_fail_closed_at_every_downstream_boundary(monkeypatch) -> None:
-    from b123d_recognisers import countersink_matches_hole
+    from quiddity import countersink_matches_hole
 
     from draftwright.drawing import Drawing
 
@@ -150,7 +150,7 @@ def test_swapped_nested_seats_fail_closed_at_every_downstream_boundary(monkeypat
 
 
 def test_duplicate_nested_seat_attachment_fails_exact_multiplicity() -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     recognition = build_raw_recognition_result(_mixed_part())
     first = recognition.holes[0]
@@ -160,7 +160,7 @@ def test_duplicate_nested_seat_attachment_fails_exact_multiplicity() -> None:
 
 
 def test_duplicate_provider_inventory_record_fails_exact_multiplicity() -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     recognition = build_raw_recognition_result(_single_part())
     seat = recognition.countersinks[0]
@@ -169,7 +169,7 @@ def test_duplicate_provider_inventory_record_fails_exact_multiplicity() -> None:
 
 
 def test_nested_seat_outside_the_provider_inventory_invalidates_every_site() -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     recognition = build_raw_recognition_result(_single_part())
     hole = recognition.holes[0]

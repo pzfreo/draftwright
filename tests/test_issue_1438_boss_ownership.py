@@ -6,8 +6,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from b123d_recognisers.evidence import build_recognition_evidence
 from build123d import Box, Compound, Cylinder, Pos, import_step
+from quiddity.evidence import build_recognition_evidence
 
 from draftwright import build_drawing
 from draftwright.recognition_ownership import OccurrenceBinding, RecognitionOwnershipBuilder

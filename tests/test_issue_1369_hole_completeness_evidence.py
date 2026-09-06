@@ -114,7 +114,7 @@ def test_a_post_build_model_access_failure_is_scored_not_raised(monkeypatch) -> 
 
 
 def test_a_missing_build_owned_recognition_result_does_not_rescan(monkeypatch) -> None:
-    import b123d_recognisers
+    import quiddity
 
     import draftwright.builder as builder
 
@@ -136,7 +136,7 @@ def test_a_missing_build_owned_recognition_result_does_not_rescan(monkeypatch) -
     monkeypatch.setattr(
         builder, "build_drawing", lambda *_args, **_kwargs: RecognitionUnavailable()
     )
-    monkeypatch.setattr(b123d_recognisers, "build_raw_recognition_result", forbidden_rescan)
+    monkeypatch.setattr(quiddity, "build_raw_recognition_result", forbidden_rescan)
 
     assert _default_observers()["holes"](_part()) == ()
     assert provider_calls == []

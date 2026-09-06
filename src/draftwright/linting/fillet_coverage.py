@@ -12,7 +12,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Literal
 
-from b123d_recognisers import RecognitionResult
+from quiddity import RecognitionResult
 
 from draftwright.linting._registry import satisfaction_ids, satisfaction_of
 from draftwright.linting.issues import LintIssue, is_placement_drop

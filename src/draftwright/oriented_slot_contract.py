@@ -7,19 +7,53 @@ preserving ADR 1 (was 0015)'s rule that ``linting`` must not import the compiler
 
 from __future__ import annotations
 
+from dataclasses import fields, is_dataclass
 from math import dist, hypot, isfinite
+from typing import get_type_hints
 
-from b123d_recognisers import (
+from quiddity import (
     OrientedSlot,
     OrientedSlotArray,
     OrientedSlotGrid,
-    PassageEnds,
     PassageFrame,
     PassageSection,
     PassageSectionVertex,
-    SectionPassage,
     recognise_oriented_slot_patterns,
 )
+
+
+def _published_source_types() -> tuple[type, type]:
+    """Resolve exact nested nominal types through the public record's type annotations.
+
+    Quiddity 0.2.2 retains these public field types without exporting their names at the root.
+    Python's public type-hint API follows that contract without a provider-private import.
+    The complete field sets are checked before any occurrence can use those types.
+    """
+    source_type = get_type_hints(OrientedSlot)["source"]
+    if not isinstance(source_type, type) or not is_dataclass(source_type):
+        raise TypeError("oriented slot source annotation must name a public record type")
+    source_hints = get_type_hints(source_type)
+    if (
+        set(field.name for field in fields(source_type))
+        != {"frame", "run_interval", "section", "ends"}
+        or source_hints.get("frame") is not PassageFrame
+        or source_hints.get("section") is not PassageSection
+        or not getattr(source_type, "__dataclass_params__").frozen
+    ):
+        raise TypeError("oriented slot annotated source schema changed")
+    ends_type = source_hints["ends"]
+    if (
+        not isinstance(ends_type, type)
+        or not is_dataclass(ends_type)
+        or set(field.name for field in fields(ends_type))
+        != {"low_capped", "high_capped", "low_gradient", "high_gradient"}
+        or not getattr(ends_type, "__dataclass_params__").frozen
+    ):
+        raise TypeError("oriented slot annotated end schema changed")
+    return source_type, ends_type
+
+
+_SOURCE_TYPE, _ENDS_TYPE = _published_source_types()
 
 
 def _real(value, *, name: str, positive: bool = False) -> float:
@@ -157,10 +191,10 @@ def oriented_slot_provider_key(slot) -> tuple:
         raise TypeError("oriented slot inventory members must be OrientedSlot records")
     source = slot.source
     if (
-        type(source) is not SectionPassage
+        type(source) is not _SOURCE_TYPE
         or type(source.frame) is not PassageFrame
         or type(source.section) is not PassageSection
-        or type(source.ends) is not PassageEnds
+        or type(source.ends) is not _ENDS_TYPE
     ):
         raise TypeError("oriented slot source must use the released passage record schema")
     center = _vector(slot.center, size=3, name="oriented slot center")

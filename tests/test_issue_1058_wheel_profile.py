@@ -9,10 +9,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from b123d_recognisers import (
-    build_raw_recognition_result,
-)
-from b123d_recognisers.evidence import build_recognition_evidence
 from build123d import (
     Align,
     Box,
@@ -29,6 +25,10 @@ from build123d import (
     import_step,
 )
 from conftest import counting_calls
+from quiddity import (
+    build_raw_recognition_result,
+)
+from quiddity.evidence import build_recognition_evidence
 
 from draftwright import Sheet, build_drawing
 from draftwright.annotations.from_model import callout_from_spec
@@ -299,7 +299,7 @@ def test_real_wheel_no_longer_gets_a_confident_envelope_only_result(wheel_drawin
     )
     recognition = wheel_drawing.recognition()
     assert recognition is not None
-    assert not recognition.holes and not recognition.slots and not recognition.pockets
+    assert not recognition.holes and not recognition.slots and not recognition.section_recesses
     assert len(recognition.double_d_bores) == 1
     bore = next(feature for feature in wheel_drawing.model().features if feature.kind == "hole")
     assert bore.profile == "double_d"

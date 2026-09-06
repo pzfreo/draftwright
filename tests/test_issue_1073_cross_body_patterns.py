@@ -2,15 +2,17 @@
 
 from dataclasses import replace
 
-from b123d_recognisers import (
-    recognise_pocket_patterns,
-    recognise_pockets,
+import pytest
+from build123d import Box, Compound, Pos
+from quiddity import (
+    SectionRecessArray,
+    build_raw_recognition_result,
     recognise_slot_patterns,
     recognise_slots,
 )
-from build123d import Box, Compound, Pos
 
 from draftwright.model.detect import build_part_model
+from draftwright.section_recess_contract import section_recess_pattern_members
 
 
 def _separate_bodies(feature):
@@ -37,14 +39,19 @@ def test_separate_body_slots_do_not_form_one_pattern():
 
 
 def test_separate_body_pockets_do_not_form_one_pattern():
-    pockets = recognise_pockets(_separate_bodies(_pocketed_body()))
+    part = _separate_bodies(_pocketed_body())
+    recognition = build_raw_recognition_result(part)
+    pockets = recognition.section_recesses
 
     assert len(pockets) == 3
-    assert len({pocket.body_key for pocket in pockets}) == 3
-    assert recognise_pocket_patterns(pockets) == []
+    assert len({pocket.body for pocket in pockets}) == 3
+    assert recognition.section_recess_patterns == ()
 
-    # Targeted mutation: discarding the owning-body evidence recreates the false array.
-    assert len(recognise_pocket_patterns([replace(pk, body_key=()) for pk in pockets])) == 1
+    # The provider no longer exposes a separate pocket grouping function. A forged
+    # array over these run-local indices must fail the consumer's physical-body join.
+    forged = SectionRecessArray(tuple(pocket.index for pocket in pockets), 60.0, (0.0, 1.0, 0.0))
+    with pytest.raises(ValueError, match="same body-local geometry"):
+        section_recess_pattern_members(forged, pockets)
 
 
 def test_real_patterns_within_one_body_still_group():
@@ -55,11 +62,12 @@ def test_real_patterns_within_one_body_still_group():
         pocketed -= Pos(0, y, 7) * Box(30, 8, 6)
 
     slots = recognise_slots(slotted)
-    pockets = recognise_pockets(pocketed)
+    recognition = build_raw_recognition_result(pocketed)
+    pockets = recognition.section_recesses
     assert len({slot.body_key for slot in slots}) == 1
-    assert len({pocket.body_key for pocket in pockets}) == 1
+    assert len({pocket.body for pocket in pockets}) == 1
     assert len(recognise_slot_patterns(slots)) == 1
-    assert len(recognise_pocket_patterns(pockets)) == 1
+    assert len(recognition.section_recess_patterns) == 1
 
 
 def test_aggregate_model_keeps_cross_body_members_independent():
@@ -83,25 +91,15 @@ def test_compound_traversal_order_does_not_change_body_correspondence():
 
 
 def test_ambiguous_body_signature_fails_closed():
-    """A recess whose owning body could not be identified must never join a pattern.
-
-    The condition is constructed on the public records rather than by patching an internal.
-    Previously this monkeypatched `_recess_core._body_signature`, which 0.2.6 removed — the
-    third of three private reaches that broke on a patch bump (#1244) — and it cannot be
-    induced through geometry either, since a body key embeds the bounding box and separated
-    bodies therefore always differ. `Slot` and `Pocket` are public dataclasses, so setting
-    `body_key=None` states the ambiguous case directly and asserts the same rule.
-    """
+    """Ambiguous legacy slot owners cannot group; unified recesses require a body index."""
     slots = [
         replace(slot, body_key=None) for slot in recognise_slots(_separate_bodies(_slotted_body()))
     ]
-    pockets = [
-        replace(pocket, body_key=None)
-        for pocket in recognise_pockets(_separate_bodies(_pocketed_body()))
-    ]
+    pockets = build_raw_recognition_result(_separate_bodies(_pocketed_body())).section_recesses
 
-    # The precondition: three real recesses, every one of them body-ambiguous.
     assert len(slots) == 3 and all(slot.body_key is None for slot in slots)
-    assert len(pockets) == 3 and all(pocket.body_key is None for pocket in pockets)
+    assert len(pockets) == 3
     assert recognise_slot_patterns(slots) == []
-    assert recognise_pocket_patterns(pockets) == []
+    for pocket in pockets:
+        with pytest.raises(ValueError, match="body"):
+            replace(pocket, body=None)

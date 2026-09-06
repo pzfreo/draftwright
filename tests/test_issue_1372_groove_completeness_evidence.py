@@ -74,7 +74,7 @@ def test_real_groove_corpus_scores_all_layers_and_boolean_order_variants() -> No
 
 
 def test_narrow_floor_has_one_drafting_owner_despite_raw_family_overlap() -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     from draftwright import build_drawing
 
@@ -131,7 +131,7 @@ def test_groove_ledger_tracks_width_and_floor_diameter_and_fails_closed() -> Non
 
 
 def test_groove_ledger_rejects_foreign_results_and_malformed_ir_without_guessing() -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     from draftwright.linting.groove_coverage import groove_requirement_outcomes
     from draftwright.registry import AnnotationRegistry
@@ -161,7 +161,7 @@ def test_groove_ledger_rejects_foreign_results_and_malformed_ir_without_guessing
 def test_shared_groove_schema_rejects_missing_or_incoherent_ir_frames() -> None:
     from types import SimpleNamespace
 
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     from draftwright.recognition_frame import (
         groove_owns_turned_step_band,
@@ -203,7 +203,7 @@ def test_shared_groove_schema_rejects_missing_or_incoherent_ir_frames() -> None:
 
 @pytest.mark.parametrize("container", ["list", "generator"])
 def test_groove_ledger_requires_the_immutable_root_inventory(container: str) -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     from draftwright import build_drawing
     from draftwright.linting.groove_coverage import groove_requirement_outcomes
@@ -224,7 +224,7 @@ def test_groove_ledger_requires_the_immutable_root_inventory(container: str) -> 
 
 @pytest.mark.parametrize("value", [None, 42, object()])
 def test_noniterable_root_groove_inventory_retains_an_aggregate_contract_outcome(value) -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     from draftwright import build_drawing
     from draftwright.linting.groove_coverage import groove_requirement_outcomes
@@ -632,16 +632,19 @@ def test_weakening_provider_identity_reduces_detection_recall(monkeypatch, field
 
     original = analysis._result_from_evidence
 
+    # Profile membership is optional in the published record. Exercise geometric
+    # detection drift without also injecting a contradictory membership contract;
+    # the keyed contradiction has its own fail-closed tests in #1471.
     def weakened_grooves(*args, **kwargs):
         result = original(*args, **kwargs)
         if field == "axis":
             values = tuple(
-                replace(groove, axis={"x": "y", "y": "z", "z": "x"}[groove.axis])
+                replace(groove, axis={"x": "y", "y": "z", "z": "x"}[groove.axis], profile=None)
                 for groove in result.grooves
             )
         else:
             values = tuple(
-                replace(groove, at=(groove.at[0] + 1.0, groove.at[1], groove.at[2]))
+                replace(groove, at=(groove.at[0] + 1.0, groove.at[1], groove.at[2]), profile=None)
                 for groove in result.grooves
             )
         return replace(result, grooves=values)

@@ -86,7 +86,7 @@ def test_real_double_d_corpus_scores_all_layers_and_topology_variants() -> None:
 
 
 def test_provider_aggregate_owns_double_d_once_and_does_not_recount_a_round_hole() -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     recognition = build_raw_recognition_result(_part())
 
@@ -104,7 +104,7 @@ def test_provider_aggregate_owns_double_d_once_and_does_not_recount_a_round_hole
 
 
 def test_a_disjoint_coaxial_round_hole_keeps_independent_double_d_ownership() -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     remote_round_hole = Pos(0, 0, 30) * (
         Box(30, 30, 10, align=CENTER) - Cylinder(3, 20, align=CENTER)
@@ -125,7 +125,7 @@ def test_a_disjoint_coaxial_round_hole_keeps_independent_double_d_ownership() ->
 def test_an_ordinary_hole_on_the_same_span_invalidates_only_double_d_credit(
     monkeypatch, depth: float, opening: str
 ) -> None:
-    from b123d_recognisers import HoleRecord
+    from quiddity import HoleRecord
 
     import draftwright.analysis as analysis
 
@@ -164,7 +164,7 @@ def test_an_ordinary_hole_on_the_same_span_invalidates_only_double_d_credit(
 
 
 def test_public_depth_quantization_allowance_is_independently_bracketed() -> None:
-    from b123d_recognisers import HoleRecord, build_raw_recognition_result
+    from quiddity import HoleRecord, build_raw_recognition_result
 
     source = build_raw_recognition_result(_part()).double_d_bores[0]
     ordinary = HoleRecord(
@@ -237,7 +237,7 @@ def test_double_d_flat_direction_is_an_unoriented_line() -> None:
     ],
 )
 def test_malformed_provider_meaning_is_not_a_correspondence_key(changes) -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     bore = replace(build_raw_recognition_result(_part()).double_d_bores[0], **changes)
     with pytest.raises(ValueError):
@@ -245,7 +245,7 @@ def test_malformed_provider_meaning_is_not_a_correspondence_key(changes) -> None
 
 
 def test_a_foreign_lookalike_is_not_a_public_double_d_record() -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     bore = build_raw_recognition_result(_part()).double_d_bores[0]
     lookalike = SimpleNamespace(**vars(bore))
@@ -388,7 +388,7 @@ def test_disconnected_coaxial_bodies_keep_two_full_frame_occurrences() -> None:
 
 
 def test_coincident_equal_records_still_require_equal_ir_multiplicity() -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     from draftwright.model.detect import build_part_model
 
@@ -420,7 +420,7 @@ def test_coincident_equal_records_still_require_equal_ir_multiplicity() -> None:
 
 
 def test_repeated_object_references_cannot_manufacture_multiplicity() -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     from draftwright.model.detect import build_part_model
 
@@ -447,7 +447,7 @@ def test_repeated_object_references_cannot_manufacture_multiplicity() -> None:
 
 
 def test_missing_or_extra_profile_owner_fails_the_complete_boundary() -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     from draftwright.model import double_d_bore
     from draftwright.model.detect import build_part_model
@@ -696,7 +696,7 @@ def test_malformed_public_records_become_missed_instead_of_aborting(
     ["double-d-round-bore.step", "double-d-blind.step", "double-d-opposed-blind.step"],
 )
 def test_negative_controls_create_no_profile_or_ordinary_hole_duplication(fixture: str) -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     recognition = build_raw_recognition_result(_part(fixture))
     assert recognition.double_d_bores == ()

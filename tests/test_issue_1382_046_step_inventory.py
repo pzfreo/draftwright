@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from b123d_recognisers import build_raw_recognition_result
 from build123d import Box, Compound, Cylinder, Plane, Polygon, Pos, Rot, extrude
+from quiddity import build_raw_recognition_result
 
 from draftwright import build_drawing
 

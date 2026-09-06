@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from math import isfinite
 from typing import Literal
 
-from b123d_recognisers import OrientedSlot, RecognitionResult
+from quiddity import OrientedSlot, RecognitionResult
 
 from draftwright.feature_identity import is_exact_oriented_slot_feature
 from draftwright.linting._registry import satisfaction_ids, satisfaction_of

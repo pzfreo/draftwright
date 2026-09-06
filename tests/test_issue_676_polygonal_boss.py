@@ -7,8 +7,8 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from b123d_recognisers import PolygonalBoss, recognise_polygonal_bosses
 from build123d import Box, Compound, Polygon, Pos, RegularPolygon, Rot, extrude, import_step
+from quiddity import PolygonalBoss, recognise_polygonal_bosses
 
 from draftwright import build_drawing
 from draftwright.model import PolygonalBossFeature, build_part_model
@@ -50,7 +50,7 @@ def _polygon_from_supports(
 
 
 # `test_a_face_with_no_usable_normal_cannot_supply_boss_evidence` was here until #1244. It
-# asserted that `b123d_recognisers.polygonal_bosses._normal` returns None for a face whose
+# asserted that `quiddity.polygonal_bosses._normal` returns None for a face whose
 # `center()` raises — a PRIVATE helper, which 0.2.6 removed, and one of two private reaches
 # that broke on a patch bump with no announced API removals.
 #

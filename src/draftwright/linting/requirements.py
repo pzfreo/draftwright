@@ -30,6 +30,7 @@ from draftwright.linting.rectangular_blind_slot_coverage import (
 from draftwright.linting.round_bottom_blind_slot_coverage import (
     round_bottom_blind_slot_requirement_outcomes,
 )
+from draftwright.linting.section_recess_coverage import unsupported_section_recess_outcomes
 from draftwright.linting.slot_coverage import slot_requirement_outcomes
 from draftwright.linting.through_step_coverage import through_step_requirement_outcomes
 from draftwright.linting.turned_step_coverage import turned_step_requirement_outcomes
@@ -51,6 +52,7 @@ def recognized_requirement_outcomes(
     """
 
     outcomes: dict[str, list] = {
+        "section_recesses": unsupported_section_recess_outcomes(recognition),
         "chamfers": chamfer_requirement_outcomes(recognition, features, registry, omissions),
         "blends": blend_requirement_outcomes(recognition, features, registry, omissions),
         "channels": channel_requirement_outcomes(recognition, features, registry, omissions),

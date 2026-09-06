@@ -46,7 +46,7 @@ if TYPE_CHECKING:  # typing only — naming these must not cost the CAD kernel a
     from draftwright.model import PartModel
 
 INSPECTION_SCHEMA = "draftwright-step-inspection"
-INSPECTION_SCHEMA_VERSION = 1
+INSPECTION_SCHEMA_VERSION = 2
 
 # Version 1 reports raw caller coordinates only. Framed recognition moves geometry into a
 # provider working frame, and b123d-recognisers#493 cannot yet tell a consumer whether a refused
