@@ -207,6 +207,57 @@ def test_valid_unequal_tangent_corners_cannot_be_reported_as_one_radius(rounded)
         section_recess_fields(altered)
 
 
+@pytest.mark.parametrize("radius", [-1, 10, 11])
+def test_declared_corner_radius_must_leave_positive_straight_sides(rounded, radius):
+    _, _, feature = rounded
+    assert min(feature.width, feature.length) == 20
+    with pytest.raises(ValueError, match="positive straight sides"):
+        replace(feature, corner_radius=radius)
+
+
+@pytest.mark.parametrize(
+    "fault", ["sloping_end", "non_quarter", "rotated_profile", "oversized_corner"]
+)
+def test_other_valid_general_profiles_are_not_lowered_as_axis_aligned_rounded_pockets(
+    rounded, fault
+):
+    _, drawing, _ = rounded
+    source = drawing.recognition().section_recesses[0]
+    assert section_recess_fields(source)[1]["corner_radius"] == 3
+    geometry = source.geometry
+    if fault == "sloping_end":
+        low = replace(
+            geometry.ends.low, surface=replace(geometry.ends.low.surface, gradient=(0.01, 0))
+        )
+        altered = replace(source, geometry=replace(geometry, ends=replace(geometry.ends, low=low)))
+        match = "perpendicular run ends"
+    elif fault == "oversized_corner":
+        # Opposite R12 and R3 corners leave positive straight sides, but a uniform
+        # R12 corner on this 20 mm-wide pocket would not.
+        points = ((-15, 2), (-3, -10), (12, -10), (15, -7), (15, -2), (3, 10), (-12, 10), (-15, 7))
+        vertices = tuple(
+            replace(vertex, point=point)
+            for vertex, point in zip(geometry.profile.boundary, points, strict=True)
+        )
+        profile = replace(geometry.profile, boundary=vertices)
+        altered = replace(source, geometry=replace(geometry, profile=profile))
+        match = "positive straight sides"
+    else:
+        vertices = tuple(
+            replace(vertex, bulge=0.5 if vertex.bulge else 0)
+            if fault == "non_quarter"
+            else replace(vertex, point=(sum(vertex.point), vertex.point[1] - vertex.point[0]))
+            for vertex in geometry.profile.boundary
+        )
+        start = min(range(len(vertices)), key=lambda i: vertices[i].point)
+        vertices = vertices[start:] + vertices[:start]
+        profile = replace(geometry.profile, boundary=vertices)
+        altered = replace(source, geometry=replace(geometry, profile=profile))
+        match = "four equal quarter arcs" if fault == "non_quarter" else "equal tangent corners"
+    with pytest.raises(UnsupportedSectionRecess, match=match):
+        section_recess_fields(altered)
+
+
 def test_authored_corner_geometry_keeps_its_precision_in_a_generated_declaration(
     rounded, tmp_path
 ):

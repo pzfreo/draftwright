@@ -50,7 +50,21 @@ def test_installed_wheel_layout_validates_portable_contract_without_source_evide
     _validate()
 
 
-@pytest.mark.parametrize("reference", [None, "", "/tmp/evidence.py", "../evidence.py"])
+@pytest.mark.parametrize(
+    "reference",
+    [
+        None,
+        "",
+        "/tmp/evidence.py",
+        "../evidence.py",
+        "C:/evidence.py",
+        "C:evidence.py",
+        r"..\evidence.py",
+        r"\tmp\evidence.py",
+        r"\\host\share\evidence.py",
+        r"tests\evidence.py",
+    ],
+)
 def test_installed_wheel_rejects_nonportable_evidence_references(reference: object) -> None:
     assert not contract_module._evidence_reference_is_valid(reference, None)
 

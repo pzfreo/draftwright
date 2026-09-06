@@ -736,7 +736,7 @@ def test_unrelated_declared_legacy_dimensions_cannot_cover_physical_legs() -> No
 
 def test_remaining_ladder_rungs_cannot_cover_removed_exact_legacy_members() -> None:
     part = Rot(90, 0, 0) * _through_step_part()
-    sheet = Sheet(part).authored_dimensions()
+    sheet = Sheet(part, scale=1).authored_dimensions()
     handle = sheet.step_level(
         base=0,
         levels=(10, 15),
@@ -747,6 +747,8 @@ def test_remaining_ladder_rungs_cannot_cover_removed_exact_legacy_members() -> N
         sheet.dimension(handle, parameter.parameter_id)
     drawing = sheet.build()
     drawing.lint()  # populate the declared build's one recognition aggregate
+    assert drawing.scale == 1
+    assert "dim_detail_a_step0" in drawing.annotations(), drawing.annotations()
     drawing.remove("dim_detail_a_step0")
     drawing.remove("dim_shoulder_x1")
 
@@ -769,7 +771,7 @@ def test_remaining_ladder_rungs_cannot_cover_removed_exact_legacy_members() -> N
 
 def test_exact_optional_detail_failure_still_closes_the_physical_leg_ledger() -> None:
     part = Rot(90, 0, 0) * _through_step_part()
-    sheet = Sheet(part).authored_dimensions()
+    sheet = Sheet(part, scale=1).authored_dimensions()
     handle = sheet.step_level(
         base=0,
         levels=(10, 15),
@@ -781,6 +783,8 @@ def test_exact_optional_detail_failure_still_closes_the_physical_leg_ledger() ->
     drawing = sheet.build()
     drawing.lint()  # populate the recognition-owned physical inventory
     name = "dim_detail_a_step0"
+    assert drawing.scale == 1
+    assert name in drawing.annotations(), drawing.annotations()
     (measurement,) = drawing.registry.measurement_of(name)
     span = drawing.registry.named(name)._dw_measurement_span
     drawing.remove(name)

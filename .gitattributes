@@ -1,5 +1,3 @@
-# The regression contract hashes the supplier artifact byte-for-byte (#1058).
-tests/fixtures/issue_1058_wheel_rh.step -text
-
-# The independent evaluation corpus pins exact evidence bytes on every checkout (#1169).
-tests/fixtures/evaluation/*.step -text
+# CAD evidence is hashed byte-for-byte; checkout must preserve it on every platform.
+*.step -text
+*.stp -text

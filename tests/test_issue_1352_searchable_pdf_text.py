@@ -869,11 +869,11 @@ def test_poppler_keeps_a_term_whole_when_its_baseline_points_left(tmp_path):
             capture_output=True,
             text=True,
         ).stdout
-        lines = [line.strip() for line in extracted.splitlines() if line.strip()]
-        assert lines.count("ANGLE") == 1
-        assert lines.count("LEFTWARD") == 1
-        assert all("ANGLE" not in line or line == "ANGLE" for line in lines)
-        assert all("LEFTWARD" not in line or line == "LEFTWARD" for line in lines)
+        # Poppler versions can group adjacent labels on one output line. Each term
+        # must remain one searchable word, rather than being split into characters.
+        words = extracted.split()
+        assert words.count("ANGLE") == 1
+        assert words.count("LEFTWARD") == 1
 
     pdf, text_page, extracted = _pdf_text(pdf_path)
     try:

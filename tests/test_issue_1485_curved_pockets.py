@@ -119,6 +119,7 @@ def test_authored_maximum_depth_survives_alone_with_its_tolerance(curved):
         ({"mouth_at": None}, "finite numbers"),
         ({"mouth_axis": None}, "partial"),
         ({"mouth_radius": float("nan")}, "finite"),
+        ({"mouth_radius": 0}, "positive"),
         ({"mouth_axis": "z"}, "section plane"),
         ({"mouth_radius": 10}, "outside"),
         ({"depth": 11}, "maximum depth"),
@@ -180,6 +181,33 @@ def test_curved_source_rejects_a_false_centroid_intersection(curved):
     interval[index] += 0.5
     source["geometry"]["run_interval"] = interval
     with pytest.raises(ValueError, match="published centroid intersection"):
+        section_recess_pocket_fields(source, schema_version=3)
+
+
+@pytest.mark.parametrize("fault", ["unknown_surface", "two_cylinders", "inward_branch"])
+def test_curved_source_refuses_unsupported_or_contradictory_end_surfaces(curved, fault):
+    from draftwright.section_recess_contract import (
+        UnsupportedSectionRecess,
+        section_recess_pocket_fields,
+    )
+
+    _, _, drawing, _ = curved
+    source = drawing.recognition().section_recesses[0].to_dict()
+    assert section_recess_pocket_fields(source, schema_version=3)["mouth_radius"] == 20
+    ends = source["geometry"]["ends"]
+    cylinder = next(end for end in ends.values() if end["surface"]["type"] == "cylinder")
+    plane = next(end for end in ends.values() if end["surface"]["type"] == "plane")
+    if fault == "unknown_surface":
+        plane["surface"] = {"type": "sphere"}
+        error, match = ValueError, "known surface type"
+    elif fault == "two_cylinders":
+        plane["surface"] = dict(cylinder["surface"])
+        error, match = UnsupportedSectionRecess, "one cylindrical end"
+    else:
+        surface = cylinder["surface"]
+        surface["branch"] = "negative" if surface["branch"] == "positive" else "positive"
+        error, match = ValueError, "open away from its planar floor"
+    with pytest.raises(error, match=match):
         section_recess_pocket_fields(source, schema_version=3)
 
 
