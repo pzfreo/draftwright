@@ -4,6 +4,41 @@
 are documented here because they are part of normal use even though their Python names begin
 with an underscore.
 
+## Checking dimension placement rules
+
+Call `handle.dimension_ids()` to find the measurements a declared feature exposes, then
+query a measurement before choosing its placement controls:
+
+```python
+options = s.dimension_options(hole, "bore.diameter")
+# options["placements"] contains pairs accepted by the planner's placement rules.
+# None means leave that override unspecified.
+
+check = s.validate_dimension(hole, "bore.diameter", view="plan", side="left")
+if check["supported"]:
+    s.dimension(hole, "bore.diameter", view="plan", side="left")
+else:
+    print(check["issues"], check["options"])
+```
+
+Both queries return versioned JSON-ready dictionaries without recording intent, preparing the
+Sheet, recognising geometry or rendering. Use complete view/side pairs: a side supported in one
+view may be unavailable in another. The `axis` argument follows `dimension()`'s parameter-variant
+rules; full parameter ids already name their variant. Location intent currently admits no view
+or side override. Invalid references, unsupported controls and unsupported placement pairs have
+separate structured refusal codes in `validate_dimension()`; `dimension_options()` raises on an
+invalid reference.
+
+The explicit `single_dimension_placement_rules` scope means `supported` reports acceptance by
+the current planner placement rules. Both documents set `requires_build_validation: true`:
+whole-part classification can select a different renderer, so this query does not prove actual
+rendered support. For example, a boss on a turned part can use a different diameter renderer
+from a boss on a prismatic part. Agreement with other authored dimensions, visibility in an
+authored view set, available space, completeness and collision-free placement also require a
+build. Build and lint still assess the resulting Sheet. A
+query never replaces an existing dimension request. Keep the original feature handle for edits;
+these reports do not introduce persistent feature identities or new lane, route or pin controls.
+
 ## Sheet
 
 ::: draftwright.sheet.Sheet
