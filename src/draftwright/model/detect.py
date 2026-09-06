@@ -78,6 +78,7 @@ from b123d_recognisers import (
     recognise_grooves,
     recognise_hole_patterns,
     recognise_holes,
+    recognise_oriented_slot_patterns,
     recognise_paired_ramp_steps,
     recognise_plates,
     recognise_pocket_patterns,
@@ -118,6 +119,8 @@ from draftwright.model.ir import (
     GrooveFeature,
     HoleFeature,
     LevelSupport,
+    OrientedSlotFeature,
+    OrientedSlotPassage,
     PadFeature,
     PairedRampStepFeature,
     PartModel,
@@ -136,6 +139,10 @@ from draftwright.model.ir import (
     StepFeature,
     StepLevelFeature,
     ThroughStepFeature,
+)
+from draftwright.oriented_slot_contract import (
+    oriented_slot_provider_key,
+    standalone_oriented_slots,
 )
 from draftwright.plate_correspondence import plate_owner_dependencies
 from draftwright.recognition_frame import (
@@ -1251,6 +1258,47 @@ def _convert_round_bottom_blind_slot(
     )
 
 
+def _convert_oriented_slot(slot: OrientedSlot, ctx: ConvContext) -> OrientedSlotFeature:
+    """Lower the complete public free-direction record without topology inference."""
+
+    # Validate the exact released outer and nested schema before reading it.  Completeness
+    # uses the same shared boundary, so the adapter cannot accept evidence the observer
+    # rejects (ADR 1 (was 0015) / #1432).
+    oriented_slot_provider_key(slot)
+
+    def vec3(value) -> tuple[float, float, float]:
+        x, y, z = value
+        return (x, y, z)
+
+    def pair2(value) -> tuple[float, float]:
+        x, y = value
+        return (x, y)
+
+    source = slot.source
+    run = vec3(source.frame.run)
+    dominant = max(range(3), key=lambda index: abs(run[index]))
+    passage = OrientedSlotPassage(
+        origin=vec3(source.frame.origin),
+        run=run,
+        u=vec3(source.frame.u),
+        v=vec3(source.frame.v),
+        run_interval=pair2(source.run_interval),
+        boundary=tuple((pair2(vertex.point), vertex.bulge) for vertex in source.section.boundary),
+        low_capped=source.ends.low_capped,
+        high_capped=source.ends.high_capped,
+        body_key=None if slot.body_key is None else tuple(slot.body_key),
+    )
+    return OrientedSlotFeature(
+        frame=Frame(vec3(slot.center), "xyz"[dominant]),
+        width_direction=vec3(slot.width_direction),
+        long_direction=vec3(slot.long_direction),
+        run_direction=run,
+        width=slot.width,
+        length=slot.length,
+        passage=passage,
+    )
+
+
 # Tier 1 — uniform converters: a pure (record, ctx) -> Feature mapping.
 _CONVERTERS: dict[type, Converter] = {
     DoubleDBore: _convert_double_d_bore,
@@ -1273,6 +1321,7 @@ _CONVERTERS: dict[type, Converter] = {
     Groove: _convert_groove,
     RectangularBlindSlot: _convert_rectangular_blind_slot,
     RoundBottomBlindSlot: _convert_round_bottom_blind_slot,
+    OrientedSlot: _convert_oriented_slot,
 }
 
 # Tier 2 — derived converters: not a 1:1 record map. A hole callout groups identical
@@ -1318,11 +1367,6 @@ _UNCONSUMED_RECORDS: dict[type, str] = {
         "an aggregate-reconciled angled blind step whose slanted face has yielded out of "
         "`chamfers`; its available measurements do not choose a truthful general dimension "
         "grammar, so every occurrence has an explicit unsupported completeness outcome (#1247)"
-    ),
-    OrientedSlot: (
-        "a free-axis slot with authoritative SectionPassage correspondence that the legacy "
-        "axis-letter SlotFeature cannot preserve; its dedicated consumer semantics remain "
-        "undecided (#1430)"
     ),
     OrientedSlotArray: (
         "a derived free-axis slot array whose member correspondence and vector pattern plane "
@@ -1655,6 +1699,8 @@ def build_part_model(
     channels=None,
     slots=None,
     slot_patterns=None,
+    oriented_slots=None,
+    oriented_slot_patterns=None,
     risers=None,
     chamfers=None,
     fillets=None,
@@ -1718,6 +1764,11 @@ def build_part_model(
         circular_blind_steps = tuple(circular_blind_steps)
     derive_hole_patterns = holes is not None and patterns is None
     derive_slot_patterns = slots is not None and slot_patterns is None
+    # Pattern projection and conversion share one materialised caller inventory. A
+    # generator would otherwise be exhausted before standalone records reach the adapter.
+    if oriented_slots is not None:
+        oriented_slots = tuple(oriented_slots)
+    derive_oriented_slot_patterns = oriented_slots is not None and oriented_slot_patterns is None
     derive_pocket_patterns = pockets is not None and pocket_patterns is None
     if prof is not _UNSET and profiles is not _UNSET:
         raise ValueError("supply profiles= or the compatible singular prof=, not both")
@@ -1737,6 +1788,8 @@ def build_part_model(
                 channels,
                 slots,
                 slot_patterns,
+                oriented_slots,
+                oriented_slot_patterns,
                 risers,
                 chamfers,
                 fillets,
@@ -1921,6 +1974,12 @@ def build_part_model(
         channels = recognition.channels if channels is None else channels
         slots = recognition.slots if slots is None else slots
         slot_patterns = recognition.slot_patterns if slot_patterns is None else slot_patterns
+        oriented_slots = recognition.oriented_slots if oriented_slots is None else oriented_slots
+        oriented_slot_patterns = (
+            recognition.oriented_slot_patterns
+            if oriented_slot_patterns is None
+            else oriented_slot_patterns
+        )
         risers = recognition.risers if risers is None else risers
         chamfers = recognition.chamfers if chamfers is None else chamfers
         fillets = recognition.fillets if fillets is None else fillets
@@ -1959,6 +2018,8 @@ def build_part_model(
             patterns = recognise_hole_patterns(holes)
         if derive_slot_patterns:
             slot_patterns = recognise_slot_patterns(slots)
+        if derive_oriented_slot_patterns:
+            oriented_slot_patterns = recognise_oriented_slot_patterns(oriented_slots)
         if derive_pocket_patterns:
             pocket_patterns = recognise_pocket_patterns(pockets)
         if prof is _UNSET and profiles is _UNSET:
@@ -2331,6 +2392,18 @@ def build_part_model(
         features.append(slot_feature)
         if ownership is not None:
             ownership.bind(sl, slot_feature, reason_code="slot_adapter")
+
+    # Free-direction through slots have a dedicated IR contract. Pattern members remain owned
+    # by the separately deferred pattern inventory, so they cannot expand into competing lone
+    # callouts while that grouping grammar is still under review (#1432).
+    # Both inventories are guaranteed above: either caller-supplied or projected from the one
+    # aggregate. Do not retain a fallback rescan here — ADR 3 (was 0017) gives recognition one owner.
+    assert oriented_slots is not None
+    assert oriented_slot_patterns is not None
+    for oriented_slot in standalone_oriented_slots(
+        tuple(oriented_slots), tuple(oriented_slot_patterns)
+    ):
+        append_direct(oriented_slot)
 
     # Capped, edge-open rectangular U-section slots (#1421). The aggregate has already
     # reconciled their topology against ordinary through slots, pockets, channels and passage

@@ -16,6 +16,7 @@ from draftwright.linting.fillet_coverage import fillet_requirement_outcomes
 from draftwright.linting.flat_coverage import flat_requirement_outcomes
 from draftwright.linting.groove_coverage import groove_requirement_outcomes
 from draftwright.linting.hole_coverage import hole_requirement_outcomes
+from draftwright.linting.oriented_slot_coverage import oriented_slot_requirement_outcomes
 from draftwright.linting.pad_coverage import pad_requirement_outcomes
 from draftwright.linting.paired_ramp_step_coverage import paired_ramp_step_requirement_outcomes
 from draftwright.linting.plate_coverage import plate_requirement_outcomes
@@ -70,6 +71,9 @@ def recognized_requirement_outcomes(
         "grooves": groove_requirement_outcomes(recognition, features, registry, omissions),
         "holes": [],
         "hole_patterns": [],
+        "oriented_slots": oriented_slot_requirement_outcomes(
+            recognition, features, registry, omissions
+        ),
         "pads": pad_requirement_outcomes(recognition, features, registry, omissions),
         "plates": plate_requirement_outcomes(
             recognition, features, registry, omissions, part=part

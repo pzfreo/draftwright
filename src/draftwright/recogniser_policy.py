@@ -40,14 +40,6 @@ UNSUPPORTED_FAMILIES: Mapping[str, tuple[tuple[str, ...], str, str]] = MappingPr
             "pattern identity. A dedicated consumer contract is being reviewed before any grouping "
             "or dimensions are emitted.",
         ),
-        "oriented-slots": (
-            ("OrientedSlot",),
-            "https://github.com/pzfreo/draftwright/issues/1430",
-            "The record carries free-axis directions and an authoritative SectionPassage source. "
-            "Coercing it into the legacy axis-letter SlotFeature would discard that correspondence, "
-            "so its dedicated IR, Sheet vocabulary, drawing grammar, and completeness denominator "
-            "remain under review.",
-        ),
         "passages": (
             (
                 "Passage",
@@ -84,7 +76,7 @@ UNSUPPORTED_FAMILIES: Mapping[str, tuple[tuple[str, ...], str, str]] = MappingPr
     }
 )
 
-DEFERRED_FAMILIES: frozenset[str] = frozenset({"oriented-slot-patterns", "oriented-slots"})
+DEFERRED_FAMILIES: frozenset[str] = frozenset({"oriented-slot-patterns"})
 
 
 @dataclass(frozen=True)

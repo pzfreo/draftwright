@@ -273,6 +273,18 @@ def test_additive_family_dispositions_are_explicit_and_fail_closed() -> None:
                     "completeness",
                 )
             } == {"supported"}
+        elif family_id == "oriented-slots":
+            assert declaration["disposition"] == "supported"
+            assert {
+                declaration[b]["state"]
+                for b in (
+                    "ir_adapter",
+                    "dsl_declaration",
+                    "generated_code",
+                    "drawing_consumer",
+                    "completeness",
+                )
+            } == {"supported"}
         else:
             assert all(record["schema_version"] == 1 for record in package_family["records"])
             assert declaration["record_schemas"] == {name: [1] for name in contract["records"]}
@@ -1282,6 +1294,7 @@ def test_dsl_and_generated_code_inventories_are_derived_from_live_code() -> None
         "risers": "step_level",
         "slot-patterns": "slot_pattern",
         "slots": "slot",
+        "oriented-slots": "oriented_slot",
         "through-steps": "through_step",
         "turned-steps": "step",
     }

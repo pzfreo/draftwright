@@ -75,6 +75,7 @@ _LAYERS: dict[str, int] = {
     # every invocation.
     "_warnings": 0,
     "fits": 0,
+    "feature_identity": 0,
     "fonts": 0,
     "layout": 0,
     "registry": 0,
@@ -94,6 +95,7 @@ _LAYERS: dict[str, int] = {
     "recognition_frame": 0,
     # Strict shared validator for the released provider Blend record and its occurrence key.
     "blend_contract": 0,
+    "oriented_slot_contract": 0,
     "score": 0,  # census over recognition/ only — a leaf beside the recognisers (#704)
     # audit: diffs two FINISHED drawings through their public reads (#996). A leaf by
     # construction — it imports nothing from the engine, so the thing it measures can never
@@ -464,12 +466,15 @@ _MODEL_MAY_IMPORT = {
     "_geometry",
     "blend_contract",
     "fits",
+    # Exact compiler type branding without a linting -> model edge (#1432).
+    "feature_identity",
     "fonts",
     "layout",
     "model",
     "plate_correspondence",
     "recognition",
     "recognition_frame",
+    "oriented_slot_contract",
     # ADR 3 (was 0017 Amendment 12): detect records exact run-local occurrence→IR ownership at the
     # conversion site. The leaf ledger depends on neither the model nor any upper stage.
     "recognition_ownership",

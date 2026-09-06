@@ -12,7 +12,8 @@ The dependency graph is a DAG (the #138 / ADR 1 (was 0005) split is complete). B
 top: leaf modules (`layout.py`, `registry.py`, `fonts.py`, `_geometry.py`,
 `fits.py`, `intents.py`, `recognition_cache.py`, `recognition_ownership.py`,
 `plate_correspondence.py`, `recogniser_policy.py`, `recogniser_schema.py`,
-`recognition_frame.py`, and the strict `blend_contract.py` provider-record boundary) →
+`recognition_frame.py`, `oriented_slot_contract.py`, `feature_identity.py`, and the strict
+`blend_contract.py` provider-record boundary) →
 `_core.py` → stage modules (`export.py`,
 `repair.py`, `projection.py`, `compose.py`, `analysis.py`, `drawing.py`, `reporting.py`,
 the `linting/` subpackage, the `model/` IR subpackage, the `annotations/` subpackage) →
@@ -246,6 +247,12 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   `Blend` path records.
   It rejects widened, mutable, non-finite, non-canonical, and unreleased values and owns the
   exact occurrence key shared by conversion and completeness lint.
+- **`oriented_slot_contract.py` / `feature_identity.py`** — the #1432 trust-boundary leaves.
+  The former shares exact released schema validation between detection and independent
+  completeness, with geometric correspondence keys separate from same-run occurrence identity.
+  The latter registers exact compiler feature, passage and frame classes so lint can reject
+  same-named ducks without the
+  ADR 1 (was 0015)-forbidden `linting` → `model` import.
 - **`recogniser_contract.py`** — the fail-closed cross-repository capability join. It consumes
   only the installed `b123d-recognisers` public manifest and rank-0 consumer policy, then validates
   Draftwright-owned IR,

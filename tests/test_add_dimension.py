@@ -1277,6 +1277,25 @@ class TestEveryFeatureVerbIsNameable:
         ),
         "step": dict(diameter=20, length=10, at=(0, 0, 0), axis="z"),
         "slot": dict(width=8, length=20, long_axis="x", width_axis="y", w_center=0, lo=-10, hi=10),
+        "oriented_slot": dict(
+            width=8,
+            length=20,
+            center=(0, 0, 0),
+            width_direction=(-0.5, 0.8660254037844386, 0),
+            long_direction=(0.8660254037844386, 0.5, 0),
+            run_direction=(0, 0, 1),
+            source_origin=(0, 0, 0),
+            source_u=(1, 0, 0),
+            source_v=(0, 1, 0),
+            run_interval=(-5, 5),
+            source_boundary=(
+                ((-10.660254037844386, -1.5358983848622456), 0),
+                ((-6.660254037844386, -8.464101615137753), 0),
+                ((10.660254037844386, 1.5358983848622456), 0),
+                ((6.660254037844386, 8.464101615137753), 0),
+            ),
+            body_key=(),
+        ),
         "pocket": dict(
             width=8, length=20, depth=4, long_axis="x", width_axis="y", w_center=0, lo=-10, hi=10
         ),

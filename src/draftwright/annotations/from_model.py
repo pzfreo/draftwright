@@ -3165,6 +3165,16 @@ def _slot_label(width_text, length_text, wsfx="", lsfx="") -> str:
     return f"SLOT {width_text}{wsfx} × {length_text}{lsfx}"
 
 
+def _oriented_slot_label(width, length, draft) -> str:
+    """Name each approved free-direction slot parameter without positional ambiguity."""
+    terms = []
+    if width is not None:
+        terms.append(f"{width.value_text}{_tol_suffix(width.tolerance, draft)} WIDE")
+    if length is not None:
+        terms.append(f"{length.value_text}{_tol_suffix(length.tolerance, draft)} LONG")
+    return "ORIENTED SLOT " + " × ".join(terms)
+
+
 # Unit lead directions. Diagonals remain first as the stable tie-break, while #740's
 # within-pass assignment normally selects the shortest jointly compatible ray.
 _POCKET_LEAD_DIRS = (
@@ -3256,6 +3266,7 @@ def _radial_candidates(
     *,
     rim=0.0,
     source_bounds=None,
+    source_polygon=None,
     directions=_POCKET_LEAD_DIRS,
     provenance=None,
 ):
@@ -3267,19 +3278,28 @@ def _radial_candidates(
     so a boss ø leader's arrowhead lands on the boss circle rather than its centre
     (#629/#700). ``source_bounds`` instead advances to the edge of a rectangular feature
     opening; a pocket leader starting at its centre crosses both the pocket rim and the outer
-    silhouette, while a rim tip has only the one legitimate outward exit (#916). Yields
+    silhouette, while a rim tip has only the one legitimate outward exit (#916).
+    ``source_polygon`` is the corresponding exact projected opening for a non-axis-aligned
+    feature; unlike an AABB it keeps the arrow on the physical rim. Yields
     ``(tip, elbow, feature)`` (same feature each time); #740 assigns the jointly compatible
     set with minimum total length, using this direction order only as the final tie-break."""
     x0, y0, x1, y1 = vb
     origin = dwg.at(view, *feature.frame.origin)
+    if source_polygon is not None:
+        origin = tuple(
+            sum(point[index] for point in source_polygon) / len(source_polygon) for index in (0, 1)
+        )
     for dx, dy in directions:
         d = math.hypot(dx, dy)
         ux, uy = dx / d, dy / d
-        tip_offset = (
-            _ray_exit_dist(origin[0], origin[1], ux, uy, source_bounds)
-            if source_bounds is not None
-            else rim
-        )
+        if source_polygon is not None:
+            tip_offset = _ray_polygon_exit_dist(origin, (ux, uy), source_polygon)
+            if tip_offset is None:
+                continue
+        elif source_bounds is not None:
+            tip_offset = _ray_exit_dist(origin[0], origin[1], ux, uy, source_bounds)
+        else:
+            tip_offset = rim
         tip = (origin[0] + ux * tip_offset, origin[1] + uy * tip_offset)
         exit_d = _ray_exit_dist(tip[0], tip[1], ux, uy, (x0, y0, x1, y1))
         elbow = (tip[0] + ux * (exit_d + reach), tip[1] + uy * (exit_d + reach), 0)
@@ -3419,6 +3439,56 @@ def _rectangular_rim_bounds(
         max(point[0] for point in points),
         max(point[1] for point in points),
     )
+
+
+def _ray_polygon_exit_dist(origin, direction, polygon) -> float | None:
+    """Nearest non-negative intersection of a ray from inside a projected polygon."""
+    ox, oy = origin[:2]
+    dx, dy = direction
+    hits = []
+    for start, end in zip(polygon, polygon[1:] + polygon[:1], strict=True):
+        sx, sy = start[:2]
+        ex, ey = end[:2]
+        edge_x, edge_y = ex - sx, ey - sy
+        denominator = dx * edge_y - dy * edge_x
+        if abs(denominator) <= 1e-12:
+            continue
+        offset_x, offset_y = sx - ox, sy - oy
+        distance = (offset_x * edge_y - offset_y * edge_x) / denominator
+        fraction = (offset_x * dy - offset_y * dx) / denominator
+        if distance >= -1e-9 and -1e-9 <= fraction <= 1.0 + 1e-9:
+            hits.append(max(0.0, distance))
+    return min(hits) if hits else None
+
+
+def _oriented_slot_rim_polygon(dwg, view, feature):
+    """Project the provider-owned section boundary into the selected page view."""
+    passage = feature.passage
+    # Recover the camera-facing normal from the actual page projection. The midpoint
+    # section lies inside the passage; after a tilt its projection is not an opening rim.
+    page_origin = dwg.at(view, 0, 0, 0)
+    basis = [dwg.at(view, *point) for point in ((1, 0, 0), (0, 1, 0), (0, 0, 1))]
+    right, up = (tuple(point[index] - page_origin[index] for point in basis) for index in (0, 1))
+    facing = (
+        right[1] * up[2] - right[2] * up[1],
+        right[2] * up[0] - right[0] * up[2],
+        right[0] * up[1] - right[1] * up[0],
+    )
+    near_high = sum(passage.run[index] * facing[index] for index in range(3)) > 0
+    station = passage.run_interval[1 if near_high else 0]
+    section_origin = tuple(
+        passage.origin[index] + station * passage.run[index] for index in range(3)
+    )
+    points = []
+    for (u_coordinate, v_coordinate), _bulge in passage.boundary:
+        point = tuple(
+            section_origin[index]
+            + u_coordinate * passage.u[index]
+            + v_coordinate * passage.v[index]
+            for index in range(3)
+        )
+        points.append(dwg.at(view, *point)[:2])
+    return tuple(points)
 
 
 def _leader_hole_clearance(
@@ -3604,6 +3674,60 @@ def render_rectangular_blind_slots(dwg, plan, a, *, ctx, only=None) -> int:
         jobs,
         noun="rectangular blind slot",
         drop_code="rectangular_blind_slot_dropped",
+        ctx=ctx,
+        joint=True,
+    )
+
+
+def render_oriented_slots(dwg, plan, a, *, ctx, only=None) -> int:
+    """Place one compiler-approved, solver-owned callout per standalone oriented slot."""
+    draft = dwg.draft
+    reach = _leader_callout_reach(draft)
+    jobs = []
+    groups = sorted(
+        plan.of_kind("oriented_slot"),
+        key=lambda group: (group.facts.frame.axis, group.facts.frame.origin),
+    )
+    for index, group in enumerate(groups):
+        if only is not None and group.ref not in only:
+            continue
+        by_key = {(dimension.role, dimension.kind): dimension for dimension in group.dims}
+        width = by_key.get(("oriented_slot_width", "length"))
+        length = by_key.get(("oriented_slot_length", "length"))
+        if width is None and length is None:
+            continue
+        facts = group.facts
+        view = _END_ON.get(facts.frame.axis)
+        if view is None:
+            continue
+        bounds = dwg.view_bounds(view)
+        if bounds is None:
+            continue
+        source_polygon = _oriented_slot_rim_polygon(dwg, view, facts)
+        jobs.append(
+            (
+                f"m_oriented_slot_{facts.frame.axis}_{index}",
+                view,
+                bounds,
+                _oriented_slot_label(width, length, draft),
+                _radial_candidates(
+                    dwg,
+                    view,
+                    bounds,
+                    facts,
+                    reach,
+                    source_polygon=source_polygon,
+                    provenance=group.ref,
+                ),
+                tuple(dimension.id for dimension in (width, length) if dimension is not None),
+            )
+        )
+    return place_machined_leader_jobs(
+        dwg,
+        a,
+        jobs,
+        noun="oriented slot",
+        drop_code="oriented_slot_dropped",
         ctx=ctx,
         joint=True,
     )

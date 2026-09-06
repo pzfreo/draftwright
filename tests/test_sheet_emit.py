@@ -158,6 +158,12 @@ def _rectangular_blind_slot():
     return stock - tool
 
 
+def _oriented_slot_part():
+    """One standalone free-axis slot, not an array member (#1432)."""
+    cutter = Rot(0, 0, 30) * Box(24, 6, 20, align=(Align.CENTER, Align.CENTER, Align.CENTER))
+    return Box(120, 90, 10) - cutter
+
+
 def _round_bottom_blind_slot():
     width, radius, length = 10.0, 3.0, 20.0
     half_width = width / 2
@@ -374,11 +380,16 @@ class TestEmit:
         # measurement bug the old assertion guarded no longer exists. What #536 actually
         # protects is unchanged and still checked below: the script must not carry 1170.
         step = Path(__file__).parent / "fixtures" / "nist_ctc_01_asme1_ap203.stp"
-        py = generate_sheet_script(str(step), out=str(tmp_path / "ctc01"))
+        py = generate_sheet_script(str(step), out=str(tmp_path / "ctc01-1170-650"))
         src = Path(py).read_text(encoding="utf-8")
         assert "sheet.envelope()" in src, "the whole-part envelope should emit the verb"
-        assert "1170" not in src, "the raw import's bbox leaked into the script"
-        assert "650" not in src
+        # Output paths may contain these digits; only numeric code literals are dimensions.
+        numbers = {
+            node.value
+            for node in ast.walk(ast.parse(src))
+            if isinstance(node, ast.Constant) and type(node.value) in (int, float)
+        }
+        assert not numbers & {1170, 650}, "the raw import's bbox leaked into the script"
 
         # ...and the verb genuinely rebuilds 800 × 450, rather than merely not saying 1170.
         ns: dict = {}
@@ -2571,6 +2582,7 @@ class TestTheDimensionMirror:
             "through step": _through_step(),
             "rectangular blind slot": _rectangular_blind_slot(),
             "round-bottom blind slot": _round_bottom_blind_slot(),
+            "oriented slot": _oriented_slot_part(),
             "flat": Cylinder(10, 30) - Pos(10, 0, 0) * Box(10, 40, 40),  # D-shaft
             "groove": Cylinder(10, 40) - (Cylinder(10, 4) - Cylinder(8, 4)),  # circlip groove
             "plate": Box(80, 50, 8) + Pos(-36, 0, 29) * Box(8, 50, 50),  # base + upright
@@ -2617,6 +2629,7 @@ class TestTheDimensionMirror:
         "through step": {"through_step"},
         "rectangular blind slot": {"rectangular_blind_slot"},
         "round-bottom blind slot": {"round_bottom_blind_slot"},
+        "oriented slot": {"oriented_slot"},
         "flat": {"flat"},
         "groove": {"groove"},
         "plate": {"plate"},
@@ -2910,6 +2923,7 @@ _KIND_MIRROR_COVERAGE = {
     "pocket": "corpus",
     "rectangular_blind_slot": "corpus",
     "round_bottom_blind_slot": "corpus",
+    "oriented_slot": "corpus",
     "pad": "corpus",
     "envelope": "corpus",
     "rotational": "corpus",
@@ -3426,6 +3440,7 @@ _FIDELITY_ROUTE = {
     "through_step": ("detected", "through step"),
     "rectangular_blind_slot": ("detected", "rectangular blind slot"),
     "round_bottom_blind_slot": ("detected", "round-bottom blind slot"),
+    "oriented_slot": ("detected", "standalone free-axis oriented slot"),
     "flat": ("detected", "flat"),
     "groove": ("detected", "groove"),
     "rotational": ("detected", "turned shaft"),
@@ -3684,6 +3699,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
             "through step": _through_step(),
             "rectangular blind slot": _rectangular_blind_slot(),
             "round-bottom blind slot": _round_bottom_blind_slot(),
+            "oriented slot": _oriented_slot_part(),
             "flat": Cylinder(10, 30) - Pos(10, 0, 0) * Box(10, 40, 40),
             "groove": Cylinder(10, 40) - (Cylinder(10, 4) - Cylinder(8, 4)),
             "pad": Box(80, 60, 10) + Pos(0, 0, 7) * Box(30, 20, 4),
@@ -3748,6 +3764,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
         "through step": {"through_step"},
         "rectangular blind slot": {"rectangular_blind_slot"},
         "round-bottom blind slot": {"round_bottom_blind_slot"},
+        "oriented slot": {"oriented_slot"},
         "flat": {"flat"},
         "groove": {"groove"},
         "pad": {"pad"},

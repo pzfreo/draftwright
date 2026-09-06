@@ -114,6 +114,7 @@ from draftwright.linting import (
     lint_groove_coverage,
     lint_hole_coverage,
     lint_location_coverage,
+    lint_oriented_slot_coverage,
     lint_pad_coverage,
     lint_paired_ramp_step_coverage,
     lint_passage_coverage,
@@ -359,6 +360,7 @@ _MACHINED_CALLOUT_KINDS = (
     "pocket",
     "rectangular_blind_slot",
     "round_bottom_blind_slot",
+    "oriented_slot",
     "pad",
     "groove",
 )
@@ -1918,6 +1920,7 @@ class Drawing:
                 render_fillets,
                 render_flats,
                 render_grooves,
+                render_oriented_slots,
                 render_pad_heights,
                 render_paired_ramp_steps,
                 render_pockets,
@@ -1935,6 +1938,7 @@ class Drawing:
                 "pocket": render_pockets,
                 "rectangular_blind_slot": render_rectangular_blind_slots,
                 "round_bottom_blind_slot": render_round_bottom_blind_slots,
+                "oriented_slot": render_oriented_slots,
                 "pad": render_pad_heights,
                 "groove": render_grooves,
             }
@@ -2604,6 +2608,7 @@ class Drawing:
             render_height_ladder,
             render_local_turned_centerlines,
             render_locations,
+            render_oriented_slots,
             render_pad_heights,
             render_paired_ramp_steps,
             render_pockets,
@@ -2960,6 +2965,9 @@ class Drawing:
         def _s_round_bottom_blind_slots():
             _s_machined("round_bottom_blind_slot", render_round_bottom_blind_slots)
 
+        def _s_oriented_slots():
+            _s_machined("oriented_slot", render_oriented_slots)
+
         def _s_pad_heights():
             _s_machined("pad", render_pad_heights)
 
@@ -3142,6 +3150,7 @@ class Drawing:
                 "pockets": _s_pockets,
                 "rectangular_blind_slots": _s_rectangular_blind_slots,
                 "round_bottom_blind_slots": _s_round_bottom_blind_slots,
+                "oriented_slots": _s_oriented_slots,
                 "pad_heights": _s_pad_heights,
                 "grooves": _s_grooves,
                 "feature_leaders": _s_feature_leaders,
@@ -3907,6 +3916,14 @@ class Drawing:
                 assembly=self.assembly,
             )
             issues += lint_round_bottom_blind_slot_coverage(
+                working_part,
+                recognition=recognition,
+                features=getattr(model, "features", ()) if model is not None else (),
+                registry=self._registry,
+                omissions=self._build.omissions,
+                assembly=self.assembly,
+            )
+            issues += lint_oriented_slot_coverage(
                 working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),

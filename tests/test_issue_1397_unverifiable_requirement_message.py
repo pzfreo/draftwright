@@ -210,7 +210,7 @@ def test_no_module_can_both_record_the_sentinel_and_print_it_raw():
     """The pairing that IS the defect: a module that mints the sentinel must not print it.
 
     Nine copies of one sentence produced nine copies of one defect, so the guard has to see a
-    tenth. It is deliberately not "no module may interpolate `parameter_id`": six coverage
+    tenth. It is deliberately not "no module may interpolate `parameter_id`": seven coverage
     modules do that and are correct, because none of them ever records the sentinel — their
     outcomes always carry a real id. Converting those would be churn against no defect.
 
@@ -237,9 +237,13 @@ def test_no_module_can_both_record_the_sentinel_and_print_it_raw():
     # Both halves must be able to fire, or the intersection above is empty for the wrong
     # reason. These are exact counts, not floors: a floor of ">= 9" stayed green when one
     # module stopped minting, and ">= 6" would have forbidden legitimately converting one of
-    # the six. If either number changes, this test should be read, not bumped.
+    # the seven. If either number changes, this test should be read, not bumped.
     assert len(mints) == 10, mints
-    assert len(prints_raw) == 6, prints_raw
+    # Oriented slots always retain the two named width/length requirements, including
+    # corrupt-source outcomes; they never mint the unjoined-parameter sentinel.
+    assert "oriented_slot_coverage.py" in prints_raw
+    assert "oriented_slot_coverage.py" not in mints
+    assert len(prints_raw) == 7, prints_raw
     assert "turned_step_coverage.py" in mints, "the one minting module that builds no message"
     assert "hole_coverage.py" in mints and "hole_coverage.py" not in prints_raw
 

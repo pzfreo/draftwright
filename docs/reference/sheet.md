@@ -345,3 +345,13 @@ with the canonical feature diameter, using the same rule as planning. A larger m
 keeps the original source value and identity in a blocked dimension; it does not replace
 the canonical value or crash planning. Generated Sheet scripts retain the blocker, and
 `authored_dim_source_unresolved` reports the withheld source dimension through lint.
+
+### Oriented through-slots
+
+`Sheet.oriented_slot(...)` declares a rectangular through-slot with explicit width, long and
+run directions and its retained passage geometry. Its two independently addressable
+measurements are `oriented_slot_width.length` and `oriented_slot_length.length`; generated
+Sheet scripts preserve those directions and the passage. The current drawing grammar requires
+both run ends to be open and perpendicular to the run. Automatic conversion rejects a source
+with a nonzero end-plane gradient, because the IR cannot retain that slope and a flat opening
+would put the leader on the wrong physical rim.
