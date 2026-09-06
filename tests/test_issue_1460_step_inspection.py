@@ -65,6 +65,7 @@ _EXPECTED_ENGINE_MODULES = frozenset(
         "draftwright.analysis",
         "draftwright.blend_contract",
         "draftwright.oriented_slot_contract",
+        "draftwright.section_recess_contract",  # pure validated pattern projection during detect
         "draftwright.builder",
         "draftwright.compose",
         "draftwright.inspection",

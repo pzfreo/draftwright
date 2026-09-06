@@ -776,18 +776,9 @@ class TestFilletTolerance:
         ]
         assert labels == ["R8"], labels
 
-    def test_collapse_with_conflicting_tolerances_states_neither(self):
-        # This asserted the opposite until #1216 review r10 (F8): when equal-radius fillets
-        # with DIFFERENT authored tolerances shared one n×R callout, the "first-AUTHORED
-        # tolerance wins" — so a sheet with one fillet at ±0.1 and one at ±0.5 printed
-        # `2× R8 ±0.1` and claimed the tighter band of the looser fillet. The choice of WHICH
-        # tolerance wins was carefully deterministic and the answer was still false.
-        #
-        # One `n×` mark states one value for every member it collapses, so a ± on it claims
-        # that band of each of them: it is honest only when they all carry it. That is the rule
-        # `_pitch_text` applies to a collapsed pattern pitch and the one `render_height_ladder`
-        # applies to its `N× rise` representative ("a ± here would claim the author's tolerance
-        # of every level"). The collapse now applies it too, and reports what it withheld.
+    def test_equal_radii_with_distinct_tolerances_keep_each_authored_band(self):
+        # Equal radii do not make different requirements interchangeable. Each separate
+        # callout must carry its own feature's band, rather than a shared or withheld one.
         plate = Box(90, 60, 20)
         es = plate.edges().filter_by(Axis.Z).sort_by(lambda e: e.center().X + e.center().Y)
         part = b3d_fillet([es[0], es[-1]], 8)
@@ -802,7 +793,7 @@ class TestFilletTolerance:
         labels = [
             dwg.get_annotation(n).label for n in dwg.annotations() if n.startswith("m_fillet")
         ]
-        assert labels == ["2× R8"], labels
+        assert sorted(labels) == ["R8 ±0.1", "R8 ±0.5"], labels
         # The precondition, so this is not passing because the tolerances never arrived: both
         # were approved, and they differ.
         from draftwright.model.compiled import compile_dimensions
@@ -813,11 +804,13 @@ class TestFilletTolerance:
             for dim in group.dims
         ]
         assert sorted(t for t in radii if t is not None) == [0.1, 0.5], radii
-        # And withholding is not silent.
-        assert [i for i in dwg.lint() if i.code == "collapsed_tolerance_withheld"], (
-            f"the collapse dropped both authored bands and said nothing: "
-            f"{[(i.severity, i.code) for i in dwg.lint()]}"
-        )
+        for feature, expected in ((f_pp, "R8 ±0.1"), (f_mm, "R8 ±0.5")):
+            assert [
+                dwg.get_annotation(name).label
+                for name in dwg.annotations_of(feature)
+                if name.startswith("m_fillet")
+            ] == [expected]
+        assert not [i for i in dwg.lint() if i.code == "collapsed_tolerance_withheld"]
 
     def test_collapse_with_one_shared_tolerance_still_states_it(self):
         # The other side: when every collapsed member carries the SAME band, the `n×` mark

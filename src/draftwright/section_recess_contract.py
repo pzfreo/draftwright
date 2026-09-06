@@ -9,13 +9,17 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import fields, is_dataclass, replace
-from math import dist, isfinite
+from math import dist, isfinite, sqrt
 
 from quiddity import (
     ClosedSectionProfile,
+    CylindricalEndSurface,
     OpenSectionProfile,
     PassageFrame,
     PassageSectionVertex,
+    PlanarEndSurface,
+    PlanarEndTerm,
+    PlanarEnvelopeEndSurface,
     SectionEnd,
     SectionRecess,
     SectionRecessArray,
@@ -64,9 +68,9 @@ def _section_axis(vector: tuple[float, ...]) -> tuple[int, int]:
 
 
 def section_recess_pocket_fields(record: Mapping, *, schema_version: int) -> dict:
-    """Validate the schema-2 pocket projection and return consumer geometry fields."""
+    """Validate the schema-3 pocket projection and return consumer geometry fields."""
 
-    if type(schema_version) is not int or schema_version != 2:
+    if type(schema_version) is not int or schema_version != 3:
         raise ValueError("unsupported SectionRecess schema version")
     row = _section_object(
         record, {"index", "body", "geometry", "classification", "evidence"}, "occurrence"
@@ -114,10 +118,30 @@ def section_recess_pocket_fields(record: Mapping, *, schema_version: int) -> dic
         raise ValueError("run interval must increase")
     ends = _section_object(geometry["ends"], {"low", "high"}, "ends")
     conditions = []
+    curved = []
     for key in ("low", "high"):
-        end = _section_object(ends[key], {"condition", "gradient"}, "end")
+        end = _section_object(ends[key], {"condition", "surface"}, "end")
+        surface = end["surface"]
+        if not isinstance(surface, Mapping) or surface.get("type") not in ("plane", "cylinder"):
+            raise ValueError("end requires a known surface type")
         conditions.append(end["condition"])
-        if any(_section_numbers(end["gradient"], 2, "end gradient")):
+        if surface["type"] == "cylinder":
+            surface = _section_object(
+                surface, {"type", "axis_point", "axis_direction", "radius", "branch"}, "cylinder"
+            )
+            cx, cy, cz = _section_numbers(surface["axis_point"], 3, "cylinder axis point")
+            dx, dy = _section_numbers(surface["axis_direction"], 2, "cylinder direction")
+            cylindrical = CylindricalEndSurface(
+                type="cylinder",
+                axis_point=(cx, cy, cz),
+                axis_direction=(dx, dy),
+                radius=_section_numbers((surface["radius"],), 1, "cylinder radius")[0],
+                branch=surface["branch"],
+            )
+            curved.append((key, cylindrical))
+            continue
+        surface = _section_object(surface, {"type", "gradient"}, "plane")
+        if any(_section_numbers(surface["gradient"], 2, "end gradient")):
             raise UnsupportedSectionRecess("pocket requires perpendicular run ends")
     if sorted(conditions, key=str) != ["capped", "open"]:
         raise ValueError("pocket requires exactly one capped and one open end")
@@ -138,7 +162,8 @@ def section_recess_pocket_fields(record: Mapping, *, schema_version: int) -> dic
     points = []
     for item in boundary:
         vertex = _section_object(item, {"point", "bulge"}, "profile vertex")
-        point = _section_numbers(vertex["point"], 2, "profile point")
+        px, py = _section_numbers(vertex["point"], 2, "profile point")
+        point = (px, py)
         if _section_numbers([vertex["bulge"]], 1, "bulge")[0] != 0:
             raise UnsupportedSectionRecess("curved profiles need their own drafting semantics")
         points.append(point)
@@ -160,15 +185,55 @@ def section_recess_pocket_fields(record: Mapping, *, schema_version: int) -> dic
     if any(sum(a[i] != b[i] for i in range(2)) != 1 for a, b in zip(chain, chain[1:])):
         raise UnsupportedSectionRecess("profile contains a diagonal or crossing support")
 
-    return _pocket_from_bounds(
-        origin,
-        run,
-        u,
-        v,
-        (low, high),
-        bounds,
-        edge_anchored=edge_anchored,
-        open_high=conditions[1] == "open",
+    mouth = {}
+    if curved:
+        if edge_anchored or len(curved) != 1:
+            raise UnsupportedSectionRecess(
+                "curved mouth requires one cylindrical end on a closed pocket"
+            )
+        end_name, cylinder = curved[0]
+        high_open = end_name == "high"
+        if conditions[int(high_open)] != "open" or cylinder.branch != (
+            "positive" if high_open else "negative"
+        ):
+            raise ValueError("cylindrical pocket mouth must open away from its planar floor")
+        if round(cylinder.height((0.0, 0.0)), 3) != (high if high_open else low):
+            raise ValueError(
+                "cylindrical mouth must agree with its published centroid intersection"
+            )
+        mouth_low, mouth_high = cylinder.polygon_height_bounds(tuple(points))
+        if (mouth_low <= low) if high_open else (mouth_high >= high):
+            raise ValueError(
+                "cylindrical pocket requires positive depth over its complete profile"
+            )
+        world_direction = tuple(
+            cylinder.axis_direction[0] * u[i] + cylinder.axis_direction[1] * v[i] for i in range(3)
+        )
+        mouth_axis, _ = _section_axis(world_direction)
+        mouth_at = [
+            origin[i]
+            + cylinder.axis_point[0] * u[i]
+            + cylinder.axis_point[1] * v[i]
+            + cylinder.axis_point[2] * run[i]
+            for i in range(3)
+        ]
+        mouth_at[mouth_axis] = 0.0
+        mouth = dict(
+            mouth_axis="xyz"[mouth_axis], mouth_radius=cylinder.radius, mouth_at=tuple(mouth_at)
+        )
+        low, high = (low, mouth_high) if high_open else (mouth_low, high)
+    return dict(
+        **_pocket_from_bounds(
+            origin,
+            run,
+            u,
+            v,
+            (low, high),
+            bounds,
+            edge_anchored=edge_anchored,
+            open_high=conditions[1] == "open",
+        ),
+        **mouth,
     )
 
 
@@ -219,6 +284,10 @@ _PUBLIC_RECORDS = frozenset(
         SectionRecessEvidence,
         SectionRecessEnds,
         SectionEnd,
+        PlanarEndSurface,
+        PlanarEndTerm,
+        PlanarEnvelopeEndSurface,
+        CylindricalEndSurface,
         PassageFrame,
         ClosedSectionProfile,
         OpenSectionProfile,
@@ -246,6 +315,14 @@ def _validate_public_value(value: object) -> None:
         raise TypeError("SectionRecess must contain exact public record and primitive types")
 
 
+def perpendicular_recess_ends(ends: SectionRecessEnds) -> bool:
+    """Whether both published ends are planes normal to the run direction."""
+    return all(
+        type(end.surface) is PlanarEndSurface and end.surface.gradient == (0.0, 0.0)
+        for end in (ends.low, ends.high)
+    )
+
+
 def section_recess_fields(source: object) -> tuple[str, dict]:
     """Return bounded existing drafting semantics, or an explicit unsupported result.
 
@@ -261,12 +338,14 @@ def section_recess_fields(source: object) -> tuple[str, dict]:
     shape = source.classification.section_shape
     if (kind, shape) == ("pocket", "obround"):
         return "pocket", _obround_pocket_fields(source)
+    if (kind, shape) == ("pocket", "general"):
+        return "pocket", _rounded_rectangle_pocket_fields(source)
     if (kind, shape) in (("pocket", "rectangular"), ("edge_open_recess", "polygonal")):
-        return "pocket", section_recess_pocket_fields(source.to_dict(), schema_version=2)
+        return "pocket", section_recess_pocket_fields(source.to_dict(), schema_version=3)
     if kind not in ("edge_open_recess", "channel"):
         raise UnsupportedSectionRecess("profile has no supported drafting grammar")
     geometry = source.geometry
-    if any((*geometry.ends.low.gradient, *geometry.ends.high.gradient)):
+    if not perpendicular_recess_ends(geometry.ends):
         raise UnsupportedSectionRecess("drafting grammar requires perpendicular run ends")
     frame = geometry.frame
     origin = frame.origin
@@ -455,10 +534,25 @@ def section_recess_pattern_members(pattern, records: tuple) -> tuple[SectionRece
     return members
 
 
+def distinct_section_recess_patterns(patterns, inventory) -> tuple:
+    """Coalesce identical pattern assertions over the same original occurrence indices.
+
+    Validate every supplied record first. Equality of complete public pattern records can
+    remove repeated assertions; overlapping or conflicting memberships remain distinct.
+    The original aggregate and its member occurrences are never rewritten.
+    """
+    result = []
+    for pattern in patterns:
+        section_recess_pattern_members(pattern, inventory)
+        if pattern not in result:
+            result.append(pattern)
+    return tuple(result)
+
+
 def _obround_pocket_fields(source: SectionRecess) -> dict:
     """Measure an exact straight-sided capsule from its two published semicircular ends."""
     geometry = source.geometry
-    if any((*geometry.ends.low.gradient, *geometry.ends.high.gradient)):
+    if not perpendicular_recess_ends(geometry.ends):
         raise UnsupportedSectionRecess("obround pocket requires perpendicular run ends")
     vertices = geometry.profile.boundary
     if len(vertices) != 4 or sorted(v.bulge for v in vertices) != [0.0, 0.0, 1.0, 1.0]:
@@ -516,3 +610,105 @@ def _obround_pocket_fields(source: SectionRecess) -> dict:
         edge_anchored=False,
         open_high=geometry.ends.high.condition == "open",
     )
+
+
+def _rounded_rectangle_pocket_fields(source: SectionRecess) -> dict:
+    """Lower four equal quarter-circle corners with their intervening straight sides."""
+    geometry = source.geometry
+    if not perpendicular_recess_ends(geometry.ends):
+        raise UnsupportedSectionRecess("rounded pocket requires perpendicular run ends")
+    vertices = geometry.profile.boundary
+    if type(geometry.profile) is not ClosedSectionProfile or len(vertices) != 8:
+        raise UnsupportedSectionRecess("general pocket requires a rounded rectangular profile")
+    points = tuple(vertex.point for vertex in vertices)
+    x0, x1 = min(p[0] for p in points), max(p[0] for p in points)
+    y0, y1 = min(p[1] for p in points), max(p[1] for p in points)
+    arcs = [i for i, vertex in enumerate(vertices) if vertex.bulge != 0]
+    quarter = 0.414213562373
+    if len(arcs) != 4 or any(vertices[i].bulge != quarter for i in arcs):
+        raise UnsupportedSectionRecess("rounded pocket requires four equal quarter arcs")
+    first, following = points[arcs[0]], points[(arcs[0] + 1) % 8]
+    radius = abs(following[0] - first[0])
+    if radius <= 0 or 2 * radius >= min(x1 - x0, y1 - y0):
+        raise UnsupportedSectionRecess("rounded pocket requires positive straight sides")
+    expected = (
+        ((x0, y0 + radius), quarter),
+        ((x0 + radius, y0), 0.0),
+        ((x1 - radius, y0), quarter),
+        ((x1, y0 + radius), 0.0),
+        ((x1, y1 - radius), quarter),
+        ((x1 - radius, y1), 0.0),
+        ((x0 + radius, y1), quarter),
+        ((x0, y1 - radius), 0.0),
+    )
+    if not any(
+        all(
+            dist(vertex.point, expected[(i + shift) % 8][0]) <= 1e-9
+            and vertex.bulge == expected[(i + shift) % 8][1]
+            for i, vertex in enumerate(vertices)
+        )
+        for shift in range(8)
+    ):
+        raise UnsupportedSectionRecess("rounded pocket boundary must have equal tangent corners")
+    frame = geometry.frame
+    return dict(
+        **_pocket_from_bounds(
+            frame.origin,
+            frame.run,
+            frame.u,
+            frame.v,
+            geometry.run_interval,
+            ((x0, x1), (y0, y1)),
+            edge_anchored=False,
+            open_high=geometry.ends.high.condition == "open",
+        ),
+        corner_radius=radius,
+    )
+
+
+def validate_pocket_mouth(
+    *, axis, radius, at, origin, depth_axis, width_axis, long_axis, width, length, depth, open_sign
+) -> None:
+    """Validate a principal cylindrical mouth against its maximum-depth pocket envelope."""
+    if axis is None:
+        if radius is not None or at is not None:
+            raise ValueError("planar pocket cannot carry partial cylindrical mouth geometry")
+        return
+    if axis not in (width_axis, long_axis) or axis == depth_axis:
+        raise ValueError("pocket mouth axis must lie in its section plane")
+    center = _section_numbers(origin, 3, "pocket origin")
+    axis_at = _section_numbers(at, 3, "mouth axis point")
+    radius, width, length, depth = _section_numbers(
+        (radius, width, length, depth), 4, "pocket mouth sizes"
+    )
+    if min(radius, width, length, depth) <= 0:
+        raise ValueError("pocket mouth sizes must be positive")
+    cross_axis = long_axis if axis == width_axis else width_axis
+    cross_index, depth_index = "xyz".index(cross_axis), "xyz".index(depth_axis)
+    half_span = (length if cross_axis == long_axis else width) / 2
+    a, b = (
+        center[cross_index] - half_span - axis_at[cross_index],
+        center[cross_index] + half_span - axis_at[cross_index],
+    )
+    far = max(abs(a), abs(b))
+    near = 0.0 if a <= 0 <= b else min(abs(a), abs(b))
+    if far > radius:
+        raise ValueError("pocket profile lies outside its cylindrical mouth")
+    crown = radius * sqrt((1 - near / radius) * (1 + near / radius))
+    edge = radius * sqrt((1 - far / radius) * (1 + far / radius))
+    maximum_end = axis_at[depth_index] + open_sign * crown
+    end_error = center[depth_index] + open_sign * depth / 2 - maximum_end
+    if not isfinite(end_error) or abs(end_error) > 1e-6:
+        raise ValueError("pocket depth must describe its actual maximum depth")
+    if depth <= crown - edge:
+        raise ValueError("pocket floor must stay below the complete cylindrical mouth")
+
+
+def pocket_mouth_key(axis, radius, at, *, origin=None):
+    """Keep the analytic mouth in correspondence, optionally relative to a pattern member."""
+    if axis is None:
+        return None
+    point = tuple(0.0 if i == "xyz".index(axis) else value for i, value in enumerate(at))
+    if origin is not None:
+        point = tuple(0.0 if i == "xyz".index(axis) else point[i] - origin[i] for i in range(3))
+    return axis, round(radius, 6), tuple(round(value, 6) for value in point)

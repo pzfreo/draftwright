@@ -2580,7 +2580,7 @@ def _render_radius_callouts(
         # Group by what the drawing will actually print. Authored Blend radii can carry
         # more precision than provider geometry, and two distinct display values must
         # never share one n× label while receiving separate measurement credit (#1433).
-        collapse.setdefault(pd.value_text, []).append((g, pd))
+        collapse.setdefault((pd.value_text, _tol_suffix(pd.tolerance, draft)), []).append((g, pd))
     jobs = []
     ordered_groups = sorted(
         collapse.items(),
@@ -3105,7 +3105,9 @@ def _ray_exit_dist(px, py, ux, uy, rect) -> float:
     return max(min([t for t in ts if t > 0], default=0.0), 0.0)
 
 
-def _pocket_label(width_text, length_text, depth_text, wsfx="", lsfx="", dsfx="") -> str:
+def _pocket_label(
+    width_text, length_text, depth_text, wsfx="", lsfx="", dsfx="", *, maximum_depth=False
+) -> str:
     """The pocket callout string: ``{width} × {length} × {depth} DEEP`` (#148a). The values
     are the PLANNED ones (``pd.param.value``, #728); *wsfx*/*lsfx*/*dsfx* are each value's
     pre-formatted tolerance suffix, interleaved so a tolerance rides its own number. (All
@@ -3115,7 +3117,20 @@ def _pocket_label(width_text, length_text, depth_text, wsfx="", lsfx="", dsfx=""
     helper's hole callouts, not as font text — a plain :class:`Leader` label has no access
     to it, so this uses the font-safe ``DEEP`` word (the vendored Plex Mono lacks ↧).
     Formatting lives in the render layer (ADR 3 (was 0013 §7))."""
-    return f"{width_text}{wsfx} × {length_text}{lsfx} × {depth_text}{dsfx} DEEP"
+    depth_word = "MAX DEEP" if maximum_depth else "DEEP"
+    if all(value is not None for value in (width_text, length_text, depth_text)):
+        label = f"{width_text}{wsfx} × {length_text}{lsfx} × {depth_text}{dsfx} {depth_word}"
+    else:
+        label = "POCKET " + ", ".join(
+            f"{value}{suffix} {role}"
+            for value, suffix, role in (
+                (width_text, wsfx, "WIDE"),
+                (length_text, lsfx, "LONG"),
+                (depth_text, dsfx, depth_word),
+            )
+            if value is not None
+        )
+    return label
 
 
 def _rectangular_blind_slot_label(
@@ -3549,8 +3564,9 @@ def render_pockets(dwg, plan, a, *, ctx, only=None) -> int:
         by_key = {(pd.role, pd.kind): pd for pd in g.dims}
         wpd = by_key.get(("pocket_width", "length"))
         lpd = by_key.get(("pocket_length", "length"))
-        dpd = by_key.get(("pocket_depth", "length"))
-        if wpd is None or lpd is None or dpd is None:
+        dpd = by_key.get(("pocket_depth", "length")) or by_key.get(("pocket_max_depth", "length"))
+        dimensions = tuple(d for d in (wpd, lpd, dpd) if d is not None)
+        if not dimensions:
             continue
         view = view_of.get(pk.depth_axis)
         if view is None:
@@ -3564,12 +3580,13 @@ def render_pockets(dwg, plan, a, *, ctx, only=None) -> int:
                 view,
                 vb,
                 _pocket_label(
-                    wpd.value_text,
-                    lpd.value_text,
-                    dpd.value_text,
-                    wsfx=_tol_suffix(wpd.tolerance, draft),
-                    lsfx=_tol_suffix(lpd.tolerance, draft),
-                    dsfx=_tol_suffix(dpd.tolerance, draft),
+                    wpd.value_text if wpd is not None else None,
+                    lpd.value_text if lpd is not None else None,
+                    dpd.value_text if dpd is not None else None,
+                    wsfx=_tol_suffix(wpd.tolerance, draft) if wpd is not None else "",
+                    lsfx=_tol_suffix(lpd.tolerance, draft) if lpd is not None else "",
+                    maximum_depth=dpd is not None and dpd.role == "pocket_max_depth",
+                    dsfx=_tol_suffix(dpd.tolerance, draft) if dpd is not None else "",
                 ),
                 _radial_candidates(
                     dwg,
@@ -3585,10 +3602,12 @@ def render_pockets(dwg, plan, a, *, ctx, only=None) -> int:
                         width_axis=pk.width_axis,
                         length=lpd.value,
                         width=wpd.value,
-                    ),
+                    )
+                    if wpd is not None and lpd is not None
+                    else None,
                     provenance=g.ref,
                 ),
-                (wpd.id, lpd.id, dpd.id),  # width × length × depth, one callout (#1002)
+                tuple(d.id for d in dimensions),
             )
         )
     return place_machined_leader_jobs(

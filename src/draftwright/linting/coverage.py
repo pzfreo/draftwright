@@ -52,6 +52,7 @@ from draftwright._core import (
 )
 from draftwright.linting._registry import annotation_owner, satisfaction_ids
 from draftwright.linting.issues import LintIssue
+from draftwright.linting.pocket_pattern_coverage import pocket_pattern_requirement_outcomes
 from draftwright.linting.profiled_bore_coverage import profiled_bore_key
 from draftwright.recognition_frame import (
     AmbiguousTurnedOwnershipError,
@@ -63,7 +64,11 @@ from draftwright.recognition_ownership import (
     boss_blend_owner_pairs,
     envelope_is_emittable,
 )
-from draftwright.section_recess_contract import recesses_with_kind, section_recess_fields
+from draftwright.section_recess_contract import (
+    perpendicular_recess_ends,
+    recesses_with_kind,
+    section_recess_fields,
+)
 from draftwright.view_plan import VIEW_AXES
 
 _UNSET = object()  # sentinel: distinguishes "not supplied" from a valid prof=None
@@ -677,7 +682,7 @@ def _recess_matches_principal_wire(
         geometry = passage.geometry
         if geometry.profile.closure != "closed":
             return False
-        if any((*geometry.ends.low.gradient, *geometry.ends.high.gradient)):
+        if not perpendicular_recess_ends(geometry.ends):
             return False
         frame = geometry.frame
         run = tuple(float(value) for value in frame.run)
@@ -1485,7 +1490,7 @@ def lint_prismatic_coverage(
     _rec = recognition if recognition is not None else build_raw_recognition_result(part)
     recess_inventory = _rec.section_recesses if section_recesses is None else section_recesses
     pocket_inventory = tuple(
-        section_recess_fields(record)[1]
+        (record, section_recess_fields(record)[1])
         for record in recesses_with_kind(tuple(recess_inventory), "pocket")
     )
     model_pockets = []
@@ -1529,12 +1534,38 @@ def lint_prismatic_coverage(
     unlocated = 0
     bb = bbox if bbox is not None else part.bounding_box()
     centre = bb.center()
-    for pocket in pocket_inventory:
+    pattern_locations: dict[tuple[int, ...], dict[str, str]] = {}
+    pattern_outcomes = (
+        pocket_pattern_requirement_outcomes(_rec, features, registry)
+        if registry is not None
+        else ()
+    )
+    for outcome in pattern_outcomes:
+        key = tuple(id(source) for source in outcome.source_records)
+        pattern_locations.setdefault(key, {})[outcome.parameter_id] = outcome.state
+    located_pattern_sources: set[int] = set()
+    for sources, states in pattern_locations.items():
+        required = {
+            "grouping.count",
+            "location_pocket_pattern.location.x",
+            "location_pocket_pattern.location.y",
+        }
+        pitches = (
+            {"pitch.length"}
+            if "pitch.length" in states
+            else {"grid_pitch.length.row", "grid_pitch.length.col"}
+        )
+        if all(
+            states.get(parameter) in {"placed", "satisfied_by_structured_note"}
+            for parameter in required | pitches
+        ):
+            located_pattern_sources.update(sources)
+    for source, pocket in pocket_inventory:
         owner = pocket_owner(pocket)
         if owner is None:
             missing_ir += 1
             continue
-        if satisfied(owner, "location"):
+        if id(source) in located_pattern_sources or satisfied(owner, "location"):
             continue
         if pocket["edge_anchored"]:
             continue

@@ -12,7 +12,7 @@ import importlib
 import re
 from dataclasses import dataclass
 from importlib.metadata import version as distribution_version
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
 from quiddity import capability_manifest
@@ -122,7 +122,7 @@ _FAMILIES: dict[str, _FamilySpec] = {
     ),
     "slots": _FamilySpec(("Slot",), "_convert_slot", "slot", "render_slots"),
     "oriented-slots": _FamilySpec(
-        ("OrientedSlot",),
+        ("OrientedSlot", "SectionPassage", "PassageEnds"),
         "_convert_oriented_slot",
         "oriented_slot",
         "render_oriented_slots",
@@ -143,6 +143,10 @@ _FAMILIES: dict[str, _FamilySpec] = {
             "PassageFrame",
             "PassageSection",
             "PassageSectionVertex",
+            "PlanarEndSurface",
+            "PlanarEndTerm",
+            "PlanarEnvelopeEndSurface",
+            "CylindricalEndSurface",
             "SectionEnd",
             "SectionRecess",
             "SectionRecessArray",
@@ -867,8 +871,15 @@ def _resolve_implementation(reference: str) -> object:
 def _evidence_reference_is_valid(path: object, root: Path | None) -> bool:
     if not isinstance(path, str) or not path:
         return False
-    candidate = Path(path)
-    if candidate.is_absolute() or ".." in candidate.parts:
+    candidate = PurePosixPath(path)
+    # Manifest evidence uses repository-relative, forward-slash paths regardless
+    # of the host interpreting the installed wheel.
+    if (
+        candidate.is_absolute()
+        or PureWindowsPath(path).anchor
+        or "\\" in path
+        or ".." in candidate.parts
+    ):
         return False
     return root is None or (root / candidate).is_file()
 

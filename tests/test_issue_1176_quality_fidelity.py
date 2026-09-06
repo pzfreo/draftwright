@@ -620,7 +620,10 @@ def _emitted_codes(sources=None):
     stages: dict[str, set[str | None]] = {}
     root = Path(__file__).resolve().parents[1] / "src" / "draftwright"
     if sources is None:
-        trees = {path: ast.parse(path.read_text()) for path in sorted(root.rglob("*.py"))}
+        trees = {
+            path: ast.parse(path.read_text(encoding="utf-8"))
+            for path in sorted(root.rglob("*.py"))
+        }
     else:
         trees = {root / name: ast.parse(text) for name, text in sources.items()}
 

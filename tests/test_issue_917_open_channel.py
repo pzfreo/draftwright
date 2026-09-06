@@ -2,7 +2,6 @@
 
 from dataclasses import replace
 
-import pytest
 from build123d import Align, Box, Cylinder, Pos, Rot
 from quiddity import build_raw_recognition_result
 
@@ -49,10 +48,6 @@ def _labels(drawing, prefix):
     }
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Quiddity 0.2.2 known limitation: https://github.com/pzfreo/quiddity/issues/538",
-)
 def test_corrected_fixture_has_one_channel_and_one_independent_wall_thickness():
     part = _u_channel()
     channels = _recesses(part, kind="channel")
@@ -91,10 +86,6 @@ def test_corrected_fixture_has_one_channel_and_one_independent_wall_thickness():
     assert first == second == [("info", "step_dim_withheld")]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Quiddity 0.2.2 known limitation: https://github.com/pzfreo/quiddity/issues/538",
-)
 def test_every_independent_channel_chain_measurement_has_actionable_lint():
     expected = {
         "dim_channel_y0": "channel.channel_width.length",
@@ -110,10 +101,6 @@ def test_every_independent_channel_chain_measurement_has_actionable_lint():
         assert "open channel" in issues[0].message
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Quiddity 0.2.2 known limitation: https://github.com/pzfreo/quiddity/issues/538",
-)
 def test_asymmetric_walls_keep_lower_wall_and_derive_the_opposite_wall():
     drawing = build_drawing(_u_channel(lower_wall=10.0, upper_wall=15.0))
     assert _labels(drawing, "dim_channel") == {"dim_channel_y0": "25"}

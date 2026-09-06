@@ -16,7 +16,7 @@ from quiddity.inspection import inspection_api_manifest
 CONSUMER_INSPECTION_FORMAT = "draftwright-inspection-api"
 CONSUMER_INSPECTION_FORMAT_VERSION = 1
 SUPPORTED_INSPECTION_API_MAJOR = 1
-SUPPORTED_RECOGNISER_VERSION = "0.2.2"
+SUPPORTED_RECOGNISER_VERSION = "0.2.4"
 _DISTRIBUTION = "quiddity"
 _PROVIDER_FORMAT = "quiddity-inspection-api"
 _NAMESPACE = "quiddity.inspection"

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
 from build123d import Box, Cylinder, Pos, Rotation
 
 from draftwright.score import feature_census
@@ -27,10 +26,6 @@ class TestCensus:
         assert feature_census(Box(60, 30, 12) - Box(20, 8, 20))["slot"] == 1
         assert feature_census(Cylinder(10, 40) - Pos(0, 12, 0) * Box(40, 10, 40))["flat"] == 1
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="Quiddity 0.2.2 known limitation: https://github.com/pzfreo/quiddity/issues/541",
-    )
     def test_round_stock_pocket_appears_in_the_census(self):
         arc = (Rotation(0, 90, 0) * Cylinder(20, 80)) - Pos(0, 0, 14) * Box(6, 24, 12)
         assert feature_census(arc)["section_recess"] == 1

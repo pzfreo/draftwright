@@ -1,10 +1,11 @@
 """Reject incompatible provider schemas and mismatched recess correspondence."""
 
-from dataclasses import make_dataclass, replace
+from copy import deepcopy
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
-from build123d import Box, Pos, SlotOverall, extrude
+from build123d import Box, Pos, Rot, SlotOverall, extrude
 from quiddity import SectionRecessArray, build_raw_recognition_result
 from test_issue_1471_section_recess_contract import _recess
 
@@ -27,34 +28,21 @@ from draftwright.section_recess_contract import (
 )
 
 
-@pytest.mark.parametrize(
-    "drift", ("source_type", "source_fields", "frame_type", "ends_type", "ends_fields")
-)
-def test_public_slot_type_annotation_drift_is_rejected(monkeypatch, drift):
-    original = slot_contract.get_type_hints
-
-    def changed(record):
-        hints = original(record)
-        if record is slot_contract.OrientedSlot and drift == "source_type":
-            hints["source"] = tuple
-        elif record is slot_contract.OrientedSlot and drift == "source_fields":
-            hints["source"] = make_dataclass("ChangedSource", [], frozen=True)
-        elif record is slot_contract._SOURCE_TYPE:
-            if drift == "frame_type":
-                hints["frame"] = tuple
-            elif drift == "ends_type":
-                hints["ends"] = tuple
-            elif drift == "ends_fields":
-                hints["ends"] = make_dataclass("ChangedEnds", [], frozen=True)
-        return hints
-
-    assert slot_contract._published_source_types() == (
-        slot_contract._SOURCE_TYPE,
-        slot_contract._ENDS_TYPE,
+@pytest.mark.parametrize("field", ("source", "ends"))
+def test_public_slot_nested_types_reject_structural_lookalikes(field):
+    part = Box(120, 90, 10) - Rot(0, 0, 30) * Box(24, 6, 20)
+    (slot,) = build_raw_recognition_result(part).oriented_slots
+    assert slot_contract.oriented_slot_provider_key(slot)
+    altered = deepcopy(slot)
+    parent = altered if field == "source" else altered.source
+    original = getattr(parent, field)
+    lookalike = SimpleNamespace(
+        **{name: getattr(original, name) for name in original.__dataclass_fields__}
     )
-    monkeypatch.setattr(slot_contract, "get_type_hints", changed)
-    with pytest.raises(TypeError, match="(annotation|schema changed)"):
-        slot_contract._published_source_types()
+    object.__setattr__(parent, field, lookalike)
+    assert getattr(parent, field) is lookalike
+    with pytest.raises(TypeError, match="released passage record schema"):
+        slot_contract.oriented_slot_provider_key(altered)
 
 
 @pytest.fixture(scope="module")
@@ -197,7 +185,13 @@ def test_obround_sloped_end_requires_explicit_refusal(obround):
         obround,
         geometry=replace(
             geometry,
-            ends=replace(geometry.ends, low=replace(geometry.ends.low, gradient=(0.1, 0.0))),
+            ends=replace(
+                geometry.ends,
+                low=replace(
+                    geometry.ends.low,
+                    surface=replace(geometry.ends.low.surface, gradient=(0.1, 0.0)),
+                ),
+            ),
         ),
     )
     with pytest.raises(UnsupportedSectionRecess, match="perpendicular run ends"):

@@ -50,7 +50,21 @@ def test_installed_wheel_layout_validates_portable_contract_without_source_evide
     _validate()
 
 
-@pytest.mark.parametrize("reference", [None, "", "/tmp/evidence.py", "../evidence.py"])
+@pytest.mark.parametrize(
+    "reference",
+    [
+        None,
+        "",
+        "/tmp/evidence.py",
+        "../evidence.py",
+        "C:/evidence.py",
+        "C:evidence.py",
+        r"..\evidence.py",
+        r"\tmp\evidence.py",
+        r"\\host\share\evidence.py",
+        r"tests\evidence.py",
+    ],
+)
 def test_installed_wheel_rejects_nonportable_evidence_references(reference: object) -> None:
     assert not contract_module._evidence_reference_is_valid(reference, None)
 
@@ -145,7 +159,7 @@ def test_section_recess_family_covers_the_published_geometry_and_occurrence_cont
     assert not retired & package.keys()
     assert not retired & consumer.keys()
     family = package["section-recesses"]
-    assert INSTALLED_PACKAGE_VERSION == "0.2.2"
+    assert INSTALLED_PACKAGE_VERSION == "0.2.4"
     assert family["introduced_in"] == "0.2.0"
     assert family["census_output"] == "RecognitionResult.section_recesses"
     expected_fields = {
@@ -154,7 +168,11 @@ def test_section_recess_family_covers_the_published_geometry_and_occurrence_cont
         "PassageFrame": {"origin", "run", "u", "v"},
         "PassageSection": {"boundary"},
         "PassageSectionVertex": {"bulge", "point"},
-        "SectionEnd": {"condition", "gradient"},
+        "SectionEnd": {"condition", "surface"},
+        "PlanarEndSurface": {"type", "gradient"},
+        "PlanarEndTerm": {"height", "gradient"},
+        "PlanarEnvelopeEndSurface": {"type", "operator", "terms"},
+        "CylindricalEndSurface": {"type", "axis_direction", "axis_point", "branch", "radius"},
         "SectionRecess": {"body", "classification", "evidence", "geometry", "index"},
         "SectionRecessArray": {"direction", "members", "pitch"},
         "SectionRecessBodyRef": {"index"},
@@ -185,7 +203,20 @@ def test_section_recess_family_covers_the_published_geometry_and_occurrence_cont
         "SectionRecessRefusal": {"body", "evidence", "reason"},
     }
     assert {r["name"]: set(r["fields"]) for r in family["records"]} == expected_fields
-    schemas = {name: [2] if name == "PassageSection" else [1] for name in expected_fields}
+    schemas = {name: [1] for name in expected_fields}
+    schemas.update(
+        {
+            name: [2]
+            for name in (
+                "PassageSection",
+                "SectionEnd",
+                "SectionRecess",
+                "SectionRecessEnds",
+                "SectionRecessGeometry",
+            )
+        }
+    )
+    schemas["SectionRecessDocument"] = [3]
     assert {r["name"]: [r["schema_version"]] for r in family["records"]} == schemas
     declaration = consumer["section-recesses"]
     assert declaration["record_schemas"] == schemas
@@ -245,7 +276,9 @@ def test_additive_family_dispositions_are_explicit_and_fail_closed() -> None:
                     "source",
                     "width",
                     "width_direction",
-                }
+                },
+                "SectionPassage": {"frame", "run_interval", "section", "ends"},
+                "PassageEnds": {"low_capped", "high_capped", "low_gradient", "high_gradient"},
             },
         },
     }
@@ -1270,6 +1303,13 @@ def test_only_reviewed_records_accept_non_v1_schemas() -> None:
         ("rectangular-pads", "RaisedPad"): [2],
         ("risers", "RiserEvidence"): [3],
         ("section-recesses", "PassageSection"): [2],
+        ("oriented-slots", "SectionPassage"): [2],
+        ("oriented-slots", "PassageEnds"): [2],
+        ("section-recesses", "SectionEnd"): [2],
+        ("section-recesses", "SectionRecess"): [2],
+        ("section-recesses", "SectionRecessEnds"): [2],
+        ("section-recesses", "SectionRecessGeometry"): [2],
+        ("section-recesses", "SectionRecessDocument"): [3],
         ("through-steps", "ThroughStep"): [2],
         ("turned-steps", "TurnedProfile"): [2],
         ("turned-steps", "TurnedProfileKey"): [2],

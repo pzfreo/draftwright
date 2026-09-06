@@ -34,3 +34,14 @@ def corrupt_recess(source, field, value):
     else:
         raise AssertionError(f"unknown test corruption {field}")
     return damaged
+
+
+def unsupported_roof_recess():
+    """An open recess with suspended material that fails the constant-section proof."""
+    from build123d import Box, Pos
+
+    part = Box(60, 40, 12) - Pos(25, 15, 4) * Box(20, 20, 8)
+    part += Pos(-20, -10, 9) * Box(5, 5, 6)
+    part += Pos(0, 0, 13) * Box(60, 40, 2)
+    part += Pos(20, 10, 8) * Box(3, 3, 8)
+    return part

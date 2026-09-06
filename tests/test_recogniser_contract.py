@@ -399,9 +399,9 @@ def _records_from_recognisers():
         for r in recs:
             out.append((name, r))
     out.append(("build_section_recess_document", build_section_recess_document(pocketed)))
-    refusal_part = import_step(
-        str(Path(__file__).parent / "fixtures" / "tuner_jig_blind_obround_pockets.step")
-    )
+    from _section_recess_cases import unsupported_roof_recess
+
+    refusal_part = unsupported_roof_recess()
     out.extend(
         ("section_recess_refusals", record)
         for record in build_raw_recognition_result(refusal_part).section_recess_refusals
