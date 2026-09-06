@@ -5,7 +5,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from build123d import Box, Cylinder
+from build123d import Box, Cylinder, Pos
 
 from draftwright import Sheet
 from draftwright.model import hole
@@ -24,7 +24,8 @@ def test_hole_options_are_pairs_with_omission_distinct_from_an_override():
     sheet, handle = _sheet()
     options = sheet.dimension_options(handle, "bore.diameter")
     assert options["parameter_id"] == "bore.diameter"
-    assert options["scope"] == "single_dimension"
+    assert options["scope"] == "single_dimension_placement_rules"
+    assert options["requires_build_validation"] is True
     assert options["placements"] == [
         {"view": None, "side": None},
         {"view": None, "side": "left"},
@@ -133,7 +134,8 @@ def test_queries_preserve_existing_intent_and_require_no_build_or_preparation(mo
     monkeypatch.setattr(Sheet, "build", forbidden)
     monkeypatch.setattr(b123d_recognisers, "build_raw_recognition_result", forbidden)
     result = sheet.validate_dimension(handle, "bore.diameter", view="plan", side="right")
-    assert result["supported"] and result["scope"] == "single_dimension"
+    assert result["supported"] and result["scope"] == "single_dimension_placement_rules"
+    assert result["requires_build_validation"] is True
     assert all(a is b for a, b in zip(features, sheet.features, strict=True))
     monkeypatch.undo()
     after = sheet.model()
@@ -156,6 +158,23 @@ def test_handles_survive_reorder_but_foreign_removed_and_unknown_targets_are_ref
     assert not sheet.validate_dimension(handle, "bore.diameter")["supported"]
     with pytest.raises(ValueError):
         sheet.dimension_options(handle, "bore.diameter")
+
+
+@pytest.mark.parametrize("populated,index", [(True, 1), (True, -2), (False, 0), (False, -1)])
+def test_out_of_range_indices_return_structured_refusals(populated, index):
+    sheet = Sheet(Box(20, 20, 10))
+    if populated:
+        sheet.envelope()
+        assert sheet.validate_dimension(0, "height.length")["supported"]
+        assert sheet.validate_dimension(-1, "height.length")["supported"]
+    with pytest.raises(IndexError, match="out of range"):
+        sheet.dimension_options(index, "height.length")
+    result = sheet.validate_dimension(index, "height.length")
+    assert not result["supported"]
+    assert result["options"] is None
+    assert result["issues"][0]["code"] == "invalid_measurement"
+    assert "out of range" in result["issues"][0]["message"]
+    assert json.loads(json.dumps(result)) == result
 
 
 def test_supported_placement_survives_generated_script_and_real_build(tmp_path):
@@ -182,6 +201,35 @@ def test_supported_placement_survives_generated_script_and_real_build(tmp_path):
     )
     request = namespace["sheet"].model().authored_dimensions[0]
     assert (request.view, request.side) == ("plan", "left")
+
+
+@pytest.mark.parametrize("axis,rotation", [("x", (0, 90, 0)), ("y", (90, 0, 0)), ("z", (0, 0, 0))])
+@pytest.mark.parametrize("parameter_id", ["step.diameter", "step.length"])
+def test_step_options_match_the_view_that_actually_renders(axis, rotation, parameter_id):
+    part = Cylinder(5, 20, rotation=rotation)
+    sheet = Sheet(part)
+    handle = sheet.step(part)
+    assert sheet.features[0].frame.axis == axis
+    expected_view = "side" if axis == "y" and parameter_id == "step.length" else "front"
+    options = sheet.dimension_options(handle, parameter_id)
+    assert options["placements"] == [
+        {"view": None, "side": None},
+        {"view": expected_view, "side": None},
+    ]
+    for view in PLACEMENT_VIEWS:
+        assert sheet.validate_dimension(handle, parameter_id, view=view)["supported"] == (
+            view == expected_view
+        )
+    sheet.dimension(handle, parameter_id, view=expected_view)
+    plan_dimensions(sheet.model(), planned_views=(expected_view,))
+    drawing = sheet.build()
+    names = [
+        name
+        for name in drawing.annotations()
+        if any(key["parameter_id"] == parameter_id for key in drawing.measurement_keys(name))
+    ]
+    assert names, "the requested measurement must reach a rendered annotation"
+    assert {drawing.view_of(name) for name in names} == {expected_view}
 
 
 def test_grm04_discovers_supported_edits_without_exploratory_renders(monkeypatch):
@@ -224,3 +272,33 @@ def test_single_dimension_support_does_not_claim_authored_view_feasibility():
     sheet.dimension(handle, "bore.diameter", view="plan")
     with pytest.raises(ViewPlanIncomplete):
         plan_dimensions(sheet.model(), planned_views=("front",))
+
+
+def test_boss_rule_acceptance_requires_whole_part_renderer_validation():
+    sheets = [
+        Sheet(Cylinder(5, 20)),
+        Sheet(Box(20, 20, 20) + Pos(0, 0, 15) * Cylinder(5, 10)),
+    ]
+    options = []
+    rendered_views = []
+    for sheet, height, at in zip(sheets, (20, 10), ((0, 0, 0), (0, 0, 15)), strict=True):
+        handle = sheet.boss(diameter=10, height=height, at=at, axis="z")
+        result = sheet.validate_dimension(handle, "boss.diameter", view="plan")
+        assert result["supported"]
+        assert result["scope"] == "single_dimension_placement_rules"
+        assert result["requires_build_validation"] is True
+        assert result["options"]["requires_build_validation"] is True
+        options.append(result["options"])
+        sheet.dimension(handle, "boss.diameter", view="plan")
+        drawing = sheet.build()
+        names = [
+            name
+            for name in drawing.annotations()
+            if any(
+                key["parameter_id"] == "boss.diameter" for key in drawing.measurement_keys(name)
+            )
+        ]
+        assert names
+        rendered_views.append({drawing.view_of(name) for name in names})
+    assert options[0] == options[1]
+    assert rendered_views == [{"front"}, {"plan"}], "whole-part context changes the renderer"

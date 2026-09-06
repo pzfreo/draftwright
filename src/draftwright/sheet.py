@@ -1280,14 +1280,16 @@ class Sheet:
     def dimension_options(
         self, feature, role: DimensionParameterId, *, axis: str | None = None
     ) -> dict:
-        """Discover supported view/side pairs for one declared measurement, without building.
+        """Discover view/side pairs accepted by planner placement rules, without building.
 
-        Uses the same handle/id resolver as :meth:`dimension` and the planner's renderer
-        support checks. ``None`` means omit that override. Pairs are intentional: a side
+        Uses the same handle/id resolver as :meth:`dimension` and the planner's placement
+        rules. ``None`` means omit that override. Pairs are intentional: a side
         supported in one view need not be supported in another. The result is JSON-ready.
 
-        Scope is **one dimension in isolation**. It does not validate the full authored set,
-        chosen views, compound-callout agreement, or collision-free placement. Keep the supplied
+        Scope is **one dimension's planner placement rules**. Whole-part classification can
+        select a different renderer, so acceptance does not prove actual rendered support.
+        The full authored set, chosen views, compound-callout agreement and collision-free
+        placement also require build validation. Keep the supplied
         feature handle to address subsequent edits; the result creates no persistent feature
         identity. Invalid feature/measurement references raise as they do in ``dimension``.
         The query neither records an intent nor prepares, recognises, or renders the part.
@@ -1308,7 +1310,8 @@ class Sheet:
         return {
             "schema": "draftwright.dimension-options",
             "schema_version": 1,
-            "scope": "single_dimension",
+            "scope": "single_dimension_placement_rules",
+            "requires_build_validation": True,
             "feature_kind": target.kind,
             "parameter_id": parameter_id,
             "axis": discriminator,
@@ -1328,21 +1331,23 @@ class Sheet:
         """Preflight a proposed ``dimension`` call without recording or rendering it.
 
         Returns ``supported``, structured ``issues`` and the valid ``options`` for this
-        target. This checks the single-dimension support scope of :meth:`dimension_options`,
-        not whole-sheet feasibility. Existing authored intent is never replaced or modified.
+        target. ``supported`` means accepted by the current planner placement rules;
+        actual renderer support and whole-sheet feasibility still require build validation.
+        Existing authored intent is never replaced or modified.
         Unknown controls are refused rather than ignored or passed on to a renderer.
         """
         result = {
             "schema": "draftwright.dimension-validation",
             "schema_version": 1,
-            "scope": "single_dimension",
+            "scope": "single_dimension_placement_rules",
+            "requires_build_validation": True,
             "supported": False,
             "issues": [],
             "options": None,
         }
         try:
             options = self.dimension_options(feature, role, axis=axis)
-        except (TypeError, ValueError) as exc:
+        except (TypeError, ValueError, IndexError) as exc:
             result["issues"] = [{"code": "invalid_measurement", "message": str(exc)}]
             return result
         result["options"] = options
