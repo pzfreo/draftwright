@@ -221,6 +221,11 @@ def oriented_slot_provider_key(slot) -> tuple:
         raise ValueError("oriented slot end states must be booleans")
     if source.ends.low_capped or source.ends.high_capped:
         raise ValueError("oriented slot passage must be open through both ends")
+    for name in ("low_gradient", "high_gradient"):
+        gradient = _vector(getattr(source.ends, name), size=2, name=f"oriented slot {name}")
+        _serialized(gradient, 6, name=f"oriented slot {name}")
+        if any(gradient):
+            raise ValueError("oriented slot drafting requires perpendicular run ends")
     if slot.body_key is None:
         body_key = None
     else:

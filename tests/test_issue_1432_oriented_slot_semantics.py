@@ -1234,3 +1234,16 @@ def test_declared_oriented_slot_requires_a_straight_uncapped_passage() -> None:
         oriented_slot(**{**_kwargs(feature), "source_boundary": tuple(curved)})
     with pytest.raises(ValueError, match="open through both ends"):
         oriented_slot(**{**_kwargs(feature), "low_capped": True})
+
+
+@pytest.mark.parametrize("name", ("low_gradient", "high_gradient"))
+def test_oriented_slot_sloped_ends_cannot_lose_their_plane_gradient(name):
+    slot = recognise_oriented_slots(_part())[0]
+    assert slot.source.ends.low_gradient == slot.source.ends.high_gradient == (0.0, 0.0)
+    assert oriented_slot_provider_key(slot)
+    ends = replace(slot.source.ends, **{name: (0.1, 0.0)})
+    altered = replace(slot, source=replace(slot.source, ends=ends))
+    assert getattr(altered.source.ends, name) == (0.1, 0.0)
+    assert not ends.low_capped and not ends.high_capped
+    with pytest.raises(ValueError, match="perpendicular run ends"):
+        oriented_slot_provider_key(altered)
