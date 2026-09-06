@@ -144,6 +144,8 @@ _FAMILIES: dict[str, _FamilySpec] = {
             "PassageSection",
             "PassageSectionVertex",
             "PlanarEndSurface",
+            "PlanarEndTerm",
+            "PlanarEnvelopeEndSurface",
             "CylindricalEndSurface",
             "SectionEnd",
             "SectionRecess",

@@ -53,6 +53,8 @@ _RECORD_SCHEMA_VERSIONS: dict[tuple[str, str], tuple[int, ...]] = {
     ("section-recesses", "PassageSection"): (2,),
     ("section-recesses", "PassageSectionVertex"): (1,),
     ("section-recesses", "PlanarEndSurface"): (1,),
+    ("section-recesses", "PlanarEndTerm"): (1,),
+    ("section-recesses", "PlanarEnvelopeEndSurface"): (1,),
     ("section-recesses", "CylindricalEndSurface"): (1,),
     ("oriented-slots", "SectionPassage"): (2,),
     ("oriented-slots", "PassageEnds"): (2,),

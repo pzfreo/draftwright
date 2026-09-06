@@ -159,7 +159,7 @@ def test_section_recess_family_covers_the_published_geometry_and_occurrence_cont
     assert not retired & package.keys()
     assert not retired & consumer.keys()
     family = package["section-recesses"]
-    assert INSTALLED_PACKAGE_VERSION == "0.2.3"
+    assert INSTALLED_PACKAGE_VERSION == "0.2.4"
     assert family["introduced_in"] == "0.2.0"
     assert family["census_output"] == "RecognitionResult.section_recesses"
     expected_fields = {
@@ -170,6 +170,8 @@ def test_section_recess_family_covers_the_published_geometry_and_occurrence_cont
         "PassageSectionVertex": {"bulge", "point"},
         "SectionEnd": {"condition", "surface"},
         "PlanarEndSurface": {"type", "gradient"},
+        "PlanarEndTerm": {"height", "gradient"},
+        "PlanarEnvelopeEndSurface": {"type", "operator", "terms"},
         "CylindricalEndSurface": {"type", "axis_direction", "axis_point", "branch", "radius"},
         "SectionRecess": {"body", "classification", "evidence", "geometry", "index"},
         "SectionRecessArray": {"direction", "members", "pitch"},
