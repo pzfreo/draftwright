@@ -202,8 +202,8 @@ class TestTheCountsDoNotMoveWithTheGrouping:
     @pytest.mark.slow  # >=30 s inherent dense build; post-merge tier (#656)
     def test_a_real_multi_group_part_keeps_its_leader_findings(self):
         # `leader_crosses_silhouette` is annotation-dependent, and the synthetic fixture
-        # produces none, so only a real part covers it. CTC-05 has two genuine scale groups
-        # (0.2 and 1.0).
+        # produces none, so a real part covers it. CTC-04 retains a real crossing
+        # with Quiddity 0.2.2; CTC-05's changed recess inventory no longer supplies one.
         #
         # An earlier version stopped there and constrained NOTHING: the leader findings
         # sit at scale 0.2, which was group index 0 and always got the flag. Moving the
@@ -213,7 +213,7 @@ class TestTheCountsDoNotMoveWithTheGrouping:
         # what any reintroduced grouping would have to survive. With #1216's single call
         # there is no index at all, so this now asserts the property directly: the tag
         # changes nothing.
-        drawing = build_drawing(step_file="tests/fixtures/nist_ctc_05_asme1_ap242.stp")
+        drawing = build_drawing(step_file="tests/fixtures/nist_ctc_04_asme1_ap203.stp")
         before = _counts(drawing)["leader_crosses_silhouette"]
         assert before > 0, "fixture no longer supplies a real leader finding"
 
